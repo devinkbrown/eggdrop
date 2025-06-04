@@ -337,7 +337,7 @@ static void zapf_assoc(char *botnick, char *code, char *par)
         chanout_but(-1, chan, ASSOC_CHNAME_NAMED2, botnick, nick, par);
       }
     } else {
-      dprintf(LOG_DEBUG, "ASSOC: Channel number outside bounds\n");
+      dprintf(LOG_DEBUG, "ASSOC: Channel number outside bounds 0..%i\n", GLOBAL_CHANS);
     }
   }
 }
