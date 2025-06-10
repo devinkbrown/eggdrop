@@ -4,7 +4,7 @@
  *
  * Written by Michael Ortmann
  *
- * Copyright (C) 2019 - 2024 Eggheads Development Team
+ * Copyright (C) 2019 - 2025 Eggheads Development Team
  */
 
 #undef answer /* before resolv.h because it could collide with src/mod/module.h
