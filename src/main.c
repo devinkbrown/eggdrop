@@ -1176,8 +1176,14 @@ int main(int arg_c, char **arg_v)
     dcc[term_z].sock = STDOUT;
     dcc[term_z].timeval = now;
     dcc[term_z].u.chat->con_flags = conmask | EGG_BG_CONMASK;
-    dcc[term_z].u.chat->strip_flags = STRIP_ALL;
     dcc[term_z].status = STAT_ECHO;
+    if (isatty(dcc[term_z].sock)) {
+      debug0("stdout is a tty");
+      dcc[term_z].status |= STAT_TELNET;
+    } else {
+      debug0("stdout is no tty");
+      dcc[term_z].u.chat->strip_flags = STRIP_ALL;
+    }
     strcpy(dcc[term_z].nick, EGG_BG_HANDLE);
     strcpy(dcc[term_z].host, "llama@console");
     add_hq_user();
