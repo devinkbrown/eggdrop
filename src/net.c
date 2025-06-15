@@ -29,13 +29,10 @@
 #include "main.h"
 #include "modules.h"
 #include <limits.h>
-#include <string.h>
 #include <netdb.h>
-#include <sys/socket.h>
 #if HAVE_SYS_SELECT_H
 #  include <sys/select.h>
 #endif
-#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
