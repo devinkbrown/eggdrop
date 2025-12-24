@@ -53,6 +53,7 @@ static const uint8_t alert[] = {0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x0a};
 static void webui_http_eof(int idx)
 {
   debug2("webui: webui_http_eof() idx %i sock %li", idx, dcc[idx].sock);
+  dcc[idx].u.webui_listen_idx = 0;
   killsock(dcc[idx].sock);
   lostdcc(idx);
 }
@@ -69,7 +70,7 @@ static void put_404(int idx) {
     "Server: %s\r\n"
     "\r\n"
     "404 Not Found",
-    stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   response = nmalloc(i + 1);
   sprintf(response,
     "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
@@ -78,7 +79,7 @@ static void put_404(int idx) {
     "Server: %s\r\n"
     "\r\n"
     "404 Not Found",
-    stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   tputs(dcc[idx].sock, response, i);
   nfree(response);
   killsock(dcc[idx].sock);
@@ -137,7 +138,7 @@ static void put_file(int idx, int file_cache_index) {
     "Server: %s\r\n"
     "\r\n",
     (intmax_t) sb.st_size, f->content_type,
-    stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   response = nmalloc(i + sb.st_size);
   sprintf(response,
     "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
@@ -146,7 +147,7 @@ static void put_file(int idx, int file_cache_index) {
     "Server: %s\r\n"
     "\r\n",
     (intmax_t) sb.st_size, f->content_type,
-    stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   memcpy(response + i, f->data, sb.st_size);
   tputs(dcc[idx].sock, response, i + sb.st_size);
   nfree(response);
@@ -155,7 +156,7 @@ static void put_file(int idx, int file_cache_index) {
 static void webui_http_activity(int idx, char *buf, int len)
 {
   struct rusage ru1, ru2;
-  int r, i;
+  int r, i, listen_idx;
   char *response;
 
   if (len < 6) { /* TODO: better len check */
@@ -177,27 +178,25 @@ static void webui_http_activity(int idx, char *buf, int len)
   }
   r = getrusage(RUSAGE_SELF, &ru1);
   debug2("webui: webui_http_activity(): idx %i len %i", idx, len);
-  buf[len] = '\0'; /* TODO: is there no better way? we already know len */
+  buf[len] = '\0';
   if (buf[5] == ' ') {
-    debug0("webui: GET /");
+    debug1("webui: GET / idx %i", idx);
     put_file(idx, 2);
   } else if (buf[5] == 'f') {
-    debug0("webui: GET /favicon.ico");
     put_file(idx, 1);
   } else if (buf[5] == 'w') {
-    debug0("webui: GET /w");
+    debug1("webui: GET /w idx %i", idx);
     buf = strstr(buf, WS_KEY);
     if (!buf) {
-      putlog(LOG_MISC, "*", "WEBUI error: Sec-WebSocket-Key not found");
+      putlog(LOG_MISC, "*", "WEBUI error: Sec-WebSocket-Key not found ip %s", iptostr(&dcc[idx].sockname.addr.sa));
       return;
     }
     buf += sizeof WS_KEY;
     for(i = 0; i < WS_KEYLEN; i++)
       if (!buf[i]) {
-        putlog(LOG_MISC, "*", "WEBUI error: Sec-WebSocket-Key too short");
+        putlog(LOG_MISC, "*", "WEBUI error: Sec-WebSocket-Key too short ip %s", iptostr(&dcc[idx].sockname.addr.sa));
         return;
       }
-    debug0("webui: server requests websocket upgrade");
     unsigned char hash[SHA_DIGEST_LENGTH];
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
     EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
@@ -244,24 +243,17 @@ static void webui_http_activity(int idx, char *buf, int len)
 
 
     socklist_i->flags &= ~ SOCK_BINARY; /* we need it for net.c sockgets(), is there better place to do this? */
-    debug1("webui: unset flag SOCK_BINARY sock %li", dcc[idx].sock);
-    strcpy(dcc[idx].host, "*"); /* important for later dcc_telnet_id wild_match, is there better place to do this? */
+    debug2("webui: unset flag SOCK_BINARY idx %i sock %li", idx, dcc[idx].sock);
+    //strcpy(dcc[idx].host, "*"); /* important for later dcc_telnet_id wild_match, is there better place to do this? */
     /* .host becomes .nick in change_to_dcc_telnet_id() */
     debug4("webui: set flag SOCK_WS socklist %i idx %i sock %li status %lu", findsock(dcc[idx].sock), idx, dcc[idx].sock, dcc[idx].status);
 
     dcc[idx].status |= STAT_USRONLY; /* magick */
-    for (i = 0; i < dcc_total; i++) /* we need to link from idx, dont we? is there a better way to do it? */
-      if (!strcmp(dcc[i].nick, "(webui)")) {
-        debug1("webui: found (webui) dcc %i", i);
-        break;
-      }
 
-    dcc[idx].u.other = NULL; /* fix ATTEMPTING TO FREE NON-MALLOC'D PTR: dccutil.c (561) */
-    dcc_telnet_hostresolved2(idx, i);
-
-    debug2("webui: CHANGEOVER -> idx %i sock %li", idx, dcc[idx].sock);
+    listen_idx = dcc[idx].u.webui_listen_idx;
+    dcc[idx].u.webui_listen_idx = 0;
+    dcc_telnet_hostresolved2(idx, listen_idx);
   } else if (buf[5] == 'a') {
-    debug0("webui: GET /apple-touch-icon.png");
     put_file(idx, 0);
   } else
     put_404(idx);
@@ -269,9 +261,9 @@ static void webui_http_activity(int idx, char *buf, int len)
     /* read probable remaining bytes */
     SSL *ssl = socklist[findsock(dcc[idx].sock)].ssl;
     if (ssl)
-      debug1("webui: SSL_read(): len %i", SSL_read(ssl, buf, 511));
+      debug2("webui: SSL_read(): idx %i len %i", idx, SSL_read(ssl, buf, 511));
     else
-      debug1("webui: read(): len %li", read(dcc[idx].sock, buf, 511));
+      debug2("webui: read(): idx %i len %li", idx, read(dcc[idx].sock, buf, 511));
   }
   if (!r && !getrusage(RUSAGE_SELF, &ru2))
     debug2("webui: webui_http_activity(): user %.3fms sys %.3fms",
@@ -303,111 +295,155 @@ static struct dcc_table DCC_WEBUI_HTTP = {
   NULL
 };
 
-static void webui_dcc_telnet_hostresolved(int i)
+static void webui_dcc_telnet_hostresolved(int idx, int listen_idx)
 {
-    debug1("webui_dcc_telnet_hostresolved(%i)", i);
-    changeover_dcc(i, &DCC_WEBUI_HTTP, 0);
-    sockoptions(dcc[i].sock, EGG_OPTION_SET, SOCK_BINARY);
-    sockoptions(dcc[i].sock, EGG_OPTION_UNSET, SOCK_BUFFER);
-    dcc[i].u.other = NULL; /* important, else nfree() error in lostdcc on eof */
+    debug2("webui_dcc_telnet_hostresolved() idx %i listen_idx %i", idx, listen_idx);
+    changeover_dcc(idx, &DCC_WEBUI_HTTP, 0);
+    dcc[idx].u.webui_listen_idx = listen_idx;
+    sockoptions(dcc[idx].sock, EGG_OPTION_SET, SOCK_BINARY);
+    sockoptions(dcc[idx].sock, EGG_OPTION_UNSET, SOCK_BUFFER);
+    // dcc[i].u.other = NULL; /* important, else nfree() error in lostdcc on eof */
 }
 
-/* TODO: add bounds checking or use existing function under MIT/GPL license
- *       instead of our own code
- */
-static size_t escape_html(char *dst, char *src, size_t size) {
+static size_t escape_html(char *dst, size_t dst_size, char *src, size_t src_size) {
   int i;
   char *d = dst;
 
-  for (i = 0; i < size; i++) {
+  for (i = 0; i < src_size; i++) {
     switch ((unsigned char) src[i]) {
       case '"':
+        if (dst_size < 6) {
+          debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+          return d - dst;
+        }
         *d++ = '&';
         *d++ = 'q';
         *d++ = 'u';
         *d++ = 'o';
         *d++ = 't';
         *d++ = ';';
+        dst_size -= 6;
         break;
       case '&':
+        if (dst_size < 5) {
+          debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+          return d - dst;
+        }
         *d++ = '&';
         *d++ = 'a';
         *d++ = 'm';
         *d++ = 'p';
         *d++ = ';';
+        dst_size -= 5;
         break;
       case '\'':
+        if (dst_size < 6) {
+          debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+          return d - dst;
+        }
         *d++ = '&';
         *d++ = 'a';
         *d++ = 'p';
         *d++ = 'o';
         *d++ = 's';
         *d++ = ';';
+        dst_size -= 6;
         break;
       case '<':
+        if (dst_size < 4) {
+          debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+          return d - dst;
+        }
         *d++ = '&';
         *d++ = 'l';
         *d++ = 't';
         *d++ = ';';
+        dst_size -= 4;
         break;
       case '>':
+        if (dst_size < 4) {
+          debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+          return d - dst;
+        }
         *d++ = '&';
         *d++ = 'g';
         *d++ = 't';
         *d++ = ';';
+        dst_size -= 4;
         break;
       case ESC:
-        if ((i + 4) < size) {
+        if ((i + 3) < src_size) {
           if (     ((unsigned char) src[i + 1] == '[') &&
                    ((unsigned char) src[i + 2] == '0') &&
                    ((unsigned char) src[i + 3] == 'm')) {
+            if (dst_size < 4) {
+              debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+              return d - dst;
+            }
             *d++ = '<';
             *d++ = '/';
             *d++ = 'b';
             *d++ = '>';
+            dst_size -= 4;
           } else if (((unsigned char) src[i + 1] == '[') &&
                    ((unsigned char) src[i + 2] == '1') &&
                    ((unsigned char) src[i + 3] == 'm')) {
+            if (dst_size < 3) {
+              debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+              return d - dst;
+            }
             *d++ = '<';
             *d++ = 'b';
             *d++ = '>';
+            dst_size -= 3;
           } else
-            debug3("webui: escape_html(): unknown escape sequence found, skipping, %x %x %x, PLEASE REPORT THIS BUG",
+            debug3("webui: escape_html(): unknown escape sequence found, skipping, %02x %02x %02x, PLEASE REPORT THIS BUG",
                    (unsigned char) src[i + 1], (unsigned char) src[i + 2], (unsigned char) src[i + 3]);
           i += 3;
         } else
           debug0("webui: escape_html(): unknown SHORT escape sequence found, skipping, PLEASE REPORT THIS BUG");
         break;
       case TLN_IAC:
-        if ((i + 2) < size) {
-          if (     ((unsigned char) src[i + 1] == TLN_WILL) &&
-                   ((unsigned char) src[i + 2] == TLN_ECHO))
+        if ((i + 2) < src_size) {
+          if (dst_size < 1) {
+            debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+            return d - dst;
+          }
+          if (       ((unsigned char) src[i + 1] == TLN_WILL) &&
+                     ((unsigned char) src[i + 2] == TLN_ECHO)) {
             *d++ = WS_ECHO_OFF;
-          else if (((unsigned char) src[i + 1] == TLN_WONT) &&
-                   ((unsigned char) src[i + 2] == TLN_ECHO))
+            dst_size--;
+          } else if (((unsigned char) src[i + 1] == TLN_WONT) &&
+                     ((unsigned char) src[i + 2] == TLN_ECHO)) {
             *d++ = WS_ECHO_ON;
-          else
-            debug2("webui: escape_html(): unknown telnet command found, skipping, %x %x, PLEASE REPORT THIS BUG",
+            dst_size--;
+          } else
+            debug2("webui: escape_html(): unknown telnet command found, skipping, %02x %02x, PLEASE REPORT THIS BUG",
                    (unsigned char) src[i + 1], (unsigned char) src[i + 2]);
           i += 2;
         } else
           debug0("webui: escape_html(): unknown SHORT telnet command found, skipping, PLEASE REPORT THIS BUG");
         break;
       default:
+        if (dst_size < 1) {
+          debug0("webui: escape_html(): destination string too long, PLEASE REPORT THIS BUG");
+          return d - dst;
+        }
         *d++ = src[i];
+        dst_size--;
     }
   }
   return d - dst;
 }
 
 static size_t webui_frame(char **dst, char *src, size_t len) {
-  static char buf[4096];
+  static char buf[LOGLINELEN];
   uint16_t len2;
 
   /* escape/replace html code chars
    * write to buf + offset 4 to leave room for webui frame header
    */
-  len = escape_html(buf + 4, src, len);
+  len = escape_html(buf + 4, (sizeof buf) - 4, src, len);
   /* we must not use putlog() or debug() here or we get recursion */
   /* A server MUST NOT mask any frames that it sends to the client */
   /* we use text, not binary, so escape_html() must output valid html */
@@ -426,32 +462,23 @@ static size_t webui_frame(char **dst, char *src, size_t len) {
   }
   /* we dont need to implement len > 0xffff,
    * because eggdrop wont send that much data at once,
-   * we also limit by sizeof buf = 4096 */
+   * we also limit by sizeof buf */
   return len;
 }
 
 /* TODO: return error code ? */
-static void webui_unframe(char *buf, int *len)
+static void webui_unframe(int sock, char *buf, int *len)
 {
   int i;
   uint8_t *key, *payload;
+  uint16_t status_code;
 
-  debug1("webui: webui_unframe(): len %i", *len);
   if (*len < 6) { /* TODO: better len check */
 
     /* TODO: return error code ? */
-    putlog(LOG_MISC, "*", "WEBUI error: someone sent something other than WebSocket protocol");
-    /*
-    putlog(LOG_MISC, "*",
-           "WEBUI error: %s sent something other than WebSocket protocol",
-           iptostr(&dcc[idx].sockname.addr.sa));
-    killsock(dcc[idx].sock);
-    lostdcc(idx);
-    */
-    return;
-  }
-  if (buf[0] & 0x08) {
-    putlog(LOG_MISC, "*", "WEBUI: fixme: sent connection close not handled yet");
+    putlog(LOG_MISC, "*", "WEBUI error: bogus WebSocket frame from sock %i", sock);
+    killsock(sock);
+    lostdcc(findanyidx(sock));
     return;
   }
   /* xor decrypt
@@ -471,6 +498,15 @@ static void webui_unframe(char *buf, int *len)
   for (i = 0; i < *len; i++)
     payload[i] = payload[i] ^ key[i % 4];
 
+  if (buf[0] & 0x08) {
+    status_code = ntohs(*((uint16_t *) payload));
+    putlog(LOG_MISC, "*", "WEBUI: connection closed by peer with status code %i%s sock %i",
+           status_code, status_code == 1001 ? " (Going Away)" : "", sock);
+    killsock(sock);
+    lostdcc(findanyidx(sock));
+    return;
+  }
+
   memmove(buf, payload, *len);
   /* we switched back from binary sock to text sock for sockgets() needs this for dcc_telnet_id() */
   /* so now we have to add \r\n here :/ */
@@ -489,7 +525,7 @@ static char *webui_close(void)
     if (!strcmp(dcc[idx].nick, "(webui)") ||
         !strcmp(dcc[idx].type->name, "WEBUI_HTTP") ||
         (socklist[findsock(dcc[idx].sock)].flags & SOCK_WS)) {
-      debug1("webui: webui_close(): closing sock %li", dcc[idx].sock);
+      debug2("webui: webui_close(): closing sock idx %i, %li", idx, dcc[idx].sock);
       killsock(dcc[idx].sock);
       lostdcc(idx);
     }
