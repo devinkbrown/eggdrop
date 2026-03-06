@@ -39,13 +39,19 @@
  */
 
 #define _GNU_SOURCE 1
-#include "../../eggdrop.h"
+/* Include main.h (which in turn includes eggdrop.h, proto.h, and all
+ * standard headers via config.h) so that res.c can be compiled both as
+ * a standalone translation unit (e.g. libeggres static library or the
+ * use-res-dns module) and as a #include inside dns.c.  main.h has
+ * include guards so double-inclusion is safe. */
+#include "../../main.h"
 #include "dns.h"
 #include "res.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <resolv.h>
 #include <ctype.h>
 #include <fcntl.h>
 #include <unistd.h>

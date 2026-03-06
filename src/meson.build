@@ -224,6 +224,10 @@ module_inc = [top_inc, src_inc, include_directories('mod')]
 # built when res.c is present in the source tree.
 # -------------------------------------------------------------------------
 if fs.exists(meson.current_source_dir() / 'mod/dns.mod/res.c')
+  # res.c now includes main.h (which pulls in config.h and all standard
+  # headers) before eggdrop.h, so it compiles cleanly as a standalone
+  # translation unit.  Use module_cargs so MAKING_MODS is set, matching
+  # the environment dns.c expects when it #includes res.c.
   eggres_lib = static_library('eggres',
     sources: files('mod/dns.mod/res.c'),
     include_directories: module_inc,
