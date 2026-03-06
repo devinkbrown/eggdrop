@@ -26,6 +26,11 @@ if fs.exists(meson.current_source_dir() / 'compat/balloc.c')
   compat_sources += files('compat/balloc.c')
 endif
 
+# mbuf message ring buffer (always included when present)
+if fs.exists(meson.current_source_dir() / 'compat/mbuf.c')
+  compat_sources += files('compat/mbuf.c')
+endif
+
 compat_lib = static_library('eggcompat',
   sources: compat_sources,
   include_directories: [top_inc, src_inc],
