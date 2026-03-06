@@ -145,7 +145,13 @@ module_defs = [
   {'name': 'ctcp',     'sources': ['mod/ctcp.mod/ctcp.c'],         'deps': []},
   {
     'name': 'dns',
-    'sources': ['mod/dns.mod/dns.c'],   # coredns.c is #include'd by dns.c
+    # When use-res-dns is true, compile res.c directly as the module
+    # source (it includes eggdrop.h standalone and exposes the same
+    # compat API as coredns.c).  The default uses dns.c which #includes
+    # coredns.c in the traditional unity-build fashion.
+    'sources': get_option('use-res-dns')
+               ? ['mod/dns.mod/res.c']
+               : ['mod/dns.mod/dns.c'],
     'deps': [],   # resolv_dep added per-module below if found
   },
   {'name': 'filesys',  'sources': ['mod/filesys.mod/filesys.c'],   'deps': []},
@@ -207,6 +213,25 @@ module_cargs = core_cargs + [
 ]
 
 module_inc = [top_inc, src_inc, include_directories('mod')]
+
+# -------------------------------------------------------------------------
+# libeggres — standalone static library built from res.c
+#
+# res.c is a self-contained alternative DNS resolver that includes
+# eggdrop.h directly.  We compile it as a static library so it is
+# available for future linking (e.g. swapped-in via use-res-dns) without
+# being part of the normal dns module unity build.  The library is only
+# built when res.c is present in the source tree.
+# -------------------------------------------------------------------------
+if fs.exists(meson.current_source_dir() / 'mod/dns.mod/res.c')
+  eggres_lib = static_library('eggres',
+    sources: files('mod/dns.mod/res.c'),
+    include_directories: module_inc,
+    c_args: module_cargs,
+    dependencies: [tcl_dep],
+  )
+  eggres_dep = declare_dependency(link_with: eggres_lib)
+endif
 
 # -------------------------------------------------------------------------
 # Static build: compile modules as objects, link into binary
@@ -297,6 +322,6 @@ install_data('../eggdrop.conf',
 # Post-install script
 # Creates pid/ and logs/ directories under the eggdrop data directory.
 # -------------------------------------------------------------------------
-meson.add_install_script('misc/post_install.py',
+meson.add_install_script('../misc/post_install.py',
   get_option('prefix'),
   get_option('datadir'))
