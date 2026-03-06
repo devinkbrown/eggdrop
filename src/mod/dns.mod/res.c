@@ -58,6 +58,17 @@
 #include <errno.h>
 
 /* =========================================================================
+ * Eggdrop global externs needed by this file.
+ *
+ * When res.c is compiled as part of the dns module unity build (dns.c
+ * #includes res.c), these are satisfied by the dns.c translation unit.
+ * When compiled standalone (e.g. libeggres or use-res-dns), we declare
+ * them explicitly.  The definitions live in main.c and net.c.
+ * ====================================================================== */
+extern time_t now;      /* updated every main-loop tick (main.c)         */
+extern int pref_af;     /* 0 = prefer IPv4, 1 = prefer IPv6   (net.c)   */
+
+/* =========================================================================
  * Portability shims: replace ophion infrastructure types/functions
  * ====================================================================== */
 
