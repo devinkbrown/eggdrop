@@ -1,0 +1,23 @@
+option('ipv6', type: 'boolean', value: true,
+  description: 'Enable IPv6 support')
+
+option('tls', type: 'feature', value: 'auto',
+  description: 'Enable TLS/SSL support via OpenSSL')
+
+option('tdns', type: 'boolean', value: true,
+  description: 'Enable threaded DNS resolver')
+
+option('python', type: 'feature', value: 'auto',
+  description: 'Build Python scripting module (requires Python >= 3.8)')
+
+option('egg-debug', type: 'boolean', value: false,
+  description: 'Enable eggdrop debug build (-g, extra logging)')
+
+option('handlen', type: 'integer', value: 32, min: 9, max: 32,
+  description: 'Maximum handle/nick length (9–32)')
+
+option('static-modules', type: 'boolean', value: false,
+  description: 'Link all modules statically into the eggdrop binary')
+
+option('eggexec', type: 'string', value: 'eggdrop',
+  description: 'Name for the built executable')

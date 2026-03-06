@@ -23,6 +23,7 @@
 #ifndef _EGG_COMPAT_COMPAT_H
 #define _EGG_COMPAT_COMPAT_H
 
+#include "balloc.h"
 #include "base64.h"
 #include "inet_aton.h"
 #include "snprintf.h"
