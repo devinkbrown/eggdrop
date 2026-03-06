@@ -275,3 +275,23 @@ install_data('../eggdrop.conf',
   install_dir: get_option('datadir') / 'eggdrop')
 install_data('../eggdrop-basic.conf',
   install_dir: get_option('datadir') / 'eggdrop')
+
+# Install eggdrop.conf also as eggdrop.conf.example so users always have
+# an unmodified reference copy alongside their active configuration.
+install_data('../eggdrop.conf',
+  install_dir: get_option('datadir') / 'eggdrop',
+  rename: 'eggdrop.conf.example')
+
+# -------------------------------------------------------------------------
+# Distribution note
+# -------------------------------------------------------------------------
+# `meson dist` is built-in — running it from the build directory produces
+# a release tarball automatically (no custom_target needed).
+
+# -------------------------------------------------------------------------
+# Post-install script
+# Creates pid/ and logs/ directories under the eggdrop data directory.
+# -------------------------------------------------------------------------
+meson.add_install_script('misc/post_install.py',
+  get_option('prefix'),
+  get_option('datadir'))
