@@ -70,3 +70,9 @@ option('module-webui',    type: 'boolean', value: true,
   description: 'Build webui module (WebSocket UI)')
 option('module-woobie',   type: 'boolean', value: true,
   description: 'Build woobie example module')
+
+# -------------------------------------------------------------------------
+# DNS resolver backend options
+# -------------------------------------------------------------------------
+option('use-res-dns', type: 'boolean', value: false,
+  description: 'Use res.c (standalone async resolver) as the dns module source instead of dns.c/coredns.c')

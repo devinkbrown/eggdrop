@@ -92,13 +92,6 @@ static inline void res_dlinkDelete(res_dlink_node *m, res_dlink_list *list) {
 #define op_malloc(n)    nmalloc(n)
 #define op_free(p)      nfree(p)
 
-static inline char *op_strdup(const char *s) {
-  size_t l = strlen(s) + 1;
-  char *d = nmalloc(l);
-  memcpy(d, s, l);
-  return d;
-}
-
 /* Logging */
 #define iwarn(fmt, ...)      putlog(LOG_MISC, "*", "DNS: " fmt, ##__VA_ARGS__)
 #define ilog(lvl, fmt, ...)  putlog(LOG_MISC, "*", "DNS: " fmt, ##__VA_ARGS__)
@@ -562,17 +555,53 @@ static op_dlink_list  req_list   = { NULL, NULL, 0 };
 static int            ns_failures[IRCD_MAXNS];
 
 /* =========================================================================
- * DoT (DNS over TLS) — state and stubs
+ * DoT (DNS over TLS) — state
  *
- * The full DoT path requires TLS.  In eggdrop we guard it with EGG_TLS
- * (set when eggdrop is built with TLS support).  The TCP I/O would need
- * to be wired into eggdrop's socket loop; for now the enable/disable
- * functions are stubs that log a warning.
+ * Guarded by the eggdrop-wide TLS compile flag (#ifdef TLS), which is
+ * set by the build system when OpenSSL support is present.  We alias
+ * EGG_TLS -> TLS so that the guard names used throughout this file stay
+ * consistent with the original design.
+ *
+ * Architecture (RFC 7858):
+ *   dot_fd:     eggdrop socket fd of the persistent TLS/TCP connection
+ *               to the DoT resolver.  -1 when not connected.
+ *   dot_active: 1 when the TLS handshake has completed and the channel
+ *               is ready for queries.
+ *   dot_host:   DoT server hostname, used for SNI in ssl_handshake().
+ *
+ * Send path (send_dns_query, #ifdef EGG_TLS):
+ *   When dot_active, prefix the DNS wire packet with a 2-byte big-endian
+ *   length field and write it via tputs(dot_fd, ...).  tputs() routes
+ *   through the socklist SSL pointer set up by ssl_handshake(), so TLS
+ *   framing is transparent.
+ *
+ * Receive path (res_read_dns, renamed from res_read_udp):
+ *   When dot_active, call SSL_read() directly to receive the 2-byte
+ *   length prefix then the payload, then hand the packet to
+ *   process_answer() as usual.  Falls through to UDP recvfrom() when
+ *   dot_active == 0.
+ *
+ * Connection setup (res_enable_dot):
+ *   1. getsock(AF, SOCK_STREAM) allocates a TCP fd in eggdrop's socklist.
+ *   2. connect() is called directly (avoids open_telnet_raw which assumes
+ *      a dcc[] entry exists for the socket).
+ *   3. ssl_handshake(dot_fd, TLS_CONNECT, 0, LOG_MISC, dot_host, NULL)
+ *      wraps the fd in an OpenSSL session.
+ *   4. On success dot_active = 1; on failure killsock(dot_fd) and
+ *      dot_fd = -1.
  * ====================================================================== */
 
+/* Map EGG_TLS onto the eggdrop-wide TLS flag. */
+#ifdef TLS
+# ifndef EGG_TLS
+#  define EGG_TLS 1
+# endif
+#endif
+
 #ifdef EGG_TLS
-static int dot_active = 0;
-/* DoT: I/O handled via eggdrop socket loop */
+static int  dot_active = 0;
+static int  dot_fd     = -1;                    /* TLS/TCP fd, -1 = closed */
+static char dot_host[IRCD_RES_HOSTLEN + 1];     /* hostname for SNI        */
 #endif
 
 /* =========================================================================
@@ -650,9 +679,27 @@ static void send_dns_query(struct dns_req *req)
   ssize_t       sent;
 
 #ifdef EGG_TLS
-  /* DoT: I/O handled via eggdrop socket loop */
-  if (dot_active) {
-    /* Stub: fall through to UDP for now */
+  if (dot_active && dot_fd >= 0) {
+    /* DoT send path (RFC 7858):
+     * Prefix the DNS wire packet with a 2-byte big-endian message
+     * length field, then write the framed packet via tputs().
+     * tputs() routes through the socklist ssl pointer established by
+     * ssl_handshake(), so TLS encryption is transparent.
+     */
+    unsigned char framed[2 + DNS_MAXPKT];
+    qtype  = (uint16_t)(req->type & ~DNS_FLAG_FCRDNS);
+    pktlen = dns_build_query(framed + 2, sizeof framed - 2,
+                             req->id, qtype, req->qname);
+    if (pktlen < 0) {
+      idebug("res: DoT dns_build_query failed for %s", req->qname);
+      return;
+    }
+    framed[0] = (unsigned char)((unsigned)pktlen >> 8);
+    framed[1] = (unsigned char)((unsigned)pktlen & 0xff);
+    tputs(dot_fd, (char *)framed, (unsigned int)(pktlen + 2));
+    /* DoT uses a single long-lived TCP connection; there is no
+     * per-server index to track, so leave req->last_ns at -1. */
+    return;
   }
 #endif
 
@@ -846,64 +893,141 @@ static void handle_req_done(struct dns_req *req, struct DNSReply *reply)
 }
 
 /* =========================================================================
- * UDP read — called from DCC_DNS activity handler (dns_ack wrapper)
+ * DNS read — called from DCC_DNS activity handler (dns_ack wrapper).
+ *
+ * Handles both paths:
+ *   - DoT (TLS/TCP): when dot_active, read the RFC 7858 2-byte length
+ *     prefix via SSL_read(), then the payload, and process it.
+ *   - Plain UDP: the original recvfrom() loop.
  * ====================================================================== */
 
-void res_read_udp(void)
+void res_read_dns(void)
 {
   unsigned char              buf[DNS_HDR_SIZE + DNS_MAXPKT];
-  struct sockaddr_storage    from;
-  socklen_t                  fromlen = sizeof from;
   ssize_t                    rc;
   uint16_t                   id;
   struct dns_req            *req;
 
-  if (resfd < 0)
-    return;
-
-  for (;;) {
-    rc = recvfrom(resfd, buf, sizeof buf, 0,
-                  (struct sockaddr *)&from, &fromlen);
-    if (rc <= 0)
-      break;
-    if ((size_t)rc <= DNS_HDR_SIZE)
-      continue;
-
-    /* Accept only replies from configured nameservers */
-    {
-      int trusted = 0, i;
-      for (i = 0; i < irc_nscount && !trusted; i++) {
-        const struct sockaddr_storage *ns = &irc_nsaddr_list[i];
-        if (GET_SS_FAMILY(ns) != GET_SS_FAMILY(&from))
-          continue;
-        if (GET_SS_FAMILY(ns) == AF_INET) {
-          const struct sockaddr_in *a = (const struct sockaddr_in *)ns;
-          const struct sockaddr_in *b = (const struct sockaddr_in *)&from;
-          trusted = (a->sin_addr.s_addr == b->sin_addr.s_addr
-                     && a->sin_port == b->sin_port);
-        }
-#ifdef IPV6
-        else if (GET_SS_FAMILY(ns) == AF_INET6) {
-          const struct sockaddr_in6 *a = (const struct sockaddr_in6 *)ns;
-          const struct sockaddr_in6 *b = (const struct sockaddr_in6 *)&from;
-          trusted = (memcmp(&a->sin6_addr, &b->sin6_addr,
-                            sizeof a->sin6_addr) == 0
-                     && a->sin6_port == b->sin6_port);
-        }
-#endif
-      }
-      if (!trusted)
-        continue;
+#ifdef EGG_TLS
+  if (dot_active && dot_fd >= 0) {
+    /* DoT receive path (RFC 7858):
+     * Read the 2-byte message length, then the payload.  We use a
+     * blocking-style loop here; since dot_fd is non-blocking the
+     * SSL_read() calls will return EAGAIN / SSL_ERROR_WANT_READ when
+     * no data is available, which we treat as "done for this tick".
+     */
+    struct threaddata *td = threaddata();
+    int idx = findsock(dot_fd);
+    if (idx < 0 || !td->socklist[idx].ssl) {
+      /* SSL session gone — disable DoT */
+      putlog(LOG_MISC, "*",
+             "DNS: DoT connection lost (no SSL session); disabling DoT");
+      dot_active = 0;
+      killsock(dot_fd);
+      dot_fd = -1;
+      return;
     }
 
-    id  = HDR_ID(buf);
-    req = find_req_by_id(id);
-    if (req == NULL)
-      continue;
+    for (;;) {
+      unsigned char lenbuf[2];
+      uint16_t      msglen;
+      int           got, want;
 
-    process_answer(req, buf, (size_t)rc);
+      /* Read the 2-byte length prefix */
+      got = SSL_read(td->socklist[idx].ssl, lenbuf, 2);
+      if (got <= 0) {
+        int err = SSL_get_error(td->socklist[idx].ssl, got);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+          break; /* no more data this tick */
+        /* Connection error — disable DoT */
+        putlog(LOG_MISC, "*",
+               "DNS: DoT read error (%d); disabling DoT", err);
+        dot_active = 0;
+        killsock(dot_fd);
+        dot_fd = -1;
+        return;
+      }
+      if (got != 2)
+        break; /* partial read — try again next tick */
+
+      msglen = ((uint16_t)lenbuf[0] << 8) | lenbuf[1];
+      if (msglen == 0 || msglen > (uint16_t)(DNS_HDR_SIZE + DNS_MAXPKT))
+        break; /* malformed — ignore */
+
+      /* Read the DNS payload */
+      want = (int)msglen;
+      got  = SSL_read(td->socklist[idx].ssl, buf, want);
+      if (got <= 0)
+        break; /* partial — drop this message */
+
+      if ((size_t)got <= DNS_HDR_SIZE)
+        continue;
+
+      id  = HDR_ID(buf);
+      req = find_req_by_id(id);
+      if (req == NULL)
+        continue;
+      process_answer(req, buf, (size_t)got);
+    }
+    return; /* DoT path handled; skip UDP */
+  }
+#endif /* EGG_TLS */
+
+  /* Plain UDP receive path */
+  {
+    struct sockaddr_storage    from;
+    socklen_t                  fromlen = sizeof from;
+
+    if (resfd < 0)
+      return;
+
+    for (;;) {
+      rc = recvfrom(resfd, buf, sizeof buf, 0,
+                    (struct sockaddr *)&from, &fromlen);
+      if (rc <= 0)
+        break;
+      if ((size_t)rc <= DNS_HDR_SIZE)
+        continue;
+
+      /* Accept only replies from configured nameservers */
+      {
+        int trusted = 0, i;
+        for (i = 0; i < irc_nscount && !trusted; i++) {
+          const struct sockaddr_storage *ns = &irc_nsaddr_list[i];
+          if (GET_SS_FAMILY(ns) != GET_SS_FAMILY(&from))
+            continue;
+          if (GET_SS_FAMILY(ns) == AF_INET) {
+            const struct sockaddr_in *a = (const struct sockaddr_in *)ns;
+            const struct sockaddr_in *b = (const struct sockaddr_in *)&from;
+            trusted = (a->sin_addr.s_addr == b->sin_addr.s_addr
+                       && a->sin_port == b->sin_port);
+          }
+#ifdef IPV6
+          else if (GET_SS_FAMILY(ns) == AF_INET6) {
+            const struct sockaddr_in6 *a = (const struct sockaddr_in6 *)ns;
+            const struct sockaddr_in6 *b = (const struct sockaddr_in6 *)&from;
+            trusted = (memcmp(&a->sin6_addr, &b->sin6_addr,
+                              sizeof a->sin6_addr) == 0
+                       && a->sin6_port == b->sin6_port);
+          }
+#endif
+        }
+        if (!trusted)
+          continue;
+      }
+
+      id  = HDR_ID(buf);
+      req = find_req_by_id(id);
+      if (req == NULL)
+        continue;
+
+      process_answer(req, buf, (size_t)rc);
+    }
   }
 }
+
+/* Backward-compat alias: dns.c calls res_read_udp() in dns_ack(). */
+void res_read_udp(void) { res_read_dns(); }
 
 /* =========================================================================
  * Timeout / retry — driven by res_secondly_check() via HOOK_SECONDLY
@@ -1036,7 +1160,12 @@ void restart_resolver(void)
   }
 
 #ifdef EGG_TLS
+  dot_active = 0;
   dot_reconnect_seconds = -1;
+  if (dot_fd >= 0) {
+    killsock(dot_fd);
+    dot_fd = -1;
+  }
 #endif
 
   start_resolver();
@@ -1084,24 +1213,107 @@ void gethost_byaddr(const struct sockaddr_storage *addr,
 }
 
 /* =========================================================================
- * DoT — stubs (full implementation requires TLS support)
+ * DoT — enable / disable
  * ====================================================================== */
 
 #ifdef EGG_TLS
+/*
+ * res_enable_dot() — open a TLS/TCP connection to the DoT server.
+ *
+ * Steps:
+ *   1. Discard any existing DoT connection.
+ *   2. Allocate a TCP socket via getsock() (registers it in eggdrop's
+ *      socklist so tputs / killsock work correctly).
+ *   3. Connect directly to the DoT server address/port.
+ *   4. Perform the TLS handshake via ssl_handshake().
+ *   5. On success set dot_active = 1.
+ *
+ * Note: we use a direct connect() rather than open_telnet_raw() because
+ * open_telnet_raw() assumes the socket has a matching dcc[] entry, which
+ * DoT connections do not have.
+ */
 void res_enable_dot(const struct sockaddr_storage *sa,
                     const char *addr_str, uint16_t port)
 {
-  (void)sa; (void)addr_str; (void)port;
-  /* DoT: I/O handled via eggdrop socket loop */
-  putlog(LOG_MISC, "*",
-         "DNS: DoT (DNS over TLS) is not yet fully integrated with "
-         "eggdrop's socket loop; ignoring secure_dns request");
+  int   fd, af;
+  struct sockaddr_storage target;
+  socklen_t               targetlen;
+
+  if (!sa || !addr_str)
+    return;
+
+  /* Tear down any existing DoT connection first */
+  if (dot_fd >= 0) {
+    dot_active = 0;
+    killsock(dot_fd);
+    dot_fd = -1;
+  }
+  dot_reconnect_seconds = -1;
+
+  /* Save the hostname for SNI */
+  op_strlcpy(dot_host, addr_str, sizeof dot_host);
+
+  /* Build the target address with the requested port */
+  memcpy(&target, sa, sizeof target);
+  af = GET_SS_FAMILY(&target);
+  if (af == AF_INET) {
+    ((struct sockaddr_in *)&target)->sin_port = htons(port ? port : 853);
+    targetlen = sizeof(struct sockaddr_in);
+  }
+#ifdef IPV6
+  else if (af == AF_INET6) {
+    ((struct sockaddr_in6 *)&target)->sin6_port = htons(port ? port : 853);
+    targetlen = sizeof(struct sockaddr_in6);
+  }
+#endif
+  else {
+    iwarn("DoT: unsupported address family %d", af);
+    return;
+  }
+
+  /* Allocate a TCP socket registered in eggdrop's socklist */
+  fd = getsock(af, 0);
+  if (fd < 0) {
+    putlog(LOG_MISC, "*", "DNS: DoT: getsock() failed: %s", strerror(errno));
+    return;
+  }
+
+  /* Direct TCP connect (non-blocking; EINPROGRESS is OK) */
+  if (connect(fd, (const struct sockaddr *)&target, targetlen) < 0 &&
+      errno != EINPROGRESS) {
+    putlog(LOG_MISC, "*", "DNS: DoT: connect() to %s:%u failed: %s",
+           addr_str, (unsigned)port, strerror(errno));
+    killsock(fd);
+    return;
+  }
+
+  dot_fd = fd;
+
+  /* Start TLS handshake.  ssl_handshake() is non-blocking on success;
+   * it sets up the SSL * on socklist[i].ssl so tputs() / SSL_read()
+   * will use TLS automatically.
+   */
+  if (ssl_handshake(dot_fd, TLS_CONNECT, 0, LOG_MISC, dot_host, NULL) != 0) {
+    putlog(LOG_MISC, "*",
+           "DNS: DoT: TLS handshake with %s failed; disabling DoT", addr_str);
+    killsock(dot_fd);
+    dot_fd = -1;
+    return;
+  }
+
+  dot_active = 1;
+  putlog(LOG_MISC, "*", "DNS: DoT active — using TLS resolver %s port %u",
+         addr_str, (unsigned)(port ? port : 853));
 }
 
 void res_disable_dot(void)
 {
   dot_active = 0;
   dot_reconnect_seconds = -1;
+  if (dot_fd >= 0) {
+    killsock(dot_fd);
+    dot_fd = -1;
+  }
   putlog(LOG_MISC, "*", "DNS: DoT disabled");
 }
 
@@ -1116,7 +1328,7 @@ void res_enable_dot(const struct sockaddr_storage *sa,
 
 void res_disable_dot(void)
 {
-  /* nothing */
+  /* nothing to do when TLS is not compiled in */
 }
 #endif /* EGG_TLS */
 

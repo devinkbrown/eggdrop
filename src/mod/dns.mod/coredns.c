@@ -1109,32 +1109,3 @@ static int init_dns_core(void)
   return 1;
 }
 
-/* =========================================================================
- * restart_resolver — re-read resolv.conf (called on SIGHUP / TCL rehash)
- * ====================================================================== */
-
-static void restart_resolver(void)
-{
-  struct dns_req *r, *rn;
-
-  /* Cancel pending queries */
-  for (r = req_head; r; r = rn) {
-    rn = r->next;
-    finish_req_failure(r, ((r->type & ~DNS_FLAG_FCRDNS) == DNS_TYPE_PTR)
-                          ? T_PTR : T_A);
-    free_req(r);
-  }
-  req_head = req_tail = NULL;
-
-  if (resfd >= 0) {
-    killsock(resfd);
-    resfd = -1;
-  }
-
-  dns_nscount   = 0;
-  dns_domain[0] = '\0';
-  memset(dns_ns_failures, 0, sizeof dns_ns_failures);
-  parse_resolv_conf();
-  sync_myres_from_internal();
-  init_dns_network();
-}
