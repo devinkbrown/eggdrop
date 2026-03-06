@@ -125,11 +125,11 @@ void addignore(char *ign, char *from, char *mnote, time_t expire_time)
   p->added = now;
   p->flags = expire_time ? 0 : IGREC_PERM;
   p->igmask = user_malloc(strlen(ign) + 1);
-  strcpy(p->igmask, ign);
+  strlcpy(p->igmask, ign, sizeof(p->igmask));
   p->user = user_malloc(strlen(from) + 1);
-  strcpy(p->user, from);
+  strlcpy(p->user, from, sizeof(p->user));
   p->msg = user_malloc(strlen(mnote) + 1);
-  strcpy(p->msg, mnote);
+  strlcpy(p->msg, mnote, sizeof(p->msg));
   if (!noshare) {
     char *mask = str_escape(ign, ':', '\\');
 
@@ -148,16 +148,16 @@ static void display_ignore(int idx, int number, struct igrec *ignore)
 
   if (ignore->added) {
     daysago(now, ignore->added, s);
-    sprintf(dates, "Started %s", s);
+    snprintf(dates, sizeof(dates), "Started %s", s);
   } else
     dates[0] = 0;
   if (ignore->flags & IGREC_PERM)
-    strcpy(s, "(perm)");
+    strlcpy(s, "(perm)", sizeof(s));
   else {
     char s1[29];
 
     days(ignore->expire, now, s1);
-    sprintf(s, "(expires %s)", s1);
+    snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (number >= 0)
     dprintf(idx, "  [%3d] %s %s\n", number, ignore->igmask, s);
@@ -227,11 +227,11 @@ static void addmask_fully(maskrec ** m, char *mask, char *from, char *note,
   p->lastactive = last;
   p->flags = flags;
   p->mask = user_malloc(strlen(mask) + 1);
-  strcpy(p->mask, mask);
+  strlcpy(p->mask, mask, sizeof(p->mask));
   p->user = user_malloc(strlen(from) + 1);
-  strcpy(p->user, from);
+  strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
-  strcpy(p->desc, note);
+  strlcpy(p->desc, note, sizeof(p->desc));
 }
 
 static void restore_chanban(struct chanset_t *chan, char *host)
@@ -435,12 +435,12 @@ static void restore_ignore(char *host)
       p->added = atoi(added);
       p->flags = flags;
       p->igmask = user_malloc(strlen(host) + 1);
-      strcpy(p->igmask, host);
+      strlcpy(p->igmask, host, sizeof(p->igmask));
       p->user = user_malloc(strlen(user) + 1);
-      strcpy(p->user, user);
+      strlcpy(p->user, user, sizeof(p->user));
       if (desc) {
         p->msg = user_malloc(strlen(desc) + 1);
-        strcpy(p->msg, desc);
+        strlcpy(p->msg, desc, sizeof(p->msg));
       } else
         p->msg = NULL;
       return;
@@ -470,7 +470,7 @@ static void tell_user(int idx, struct userrec *u)
   }
   li = get_user(&USERENTRY_LASTON, u);
   if (!li || !li->laston)
-    strcpy(s1, "never");
+    strlcpy(s1, "never", sizeof(s1));
   else {
     now2 = now - li->laston;
     if (now2 >= 86400)
@@ -490,7 +490,7 @@ static void tell_user(int idx, struct userrec *u)
     get_user_flagrec(dcc[idx].user, &fr, ch->channel);
     if (glob_op(fr) || chan_op(fr)) {
       if (ch->laston == 0L)
-        strcpy(s1, "never");
+        strlcpy(s1, "never", sizeof(s1));
       else {
         now2 = now - (ch->laston);
         if (now2 >= 86400)
@@ -787,7 +787,7 @@ int readuserfile(char *file, struct userrec **ret)
                 cr->flags_udef = fr.udef_chan;
                 if (s[0]) {
                   cr->info = (char *) user_malloc(strlen(s) + 1);
-                  strcpy(cr->info, s);
+                  strlcpy(cr->info, s, sizeof(cr->info));
                 } else
                   cr->info = NULL;
               }
@@ -795,10 +795,10 @@ int readuserfile(char *file, struct userrec **ret)
           }
         } else if (!strncmp(code, "::", 2)) {
           /* channel-specific bans */
-          strcpy(lasthand, &code[2]);
+          strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
-            strcpy(s1, lasthand);
+            strlcpy(s1, lasthand, sizeof(s1));
             strcat(s1, " ");
             if (strstr(ignored, s1) == NULL) {
               strncat(ignored, lasthand,
@@ -823,10 +823,10 @@ int readuserfile(char *file, struct userrec **ret)
           }
         } else if (!strncmp(code, "&&", 2)) {
           /* channel-specific exempts */
-          strcpy(lasthand, &code[2]);
+          strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
-            strcpy(s1, lasthand);
+            strlcpy(s1, lasthand, sizeof(s1));
             strcat(s1, " ");
             if (strstr(ignored, s1) == NULL) {
               strncat(ignored, lasthand,
@@ -853,10 +853,10 @@ int readuserfile(char *file, struct userrec **ret)
           }
         } else if (!strncmp(code, "$$", 2)) {
           /* channel-specific invites */
-          strcpy(lasthand, &code[2]);
+          strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
-            strcpy(s1, lasthand);
+            strlcpy(s1, lasthand, sizeof(s1));
             strcat(s1, " ");
             if (strstr(ignored, s1) == NULL) {
               strncat(ignored, lasthand,
@@ -893,7 +893,7 @@ int readuserfile(char *file, struct userrec **ret)
 
                 list->next = NULL;
                 list->extra = user_malloc(strlen(s) + 1);
-                strcpy(list->extra, s);
+                strlcpy(list->extra, s, sizeof(list->extra));
                 egg_list_append((&ue->u.list), list);
                 ok = 1;
               }
@@ -902,26 +902,26 @@ int readuserfile(char *file, struct userrec **ret)
 
               ue->name = user_malloc(strlen(code) - 1);
               ue->type = NULL;
-              strcpy(ue->name, code + 2);
+              strlcpy(ue->name, code + 2, sizeof(ue->name));
               ue->u.list = user_malloc(sizeof(struct list_type));
 
               ue->u.list->next = NULL;
               ue->u.list->extra = user_malloc(strlen(s) + 1);
-              strcpy(ue->u.list->extra, s);
+              strlcpy(ue->u.list->extra, s, sizeof(ue->u.list->extra));
               list_insert((&u->entries), ue);
             }
           }
         } else if (!rfc_casecmp(code, BAN_NAME)) {
-          strcpy(lasthand, code);
+          strlcpy(lasthand, code, sizeof(lasthand));
           u = NULL;
         } else if (!rfc_casecmp(code, IGNORE_NAME)) {
-          strcpy(lasthand, code);
+          strlcpy(lasthand, code, sizeof(lasthand));
           u = NULL;
         } else if (!rfc_casecmp(code, EXEMPT_NAME)) {
-          strcpy(lasthand, code);
+          strlcpy(lasthand, code, sizeof(lasthand));
           u = NULL;
         } else if (!rfc_casecmp(code, INVITE_NAME)) {
-          strcpy(lasthand, code);
+          strlcpy(lasthand, code, sizeof(lasthand));
           u = NULL;
         } else if (code[0] == '*') {
           lasthand[0] = 0;
@@ -951,7 +951,7 @@ int readuserfile(char *file, struct userrec **ret)
                 code[HANDLEN] = 0;
               if (strlen(pass) > 20) {
                 putlog(LOG_MISC, "*", "* %s '%s'", USERF_BROKEPASS, code);
-                strcpy(pass, "-");
+                strlcpy(pass, "-", sizeof(pass));
               }
               bu = adduser(bu, code, 0, pass,
                            sanity_check(fr.global &USER_VALID));

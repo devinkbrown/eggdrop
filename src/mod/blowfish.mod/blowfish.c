@@ -328,7 +328,7 @@ static char *encrypt_string_ecb(char *key, char *str)
 
   /* Pad fake string with 8 bytes to make sure there's enough */
   s = nmalloc(strlen(str) + 9);
-  strcpy(s, str);
+  strlcpy(s, str, sizeof(s));
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s;
@@ -380,7 +380,7 @@ static char *encrypt_string_cbc(char *key, char *str)
   for (i = 0; i < 8; ++i) {
     s[i] = (char) (random() % 256);
   }
-  strcpy(s + 8, str);
+  strlcpy(s + 8, str, sizeof(s) - 8);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s + slen;
@@ -488,7 +488,7 @@ static char *decrypt_string_ecb(char *key, char *str)
 
   /* Pad encoded string with 0 bits in case it's bogus */
   s = nmalloc(strlen(str) + 12);
-  strcpy(s, str);
+  strlcpy(s, str, sizeof(s));
   if ((!key) || (!key[0]))
     return s;
   p = s;
@@ -529,7 +529,7 @@ static char *decrypt_string_cbc(char *key, char *str)
 
   slen = strlen(str);
   s = nmalloc(slen + 1);
-  strcpy(s, str);
+  strlcpy(s, str, sizeof(s));
   s[slen] = 0;
   if ((!key) || (!key[0]) || (slen % 4))
     return s;
@@ -598,7 +598,7 @@ static char *decrypt_string_cbc(char *key, char *str)
   }
 
   /* cut off IV */
-  strcpy(s, dest + 8);
+  strlcpy(s, dest + 8, sizeof(s));
   s[dlen - 8] = 0;
   nfree(dest);
 

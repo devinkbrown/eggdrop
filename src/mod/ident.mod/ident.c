@@ -84,7 +84,7 @@ static void ident_activity(int idx, char *buf, int len)
 
 static void ident_display(int idx, char *buf)
 {
-  strcpy(buf, "ident (ready)");
+  strlcpy(buf, "ident (ready)", sizeof(buf));
 }
 
 static struct dcc_table DCC_IDENTD = {
@@ -237,7 +237,7 @@ static void ident_builtin_on()
   }
   dcc[idx].sock = s;
   dcc[idx].port = ident_port;
-  strcpy(dcc[idx].nick, "(ident)");
+  strlcpy(dcc[idx].nick, "(ident)", sizeof(dcc[idx].nick));
   add_builtins(H_raw, ident_raw);
 }
 

@@ -52,7 +52,7 @@ static int console_unpack(struct userrec *u, struct user_entry *e)
   par = e->u.list->extra;
   arg = newsplit(&par);
   ci->channel = user_malloc(strlen(arg) + 1);
-  strcpy(ci->channel, arg);
+  strlcpy(ci->channel, arg, sizeof(ci->channel));
   arg = newsplit(&par);
   ci->conflags = logmodes(arg);
   arg = newsplit(&par);
@@ -84,7 +84,7 @@ static int console_pack(struct userrec *u, struct user_entry *e)
   e->u.list = user_malloc(sizeof(struct list_type));
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
-  strcpy(e->u.list->extra, work);
+  strlcpy(e->u.list->extra, work, sizeof(e->u.list->extra));
 
   nfree(ci->channel);
   nfree(ci);
@@ -231,7 +231,7 @@ static int console_dupuser(struct userrec *new, struct userrec *old,
   memcpy(j, i, sizeof(struct console_info));
 
   j->channel = user_malloc(strlen(i->channel) + 1);
-  strcpy(j->channel, i->channel);
+  strlcpy(j->channel, i->channel, sizeof(j->channel));
   return set_user(e->type, new, j);
 }
 
@@ -313,7 +313,7 @@ static int console_store(struct userrec *u, int idx, char *par)
   if (i->channel)
     nfree(i->channel);
   i->channel = user_malloc(strlen(dcc[idx].u.chat->con_chan) + 1);
-  strcpy(i->channel, dcc[idx].u.chat->con_chan);
+  strlcpy(i->channel, dcc[idx].u.chat->con_chan, sizeof(i->channel));
   i->conflags = dcc[idx].u.chat->con_flags;
   i->stripflags = dcc[idx].u.chat->strip_flags;
   i->echoflags = (dcc[idx].status & STAT_ECHO) ? 1 : 0;

@@ -104,7 +104,7 @@ static void send_next_file(char *to)
 
   if (this->dir[0] == '*') { /* Absolute path */
     s = nmalloc(strlen(&this->dir[1]) + strlen(this->file) + 2);
-    sprintf(s, "%s/%s", &this->dir[1], this->file);
+    snprintf(s, sizeof(s), "%s/%s", &this->dir[1], this->file);
   } else {
     char *p = strchr(this->dir, '*');
 
@@ -115,15 +115,15 @@ static void send_next_file(char *to)
 
     p++;
     s = nmalloc(strlen(p) + strlen(this->file) + 2);
-    sprintf(s, "%s%s%s", p, p[0] ? "/" : "", this->file);
-    strcpy(this->dir, &(p[atoi(this->dir)]));
+    snprintf(s, sizeof(s), "%s%s%s", p, p[0] ? "/" : "", this->file);
+    strlcpy(this->dir, &(p[atoi(this->dir)]), sizeof(this->dir));
   }
   if (this->dir[0] == '*') {
     s = nrealloc(s, strlen(&this->dir[1]) + strlen(this->file) + 2);
-    sprintf(s, "%s/%s", &this->dir[1], this->file);
+    snprintf(s, sizeof(s), "%s/%s", &this->dir[1], this->file);
   } else {
     s = nrealloc(s, strlen(this->dir) + strlen(this->file) + 2);
-    sprintf(s, "%s%s%s", this->dir, this->dir[0] ? "/" : "", this->file);
+    snprintf(s, sizeof(s), "%s%s%s", this->dir, this->dir[0] ? "/" : "", this->file);
   }
   x = raw_dcc_send(s, this->to, this->nick);
   if (x == DCCSEND_OK) {
@@ -133,17 +133,17 @@ static void send_next_file(char *to)
   } else if (x == DCCSEND_FULL) {
     putlog(LOG_FILES, "*", TRANSFER_LOG_CONFULL, s, this->nick);
     dprintf(DP_HELP, TRANSFER_NOTICE_CONFULL, this->to);
-    strcpy(s, this->to);
+    strlcpy(s, this->to, sizeof(s));
     flush_fileq(s);
   } else if (x == DCCSEND_NOSOCK) {
     putlog(LOG_FILES, "*", TRANSFER_LOG_SOCKERR, s, this->nick);
     dprintf(DP_HELP, TRANSFER_NOTICE_SOCKERR, this->to);
-    strcpy(s, this->to);
+    strlcpy(s, this->to, sizeof(s));
     flush_fileq(s);
   } else if (x == DCCSEND_FCOPY) {
     putlog(LOG_FILES | LOG_MISC, "*", TRANSFER_COPY_FAILED, this->file);
     dprintf(DP_HELP, TRANSFER_FILESYS_BROKEN, this->to);
-    strcpy(s, this->to);
+    strlcpy(s, this->to, sizeof(s));
     flush_fileq(s);
   } else {
     if (x == DCCSEND_FEMPTY) {
@@ -227,9 +227,9 @@ static void fileq_cancel(int idx, char *par)
       if (!strcasecmp(dcc[idx].nick, q->nick)) {
         s = nrealloc(s, strlen(q->dir) + strlen(q->file) + 3);
         if (q->dir[0] == '*')
-          sprintf(s, "%s/%s", &q->dir[1], q->file);
+          snprintf(s, sizeof(s), "%s/%s", &q->dir[1], q->file);
         else
-          sprintf(s, "/%s%s%s", q->dir, q->dir[0] ? "/" : "", q->file);
+          snprintf(s, sizeof(s), "/%s%s%s", q->dir, q->dir[0] ? "/" : "", q->file);
         if (wild_match_file(par, s)) {
           dprintf(idx, TRANSFER_CANCELLED, s, q->to);
           fnd = 1;

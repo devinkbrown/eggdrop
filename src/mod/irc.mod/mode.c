@@ -113,7 +113,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
 
     /* 'sizeof(post) - 1' is used because we want to overwrite the old null */
     postsize -=
-      sprintf(&post[(sizeof(post) - 1) - postsize], "%d ", chan->limit);
+      snprintf(&post[(sizeof(post) - 1) - postsize], postsize + 1, "%d ", chan->limit);
 
     chan->limit = 0;
   }
@@ -318,7 +318,7 @@ static void real_add_mode(struct chanset_t *chan,
         chan->cmode[i].type = type;
         chan->cmode[i].op = (char *) channel_malloc(l);
         chan->bytes += l;       /* Add 1 for safety */
-        strcpy(chan->cmode[i].op, op);
+        strlcpy(chan->cmode[i].op, op, sizeof(chan->cmode[i].op));
         break;
       }
   }
@@ -329,7 +329,7 @@ static void real_add_mode(struct chanset_t *chan,
       nfree(chan->key);
     chan->key = (char *) channel_malloc(strlen(op) + 1);
     if (chan->key)
-      strcpy(chan->key, op);
+      strlcpy(chan->key, op, sizeof(chan->key));
   }
   /* -k ? store removed key */
   else if (plus == '-' && mode == 'k') {
@@ -337,7 +337,7 @@ static void real_add_mode(struct chanset_t *chan,
       nfree(chan->rmkey);
     chan->rmkey = (char *) channel_malloc(strlen(op) + 1);
     if (chan->rmkey)
-      strcpy(chan->rmkey, op);
+      strlcpy(chan->rmkey, op, sizeof(chan->rmkey));
   }
   /* +l ? store limit */
   else if (plus == '+' && mode == 'l')
@@ -345,9 +345,9 @@ static void real_add_mode(struct chanset_t *chan,
   else {
     /* Typical mode changes */
     if (plus == '+')
-      strcpy(s, chan->pls);
+      strlcpy(s, chan->pls, sizeof(s));
     else
-      strcpy(s, chan->mns);
+      strlcpy(s, chan->mns, sizeof(s));
     if (!strchr(s, mode)) {
       if (plus == '+') {
         chan->pls[strlen(chan->pls) + 1] = 0;
@@ -420,7 +420,7 @@ static void got_op(struct chanset_t *chan, char *nick, char *from,
   if (!me_op(chan) && match_my_nick(who))
     check_chan = 1;
 
-  strcpy(ch, chan->name);
+  strlcpy(ch, chan->name, sizeof(ch));
   u = get_user_from_member(m);
 
   get_user_flagrec(u, &victim, chan->dname);
@@ -514,7 +514,7 @@ static void got_halfop(struct chanset_t *chan, char *nick, char *from,
   if (!me_op(chan) && !me_halfop(chan) && match_my_nick(who))
     check_chan = 1;
 
-  strcpy(ch, chan->name);
+  strlcpy(ch, chan->name, sizeof(ch));
   u = get_user_from_member(m);
 
   get_user_flagrec(u, &victim, chan->dname);
@@ -601,7 +601,7 @@ static void got_deop(struct chanset_t *chan, char *nick, char *from,
     return;
   }
 
-  strcpy(ch, chan->name);
+  strlcpy(ch, chan->name, sizeof(ch));
   simple_sprintf(s, "%s!%s", m->nick, m->userhost);
   simple_sprintf(s1, "%s!%s", nick, from);
   u = get_user_from_member(m);
@@ -694,7 +694,7 @@ static void got_dehalfop(struct chanset_t *chan, char *nick, char *from,
     return;
   }
 
-  strcpy(ch, chan->name);
+  strlcpy(ch, chan->name, sizeof(ch));
   simple_sprintf(s1, "%s!%s", nick, from);
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);

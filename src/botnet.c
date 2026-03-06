@@ -157,7 +157,7 @@ int addparty(char *bot, char *nick, int chan, char flag, int sock,
         if (party[i].from)
           nfree(party[i].from);
         party[i].from = nmalloc(strlen(from) + 1);
-        strcpy(party[i].from, from);
+        strlcpy(party[i].from, from, sizeof(party[i].from));
       }
       *idx = i;
       return oldchan;
@@ -185,11 +185,11 @@ int addparty(char *bot, char *nick, int chan, char flag, int sock,
       flag = '-';
     party[parties].flag = flag;
     party[parties].from = nmalloc(strlen(from) + 1);
-    strcpy(party[parties].from, from);
+    strlcpy(party[parties].from, from, sizeof(party[parties].from));
   } else {
     party[parties].flag = ' ';
     party[parties].from = nmalloc(10);
-    strcpy(party[parties].from, "(unknown)");
+    strlcpy(party[parties].from, "(unknown)", sizeof(party[parties].from));
   }
   *idx = parties;
   parties++;
@@ -262,10 +262,10 @@ int partynick(char *bot, int sock, char *nick)
 
   for (i = 0; i < parties; i++) {
     if (!strcasecmp(party[i].bot, bot) && (party[i].sock == sock)) {
-      strcpy(work, party[i].nick);
+      strlcpy(work, party[i].nick, sizeof(work));
       strncpy(party[i].nick, nick, HANDLEN);
       party[i].nick[HANDLEN] = 0;
-      strcpy(nick, work);
+      strlcpy(nick, work, sizeof(nick));
       return i;
     }
   }
@@ -284,7 +284,7 @@ void partyaway(char *bot, int sock, char *msg)
         nfree(party[i].away);
       if (msg[0]) {
         party[i].away = nmalloc(strlen(msg) + 1);
-        strcpy(party[i].away, msg);
+        strlcpy(party[i].away, msg, sizeof(party[i].away));
       } else
         party[i].away = 0;
     }
@@ -341,8 +341,8 @@ void remparty(char *bot, int sock)
       if (party[i].away)
         nfree(party[i].away);
       if (i < parties) {
-        strcpy(party[i].bot, party[parties].bot);
-        strcpy(party[i].nick, party[parties].nick);
+        strlcpy(party[i].bot, party[parties].bot, sizeof(party[i].bot));
+        strlcpy(party[i].nick, party[parties].nick, sizeof(party[i].nick));
         party[i].chan = party[parties].chan;
         party[i].sock = party[parties].sock;
         party[i].flag = party[parties].flag;
@@ -495,11 +495,11 @@ void answer_local_whom(int idx, int chan)
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            sprintf(idle, " [idle %lud%luh]", days, hrs);
+            snprintf(idle, sizeof(idle), " [idle %lud%luh]", days, hrs);
           else if (hrs > 0)
-            sprintf(idle, " [idle %luh%lum]", hrs, mins);
+            snprintf(idle, sizeof(idle), " [idle %luh%lum]", hrs, mins);
           else
-            sprintf(idle, " [idle %lum]", mins);
+            snprintf(idle, sizeof(idle), " [idle %lum]", mins);
         } else
           idle[0] = 0;
         total++;
@@ -517,7 +517,7 @@ void answer_local_whom(int idx, int chan)
       if (c == '-')
         c = ' ';
       if (party[i].timer == 0L)
-        strcpy(idle, " [idle?]");
+        strlcpy(idle, " [idle?]", sizeof(idle));
       else if (now - party[i].timer > 300) {
         unsigned long days, hrs, mins;
 
@@ -525,11 +525,11 @@ void answer_local_whom(int idx, int chan)
         hrs = ((now - party[i].timer) - (days * 86400)) / 3600;
         mins = ((now - party[i].timer) - (hrs * 3600)) / 60;
         if (days > 0)
-          sprintf(idle, " [idle %lud%luh]", days, hrs);
+          snprintf(idle, sizeof(idle), " [idle %lud%luh]", days, hrs);
         else if (hrs > 0)
-          sprintf(idle, " [idle %luh%lum]", hrs, mins);
+          snprintf(idle, sizeof(idle), " [idle %luh%lum]", hrs, mins);
         else
-          sprintf(idle, " [idle %lum]", mins);
+          snprintf(idle, sizeof(idle), " [idle %lum]", mins);
       } else
         idle[0] = 0;
       total++;
@@ -556,7 +556,7 @@ void tell_bots(int idx)
     dprintf(idx, "%s\n", BOT_NOBOTSLINKED);
     return;
   }
-  strcpy(s, botnetnick);
+  strlcpy(s, botnetnick, sizeof(s));
   i = strlen(botnetnick);
 
   for (bot = tandbot; bot; bot = bot->next) {
@@ -569,7 +569,7 @@ void tell_bots(int idx)
       s[i++] = ',';
       s[i++] = ' ';
     }
-    strcpy(s + i, bot->bot);
+    strlcpy(s + i, bot->bot, sizeof(s) - i);
     i += strlen(bot->bot);
   }
   if (s[0])
@@ -601,7 +601,7 @@ void tell_bottree(int idx, int showver)
         s[i++] = ',';
         s[i++] = ' ';
       }
-      strcpy(s + i, bot->bot);
+      strlcpy(s + i, bot->bot, sizeof(s) - i);
       i += strlen(bot->bot);
     }
   }
@@ -633,22 +633,22 @@ void tell_bottree(int idx, int showver)
       imark = 0;
       for (i = 0; i < lev; i++) {
         if (mark[i])
-          strcpy(work + imark, "  |  ");
+          strlcpy(work + imark, "  |  ", sizeof(work) - imark);
         else
-          strcpy(work + imark, "     ");
+          strlcpy(work + imark, "     ", sizeof(work) - imark);
         imark += 5;
       }
       if (cnt > 1) {
         if (bot->ssl) {
-          strcpy(work + imark, "  |=");
+          strlcpy(work + imark, "  |=", sizeof(work) - imark);
         } else {
-          strcpy(work + imark, "  |-");
+          strlcpy(work + imark, "  |-", sizeof(work) - imark);
         }
       } else {
         if (bot->ssl) {
-          strcpy(work + imark, "  `=");
+          strlcpy(work + imark, "  `=", sizeof(work) - imark);
         } else {
-          strcpy(work + imark, "  `-");
+          strlcpy(work + imark, "  `-", sizeof(work) - imark);
         }
       }
       s[0] = 0;
@@ -661,14 +661,14 @@ void tell_bottree(int idx, int showver)
             } else {
               c = bot->share;
             }
-            i = sprintf(s, "%c%s", c, bot->bot);
+            i = snprintf(s, sizeof(s), "%c%s", c, bot->bot);
             if (showver)
-              sprintf(s + i, " (%d.%d.%d.%d)",
+              snprintf(s + i, sizeof(s) - i, " (%d.%d.%d.%d)",
                       bot->ver / 1000000,
                       bot->ver % 1000000 / 10000,
                       bot->ver % 10000 / 100, bot->ver % 100);
           } else
-            sprintf(s, "-%s", bot->bot);
+            snprintf(s, sizeof(s), "-%s", bot->bot);
         } else
           bot = bot->next;
       }
@@ -704,14 +704,14 @@ void tell_bottree(int idx, int showver)
                   } else {
                     c = bot->share;
                   }
-                  i = sprintf(s, "%c%s", c, bot->bot);
+                  i = snprintf(s, sizeof(s), "%c%s", c, bot->bot);
                   if (showver)
-                    sprintf(s + i, " (%d.%d.%d.%d)",
+                    snprintf(s + i, sizeof(s) - i, " (%d.%d.%d.%d)",
                             bot->ver / 1000000,
                             bot->ver % 1000000 / 10000,
                             bot->ver % 10000 / 100, bot->ver % 100);
                 } else
-                  sprintf(s, "-%s", bot->bot);
+                  snprintf(s, sizeof(s), "-%s", bot->bot);
               }
             }
           }
@@ -721,9 +721,9 @@ void tell_bottree(int idx, int showver)
           imark = 0;
           for (i = 1; i < lev; i++) {
             if (mark[i - 1])
-              strcpy(work + imark, "  |  ");
+              strlcpy(work + imark, "  |  ", sizeof(work) - imark);
             else
-              strcpy(work + imark, "     ");
+              strlcpy(work + imark, "     ", sizeof(work) - imark);
             imark += 5;
           }
           more = 1;
@@ -1066,13 +1066,13 @@ int botlink(char *linker, int idx, char *nick)
       dcc[i].ssl = (bi->ssl & TLS_BOT);
 #endif
       dcc[i].user = u;
-      strcpy(dcc[i].nick, nick);
-      strcpy(dcc[i].host, bi->address);
+      strlcpy(dcc[i].nick, nick, sizeof(dcc[i].nick));
+      strlcpy(dcc[i].host, bi->address, sizeof(dcc[i].host));
       dcc[i].u.dns->ibuf = idx;
       dcc[i].u.dns->cptr = get_data_ptr(strlen(linker) + 1);
-      strcpy(dcc[i].u.dns->cptr, linker);
+      strlcpy(dcc[i].u.dns->cptr, linker, sizeof(dcc[i].u.dns->cptr));
       dcc[i].u.dns->host = get_data_ptr(strlen(dcc[i].host) + 1);
-      strcpy(dcc[i].u.dns->host, dcc[i].host);
+      strlcpy(dcc[i].u.dns->host, dcc[i].host, sizeof(dcc[i].u.dns->host));
       dcc[i].u.dns->dns_success = botlink_resolve_success;
       dcc[i].u.dns->dns_failure = botlink_resolve_failure;
       dcc[i].u.dns->dns_type = RES_IPBYHOST;
@@ -1089,7 +1089,7 @@ static void botlink_resolve_failure(int i)
   char s[81];
 
   putlog(LOG_BOTS, "*", DCC_LINKFAIL, dcc[i].nick);
-  strcpy(s, dcc[i].nick);
+  strlcpy(s, dcc[i].nick, sizeof(s));
   nfree(dcc[i].u.dns->cptr);
   lostdcc(i);
   autolink_cycle(s);            /* Check for more auto-connections */
@@ -1103,7 +1103,7 @@ static void botlink_resolve_success(int i)
   changeover_dcc(i, &DCC_FORK_BOT, sizeof(struct bot_info));
   dcc[i].timeval = now;
   strlcpy(dcc[i].u.bot->linker, linker, sizeof dcc[i].u.bot->linker);
-  strcpy(dcc[i].u.bot->version, "(primitive bot)");
+  strlcpy(dcc[i].u.bot->version, "(primitive bot)", sizeof(dcc[i].u.bot->version));
   dcc[i].u.bot->numver = idx;
   dcc[i].u.bot->port = dcc[i].port;     /* Remember where i started */
 #ifdef TLS
@@ -1196,9 +1196,9 @@ void tandem_relay(int idx, char *nick, int i)
   dcc[i].ssl = (bi->ssl & TLS_RELAY);
 #endif
   dcc[i].addr = 0L;
-  strcpy(dcc[i].nick, nick);
+  strlcpy(dcc[i].nick, nick, sizeof(dcc[i].nick));
   dcc[i].user = u;
-  strcpy(dcc[i].host, bi->address);
+  strlcpy(dcc[i].host, bi->address, sizeof(dcc[i].host));
 #ifdef IPV6
   if (strchr(bi->address, ':'))
     dprintf(idx, "%s %s @ [%s]:%d ...\n", BOT_CONNECTINGTO, nick,
@@ -1217,7 +1217,7 @@ void tandem_relay(int idx, char *nick, int i)
   dcc[idx].u.relay->sock = dcc[i].sock;
   dcc[i].u.dns->ibuf = dcc[idx].sock;
   dcc[i].u.dns->host = get_data_ptr(strlen(bi->address) + 1);
-  strcpy(dcc[i].u.dns->host, bi->address);
+  strlcpy(dcc[i].u.dns->host, bi->address, sizeof(dcc[i].u.dns->host));
   dcc[i].u.dns->dns_success = tandem_relay_resolve_success;
   dcc[i].u.dns->dns_failure = tandem_relay_resolve_failure;
   dcc[i].u.dns->dns_type = RES_IPBYHOST;
@@ -1563,22 +1563,22 @@ static void dcc_relaying(int idx, char *buf, int j)
 
 static void display_relay(int i, char *other)
 {
-  sprintf(other, "rela  -> sock %d", dcc[i].u.relay->sock);
+  snprintf(other, sizeof(other), "rela  -> sock %d", dcc[i].u.relay->sock);
 }
 
 static void display_relaying(int i, char *other)
 {
-  sprintf(other, ">rly  -> sock %d", dcc[i].u.relay->sock);
+  snprintf(other, sizeof(other), ">rly  -> sock %d", dcc[i].u.relay->sock);
 }
 
 static void display_tandem_relay(int i, char *other)
 {
-  strcpy(other, "other  rela");
+  strlcpy(other, "other  rela", sizeof(other));
 }
 
 static void display_pre_relay(int i, char *other)
 {
-  strcpy(other, "other  >rly");
+  strlcpy(other, "other  >rly", sizeof(other));
 }
 
 static int expmem_relay(void *x)

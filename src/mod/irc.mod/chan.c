@@ -170,9 +170,9 @@ static char *getchanmode(struct chanset_t *chan)
     s[i++] = 'l';
   s[i] = 0;
   if (chan->channel.key[0])
-    i += sprintf(s + i, " %s", chan->channel.key);
+    i += snprintf(s + i, sizeof(s) - i, " %s", chan->channel.key);
   if (chan->channel.maxmembers != 0)
-    sprintf(s + i, " %d", chan->channel.maxmembers);
+    snprintf(s + i, sizeof(s) - i, " %d", chan->channel.maxmembers);
   return s;
 }
 
@@ -257,32 +257,32 @@ static int detect_chan_flood(char *floodnick, char *floodhost, char *from,
   case FLOOD_NOTICE:
     thr = chan->flood_pub_thr;
     lapse = chan->flood_pub_time;
-    strcpy(ftype, "pub");
+    strlcpy(ftype, "pub", sizeof(ftype));
     break;
   case FLOOD_CTCP:
     thr = chan->flood_ctcp_thr;
     lapse = chan->flood_ctcp_time;
-    strcpy(ftype, "ctcp");
+    strlcpy(ftype, "ctcp", sizeof(ftype));
     break;
   case FLOOD_NICK:
     thr = chan->flood_nick_thr;
     lapse = chan->flood_nick_time;
-    strcpy(ftype, "nick");
+    strlcpy(ftype, "nick", sizeof(ftype));
     break;
   case FLOOD_JOIN:
     thr = chan->flood_join_thr;
     lapse = chan->flood_join_time;
-    strcpy(ftype, "join");
+    strlcpy(ftype, "join", sizeof(ftype));
     break;
   case FLOOD_DEOP:
     thr = chan->flood_deop_thr;
     lapse = chan->flood_deop_time;
-    strcpy(ftype, "deop");
+    strlcpy(ftype, "deop", sizeof(ftype));
     break;
   case FLOOD_KICK:
     thr = chan->flood_kick_thr;
     lapse = chan->flood_kick_time;
-    strcpy(ftype, "kick");
+    strlcpy(ftype, "kick", sizeof(ftype));
     break;
   }
   if ((thr == 0) || (lapse == 0))
@@ -356,7 +356,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, char *from,
         putlog(LOG_MISC | LOG_JOIN, chan->dname, IRC_FLOODIGNORE3, p);
       else
         putlog(LOG_MISC | LOG_JOIN, chan->dname, IRC_FLOODIGNORE4, p);
-      strcpy(ftype + 4, " flood");
+      strlcpy(ftype + 4, " flood", sizeof(ftype) - 4);
       u_addban(chan, h, botnetnick, ftype, now + (60 * chan->ban_time), 0);
       if (!channel_enforcebans(chan) && (me_op(chan) || me_halfop(chan))) {
         char s[NICKLEN + UHOSTLEN];
@@ -429,7 +429,7 @@ static void kick_all(struct chanset_t *chan, char *hostmask, char *comment,
   flushed = 0;
   kicknick[0] = 0;
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-    sprintf(s, "%s!%s", m->nick, m->userhost);
+    snprintf(s, sizeof(s), "%s!%s", m->nick, m->userhost);
     get_user_flagrec(get_user_from_member(m), &fr, chan->dname);
     if ((me_op(chan) || (me_halfop(chan) && !chan_hasop(m))) &&
         match_addr(hostmask, s) && !chan_sentkick(m) &&
@@ -674,7 +674,7 @@ static void check_this_ban(struct chanset_t *chan, char *banmask, int sticky)
     return;
 
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-    sprintf(user, "%s!%s", m->nick, m->userhost);
+    snprintf(user, sizeof(user), "%s!%s", m->nick, m->userhost);
     if (match_addr(banmask, user) &&
         !(use_exempts &&
           (u_match_mask(global_exempts, user) ||
@@ -762,7 +762,7 @@ static void recheck_channel_modes(struct chanset_t *chan)
     if ((chan->limit_prot != 0) && (chan->channel.maxmembers == 0)) {
       char s[21];
 
-      sprintf(s, "%d", chan->limit_prot);
+      snprintf(s, sizeof(s), "%d", chan->limit_prot);
       add_mode(chan, '+', 'l', s);
     } else if ((mns & CHANLIMIT) && (chan->channel.maxmembers != 0))
       add_mode(chan, '-', 'l', "");
@@ -858,7 +858,7 @@ static void check_this_member(struct chanset_t *chan, char *nick,
         (strchr(NOHALFOPS_MODES, 'I') != NULL)))
       return;
 
-    sprintf(s, "%s!%s", m->nick, m->userhost);
+    snprintf(s, sizeof(s), "%s!%s", m->nick, m->userhost);
     if (use_invites && (u_match_mask(global_invites, s) ||
         u_match_mask(chan->invites, s)))
       refresh_invite(chan, s);
@@ -1083,7 +1083,7 @@ static int got352or4(struct chanset_t *chan, char *user, char *host,
   if (match_my_nick(nick)) {    /* Is it me? */
     if (!m->joined)
       m->joined = now;
-    strcpy(botuserhost, m->userhost);   /* Yes, save my own userhost */
+    strlcpy(botuserhost, m->userhost, sizeof(botuserhost));   /* Yes, save my own userhost */
   }
   m->flags |= WHO_SYNCED;
   if (strpbrk(flags, opchars) != NULL)
@@ -1812,7 +1812,7 @@ static void set_topic(struct chanset_t *chan, char *k)
     nfree(chan->channel.topic);
   if (k && k[0]) {
     chan->channel.topic = (char *) channel_malloc(strlen(k) + 1);
-    strcpy(chan->channel.topic, k);
+    strlcpy(chan->channel.topic, k, sizeof(chan->channel.topic));
   } else
     chan->channel.topic = NULL;
 }
@@ -2437,7 +2437,7 @@ static int gotnick(char *from, char *msg)
        * Banned?
        */
       /* Compose a nick!user@host for the new nick */
-      sprintf(s1, "%s!%s", msg, uhost);
+      snprintf(s1, sizeof(s1), "%s!%s", msg, uhost);
       strlcpy(m->nick, msg, sizeof m->nick);
       detect_chan_flood(msg, uhost, from, chan, FLOOD_NICK, NULL);
 
@@ -2716,7 +2716,7 @@ static int gotnotice(char *from, char *msg)
     if (*p == 1) {
       *p = 0;
       ctcp = buf2;
-      strcpy(ctcp, p1);
+      strlcpy(ctcp, p1, sizeof(ctcp));
       memmove(p1 - 1, p + 1, strlen(p + 1) + 1);
       p = strchr(msg, 1);
       detect_chan_flood(nick, uhost, from, chan,

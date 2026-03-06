@@ -202,7 +202,7 @@ void splitc(char *first, char *rest, char divider)
   }
   *p = 0;
   if (first != NULL)
-    strcpy(first, rest);
+    strlcpy(first, rest, sizeof(first));
   if (first != rest)
     memmove(rest, p + 1, strlen(p + 1) + 1);
 }
@@ -347,7 +347,7 @@ void maskaddr(const char *s, char *nw, int type)
   *nw++ = '@';
 
   if (type >= 30) {
-    strcpy(nw, "*");
+    strlcpy(nw, "*", sizeof(nw));
     return;
   }
 
@@ -365,7 +365,7 @@ void maskaddr(const char *s, char *nw, int type)
       p = u;
     strncpy(nw, h, ++p - h);
     nw += p - h;
-    strcpy(nw, "*");
+    strlcpy(nw, "*", sizeof(nw));
   } else if (!p && !num && type >= 10) {
       /* we have a hostname and type
        requires us to replace numbers */
@@ -389,23 +389,23 @@ void maskaddr(const char *s, char *nw, int type)
     if (num) { /* IPv4 */
       strncpy(nw, h, p - h);
       nw += p - h;
-      strcpy(nw, ".*");
+      strlcpy(nw, ".*", sizeof(nw));
       return;
     }
     for (u = h, d = 0; (u = strchr(++u, '.')); d++);
     if (d < 2) { /* types < 2 don't mask the host */
-      strcpy(nw, h);
+      strlcpy(nw, h, sizeof(nw));
       return;
     }
     u = strchr(h, '.');
     if (d > 3 || (d == 3 && strlen(p) > 3))
       u = strchr(++u, '.'); /* ccTLD or not? Look above. */
-    sprintf(nw, "*%s", u);
+    snprintf(nw, sizeof(nw), "*%s", u);
   } else if (!*h)
       /* take care if the mask is empty or contains only '@' */
-      strcpy(nw, "*");
+      strlcpy(nw, "*", sizeof(nw));
     else
-      strcpy(nw, h);
+      strlcpy(nw, h, sizeof(nw));
 }
 
 /* Dump a potentially super-long string of text.
@@ -458,7 +458,7 @@ void daysago(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    sprintf(out, "%d day%s ago", days, (days == 1) ? "" : "s");
+    snprintf(out, sizeof(out), "%d day%s ago", days, (days == 1) ? "" : "s");
     return;
   }
   strftime(out, 6, "%H:%M", localtime(&then));
@@ -472,7 +472,7 @@ void days(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    sprintf(out, "in %d day%s", days, (days == 1) ? "" : "s");
+    snprintf(out, sizeof(out), "in %d day%s", days, (days == 1) ? "" : "s");
     return;
   }
   strftime(out, 9, "at %H:%M", localtime(&now));
@@ -489,14 +489,14 @@ void daysdur(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    sprintf(out, "for %d day%s", days, (days == 1) ? "" : "s");
+    snprintf(out, sizeof(out), "for %d day%s", days, (days == 1) ? "" : "s");
     return;
   }
-  strcpy(out, "for ");
+  strlcpy(out, "for ", sizeof(out));
   now -= then;
   hrs = (int) (now / 3600);
   mins = (int) ((now - (hrs * 3600)) / 60);
-  sprintf(s, "%02d:%02d", hrs, mins);
+  snprintf(s, sizeof(s), "%02d:%02d", hrs, mins);
   strcat(out, s);
 }
 
@@ -720,7 +720,7 @@ static void subst_addcol(char *s, char *newcol)
   }
   if ((colsofar == cols) || ((newcol[0] == '\377') && (colstr[0]))) {
     colsofar = 0;
-    strcpy(s, "     ");
+    strlcpy(s, "     ", sizeof(s));
     colwidth = (subwidth - 5) / cols;
     q = colstr;
     p = strchr(colstr, '\377');
@@ -1010,17 +1010,17 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       s[HELP_BUF_LEN] = 0;
       return;
     }
-    strcpy(writeidx, readidx);
+    strlcpy(writeidx, readidx, sizeof(writeidx));
   } else
     *writeidx = 0;
   if (center) {
-    strcpy(xx, s);
+    strlcpy(xx, s, sizeof(xx));
     i = 35 - (strlen(xx) / 2);
     if (i > 0) {
       s[0] = 0;
       for (j = 0; j < i; j++)
         s[j] = ' ';
-      strcpy(s + i, xx);
+      strlcpy(s + i, xx, sizeof(s) - i);
     }
   }
   if (cols) {
@@ -1047,7 +1047,7 @@ static void scan_help_file(struct help_ref *current, char *filename, int type)
           list = nmalloc(sizeof *list);
 
           list->name = nmalloc(p - q + 1);
-          strcpy(list->name, q);
+          strlcpy(list->name, q, sizeof(list->name));
           list->next = current->first;
           list->type = type;
           current->first = list;
@@ -1075,7 +1075,7 @@ void add_help_reference(char *file)
   current = nmalloc(sizeof *current);
 
   current->name = nmalloc(strlen(file) + 1);
-  strcpy(current->name, file);
+  strlcpy(current->name, file, sizeof(current->name));
   current->next = help_list;
   current->first = NULL;
   help_list = current;
@@ -1193,7 +1193,7 @@ void showhelp(char *who, char *file, struct flag_record *flags, int fl)
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
-        strcpy(s, " ");
+        strlcpy(s, " ", sizeof(s));
       help_subst(s, who, flags, 0, file);
       if ((s[0]) && (strlen(s) > 1)) {
         dprintf(DP_HELP, "NOTICE %s :%s\n", who, s);
@@ -1224,7 +1224,7 @@ static int display_tellhelp(int idx, char *file, FILE *f,
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
-        strcpy(s, " ");
+        strlcpy(s, " ", sizeof(s));
       help_subst(s, dcc[idx].nick, flags, 1, file);
       if (s[0]) {
         dprintf(idx, "%s\n", s);
@@ -1314,7 +1314,7 @@ void sub_lang(int idx, char *text)
   if (s[strlen(s) - 1] == '\n')
     s[strlen(s) - 1] = 0;
   if (!s[0])
-    strcpy(s, " ");
+    strlcpy(s, " ", sizeof(s));
   help_subst(s, dcc[idx].nick, &fr, 1, botnetnick);
   if (s[0])
     dprintf(idx, "%s\n", s);
@@ -1356,7 +1356,7 @@ void show_motd(int idx)
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
-      strcpy(s, " ");
+      strlcpy(s, " ", sizeof(s));
     help_subst(s, dcc[idx].nick, &fr, 1, botnetnick);
     if (s[0])
       dprintf(idx, "%s\n", s);
@@ -1392,7 +1392,7 @@ void show_banner(int idx)
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
-      strcpy(s, " ");
+      strlcpy(s, " ", sizeof(s));
     help_subst(s, dcc[idx].nick, &fr, 0, botnetnick);
     if (s[0])
       dprintf(idx, "%s\n", s);
@@ -1463,7 +1463,7 @@ char *str_escape(const char *str, const char div, const char mask)
     }
 
     if (*s == div || *s == mask) {
-      sprintf(b, "%c%02x", mask, *s);
+      snprintf(b, sizeof(b), "%c%02x", mask, *s);
       b += 3;
       blen += 3;
     } else {

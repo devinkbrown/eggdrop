@@ -293,7 +293,7 @@ static const char *isupport_encode(const char *value) {
 
   for (i = j = 0; i < strlen(value) && j < sizeof buf - strlen("\\xHH") - 1; i++) {
     if ((unsigned char)value[i] < 33 || (unsigned char)value[i] > 126)
-      j += sprintf(buf + j, "\\x%02hhx", (unsigned char)value[i]);
+      j += snprintf(buf + j, sizeof(buf) - j, "\\x%02hhx", (unsigned char)value[i]);
     else
       buf[j++] = value[i];
   }
@@ -474,9 +474,9 @@ static void isupport_stringify(int idx, char *buf, size_t bufsize, size_t *len,
     }
   }
   if (!value[0])
-    *len += sprintf(buf + *len, " %s", key);
+    *len += snprintf(buf + *len, bufsize - *len, " %s", key);
   else
-    *len += sprintf(buf + *len, " %s=%s", key, value);
+    *len += snprintf(buf + *len, bufsize - *len, " %s=%s", key, value);
 }
 
 void isupport_report(int idx, const char *prefix, int details)
@@ -487,7 +487,7 @@ void isupport_report(int idx, const char *prefix, int details)
   if (!server_online)
     return;
 
-  len = prefixlen = sprintf(buf, "%s%s", prefix, "isupport:");
+  len = prefixlen = snprintf(buf, sizeof(buf), "%s%s", prefix, "isupport:");
   for (struct isupport *data = isupport_list; data; data = data->next) {
     isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, isupport_get_from_record(data));
   }
@@ -495,7 +495,7 @@ void isupport_report(int idx, const char *prefix, int details)
     dprintf(idx, "%s\n", buf);
 
   if (details) {
-    len = prefixlen = sprintf(buf, "%s%s", prefix, "isupport (default):");
+    len = prefixlen = snprintf(buf, sizeof(buf), "%s%s", prefix, "isupport (default):");
     for (struct isupport *data = isupport_list; data; data = data->next) {
       if (data->defaultvalue) {
         isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, data->defaultvalue);

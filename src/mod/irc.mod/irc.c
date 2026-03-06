@@ -167,7 +167,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
     }
     /* ... or creating new user and setting that to deop */
     else {
-      strcpy(s1, whobad);
+      strlcpy(s1, whobad, sizeof(s1));
       maskaddr(s1, s, chan->ban_type);
       strlcpy(s1, badnick, sizeof s1);
       /* If that handle exists use "badX" (where X is an increasing number)
@@ -180,7 +180,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
           i = atoi(s1 + 3);
           simple_sprintf(s1 + 3, "%d", i + 1);
         } else
-          strcpy(s1, "bad1");   /* Start with '1' */
+          strlcpy(s1, "bad1", sizeof(s1));   /* Start with '1' */
       }
       userlist = adduser(userlist, s1, s, "-", 0);
       fr.match = FR_CHAN;
@@ -263,7 +263,7 @@ static void set_key(struct chanset_t *chan, char *k)
     return;
   }
   chan->channel.key = (char *) channel_malloc(strlen(k) + 1);
-  strcpy(chan->channel.key, k);
+  strlcpy(chan->channel.key, k, sizeof(chan->channel.key));
 }
 
 static int hand_on_chan(struct chanset_t *chan, struct userrec *u)
@@ -303,9 +303,9 @@ static void newmask(masklist *m, char *s, char *who)
   m->next->mask[0] = 0;
   nfree(m->mask);
   m->mask = (char *) channel_malloc(strlen(s) + 1);
-  strcpy(m->mask, s);
+  strlcpy(m->mask, s, sizeof(m->mask));
   m->who = (char *) channel_malloc(strlen(who) + 1);
-  strcpy(m->who, who);
+  strlcpy(m->who, who, sizeof(m->who));
   m->timer = now;
 }
 
@@ -513,8 +513,8 @@ static void status_log()
       for (invites = 0, b = chan->channel.invite; b->mask[0]; b = b->next)
         invites++;
 
-      sprintf(s, "%d", exempts);
-      sprintf(s2, "%d", invites);
+      snprintf(s, sizeof(s), "%d", exempts);
+      snprintf(s2, sizeof(s2), "%d", invites);
 
       putlog(LOG_MISC, chan->dname,
              "%s%s (%s) : [m/%d o/%d h/%d v/%d n/%d b/%d e/%s I/%s]",
@@ -712,7 +712,7 @@ static int channels_6char STDVAR
   BADARGS(7, 7, " nick user@host handle desto/chan keyword/nick text");
 
   CHECKVALIDITY(channels_6char);
-  sprintf(x, "%d", (int) F(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
+  snprintf(x, sizeof(x), "%d", (int) F(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
   Tcl_AppendResult(irp, x, NULL);
   return TCL_OK;
 }
@@ -1125,7 +1125,7 @@ static void irc_report(int idx, int details)
   int k, l;
   struct chanset_t *chan;
 
-  strcpy(q, "Channels: ");
+  strlcpy(q, "Channels: ", sizeof(q));
   k = 10;
   for (chan = chanset; chan; chan = chan->next) {
     if (idx != DP_STDOUT)
@@ -1146,7 +1146,7 @@ static void irc_report(int idx, int details)
                          p ? p : "", p ? ")" : "");
       if ((k + l) > 70) {
         dprintf(idx, "    %s\n", q);
-        strcpy(q, "          ");
+        strlcpy(q, "          ", sizeof(q));
         k = 10;
       }
       k += my_strcpy(q + k, ch);
@@ -1452,7 +1452,7 @@ char *irc_start(Function *global_funcs)
   Tcl_TraceVar(interp, "rfc-compliant",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_rfccompliant, NULL);
-  strcpy(opchars, "@");
+  strlcpy(opchars, "@", sizeof(opchars));
   add_tcl_strings(mystrings);
   add_tcl_ints(myints);
   add_builtins(H_dcc, irc_dcc);

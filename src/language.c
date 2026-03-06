@@ -125,7 +125,7 @@ static void add_lang(char *lang)
   /* No existing entry, create a new one */
   lp = nmalloc(sizeof(lang_pri));
   lp->lang = nmalloc(strlen(lang) + 1);
-  strcpy(lp->lang, lang);
+  strlcpy(lp->lang, lang, sizeof(lp->lang));
   lp->next = NULL;
 
   /* If we have other entries, point to the beginning of the old list */
@@ -168,7 +168,7 @@ static int add_message(int lidx, char *ltext)
     if (l->idx && (l->idx == lidx)) {
       nfree(l->text);
       l->text = nmalloc(strlen(ltext) + 1);
-      strcpy(l->text, ltext);
+      strlcpy(l->text, ltext, sizeof(l->text));
       return 1;
     }
     if (!l->next)
@@ -182,7 +182,7 @@ static int add_message(int lidx, char *ltext)
     l = langtab[lidx & 63] = nmalloc(sizeof(lang_tab));
   l->idx = lidx;
   l->text = nmalloc(strlen(ltext) + 1);
-  strcpy(l->text, ltext);
+  strlcpy(l->text, ltext, sizeof(l->text));
   l->next = 0;
   return 0;
 }
@@ -250,7 +250,7 @@ static void read_lang(char *langfile)
         continue;
       }
       if ((ctmp = strchr(lbuf, ',')))
-        strcpy(ltext, ctmp + 1);
+        strlcpy(ltext, ctmp + 1, sizeof(ltext));
       else 
         putlog(LOG_MISC, "*", "LANG: Malformed text line (missing ,) in %s at %d.",
                langfile, lline);
@@ -260,7 +260,7 @@ static void read_lang(char *langfile)
         ltextsize += sizeof lbuf;
         ltext = nrealloc(ltext, ltextsize);
       }
-      strcpy(ltext + len, lbuf);
+      strlcpy(ltext + len, lbuf, sizeof(ltext) - len);
     }
     if ((ctmp = strchr(ltext, '\n'))) {
       lline++;
@@ -328,7 +328,7 @@ void add_lang_section(char *section)
   /* Create new section entry */
   ls = nmalloc(sizeof(lang_sec));
   ls->section = nmalloc(strlen(section) + 1);
-  strcpy(ls->section, section);
+  strlcpy(ls->section, section, sizeof(ls->section));
   ls->lang = NULL;
   ls->next = NULL;
 
@@ -387,12 +387,12 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
     ldir = LANGDIR;
   langfile = nmalloc(strlen(ldir) + strlen(sec->section) + strlen(language) +
              8);
-  sprintf(langfile, "%s/%s.%s.lang", ldir, sec->section, language);
+  snprintf(langfile, sizeof(langfile), "%s/%s.%s.lang", ldir, sec->section, language);
 
   if (file_readable(langfile)) {
     /* Save language used for this section */
     sec->lang = nrealloc(sec->lang, strlen(language) + 1);
-    strcpy(sec->lang, language);
+    strlcpy(sec->lang, language, sizeof(sec->lang));
     return langfile;
   }
 
@@ -463,7 +463,7 @@ int cmd_loadlanguage(struct userrec *u, int idx, char *par)
   if (idx != DP_LOG)
     putlog(LOG_CMDS, "*", "#%s# language %s", dcc[idx].nick, par);
   buf = nmalloc(strlen(par) + 1);
-  strcpy(buf, par);
+  strlcpy(buf, par, sizeof(buf));
   if (!split_lang(buf, &lang, &section)) {
     nfree(buf);
     dprintf(idx, "Invalid parameter %s.\n", par);
@@ -657,7 +657,7 @@ static int tcl_language STDVAR
   BADARGS(2, 2, " language");
 
   buf = nmalloc(strlen(argv[1]) + 1);
-  strcpy(buf, argv[1]);
+  strlcpy(buf, argv[1], sizeof(buf));
 
   if (!split_lang(buf, &lang, &section)) {
     Tcl_SetResult(irp, "Invalid parameter", TCL_STATIC);

@@ -112,7 +112,7 @@ static void add_delay(struct chanset_t *chan, int plsmns, int mode, char *mask)
   d->seconds = now + randint(30);
 
   d->mask = nmalloc(strlen(mask) + 1);
-  strcpy(d->mask, mask);
+  strlcpy(d->mask, mask, sizeof(d->mask));
 
   if (!delay_head)
     delay_head = d;
@@ -1271,9 +1271,9 @@ static void share_ufsend(int idx, char *par)
       zapfbot(idx);
       fclose(f);
     } else {
-      strcpy(dcc[i].nick, "*users");
+      strlcpy(dcc[i].nick, "*users", sizeof(dcc[i].nick));
       dcc[i].u.xfer->filename = nmalloc(strlen(s) + 1);
-      strcpy(dcc[i].u.xfer->filename, s);
+      strlcpy(dcc[i].u.xfer->filename, s, sizeof(dcc[i].u.xfer->filename));
       dcc[i].u.xfer->origname = dcc[i].u.xfer->filename;
       dcc[i].u.xfer->length = atoi(par);
       dcc[i].u.xfer->f = f;
@@ -1282,7 +1282,7 @@ static void share_ufsend(int idx, char *par)
       if (*port == '+')
         dcc[i].ssl = 1;
 #endif
-      strcpy(dcc[i].host, dcc[idx].nick);
+      strlcpy(dcc[i].host, dcc[idx].nick, sizeof(dcc[i].host));
 
       dcc[idx].status |= STAT_GETTING;
     }
@@ -1472,7 +1472,7 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
   if (!chan || channel_shared(chan)) {
     va_start(va, format);
 
-    strcpy(s, "s ");
+    strlcpy(s, "s ", sizeof(s));
     if ((l = egg_vsnprintf(s + 2, 509, format, va)) < 0)
       s[2 + (l = 509)] = 0;
     for (i = 0; i < dcc_total; i++)
@@ -1502,7 +1502,7 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
 
   va_start(va, format);
 
-  strcpy(s, "s ");
+  strlcpy(s, "s ", sizeof(s));
   if ((l = egg_vsnprintf(s + 2, 509, format, va)) < 0)
     s[2 + (l = 509)] = 0;
   for (i = 0; i < dcc_total; i++)
@@ -1626,7 +1626,7 @@ static struct share_msgq *q_addmsg(struct share_msgq *qq,
     q->chan = chan;
     q->next = NULL;
     q->msg = nmalloc(strlen(s) + 1);
-    strcpy(q->msg, s);
+    strlcpy(q->msg, s, sizeof(q->msg));
     return q;
   }
   cnt = 0;
@@ -1640,7 +1640,7 @@ static struct share_msgq *q_addmsg(struct share_msgq *qq,
   q->chan = chan;
   q->next = NULL;
   q->msg = nmalloc(strlen(s) + 1);
-  strcpy(q->msg, s);
+  strlcpy(q->msg, s, sizeof(q->msg));
   return qq;
 }
 
@@ -1831,7 +1831,7 @@ static struct userrec *dup_userlist(int t)
           nue->name = user_malloc(strlen(ue->name) + 1);
           nue->type = NULL;
           nue->u.list = NULL;
-          strcpy(nue->name, ue->name);
+          strlcpy(nue->name, ue->name, sizeof(nue->name));
           list_insert((&nu->entries), nue);
           for (lt = ue->u.list; lt; lt = lt->next) {
             struct list_type *list;
@@ -1839,7 +1839,7 @@ static struct userrec *dup_userlist(int t)
             list = user_malloc(sizeof(struct list_type));
             list->next = NULL;
             list->extra = user_malloc(strlen(lt->extra) + 1);
-            strcpy(list->extra, lt->extra);
+            strlcpy(list->extra, lt->extra, sizeof(list->extra));
             egg_list_append((&nue->u.list), list);
           }
         } else {
@@ -2070,7 +2070,7 @@ static void start_sending_users(int idx)
     updatebot(-1, dcc[idx].nick, '+', 0);
     dcc[idx].status |= STAT_SENDING;
     i = dcc_total - 1;
-    strcpy(dcc[i].host, dcc[idx].nick); /* Store bot's nick */
+    strlcpy(dcc[i].host, dcc[idx].nick, sizeof(dcc[i].host)); /* Store bot's nick */
     getdccaddr(&dcc[i].sockname, s, sizeof s);
 #ifdef TLS
     if (dcc[idx].ssl) {

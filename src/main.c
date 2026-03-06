@@ -1181,8 +1181,8 @@ int main(int arg_c, char **arg_v)
       debug0("stdout is no tty");
       dcc[term_z].u.chat->strip_flags = STRIP_ALL;
     }
-    strcpy(dcc[term_z].nick, EGG_BG_HANDLE);
-    strcpy(dcc[term_z].host, "llama@console");
+    strlcpy(dcc[term_z].nick, EGG_BG_HANDLE, sizeof(dcc[term_z].nick));
+    strlcpy(dcc[term_z].host, "llama@console", sizeof(dcc[term_z].host));
     add_hq_user();
     setsock(STDOUT, 0);          /* Entry in net table */
     dprintf(term_z, "\n### ENTERING DCC CHAT SIMULATION ###\n");

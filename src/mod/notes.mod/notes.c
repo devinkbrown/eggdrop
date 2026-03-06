@@ -121,7 +121,7 @@ static void notes_change(char *oldnick, char *newnick)
   f = fopen(notefile, "r");
   if (f == NULL)
     return;
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   g = fopen(s, "w");
   if (g == NULL) {
     fclose(f);
@@ -151,7 +151,7 @@ static void notes_change(char *oldnick, char *newnick)
   fclose(f);
   fclose(g);
   unlink(notefile);
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   movefile(s, notefile);
   putlog(LOG_MISC, "*", NOTES_SWITCHED_NOTES, tot, tot == 1 ? "" : "s",
          oldnick, newnick);
@@ -170,7 +170,7 @@ static void expire_notes()
   f = fopen(notefile, "r");
   if (f == NULL)
     return;
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   g = fopen(s, "w");
   if (g == NULL) {
     fclose(f);
@@ -202,7 +202,7 @@ static void expire_notes()
   fclose(f);
   fclose(g);
   unlink(notefile);
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   movefile(s, notefile);
   if (tot > 0)
     putlog(LOG_MISC, "*", NOTES_EXPIRED, tot, tot == 1 ? "" : "s");
@@ -234,14 +234,14 @@ static int tcl_storenote STDVAR
       if (!strcasecmp(fwd, argv[2]))
         /* They're forwarding to themselves on the same bot, llama's */
         ok = 0;
-      strcpy(fwd2, fwd);
+      strlcpy(fwd2, fwd, sizeof(fwd2));
       splitc(fwd2, fwd2, '@');
       /* Get the user record of the user that we're forwarding to locally */
       ur2 = get_user_by_handle(userlist, fwd2);
       if (!ur2)
         ok = 0;
       if ((f2 = get_user(&USERENTRY_FWD, ur2))) {
-        strcpy(fwd2, f2);
+        strlcpy(fwd2, f2, sizeof(fwd2));
         splitc(fwd2, fwd2, '@');
         if (!strcasecmp(fwd2, argv[2]))
           /* They're forwarding to someone who forwards back to them! */
@@ -284,7 +284,7 @@ static int tcl_storenote STDVAR
       Tcl_AppendResult(irp, f1, NULL);
       to = NULL;
     } else {
-      strcpy(work, argv[3]);
+      strlcpy(work, argv[3], sizeof(work));
       to = argv[2];
     }
   } else
@@ -397,7 +397,7 @@ static int tcl_erasenotes STDVAR
     Tcl_AppendResult(irp, "-2", NULL);
     return TCL_OK;
   }
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   g = fopen(s, "w");
   if (g == NULL) {
     fclose(f);
@@ -426,12 +426,12 @@ static int tcl_erasenotes STDVAR
         fprintf(g, "%s %s\n", to, s1);
     }
   }
-  sprintf(s, "%d", erased);
+  snprintf(s, sizeof(s), "%d", erased);
   Tcl_AppendResult(irp, s, NULL);
   fclose(f);
   fclose(g);
   unlink(notefile);
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   movefile(s, notefile);
   return TCL_OK;
 }
@@ -453,7 +453,7 @@ static int tcl_listnotes STDVAR
   notes_parse(ln, argv[2]);
   for (i = 1; i <= numnotes; i++) {
     if (notes_in(ln, i)) {
-      sprintf(s, "%d", i);
+      snprintf(s, sizeof(s), "%d", i);
       Tcl_AppendElement(irp, s);
     }
   }
@@ -515,7 +515,7 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
           if (lapse >= note_life)
             strncat(wt, NOTES_EXPIRE_TODAY, sizeof wt - strlen(wt) - 1);
           else
-            sprintf(&dt[strlen(dt)], NOTES_EXPIRE_XDAYS, note_life - lapse,
+            snprintf(dt + strlen(dt), sizeof(dt) - strlen(dt), NOTES_EXPIRE_XDAYS, note_life - lapse,
                     (note_life - lapse) == 1 ? "" : "S");
         }
         if (srd[0] == '+') {
@@ -595,7 +595,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
       dprintf(DP_HELP, "NOTICE %s :%s.\n", nick, NOTES_NO_MESSAGES);
     return;
   }
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   g = fopen(s, "w");
   if (g == NULL) {
     if (idx >= 0)
@@ -632,7 +632,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   fclose(f);
   fclose(g);
   unlink(notefile);
-  sprintf(s, "%s~new", notefile);
+  snprintf(s, sizeof(s), "%s~new", notefile);
   movefile(s, notefile);
   if ((er == 0) && (in > 1)) {
     if (idx >= 0)
@@ -675,7 +675,7 @@ static int tcl_notes STDVAR
     return TCL_OK;
   }
   if (argc == 2) {
-    sprintf(s, "%d", num_notes(argv[1]));
+    snprintf(s, sizeof(s), "%d", num_notes(argv[1]));
     Tcl_AppendResult(irp, s, NULL);
     return TCL_OK;
   }
@@ -950,7 +950,7 @@ int get_note_ignores(struct userrec *u, char ***ignores)
 
   rmspace(xk->data);
   buf = user_malloc(strlen(xk->data) + 1);
-  strcpy(buf, xk->data);
+  strlcpy(buf, xk->data, sizeof(buf));
   p = buf;
 
   /* Split up the string into small parts */
@@ -997,9 +997,9 @@ int add_note_ignore(struct userrec *u, char *mask)
       return 0;
     mxk->next = 0;
     mxk->data = user_malloc(strlen(mask) + 1);
-    strcpy(mxk->data, mask);
+    strlcpy(mxk->data, mask, sizeof(mxk->data));
     mxk->key = user_malloc(strlen(NOTES_IGNKEY) + 1);
-    strcpy(mxk->key, NOTES_IGNKEY);
+    strlcpy(mxk->key, NOTES_IGNKEY, sizeof(mxk->key));
     xtra_set(u, ue, mxk);
   } else {                        /* ... else, we already have other entries. */
     xk->data = user_realloc(xk->data, strlen(xk->data) + strlen(mask) + 2);
@@ -1050,11 +1050,11 @@ int del_note_ignore(struct userrec *u, char *mask)
 
   if (!buf[0]) {
     nfree(buf);                 /* The allocated byte needs to be free'd too */
-    strcpy(xk->key, NOTES_IGNKEY);
+    strlcpy(xk->key, NOTES_IGNKEY, sizeof(xk->key));
     xk->data = 0;
   } else {
     xk->data = buf;
-    strcpy(xk->key, NOTES_IGNKEY);
+    strlcpy(xk->key, NOTES_IGNKEY, sizeof(xk->key));
   }
   xtra_set(u, ue, xk);
   return 1;

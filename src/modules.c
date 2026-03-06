@@ -118,7 +118,7 @@ void check_static(char *name, char *(*func) ())
   struct static_list *p = nmalloc(sizeof(struct static_list));
 
   p->name = nmalloc(strlen(name) + 1);
-  strcpy(p->name, name);
+  strlcpy(p->name, name, sizeof(p->name));
   p->func = func;
   p->next = static_modules;
   static_modules = p;
@@ -641,7 +641,7 @@ void init_modules(void)
 
   module_list = nmalloc(sizeof(module_entry));
   module_list->name = nmalloc(8);
-  strcpy(module_list->name, "eggdrop");
+  strlcpy(module_list->name, "eggdrop", sizeof(module_list->name));
   module_list->major = (egg_numver) / 10000;
   module_list->minor = (egg_numver / 100) % 100;
 #ifndef STATIC
@@ -751,12 +751,12 @@ const char *module_load(char *name)
   hand = shl_load(workbuf, BIND_IMMEDIATE, 0L);
   if (!hand)
     return "Can't load module.";
-  sprintf(workbuf, "%s_start", name);
+  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
   if (shl_findsym(&hand, workbuf, (short) TYPE_PROCEDURE, (void *) &f))
     f = NULL;
   if (f == NULL) {
     /* Some OS's require a _ to be prepended to the symbol name (Darwin, etc). */
-    sprintf(workbuf, "_%s_start", name);
+    snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
     if (shl_findsym(&hand, workbuf, (short) TYPE_PROCEDURE, (void *) &f))
       f = NULL;
   }
@@ -771,7 +771,7 @@ const char *module_load(char *name)
   if (ret != NSObjectFileImageSuccess)
     return "Can't load module.";
   hand = NSLinkModule(file, workbuf, DYLDFLAGS);
-  sprintf(workbuf, "_%s_start", name);
+  snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
   sym = NSLookupSymbolInModule(hand, workbuf);
   if (sym)
     f = (Function) NSAddressOfSymbol(sym);
@@ -787,7 +787,7 @@ const char *module_load(char *name)
   ret = rld_load(NULL, (struct mach_header **) 0, workbuf, (const char *) 0);
   if (!ret)
     return "Can't load module.";
-  sprintf(workbuf, "_%s_start", name);
+  snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
   ret = rld_lookup(NULL, workbuf, &f)
   if (!ret || f == NULL)
     return MOD_NOSTARTDEF;
@@ -798,10 +798,10 @@ const char *module_load(char *name)
   hand = load(workbuf, LDR_NOFLAGS);
   if (hand == LDR_NULL_MODULE)
     return "Can't load module.";
-  sprintf(workbuf, "%s_start", name);
+  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
   f = (Function) ldr_lookup_package(hand, workbuf);
   if (f == NULL) {
-    sprintf(workbuf, "_%s_start", name);
+    snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
     f = (Function) ldr_lookup_package(hand, workbuf);
   }
   if (f == NULL) {
@@ -814,10 +814,10 @@ const char *module_load(char *name)
   hand = dlopen(workbuf, DLFLAGS);
   if (!hand)
     return dlerror();
-  sprintf(workbuf, "%s_start", name);
+  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
   f = (Function) dlsym(hand, workbuf);
   if (f == NULL) {
-    sprintf(workbuf, "_%s_start", name);
+    snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
     f = (Function) dlsym(hand, workbuf);
   }
   if (f == NULL) {
@@ -838,7 +838,7 @@ const char *module_load(char *name)
   if (p == NULL)
     return "Malloc error";
   p->name = nmalloc(strlen(name) + 1);
-  strcpy(p->name, name);
+  strlcpy(p->name, name, sizeof(p->name));
   p->major = 0;
   p->minor = 0;
 #ifndef STATIC
@@ -942,7 +942,7 @@ static int module_rename(char *name, char *newname)
     if (!strcasecmp(name, p->name)) {
       nfree(p->name);
       p->name = nmalloc(strlen(newname) + 1);
-      strcpy(p->name, newname);
+      strlcpy(p->name, newname, sizeof(p->name));
       return 1;
     }
   }

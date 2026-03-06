@@ -259,7 +259,7 @@ struct userrec *get_user_from_member(memberlist *m)
   /* Check if there is a user with a matching hostmask if one is provided */
   if ((m->userhost[0] != '\0') && (m->nick[0] != '\0')) {
     char s[NICKMAX+UHOSTLEN+1];
-    sprintf(s, "%s!%s", m->nick, m->userhost);
+    snprintf(s, sizeof(s), "%s!%s", m->nick, m->userhost);
     ret = get_user_by_host(s);
     if (ret) {
       goto getuser_done;
@@ -318,7 +318,7 @@ void correct_handle(char *handle)
   u = get_user_by_handle(userlist, handle);
   if (u == NULL || handle == u->handle)
     return;
-  strcpy(handle, u->handle);
+  strlcpy(handle, u->handle, sizeof(handle));
 }
 
 /* This will be useful in a lot of places, much more code re-use so we
@@ -745,10 +745,10 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
     int l;
     xk = nmalloc(sizeof *xk);
     xk->key = nmalloc(8);
-    strcpy(xk->key, "created");
+    strlcpy(xk->key, "created", sizeof(xk->key));
     l = snprintf(NULL, 0, "%" PRId64, (int64_t) now);
     xk->data = nmalloc(l + 1);
-    sprintf(xk->data, "%" PRId64, (int64_t) now);
+    snprintf(xk->data, sizeof(xk->data), "%" PRId64, (int64_t) now);
     set_user(&USERENTRY_XTRA, u, xk);
   }
   /* Strip out commas -- they're illegal */
@@ -977,7 +977,7 @@ void touch_laston(struct userrec *u, char *where, time_t timeval)
     li->laston = timeval;
     if (where) {
       li->lastonplace = nmalloc(strlen(where) + 1);
-      strcpy(li->lastonplace, where);
+      strlcpy(li->lastonplace, where, sizeof(li->lastonplace));
     } else
       li->lastonplace = NULL;
     set_user(&USERENTRY_LASTON, u, li);

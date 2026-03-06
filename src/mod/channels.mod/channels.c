@@ -376,9 +376,9 @@ static int channels_chon(char *handle, int idx)
       if (!chan)
         chan = chanset;
       if (chan)
-        strcpy(dcc[idx].u.chat->con_chan, chan->dname);
+        strlcpy(dcc[idx].u.chat->con_chan, chan->dname, sizeof(dcc[idx].u.chat->con_chan));
       else
-        strcpy(dcc[idx].u.chat->con_chan, "*");
+        strlcpy(dcc[idx].u.chat->con_chan, "*", sizeof(dcc[idx].u.chat->con_chan));
     }
   }
   return 0;
@@ -596,7 +596,7 @@ static void channels_report(int idx, int details)
 
     s[0] = 0;
 
-    sprintf(s, "    %-20s: ", chan->dname);
+    snprintf(s, sizeof(s), "    %-20s: ", chan->dname);
 
     if (channel_inactive(chan))
       strcat(s, "(inactive)");
@@ -607,7 +607,7 @@ static void channels_report(int idx, int details)
     else {
 
       s1[0] = 0;
-      sprintf(s1, "%3d member%s", chan->channel.members,
+      snprintf(s1, sizeof(s1), "%3d member%s", chan->channel.members,
               (chan->channel.members == 1) ? "" : "s");
       strcat(s, s1);
 
@@ -974,10 +974,10 @@ char *channels_start(Function *global_funcs)
   allow_ps = 0;
   lastdeletedmask = 0;
   use_info = 1;
-  strcpy(chanfile, "chanfile");
+  strlcpy(chanfile, "chanfile", sizeof(chanfile));
   chan_hack = 0;
   quiet_save = 0;
-  strcpy(glob_chanmode, "nt");
+  strlcpy(glob_chanmode, "nt", sizeof(glob_chanmode));
   udef = NULL;
   global_stopnethack_mode = 0;
   global_revenge_mode = 0;
@@ -985,8 +985,7 @@ char *channels_start(Function *global_funcs)
   global_ban_time = 120;
   global_exempt_time = 60;
   global_invite_time = 60;
-  strcpy(glob_chanset,
-         "-enforcebans "
+  strlcpy(glob_chanset, "-enforcebans "
          "+dynamicbans "
          "+userbans "
          "-autoop "
@@ -1011,7 +1010,7 @@ char *channels_start(Function *global_funcs)
          "-protecthalfops "
          "-autohalfop "
          "-nodesynch "
-         "-static ");
+         "-static ", sizeof(glob_chanset));
   module_register(MODULE_NAME, channels_table, 1, 2);
   if (!module_depend(MODULE_NAME, "eggdrop", 108, 0)) {
     module_undepend(MODULE_NAME);

@@ -55,7 +55,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
   }
   if (atr & USER_COMMON) {
     maskhost(s, host);
-    strcpy(s, host);
+    strlcpy(s, host, sizeof(s));
     egg_snprintf(host, sizeof host, "%s!%s", nick, s + 2);
     userlist = adduser(userlist, handle, host, "-", USER_DEFAULT);
     putlog(LOG_MISC, "*", "%s %s (%s) -- %s",
@@ -98,7 +98,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     dprintf(DP_HELP, IRC_NICKTOOLONG, nick, handle);
   if (notify_new[0]) {
     egg_snprintf(s, sizeof s, IRC_INITINTRO, nick, host);
-    strcpy(s1, notify_new);
+    strlcpy(s1, notify_new, sizeof(s1));
     while (s1[0]) {
       p1 = strchr(s1, ',');
       if (p1 != NULL) {
@@ -812,7 +812,7 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   s[0] = 0;
   if (now2 > 86400) {
     /* days */
-    sprintf(s, "%d day", (int) (now2 / 86400));
+    snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
       strcat(s, "s");
     strcat(s, ", ");
@@ -821,7 +821,7 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  sprintf(&s[strlen(s)], "%02d:%02d", (int) hr, (int) min);
+  snprintf(s + strlen(s), sizeof(s) - strlen(s), "%02d:%02d", (int) hr, (int) min);
   dprintf(DP_HELP, "NOTICE %s :%s %s.\n", nick, MISC_ONLINEFOR, s);
 
   if (admin[0])

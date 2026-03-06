@@ -43,7 +43,7 @@ static int tcl_dccsend STDVAR
       *nfn = 0;
       nfn++;
       sys = nmalloc(strlen(argv[1]) + 2);
-      sprintf(sys, "*%s", argv[1]);
+      snprintf(sys, sizeof(sys), "*%s", argv[1]);
       queue_file(sys, nfn, "(script)", argv[2]);
       nfree(sys);
     }
@@ -67,9 +67,9 @@ static int tcl_getfileq STDVAR
     if (!strcasecmp(q->nick, argv[1])) {
       s = nrealloc(s, strlen(q->to) + strlen(q->dir) + strlen(q->file) + 4);
       if (q->dir[0] == '*')
-        sprintf(s, "%s %s/%s", q->to, &q->dir[1], q->file);
+        snprintf(s, sizeof(s), "%s %s/%s", q->to, &q->dir[1], q->file);
       else
-        sprintf(s, "%s /%s%s%s", q->to, q->dir, q->dir[0] ? "/" : "", q->file);
+        snprintf(s, sizeof(s), "%s /%s%s%s", q->to, q->dir, q->dir[0] ? "/" : "", q->file);
       Tcl_AppendElement(irp, s);
     }
   }

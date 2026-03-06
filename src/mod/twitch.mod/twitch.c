@@ -404,7 +404,7 @@ static int gothosttarget(char *from, char *msg) {
   nick = newsplit(&msg);
   viewers = newsplit(&msg);
   if (viewers) {
-    sprintf(s, " (Viewers: %s)", viewers);
+    snprintf(s, sizeof(s), " (Viewers: %s)", viewers);
   }
   check_tcl_hosttarget(chan, nick, viewers);
   if (nick[0] == '-') {             /* Check if it is an unhost */

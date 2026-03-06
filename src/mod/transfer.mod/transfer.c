@@ -135,7 +135,7 @@ static char *replace_spaces(char *fn)
   char *ret, *p;
 
   p = ret = nmalloc(strlen(fn) + 1);
-  strcpy(ret, fn);
+  strlcpy(ret, fn, sizeof(ret));
   while ((p = strchr(p, ' ')) != NULL)
     *p = '_';
   return ret;
@@ -289,7 +289,7 @@ static void eof_dcc_send(int idx)
 
     nfn = nmalloc(strlen(dcc[idx].u.xfer->dir)
                   + strlen(dcc[idx].u.xfer->origname) + 1);
-    sprintf(nfn, "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
+    snprintf(nfn, sizeof(nfn), "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
 
     if ((l = fcopyfile(dcc[idx].u.xfer->f, nfn))) {
       putlog(LOG_MISC | LOG_FILES, "*", TRANSFER_FAILED_MOVE, nfn);
@@ -544,7 +544,7 @@ static void dcc_get(int idx, char *buf, int len)
       stats_add_dnload(u, dcc[idx].u.xfer->length);
       putlog(LOG_FILES, "*", TRANSFER_FINISHED_DCCSEND,
              dcc[idx].u.xfer->origname, dcc[idx].nick);
-      strcpy((char *) xnick, dcc[idx].nick);
+      strlcpy(xnick, dcc[idx].nick, sizeof(xnick));
     }
     lostdcc(idx);
     /* Any to dequeue? */
@@ -606,7 +606,7 @@ static void eof_dcc_get(int idx)
 
     putlog(LOG_FILES, "*", TRANSFER_LOST_DCCGET,
            dcc[idx].u.xfer->origname, dcc[idx].nick, dcc[idx].host);
-    strcpy(xnick, dcc[idx].nick);
+    strlcpy(xnick, dcc[idx].nick, sizeof(xnick));
   }
   killsock(dcc[idx].sock);
   lostdcc(idx);
@@ -682,7 +682,7 @@ static void transfer_get_timeout(int i)
     putlog(LOG_FILES, "*", TRANSFER_DCC_GET_TIMEOUT,
            p ? p + 1 : dcc[i].u.xfer->origname, dcc[i].nick, dcc[i].status,
            dcc[i].u.xfer->length);
-    strcpy(xx, dcc[i].nick);
+    strlcpy(xx, dcc[i].nick, sizeof(xx));
   }
   killsock(dcc[i].sock);
   lostdcc(i);
@@ -725,28 +725,28 @@ static void tout_dcc_send(int idx)
 static void display_dcc_get(int idx, char *buf)
 {
   if (dcc[idx].status == dcc[idx].u.xfer->length)
-    sprintf(buf, TRANSFER_SEND, dcc[idx].u.xfer->acked,
+    snprintf(buf, sizeof(buf), TRANSFER_SEND, dcc[idx].u.xfer->acked,
             dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
   else
-    sprintf(buf, TRANSFER_SEND, dcc[idx].status,
+    snprintf(buf, sizeof(buf), TRANSFER_SEND, dcc[idx].status,
             dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
 }
 
 static void display_dcc_get_p(int idx, char *buf)
 {
-  sprintf(buf, TRANSFER_SEND_WAITED, now - dcc[idx].timeval,
+  snprintf(buf, sizeof(buf), TRANSFER_SEND_WAITED, now - dcc[idx].timeval,
           dcc[idx].u.xfer->origname);
 }
 
 static void display_dcc_send(int idx, char *buf)
 {
-  sprintf(buf, TRANSFER_SEND, dcc[idx].status,
+  snprintf(buf, sizeof(buf), TRANSFER_SEND, dcc[idx].status,
           dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
 }
 
 static void display_dcc_fork_send(int idx, char *buf)
 {
-  sprintf(buf, "%s", TRANSFER_CONN_SEND);
+  snprintf(buf, sizeof(buf), "%s", TRANSFER_CONN_SEND);
 }
 
 static int expmem_dcc_xfer(void *x)
@@ -1011,14 +1011,14 @@ static int raw_dcc_resend_send(char *filename, char *nick, char *from,
               &dcc[i].sockname.addrlen);
   dcc[i].sockname.family = dcc[i].sockname.addr.sa.sa_family;
   dcc[i].port = port;
-  strcpy(dcc[i].nick, nick);
-  strcpy(dcc[i].host, "irc");
+  strlcpy(dcc[i].nick, nick, sizeof(dcc[i].nick));
+  strlcpy(dcc[i].host, "irc", sizeof(dcc[i].host));
   dcc[i].u.xfer->filename = get_data_ptr(strlen(filename) + 1);
-  strcpy(dcc[i].u.xfer->filename, filename);
+  strlcpy(dcc[i].u.xfer->filename, filename, sizeof(dcc[i].u.xfer->filename));
   if (strchr(nfn, ' '))
     nfn = buf = replace_spaces(nfn);
   dcc[i].u.xfer->origname = get_data_ptr(strlen(nfn) + 1);
-  strcpy(dcc[i].u.xfer->origname, nfn);
+  strlcpy(dcc[i].u.xfer->origname, nfn, sizeof(dcc[i].u.xfer->origname));
   strlcpy(dcc[i].u.xfer->from, from, NICKLEN);
   strlcpy(dcc[i].u.xfer->dir, filename, DIRLEN);
   dcc[i].u.xfer->length = dccfilesize;

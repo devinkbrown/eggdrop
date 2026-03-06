@@ -2266,7 +2266,7 @@ static int tcl_renudef STDVAR
     if (ul->type == type && !strcasecmp(ul->name, argv[2])) {
       nfree(ul->name);
       ul->name = nmalloc(strlen(argv[3]) + 1);
-      strcpy(ul->name, argv[3]);
+      strlcpy(ul->name, argv[3], sizeof(ul->name));
       found = 1;
     }
   }

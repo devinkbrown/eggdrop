@@ -420,12 +420,12 @@ static int tcl_addbot STDVAR
 
     if (!q) {
       bi->address = user_malloc(count + 1);
-      strcpy(bi->address, addr);
+      strlcpy(bi->address, addr, sizeof(bi->address));
       bi->telnet_port = 3333;
       bi->relay_port = 3333;
     } else {
       bi->address = user_malloc(count + 1);
-      strcpy(bi->address, addr);
+      strlcpy(bi->address, addr, sizeof(bi->address));
       bi->telnet_port = atoi(q);
 #ifdef TLS
       if (*q == '+')

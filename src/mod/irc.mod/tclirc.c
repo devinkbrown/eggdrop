@@ -700,7 +700,7 @@ static int tcl_getchanjoin STDVAR
     Tcl_AppendResult(irp, argv[1], " is not on ", argv[2], NULL);
     return TCL_ERROR;
   }
-  sprintf(s, "%lu", (unsigned long) m->joined);
+  snprintf(s, sizeof(s), "%lu", (unsigned long) m->joined);
   Tcl_AppendResult(irp, s, NULL);
   return TCL_OK;
 }

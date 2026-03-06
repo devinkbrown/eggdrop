@@ -834,7 +834,7 @@ static int tcl_whom STDVAR
       c[0] = party[i].flag;
       c[1] = 0;
       if (party[i].timer == 0L)
-        strcpy(idle, "0");
+        strlcpy(idle, "0", sizeof(idle));
       else
         snprintf(idle, sizeof idle, "%" PRId64, (int64_t) ((now - party[i].timer) / 60));
       list[0] = party[i].nick;
@@ -1015,7 +1015,7 @@ static int tcl_connect STDVAR
       dcc[i].ssl = 1;
   }
 #endif
-  strcpy(dcc[i].nick, "*");
+  strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
   strlcpy(dcc[i].host, argv[1], UHOSTMAX);
   egg_snprintf(s, sizeof s, "%d", sock);
   Tcl_AppendResult(irp, s, NULL);
@@ -1209,7 +1209,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
 #endif
   /* script? */
   if (!strcmp(type, "script")) {
-    strcpy(dcc[idx].nick, "(script)");
+    strlcpy(dcc[idx].nick, "(script)", sizeof(dcc[idx].nick));
     if (flag) {
       dcc[idx].status = LSTN_PUBLIC;
     }
@@ -1220,17 +1220,17 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
   }
   /* bots/users/all */
   if (!strcmp(type, "bots"))
-    strcpy(dcc[idx].nick, "(bots)");
+    strlcpy(dcc[idx].nick, "(bots)", sizeof(dcc[idx].nick));
   else if (!strcmp(type, "users"))
-    strcpy(dcc[idx].nick, "(users)");
+    strlcpy(dcc[idx].nick, "(users)", sizeof(dcc[idx].nick));
   else if (!strcmp(type, "all"))
-    strcpy(dcc[idx].nick, "(telnet)");
+    strlcpy(dcc[idx].nick, "(telnet)", sizeof(dcc[idx].nick));
   else if (!strcmp(type, "webui"))
-    strcpy(dcc[idx].nick, "(webui)");
+    strlcpy(dcc[idx].nick, "(webui)", sizeof(dcc[idx].nick));
   if (maskproc[0])
     strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
   else
-    strcpy(dcc[idx].host, "*");
+    strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host));
   egg_snprintf(s, sizeof s, "%d", port);
   Tcl_AppendResult(irp, s, NULL);
   if (!pmap) {
@@ -1419,31 +1419,31 @@ static int tcl_traffic STDVAR
   unsigned long in_total_today, in_total;
 
   /* IRC traffic */
-  sprintf(buf, "irc %lu %lu %lu %lu", itraffic_irc_today, itraffic_irc +
+  snprintf(buf, sizeof(buf), "irc %lu %lu %lu %lu", itraffic_irc_today, itraffic_irc +
           itraffic_irc_today, otraffic_irc_today,
           otraffic_irc + otraffic_irc_today);
   Tcl_AppendElement(irp, buf);
 
   /* Botnet traffic */
-  sprintf(buf, "botnet %lu %lu %lu %lu", itraffic_bn_today, itraffic_bn +
+  snprintf(buf, sizeof(buf), "botnet %lu %lu %lu %lu", itraffic_bn_today, itraffic_bn +
           itraffic_bn_today, otraffic_bn_today,
           otraffic_bn + otraffic_bn_today);
   Tcl_AppendElement(irp, buf);
 
   /* Partyline */
-  sprintf(buf, "partyline %lu %lu %lu %lu", itraffic_dcc_today, itraffic_dcc +
+  snprintf(buf, sizeof(buf), "partyline %lu %lu %lu %lu", itraffic_dcc_today, itraffic_dcc +
           itraffic_dcc_today, otraffic_dcc_today,
           otraffic_dcc + otraffic_dcc_today);
   Tcl_AppendElement(irp, buf);
 
   /* Transfer */
-  sprintf(buf, "transfer %lu %lu %lu %lu", itraffic_trans_today,
+  snprintf(buf, sizeof(buf), "transfer %lu %lu %lu %lu", itraffic_trans_today,
           itraffic_trans + itraffic_trans_today, otraffic_trans_today,
           otraffic_trans + otraffic_trans_today);
   Tcl_AppendElement(irp, buf);
 
   /* Misc traffic */
-  sprintf(buf, "misc %lu %lu %lu %lu", itraffic_unknown_today,
+  snprintf(buf, sizeof(buf), "misc %lu %lu %lu %lu", itraffic_unknown_today,
           itraffic_unknown + itraffic_unknown_today, otraffic_unknown_today,
           otraffic_unknown + otraffic_unknown_today);
   Tcl_AppendElement(irp, buf);
@@ -1459,7 +1459,7 @@ static int tcl_traffic STDVAR
                     otraffic_unknown_today;
   out_total = out_total_today + otraffic_irc + otraffic_bn + otraffic_dcc +
               otraffic_trans + otraffic_unknown;
-  sprintf(buf, "total %lu %lu %lu %lu", in_total_today, in_total,
+  snprintf(buf, sizeof(buf), "total %lu %lu %lu %lu", in_total_today, in_total,
           out_total_today, out_total);
   Tcl_AppendElement(irp, buf);
   return TCL_OK;

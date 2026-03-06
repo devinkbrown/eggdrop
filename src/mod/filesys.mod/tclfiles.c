@@ -324,7 +324,7 @@ static int tcl_mkdir STDVAR
 
   if (!fdbe) {
     t = nmalloc(strlen(dccdir) + strlen(d) + strlen(p) + 2);
-    sprintf(t, "%s%s/%s", dccdir, d, p);
+    snprintf(t, sizeof(t), "%s%s/%s", dccdir, d, p);
     if (mkdir(t, 0755) != 0) {
       Tcl_AppendResult(irp, "1", NULL);
       my_free(t);
@@ -412,11 +412,11 @@ static int tcl_rmdir STDVAR
   }
   /* Erase '.filedb' and '.files' if they exist */
   t = nmalloc(strlen(dccdir) + strlen(d) + strlen(p) + 11);
-  sprintf(t, "%s%s/%s/.filedb", dccdir, d, p);
+  snprintf(t, sizeof(t), "%s%s/%s/.filedb", dccdir, d, p);
   unlink(t);
-  sprintf(t, "%s%s/%s/.files", dccdir, d, p);
+  snprintf(t, sizeof(t), "%s%s/%s/.files", dccdir, d, p);
   unlink(t);
-  sprintf(t, "%s%s/%s", dccdir, d, p);
+  snprintf(t, sizeof(t), "%s%s/%s", dccdir, d, p);
   my_free(s);
   if (rmdir(t) == 0) {
     filedb_delfile(fdb, fdbe->pos);
@@ -537,9 +537,9 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
                   + strlen(fdbe_old->filename) + 2);
       s1 = nmalloc(strlen(dccdir) + strlen(newpath)
                    + strlen(newfn[0] ? newfn : fdbe_old->filename) + 2);
-      sprintf(s, "%s%s%s%s", dccdir, oldpath,
+      snprintf(s, sizeof(s), "%s%s%s%s", dccdir, oldpath,
               oldpath[0] ? "/" : "", fdbe_old->filename);
-      sprintf(s1, "%s%s%s%s", dccdir, newpath,
+      snprintf(s1, sizeof(s1), "%s%s%s%s", dccdir, newpath,
               newpath[0] ? "/" : "", newfn[0] ? newfn : fdbe_old->filename);
       if (!strcmp(s, s1)) {
         Tcl_AppendResult(irp, "-3", NULL);      /* Stupid copy to self */
@@ -604,7 +604,7 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
   else {
     char x[30];
 
-    sprintf(x, "%d", ok);
+    snprintf(x, sizeof(x), "%d", ok);
     Tcl_AppendResult(irp, x, NULL);
   }
   my_free(newfn);
@@ -642,7 +642,7 @@ static int tcl_fileresend_send(ClientData cd, Tcl_Interp *irp, int argc,
     i = files_reget(idx, argv[2], argv[3], resend);
   else
     i = files_reget(idx, argv[2], "", resend);
-  sprintf(s, "%d", i);
+  snprintf(s, sizeof(s), "%d", i);
   Tcl_AppendResult(irp, s, NULL);
   return TCL_OK;
 }

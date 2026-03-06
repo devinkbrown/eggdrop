@@ -109,7 +109,7 @@ static int tcl_logfile STDVAR
         logs[i].flags = 0;
       } else {
         logs[i].chname = nmalloc(strlen(argv[2]) + 1);
-        strcpy(logs[i].chname, argv[2]);
+        strlcpy(logs[i].chname, argv[2], sizeof(logs[i].chname));
       }
       Tcl_AppendResult(interp, argv[3], NULL);
       return TCL_OK;
@@ -125,9 +125,9 @@ static int tcl_logfile STDVAR
       logs[i].flags = 0;
       logs[i].mask = logmodes(argv[1]);
       logs[i].filename = nmalloc(strlen(argv[3]) + 1);
-      strcpy(logs[i].filename, argv[3]);
+      strlcpy(logs[i].filename, argv[3], sizeof(logs[i].filename));
       logs[i].chname = nmalloc(strlen(argv[2]) + 1);
-      strcpy(logs[i].chname, argv[2]);
+      strlcpy(logs[i].chname, argv[2], sizeof(logs[i].chname));
       Tcl_AppendResult(interp, argv[3], NULL);
       return TCL_OK;
     }
@@ -357,32 +357,32 @@ static int tcl_duration STDVAR
   s[0] = 0;
   if (sec >= 31536000) {
     tmp = (sec / 31536000);
-    sprintf(s, "%lu year%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s, sizeof(s), "%lu year%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 31536000);
   }
   if (sec >= 604800) {
     tmp = (sec / 604800);
-    sprintf(&s[strlen(s)], "%lu week%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu week%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 604800);
   }
   if (sec >= 86400) {
     tmp = (sec / 86400);
-    sprintf(&s[strlen(s)], "%lu day%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu day%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 86400);
   }
   if (sec >= 3600) {
     tmp = (sec / 3600);
-    sprintf(&s[strlen(s)], "%lu hour%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu hour%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 3600);
   }
   if (sec >= 60) {
     tmp = (sec / 60);
-    sprintf(&s[strlen(s)], "%lu minute%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu minute%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 60);
   }
   if (sec > 0) {
     tmp = (sec);
-    sprintf(&s[strlen(s)], "%lu second%s", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu second%s", tmp, (tmp == 1) ? "" : "s");
   }
   if (strlen(s) > 0 && s[strlen(s) - 1] == ' ')
     s[strlen(s) - 1] = 0;
@@ -691,7 +691,7 @@ static int tcl_stripcodes STDVAR
     }
 
   p = Tcl_Alloc(strlen(argv[2]) + 1);
-  strcpy(p, argv[2]);
+  strlcpy(p, argv[2], sizeof(p));
   strip_mirc_codes(flags, p);
   Tcl_SetResult(irp, p, TCL_DYNAMIC);
   return TCL_OK;
@@ -721,7 +721,7 @@ static int tcl_md5 STDVAR
 #endif
 
   for (i = 0; i < 16; i++)
-    sprintf(digest_string + (i * 2), "%.2x", digest[i]);
+    snprintf(digest_string + (i * 2), 3, "%.2x", digest[i]);
   Tcl_AppendResult(irp, digest_string, NULL);
   return TCL_OK;
 }

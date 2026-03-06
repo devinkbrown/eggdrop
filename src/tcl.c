@@ -294,11 +294,11 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
       else if (st->str == firewall) {
         splitc(firewall, s, ':');
         if (!firewall[0])
-          strcpy(firewall, s);
+          strlcpy(firewall, s, sizeof(firewall));
         else
           firewallport = atoi(s);
       } else
-        strcpy(st->str, s);
+        strlcpy(st->str, s, sizeof(st->str));
       if ((st->flags) && (s[0])) {
         if (st->str[strlen(st->str) - 1] != '/')
           strcat(st->str, "/");

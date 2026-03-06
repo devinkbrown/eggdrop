@@ -235,7 +235,7 @@ char *maskname(int x)
                     (x & LOG_LEV8) ? "level 8, " : "")))
     s[i - 2] = 0;
   else
-    strcpy(s, "none");
+    strlcpy(s, "none", sizeof(s));
   return s;
 }
 
@@ -1376,7 +1376,7 @@ static int botfl_pack(struct userrec *u, struct user_entry *e)
   e->u.list = user_malloc(sizeof(struct list_type));
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(build_flags(x, &fr, NULL) + 1);
-  strcpy(e->u.list->extra, x);
+  strlcpy(e->u.list->extra, x, sizeof(e->u.list->extra));
   return 1;
 }
 

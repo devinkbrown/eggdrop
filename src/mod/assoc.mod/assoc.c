@@ -303,7 +303,7 @@ static int tcl_assoc STDVAR
   if (p == NULL)
     name[0] = 0;
   else
-    strcpy(name, p);
+    strlcpy(name, p, sizeof(name));
   Tcl_AppendResult(irp, name, NULL);
   return TCL_OK;
 }

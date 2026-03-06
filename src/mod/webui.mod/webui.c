@@ -72,7 +72,7 @@ static void put_404(int idx) {
     "404 Not Found",
     stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   response = nmalloc(i + 1);
-  sprintf(response,
+  snprintf(response, sizeof(response),
     "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
     "Content-Length: 13\r\n"
     "Content-Type: text/plain\r\n"
@@ -140,7 +140,7 @@ static void put_file(int idx, int file_cache_index) {
     (intmax_t) sb.st_size, f->content_type,
     stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   response = nmalloc(i + sb.st_size);
-  sprintf(response,
+  snprintf(response, sizeof(response),
     "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
     "Content-Length: %jd\r\n"
     "Content-Type: %s\r\n" /* at least firefox 144 needs this */
@@ -229,7 +229,7 @@ static void webui_http_activity(int idx, char *buf, int len)
       "Sec-WebSocket-Accept: %s\r\n"
       "\r\n", out);
     response = nmalloc(i + 1);
-    sprintf(response,
+    snprintf(response, sizeof(response),
       "HTTP/1.1 101 Switching Protocols\r\n"
       "Upgrade: websocket\r\n"
       "Connection: Upgrade\r\n"
@@ -244,7 +244,7 @@ static void webui_http_activity(int idx, char *buf, int len)
 
     socklist_i->flags &= ~ SOCK_BINARY; /* we need it for net.c sockgets(), is there better place to do this? */
     debug2("webui: unset flag SOCK_BINARY idx %i sock %li", idx, dcc[idx].sock);
-    //strcpy(dcc[idx].host, "*"); /* important for later dcc_telnet_id wild_match, is there better place to do this? */
+    //strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host)); /* important for later dcc_telnet_id wild_match, is there better place to do this? */
     /* .host becomes .nick in change_to_dcc_telnet_id() */
     debug4("webui: set flag SOCK_WS socklist %i idx %i sock %li status %lu", findsock(dcc[idx].sock), idx, dcc[idx].sock, dcc[idx].status);
 
@@ -276,9 +276,9 @@ static void webui_http_activity(int idx, char *buf, int len)
 static void webui_http_display(int idx, char *buf)
 {
   if (!dcc[idx].ssl)
-    strcpy(buf, "webui http");
+    strlcpy(buf, "webui http", sizeof(buf));
   else
-    strcpy(buf, "webui https");
+    strlcpy(buf, "webui https", sizeof(buf));
 }
 
 static struct dcc_table DCC_WEBUI_HTTP = {
@@ -510,7 +510,7 @@ static void webui_unframe(int sock, char *buf, int *len)
   memmove(buf, payload, *len);
   /* we switched back from binary sock to text sock for sockgets() needs this for dcc_telnet_id() */
   /* so now we have to add \r\n here :/ */
-  strcpy(buf + *len, "\r\n");
+  memcpy(buf + *len, "\r\n", 3);
   *len+= 2;
 }
 

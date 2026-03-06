@@ -51,7 +51,7 @@ static int tcl_pbkdf2 STDVAR
   }
   if (hex) {
     for (i = 0; i < digestlen; i++)
-      sprintf(buf_hex + (i * 2), "%.2X", buf[i]);
+      snprintf(buf_hex + (i * 2), 3, "%.2X", buf[i]);
     result = Tcl_NewByteArrayObj((unsigned char *) buf_hex, digestlen * 2);
     explicit_bzero(buf_hex, digestlen * 2);
   }

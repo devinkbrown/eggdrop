@@ -159,7 +159,7 @@ static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
       if (dcc[idx].u.dns->host)
         nfree(dcc[idx].u.dns->host);
       dcc[idx].u.dns->host = get_data_ptr(strlen(hostn) + 1);
-      strcpy(dcc[idx].u.dns->host, hostn);
+      strlcpy(dcc[idx].u.dns->host, hostn, sizeof(dcc[idx].u.dns->host));
       if (ok)
         dcc[idx].u.dns->dns_success(idx);
       else
@@ -229,7 +229,7 @@ void dcc_dnsipbyhost(char *hostn)
   de->type = &DNS_DCCEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
   de->res_data.hostname = nmalloc(strlen(hostn) + 1);
-  strcpy(de->res_data.hostname, hostn);
+  strlcpy(de->res_data.hostname, hostn, sizeof(de->res_data.hostname));
 
   /* Send request. */
   dns_ipbyhost(hostn);
@@ -349,15 +349,15 @@ static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
   de->type = &DNS_TCLEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
   de->res_data.hostname = nmalloc(strlen(hostn) + 1);
-  strcpy(de->res_data.hostname, hostn);
+  strlcpy(de->res_data.hostname, hostn, sizeof(de->res_data.hostname));
 
   /* Store additional data. */
   tclinfo = nmalloc(sizeof(devent_tclinfo_t));
   tclinfo->proc = nmalloc(strlen(proc) + 1);
-  strcpy(tclinfo->proc, proc);
+  strlcpy(tclinfo->proc, proc, sizeof(tclinfo->proc));
   if (paras) {
     tclinfo->paras = nmalloc(strlen(paras) + 1);
-    strcpy(tclinfo->paras, paras);
+    strlcpy(tclinfo->paras, paras, sizeof(tclinfo->paras));
   } else
     tclinfo->paras = NULL;
   de->other = tclinfo;
@@ -386,10 +386,10 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   /* Store additional data. */
   tclinfo = nmalloc(sizeof(devent_tclinfo_t));
   tclinfo->proc = nmalloc(strlen(proc) + 1);
-  strcpy(tclinfo->proc, proc);
+  strlcpy(tclinfo->proc, proc, sizeof(tclinfo->proc));
   if (paras) {
     tclinfo->paras = nmalloc(strlen(paras) + 1);
-    strcpy(tclinfo->paras, paras);
+    strlcpy(tclinfo->paras, paras, sizeof(tclinfo->paras));
   } else
     tclinfo->paras = NULL;
   de->other = tclinfo;

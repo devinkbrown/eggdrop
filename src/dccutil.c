@@ -272,7 +272,7 @@ void dcc_chatter(int idx)
   i = dcc[idx].u.chat->channel;
   dcc[idx].u.chat->channel = 234567;
   j = dcc[idx].sock;
-  strcpy(dcc[idx].u.chat->con_chan, "***");
+  strlcpy(dcc[idx].u.chat->con_chan, "***", sizeof(dcc[idx].u.chat->con_chan));
 #ifdef TLS
   if (is_owner(dcc[idx].user))
     verify_cert_expiry(idx);
@@ -284,7 +284,7 @@ void dcc_chatter(int idx)
   /* Tcl script may have taken control */
   if (dcc[idx].type == &DCC_CHAT) {
     if (!strcmp(dcc[idx].u.chat->con_chan, "***"))
-      strcpy(dcc[idx].u.chat->con_chan, "*");
+      strlcpy(dcc[idx].u.chat->con_chan, "*", sizeof(dcc[idx].u.chat->con_chan));
     if (dcc[idx].u.chat->channel == 234567) {
       /* If the chat channel has already been altered it's *highly*
        * probably join/part messages have been broadcast everywhere,
@@ -426,7 +426,7 @@ void tell_dcc(int zidx)
     if (dcc[i].type && dcc[i].type->display)
       dcc[i].type->display(i, other);
     else {
-      sprintf(other, "?:%lX  !! ERROR !!", (long) dcc[i].type);
+      snprintf(other, sizeof(other), "?:%lX  !! ERROR !!", (long) dcc[i].type);
       break;
     }
       dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
@@ -472,7 +472,7 @@ void set_away(int idx, char *s)
   if (dcc[idx].u.chat->away != NULL)
     nfree(dcc[idx].u.chat->away);
   dcc[idx].u.chat->away = nmalloc(strlen(s) + 1);
-  strcpy(dcc[idx].u.chat->away, s);
+  strlcpy(dcc[idx].u.chat->away, s, sizeof(dcc[idx].u.chat->away));
   if (dcc[idx].u.chat->channel >= 0) {
     chanout_but(-1, dcc[idx].u.chat->channel,
                 "*** %s is now away: %s\n", dcc[idx].nick, s);

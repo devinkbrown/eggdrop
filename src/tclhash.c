@@ -283,7 +283,7 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
   }
 
   tl = nmalloc_null(sizeof *tl);
-  strcpy(tl->name, nme);
+  strlcpy(tl->name, nme, sizeof(tl->name));
   tl->flags = flg;
   tl->func = func;
 
@@ -398,7 +398,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   if (!tm) {
     tm = nmalloc_null(sizeof *tm);
     tm->mask = nmalloc(strlen(cmd) + 1);
-    strcpy(tm->mask, cmd);
+    strlcpy(tm->mask, cmd, sizeof(tm->mask));
 
     /* Link into linked list of binds. */
     tm->next = tl->first;
@@ -432,7 +432,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   tc->flags.match = FR_GLOBAL | FR_CHAN;
   break_down_flags(flags, &(tc->flags), NULL);
   tc->func_name = nmalloc(strlen(proc) + 1);
-  strcpy(tc->func_name, proc);
+  strlcpy(tc->func_name, proc, sizeof(tc->func_name));
 
   /* Link into linked list of the bind's command list. */
   tc->next = tm->first;
@@ -942,7 +942,7 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
 
 finally:
   str = nmalloc(strlen(param) + 1);
-  strcpy(str, param);
+  strlcpy(str, param, sizeof(str));
 
   for (varName = strtok_r(str,  " $:", &brkt);
        varName;

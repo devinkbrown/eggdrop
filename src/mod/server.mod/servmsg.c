@@ -71,7 +71,7 @@ static int gotfake433(char *from)
 
     if (alt[0] && (rfc_casecmp(alt, botname)))
       /* Alternate nickname defined. Let's try that first. */
-      strcpy(botname, alt);
+      strlcpy(botname, alt, sizeof(botname));
     else {
       /* Fall back to appending count char. */
       altnick_char = '0';
@@ -368,12 +368,12 @@ static int got001(char *from, char *msg)
       if (x->realname)
         nfree(x->realname);
       x->realname = nmalloc(strlen(from) + 1);
-      strcpy(x->realname, from);
+      strlcpy(x->realname, from, sizeof(x->realname));
     }
     if (realservername)
       nfree(realservername);
     realservername = nmalloc(strlen(from) + 1);
-    strcpy(realservername, from);
+    strlcpy(realservername, from, sizeof(realservername));
   } else
     putlog(LOG_MISC, "*", "No server list!");
 
@@ -503,12 +503,12 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
   case FLOOD_NOTICE:
     thr = flud_thr;
     lapse = flud_time;
-    strcpy(ftype, "msg");
+    strlcpy(ftype, "msg", sizeof(ftype));
     break;
   case FLOOD_CTCP:
     thr = flud_ctcp_thr;
     lapse = flud_ctcp_time;
-    strcpy(ftype, "ctcp");
+    strlcpy(ftype, "ctcp", sizeof(ftype));
     break;
   }
   if ((thr == 0) || (lapse == 0))
@@ -1112,7 +1112,7 @@ static void eof_server(int idx)
 
 static void display_server(int idx, char *buf)
 {
-  sprintf(buf, "%s  (lag: %d)", trying_server ? "conn" : "serv", server_lag);
+  snprintf(buf, sizeof(buf), "%s  (lag: %d)", trying_server ? "conn" : "serv", server_lag);
 }
 
 static void connect_server(void);
@@ -1231,7 +1231,7 @@ static void server_activity(int idx, char *tagmsg, int len)
 
   Tcl_IncrRefCount(tagdict);
   if (trying_server) {
-    strcpy(dcc[idx].nick, "(server)");
+    strlcpy(dcc[idx].nick, "(server)", sizeof(dcc[idx].nick));
     putlog(LOG_SERV, "*", "Connected to %s", dcc[idx].host);
     trying_server = 0;
     SERVER_SOCKET.timeout_val = 0;
@@ -1990,7 +1990,7 @@ static void connect_server(void)
 #endif
     putlog(LOG_SERV, "*", "%s", s);
     dcc[servidx].port = botserverport;
-    strcpy(dcc[servidx].nick, "(server)");
+    strlcpy(dcc[servidx].nick, "(server)", sizeof(dcc[servidx].nick));
     strlcpy(dcc[servidx].host, botserver, UHOSTLEN);
 
     botuserhost[0] = 0;
@@ -2002,9 +2002,9 @@ static void connect_server(void)
     dcc[servidx].timeval = now;
     dcc[servidx].sock = -1;
     dcc[servidx].u.dns->host = get_data_ptr(strlen(dcc[servidx].host) + 1);
-    strcpy(dcc[servidx].u.dns->host, dcc[servidx].host);
+    strlcpy(dcc[servidx].u.dns->host, dcc[servidx].host, sizeof(dcc[servidx].u.dns->host));
     dcc[servidx].u.dns->cbuf = get_data_ptr(strlen(pass) + 1);
-    strcpy(dcc[servidx].u.dns->cbuf, pass);
+    strlcpy(dcc[servidx].u.dns->cbuf, pass, sizeof(dcc[servidx].u.dns->cbuf));
     dcc[servidx].u.dns->dns_success = server_resolve_success;
     dcc[servidx].u.dns->dns_failure = server_resolve_failure;
     dcc[servidx].u.dns->dns_type = RES_IPBYHOST;
@@ -2082,7 +2082,7 @@ static void server_resolve_success(int servidx)
   dcc[servidx].timeval = now;
   SERVER_SOCKET.timeout_val = &server_timeout;
   /* Another server may have truncated it, so use the original */
-  strcpy(botname, origbotname);
+  strlcpy(botname, origbotname, sizeof(botname));
   /* Start alternate nicks from the beginning */
   altnick_char = 0;
   check_tcl_event("preinit-server");
@@ -2094,7 +2094,7 @@ static void server_resolve_success(int servidx)
 
   rmspace(botrealname);
   if (botrealname[0] == 0)
-    strcpy(botrealname, "/msg LamestBot hello");
+    strlcpy(botrealname, "/msg LamestBot hello", sizeof(botrealname));
   dprintf(DP_MODE, "USER %s . . :%s\n", botuser, botrealname);
 
   /* Wait for async result now. */

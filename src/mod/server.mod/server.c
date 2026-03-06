@@ -595,7 +595,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
         nfree(m->msg);
         m->msg = nmalloc(strlen(newmsg) + 1);
         m->len = strlen(newmsg);
-        strcpy(m->msg, newmsg);
+        strlcpy(m->msg, newmsg, sizeof(m->msg));
       }
     }
     lm = m;
@@ -662,7 +662,7 @@ static void purge_kicks(struct msgq_head *q)
                        newnicks + 1, reason);
           m->msg = nmalloc(strlen(newmsg) + 1);
           m->len = strlen(newmsg);
-          strcpy(m->msg, newmsg);
+          strlcpy(m->msg, newmsg, sizeof(m->msg));
         }
       }
     }
@@ -762,7 +762,7 @@ static int deq_kick(int which)
                        newnicks2 + 1, reason);
           m->msg = nmalloc(strlen(newmsg) + 1);
           m->len = strlen(newmsg);
-          strcpy(m->msg, newmsg);
+          strlcpy(m->msg, newmsg, sizeof(m->msg));
         }
       }
     }
@@ -1030,10 +1030,10 @@ static int add_server(const char *name, const char *port, const char *pass)
     serverlist = x;
 
   x->name = nmalloc(strlen(name) + 1);
-  strcpy(x->name, name);
+  strlcpy(x->name, name, sizeof(x->name));
   if (pass[0]) {
     x->pass = nmalloc(strlen(pass) + 1);
-    strcpy(x->pass, pass);
+    strlcpy(x->pass, pass, sizeof(x->pass));
   } else
     x->pass = NULL;
   if (port[0])
@@ -1179,11 +1179,11 @@ static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
     x->next = 0;
     x->realname = 0;
     x->name = nmalloc(strlen(serv) + 1);
-    strcpy(x->name, serv);
+    strlcpy(x->name, serv, sizeof(x->name));
     x->port = *port ? *port : default_port;
     if (pass && pass[0]) {
       x->pass = nmalloc(strlen(pass) + 1);
-      strcpy(x->pass, pass);
+      strlcpy(x->pass, pass, sizeof(x->pass));
     } else
       x->pass = NULL;
 #ifdef TLS
@@ -1213,10 +1213,10 @@ static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
 #ifdef TLS
   use_ssl = x->ssl;
 #endif
-  strcpy(serv, x->name);
+  strlcpy(serv, x->name, sizeof(serv));
   *port = x->port ? x->port : default_port;
   if (x->pass)
-    strcpy(pass, x->pass);
+    strlcpy(pass, x->pass, sizeof(pass));
   else
     pass[0] = 0;
 }
@@ -1924,8 +1924,8 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
     dcc[i].port = atoi(prt);
     (void) setsockname(&dcc[i].sockname, ip, dcc[i].port, 0);
     dcc[i].sock = -1;
-    strcpy(dcc[i].nick, u->handle);
-    strcpy(dcc[i].host, from);
+    strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
+    strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
     dcc[i].timeval = now;
     dcc[i].user = u;
     dcc[i].u.dns->dns_type = RES_HOSTBYIP;
@@ -1984,7 +1984,7 @@ static void dcc_chat_hostresolved(int i)
     get_user_flagrec(dcc[i].user, &fr, 0);
     if (glob_party(fr))
       dcc[i].status |= STAT_PARTY;
-    strcpy(dcc[i].u.chat->con_chan, (chanset) ? chanset->dname : "*");
+    strlcpy(dcc[i].u.chat->con_chan, (chanset) ? chanset->dname : "*", sizeof(dcc[i].u.chat->con_chan));
     dcc[i].timeval = now;
     /* Ok, we're satisfied with them now: attempt the connect */
     putlog(LOG_MISC, "*", "DCC connection: CHAT (%s!%s)", dcc[i].nick,
@@ -2062,12 +2062,12 @@ static void server_postrehash()
   if (oldnick[0] && !rfc_casecmp(oldnick, botname) &&
       !rfc_casecmp(oldnick, get_altbotnick())) {
     /* Change botname back, don't be premature. */
-    strcpy(botname, oldnick);
+    strlcpy(botname, oldnick, sizeof(botname));
     dprintf(DP_SERVER, "NICK %s\n", origbotname);
   }
   /* Change botname back in case we were using altnick previous to rehash. */
   else if (oldnick[0])
-    strcpy(botname, oldnick);
+    strlcpy(botname, oldnick, sizeof(botname));
 }
 
 static void server_die()
@@ -2398,7 +2398,7 @@ char *server_start(Function *global_funcs)
   lastpingcheck = 0;
   server_online = 0;
   server_cycle_wait = 60;
-  strcpy(botrealname, "A deranged product of evil coders");
+  strlcpy(botrealname, "A deranged product of evil coders", sizeof(botrealname));
   server_timeout = 60;
   serverlist = NULL;
   cycle_time = 0;
@@ -2418,7 +2418,7 @@ char *server_start(Function *global_funcs)
   use_penalties = 0;
   use_fastdeq = 0;
   stackablecmds[0] = 0;
-  strcpy(stackable2cmds, "USERHOST ISON");
+  strlcpy(stackable2cmds, "USERHOST ISON", sizeof(stackable2cmds));
   resolvserv = 0;
   lastpingtime = 0;
   last_time = 0;

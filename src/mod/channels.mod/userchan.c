@@ -80,7 +80,7 @@ static void get_handle_chaninfo(char *handle, char *chname, char *s)
     s[0] = 0;
     return;
   }
-  strcpy(s, ch->info);
+  strlcpy(s, ch->info, sizeof(s));
   return;
 }
 
@@ -103,7 +103,7 @@ static void set_handle_chaninfo(struct userrec *bu, char *handle,
     nfree(ch->info);
   if (info && info[0]) {
     ch->info = (char *) user_malloc(strlen(info) + 1);
-    strcpy(ch->info, info);
+    strlcpy(ch->info, info, sizeof(ch->info));
   } else
     ch->info = NULL;
   cst = findchan_by_dname(chname);
@@ -182,7 +182,7 @@ static int u_setsticky_mask(struct chanset_t *chan, maskrec *u, char *uhost,
       else /* We don't actually want to change, just skip over */
         return 0;
       if (!j)
-        strcpy(uhost, u->mask);
+        strlcpy(uhost, u->mask, sizeof(uhost));
 
       if (!noshare)
         shareout(chan, "%s %s %d %s\n", botcmd, uhost, sticky,
@@ -269,7 +269,7 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strcpy(lastdeletedmask, (*u)->mask);
+    strlcpy(lastdeletedmask, (*u)->mask, sizeof(lastdeletedmask));
     nfree((*u)->mask);
     if ((*u)->desc)
       nfree((*u)->desc);
@@ -324,7 +324,7 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strcpy(lastdeletedmask, (*u)->mask);
+    strlcpy(lastdeletedmask, (*u)->mask, sizeof(lastdeletedmask));
     nfree((*u)->mask);
     if ((*u)->desc)
       nfree((*u)->desc);
@@ -380,7 +380,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strcpy(lastdeletedmask, (*u)->mask);
+    strlcpy(lastdeletedmask, (*u)->mask, sizeof(lastdeletedmask));
     nfree((*u)->mask);
     if ((*u)->desc)
       nfree((*u)->desc);
@@ -466,11 +466,11 @@ static int u_addban(struct chanset_t *chan, char *ban, char *from, char *note,
   p->lastactive = 0;
   p->flags = flags;
   p->mask = user_malloc(strlen(host) + 1);
-  strcpy(p->mask, host);
+  strlcpy(p->mask, host, sizeof(p->mask));
   p->user = user_malloc(strlen(from) + 1);
-  strcpy(p->user, from);
+  strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
-  strcpy(p->desc, note);
+  strlcpy(p->desc, note, sizeof(p->desc));
   if (!noshare) {
     char *mask = str_escape(host, ':', '\\');
 
@@ -530,11 +530,11 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
   p->lastactive = 0;
   p->flags = flags;
   p->mask = user_malloc(strlen(host) + 1);
-  strcpy(p->mask, host);
+  strlcpy(p->mask, host, sizeof(p->mask));
   p->user = user_malloc(strlen(from) + 1);
-  strcpy(p->user, from);
+  strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
-  strcpy(p->desc, note);
+  strlcpy(p->desc, note, sizeof(p->desc));
   if (!noshare) {
     char *mask = str_escape(host, ':', '\\');
 
@@ -594,11 +594,11 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
   p->lastactive = 0;
   p->flags = flags;
   p->mask = user_malloc(strlen(host) + 1);
-  strcpy(p->mask, host);
+  strlcpy(p->mask, host, sizeof(p->mask));
   p->user = user_malloc(strlen(from) + 1);
-  strcpy(p->user, from);
+  strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
-  strcpy(p->desc, note);
+  strlcpy(p->desc, note, sizeof(p->desc));
   if (!noshare) {
     char *mask = str_escape(host, ':', '\\');
 
@@ -626,7 +626,7 @@ static void display_ban(int idx, int number, maskrec *ban,
 
   if (ban->added) {
     daysago(now, ban->added, s);
-    sprintf(dates, "%s %s", MODES_CREATED, s);
+    snprintf(dates, sizeof(dates), "%s %s", MODES_CREATED, s);
     if (ban->added < ban->lastactive) {
       int len = strlen(dates);
       daysago(now, ban->lastactive, s);
@@ -635,12 +635,12 @@ static void display_ban(int idx, int number, maskrec *ban,
   } else
     dates[0] = 0;
   if (ban->flags & MASKREC_PERM)
-    strcpy(s, "(perm)");
+    strlcpy(s, "(perm)", sizeof(s));
   else {
     char s1[29];
 
     days(ban->expire, now, s1);
-    sprintf(s, "(expires %s)", s1);
+    snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (ban->flags & MASKREC_STICKY)
     strcat(s, " (sticky)");
@@ -670,7 +670,7 @@ static void display_exempt(int idx, int number, maskrec *exempt,
 
   if (exempt->added) {
     daysago(now, exempt->added, s);
-    sprintf(dates, "%s %s", MODES_CREATED, s);
+    snprintf(dates, sizeof(dates), "%s %s", MODES_CREATED, s);
     if (exempt->added < exempt->lastactive) {
       int len = strlen(dates);
       daysago(now, exempt->lastactive, s);
@@ -679,12 +679,12 @@ static void display_exempt(int idx, int number, maskrec *exempt,
   } else
     dates[0] = 0;
   if (exempt->flags & MASKREC_PERM)
-    strcpy(s, "(perm)");
+    strlcpy(s, "(perm)", sizeof(s));
   else {
     char s1[29];
 
     days(exempt->expire, now, s1);
-    sprintf(s, "(expires %s)", s1);
+    snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (exempt->flags & MASKREC_STICKY)
     strcat(s, " (sticky)");
@@ -714,7 +714,7 @@ static void display_invite(int idx, int number, maskrec *invite,
 
   if (invite->added) {
     daysago(now, invite->added, s);
-    sprintf(dates, "%s %s", MODES_CREATED, s);
+    snprintf(dates, sizeof(dates), "%s %s", MODES_CREATED, s);
     if (invite->added < invite->lastactive) {
       int len = strlen(dates);
       daysago(now, invite->lastactive, s);
@@ -723,12 +723,12 @@ static void display_invite(int idx, int number, maskrec *invite,
   } else
     dates[0] = 0;
   if (invite->flags & MASKREC_PERM)
-    strcpy(s, "(perm)");
+    strlcpy(s, "(perm)", sizeof(s));
   else {
     char s1[29];
 
     days(invite->expire, now, s1);
-    sprintf(s, "(expires %s)", s1);
+    snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (invite->flags & MASKREC_STICKY)
     strcat(s, " (sticky)");
@@ -824,17 +824,17 @@ static void tell_bans(int idx, int show_inact, char *match)
       for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
         if ((!u_equals_mask(global_bans, b->mask)) &&
             (!u_equals_mask(chan->bans, b->mask))) {
-          strcpy(s, b->who);
+          strlcpy(s, b->who, sizeof(s));
           s2 = s;
           s1 = splitnick(&s2);
           if (s1[0])
-            sprintf(fill, "%s (%s!%s)", b->mask, s1, s2);
+            snprintf(fill, sizeof(fill), "%s (%s!%s)", b->mask, s1, s2);
           else
-            sprintf(fill, "%s (server %s)", b->mask, s2);
+            snprintf(fill, sizeof(fill), "%s (server %s)", b->mask, s2);
           if (b->timer != 0) {
             min = (now - b->timer) / 60;
             sec = (now - b->timer) - (min * 60);
-            sprintf(s, " (active %02d:%02d)", min, sec);
+            snprintf(s, sizeof(s), " (active %02d:%02d)", min, sec);
             strcat(fill, s);
           }
           if ((!match[0]) || (match_addr(match, b->mask)))
@@ -914,17 +914,17 @@ static void tell_exempts(int idx, int show_inact, char *match)
       for (e = chan->channel.exempt; e && e->mask[0]; e = e->next) {
         if ((!u_equals_mask(global_exempts, e->mask)) &&
             (!u_equals_mask(chan->exempts, e->mask))) {
-          strcpy(s, e->who);
+          strlcpy(s, e->who, sizeof(s));
           s2 = s;
           s1 = splitnick(&s2);
           if (s1[0])
-            sprintf(fill, "%s (%s!%s)", e->mask, s1, s2);
+            snprintf(fill, sizeof(fill), "%s (%s!%s)", e->mask, s1, s2);
           else
-            sprintf(fill, "%s (server %s)", e->mask, s2);
+            snprintf(fill, sizeof(fill), "%s (server %s)", e->mask, s2);
           if (e->timer != 0) {
             min = (now - e->timer) / 60;
             sec = (now - e->timer) - (min * 60);
-            sprintf(s, " (active %02d:%02d)", min, sec);
+            snprintf(s, sizeof(s), " (active %02d:%02d)", min, sec);
             strcat(fill, s);
           }
           if ((!match[0]) || (match_addr(match, e->mask)))
@@ -1003,17 +1003,17 @@ static void tell_invites(int idx, int show_inact, char *match)
       for (i = chan->channel.invite; i && i->mask[0]; i = i->next) {
         if ((!u_equals_mask(global_invites, i->mask)) &&
             (!u_equals_mask(chan->invites, i->mask))) {
-          strcpy(s, i->who);
+          strlcpy(s, i->who, sizeof(s));
           s2 = s;
           s1 = splitnick(&s2);
           if (s1[0])
-            sprintf(fill, "%s (%s!%s)", i->mask, s1, s2);
+            snprintf(fill, sizeof(fill), "%s (%s!%s)", i->mask, s1, s2);
           else
-            sprintf(fill, "%s (server %s)", i->mask, s2);
+            snprintf(fill, sizeof(fill), "%s (server %s)", i->mask, s2);
           if (i->timer != 0) {
             min = (now - i->timer) / 60;
             sec = (now - i->timer) - (min * 60);
-            sprintf(s, " (active %02d:%02d)", min, sec);
+            snprintf(s, sizeof(s), " (active %02d:%02d)", min, sec);
             strcat(fill, s);
           }
           if ((!match[0]) || (match_addr(match, i->mask)))

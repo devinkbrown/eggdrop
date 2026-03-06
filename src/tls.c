@@ -305,7 +305,7 @@ int ssl_init()
     char *sep = " ";
     char *word;
     unsigned int protocols = 0;
-    strcpy(s, tls_protocols);
+    strlcpy(s, tls_protocols, sizeof(s));
     for (word = strtok(s, sep); word; word = strtok(NULL, sep)) {
       if (!strcmp(word, "SSLv2"))
         protocols |= EGG_SSLv2;
@@ -437,7 +437,7 @@ char *ssl_fpconv(char *in, char *out)
     fp = OPENSSL_buf2hexstr(sha1, len);
     if (fp) {
       out = user_realloc(out, strlen(fp) + 1);
-      strcpy(out, fp);
+      strlcpy(out, fp, sizeof(out));
       OPENSSL_free(sha1);
       OPENSSL_free(fp);
       return out;
@@ -1089,7 +1089,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
           body);
       response = nmalloc(j + 1);
-      sprintf(response,
+      snprintf(response, sizeof(response),
         "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
         "Content-Length: %zu\r\n"
         "Content-Type: text/plain; charset=utf-8\r\n"

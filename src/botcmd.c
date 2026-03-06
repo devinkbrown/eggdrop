@@ -334,7 +334,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
           /* output and prepare for more, there should always be place for ',' */
           strcat(s, ",");
           botnet_send_priv(idx, botnetnick, nick, NULL, "%s", s);
-          strcpy(s, "          ");
+          strlcpy(s, "          ", sizeof(s));
           i = 10;
         }
       }
@@ -353,7 +353,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
           /* more to come, leave place for ',' */
           ++trunc;
         }
-        strcpy(s + ssize - trunc, " ...");
+        memcpy(s + ssize - trunc, " ...", 4);
         s[ssize - trunc + 4] = '\0';
         i = ssize - trunc + 4;
       }
@@ -386,7 +386,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
   for (i = 0; i < dcc_total; i++)
     if (dcc[i].type->flags & DCT_REMOTEWHO)
       if (dcc[i].u.chat->channel == chan) {
-        k = sprintf(s, "  %c%-15s %s", (geticon(i) == '-' ? ' ' : geticon(i)),
+        k = snprintf(s, sizeof(s), "  %c%-15s %s", (geticon(i) == '-' ? ' ' : geticon(i)),
                     dcc[i].nick, dcc[i].host);
         if (now - dcc[i].timeval > 300) {
           unsigned long days, hrs, mins;
@@ -395,11 +395,11 @@ static void remote_tell_who(int idx, char *nick, int chan)
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            sprintf(s + k, " (%s %lud%luh)", MISC_IDLE, days, hrs);
+            snprintf(s + k, sizeof(s) - k, " (%s %lud%luh)", MISC_IDLE, days, hrs);
           else if (hrs > 0)
-            sprintf(s + k, " (%s %luh%lum)", MISC_IDLE, hrs, mins);
+            snprintf(s + k, sizeof(s) - k, " (%s %luh%lum)", MISC_IDLE, hrs, mins);
           else
-            sprintf(s + k, " (%s %lum)", MISC_IDLE, mins);
+            snprintf(s + k, sizeof(s) - k, " (%s %lum)", MISC_IDLE, mins);
         }
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s", s);
         if (dcc[i].u.chat->away != NULL)
@@ -412,7 +412,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
         ok = 1;
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s:", BOT_BOTSCONNECTED);
       }
-      sprintf(s, "  %s%c%-15s %s",
+      snprintf(s, sizeof(s), "  %s%c%-15s %s",
               dcc[i].status & STAT_CALLED ? "<-" : "->",
               dcc[i].status & STAT_SHARE ? '+' : ' ',
               dcc[i].nick, dcc[i].u.bot->version);
@@ -426,14 +426,14 @@ static void remote_tell_who(int idx, char *nick, int chan)
           ok = 1;
           botnet_send_priv(idx, botnetnick, nick, NULL, "%s:", BOT_OTHERPEOPLE);
         }
-        l = sprintf(s, "  %c%-15s %s", (geticon(i) == '-' ? ' ' : geticon(i)),
+        l = snprintf(s, sizeof(s), "  %c%-15s %s", (geticon(i) == '-' ? ' ' : geticon(i)),
                     dcc[i].nick, dcc[i].host);
         if (now - dcc[i].timeval > 300) {
           k = (now - dcc[i].timeval) / 60;
           if (k < 60)
-            sprintf(s + l, " (%s %dm)", MISC_IDLE, k);
+            snprintf(s + l, sizeof(s) - l, " (%s %dm)", MISC_IDLE, k);
           else
-            sprintf(s + l, " (%s %dh%dm)", MISC_IDLE, k / 60, k % 60);
+            snprintf(s + l, sizeof(s) - l, " (%s %dh%dm)", MISC_IDLE, k / 60, k % 60);
         }
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s", s);
         if (dcc[i].u.chat->away != NULL)
@@ -500,7 +500,7 @@ static void bot_infoq(int idx, char *par)
     int days = now2 / 86400;
 
     /* Days */
-    sprintf(s2, "%d day", days);
+    snprintf(s2, sizeof(s2), "%d day", days);
     if (days >= 2)
       strcat(s2, "s");
     strcat(s2, ", ");
@@ -509,7 +509,7 @@ static void bot_infoq(int idx, char *par)
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  sprintf(&s2[strlen(s2)], "%02d:%02d", (int) hr, (int) min);
+  snprintf(s2 + strlen(s2), sizeof(s2) - strlen(s2), "%02d:%02d", (int) hr, (int) min);
   if (module_find("server", 0, 0)) {
     s[0] = 0;
     for (chan = chanset; chan; chan = chan->next) {
@@ -1079,7 +1079,7 @@ static void bot_motd(int idx, char *par)
         if (s[strlen(s) - 1] == '\n')
           s[strlen(s) - 1] = 0;
         if (!s[0])
-          strcpy(s, " ");
+          strlcpy(s, " ", sizeof(s));
         help_subst(s, who, &fr, HELP_DCC, dcc[idx].nick);
         if (s[0])
           botnet_send_priv(idx, botnetnick, who, NULL, "%s", s);

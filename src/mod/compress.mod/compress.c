@@ -310,7 +310,7 @@ static int compress_file(char *filename, int mode_num)
   /* Create temporary filename. */
   temp_fn = nmalloc(strlen(filename) + sizeof rands);
   make_rand_str(rands, sizeof rands - 1);
-  strcpy(temp_fn, filename);
+  strlcpy(temp_fn, filename, sizeof(temp_fn));
   strcat(temp_fn, rands);
 
   /* Compress file. */
@@ -336,7 +336,7 @@ static int uncompress_file(char *filename)
   /* Create temporary filename. */
   temp_fn = nmalloc(strlen(filename) + sizeof rands);
   make_rand_str(rands, sizeof rands - 1);
-  strcpy(temp_fn, filename);
+  strlcpy(temp_fn, filename, sizeof(temp_fn));
   strcat(temp_fn, rands);
 
   /* Uncompress file. */

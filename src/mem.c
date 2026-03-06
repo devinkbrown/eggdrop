@@ -160,7 +160,7 @@ void debug_mem_to_dcc(int idx)
     use[i] = 0;
 
   for (i = 0; i < lastused; i++) {
-    strcpy(fn, memtbl[i].file);
+    strlcpy(fn, memtbl[i].file, sizeof(fn));
     p = strchr(fn, ':');
     if (p)
       *p = 0;
@@ -206,47 +206,47 @@ void debug_mem_to_dcc(int idx)
   for (i = 0; i < MAX_MEM; i++) {
     switch (i) {
     case 0:
-      strcpy(fn, "language.c");
+      strlcpy(fn, "language.c", sizeof(fn));
       break;
     case 1:
-      strcpy(fn, "chanprog.c");
+      strlcpy(fn, "chanprog.c", sizeof(fn));
       break;
     case 2:
-      strcpy(fn, "misc.c");
+      strlcpy(fn, "misc.c", sizeof(fn));
       break;
     case 3:
-      strcpy(fn, "userrec.c");
+      strlcpy(fn, "userrec.c", sizeof(fn));
       break;
     case 4:
-      strcpy(fn, "net.c");
+      strlcpy(fn, "net.c", sizeof(fn));
       break;
     case 5:
-      strcpy(fn, "dccutil.c");
+      strlcpy(fn, "dccutil.c", sizeof(fn));
       break;
     case 6:
-      strcpy(fn, "botnet.c");
+      strlcpy(fn, "botnet.c", sizeof(fn));
       break;
     case 7:
-      strcpy(fn, "tcl.c");
+      strlcpy(fn, "tcl.c", sizeof(fn));
       break;
     case 8:
-      strcpy(fn, "tclhash.c");
+      strlcpy(fn, "tclhash.c", sizeof(fn));
       break;
     case 9:
-      strcpy(fn, "tclmisc.c");
+      strlcpy(fn, "tclmisc.c", sizeof(fn));
       break;
     case 10:
-      strcpy(fn, "modules.c");
+      strlcpy(fn, "modules.c", sizeof(fn));
       break;
     case 11:
-      strcpy(fn, "tcldcc.c");
+      strlcpy(fn, "tcldcc.c", sizeof(fn));
       break;
     case 12:
-      strcpy(fn, "dns.c");
+      strlcpy(fn, "dns.c", sizeof(fn));
       break;
 #ifdef TLS
     case 13:
-      strcpy(fn, "tls.c");
+      strlcpy(fn, "tls.c", sizeof(fn));
       break;
 #endif
     }
@@ -257,22 +257,22 @@ void debug_mem_to_dcc(int idx)
     else {
       dprintf(idx, "File '%-10s' accounted for %lu/%lu (debug follows:)\n",
               fn, exp[i], use[i]);
-      strcpy(sofar, "   ");
+      strlcpy(sofar, "   ", sizeof(sofar));
       for (j = 0; j < lastused; j++) {
         if ((p = strchr(memtbl[j].file, ':')))
           *p = 0;
         if (!strcasecmp(memtbl[j].file, fn)) {
           if (p)
-            sprintf(&sofar[strlen(sofar)], "%-10s/%-4d:(%04d) ",
+            snprintf(sofar + strlen(sofar), sizeof(sofar) - strlen(sofar), "%-10s/%-4d:(%04d) ",
                     p + 1, memtbl[j].line, memtbl[j].size);
           else
-            sprintf(&sofar[strlen(sofar)], "%-4d:(%04d) ",
+            snprintf(sofar + strlen(sofar), sizeof(sofar) - strlen(sofar), "%-4d:(%04d) ",
                     memtbl[j].line, memtbl[j].size);
 
           if (strlen(sofar) > 60) {
             sofar[strlen(sofar) - 1] = 0;
             dprintf(idx, "%s\n", sofar);
-            strcpy(sofar, "   ");
+            strlcpy(sofar, "   ", sizeof(sofar));
           }
         }
         if (p)
@@ -297,18 +297,18 @@ void debug_mem_to_dcc(int idx)
     else {
       dprintf(idx, "Module '%-10s' accounted for %lu/%lu (debug follows:)\n",
               me->name, expt, me->mem_work);
-      strcpy(sofar, "   ");
+      strlcpy(sofar, "   ", sizeof(sofar));
       for (j = 0; j < lastused; j++) {
-        strcpy(fn, memtbl[j].file);
+        strlcpy(fn, memtbl[j].file, sizeof(fn));
         if ((p = strchr(fn, ':')) != NULL) {
           *p = 0;
           if (!strcasecmp(fn, me->name)) {
-            sprintf(&sofar[strlen(sofar)], "%-10s/%-4d:(%04X) ", p + 1,
+            snprintf(sofar + strlen(sofar), sizeof(sofar) - strlen(sofar), "%-10s/%-4d:(%04X) ", p + 1,
                     memtbl[j].line, memtbl[j].size);
             if (strlen(sofar) > 60) {
               sofar[strlen(sofar) - 1] = 0;
               dprintf(idx, "%s\n", sofar);
-              strcpy(sofar, "   ");
+              strlcpy(sofar, "   ", sizeof(sofar));
             }
             *p = ':';
           }
@@ -435,7 +435,7 @@ void n_free(void *ptr, const char *file, int line)
       memtbl[i].ptr = memtbl[lastused].ptr;
       memtbl[i].size = memtbl[lastused].size;
       memtbl[i].line = memtbl[lastused].line;
-      strcpy(memtbl[i].file, memtbl[lastused].file);
+      strlcpy(memtbl[i].file, memtbl[lastused].file, sizeof(memtbl[i].file));
     }
   }
 #endif

@@ -496,7 +496,7 @@ static int proxy_connect(int sock, sockname_t *addr)
     strlcpy(host, &firewall[1], sizeof host);
   } else {
     proxy = PROXY_SOCKS;
-    strcpy(host, firewall);
+    strlcpy(host, firewall, sizeof(host));
   }
   port = addr->addr.s4.sin_port;
   setsockname(&name, host, firewallport, 1);
@@ -1232,10 +1232,10 @@ int sockgets(char *s, int *len)
     len2 = strlen(p);
     socklist[ret].handler.sock.inbuf = nmalloc(len2 + strlen(xx) + 1);
     memcpy(socklist[ret].handler.sock.inbuf, p, len2);
-    strcpy(socklist[ret].handler.sock.inbuf + len2, xx);
+    memcpy(socklist[ret].handler.sock.inbuf + len2, xx, strlen(xx) + 1);
     nfree(p);
     if (strlen(socklist[ret].handler.sock.inbuf) < READMAX + 2) {
-      strcpy(xx, socklist[ret].handler.sock.inbuf);
+      strlcpy(xx, socklist[ret].handler.sock.inbuf, sizeof(xx));
       nfree(socklist[ret].handler.sock.inbuf);
       socklist[ret].handler.sock.inbuf = NULL;
       socklist[ret].handler.sock.inbuflen = 0;
@@ -1243,9 +1243,9 @@ int sockgets(char *s, int *len)
       p = socklist[ret].handler.sock.inbuf;
       socklist[ret].handler.sock.inbuflen = strlen(p) - READMAX;
       socklist[ret].handler.sock.inbuf = nmalloc(socklist[ret].handler.sock.inbuflen + 1);
-      strcpy(socklist[ret].handler.sock.inbuf, p + READMAX);
+      strlcpy(socklist[ret].handler.sock.inbuf, p + READMAX, sizeof(socklist[ret].handler.sock.inbuf));
       *(p + READMAX) = 0;
-      strcpy(xx, p);
+      strlcpy(xx, p, sizeof(xx));
       nfree(p);
       /* (leave the rest to be post-pended later) */
     }
@@ -1262,12 +1262,12 @@ int sockgets(char *s, int *len)
     }
   }
 /* NO! */
-/* if (!s[0]) strcpy(s," ");  */
+/* if (!s[0]) strlcpy(s, " ", sizeof(s));  */
   if (!data) {
     s[0] = 0;
     if (strlen(xx) >= READMAX) {
       /* String is too long, so just insert fake \n */
-      strcpy(s, xx);
+      strlcpy(s, xx, sizeof(s));
       xx[0] = 0;
       data = 1;
     }
@@ -1287,7 +1287,7 @@ int sockgets(char *s, int *len)
     socklist[ret].handler.sock.inbuflen = len2 + strlen(p);
     socklist[ret].handler.sock.inbuf = nmalloc(socklist[ret].handler.sock.inbuflen + 1);
     memcpy(socklist[ret].handler.sock.inbuf, xx, len2);
-    strcpy(socklist[ret].handler.sock.inbuf + len2, p);
+    memcpy(socklist[ret].handler.sock.inbuf + len2, p, strlen(p) + 1);
     nfree(p);
   } else {
     socklist[ret].handler.sock.inbuflen = strlen(xx);
@@ -1532,7 +1532,7 @@ void tell_netdebug(int idx)
   dprintf(idx, "Open sockets:");
   for (i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & SOCK_UNUSED)) {
-      sprintf(s, " %d", socklist[i].sock);
+      snprintf(s, sizeof(s), " %d", socklist[i].sock);
       if (socklist[i].flags & SOCK_BINARY)
         strcat(s, " (binary)");
       if (socklist[i].flags & SOCK_LISTEN)
@@ -1553,10 +1553,10 @@ void tell_netdebug(int idx)
         strcat(s, " (tcl)");
       if (!(socklist[i].flags & SOCK_TCL)) {
         if (socklist[i].handler.sock.inbuf != NULL)
-          sprintf(&s[strlen(s)], " (inbuf: %04X)",
+          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (inbuf: %04X)",
                   (unsigned int) strlen(socklist[i].handler.sock.inbuf));
         if (socklist[i].handler.sock.outbuf != NULL)
-          sprintf(&s[strlen(s)], " (outbuf: %06lX)", socklist[i].handler.sock.outbuflen);
+          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06lX)", socklist[i].handler.sock.outbuflen);
       }
       strcat(s, ",");
       dprintf(idx, "%s", s);

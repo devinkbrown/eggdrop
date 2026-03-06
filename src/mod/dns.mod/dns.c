@@ -71,7 +71,7 @@ static void dns_event_failure(struct resolve *rp, int type)
   if (type == T_PTR) {
     static char s[UHOSTLEN];
 
-    strcpy(s, iptostr(&rp->sockname.addr.sa));
+    strlcpy(s, iptostr(&rp->sockname.addr.sa), sizeof(s));
     debug1("DNS resolve failed for %s", s);
     call_hostbyip(&rp->sockname, s, 0);
   } else if (type == T_A) {
@@ -108,7 +108,7 @@ static void dns_socket(int idx, char *buf, int len)
 
 static void display_dns_socket(int idx, char *buf)
 {
-  strcpy(buf, "dns   (ready)");
+  strlcpy(buf, "dns   (ready)", sizeof(buf));
 }
 
 static struct dcc_table DCC_DNS = {
@@ -323,7 +323,7 @@ char *dns_start(Function *global_funcs)
   }
   dcc[idx].sock = resfd;
   dcc[idx].timeval = now;
-  strcpy(dcc[idx].nick, "(dns)");
+  strlcpy(dcc[idx].nick, "(dns)", sizeof(dcc[idx].nick));
   memcpy(&dcc[idx].sockname.addr.sa, &myres.nsaddr_list[0],
              sizeof(myres.nsaddr_list[0]));
   dcc[idx].sockname.addrlen = sizeof(myres.nsaddr_list[0]);

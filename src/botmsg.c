@@ -784,12 +784,12 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
         from[FROMLEN] = 0;
 
       if (strchr(from, '@')) {
-        strcpy(botf, from);
+        strlcpy(botf, from, sizeof(botf));
       } else
         snprintf(botf, sizeof botf, "%s@%s", from, botnetnick);
 
     } else
-      strcpy(botf, botnetnick);
+      strlcpy(botf, botnetnick, sizeof(botf));
 
     i = nextbot(p);
     if (i < 0) {

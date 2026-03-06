@@ -346,7 +346,7 @@ static void dcc_bot_digest(int idx, char *challenge, char *password)
 #endif
 
   for (i = 0; i < 16; i++)
-    sprintf(digest_string + (i * 2), "%.2x", digest[i]);
+    snprintf(digest_string + (i * 2), 3, "%.2x", digest[i]);
   dprintf(idx, "digest %s\n", digest_string);
   explicit_bzero(digest_string, sizeof digest_string);
   explicit_bzero(digest, sizeof digest);
@@ -431,7 +431,7 @@ static void timeout_dcc_bot_new(int idx)
 
 static void display_dcc_bot_new(int idx, char *buf)
 {
-  sprintf(buf, "bot*  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "bot*  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static int expmem_dcc_bot_(void *x)
@@ -537,7 +537,7 @@ static void eof_dcc_bot(int idx)
 
 static void display_dcc_bot(int idx, char *buf)
 {
-  int i = sprintf(buf, "bot   flags: ");
+  int i = snprintf(buf, sizeof(buf), "bot   flags: ");
 
   buf[i++] = b_status(idx) & STAT_PINGED ? 'P' : 'p';
   buf[i++] = b_status(idx) & STAT_SHARE ? 'U' : 'u';
@@ -554,7 +554,7 @@ static void display_dcc_bot(int idx, char *buf)
 
 static void display_dcc_fork_bot(int idx, char *buf)
 {
-  sprintf(buf, "conn  bot");
+  snprintf(buf, sizeof(buf), "conn  bot");
 }
 
 struct dcc_table DCC_BOT = {
@@ -626,7 +626,7 @@ static int dcc_bot_check_digest(int idx, char *remote_digest)
 #endif
 
   for (i = 0; i < 16; i++)
-    sprintf(digest_string + (i * 2), "%.2x", digest[i]);
+    snprintf(digest_string + (i * 2), 3, "%.2x", digest[i]);
   ret = strcmp(digest_string, remote_digest);
   explicit_bzero(digest_string, sizeof digest_string);
   explicit_bzero(digest, sizeof digest);
@@ -785,7 +785,7 @@ static void tout_dcc_chat_pass(int idx)
 
 static void display_dcc_chat_pass(int idx, char *buf)
 {
-  sprintf(buf, "pass  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "pass  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static int expmem_dcc_general(void *x)
@@ -1181,7 +1181,7 @@ static void dcc_chat(int idx, char *buf, int i)
 
 static void display_dcc_chat(int idx, char *buf)
 {
-  int i = sprintf(buf, "chat  flags: ");
+  int i = snprintf(buf, sizeof(buf), "chat  flags: ");
 
   buf[i++] = dcc[idx].status & STAT_CHAT ? 'C' : 'c';
   buf[i++] = dcc[idx].status & STAT_PARTY ? 'P' : 'p';
@@ -1461,10 +1461,10 @@ static void eof_dcc_telnet(int idx)
 static void display_telnet(int idx, char *buf)
 {
 #ifdef TLS
-  sprintf(buf, "lstn  %s%d%s", dcc[idx].ssl ? "+" : "", dcc[idx].port,
+  snprintf(buf, sizeof(buf), "lstn  %s%d%s", dcc[idx].ssl ? "+" : "", dcc[idx].port,
           (dcc[idx].status & LSTN_PUBLIC) ? " pub" : "");
 #else
-  sprintf(buf, "lstn  %d%s", dcc[idx].port,
+  snprintf(buf, sizeof(buf), "lstn  %d%s", dcc[idx].port,
           (dcc[idx].status & LSTN_PUBLIC) ? " pub" : "");
 #endif
 }
@@ -1518,7 +1518,7 @@ static void timeout_dupwait(int idx)
 
 static void display_dupwait(int idx, char *buf)
 {
-  sprintf(buf, "wait  duplicate?");
+  snprintf(buf, sizeof(buf), "wait  duplicate?");
 }
 
 static int expmem_dupwait(void *x)
@@ -1871,7 +1871,7 @@ static void timeout_dcc_telnet_id(int idx)
 
 static void display_dcc_telnet_id(int idx, char *buf)
 {
-  sprintf(buf, "t-in  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "t-in  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 struct dcc_table DCC_TELNET_ID = {
@@ -1969,7 +1969,7 @@ static void dcc_telnet_pw(int idx, char *new, int x)
   if (notify_new[0]) {
     char s[NICKLEN+UHOSTMAX+32], s1[NICKLEN+UHOSTMAX+32], s2[NICKLEN+UHOSTMAX+32];
 
-    sprintf(s, "Introduced to %s, %s", dcc[idx].nick, dcc[idx].host);
+    snprintf(s, sizeof(s), "Introduced to %s, %s", dcc[idx].nick, dcc[idx].host);
     strlcpy(s1, notify_new, sizeof(s1));
     splitc(s2, s1, ',');
     while (s2[0]) {
@@ -2022,12 +2022,12 @@ static void tout_dcc_telnet_pw(int idx)
 
 static void display_dcc_telnet_new(int idx, char *buf)
 {
-  sprintf(buf, "new   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "new   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static void display_dcc_telnet_pw(int idx, char *buf)
 {
-  sprintf(buf, "newp  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "newp  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 struct dcc_table DCC_TELNET_NEW = {
@@ -2144,7 +2144,7 @@ static void eof_dcc_script(int idx)
 
 static void display_dcc_script(int idx, char *buf)
 {
-  sprintf(buf, "scri  %s", dcc[idx].u.script->command);
+  snprintf(buf, sizeof(buf), "scri  %s", dcc[idx].u.script->command);
 }
 
 static int expmem_dcc_script(void *x)
@@ -2202,7 +2202,7 @@ static void eof_dcc_socket(int idx)
 
 static void display_dcc_socket(int idx, char *buf)
 {
-  strcpy(buf, "sock  (stranded)");
+  strlcpy(buf, "sock  (stranded)", sizeof(buf));
 }
 
 struct dcc_table DCC_SOCKET = {
@@ -2221,7 +2221,7 @@ struct dcc_table DCC_SOCKET = {
 
 static void display_dcc_lost(int idx, char *buf)
 {
-  strcpy(buf, "lost");
+  strlcpy(buf, "lost", sizeof(buf));
 }
 
 struct dcc_table DCC_LOST = {
@@ -2263,7 +2263,7 @@ void eof_dcc_identwait(int idx)
 
 static void display_dcc_identwait(int idx, char *buf)
 {
-  sprintf(buf, "idtw  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "idtw  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 struct dcc_table DCC_IDENTWAIT = {
@@ -2335,7 +2335,7 @@ void timeout_dcc_ident(int idx)
 
 static void display_dcc_ident(int idx, char *buf)
 {
-  sprintf(buf, "idnt  (sock %d)", dcc[idx].u.ident_sock);
+  snprintf(buf, sizeof(buf), "idnt  (sock %d)", dcc[idx].u.ident_sock);
 }
 
 struct dcc_table DCC_IDENT = {
@@ -2403,7 +2403,7 @@ static void dcc_telnet_got_ident(int i, char *host)
   if (!strcmp(dcc[idx].nick, "(script)")) {
     dcc[i].type = &DCC_SOCKET;
     dcc[i].u.other = NULL;
-    strcpy(dcc[i].nick, "*");
+    strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
     check_tcl_listen(dcc[idx].host, dcc[i].sock);
     return;
   }
@@ -2433,7 +2433,7 @@ static void dcc_telnet_got_ident(int i, char *host)
   strlcpy(dcc[i].nick, dcc[idx].host, sizeof dcc[i].nick);
 
   dcc[i].timeval = now;
-  strcpy(dcc[i].u.chat->con_chan, chanset ? chanset->dname : "*");
+  strlcpy(dcc[i].u.chat->con_chan, chanset ? chanset->dname : "*", sizeof(dcc[i].u.chat->con_chan));
   /* Displays a customizable banner. */
   if (use_telnet_banner)
     show_banner(i);

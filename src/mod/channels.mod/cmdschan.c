@@ -1269,7 +1269,7 @@ static void cmd_mns_chan(struct userrec *u, int idx, char *par)
         !rfc_casecmp(dcc[i].u.chat->con_chan, chan->dname)) {
       dprintf(i, "%s is no longer a valid channel, changing your console "
               "to '*'\n", chname);
-      strcpy(dcc[i].u.chat->con_chan, "*");
+      strlcpy(dcc[i].u.chat->con_chan, "*", sizeof(dcc[i].u.chat->con_chan));
     }
   remove_channel(chan);
   dprintf(idx, "Channel %s removed from the bot.\n", chname);
@@ -1518,7 +1518,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
     buf = nmalloc(strlen(par) + 1);
     while (chan) {
       chname = chan->dname;
-      strcpy(buf, bak);
+      strlcpy(buf, bak, sizeof(buf));
       par = buf;
       list[0] = newsplit(&par);
       answers[0] = 0;
@@ -1559,7 +1559,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
            * circumstances, so save it now.
            */
           parcpy = nmalloc(strlen(par) + 1);
-          strcpy(parcpy, par);
+          strlcpy(parcpy, par, sizeof(parcpy));
           irp = Tcl_CreateInterp();
           if (tcl_channel_modify(irp, chan, 2, list) == TCL_OK) {
             len = strlen(answers);

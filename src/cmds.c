@@ -226,12 +226,12 @@ static void tell_who(struct userrec *u, int idx, int chan)
       if (atr & USER_OWNER) {
         egg_snprintf(format, sizeof format, "  [%%.2lu]  %%c%%-%us (files) %%s",
                      nicklen);
-        sprintf(s, format,
+        snprintf(s, sizeof(s), format,
                 dcc[i].sock, dcc[i].status & STAT_CHAT ? '+' : ' ',
                 dcc[i].nick, dcc[i].host);
       } else {
         egg_snprintf(format, sizeof format, "  %%c%%-%us (files) %%s", nicklen);
-        sprintf(s, format,
+        snprintf(s, sizeof(s), format,
                 dcc[i].status & STAT_CHAT ? '+' : ' ',
                 dcc[i].nick, dcc[i].host);
       }
@@ -253,7 +253,7 @@ static void cmd_botinfo(struct userrec *u, int idx, char *par)
     int days = now2 / 86400;
 
     /* Days */
-    sprintf(s2, "%d day", days);
+    snprintf(s2, sizeof(s2), "%d day", days);
     if (days >= 2)
       strcat(s2, "s");
     strcat(s2, ", ");
@@ -262,7 +262,7 @@ static void cmd_botinfo(struct userrec *u, int idx, char *par)
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  sprintf(&s2[strlen(s2)], "%02d:%02d", (int) hr, (int) min);
+  snprintf(s2 + strlen(s2), sizeof(s2) - strlen(s2), "%02d:%02d", (int) hr, (int) min);
   putlog(LOG_CMDS, "*", "#%s# botinfo", dcc[idx].nick);
   simple_sprintf(s, "%d:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
   botnet_send_infoq(-1, s);
@@ -917,7 +917,7 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
   bi->ssl = 0;
 #endif
   bi->address = user_malloc(strlen(addr) + 1);
-  strcpy(bi->address, addr);
+  strlcpy(bi->address, addr, sizeof(bi->address));
 
   if (!port) {
     bi->telnet_port = 3333;
@@ -1267,7 +1267,7 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
   }
   bi = user_malloc(sizeof(struct bot_addr));
   bi->address = user_malloc(strlen(addr) + 1);
-  strcpy(bi->address, addr);
+  strlcpy(bi->address, addr, sizeof(bi->address));
 
   if (!port) {
     bi->telnet_port = telnet_port;
@@ -1705,9 +1705,9 @@ int check_dcc_chanattrs(struct userrec *u, char *chname, int chflags,
         if (!chan)
           chan = chanset;
         if (chan)
-          strcpy(dcc[i].u.chat->con_chan, chan->dname);
+          strlcpy(dcc[i].u.chat->con_chan, chan->dname, sizeof(dcc[i].u.chat->con_chan));
         else
-          strcpy(dcc[i].u.chat->con_chan, "*");
+          strlcpy(dcc[i].u.chat->con_chan, "*", sizeof(dcc[i].u.chat->con_chan));
       }
       fr.match = (FR_CHAN | FR_GLOBAL);
       get_user_flagrec(u, &fr, dcc[i].u.chat->con_chan);
@@ -2121,7 +2121,7 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
       }
     } else if (arg && !strpbrk(chg, "&|")) {
       tmpchg = nmalloc(strlen(chg) + 2);
-      strcpy(tmpchg, "|");
+      strlcpy(tmpchg, "|", sizeof(tmpchg));
       strcat(tmpchg, chg);
       chg = tmpchg;
     }
@@ -2316,7 +2316,7 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
       }
     } else if (arg && !strpbrk(chg, "&|")) {
       tmpchg = nmalloc(strlen(chg) + 2);
-      strcpy(tmpchg, "|");
+      strlcpy(tmpchg, "|", sizeof(tmpchg));
       strcat(tmpchg, chg);
       chg = tmpchg;
     }
@@ -2620,7 +2620,7 @@ static char *stripmaskname(int x)
                     (x & STRIP_ITALICS) ? "italics, " : "")))
     s[i - 2] = 0;
   else
-    strcpy(s, "none");
+    strlcpy(s, "none", sizeof(s));
   return s;
 }
 
@@ -2747,11 +2747,11 @@ static void cmd_su(struct userrec *u, int idx, char *par)
         if (dcc[idx].u.chat->away != NULL)
           nfree(dcc[idx].u.chat->away);
         dcc[idx].u.chat->away = get_data_ptr(strlen(dcc[idx].nick) + 1);
-        strcpy(dcc[idx].u.chat->away, dcc[idx].nick);
+        strlcpy(dcc[idx].u.chat->away, dcc[idx].nick, sizeof(dcc[idx].u.chat->away));
         dcc[idx].u.chat->su_nick = get_data_ptr(strlen(dcc[idx].nick) + 1);
-        strcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick);
+        strlcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick, sizeof(dcc[idx].u.chat->su_nick));
         dcc[idx].user = u;
-        strcpy(dcc[idx].nick, par);
+        strlcpy(dcc[idx].nick, par, sizeof(dcc[idx].nick));
         /* Display password prompt and turn off echo (send IAC WILL ECHO). */
         if (dcc[idx].status & STAT_TELNET) {
           char buf[512];
@@ -2770,7 +2770,7 @@ static void cmd_su(struct userrec *u, int idx, char *par)
         if (atr & USER_MASTER)
           dcc[idx].u.chat->con_flags = conmask;
         dcc[idx].u.chat->su_nick = get_data_ptr(strlen(dcc[idx].nick) + 1);
-        strcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick);
+        strlcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick, sizeof(dcc[idx].u.chat->su_nick));
         dcc[idx].user = u;
         strlcpy(dcc[idx].nick, par, sizeof dcc[idx].nick);
         dcc_chatter(idx);
@@ -2890,7 +2890,7 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
     dumplots(idx, "Global vars: ", tcl_resultstring());
     return;
   }
-  strcpy(s, "set ");
+  strlcpy(s, "set ", sizeof(s));
   strlcpy(s + 4, msg, (sizeof s) - 4);
   code = Tcl_Eval(interp, s);
 
@@ -3028,7 +3028,7 @@ static void cmd_pls_ignore(struct userrec *u, int idx, char *par)
   } else if (!strchr(who, '@'))
     snprintf(s, sizeof s, "%s@*", who);
   else
-    strcpy(s, who);
+    strlcpy(s, who, sizeof(s));
 
   if (match_ignore(s))
     dprintf(idx, "That already matches an existing ignore.\n");
@@ -3307,9 +3307,9 @@ static char *btos(unsigned long bytes)
     xbytes = xbytes / 1024.0;
   }
   if (bytes > 1024)
-    sprintf(traffictxt, "%.2f %s", xbytes, unit);
+    snprintf(traffictxt, sizeof(traffictxt), "%.2f %s", xbytes, unit);
   else
-    sprintf(traffictxt, "%lu Bytes", bytes);
+    snprintf(traffictxt, sizeof(traffictxt), "%lu Bytes", bytes);
   return traffictxt;
 }
 

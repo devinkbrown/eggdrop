@@ -213,7 +213,7 @@ static int got_files_cmd(int idx, char *msg)
   if (!filt[0])
     return 1;
   if (filt != msg)
-    strcpy(msg, filt);
+    strlcpy(msg, filt, sizeof(msg));
   if (msg[0] == '.')
     msg++;
   code = newsplit(&msg);
@@ -232,7 +232,7 @@ static void dcc_files(int idx, char *buf, int i)
   if (!filt[0])
     return;
   if (filt != buf)
-    strcpy(buf, filt);
+    strlcpy(buf, filt, sizeof(buf));
   touch_laston(dcc[idx].user, "filearea", now);
   if (buf[0] == ',') {
     for (i = 0; i < dcc_total; i++) {
@@ -445,10 +445,10 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   }
   if (dir[0]) {
     s = nmalloc(strlen(dccdir) + strlen(dir) + strlen(fn) + 2);
-    sprintf(s, "%s%s/%s", dccdir, dir, fn);
+    snprintf(s, sizeof(s), "%s%s/%s", dccdir, dir, fn);
   } else {
     s = nmalloc(strlen(dccdir) + strlen(fn) + 1);
-    sprintf(s, "%s%s", dccdir, fn);
+    snprintf(s, sizeof(s), "%s%s", dccdir, fn);
   }
 
   if (!file_readable(s)) {
@@ -465,7 +465,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   if (at_limit(nick)) {
     char xxx[1024];
 
-    sprintf(xxx, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
+    snprintf(xxx, sizeof(xxx), "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
     queue_file(xxx, fn, dcc[idx].nick, nick);
     dprintf(idx, "Queued: %s to %s\n", fn, nick);
     my_free(s);
@@ -514,7 +514,7 @@ static void tout_dcc_files_pass(int i)
 
 static void disp_dcc_files(int idx, char *buf)
 {
-  sprintf(buf, "file  flags: %c%c%c%c%c",
+  snprintf(buf, sizeof(buf), "file  flags: %c%c%c%c%c",
           dcc[idx].status & STAT_CHAT ? 'C' : 'c',
           dcc[idx].status & STAT_PARTY ? 'P' : 'p',
           dcc[idx].status & STAT_TELNET ? 'T' : 't',
@@ -524,7 +524,7 @@ static void disp_dcc_files(int idx, char *buf)
 
 static void disp_dcc_files_pass(int idx, char *buf)
 {
-  sprintf(buf, "fpas  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, sizeof(buf), "fpas  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static void kill_dcc_files(int idx, void *x)
@@ -628,7 +628,7 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
 
   buf = nmalloc(strlen(text) + 1);
   msg = buf;
-  strcpy(buf, text);
+  strlcpy(buf, text, sizeof(buf));
   param = newsplit(&msg);
   if (!(atr & USER_XFER)) {
     putlog(LOG_FILES, "*", "Refused DCC SEND %s (no access): %s!%s", param,
@@ -680,9 +680,9 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
 #endif
       dcc[i].user = u;
       strlcpy(dcc[i].nick, nick, sizeof dcc[i].nick);
-      strcpy(dcc[i].host, from);
+      strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
       dcc[i].u.dns->cbuf = get_data_ptr(strlen(param) + 1);
-      strcpy(dcc[i].u.dns->cbuf, param);
+      strlcpy(dcc[i].u.dns->cbuf, param, sizeof(dcc[i].u.dns->cbuf));
       dcc[i].u.dns->ibuf = atoi(msg);
       dcc[i].u.dns->dns_type = RES_HOSTBYIP;
       dcc[i].u.dns->dns_success = filesys_dcc_send_hostresolved;
@@ -718,7 +718,7 @@ static char *mktempfile(char *filename)
     fn[l] = 0;
   }
   tempname = nmalloc(l + MKTEMPFILE_TOT + 1);
-  sprintf(tempname, "%li-%s-%s", (long) getpid(), rands, fn);
+  snprintf(tempname, sizeof(tempname), "%li-%s-%s", (long) getpid(), rands, fn);
   if (fn != filename)
     my_free(fn);
   return tempname;
@@ -736,17 +736,17 @@ static void filesys_dcc_send_hostresolved(int i)
     return;
   }
   param = nmalloc(strlen(dcc[i].u.dns->cbuf) + 1);
-  strcpy(param, dcc[i].u.dns->cbuf);
+  strlcpy(param, dcc[i].u.dns->cbuf, sizeof(param));
 
   changeover_dcc(i, &DCC_FORK_SEND, sizeof(struct xfer_info));
   if (param[0] == '.')
     param[0] = '_';
   /* Save the original filename */
   dcc[i].u.xfer->origname = get_data_ptr(strlen(param) + 1);
-  strcpy(dcc[i].u.xfer->origname, param);
+  strlcpy(dcc[i].u.xfer->origname, param, sizeof(dcc[i].u.xfer->origname));
   tempf = mktempfile(param);
   dcc[i].u.xfer->filename = get_data_ptr(strlen(tempf) + 1);
-  strcpy(dcc[i].u.xfer->filename, tempf);
+  strlcpy(dcc[i].u.xfer->filename, tempf, sizeof(dcc[i].u.xfer->filename));
   /* We don't need the temporary buffers anymore */
   my_free(tempf);
   my_free(param);
@@ -755,15 +755,15 @@ static void filesys_dcc_send_hostresolved(int i)
     char *p = get_user(&USERENTRY_DCCDIR, dcc[i].user);
 
     if (p)
-      sprintf(dcc[i].u.xfer->dir, "%s%s/", dccdir, p);
+      snprintf(dcc[i].u.xfer->dir, sizeof(dcc[i].u.xfer->dir), "%s%s/", dccdir, p);
     else
-      sprintf(dcc[i].u.xfer->dir, "%s", dccdir);
+      snprintf(dcc[i].u.xfer->dir, sizeof(dcc[i].u.xfer->dir), "%s", dccdir);
   } else
-    strcpy(dcc[i].u.xfer->dir, dccin);
+    strlcpy(dcc[i].u.xfer->dir, dccin, sizeof(dcc[i].u.xfer->dir));
   dcc[i].u.xfer->length = len;
   s1 = nmalloc(strlen(dcc[i].u.xfer->dir) +
                strlen(dcc[i].u.xfer->origname) + 1);
-  sprintf(s1, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
+  snprintf(s1, sizeof(s1), "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
 
   if (file_readable(s1)) {
     dprintf(DP_HELP, "NOTICE %s :File `%s' already exists.\n", dcc[i].nick,
@@ -874,12 +874,12 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
              from);
       putlog(LOG_MISC, "*", "    (%s)", strerror(errno));
     } else {
-      strcpy(dcc[i].nick, u->handle);
-      strcpy(dcc[i].host, from);
+      strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
+      strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
       dcc[i].status = STAT_ECHO;
       dcc[i].timeval = now;
       dcc[i].u.file->chat = get_data_ptr(sizeof(struct chat_info));
-      strcpy(dcc[i].u.file->chat->con_chan, "*");
+      strlcpy(dcc[i].u.file->chat->con_chan, "*", sizeof(dcc[i].u.file->chat->con_chan));
       dcc[i].user = u;
       putlog(LOG_MISC, "*", "DCC connection: CHAT(file) (%s!%s)", nick, from);
       dprintf(i, "%s\n", DCC_ENTERPASS);
