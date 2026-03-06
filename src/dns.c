@@ -84,7 +84,7 @@ static void eof_dcc_dnswait(int idx)
 
 static void display_dcc_dnswait(int idx, char *buf)
 {
-  sprintf(buf, "dns   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  egg_snprintf(buf, 1024, "dns   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static int expmem_dcc_dnswait(void *x)

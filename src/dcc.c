@@ -260,13 +260,13 @@ void failed_link(int idx)
 
   if (dcc[idx].u.bot->linker[0]) {
     egg_snprintf(s, sizeof s, "Couldn't link to %s.", dcc[idx].nick);
-    strcpy(s1, dcc[idx].u.bot->linker);
+    strlcpy(s1, dcc[idx].u.bot->linker, sizeof(s1));
     add_note(s1, botnetnick, s, -2, 0);
   }
   if (dcc[idx].u.bot->numver >= -1)
     putlog(LOG_BOTS, "*", DCC_LINKFAIL, dcc[idx].nick);
   killsock(dcc[idx].sock);
-  strcpy(s, dcc[idx].nick);
+  strlcpy(s, dcc[idx].nick, sizeof(s));
   lostdcc(idx);
   autolink_cycle(s);          /* Check for more auto-connections */
   killsock(dcc[idx].sock);
@@ -948,7 +948,7 @@ static void append_line(int idx, char *line)
     p->len = l;
     p->msg = get_data_ptr(l + 1);
     p->next = NULL;
-    strcpy(p->msg, line);
+    strlcpy(p->msg, line, l + 1);
     if (q == NULL)
       c->buffer = p;
     else
@@ -1074,7 +1074,7 @@ static void dcc_chat(int idx, char *buf, int i)
         *d++ = *v++;
       }
     if (fixed)
-      strcpy(d, "\033[0m");
+      strlcpy(d, "\033[0m", 5);
     else
       *d = 0;
     if (buf[0]) {               /* Nothing to say - maybe paging... */
@@ -1305,7 +1305,7 @@ static void dcc_telnet(int idx, char *buf, int i)
   }
 #endif
   dcc[i].timeval = now;
-  strcpy(dcc[i].nick, "*");
+  strlcpy(dcc[i].nick, "*", HANDLEN + 1);
   dcc[i].u.dns->dns_success = dcc_telnet_hostresolved;
   dcc[i].u.dns->dns_failure = dcc_telnet_hostresolved;
   dcc[i].u.dns->dns_type = RES_HOSTBYIP;
@@ -1364,8 +1364,8 @@ void dcc_telnet_hostresolved2(int i, int idx) {
   dcc[j].sock = sock;
   dcc[j].port = 113;
   dcc[j].addr = dcc[i].addr;
-  strcpy(dcc[j].host, dcc[i].host);
-  strcpy(dcc[j].nick, "*");
+  strlcpy(dcc[j].host, dcc[i].host, UHOSTLEN);
+  strlcpy(dcc[j].nick, "*", HANDLEN + 1);
   dcc[j].u.ident_sock = dcc[i].sock;
   dcc[j].timeval = now;
 #ifdef CYGWIN_HACKS
@@ -1433,7 +1433,7 @@ static void dcc_telnet_hostresolved(int i)
   if ((dcc[idx].status & LSTN_PUBLIC) && !strcmp(dcc[idx].nick, "(script)")) {
     changeover_dcc(i, &DCC_SOCKET, 0);
     dcc[i].u.other = NULL;
-    strcpy(dcc[i].nick, "*");
+    strlcpy(dcc[i].nick, "*", HANDLEN + 1);
     strlcpy(dcc[i].host, userhost, UHOSTLEN);
     check_tcl_listen(dcc[idx].host, dcc[i].sock);
     return;
@@ -1914,7 +1914,7 @@ static void dcc_telnet_new(int idx, char *buf, int x)
   } else if (!strcasecmp(buf, botnetnick))
     dprintf(idx, "Sorry, can't use my name for a nick.\n");
   else {
-    strcpy(dcc[idx].nick, buf);
+    strlcpy(dcc[idx].nick, buf, HANDLEN + 1);
     if (make_userfile)
       userlist = adduser(userlist,
                  buf, "-telnet!*@*", "-", sanity_check(default_flags |
@@ -1970,7 +1970,7 @@ static void dcc_telnet_pw(int idx, char *new, int x)
     char s[NICKLEN+UHOSTMAX+32], s1[NICKLEN+UHOSTMAX+32], s2[NICKLEN+UHOSTMAX+32];
 
     sprintf(s, "Introduced to %s, %s", dcc[idx].nick, dcc[idx].host);
-    strcpy(s1, notify_new);
+    strlcpy(s1, notify_new, sizeof(s1));
     splitc(s2, s1, ',');
     while (s2[0]) {
       rmspace(s2);

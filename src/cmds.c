@@ -124,18 +124,18 @@ static void tell_who(struct userrec *u, int idx, int chan)
         if (atr & USER_OWNER) {
           egg_snprintf(format, sizeof format, "  [%%.2lu]  %%c%%-%us %%s",
                        nicklen);
-          sprintf(s, format, dcc[i].sock,
+          egg_snprintf(s, sizeof s, format, dcc[i].sock,
                   (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick,
                   dcc[i].host);
         } else {
           egg_snprintf(format, sizeof format, "  %%c%%-%us %%s", nicklen);
-          sprintf(s, format,
+          egg_snprintf(s, sizeof s, format,
                   (geticon(i) == '-' ? ' ' : geticon(i)),
                   dcc[i].nick, dcc[i].host);
         }
         if (atr & USER_MASTER) {
           if (dcc[i].u.chat->con_flags)
-            sprintf(&s[strlen(s)], " (con:%s)",
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (con:%s)",
                     masktype(dcc[i].u.chat->con_flags));
         }
         if (now - dcc[i].timeval > 300) {
@@ -145,11 +145,11 @@ static void tell_who(struct userrec *u, int idx, int chan)
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            sprintf(&s[strlen(s)], " (idle %lud%luh)", days, hrs);
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %lud%luh)", days, hrs);
           else if (hrs > 0)
-            sprintf(&s[strlen(s)], " (idle %luh%lum)", hrs, mins);
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %luh%lum)", hrs, mins);
           else
-            sprintf(&s[strlen(s)], " (idle %lum)", mins);
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %lum)", mins);
         }
         dprintf(idx, "%s\n", s);
         if (dcc[i].u.chat->away != NULL)
@@ -186,11 +186,11 @@ static void tell_who(struct userrec *u, int idx, int chan)
       }
       if (atr & USER_OWNER) {
         egg_snprintf(format, sizeof format, "  [%%.2lu]  %%c%%-%us ", nicklen);
-        sprintf(s, format, dcc[i].sock,
+        egg_snprintf(s, sizeof s, format, dcc[i].sock,
                 (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick);
       } else {
         egg_snprintf(format, sizeof format, "  %%c%%-%us ", nicklen);
-        sprintf(s, format, (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick);
+        egg_snprintf(s, sizeof s, format, (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick);
       }
       if (atr & USER_MASTER) {
         if (dcc[i].u.chat->channel < 0)
@@ -198,20 +198,20 @@ static void tell_who(struct userrec *u, int idx, int chan)
         else if (!dcc[i].u.chat->channel)
           strcat(s, "(party) ");
         else
-          sprintf(&s[strlen(s)], "(%5d) ", dcc[i].u.chat->channel);
+          egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), "(%5d) ", dcc[i].u.chat->channel);
       }
       strcat(s, dcc[i].host);
       if (atr & USER_MASTER) {
         if (dcc[i].u.chat->con_flags)
-          sprintf(&s[strlen(s)], " (con:%s)",
+          egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (con:%s)",
                   masktype(dcc[i].u.chat->con_flags));
       }
       if (now - dcc[i].timeval > 300) {
         k = (now - dcc[i].timeval) / 60;
         if (k < 60)
-          sprintf(&s[strlen(s)], " (idle %dm)", k);
+          egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %dm)", k);
         else
-          sprintf(&s[strlen(s)], " (idle %dh%dm)", k / 60, k % 60);
+          egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %dh%dm)", k / 60, k % 60);
       }
       dprintf(idx, "%s\n", s);
       if (dcc[i].u.chat->away != NULL)
