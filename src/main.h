@@ -38,7 +38,7 @@
 #  define ATTRIBUTE_FORMAT(a,b,c)
 #endif
 
-#include "eggint.h"
+#include <stdint.h>
 #include "lush.h"
 
 #ifndef TCL_SIZE_MAX

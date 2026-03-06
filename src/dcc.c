@@ -1181,7 +1181,7 @@ static void dcc_chat(int idx, char *buf, int i)
 
 static void display_dcc_chat(int idx, char *buf)
 {
-  int i = snprintf(buf, sizeof(buf), "chat  flags: ");
+  int i = snprintf(buf, LOGLINELEN, "chat  flags: ");
 
   buf[i++] = dcc[idx].status & STAT_CHAT ? 'C' : 'c';
   buf[i++] = dcc[idx].status & STAT_PARTY ? 'P' : 'p';

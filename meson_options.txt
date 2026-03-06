@@ -14,10 +14,59 @@ option('egg-debug', type: 'boolean', value: false,
   description: 'Enable eggdrop debug build (-g, extra logging)')
 
 option('handlen', type: 'integer', value: 32, min: 9, max: 32,
-  description: 'Maximum handle/nick length (9–32)')
+  description: 'Maximum handle/nick length (9-32)')
 
 option('static-modules', type: 'boolean', value: false,
   description: 'Link all modules statically into the eggdrop binary')
 
 option('eggexec', type: 'string', value: 'eggdrop',
   description: 'Name for the built executable')
+
+# -------------------------------------------------------------------------
+# Per-module enable/disable options
+# All default to true; set to false to skip building a module.
+# Modules with external dependencies (compress, python) are also gated by
+# whether their dependency was found.
+# -------------------------------------------------------------------------
+option('module-assoc',    type: 'boolean', value: true,
+  description: 'Build assoc module (channel-name/topic association)')
+option('module-blowfish', type: 'boolean', value: true,
+  description: 'Build blowfish encryption module')
+option('module-channels', type: 'boolean', value: true,
+  description: 'Build channels module (channel management)')
+option('module-compress', type: 'boolean', value: true,
+  description: 'Build compress module (requires zlib)')
+option('module-console',  type: 'boolean', value: true,
+  description: 'Build console module (DCC console)')
+option('module-ctcp',     type: 'boolean', value: true,
+  description: 'Build ctcp module (CTCP reply handling)')
+option('module-dns',      type: 'boolean', value: true,
+  description: 'Build dns module (async DNS resolver)')
+option('module-filesys',  type: 'boolean', value: true,
+  description: 'Build filesys module (DCC file system)')
+option('module-ident',    type: 'boolean', value: true,
+  description: 'Build ident module (RFC 1413 identification)')
+option('module-irc',      type: 'boolean', value: true,
+  description: 'Build irc module (IRC protocol support)')
+option('module-notes',    type: 'boolean', value: true,
+  description: 'Build notes module (inter-user messaging)')
+option('module-pbkdf2',   type: 'boolean', value: true,
+  description: 'Build pbkdf2 module (password hashing)')
+option('module-python',   type: 'boolean', value: true,
+  description: 'Build python module (requires Python >= 3.8)')
+option('module-seen',     type: 'boolean', value: true,
+  description: 'Build seen module (last-seen tracking)')
+option('module-server',   type: 'boolean', value: true,
+  description: 'Build server module (IRC server connections)')
+option('module-share',    type: 'boolean', value: true,
+  description: 'Build share module (botnet userfile sharing)')
+option('module-transfer', type: 'boolean', value: true,
+  description: 'Build transfer module (DCC file transfer)')
+option('module-twitch',   type: 'boolean', value: true,
+  description: 'Build twitch module (Twitch IRC support)')
+option('module-uptime',   type: 'boolean', value: true,
+  description: 'Build uptime module (uptime reporting)')
+option('module-webui',    type: 'boolean', value: true,
+  description: 'Build webui module (WebSocket UI)')
+option('module-woobie',   type: 'boolean', value: true,
+  description: 'Build woobie example module')

@@ -30,6 +30,7 @@ compat_lib = static_library('eggcompat',
   sources: compat_sources,
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
+  dependencies: [tcl_dep],
 )
 compat_dep = declare_dependency(link_with: compat_lib)
 
@@ -40,6 +41,7 @@ md5_lib = static_library('eggmd5',
   sources: ['md5/md5c.c'],
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
+  dependencies: [tcl_dep],
 )
 md5_dep = declare_dependency(link_with: md5_lib)
 
@@ -128,174 +130,69 @@ endif
 # -------------------------------------------------------------------------
 # Module definitions
 # Each entry: name, sources, extra_deps ([] if none)
-# -------------------------------------------------------------------------
+# Each module uses a "unity build": the top-level .c file #includes all
+# others in the module directory, so only the top-level file is listed here.
 module_defs = [
-  {
-    'name': 'assoc',
-    'sources': ['mod/assoc.mod/assoc.c'],
-    'deps': [],
-  },
-  {
-    'name': 'blowfish',
-    'sources': ['mod/blowfish.mod/blowfish.c'],
-    'deps': [],
-  },
-  {
-    'name': 'channels',
-    'sources': [
-      'mod/channels.mod/channels.c',
-      'mod/channels.mod/cmdschan.c',
-      'mod/channels.mod/tclchan.c',
-      'mod/channels.mod/udefchan.c',
-      'mod/channels.mod/userchan.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'console',
-    'sources': ['mod/console.mod/console.c'],
-    'deps': [],
-  },
-  {
-    'name': 'ctcp',
-    'sources': ['mod/ctcp.mod/ctcp.c'],
-    'deps': [],
-  },
+  {'name': 'assoc',    'sources': ['mod/assoc.mod/assoc.c'],       'deps': []},
+  {'name': 'blowfish', 'sources': ['mod/blowfish.mod/blowfish.c'], 'deps': []},
+  {'name': 'channels', 'sources': ['mod/channels.mod/channels.c'], 'deps': []},
+  {'name': 'console',  'sources': ['mod/console.mod/console.c'],   'deps': []},
+  {'name': 'ctcp',     'sources': ['mod/ctcp.mod/ctcp.c'],         'deps': []},
   {
     'name': 'dns',
-    'sources': [
-      'mod/dns.mod/dns.c',
-      'mod/dns.mod/coredns.c',
-    ],
+    'sources': ['mod/dns.mod/dns.c'],   # coredns.c is #include'd by dns.c
     'deps': [],   # resolv_dep added per-module below if found
   },
-  {
-    'name': 'filesys',
-    'sources': [
-      'mod/filesys.mod/dbcompat.c',
-      'mod/filesys.mod/filedb3.c',
-      'mod/filesys.mod/filelist.c',
-      'mod/filesys.mod/files.c',
-      'mod/filesys.mod/filesys.c',
-      'mod/filesys.mod/tclfiles.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'ident',
-    'sources': ['mod/ident.mod/ident.c'],
-    'deps': [],
-  },
-  {
-    'name': 'irc',
-    'sources': [
-      'mod/irc.mod/chan.c',
-      'mod/irc.mod/cmdsirc.c',
-      'mod/irc.mod/irc.c',
-      'mod/irc.mod/mode.c',
-      'mod/irc.mod/msgcmds.c',
-      'mod/irc.mod/tclirc.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'notes',
-    'sources': [
-      'mod/notes.mod/cmdsnote.c',
-      'mod/notes.mod/notes.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'pbkdf2',
-    'sources': [
-      'mod/pbkdf2.mod/pbkdf2.c',
-      'mod/pbkdf2.mod/tclpbkdf2.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'seen',
-    'sources': ['mod/seen.mod/seen.c'],
-    'deps': [],
-  },
+  {'name': 'filesys',  'sources': ['mod/filesys.mod/filesys.c'],   'deps': []},
+  {'name': 'ident',    'sources': ['mod/ident.mod/ident.c'],       'deps': []},
+  {'name': 'irc',      'sources': ['mod/irc.mod/irc.c'],           'deps': []},
+  {'name': 'notes',    'sources': ['mod/notes.mod/notes.c'],       'deps': []},
+  {'name': 'pbkdf2',   'sources': ['mod/pbkdf2.mod/pbkdf2.c'],     'deps': []},
+  {'name': 'seen',     'sources': ['mod/seen.mod/seen.c'],         'deps': []},
   {
     'name': 'server',
-    'sources': [
-      'mod/server.mod/cmdsserv.c',
-      'mod/server.mod/isupport.c',
-      'mod/server.mod/sasl.c',
-      'mod/server.mod/server.c',
-      'mod/server.mod/servmsg.c',
-      'mod/server.mod/tclisupport.c',
-      'mod/server.mod/tclserv.c',
-    ],
+    'sources': ['mod/server.mod/server.c'],   # includes isupport.c, servmsg.c, etc.
     'deps': [],   # tls_dep added per-module below if found
   },
-  {
-    'name': 'share',
-    'sources': [
-      'mod/share.mod/share.c',
-      'mod/share.mod/uf_features.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'transfer',
-    'sources': [
-      'mod/transfer.mod/tcltransfer.c',
-      'mod/transfer.mod/transfer.c',
-      'mod/transfer.mod/transferfstat.c',
-      'mod/transfer.mod/transferqueue.c',
-    ],
-    'deps': [],
-  },
-  {
-    'name': 'twitch',
-    'sources': ['mod/twitch.mod/twitch.c'],
-    'deps': [],
-  },
-  {
-    'name': 'uptime',
-    'sources': ['mod/uptime.mod/uptime.c'],
-    'deps': [],
-  },
+  {'name': 'share',    'sources': ['mod/share.mod/share.c'],       'deps': []},
+  {'name': 'transfer', 'sources': ['mod/transfer.mod/transfer.c'], 'deps': []},
+  {'name': 'twitch',   'sources': ['mod/twitch.mod/twitch.c'],     'deps': []},
+  {'name': 'uptime',   'sources': ['mod/uptime.mod/uptime.c'],     'deps': []},
   {
     'name': 'webui',
     'sources': ['mod/webui.mod/webui.c'],
     'deps': [],   # tls_dep added per-module below if found
   },
-  {
-    'name': 'woobie',
-    'sources': ['mod/woobie.mod/woobie.c'],
-    'deps': [],
-  },
+  {'name': 'woobie',   'sources': ['mod/woobie.mod/woobie.c'],     'deps': []},
 ]
 
-# Compress module — only if zlib found
-if have_zlib
+# Compress module — only if zlib found AND user wants it
+if have_zlib and get_option('module-compress')
   module_defs += [{
     'name': 'compress',
-    'sources': [
-      'mod/compress.mod/compress.c',
-      'mod/compress.mod/tclcompress.c',
-    ],
+    'sources': ['mod/compress.mod/compress.c'],
     'deps': [zlib_dep],
   }]
 endif
 
-# Python module — only if Python 3.8+ found
-if have_python
+# Python module — only if Python 3.8+ found AND user wants it
+if have_python and get_option('module-python')
   module_defs += [{
     'name': 'python',
-    'sources': [
-      'mod/python.mod/pycmds.c',
-      'mod/python.mod/python.c',
-      'mod/python.mod/tclpython.c',
-    ],
+    'sources': ['mod/python.mod/python.c'],
     'deps': [python3.dependency()],
   }]
 endif
+
+# -------------------------------------------------------------------------
+# Filter module list by per-module options
+# -------------------------------------------------------------------------
+enabled_module_defs = []
+foreach m : module_defs
+  if get_option('module-' + m['name'])
+    enabled_module_defs += [m]
+  endif
+endforeach
 
 # -------------------------------------------------------------------------
 # Module compile flags (shared by all modules)
@@ -311,7 +208,7 @@ module_inc = [top_inc, src_inc, include_directories('mod')]
 # -------------------------------------------------------------------------
 if opt_static
   static_mod_sources = []
-  foreach m : module_defs
+  foreach m : enabled_module_defs
     static_mod_sources += files(m['sources'])
   endforeach
 
@@ -340,8 +237,8 @@ else
   # Install path for modules
   modules_dir = get_option('libdir') / 'eggdrop' / meson.project_version()
 
-  # Build each module
-  foreach m : module_defs
+  # Build each enabled module
+  foreach m : enabled_module_defs
     mod_deps = eggdrop_deps + m['deps']
     # Per-module conditional dependencies
     if m['name'] == 'dns' and resolv_dep.found()

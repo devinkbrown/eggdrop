@@ -24,6 +24,8 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <assert.h>
+#include <stdbool.h>
 #include "main.h"
 #include "eggdrop.h"
 #include "patricia.h"

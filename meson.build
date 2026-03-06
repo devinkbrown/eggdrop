@@ -66,6 +66,19 @@ if cc.has_member('struct sockaddr_in6', 'sin6_addr',
   cdata.set('HAVE_STRUCT_SOCKADDR_IN6', 1)
 endif
 
+# struct in6_addr
+if cc.has_type('struct in6_addr', prefix: '#include <netinet/in.h>')
+  cdata.set('HAVE_STRUCT_IN6_ADDR', 1)
+endif
+
+# in6addr_any / in6addr_loopback (extern constants)
+if cc.has_header_symbol('netinet/in.h', 'in6addr_any')
+  cdata.set('HAVE_IN6ADDR_ANY', 1)
+endif
+if cc.has_header_symbol('netinet/in.h', 'in6addr_loopback')
+  cdata.set('HAVE_IN6ADDR_LOOPBACK', 1)
+endif
+
 # -------------------------------------------------------------------------
 # Required functions / symbols
 # -------------------------------------------------------------------------
@@ -183,12 +196,23 @@ resolv_dep = cc.find_library('resolv', required: false)
 nsl_dep    = cc.find_library('nsl',    required: false)
 m_dep      = cc.find_library('m',      required: false)
 
+# b64_ntop / b64_pton — BSD/glibc base64 (part of libresolv on Linux).
+# When present, set HAVE_BASE64 so our compat/base64.c is skipped.
+if cc.has_function('b64_ntop', dependencies: resolv_dep,
+    prefix: '#include <resolv.h>')
+  cdata.set('HAVE_BASE64', 1)
+endif
+
 # Module loading method
 if cc.has_function('dlopen', dependencies: dl_dep)
   cdata.set('HAVE_DLOPEN', 1)
   cdata.set('DLOPEN_1', 1)
+  cdata.set('MODULES_OK', 1)
+  cdata.set('MOD_USE_DL', 1)
 elif cc.has_header('dl.h') and cc.has_function('shl_load')
   cdata.set('HAVE_SHL_LOAD', 1)
+  cdata.set('MODULES_OK', 1)
+  cdata.set('MOD_USE_SHL', 1)
 endif
 
 # Module file extension

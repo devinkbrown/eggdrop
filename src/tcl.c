@@ -294,7 +294,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
       else if (st->str == firewall) {
         splitc(firewall, s, ':');
         if (!firewall[0])
-          strlcpy(firewall, s, sizeof(firewall));
+          strlcpy(firewall, s, 121);
         else
           firewallport = atoi(s);
       } else

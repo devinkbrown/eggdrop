@@ -34,6 +34,14 @@
 #include <openssl/ssl.h>
 #include "version.h"
 
+/* egg_ASN1_string_data: was a configure-time macro (config.h.in).
+ * ASN1_STRING_data() was renamed ASN1_STRING_get0_data() in OpenSSL 1.1.0. */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+# define egg_ASN1_string_data(x) ASN1_STRING_get0_data(x)
+#else
+# define egg_ASN1_string_data(x) ASN1_STRING_data(x)
+#endif
+
 extern int dcc_total, stealth_telnets, tls_vfydcc;
 extern struct dcc_t *dcc;
 
