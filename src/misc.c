@@ -1590,3 +1590,123 @@ int crypto_verify(const char *x_, const char *y_)
   }
   return (1 & ((d - 1) >> 8)) - 1;
 }
+
+/*
+ * UTF-8 utilities
+ *
+ * IRC messages may contain arbitrary bytes, but modern servers and clients
+ * generally send UTF-8 text.  These helpers let the core validate and
+ * iterate over UTF-8 data without depending on locale settings.
+ */
+
+/* Return the byte length of the UTF-8 character whose first byte is *p,
+ * or 0 if the byte cannot begin a valid UTF-8 sequence (i.e. it is a
+ * stray continuation byte 0x80-0xBF or an overlong/invalid lead byte
+ * 0xC0-0xC1 / 0xF5-0xFF).
+ */
+int utf8_char_len(const unsigned char *p)
+{
+  if (*p < 0x80)          return 1;  /* ASCII */
+  if (*p < 0xC2)          return 0;  /* stray continuation or C0/C1 overlong */
+  if (*p < 0xE0)          return 2;  /* U+0080 .. U+07FF  */
+  if (*p < 0xF0)          return 3;  /* U+0800 .. U+FFFF  */
+  if (*p <= 0xF4)         return 4;  /* U+10000 .. U+10FFFF */
+  return 0;                          /* > 0xF4: beyond Unicode range */
+}
+
+/* Return 1 if the first len bytes of s form a valid UTF-8 sequence,
+ * 0 otherwise.  NUL bytes are treated as ordinary bytes (valid ASCII).
+ */
+int utf8_valid(const char *s, size_t len)
+{
+  const unsigned char *p = (const unsigned char *) s;
+  const unsigned char *end = p + len;
+
+  while (p < end) {
+    int clen = utf8_char_len(p);
+    if (clen == 0)
+      return 0;
+    if (p + clen > end)
+      return 0;                      /* truncated sequence */
+    /* Validate continuation bytes (must be 10xxxxxx) */
+    for (int i = 1; i < clen; i++) {
+      if ((p[i] & 0xC0) != 0x80)
+        return 0;
+    }
+    /* Reject overlong encodings and surrogates U+D800-U+DFFF */
+    if (clen == 2 && (p[0] & 0x1E) == 0) return 0;
+    if (clen == 3) {
+      unsigned cp = ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+      if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return 0;
+    }
+    if (clen == 4) {
+      unsigned cp = ((p[0] & 0x07) << 18) | ((p[1] & 0x3F) << 12) |
+                    ((p[2] & 0x3F) << 6)  |  (p[3] & 0x3F);
+      if (cp < 0x10000 || cp > 0x10FFFF) return 0;
+    }
+    p += clen;
+  }
+  return 1;
+}
+
+/* Count Unicode codepoints in the NUL-terminated string s.
+ * Invalid bytes each count as one codepoint (the replacement character).
+ */
+size_t utf8_strlen(const char *s)
+{
+  const unsigned char *p = (const unsigned char *) s;
+  size_t count = 0;
+
+  while (*p) {
+    int clen = utf8_char_len(p);
+    if (clen == 0) {
+      /* Invalid byte: treat as single replacement character and advance 1 */
+      p++;
+    } else {
+      p += clen;
+    }
+    count++;
+  }
+  return count;
+}
+
+/* Replace invalid UTF-8 bytes in s (NUL-terminated, modified in-place)
+ * with '?'.  The string length never increases.  Returns the number of
+ * bytes replaced.
+ */
+int utf8_sanitize(char *s)
+{
+  unsigned char *p = (unsigned char *) s;
+  int replaced = 0;
+
+  while (*p) {
+    int clen = utf8_char_len(p);
+    int valid = 0;
+    if (clen > 0) {
+      /* Check all continuation bytes */
+      valid = 1;
+      for (int i = 1; i < clen; i++) {
+        if ((p[i] & 0xC0) != 0x80) { valid = 0; break; }
+      }
+      /* Check for overlong / surrogate */
+      if (valid && clen == 2 && (p[0] & 0x1E) == 0) valid = 0;
+      if (valid && clen == 3) {
+        unsigned cp = ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+        if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) valid = 0;
+      }
+      if (valid && clen == 4) {
+        unsigned cp = ((p[0] & 0x07) << 18) | ((p[1] & 0x3F) << 12) |
+                      ((p[2] & 0x3F) << 6)  |  (p[3] & 0x3F);
+        if (cp < 0x10000 || cp > 0x10FFFF) valid = 0;
+      }
+    }
+    if (!valid) {
+      *p = '?';
+      p++;
+      replaced++;
+    } else {
+      p += clen;
+    }
+  }
+  return replaced;
+}

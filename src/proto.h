@@ -273,6 +273,10 @@ void maskaddr(const char *, char *, int);
 #define maskhost(a,b) maskaddr((a),(b),3)
 #define maskban(a,b)  maskaddr((a),(b),3)
 int crypto_verify(const char *, const char *);
+int utf8_char_len(const unsigned char *);
+int utf8_valid(const char *, size_t);
+size_t utf8_strlen(const char *);
+int utf8_sanitize(char *);
 
 /* net.c */
 IP my_atoul(char *);

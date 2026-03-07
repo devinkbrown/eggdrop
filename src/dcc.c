@@ -835,6 +835,11 @@ static void kill_dcc_general(int idx, void *x)
  * their client seem so fecking cool! (Sorry, Khaled, you are a nice
  * guy, but when you added this feature you forced people to either
  * use your *SHAREWARE* client or face screenfulls of crap!)
+ *
+ * UTF-8 safety: all mIRC control codes (bold=0x02, color=0x03, reverse=0x16,
+ * underline=0x1F, bell=0x07, reset=0x0F, italic=0x1D, ESC=0x1B) are in the
+ * ASCII range (< 0x80).  UTF-8 continuation bytes are all >= 0x80, so they
+ * can never be misidentified as a control code.  The function is UTF-8 safe.
  */
 void strip_mirc_codes(int flags, char *text)
 {
