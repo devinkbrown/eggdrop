@@ -41,7 +41,7 @@ static int dns_negcache = 600;
 
 static char dns_servers[144] = "";
 
-#include "coredns.c"
+#include "res.c"
 
 
 /*
