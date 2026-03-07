@@ -225,7 +225,6 @@ static int dot_reconnect_seconds = -1;  /* -1 = not scheduled */
 
 #define DNS_HDR_SIZE     12
 #define DNS_MAXPKT       4096   /* EDNS0 max UDP payload (RFC 6891) */
-#define DNS_MAXPKT_LEGACY 512   /* pre-EDNS0 fallback buffer size */
 #define DNS_MAXLABEL     63
 #define DNS_PTR_HI       0xC0
 #define DNS_CLASS_IN     1
@@ -274,6 +273,7 @@ static inline void hdr_put_u16(unsigned char *p, uint16_t v) {
 #define HDR_QDCOUNT(pkt) hdr_u16((const unsigned char *)(pkt) + 4)
 #define HDR_ANCOUNT(pkt) hdr_u16((const unsigned char *)(pkt) + 6)
 #define HDR_QR(pkt)      (HDR_FLAGS(pkt) >> 15)
+#define HDR_OPCODE(pkt)  ((HDR_FLAGS(pkt) >> 11) & 0xf)
 #define HDR_RCODE(pkt)   (HDR_FLAGS(pkt) & 0xf)
 
 /* =========================================================================
@@ -865,6 +865,15 @@ static int process_answer(struct dns_req *req,
     return 0;
   if (HDR_QR(pkt) != 1)
     return 0;
+  /* Must be a standard QUERY response (OPCODE 0).
+   * Responses with OPCODE 2 (STATUS), 4 (NOTIFY), 5 (UPDATE), etc.
+   * are not answers to our queries and must be discarded. */
+  if (HDR_OPCODE(pkt) != 0)
+    return 0;
+  /* QDCOUNT should echo the single question we sent.
+   * A value != 1 indicates a malformed or mismatched response. */
+  if (HDR_QDCOUNT(pkt) != 1)
+    return 0;
 
   rcode = HDR_RCODE(pkt);
 
@@ -1065,7 +1074,6 @@ static void handle_req_done(struct dns_req *req, struct DNSReply *reply)
 void res_read_dns(void)
 {
   unsigned char              buf[DNS_HDR_SIZE + DNS_MAXPKT];
-  ssize_t                    rc;
   uint16_t                   id;
   struct dns_req            *req;
 
@@ -1166,6 +1174,7 @@ void res_read_dns(void)
   {
     struct sockaddr_storage    from;
     socklen_t                  fromlen = sizeof from;
+    ssize_t                    rc;
 
     if (resfd < 0)
       return;
