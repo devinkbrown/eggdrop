@@ -224,15 +224,24 @@ static int dot_reconnect_seconds = -1;  /* -1 = not scheduled */
  * ====================================================================== */
 
 #define DNS_HDR_SIZE     12
-#define DNS_MAXPKT       512
+#define DNS_MAXPKT       4096   /* EDNS0 max UDP payload (RFC 6891) */
+#define DNS_MAXPKT_LEGACY 512   /* pre-EDNS0 fallback buffer size */
 #define DNS_MAXLABEL     63
 #define DNS_PTR_HI       0xC0
 #define DNS_CLASS_IN     1
 
 #define DNS_TYPE_A       1
 #define DNS_TYPE_CNAME   5
+#define DNS_TYPE_OPT     41     /* EDNS0 pseudo-RR (RFC 6891) */
 #define DNS_TYPE_PTR     12
 #define DNS_TYPE_AAAA    28
+
+/* EDNS0 OPT record constants (RFC 6891) */
+#define DNS_EDNS0_PAYLOAD  4096  /* advertised UDP payload size */
+#define DNS_OPT_RDLEN      0     /* no option data */
+
+/* TC (Truncation) bit in DNS flags word (bit 9) */
+#define DNS_FLAG_TC      0x0200
 
 #define DNS_RC_NOERR     0
 #define DNS_RC_SERVFAIL  2
@@ -464,31 +473,66 @@ static int dns_name_skip(const unsigned char *msg, size_t msglen, size_t off)
  * DNS query packet builder
  * ====================================================================== */
 
+/* dns_build_query — build a DNS query packet.
+ *
+ * When use_edns is non-zero, appends an EDNS0 OPT pseudo-RR (RFC 6891)
+ * that advertises DNS_EDNS0_PAYLOAD bytes of UDP receive capacity.  This
+ * allows the resolver to return responses larger than the legacy 512-byte
+ * limit, avoiding truncation for common record types (AAAA, many A
+ * records, TXT, etc.).
+ *
+ * DoT callers pass use_edns=0: DoT uses TCP framing so there is no UDP
+ * payload limit, and the OPT record adds unnecessary overhead.
+ *
+ * Returns the packet length on success, -1 on error.
+ */
 static int dns_build_query(unsigned char *buf, size_t buflen,
-                           uint16_t id, uint16_t qtype, const char *name)
+                           uint16_t id, uint16_t qtype, const char *name,
+                           int use_edns)
 {
   int off, n;
+  /* OPT record: 1-byte root name + 2 type + 2 class + 4 TTL + 2 rdlen = 11 */
+  const size_t opt_size = 11;
+  size_t       min_size = DNS_HDR_SIZE + 4 + (use_edns ? opt_size : 0);
 
-  if (buflen < DNS_HDR_SIZE + 4)
+  if (buflen < min_size)
     return -1;
 
   memset(buf, 0, DNS_HDR_SIZE);
   hdr_put_u16(buf + 0, id);
-  hdr_put_u16(buf + 2, 0x0100);
-  hdr_put_u16(buf + 4, 1);
+  hdr_put_u16(buf + 2, 0x0100);              /* QR=0, RD=1 */
+  hdr_put_u16(buf + 4, 1);                   /* QDCOUNT=1 */
+  hdr_put_u16(buf + 10, use_edns ? 1 : 0);  /* ARCOUNT=1 for OPT */
 
   off = DNS_HDR_SIZE;
-  n   = dns_name_encode(buf + off, buflen - (size_t)off - 4, name);
+  n   = dns_name_encode(buf + off, buflen - (size_t)off - 4
+                        - (use_edns ? opt_size : 0), name);
   if (n < 0)
     return -1;
   off += n;
 
-  if ((size_t)off + 4 > buflen)
+  if ((size_t)off + 4 + (use_edns ? opt_size : 0) > buflen)
     return -1;
 
   hdr_put_u16(buf + off,     qtype);
   hdr_put_u16(buf + off + 2, DNS_CLASS_IN);
   off += 4;
+
+  if (use_edns) {
+    /* OPT RR (RFC 6891 §6.1.2):
+     *   NAME:   0x00  (root / empty name)
+     *   TYPE:   41    (OPT)
+     *   CLASS:  UDP payload size
+     *   TTL:    0     (extended RCODE=0, version=0, flags=0)
+     *   RDLEN:  0     (no option data)
+     */
+    buf[off++] = 0x00;                            /* root name */
+    hdr_put_u16(buf + off, DNS_TYPE_OPT);  off += 2;
+    hdr_put_u16(buf + off, DNS_EDNS0_PAYLOAD); off += 2;
+    buf[off++] = 0; buf[off++] = 0;              /* ext-RCODE, version */
+    buf[off++] = 0; buf[off++] = 0;              /* DNSSEC flags (DO=0) */
+    hdr_put_u16(buf + off, DNS_OPT_RDLEN); off += 2;  /* RDLEN=0 */
+  }
 
   return off;
 }
@@ -740,7 +784,7 @@ static void send_dns_query(struct dns_req *req)
     unsigned char framed[2 + DNS_MAXPKT];
     qtype  = (uint16_t)(req->type & ~DNS_FLAG_FCRDNS);
     pktlen = dns_build_query(framed + 2, sizeof framed - 2,
-                             req->id, qtype, req->qname);
+                             req->id, qtype, req->qname, 0 /* no EDNS0 over TCP */);
     if (pktlen < 0) {
       idebug("res: DoT dns_build_query failed for %s", req->qname);
       return;
@@ -758,7 +802,8 @@ static void send_dns_query(struct dns_req *req)
     return;
 
   qtype  = (uint16_t)(req->type & ~DNS_FLAG_FCRDNS);
-  pktlen = dns_build_query(buf, sizeof buf, req->id, qtype, req->qname);
+  pktlen = dns_build_query(buf, sizeof buf, req->id, qtype, req->qname,
+                           1 /* EDNS0: advertise 4096-byte UDP payload */);
   if (pktlen < 0) {
     idebug("res: dns_build_query failed for %s", req->qname);
     return;
@@ -798,6 +843,20 @@ static int process_answer(struct dns_req *req,
     return 0;
 
   rcode = HDR_RCODE(pkt);
+
+  /* TC (Truncation) bit: UDP response was truncated at the wire level.
+   * With EDNS0 in queries this should be rare (resolvers can send up to
+   * DNS_EDNS0_PAYLOAD bytes).  Treat as a transient failure so the
+   * timeout/retry loop retries the query.  If DoT is available the
+   * retry will use TCP framing and avoid truncation entirely. */
+  if (HDR_FLAGS(pkt) & DNS_FLAG_TC) {
+    putlog(LOG_MISC, "*",
+           "DNS: truncated response for %s — retrying (enable DoT to avoid)",
+           req->qname);
+    if (req->last_ns >= 0 && req->last_ns < IRCD_MAXNS)
+      ns_failures[req->last_ns]++;
+    return 1;
+  }
 
   if (rcode == DNS_RC_SERVFAIL || rcode == DNS_RC_NOTIMP ||
       rcode == DNS_RC_REFUSED) {
