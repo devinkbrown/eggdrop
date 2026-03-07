@@ -166,6 +166,36 @@ size_t egg_mbuf_capacity(const egg_mbuf_t *mb)
     return (mb != NULL) ? mb->cap : 0;
 }
 
+void egg_mbuf_peek2(egg_mbuf_t *mb,
+                    char **data1, size_t *len1,
+                    char **data2, size_t *len2)
+{
+    size_t c1;
+
+    if (mb == NULL || mb->len == 0) {
+        *data1 = NULL; *len1 = 0;
+        *data2 = NULL; *len2 = 0;
+        return;
+    }
+
+    /* First contiguous segment from rpos to end of backing store */
+    c1 = mb->cap - mb->rpos;
+    if (c1 > mb->len)
+        c1 = mb->len;
+
+    *data1 = mb->buf + mb->rpos;
+    *len1  = c1;
+
+    /* Second segment wraps around to the start of backing store */
+    if (mb->len > c1) {
+        *data2 = mb->buf;
+        *len2  = mb->len - c1;
+    } else {
+        *data2 = NULL;
+        *len2  = 0;
+    }
+}
+
 int egg_mbuf_grow(egg_mbuf_t *mb, size_t new_cap)
 {
     char *new_buf;

@@ -56,6 +56,7 @@
 #  include <unistd.h>
 #endif
 #include <setjmp.h>
+#include <sys/uio.h>   /* writev() */
 
 #ifdef TLS
 #  include <openssl/err.h>
@@ -709,6 +710,30 @@ void setsock(int sock, int options)
       if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &bufsz, sizeof bufsz))
         debug2("net: setsock(): SO_SNDBUF error %s on sock %d", strerror(errno), sock);
     }
+    /* Fine-tune per-socket TCP keepalive probe timing.
+     * Without these, the kernel defaults are typically 2 h idle / 75 s
+     * between probes / 9 retries — far too slow to detect dead links.
+     *   TCP_KEEPIDLE  : seconds of inactivity before first probe
+     *   TCP_KEEPINTVL : seconds between subsequent probes
+     *   TCP_KEEPCNT   : number of failed probes before declaring dead */
+#ifdef TCP_KEEPIDLE
+    {
+      int v = 60; /* 60 s idle before probing */
+      setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &v, sizeof v);
+    }
+#endif
+#ifdef TCP_KEEPINTVL
+    {
+      int v = 15; /* 15 s between probes */
+      setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &v, sizeof v);
+    }
+#endif
+#ifdef TCP_KEEPCNT
+    {
+      int v = 4;  /* declare dead after 4 missed probes (60 s) */
+      setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &v, sizeof v);
+    }
+#endif
   }
   if (options & SOCK_LISTEN) {
     /* Tris says this lets us grab the same port again next time */
@@ -2167,20 +2192,20 @@ kqueue_dequeue_done:;
         }
       }
 #endif
-      /* Drain outbuf ring buffer — write first contiguous chunk, then the
-       * wrapped second chunk (if any).  MSG_MORE hints TCP to coalesce
-       * both chunks into one segment where supported. */
+      /* Drain outbuf ring buffer.
+       * Use writev() to send both the head and (optional) wrapped tail
+       * chunk in a single syscall, avoiding MSG_MORE + second write(). */
       {
         egg_mbuf_t *mb = socklist[i].handler.sock.outbuf;
-        char  *ptr;
-        size_t chunk;
-        size_t total = egg_mbuf_len(mb);
+        char  *p1, *p2;
+        size_t c1,  c2;
 
-        egg_mbuf_peek(mb, &ptr, &chunk);
+        egg_mbuf_peek2(mb, &p1, &c1, &p2, &c2);
         errno = 0;
 #ifdef TLS
         if (socklist[i].ssl) {
-          x = SSL_write(socklist[i].ssl, ptr, chunk);
+          /* TLS records must be written contiguously; send first chunk only */
+          x = SSL_write(socklist[i].ssl, p1, c1);
           if (x < 0) {
             int err = SSL_get_error(socklist[i].ssl, x);
             if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
@@ -2192,14 +2217,16 @@ kqueue_dequeue_done:;
           }
         } else
 #endif
-        {
-          int flags = 0;
-#ifdef MSG_MORE
-          /* If there is a second wrapped chunk, ask TCP to hold this segment */
-          if (chunk < total)
-            flags = MSG_MORE;
-#endif
-          x = send(socklist[i].sock, ptr, chunk, flags);
+        if (c2 > 0) {
+          /* Buffer wraps — send both segments in one writev() syscall */
+          struct iovec iov[2];
+          iov[0].iov_base = p1;
+          iov[0].iov_len  = c1;
+          iov[1].iov_base = p2;
+          iov[1].iov_len  = c2;
+          x = (int)writev(socklist[i].sock, iov, 2);
+        } else {
+          x = write(socklist[i].sock, p1, c1);
         }
         if ((x < 0) && (errno != EAGAIN)
 #ifdef EBADSLT
@@ -2215,18 +2242,6 @@ kqueue_dequeue_done:;
           socklist[i].flags |= SOCK_EOFD;
         } else if (x > 0) {
           egg_mbuf_consume(mb, (size_t)x);
-          /* Attempt second (wrapped) chunk for non-TLS sockets */
-          if (egg_mbuf_len(mb) > 0
-#ifdef TLS
-              && !socklist[i].ssl
-#endif
-          ) {
-            int x2;
-            egg_mbuf_peek(mb, &ptr, &chunk);
-            x2 = write(socklist[i].sock, ptr, chunk);
-            if (x2 > 0)
-              egg_mbuf_consume(mb, (size_t)x2);
-          }
           if (egg_mbuf_len(mb) == 0) {
             egg_mbuf_free(mb);
             socklist[i].handler.sock.outbuf = NULL;

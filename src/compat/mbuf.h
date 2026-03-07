@@ -81,6 +81,17 @@ size_t egg_mbuf_len(const egg_mbuf_t *mb);
 size_t egg_mbuf_capacity(const egg_mbuf_t *mb);
 
 /*
+ * egg_mbuf_peek2 -- expose both contiguous segments of the ring buffer.
+ *
+ * Sets data1/len1 to the first (head) segment and data2/len2 to the
+ * second (wrapped) segment.  len2 == 0 when the data is contiguous.
+ * Use this with writev() to drain both chunks in a single syscall.
+ */
+void egg_mbuf_peek2(egg_mbuf_t *mb,
+                    char **data1, size_t *len1,
+                    char **data2, size_t *len2);
+
+/*
  * egg_mbuf_grow -- ensure the buffer has at least new_cap bytes of capacity.
  *
  * Linearises buffered data into a newly allocated backing store.
