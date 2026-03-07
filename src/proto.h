@@ -145,6 +145,8 @@ void dcc_telnet_hostresolved2(int, int);
 int increase_socks_max(void);
 int findidx(int);
 int findanyidx(int);
+void dcc_map_set(int sock, int idx);
+void dcc_map_clear(int sock);
 char *add_cr(char *);
 void dprint(int, char *, int);
 void dprintf (int, const char *format, ...) ATTRIBUTE_FORMAT(printf,2,3);

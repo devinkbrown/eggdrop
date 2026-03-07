@@ -173,6 +173,31 @@ zlib_dep = dependency('zlib', required: false)
 have_zlib = zlib_dep.found()
 
 # -------------------------------------------------------------------------
+# epoll — Linux kernel ≥ 2.6 (glibc sys/epoll.h)
+# When present the main event loop uses epoll_wait() instead of select().
+# -------------------------------------------------------------------------
+have_epoll = cc.has_header('sys/epoll.h')
+if have_epoll
+  cdata.set('HAVE_EPOLL', 1)
+  message('epoll detected — using epoll back-end')
+else
+  message('epoll not found — falling back to select()')
+endif
+
+# -------------------------------------------------------------------------
+# liburing — io_uring (Linux ≥ 5.1)
+# When available, the io_uring back-end is preferred over epoll.
+# -------------------------------------------------------------------------
+uring_dep = dependency('liburing', required: false)
+have_uring = uring_dep.found()
+if have_uring
+  cdata.set('HAVE_LIBURING', 1)
+  message('liburing detected — using io_uring back-end')
+else
+  message('liburing not found — io_uring back-end disabled')
+endif
+
+# -------------------------------------------------------------------------
 # Python — optional (for python module)
 # -------------------------------------------------------------------------
 pymod = import('python')

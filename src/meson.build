@@ -119,6 +119,9 @@ endif
 if have_tdns
   eggdrop_deps += thread_dep
 endif
+if have_uring
+  eggdrop_deps += uring_dep
+endif
 if dl_dep.found()
   eggdrop_deps += dl_dep
 endif

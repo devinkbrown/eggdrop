@@ -26,6 +26,7 @@
  */
 
 #include <sys/stat.h>
+#include <string.h>
 #include "main.h"
 #include "tandem.h"
 
@@ -43,6 +44,39 @@ int reserved_port_min = 0;
 int reserved_port_max = 0;
 
 int max_dcc = 0;       /* indicates the current dcc limit in the main thread */
+
+/* -----------------------------------------------------------------------
+ * sock → dcc[] index lookup table.
+ * Trades 256 KB of BSS for O(1) findanyidx() / findidx() lookups.
+ * Socket fds on Linux are capped at ~1 M but are almost always < 65536
+ * in practice; anything above SOCK_MAP_SIZE falls back to a linear scan.
+ * ----------------------------------------------------------------------- */
+#define SOCK_MAP_SIZE 65536
+static int sock_dcc_map[SOCK_MAP_SIZE];
+static int sock_dcc_map_inited = 0;
+
+static void sock_dcc_map_ensure_init(void)
+{
+  if (!sock_dcc_map_inited) {
+    memset(sock_dcc_map, -1, sizeof sock_dcc_map);
+    sock_dcc_map_inited = 1;
+  }
+}
+
+/* Associate sock → dcc[] index.  Called whenever dcc[idx].sock is set. */
+void dcc_map_set(int sock, int idx)
+{
+  sock_dcc_map_ensure_init();
+  if ((unsigned)sock < SOCK_MAP_SIZE)
+    sock_dcc_map[sock] = idx;
+}
+
+/* Remove sock from map.  Called before dcc[n].sock is cleared. */
+void dcc_map_clear(int sock)
+{
+  if (sock_dcc_map_inited && (unsigned)sock < SOCK_MAP_SIZE)
+    sock_dcc_map[sock] = -1;
+}
 
 /* This function is called to enlarge the static sockettable in a thread.
  * It keeps the mainthread dcc table enlarging with the main thread sockettable
@@ -113,9 +147,20 @@ int findidx(int z)
 {
   int j;
 
-  for (j = 0; j < dcc_total; j++)
-    if ((dcc[j].sock == z) && (dcc[j].type->flags & DCT_VALIDIDX))
+  /* O(1) fast path */
+  sock_dcc_map_ensure_init();
+  if ((unsigned)z < SOCK_MAP_SIZE) {
+    j = sock_dcc_map[z];
+    if (j >= 0 && j < dcc_total && dcc[j].sock == (long)z &&
+        dcc[j].type && (dcc[j].type->flags & DCT_VALIDIDX))
       return j;
+  }
+  /* Fallback linear scan — self-heals stale map entries */
+  for (j = 0; j < dcc_total; j++)
+    if ((dcc[j].sock == z) && dcc[j].type && (dcc[j].type->flags & DCT_VALIDIDX)) {
+      dcc_map_set(z, j);
+      return j;
+    }
   return -1;
 }
 
@@ -123,9 +168,19 @@ int findanyidx(int z)
 {
   int j;
 
-  for (j = 0; j < dcc_total; j++)
-    if (dcc[j].sock == z)
+  /* O(1) fast path */
+  sock_dcc_map_ensure_init();
+  if ((unsigned)z < SOCK_MAP_SIZE) {
+    j = sock_dcc_map[z];
+    if (j >= 0 && j < dcc_total && dcc[j].sock == (long)z)
       return j;
+  }
+  /* Fallback linear scan — self-heals stale map entries */
+  for (j = 0; j < dcc_total; j++)
+    if (dcc[j].sock == z) {
+      dcc_map_set(z, j);
+      return j;
+    }
   return -1;
 }
 
@@ -343,6 +398,7 @@ void lostdcc(int n)
   if (n < 0 || n >= max_dcc)
     return;
 
+  dcc_map_clear(dcc[n].sock); /* remove before zeroing */
   if (dcc[n].type && dcc[n].type->kill)
     dcc[n].type->kill(n, dcc[n].u.other);
   else if (dcc[n].u.other)
@@ -366,10 +422,13 @@ void removedcc(int n)
     dcc[n].type->kill(n, dcc[n].u.other);
   else if (dcc[n].u.other)
     nfree(dcc[n].u.other);
+  dcc_map_clear(dcc[n].sock);
   dcc_total--;
-  if (n < dcc_total)
+  if (n < dcc_total) {
+    /* dcc[dcc_total] is being moved to slot n — update its map entry */
+    dcc_map_set(dcc[dcc_total].sock, n);
     memcpy(&dcc[n], &dcc[dcc_total], sizeof(struct dcc_t));
-  else
+  } else
     egg_bzero(&dcc[n], sizeof(struct dcc_t));   /* drummer */
 }
 

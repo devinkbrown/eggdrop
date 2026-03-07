@@ -759,57 +759,53 @@ static void mainloop(int toplevel)
 
   xx = sockgets(buf, &i);
   if (xx >= 0) {              /* Non-error */
-    int idx;
+    int idx = findanyidx(xx);  /* O(1) via sock→dcc map */
 
-    for (idx = 0; idx < dcc_total; idx++)
-      if (dcc[idx].sock == xx) {
-        if (dcc[idx].type && dcc[idx].type->activity) {
-          /* Traffic stats */
-          if (dcc[idx].type->name) {
-            if (!strncmp(dcc[idx].type->name, "BOT", 3))
-              itraffic_bn_today += strlen(buf) + 1;
-            else if (!strcmp(dcc[idx].type->name, "SERVER"))
-              itraffic_irc_today += strlen(buf) + 1;
-            else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
-              itraffic_dcc_today += strlen(buf) + 1;
-            else if (!strncmp(dcc[idx].type->name, "WEBUI", 5))
-              itraffic_dcc_today += i;
-            else if (!strncmp(dcc[idx].type->name, "FILES", 5))
-              itraffic_dcc_today += strlen(buf) + 1;
-            else if (!strcmp(dcc[idx].type->name, "SEND"))
-              itraffic_trans_today += strlen(buf) + 1;
-            else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
-              itraffic_trans_today += strlen(buf) + 1;
-            else if (!strncmp(dcc[idx].type->name, "GET", 3))
-              itraffic_trans_today += strlen(buf) + 1;
-            else
-              itraffic_unknown_today += strlen(buf) + 1;
-          }
-          dcc[idx].type->activity(idx, buf, i);
-        } else
-          putlog(LOG_MISC, "*", "ERROR: untrapped dcc activity: type %s, sock %ld",
-                 dcc[idx].type ? dcc[idx].type->name : "UNKNOWN", dcc[idx].sock);
-        break;
-      }
+    if (idx >= 0) {
+      if (dcc[idx].type && dcc[idx].type->activity) {
+        /* Traffic stats */
+        if (dcc[idx].type->name) {
+          if (!strncmp(dcc[idx].type->name, "BOT", 3))
+            itraffic_bn_today += strlen(buf) + 1;
+          else if (!strcmp(dcc[idx].type->name, "SERVER"))
+            itraffic_irc_today += strlen(buf) + 1;
+          else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
+            itraffic_dcc_today += strlen(buf) + 1;
+          else if (!strncmp(dcc[idx].type->name, "WEBUI", 5))
+            itraffic_dcc_today += i;
+          else if (!strncmp(dcc[idx].type->name, "FILES", 5))
+            itraffic_dcc_today += strlen(buf) + 1;
+          else if (!strcmp(dcc[idx].type->name, "SEND"))
+            itraffic_trans_today += strlen(buf) + 1;
+          else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
+            itraffic_trans_today += strlen(buf) + 1;
+          else if (!strncmp(dcc[idx].type->name, "GET", 3))
+            itraffic_trans_today += strlen(buf) + 1;
+          else
+            itraffic_unknown_today += strlen(buf) + 1;
+        }
+        dcc[idx].type->activity(idx, buf, i);
+      } else
+        putlog(LOG_MISC, "*", "ERROR: untrapped dcc activity: type %s, sock %ld",
+               dcc[idx].type ? dcc[idx].type->name : "UNKNOWN", dcc[idx].sock);
+    }
   } else if (xx == -1) {        /* EOF from someone */
     int idx;
 
     if (i == STDOUT && !backgrd)
       fatal("END OF FILE ON TERMINAL", 0);
-    for (idx = 0; idx < dcc_total; idx++)
-      if (dcc[idx].sock == i) {
-        if (dcc[idx].type && dcc[idx].type->eof)
-          dcc[idx].type->eof(idx);
-        else {
-          putlog(LOG_MISC, "*",
-                 "*** ATTENTION: DEAD SOCKET (%d) OF TYPE %s UNTRAPPED",
-                 i, dcc[idx].type ? dcc[idx].type->name : "*UNKNOWN*");
-          killsock(i);
-          lostdcc(idx);
-        }
-        idx = dcc_total + 1;
+    idx = findanyidx(i);        /* O(1) via sock→dcc map */
+    if (idx >= 0) {
+      if (dcc[idx].type && dcc[idx].type->eof)
+        dcc[idx].type->eof(idx);
+      else {
+        putlog(LOG_MISC, "*",
+               "*** ATTENTION: DEAD SOCKET (%d) OF TYPE %s UNTRAPPED",
+               i, dcc[idx].type ? dcc[idx].type->name : "*UNKNOWN*");
+        killsock(i);
+        lostdcc(idx);
       }
-    if (idx == dcc_total) {
+    } else {
       putlog(LOG_MISC, "*",
              "(@) EOF socket %d, not a dcc socket, not anything.", i);
       close(i);

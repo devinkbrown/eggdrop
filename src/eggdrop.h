@@ -677,7 +677,8 @@ typedef struct {
 struct sock_handler {
   char *inbuf;
   char *outbuf;
-  unsigned long outbuflen;      /* Outbuf could be binary data  */
+  unsigned long outbuflen;      /* bytes of data in outbuf      */
+  unsigned long outbufcap;      /* allocated capacity of outbuf */
   unsigned long inbuflen;       /* Inbuf could be binary data   */
 };
 

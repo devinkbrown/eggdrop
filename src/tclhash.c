@@ -35,6 +35,11 @@ extern int dcc_total;
 extern time_t now;
 
 p_tcl_bind_list bind_table_list;
+
+/* Set to 1 whenever a bind is added or marked deleted.
+ * garbage_collect_tclhash() uses this to skip the traversal when nothing
+ * has changed, turning the common idle case into an O(1) check. */
+static int tclhash_dirty = 0;
 p_tcl_bind_list H_chat, H_act, H_bcst, H_chon, H_chof, H_load, H_unld, H_link,
                 H_disc, H_dcc, H_chjn, H_chpt, H_bot, H_time, H_nkch, H_away,
                 H_note, H_filt, H_event, H_die, H_cron, H_log = NULL;
@@ -118,6 +123,10 @@ void garbage_collect_tclhash(void)
   tcl_bind_list_t *tl, *tl_next, *tl_prev;
   tcl_bind_mask_t *tm, *tm_next, *tm_prev;
   tcl_cmd_t *tc, *tc_next, *tc_prev;
+
+  if (!tclhash_dirty)
+    return;                     /* Nothing changed since last GC: skip */
+  tclhash_dirty = 0;
 
   for (tl = bind_table_list, tl_prev = NULL; tl; tl = tl_next) {
     tl_next = tl->next;
@@ -308,6 +317,7 @@ void del_bind_table(tcl_bind_list_t *tl_which)
       continue;
     if (tl == tl_which) {
       tl->flags |= HT_DELETED;
+      tclhash_dirty = 1;
       putlog(LOG_DEBUG, "*", "De-Allocated bind table %s", tl->name);
       return;
     }
@@ -371,6 +381,7 @@ int unbind_bind_entry(tcl_bind_list_t *tl, const char *flags,
       if (!strcasecmp(tc->func_name, proc)) {
         /* Erase proc regardless of flags. */
         tc->attributes |= TC_DELETED;
+        tclhash_dirty = 1;
         return 1;               /* Match.       */
       }
     }
@@ -424,6 +435,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
         continue;
       /* NOTE: We assume there's only one not-yet-deleted entry. */
       tc->attributes |= TC_DELETED;
+      tclhash_dirty = 1;
       break;
     }
   }
@@ -437,6 +449,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   /* Link into linked list of the bind's command list. */
   tc->next = tm->first;
   tm->first = tc;
+  tclhash_dirty = 1;
 
   return 1;
 }

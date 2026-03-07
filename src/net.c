@@ -57,6 +57,127 @@
 #  include <openssl/err.h>
 #endif
 
+/* -----------------------------------------------------------------------
+ * I/O multiplexing back-end selection
+ *
+ * Priority order:
+ *   1. io_uring  (Linux ≥ 5.1, requires liburing)
+ *   2. epoll     (Linux ≥ 2.6, glibc sys/epoll.h)
+ *   3. select()  (portable fallback)
+ *
+ * The epoll and io_uring back-ends both keep a persistent kernel-side
+ * interest set.  Sockets are registered in setsock() / allocsock() and
+ * removed in killsock(), so sockread() never rebuilds the whole set from
+ * scratch on every call.
+ * ----------------------------------------------------------------------- */
+#if defined(HAVE_LIBURING)
+#  include <liburing.h>
+#  define EGG_IO_URING 1
+#elif defined(HAVE_EPOLL)
+#  include <sys/epoll.h>
+#  define EGG_EPOLL 1
+#endif
+
+#ifdef EGG_IO_URING
+/* Maximum events returned by a single io_uring_peek_batch_cqe() call. */
+#  define URING_BATCH 64
+static struct io_uring egg_ring;
+static int egg_ring_inited = 0;
+/* Per-fd: is there an active POLL_ADD SQE outstanding? */
+#  define URING_MAP_SIZE 65536
+static uint8_t uring_polled[URING_MAP_SIZE]; /* 1 = poll submitted */
+
+static void uring_ensure_init(void)
+{
+  if (!egg_ring_inited) {
+    if (io_uring_queue_init(256, &egg_ring, 0) < 0) {
+      putlog(LOG_MISC, "*", "io_uring_queue_init failed: %s — falling back to epoll/select",
+             strerror(errno));
+      egg_ring_inited = -1; /* disabled */
+      return;
+    }
+    memset(uring_polled, 0, sizeof uring_polled);
+    egg_ring_inited = 1;
+  }
+}
+
+/* Submit a one-shot POLL_ADD for sock.  user_data = socklist index. */
+static void uring_poll_sock(int sock, int slist_idx)
+{
+  struct io_uring_sqe *sqe;
+
+  if (egg_ring_inited != 1 || (unsigned)sock >= URING_MAP_SIZE)
+    return;
+  if (uring_polled[sock])
+    return;
+  sqe = io_uring_get_sqe(&egg_ring);
+  if (!sqe) {
+    io_uring_submit(&egg_ring);
+    sqe = io_uring_get_sqe(&egg_ring);
+    if (!sqe) return;
+  }
+  io_uring_prep_poll_add(sqe, sock, POLLIN | POLLHUP | POLLERR);
+  io_uring_sqe_set_data64(sqe, (uint64_t)(uint32_t)slist_idx);
+  uring_polled[sock] = 1;
+}
+
+static void uring_unpoll_sock(int sock)
+{
+  if ((unsigned)sock < URING_MAP_SIZE)
+    uring_polled[sock] = 0;
+}
+#endif /* EGG_IO_URING */
+
+#ifdef EGG_EPOLL
+/* epoll file descriptor — shared across all sockets in the main thread. */
+static int egg_epoll_fd = -1;
+
+static void epoll_ensure_init(void)
+{
+  if (egg_epoll_fd < 0) {
+#  ifdef EPOLL_CLOEXEC
+    egg_epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+#  else
+    egg_epoll_fd = epoll_create(1024);
+#  endif
+    if (egg_epoll_fd < 0)
+      fatal("epoll_create failed", 0);
+  }
+}
+
+/* Register sock in the epoll interest set.
+ * slist_idx is stored in ev.data.u32 for O(1) retrieval in sockread(). */
+static void epoll_add_sock(int sock, int slist_idx, int extra_flags)
+{
+  struct epoll_event ev;
+
+  epoll_ensure_init();
+  ev.events = (uint32_t)(EPOLLIN | EPOLLERR | EPOLLHUP | extra_flags);
+  ev.data.u32 = (uint32_t)slist_idx;
+  if (epoll_ctl(egg_epoll_fd, EPOLL_CTL_ADD, sock, &ev) < 0) {
+    if (errno == EEXIST)
+      epoll_ctl(egg_epoll_fd, EPOLL_CTL_MOD, sock, &ev);
+  }
+}
+
+static void epoll_del_sock(int sock)
+{
+  if (egg_epoll_fd >= 0)
+    epoll_ctl(egg_epoll_fd, EPOLL_CTL_DEL, sock, NULL);
+}
+
+/* Update the events mask for a registered socket (e.g. add EPOLLOUT). */
+static void epoll_mod_sock(int sock, int slist_idx, int extra_flags)
+{
+  struct epoll_event ev;
+
+  if (egg_epoll_fd < 0) return;
+  ev.events = (uint32_t)(EPOLLIN | EPOLLERR | EPOLLHUP | extra_flags);
+  ev.data.u32 = (uint32_t)slist_idx;
+  epoll_ctl(egg_epoll_fd, EPOLL_CTL_MOD, sock, &ev);
+}
+#endif /* EGG_EPOLL */
+
 extern struct dcc_t *dcc;
 extern int backgrd, use_stderr, resolve_timeout, dcc_total;
 extern unsigned long otraffic_irc_today, otraffic_bn_today, otraffic_dcc_today,
@@ -332,11 +453,29 @@ int allocsock(int sock, int options)
       td->socklist[i].handler.sock.outbuf = NULL;
       td->socklist[i].handler.sock.inbuflen = 0;
       td->socklist[i].handler.sock.outbuflen = 0;
+      td->socklist[i].handler.sock.outbufcap = 0;
       td->socklist[i].flags = options;
       td->socklist[i].sock = sock;
 #ifdef TLS
       td->socklist[i].ssl = 0;
 #endif
+      /* Register with the async I/O backend */
+      if (!(options & (SOCK_UNUSED | SOCK_NONSOCK | SOCK_VIRTUAL))) {
+#ifdef EGG_IO_URING
+        uring_ensure_init();
+        if (egg_ring_inited == 1)
+          uring_poll_sock(sock, i);
+        else
+#endif
+#ifdef EGG_EPOLL
+        {
+          int extra = (options & SOCK_CONNECT) ? EPOLLOUT : 0;
+          epoll_add_sock(sock, i, extra);
+        }
+#else
+        (void)0;
+#endif
+      }
       return i;
     }
   }
@@ -456,8 +595,16 @@ void killsock(int sock)
           nfree(td->socklist[i].handler.sock.outbuf);
           td->socklist[i].handler.sock.outbuf = NULL;
           td->socklist[i].handler.sock.outbuflen = 0;
+          td->socklist[i].handler.sock.outbufcap = 0;
         }
       }
+      /* Deregister from async I/O backend */
+#ifdef EGG_IO_URING
+      uring_unpoll_sock(sock);
+#endif
+#ifdef EGG_EPOLL
+      epoll_del_sock(sock);
+#endif
       td->socklist[i].flags = SOCK_UNUSED;
       return;
     }
@@ -905,48 +1052,194 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
   struct timeval t;
   fd_set fdr, fdw, fde;
   int i, x, maxfd_r, maxfd_w, maxfd_e;
+  int fd;
   int grab = READMAX, tclsock = -1, events = 0;
   struct threaddata *td = threaddata();
   int maxfd;
 #ifdef EGG_TDNS
-  int fd;
   struct dns_thread_node *dtn, *dtn_prev;
   void *res;
 #endif
-
-  maxfd_r = preparefdset(&fdr, slist, slistmax, tclonly, TCL_READABLE);
-#ifdef EGG_TDNS
-  for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-    fd = dtn->fildes[0];
-    FD_SET(fd, &fdr);
-    if (fd > maxfd_r)
-      maxfd_r = fd;
-  }
-#endif
-  maxfd_w = preparefdset(&fdw, slist, slistmax, 1, TCL_WRITABLE);
-  maxfd_e = preparefdset(&fde, slist, slistmax, 1, TCL_EXCEPTION);
-
-  maxfd = maxfd_r;
-  if (maxfd_w > maxfd)
-    maxfd = maxfd_w;
-  if (maxfd_e > maxfd)
-    maxfd = maxfd_e;
 
   /* select() may modify the timeval argument - copy it */
   t.tv_sec = td->blocktime.tv_sec;
   t.tv_usec = td->blocktime.tv_usec;
 
-  call_hook(HOOK_PRE_SELECT);
-  x = select((SELECT_TYPE_ARG1) maxfd + 1,
-             SELECT_TYPE_ARG234 (maxfd_r >= 0 ? &fdr : NULL),
-             SELECT_TYPE_ARG234 (maxfd_w >= 0 ? &fdw : NULL),
-             SELECT_TYPE_ARG234 (maxfd_e >= 0 ? &fde : NULL),
-             SELECT_TYPE_ARG5 &t);
-  call_hook(HOOK_POST_SELECT);
-  if (x == -1)
-    return -2;                  /* socket error */
-  if (x == 0)
-    return -3;                  /* idle */
+  /* -------------------------------------------------------------------
+   * I/O wait: io_uring → epoll → select fallback chain.
+   *
+   * epoll / io_uring only cover non-TCL eggdrop sockets.  TCL sockets
+   * still go through a zero-timeout select() so their handlers fire.
+   * ------------------------------------------------------------------- */
+#if defined(EGG_IO_URING) || defined(EGG_EPOLL)
+  if (!tclonly
+#ifdef EGG_IO_URING
+      && egg_ring_inited == 1
+#else
+      && egg_epoll_fd >= 0
+#endif
+     ) {
+    /* --- TCL + EGG_TDNS sockets: quick non-blocking select() --- */
+    FD_ZERO(&fdr); FD_ZERO(&fdw); FD_ZERO(&fde);
+    maxfd_r = maxfd_w = maxfd_e = -1;
+
+    /* Build fd_sets for TCL sockets only */
+    for (i = 0; i < slistmax; i++) {
+      if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL)) &&
+          (slist[i].flags & SOCK_TCL)) {
+        fd = slist[i].sock;
+        if (slist[i].handler.tclsock.mask & TCL_READABLE) {
+          FD_SET(fd, &fdr);
+          if (fd > maxfd_r) maxfd_r = fd;
+        }
+        if (slist[i].handler.tclsock.mask & TCL_WRITABLE) {
+          FD_SET(fd, &fdw);
+          if (fd > maxfd_w) maxfd_w = fd;
+        }
+        if (slist[i].handler.tclsock.mask & TCL_EXCEPTION) {
+          FD_SET(fd, &fde);
+          if (fd > maxfd_e) maxfd_e = fd;
+        }
+      }
+    }
+#ifdef EGG_TDNS
+    for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
+      fd = dtn->fildes[0];
+      FD_SET(fd, &fdr);
+      if (fd > maxfd_r) maxfd_r = fd;
+    }
+#endif
+    maxfd = maxfd_r > maxfd_w ? maxfd_r : maxfd_w;
+    if (maxfd_e > maxfd) maxfd = maxfd_e;
+    if (maxfd >= 0) {
+      struct timeval zt = {0, 0};
+      select(maxfd + 1,
+             maxfd_r >= 0 ? &fdr : NULL,
+             maxfd_w >= 0 ? &fdw : NULL,
+             maxfd_e >= 0 ? &fde : NULL,
+             &zt);
+    }
+
+    /* --- Main socket wait via epoll or io_uring --- */
+#ifdef EGG_IO_URING
+    /* Submit POLL_ADD SQEs for any new/reactivated sockets */
+    for (i = 0; i < slistmax; i++) {
+      if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL)))
+        uring_poll_sock(slist[i].sock, i);
+    }
+    io_uring_submit(&egg_ring);
+    {
+      struct __kernel_timespec ts;
+      struct io_uring_cqe *cqes[URING_BATCH];
+      unsigned nready;
+      ts.tv_sec  = t.tv_sec;
+      ts.tv_nsec = t.tv_usec * 1000L;
+      call_hook(HOOK_PRE_SELECT);
+      x = io_uring_wait_cqe_timeout(&egg_ring, NULL, &ts);
+      call_hook(HOOK_POST_SELECT);
+      if (x == -ETIME) x = 0;
+      else if (x < 0) x = (errno == EINTR) ? 0 : -1;
+      nready = io_uring_peek_batch_cqe(&egg_ring, cqes, URING_BATCH);
+      for (unsigned k = 0; k < nready; k++) {
+        uint32_t si = (uint32_t)io_uring_cqe_get_data64(cqes[k]);
+        if (si < (unsigned)slistmax && !(slist[si].flags & SOCK_UNUSED)) {
+          fd = slist[si].sock;
+          FD_SET(fd, &fdr);
+          if (fd > maxfd_r) maxfd_r = fd;
+          uring_unpoll_sock(fd); /* one-shot: will re-add next cycle */
+        }
+        io_uring_cqe_seen(&egg_ring, cqes[k]);
+      }
+      if ((int)nready > 0) x = (int)nready;
+    }
+#else /* EGG_EPOLL */
+    {
+      struct epoll_event epevs[64];
+      int timeout_ms = (int)(t.tv_sec * 1000 + (int)(t.tv_usec / 1000));
+      call_hook(HOOK_PRE_SELECT);
+      x = epoll_wait(egg_epoll_fd, epevs, 64, timeout_ms);
+      call_hook(HOOK_POST_SELECT);
+      if (x < 0) x = (errno == EINTR) ? 0 : -1;
+      if (x > 0) {
+        int k;
+        for (k = 0; k < x; k++) {
+          uint32_t si = epevs[k].data.u32;
+          if (si < (unsigned)slistmax && !(slist[si].flags & SOCK_UNUSED)) {
+            fd = slist[si].sock;
+            if (epevs[k].events & (EPOLLIN | EPOLLHUP | EPOLLRDHUP)) {
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            }
+            if (epevs[k].events & EPOLLOUT) {
+              FD_SET(fd, &fdw);
+              if (fd > maxfd_w) maxfd_w = fd;
+            }
+            if (epevs[k].events & EPOLLERR) {
+              FD_SET(fd, &fde);
+              if (fd > maxfd_e) maxfd_e = fd;
+              /* Also signal readable so EOF is detected */
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            }
+          }
+        }
+      }
+    }
+#endif /* EGG_EPOLL */
+
+    if (x == -1) return -2;
+
+    /* Count any TCL/TDNS events ready from the earlier select() */
+    {
+      int tcl_ready = 0;
+      for (i = 0; i < slistmax && !tcl_ready; i++) {
+        if (!(slist[i].flags & SOCK_UNUSED) && (slist[i].flags & SOCK_TCL)) {
+          int ev2 = 0;
+          if (FD_ISSET(slist[i].sock, &fdr)) ev2 |= TCL_READABLE;
+          if (FD_ISSET(slist[i].sock, &fdw)) ev2 |= TCL_WRITABLE;
+          if (FD_ISSET(slist[i].sock, &fde)) ev2 |= TCL_EXCEPTION;
+          if (ev2 & slist[i].handler.tclsock.mask) tcl_ready = 1;
+        }
+      }
+#ifdef EGG_TDNS
+      if (!tcl_ready) {
+        for (dtn = dns_thread_head->next; dtn && !tcl_ready; dtn = dtn->next)
+          if (FD_ISSET(dtn->fildes[0], &fdr)) tcl_ready = 1;
+      }
+#endif
+      if (x == 0 && !tcl_ready)
+        return -3; /* idle */
+      if (x > 0 || tcl_ready) x = 1; /* at least one ready */
+    }
+  } else
+#endif /* EGG_IO_URING || EGG_EPOLL */
+  {
+    /* ---- select() fallback ---- */
+    maxfd_r = preparefdset(&fdr, slist, slistmax, tclonly, TCL_READABLE);
+#ifdef EGG_TDNS
+    for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
+      int fd = dtn->fildes[0];
+      FD_SET(fd, &fdr);
+      if (fd > maxfd_r) maxfd_r = fd;
+    }
+#endif
+    maxfd_w = preparefdset(&fdw, slist, slistmax, 1, TCL_WRITABLE);
+    maxfd_e = preparefdset(&fde, slist, slistmax, 1, TCL_EXCEPTION);
+    maxfd = maxfd_r > maxfd_w ? maxfd_r : maxfd_w;
+    if (maxfd_e > maxfd) maxfd = maxfd_e;
+
+    call_hook(HOOK_PRE_SELECT);
+    x = select((SELECT_TYPE_ARG1) maxfd + 1,
+               SELECT_TYPE_ARG234 (maxfd_r >= 0 ? &fdr : NULL),
+               SELECT_TYPE_ARG234 (maxfd_w >= 0 ? &fdw : NULL),
+               SELECT_TYPE_ARG234 (maxfd_e >= 0 ? &fde : NULL),
+               SELECT_TYPE_ARG5 &t);
+    call_hook(HOOK_POST_SELECT);
+    if (x == -1)
+      return -2;
+    if (x == 0)
+      return -3;
+  }
 
   for (i = 0; i < slistmax; i++) {
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
@@ -1332,33 +1625,40 @@ void tputs(int z, char *s, unsigned int len)
 
   for (i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & SOCK_UNUSED) && (socklist[i].sock == z)) {
-      for (idx = 0; idx < dcc_total; idx++) {
-        if ((dcc[idx].sock == z) && dcc[idx].type && dcc[idx].type->name) {
-          if (!strncmp(dcc[idx].type->name, "BOT", 3))
-            otraffic_bn_today += len;
-          else if (!strcmp(dcc[idx].type->name, "SERVER"))
-            otraffic_irc_today += len;
-          else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
-            otraffic_dcc_today += len;
-          else if (!strncmp(dcc[idx].type->name, "FILES", 5))
-            otraffic_filesys_today += len;
-          else if (!strcmp(dcc[idx].type->name, "SEND"))
-            otraffic_trans_today += len;
-          else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
-            otraffic_trans_today += len;
-          else if (!strncmp(dcc[idx].type->name, "GET", 3))
-            otraffic_trans_today += len;
-          else
-            otraffic_unknown_today += len;
-          break;
-        }
+      /* O(1) traffic accounting via sock→dcc map */
+      idx = findanyidx(z);
+      if (idx >= 0 && dcc[idx].type && dcc[idx].type->name) {
+        if (!strncmp(dcc[idx].type->name, "BOT", 3))
+          otraffic_bn_today += len;
+        else if (!strcmp(dcc[idx].type->name, "SERVER"))
+          otraffic_irc_today += len;
+        else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
+          otraffic_dcc_today += len;
+        else if (!strncmp(dcc[idx].type->name, "FILES", 5))
+          otraffic_filesys_today += len;
+        else if (!strcmp(dcc[idx].type->name, "SEND"))
+          otraffic_trans_today += len;
+        else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
+          otraffic_trans_today += len;
+        else if (!strncmp(dcc[idx].type->name, "GET", 3))
+          otraffic_trans_today += len;
+        else
+          otraffic_unknown_today += len;
       }
 
       if (socklist[i].handler.sock.outbuf != NULL) {
-        /* Already queueing: just add it */
-        p = nrealloc(socklist[i].handler.sock.outbuf, socklist[i].handler.sock.outbuflen + len);
-        memcpy(p + socklist[i].handler.sock.outbuflen, s, len);
-        socklist[i].handler.sock.outbuf = p;
+        /* Already queueing: add to existing buffer.
+         * Use doubling strategy to amortise realloc cost. */
+        size_t need = socklist[i].handler.sock.outbuflen + len;
+        if (need > socklist[i].handler.sock.outbufcap) {
+          size_t newcap = socklist[i].handler.sock.outbufcap;
+          if (!newcap) newcap = 512;
+          while (newcap < need) newcap *= 2;
+          p = nrealloc(socklist[i].handler.sock.outbuf, newcap);
+          socklist[i].handler.sock.outbuf = p;
+          socklist[i].handler.sock.outbufcap = newcap;
+        }
+        memcpy(socklist[i].handler.sock.outbuf + socklist[i].handler.sock.outbuflen, s, len);
         socklist[i].handler.sock.outbuflen += len;
         return;
       }
@@ -1390,10 +1690,13 @@ void tputs(int z, char *s, unsigned int len)
       if (x == -1)
         x = 0;
       if (x < len) {
-        /* Socket is full, queue it */
-        socklist[i].handler.sock.outbuf = nmalloc(len - x);
-        memcpy(socklist[i].handler.sock.outbuf, &s2[x], len - x);
-        socklist[i].handler.sock.outbuflen = len - x;
+        /* Socket is full, queue the remainder */
+        size_t rem = len - x;
+        size_t initcap = rem < 512 ? 512 : rem;
+        socklist[i].handler.sock.outbuf = nmalloc(initcap);
+        memcpy(socklist[i].handler.sock.outbuf, &s2[x], rem);
+        socklist[i].handler.sock.outbuflen = rem;
+        socklist[i].handler.sock.outbufcap = initcap;
       }
       return;
     }
@@ -1412,42 +1715,92 @@ void tputs(int z, char *s, unsigned int len)
 
 /* tputs might queue data for sockets, let's dump as much of it as
  * possible.
+ *
+ * Uses epoll (or io_uring) with timeout=0 to check which sockets are
+ * ready for writing, then drains their outbuf.  Falls back to a
+ * zero-timeout select() when neither async back-end is available.
  */
 void dequeue_sockets()
 {
   int i, x;
   fd_set wfds;
-  struct timeval tv;
-  int maxfd = -1;
   struct threaddata *td = threaddata();
 
-/* ^-- start poptix test code, this should avoid writes to sockets not ready to be written to. */
+  /* Detect whether any sockets have pending outbuf data */
+  {
+    int has_pending = 0;
+    for (i = 0; i < td->MAXSOCKS && !has_pending; i++)
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL
+#ifdef TLS
+          && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
+#endif
+         )
+        has_pending = 1;
+    if (!has_pending)
+      return;
+  }
 
   FD_ZERO(&wfds);
-  tv.tv_sec = 0;
-  tv.tv_usec = 0;               /* we only want to see if it's ready for writing, no need to actually wait.. */
-  for (i = 0; i < td->MAXSOCKS; i++)
-    if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-        (socklist[i].handler.sock.outbuf != NULL)
+
+#ifdef EGG_EPOLL
+  if (egg_epoll_fd >= 0) {
+    /* Use a dedicated one-shot epoll_wait(timeout=0) for write-ready
+     * sockets.  We temporarily add EPOLLOUT to each socket that has
+     * pending outbuf data, poll once, then restore EPOLLIN-only. */
+    for (i = 0; i < td->MAXSOCKS; i++) {
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL
 #ifdef TLS
-	&& !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
+          && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
 #endif
-                                                 ) {
-      if (socklist[i].sock > maxfd)
-        maxfd = socklist[i].sock;
-      FD_SET(socklist[i].sock, &wfds);
+         ) {
+        epoll_mod_sock(socklist[i].sock, i, EPOLLOUT);
+      }
     }
-  if (maxfd < 0)
-    return;                     /* nothing to write */
-
-  x = select((SELECT_TYPE_ARG1) maxfd + 1, SELECT_TYPE_ARG234 NULL,
-         SELECT_TYPE_ARG234 &wfds, SELECT_TYPE_ARG234 NULL,
-         SELECT_TYPE_ARG5 &tv);
-
-/* end poptix */
-
-  if (x <= 0)
-    return;
+    {
+      struct epoll_event epevs[64];
+      int k;
+      x = epoll_wait(egg_epoll_fd, epevs, 64, 0);
+      for (k = 0; k < x; k++) {
+        if (epevs[k].events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) {
+          uint32_t si = epevs[k].data.u32;
+          if (si < (unsigned)td->MAXSOCKS)
+            FD_SET(socklist[si].sock, &wfds);
+        }
+      }
+    }
+    /* Restore EPOLLIN-only for all sockets that had outbuf pending */
+    for (i = 0; i < td->MAXSOCKS; i++) {
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL)
+        epoll_mod_sock(socklist[i].sock, i, 0);
+    }
+    if (x <= 0)
+      return;
+  } else
+#endif /* EGG_EPOLL */
+  {
+    /* select() fallback: zero-timeout write-readiness check */
+    int maxfd = -1;
+    struct timeval tv = {0, 0};
+    for (i = 0; i < td->MAXSOCKS; i++)
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL
+#ifdef TLS
+          && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
+#endif
+         ) {
+        if (socklist[i].sock > maxfd)
+          maxfd = socklist[i].sock;
+        FD_SET(socklist[i].sock, &wfds);
+      }
+    if (maxfd < 0) return;
+    x = select((SELECT_TYPE_ARG1) maxfd + 1, SELECT_TYPE_ARG234 NULL,
+               SELECT_TYPE_ARG234 &wfds, SELECT_TYPE_ARG234 NULL,
+               SELECT_TYPE_ARG5 &tv);
+    if (x <= 0) return;
+  }
 
   for (i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
@@ -1498,21 +1851,18 @@ void dequeue_sockets()
         debug3("net: eof!(write) socket %d (%s,%d)", socklist[i].sock,
                strerror(errno), errno);
         socklist[i].flags |= SOCK_EOFD;
-      } else if (x == socklist[i].handler.sock.outbuflen) {
-        /* If the whole buffer was sent, nuke it */
+      } else if (x == (int)socklist[i].handler.sock.outbuflen) {
+        /* Whole buffer sent — release */
         nfree(socklist[i].handler.sock.outbuf);
         socklist[i].handler.sock.outbuf = NULL;
         socklist[i].handler.sock.outbuflen = 0;
+        socklist[i].handler.sock.outbufcap = 0;
       } else if (x > 0) {
-        char *p = socklist[i].handler.sock.outbuf;
-
-        /* This removes any sent bytes from the beginning of the buffer */
-        socklist[i].handler.sock.outbuf =
-                            nmalloc(socklist[i].handler.sock.outbuflen - x);
-        memcpy(socklist[i].handler.sock.outbuf, p + x,
-                   socklist[i].handler.sock.outbuflen - x);
+        /* Partial send — slide remaining bytes to front (no alloc needed) */
         socklist[i].handler.sock.outbuflen -= x;
-        nfree(p);
+        memmove(socklist[i].handler.sock.outbuf,
+                socklist[i].handler.sock.outbuf + x,
+                socklist[i].handler.sock.outbuflen);
       } else {
         debug3("dequeue_sockets(): errno = %d (%s) on %d", errno,
                strerror(errno), socklist[i].sock);
