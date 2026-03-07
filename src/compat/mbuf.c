@@ -165,3 +165,54 @@ size_t egg_mbuf_capacity(const egg_mbuf_t *mb)
 {
     return (mb != NULL) ? mb->cap : 0;
 }
+
+int egg_mbuf_grow(egg_mbuf_t *mb, size_t new_cap)
+{
+    char *new_buf;
+    size_t first, rest;
+
+    if (mb == NULL)
+        return -1;
+    if (new_cap <= mb->cap)
+        return 0;
+
+    new_buf = nmalloc(new_cap);
+    if (new_buf == NULL)
+        return -1;
+
+    /* Linearise ring-buffer data into new_buf[0..len-1]. */
+    if (mb->len > 0) {
+        first = mb->cap - mb->rpos;
+        if (first > mb->len)
+            first = mb->len;
+        memcpy(new_buf, mb->buf + mb->rpos, first);
+        rest = mb->len - first;
+        if (rest > 0)
+            memcpy(new_buf + first, mb->buf, rest);
+    }
+
+    nfree(mb->buf);
+    mb->buf  = new_buf;
+    mb->cap  = new_cap;
+    mb->rpos = 0;
+    mb->wpos = mb->len;
+    return 0;
+}
+
+size_t egg_mbuf_append_grow(egg_mbuf_t *mb, const char *data, size_t len)
+{
+    size_t new_cap;
+
+    if (mb == NULL || data == NULL || len == 0)
+        return 0;
+
+    if (mb->cap - mb->len < len) {
+        new_cap = mb->cap ? mb->cap : 512;
+        while (new_cap < mb->len + len)
+            new_cap *= 2;
+        if (egg_mbuf_grow(mb, new_cap) < 0)
+            return 0;
+    }
+
+    return egg_mbuf_append(mb, data, len);
+}

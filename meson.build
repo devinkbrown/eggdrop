@@ -216,6 +216,22 @@ if cc.has_header_symbol('sys/socket.h', 'SOCK_CLOEXEC',
 endif
 
 # -------------------------------------------------------------------------
+# sendfile — zero-copy file-to-socket (Linux ≥ 2.2, sys/sendfile.h)
+# Used by transfer.mod to avoid userspace copy during DCC file sends.
+# -------------------------------------------------------------------------
+if cc.has_header('sys/sendfile.h')
+  cdata.set('HAVE_SYS_SENDFILE_H', 1)
+  if cc.has_function('sendfile', prefix: '#include <sys/sendfile.h>')
+    cdata.set('HAVE_SENDFILE', 1)
+    message('sendfile() detected — zero-copy DCC transfers enabled')
+  else
+    message('sendfile() not found — using read/write for DCC')
+  endif
+else
+  message('sys/sendfile.h not found — using read/write for DCC')
+endif
+
+# -------------------------------------------------------------------------
 # liburing — io_uring (Linux ≥ 5.1)
 # When available, the io_uring back-end is preferred over epoll.
 # -------------------------------------------------------------------------
@@ -310,6 +326,16 @@ subdir('src')
 # -------------------------------------------------------------------------
 # Summary
 # -------------------------------------------------------------------------
+if have_uring
+  io_backend = 'io_uring'
+elif have_epoll
+  io_backend = 'epoll'
+elif have_kqueue
+  io_backend = 'kqueue'
+else
+  io_backend = 'select'
+endif
+
 summary({
   'Prefix':         get_option('prefix'),
   'IPv6':           opt_ipv6,
@@ -320,5 +346,5 @@ summary({
   'Static modules': opt_static,
   'Executable':     opt_exec,
   'HANDLEN':        opt_handlen,
-  'I/O backend':    have_uring ? 'io_uring' : (have_epoll ? 'epoll' : (have_kqueue ? 'kqueue' : 'select')),
+  'I/O backend':    io_backend,
 }, section: 'Eggdrop configuration')

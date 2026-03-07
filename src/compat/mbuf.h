@@ -80,4 +80,20 @@ size_t egg_mbuf_len(const egg_mbuf_t *mb);
  */
 size_t egg_mbuf_capacity(const egg_mbuf_t *mb);
 
+/*
+ * egg_mbuf_grow -- ensure the buffer has at least new_cap bytes of capacity.
+ *
+ * Linearises buffered data into a newly allocated backing store.
+ * Returns 0 on success, -1 on allocation failure.
+ */
+int egg_mbuf_grow(egg_mbuf_t *mb, size_t new_cap);
+
+/*
+ * egg_mbuf_append_grow -- append data, growing the buffer if needed.
+ *
+ * Uses doubling strategy to amortise reallocation cost.
+ * Returns the number of bytes written (always len unless allocation fails).
+ */
+size_t egg_mbuf_append_grow(egg_mbuf_t *mb, const char *data, size_t len);
+
 #endif /* EGG_COMPAT_MBUF_H */

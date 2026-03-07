@@ -380,7 +380,7 @@ int expmem_net()
       if (td->socklist[i].handler.sock.inbuf != NULL)
         tot += strlen(td->socklist[i].handler.sock.inbuf) + 1;
       if (td->socklist[i].handler.sock.outbuf != NULL)
-        tot += td->socklist[i].handler.sock.outbuflen;
+        tot += egg_mbuf_len(td->socklist[i].handler.sock.outbuf);
     }
   }
   return tot;
@@ -603,8 +603,6 @@ int allocsock(int sock, int options)
       td->socklist[i].handler.sock.inbuf = NULL;
       td->socklist[i].handler.sock.outbuf = NULL;
       td->socklist[i].handler.sock.inbuflen = 0;
-      td->socklist[i].handler.sock.outbuflen = 0;
-      td->socklist[i].handler.sock.outbufcap = 0;
       td->socklist[i].flags = options;
       td->socklist[i].sock = sock;
 #ifdef TLS
@@ -769,10 +767,8 @@ void killsock(int sock)
           td->socklist[i].handler.sock.inbuf = NULL;
         }
         if (td->socklist[i].handler.sock.outbuf != NULL) {
-          nfree(td->socklist[i].handler.sock.outbuf);
+          egg_mbuf_free(td->socklist[i].handler.sock.outbuf);
           td->socklist[i].handler.sock.outbuf = NULL;
-          td->socklist[i].handler.sock.outbuflen = 0;
-          td->socklist[i].handler.sock.outbufcap = 0;
         }
 #ifdef EGG_IO_URING
         if (td->socklist[i].handler.sock.recv_buf != NULL) {
@@ -1894,7 +1890,7 @@ int sockgets(char *s, int *len)
 void tputs(int z, char *s, unsigned int len)
 {
   int i, x, idx;
-  char *p, *s2 = 0;
+  char *s2 = 0;
   static int inhere = 0;
   struct threaddata *td = threaddata();
 
@@ -1930,19 +1926,8 @@ void tputs(int z, char *s, unsigned int len)
       }
 
       if (socklist[i].handler.sock.outbuf != NULL) {
-        /* Already queueing: add to existing buffer.
-         * Use doubling strategy to amortise realloc cost. */
-        size_t need = socklist[i].handler.sock.outbuflen + len;
-        if (need > socklist[i].handler.sock.outbufcap) {
-          size_t newcap = socklist[i].handler.sock.outbufcap;
-          if (!newcap) newcap = 512;
-          while (newcap < need) newcap *= 2;
-          p = nrealloc(socklist[i].handler.sock.outbuf, newcap);
-          socklist[i].handler.sock.outbuf = p;
-          socklist[i].handler.sock.outbufcap = newcap;
-        }
-        memcpy(socklist[i].handler.sock.outbuf + socklist[i].handler.sock.outbuflen, s, len);
-        socklist[i].handler.sock.outbuflen += len;
+        /* Already queueing: append to ring buffer (grows if needed). */
+        egg_mbuf_append_grow(socklist[i].handler.sock.outbuf, s, len);
         return;
       }
 #ifdef TLS
@@ -1973,13 +1958,12 @@ void tputs(int z, char *s, unsigned int len)
       if (x == -1)
         x = 0;
       if (x < len) {
-        /* Socket is full, queue the remainder */
+        /* Socket is full, queue the remainder in a ring buffer */
         size_t rem = len - x;
         size_t initcap = rem < 512 ? 512 : rem;
-        socklist[i].handler.sock.outbuf = nmalloc(initcap);
-        memcpy(socklist[i].handler.sock.outbuf, &s2[x], rem);
-        socklist[i].handler.sock.outbuflen = rem;
-        socklist[i].handler.sock.outbufcap = initcap;
+        socklist[i].handler.sock.outbuf = egg_mbuf_alloc(initcap);
+        if (socklist[i].handler.sock.outbuf)
+          egg_mbuf_append(socklist[i].handler.sock.outbuf, &s2[x], rem);
       }
       return;
     }
@@ -2183,52 +2167,74 @@ kqueue_dequeue_done:;
         }
       }
 #endif
-      /* Trick tputs into doing the work */
-      errno = 0;
+      /* Drain outbuf ring buffer — write first contiguous chunk, then the
+       * wrapped second chunk (if any).  MSG_MORE hints TCP to coalesce
+       * both chunks into one segment where supported. */
+      {
+        egg_mbuf_t *mb = socklist[i].handler.sock.outbuf;
+        char  *ptr;
+        size_t chunk;
+        size_t total = egg_mbuf_len(mb);
+
+        egg_mbuf_peek(mb, &ptr, &chunk);
+        errno = 0;
 #ifdef TLS
-      if (socklist[i].ssl) {
-        x = SSL_write(socklist[i].ssl, socklist[i].handler.sock.outbuf,
-                      socklist[i].handler.sock.outbuflen);
-        if (x < 0) {
-          int err = SSL_get_error(socklist[i].ssl, x);
-          if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
-            errno = EAGAIN;
-          else
-            debug1("dequeue_sockets(): SSL error = %s",
-                   ERR_error_string(ERR_get_error(), 0));
-          x = -1;
-        }
-      } else
+        if (socklist[i].ssl) {
+          x = SSL_write(socklist[i].ssl, ptr, chunk);
+          if (x < 0) {
+            int err = SSL_get_error(socklist[i].ssl, x);
+            if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
+              errno = EAGAIN;
+            else
+              debug1("dequeue_sockets(): SSL error = %s",
+                     ERR_error_string(ERR_get_error(), 0));
+            x = -1;
+          }
+        } else
 #endif
-      x = write(socklist[i].sock, socklist[i].handler.sock.outbuf,
-                socklist[i].handler.sock.outbuflen);
-      if ((x < 0) && (errno != EAGAIN)
+        {
+          int flags = 0;
+#ifdef MSG_MORE
+          /* If there is a second wrapped chunk, ask TCP to hold this segment */
+          if (chunk < total)
+            flags = MSG_MORE;
+#endif
+          x = send(socklist[i].sock, ptr, chunk, flags);
+        }
+        if ((x < 0) && (errno != EAGAIN)
 #ifdef EBADSLT
-          && (errno != EBADSLT)
+            && (errno != EBADSLT)
 #endif
 #ifdef ENOTCONN
-          && (errno != ENOTCONN)
+            && (errno != ENOTCONN)
 #endif
-        ) {
-        /* This detects an EOF during writing */
-        debug3("net: eof!(write) socket %d (%s,%d)", socklist[i].sock,
-               strerror(errno), errno);
-        socklist[i].flags |= SOCK_EOFD;
-      } else if (x == (int)socklist[i].handler.sock.outbuflen) {
-        /* Whole buffer sent — release */
-        nfree(socklist[i].handler.sock.outbuf);
-        socklist[i].handler.sock.outbuf = NULL;
-        socklist[i].handler.sock.outbuflen = 0;
-        socklist[i].handler.sock.outbufcap = 0;
-      } else if (x > 0) {
-        /* Partial send — slide remaining bytes to front (no alloc needed) */
-        socklist[i].handler.sock.outbuflen -= x;
-        memmove(socklist[i].handler.sock.outbuf,
-                socklist[i].handler.sock.outbuf + x,
-                socklist[i].handler.sock.outbuflen);
-      } else {
-        debug3("dequeue_sockets(): errno = %d (%s) on %d", errno,
-               strerror(errno), socklist[i].sock);
+          ) {
+          /* This detects an EOF during writing */
+          debug3("net: eof!(write) socket %d (%s,%d)", socklist[i].sock,
+                 strerror(errno), errno);
+          socklist[i].flags |= SOCK_EOFD;
+        } else if (x > 0) {
+          egg_mbuf_consume(mb, (size_t)x);
+          /* Attempt second (wrapped) chunk for non-TLS sockets */
+          if (egg_mbuf_len(mb) > 0
+#ifdef TLS
+              && !socklist[i].ssl
+#endif
+          ) {
+            int x2;
+            egg_mbuf_peek(mb, &ptr, &chunk);
+            x2 = write(socklist[i].sock, ptr, chunk);
+            if (x2 > 0)
+              egg_mbuf_consume(mb, (size_t)x2);
+          }
+          if (egg_mbuf_len(mb) == 0) {
+            egg_mbuf_free(mb);
+            socklist[i].handler.sock.outbuf = NULL;
+          }
+        } else {
+          debug3("dequeue_sockets(): errno = %d (%s) on %d", errno,
+                 strerror(errno), socklist[i].sock);
+        }
       }
       /* All queued data was sent. Call handler if one exists and the
        * dcc entry wants it.
@@ -2281,7 +2287,8 @@ void tell_netdebug(int idx)
           snprintf(s + strlen(s), sizeof(s) - strlen(s), " (inbuf: %04X)",
                   (unsigned int) strlen(socklist[i].handler.sock.inbuf));
         if (socklist[i].handler.sock.outbuf != NULL)
-          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06lX)", socklist[i].handler.sock.outbuflen);
+          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06lX)",
+                   (unsigned long) egg_mbuf_len(socklist[i].handler.sock.outbuf));
       }
       strcat(s, ",");
       dprintf(idx, "%s", s);
