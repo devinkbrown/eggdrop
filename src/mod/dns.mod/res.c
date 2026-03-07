@@ -699,6 +699,28 @@ static char dot_host[IRCD_RES_HOSTLEN + 1];     /* hostname for SNI        */
 static struct sockaddr_storage dot_sa_saved;
 static uint16_t                dot_port_saved = 0;
 static int                     dot_sa_valid   = 0; /* 1 when saved addr is set */
+
+/* DoT receive reassembly buffer.
+ *
+ * RFC 7858 §3.3: each DNS message is framed with a 2-byte big-endian length
+ * prefix.  SSL_read() may legally return fewer bytes than requested (partial
+ * TLS records).  Without buffering, a partial read of the 2-byte length
+ * prefix desynchronises the stream permanently.
+ *
+ * State machine:
+ *   dot_rx_phase == 0: accumulating the 2-byte length prefix in dot_rxbuf[0..1]
+ *   dot_rx_phase == 1: accumulating the DNS payload in dot_rxbuf[2..2+msglen-1]
+ *
+ * dot_rxoff  = bytes valid in dot_rxbuf so far for the current phase
+ * dot_rxneed = total bytes needed for the current phase
+ */
+#define DOT_RXBUF_SIZE (2 + DNS_HDR_SIZE + DNS_MAXPKT)
+static unsigned char dot_rxbuf[DOT_RXBUF_SIZE];
+static int           dot_rxoff   = 0;  /* bytes accumulated */
+static int           dot_rxneed  = 2;  /* bytes needed to finish current phase */
+static int           dot_rx_phase = 0; /* 0 = length prefix, 1 = payload */
+/* Reset reassembly state — call whenever the DoT connection is torn down */
+#define DOT_RX_RESET() do { dot_rxoff = 0; dot_rxneed = 2; dot_rx_phase = 0; } while(0)
 #endif
 
 /* =========================================================================
@@ -1062,6 +1084,7 @@ void res_read_dns(void)
       putlog(LOG_MISC, "*",
              "DNS: DoT connection lost (no SSL session); reconnecting in %ds",
              DOT_RECONNECT_DELAY);
+      DOT_RX_RESET();
       dot_active = 0;
       killsock(dot_fd);
       dot_fd = -1;
@@ -1070,18 +1093,22 @@ void res_read_dns(void)
       return;
     }
 
+    /* Reassembly loop.  SSL_read() may return fewer bytes than requested
+     * (partial TLS records).  We drive a two-phase state machine:
+     *   phase 0: fill dot_rxbuf[0..1] with the RFC 7858 2-byte length prefix.
+     *   phase 1: fill dot_rxbuf[2..2+msglen-1] with the DNS payload.
+     * Partial reads simply leave dot_rxoff < dot_rxneed and we return,
+     * resuming where we left off on the next readable event. */
     for (;;) {
-      unsigned char lenbuf[2];
-      uint16_t      msglen;
-      int           got, want;
-
-      /* Read the 2-byte length prefix */
-      got = SSL_read(td->socklist[idx].ssl, lenbuf, 2);
+      int got = SSL_read(td->socklist[idx].ssl,
+                         dot_rxbuf + dot_rxoff,
+                         dot_rxneed - dot_rxoff);
       if (got <= 0) {
         int err = SSL_get_error(td->socklist[idx].ssl, got);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
           break; /* no more data this tick */
-        /* Connection error — disable DoT and schedule reconnect */
+        /* Connection error — reset reassembly state, schedule reconnect */
+        dot_rxoff = 0; dot_rxneed = 2; dot_rx_phase = 0;
         putlog(LOG_MISC, "*",
                "DNS: DoT read error (%d); reconnecting in %ds",
                err, DOT_RECONNECT_DELAY);
@@ -1092,27 +1119,44 @@ void res_read_dns(void)
           dot_reconnect_seconds = DOT_RECONNECT_DELAY;
         return;
       }
-      if (got != 2)
-        break; /* partial read — try again next tick */
+      dot_rxoff += got;
 
-      msglen = ((uint16_t)lenbuf[0] << 8) | lenbuf[1];
-      if (msglen == 0 || msglen > (uint16_t)(DNS_HDR_SIZE + DNS_MAXPKT))
-        break; /* malformed — ignore */
+      if (dot_rxoff < dot_rxneed)
+        break; /* still accumulating — wait for more data */
 
-      /* Read the DNS payload */
-      want = (int)msglen;
-      got  = SSL_read(td->socklist[idx].ssl, buf, want);
-      if (got <= 0)
-        break; /* partial — drop this message */
-
-      if ((size_t)got <= DNS_HDR_SIZE)
-        continue;
-
-      id  = HDR_ID(buf);
-      req = find_req_by_id(id);
-      if (req == NULL)
-        continue;
-      process_answer(req, buf, (size_t)got);
+      if (dot_rx_phase == 0) {
+        /* Completed the 2-byte length prefix */
+        uint16_t msglen = ((uint16_t)dot_rxbuf[0] << 8) | dot_rxbuf[1];
+        if (msglen == 0 || msglen > (uint16_t)(DNS_HDR_SIZE + DNS_MAXPKT)) {
+          /* Malformed frame — reset and reconnect to recover stream sync */
+          dot_rxoff = 0; dot_rxneed = 2; dot_rx_phase = 0;
+          putlog(LOG_MISC, "*",
+                 "DNS: DoT malformed frame (len=%u); reconnecting", msglen);
+          dot_active = 0;
+          killsock(dot_fd);
+          dot_fd = -1;
+          if (dot_sa_valid)
+            dot_reconnect_seconds = DOT_RECONNECT_DELAY;
+          return;
+        }
+        /* Transition to payload phase */
+        dot_rx_phase = 1;
+        dot_rxoff    = 0;
+        dot_rxneed   = (int)msglen;
+      } else {
+        /* Completed the DNS payload — process it */
+        uint16_t    msglen = (uint16_t)dot_rxneed;
+        if ((size_t)msglen > DNS_HDR_SIZE) {
+          id  = HDR_ID(dot_rxbuf);
+          req = find_req_by_id(id);
+          if (req != NULL)
+            process_answer(req, dot_rxbuf, (size_t)msglen);
+        }
+        /* Reset to read next message */
+        dot_rxoff    = 0;
+        dot_rxneed   = 2;
+        dot_rx_phase = 0;
+      }
     }
     return; /* DoT path handled; skip UDP */
   }
@@ -1308,6 +1352,7 @@ void restart_resolver(void)
   }
 
 #ifdef EGG_TLS
+  DOT_RX_RESET();
   dot_active = 0;
   dot_reconnect_seconds = -1;
   dot_sa_valid = 0;
@@ -1400,6 +1445,7 @@ void res_enable_dot(const struct sockaddr_storage *sa,
 
   /* Tear down any existing DoT connection first */
   if (dot_fd >= 0) {
+    DOT_RX_RESET();
     dot_active = 0;
     killsock(dot_fd);
     dot_fd = -1;
@@ -1466,6 +1512,7 @@ void res_enable_dot(const struct sockaddr_storage *sa,
 
 void res_disable_dot(void)
 {
+  DOT_RX_RESET();
   dot_active = 0;
   dot_reconnect_seconds = -1;
   dot_sa_valid = 0;
