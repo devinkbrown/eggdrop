@@ -1837,7 +1837,7 @@ static int gottopic(char *from, char *msg)
     if (m != NULL)
       m->last = now;
     set_topic(chan, msg);
-    u = lookup_user_record(m, NULL, from); // TODO: get account from msgtags
+    u = lookup_user_record(m, m ? m->account : NULL, from);
     check_tcl_topc(nick, from, u, chan->dname, msg);
   }
   return 0;
@@ -2083,7 +2083,8 @@ static int gotjoin(char *from, char *channame)
             goto exit;
           }
         } else {
-          u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+          memberlist *_mj = find_member_from_nick(nick);
+          u = lookup_user_record(_mj, _mj ? _mj->account : NULL, from);
         }
         check_tcl_join(nick, uhost, u, chan->dname);
 
@@ -2259,7 +2260,6 @@ static int gotpart(char *from, char *msg)
     strlcpy(uhost, from, sizeof uhost);
     nick = splitnick(&from);
     m = ismember(chan, nick);
-    // TODO: check account from rawt account-tags
     if (m)
       u = get_user_from_member(m);
     else
@@ -2354,7 +2354,7 @@ static int gotkick(char *from, char *origmsg)
       return 0;
 
     m = ismember(chan, whodid);
-    u = lookup_user_record(m, NULL, from); // TODO: get account from msgtags
+    u = lookup_user_record(m, m ? m->account : NULL, from);
     if (m)
       m->last = now;
     /* This _needs_ to use chan->dname <cybah> */
@@ -2613,7 +2613,10 @@ static int gotmsg(char *from, char *msg)
         ctcp_count++;
         if (ctcp[0] != ' ') {
           code = newsplit(&ctcp);
-          u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+          {
+            memberlist *_mc = find_member_from_nick(nick);
+            u = lookup_user_record(_mc, _mc ? _mc->account : NULL, from);
+          }
           if (!ignoring || trigger_on_ignore) {
             if (!check_tcl_ctcp(nick, uhost, u, to, code, ctcp)) {
               chan = findchan(realto);
@@ -2705,7 +2708,10 @@ static int gotnotice(char *from, char *msg)
   fixcolon(msg);
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
-  u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+  {
+    memberlist *_mn = find_member_from_nick(nick);
+    u = lookup_user_record(_mn, _mn ? _mn->account : NULL, from);
+  }
   /* Check for CTCP: */
   p = strchr(msg, 1);
   while (p && *p) {

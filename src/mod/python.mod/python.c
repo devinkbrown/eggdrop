@@ -48,7 +48,22 @@ EXPORT_SCOPE char *python_start(Function *global_funcs);
 
 static int python_expmem()
 {
-  return 0; // TODO
+  /* Return the number of live Python heap blocks * sizeof(PyObject) as a
+   * proxy for interpreter memory.  sys.getallocatedblocks() is the stable
+   * public API for this; it does not include interpreter static overhead. */
+  PyObject *sys, *result;
+  Py_ssize_t blocks = 0;
+
+  sys = PyImport_ImportModule("sys");
+  if (sys) {
+    result = PyObject_CallMethod(sys, "getallocatedblocks", NULL);
+    if (result) {
+      blocks = PyLong_AsSsize_t(result);
+      Py_DECREF(result);
+    }
+    Py_DECREF(sys);
+  }
+  return (int)(blocks * (Py_ssize_t)sizeof(PyObject));
 }
 
 static int python_gil_unlock() {
@@ -104,8 +119,21 @@ static char *init_python() {
   pglobals = PyModule_GetDict(pirp);
 
   PyRun_SimpleString("import sys");
-  // TODO: Relies on pwd() staying eggdrop main dir
-  PyRun_SimpleString("sys.path.append(\".\")");
+  /* Add the directory of the eggdrop binary to sys.path so that scripts
+   * placed alongside the binary are importable regardless of CWD. */
+  {
+    char eggdir[PATH_MAX];
+    char pycode[PATH_MAX + 32];
+    char *lastslash;
+    strlcpy(eggdir, argv0, sizeof eggdir);
+    lastslash = strrchr(eggdir, '/');
+    if (lastslash && lastslash != eggdir)
+      *lastslash = '\0';
+    else
+      strlcpy(eggdir, ".", sizeof eggdir);
+    snprintf(pycode, sizeof pycode, "sys.path.append(\"%s\")", eggdir);
+    PyRun_SimpleString(pycode);
+  }
   PyRun_SimpleString("import eggdrop");
   PyRun_SimpleString("sys.displayhook = eggdrop.__displayhook__");
 
