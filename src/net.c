@@ -25,6 +25,10 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* Enable GNU extensions (accept4, SOCK_NONBLOCK, EPOLLONESHOT, etc.) */
+#ifndef _GNU_SOURCE
+#  define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include "main.h"
 #include "modules.h"
@@ -232,6 +236,44 @@ static void epoll_mod_sock(int sock, int slist_idx, int extra_flags)
   epoll_ctl(egg_epoll_fd, EPOLL_CTL_MOD, sock, &ev);
 }
 #endif /* EGG_EPOLL */
+
+/*
+ * Write-readiness epoll fd — used exclusively by dequeue_sockets().
+ *
+ * In EGG_IO_URING mode the main egg_epoll_fd doesn't exist, so we keep
+ * a separate epoll instance just for EPOLLOUT detection.  EPOLLONESHOT is
+ * used so each socket auto-disarms after firing; we re-arm it on the next
+ * dequeue_sockets() call if outbuf is still non-empty.
+ *
+ * In EGG_EPOLL mode egg_wepoll_fd mirrors egg_epoll_fd (same fd reused)
+ * so no extra fd is needed; the value is set by wepoll_ensure_init().
+ */
+#if defined(EGG_IO_URING) || defined(EGG_EPOLL)
+static int egg_wepoll_fd = -1;
+
+static void wepoll_ensure_init(void)
+{
+  if (egg_wepoll_fd >= 0)
+    return;
+#  ifdef EGG_EPOLL
+  /* In pure-epoll mode reuse the existing fd — no second fd needed. */
+  egg_wepoll_fd = egg_epoll_fd;
+  if (egg_wepoll_fd < 0)
+    epoll_ensure_init(); /* make sure it's open */
+  egg_wepoll_fd = egg_epoll_fd;
+#  else /* EGG_IO_URING — create a dedicated write-epoll fd */
+  if (egg_wepoll_fd < 0) {
+#    ifdef EPOLL_CLOEXEC
+    egg_wepoll_fd = epoll_create1(EPOLL_CLOEXEC);
+#    else
+    egg_wepoll_fd = epoll_create(1024);
+    if (egg_wepoll_fd >= 0)
+      fcntl(egg_wepoll_fd, F_SETFD, FD_CLOEXEC);
+#    endif
+  }
+#  endif
+}
+#endif /* EGG_IO_URING || EGG_EPOLL */
 
 extern struct dcc_t *dcc;
 extern int backgrd, use_stderr, resolve_timeout, dcc_total;
@@ -785,7 +827,6 @@ int open_telnet_raw(int sock, sockname_t *addr)
   sockname_t name;
   socklen_t res_len;
   fd_set sockset;
-  struct timeval tv;
   int i, j, rc, errno_tmp, res;
   struct threaddata *td = threaddata();
 
@@ -821,28 +862,32 @@ int open_telnet_raw(int sock, sockname_t *addr)
   }
   if (rc < 0) {
     if (errno == EINPROGRESS) {
-      /* Async connection... don't return socket descriptor
-       * until after we confirm if it was successful or not */
-      tv.tv_sec = 1;
-      tv.tv_usec = 0;
+      /*
+       * Non-blocking connect is in progress.  Do a zero-timeout check
+       * to catch an immediate rejection (e.g. ECONNREFUSED on loopback)
+       * without blocking — longer waits are handled asynchronously by the
+       * main event loop (sockread → SOCK_CONNECT → SO_ERROR check).
+       */
+      struct timeval zt = {0, 0};
       FD_ZERO(&sockset);
       FD_SET(sock, &sockset);
-      select(sock + 1, NULL, &sockset, NULL, &tv);
-      res_len = sizeof(res);
-      getsockopt(sock, SOL_SOCKET, SO_ERROR, &res, &res_len);
-      if (res == EINPROGRESS) /* Operation now in progress */
-        return sock; /* This could probably fail somewhere */
-      if (res == ECONNREFUSED) { /* Connection refused */
-        debug2("net: attempted socket connection refused: %s:%i",
-               iptostr(&addr->addr.sa), get_port_from_addr(addr));
-        errno = res;
-        return -4;
+      if (select(sock + 1, NULL, &sockset, NULL, &zt) > 0) {
+        res_len = sizeof(res);
+        getsockopt(sock, SOL_SOCKET, SO_ERROR, &res, &res_len);
+        if (res == ECONNREFUSED) {
+          debug2("net: attempted socket connection refused: %s:%i",
+                 iptostr(&addr->addr.sa), get_port_from_addr(addr));
+          errno = res;
+          return -4;
+        }
+        if (res != 0 && res != EINPROGRESS) {
+          debug1("net: getsockopt error %d", res);
+          errno = res;
+          return -1;
+        }
       }
-      if (res != 0) {
-        debug1("net: getsockopt error %d", res);
-        return -1;
-      }
-      return sock; /* async success! */
+      /* Still in progress — return sock and let sockread() finish it */
+      return sock;
     }
     else {
       return -1;
@@ -941,7 +986,19 @@ int answer(int sock, sockname_t *caller, uint16_t *port, int binary)
 {
   int new_sock;
   caller->addrlen = sizeof(caller->addr);
+  /*
+   * accept4() atomically sets SOCK_NONBLOCK | SOCK_CLOEXEC on the new
+   * socket, avoiding two racy fcntl() calls after plain accept(2).
+   * setsock() will still configure keepalive/linger/TCP_NODELAY etc.,
+   * but the nonblock + cloexec flags are already in place before any
+   * other thread can fork or exec.
+   */
+#if defined(HAVE_ACCEPT4) && defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
+  new_sock = accept4(sock, &caller->addr.sa, &caller->addrlen,
+                     SOCK_NONBLOCK | SOCK_CLOEXEC);
+#else
   new_sock = accept(sock, &caller->addr.sa, &caller->addrlen);
+#endif
 
   if (new_sock < 0)
     return -1;
@@ -1865,43 +1922,69 @@ void dequeue_sockets()
 
   FD_ZERO(&wfds);
 
-#ifdef EGG_EPOLL
-  if (egg_epoll_fd >= 0) {
-    /* Use a dedicated one-shot epoll_wait(timeout=0) for write-ready
-     * sockets.  We temporarily add EPOLLOUT to each socket that has
-     * pending outbuf data, poll once, then restore EPOLLIN-only. */
+#if defined(EGG_IO_URING) || defined(EGG_EPOLL)
+  wepoll_ensure_init();
+  if (egg_wepoll_fd >= 0) {
+    struct epoll_event epevs[64];
+    int k;
+
+#  ifdef EGG_EPOLL
+    /*
+     * Pure-epoll mode: temporarily upgrade each pending socket to also
+     * watch EPOLLOUT, poll once with zero timeout, then restore EPOLLIN-only.
+     * We reuse the existing interest set so the kernel doesn't need a new fd.
+     */
     for (i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
-#ifdef TLS
+#    ifdef TLS
           && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
-#endif
-         ) {
+#    endif
+         )
         epoll_mod_sock(socklist[i].sock, i, EPOLLOUT);
-      }
     }
-    {
-      struct epoll_event epevs[64];
-      int k;
-      x = epoll_wait(egg_epoll_fd, epevs, 64, 0);
-      for (k = 0; k < x; k++) {
-        if (epevs[k].events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) {
-          uint32_t si = epevs[k].data.u32;
-          if (si < (unsigned)td->MAXSOCKS)
-            FD_SET(socklist[si].sock, &wfds);
-        }
-      }
-    }
-    /* Restore EPOLLIN-only for all sockets that had outbuf pending */
+    x = epoll_wait(egg_wepoll_fd, epevs, 64, 0);
+    /* Restore EPOLLIN-only for sockets that had outbuf pending */
     for (i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL)
         epoll_mod_sock(socklist[i].sock, i, 0);
     }
+#  else /* EGG_IO_URING — dedicated write-epoll fd with EPOLLONESHOT */
+    /*
+     * io_uring mode: the main ring handles reads; use a separate epoll fd
+     * just for EPOLLOUT detection.  EPOLLONESHOT auto-disarms after each
+     * event so we never accumulate stale interest entries.
+     */
+    for (i = 0; i < td->MAXSOCKS; i++) {
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL
+#    ifdef TLS
+          && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
+#    endif
+         ) {
+        struct epoll_event ev;
+        ev.events = EPOLLOUT | EPOLLERR | EPOLLHUP | EPOLLONESHOT;
+        ev.data.u32 = (uint32_t)i;
+        if (epoll_ctl(egg_wepoll_fd, EPOLL_CTL_ADD, socklist[i].sock, &ev) < 0
+            && errno == EEXIST)
+          epoll_ctl(egg_wepoll_fd, EPOLL_CTL_MOD, socklist[i].sock, &ev);
+      }
+    }
+    x = epoll_wait(egg_wepoll_fd, epevs, 64, 0);
+#  endif /* EGG_IO_URING */
+
+    for (k = 0; k < x; k++) {
+      if (epevs[k].events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) {
+        uint32_t si = epevs[k].data.u32;
+        if (si < (unsigned)td->MAXSOCKS)
+          FD_SET(socklist[si].sock, &wfds);
+      }
+    }
     if (x <= 0)
       return;
   } else
-#endif /* EGG_EPOLL */
+#endif /* EGG_IO_URING || EGG_EPOLL */
   {
     /* select() fallback: zero-timeout write-readiness check */
     int maxfd = -1;

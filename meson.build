@@ -185,6 +185,21 @@ else
 endif
 
 # -------------------------------------------------------------------------
+# accept4 — Linux ≥ 2.6.28, glibc ≥ 2.10
+# Atomically sets SOCK_NONBLOCK | SOCK_CLOEXEC on the accepted socket,
+# avoiding two racy fcntl() calls after plain accept().
+# -------------------------------------------------------------------------
+if cc.has_function('accept4', prefix: '#define _GNU_SOURCE\n#include <sys/socket.h>')
+  cdata.set('HAVE_ACCEPT4', 1)
+endif
+
+# SOCK_CLOEXEC / SOCK_NONBLOCK — available on Linux ≥ 2.6.23
+if cc.has_header_symbol('sys/socket.h', 'SOCK_CLOEXEC',
+    prefix: '#define _GNU_SOURCE')
+  cdata.set('HAVE_SOCK_CLOEXEC', 1)
+endif
+
+# -------------------------------------------------------------------------
 # liburing — io_uring (Linux ≥ 5.1)
 # When available, the io_uring back-end is preferred over epoll.
 # -------------------------------------------------------------------------
