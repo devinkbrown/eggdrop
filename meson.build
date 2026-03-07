@@ -185,6 +185,22 @@ else
 endif
 
 # -------------------------------------------------------------------------
+# kqueue — BSD / macOS (sys/event.h)
+# Used when epoll is unavailable (i.e. on macOS, FreeBSD, OpenBSD, NetBSD).
+# -------------------------------------------------------------------------
+have_kqueue = cc.has_header('sys/event.h')
+if have_kqueue
+  cdata.set('HAVE_KQUEUE', 1)
+  if not have_epoll
+    message('kqueue detected — using kqueue back-end')
+  else
+    message('kqueue detected (epoll preferred on this platform)')
+  endif
+else
+  message('kqueue not found')
+endif
+
+# -------------------------------------------------------------------------
 # accept4 — Linux ≥ 2.6.28, glibc ≥ 2.10
 # Atomically sets SOCK_NONBLOCK | SOCK_CLOEXEC on the accepted socket,
 # avoiding two racy fcntl() calls after plain accept().
@@ -304,4 +320,5 @@ summary({
   'Static modules': opt_static,
   'Executable':     opt_exec,
   'HANDLEN':        opt_handlen,
+  'I/O backend':    have_uring ? 'io_uring' : (have_epoll ? 'epoll' : (have_kqueue ? 'kqueue' : 'select')),
 }, section: 'Eggdrop configuration')
