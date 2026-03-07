@@ -26,8 +26,7 @@ enum {
   SASL_MECHANISM_EXTERNAL,
   SASL_MECHANISM_SCRAM_SHA_256,
   SASL_MECHANISM_SCRAM_SHA_512,
-  /* TODO: https://github.com/atheme/atheme/blob/master/modules/saslserv/ecdh-x25519-challenge.c */
-  /* SASL_MECHANISM_ECDH_X25519_CHALLENGE, */
+  SASL_MECHANISM_ECDH_X25519_CHALLENGE,
   SASL_MECHANISM_NUM
 };
 
@@ -40,6 +39,7 @@ static char sasl_username[NICKMAX + 1];
 static int sasl_mechanism = 0;
 static char sasl_password[SASL_PASSWORD_MAX + 1];
 static char sasl_ecdsa_key[SASL_ECDSA_KEY_MAX + 1];
+static char sasl_x25519_key[SASL_ECDSA_KEY_MAX + 1];
 static int sasl_timeout = 15;
 int sasl = 0;
 
@@ -50,11 +50,12 @@ static char const *SASL_MECHANISMS[SASL_MECHANISM_NUM] = {
   [SASL_MECHANISM_EXTERNAL]                 = "EXTERNAL",
   [SASL_MECHANISM_SCRAM_SHA_256]            = "SCRAM-SHA-256",
   [SASL_MECHANISM_SCRAM_SHA_512]            = "SCRAM-SHA-512",
-  /* [SASL_MECHANISM_ECDH_X25519_CHALLENGE]    = "ECDH-X25519-CHALLENGE", */
+  [SASL_MECHANISM_ECDH_X25519_CHALLENGE]    = "ECDH-X25519-CHALLENGE",
 };
 
 /* scram state */
 #ifdef TLS
+#include <openssl/rand.h>
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
 const EVP_MD *digest;
 char salted_password[EVP_MAX_MD_SIZE];
@@ -291,15 +292,160 @@ static int sasl_ecdsa_nist256p_challenge_step_1(
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
 static int sasl_scram_step_0(char *client_msg_plain, int client_msg_plain_len)
 {
-  /* TODO: after merge of #1706 make_rand_str_from_chars() should be made
-   * return unbiased uniformed randoms
+  /* Use RAND_bytes() for a cryptographically secure, unbiased nonce.
+   * 15 raw bytes base64-encode to exactly 20 printable chars (no ',' in
+   * base64 alphabet), fitting the nonce[21] buffer and satisfying RFC 5802.
    */
-  make_rand_str_from_chars(nonce, (sizeof nonce) - 1, CHARSET_SCRAM);
+  unsigned char raw_nonce[15];
+  RAND_bytes(raw_nonce, sizeof raw_nonce);
+  b64_ntop(raw_nonce, sizeof raw_nonce, nonce, sizeof nonce);
   snprintf(client_msg_plain, client_msg_plain_len, "n,,n=%s,r=%s",
            sasl_username, nonce);
   return strlcpy(client_first_message, client_msg_plain,
                  sizeof client_first_message);
 }
+
+/* Minimal SASLprep (RFC 4013) check for the SCRAM password.
+ * Full SASLprep requires Unicode NFC normalization which eggdrop does not
+ * implement yet.  For the ASCII subset the only required steps are:
+ *   - Prohibit: ASCII control characters (U+0000-U+001F, U+007F)
+ *   - Warn: non-ASCII bytes cannot be normalized without a Unicode library
+ * Returns 0 on success, -1 if the password contains prohibited characters.
+ */
+static int sasl_saslprep_check(const char *password)
+{
+  const unsigned char *p = (const unsigned char *) password;
+  int has_highbyte = 0;
+
+  for (; *p; p++) {
+    if (*p < 0x20 || *p == 0x7f) {
+      sasl_error("AUTHENTICATE: password contains prohibited control character (SASLprep RFC 4013)");
+      return -1;
+    }
+    if (*p > 0x7f)
+      has_highbyte = 1;
+  }
+  if (has_highbyte)
+    putlog(LOG_SERV, "*", "SASL: warning: password contains non-ASCII bytes; "
+           "SASLprep normalization is not implemented — authentication may "
+           "fail on servers that require NFC-normalized passwords");
+  return 0;
+}
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0: EVP_PKEY_X25519 */
+/* ECDH-X25519-CHALLENGE step 1: ECDH key agreement + HMAC-SHA256 response.
+ *
+ * Protocol (Atheme saslserv):
+ *   Server sends:  32-byte ephemeral X25519 public key (base64-decoded)
+ *   Client sends:  base64( client_longterm_pubkey[32] || HMAC-SHA256(shared, server_pubkey)[32] )
+ *
+ * The client must have an X25519 private key stored in sasl-x25519-key.
+ */
+static int sasl_ecdh_x25519_step_1(char *restrict client_msg_plain,
+                                   char *restrict server_msg_plain,
+                                   int server_msg_plain_len)
+{
+  FILE *fp;
+  char error_msg[256];
+  EVP_PKEY *pkey = NULL, *server_pkey = NULL;
+  EVP_PKEY_CTX *dh_ctx = NULL;
+  unsigned char shared[32], client_pubkey[32], hmac_out[EVP_MAX_MD_SIZE];
+  size_t shared_len = sizeof shared, client_pubkey_len = sizeof client_pubkey;
+  unsigned int hmac_len;
+
+  if (server_msg_plain_len != 32) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: expected 32-byte server pubkey, got %d",
+             server_msg_plain_len);
+    sasl_error(error_msg);
+    return -1;
+  }
+
+  if (!sasl_x25519_key[0]) {
+    sasl_error("AUTHENTICATE: ECDH-X25519: sasl-x25519-key not set");
+    return -1;
+  }
+
+  if (!(fp = fopen(sasl_x25519_key, "r"))) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: could not open %s: %s",
+             sasl_x25519_key, strerror(errno));
+    sasl_error(error_msg);
+    return -1;
+  }
+  pkey = PEM_read_PrivateKey(fp, NULL, 0, NULL);
+  fclose(fp);
+  if (!pkey) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: PEM_read_PrivateKey(): %s",
+             ERR_error_string(ERR_get_error(), NULL));
+    sasl_error(error_msg);
+    return -1;
+  }
+  if (EVP_PKEY_id(pkey) != EVP_PKEY_X25519) {
+    sasl_error("AUTHENTICATE: ECDH-X25519: key file does not contain an X25519 key");
+    EVP_PKEY_free(pkey);
+    return -1;
+  }
+
+  /* Extract our long-term public key (32 bytes, sent to server) */
+  if (!EVP_PKEY_get_raw_public_key(pkey, client_pubkey, &client_pubkey_len) ||
+      client_pubkey_len != 32) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: EVP_PKEY_get_raw_public_key(): %s",
+             ERR_error_string(ERR_get_error(), NULL));
+    sasl_error(error_msg);
+    EVP_PKEY_free(pkey);
+    return -1;
+  }
+
+  /* Import server's ephemeral X25519 public key */
+  server_pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, NULL,
+                                             (unsigned char *) server_msg_plain, 32);
+  if (!server_pkey) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: EVP_PKEY_new_raw_public_key(): %s",
+             ERR_error_string(ERR_get_error(), NULL));
+    sasl_error(error_msg);
+    EVP_PKEY_free(pkey);
+    return -1;
+  }
+
+  /* Perform X25519 key agreement: shared = X25519(client_priv, server_pub) */
+  dh_ctx = EVP_PKEY_CTX_new(pkey, NULL);
+  if (!dh_ctx || EVP_PKEY_derive_init(dh_ctx) <= 0 ||
+      EVP_PKEY_derive_set_peer(dh_ctx, server_pkey) <= 0 ||
+      EVP_PKEY_derive(dh_ctx, shared, &shared_len) <= 0) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: key agreement failed: %s",
+             ERR_error_string(ERR_get_error(), NULL));
+    sasl_error(error_msg);
+    EVP_PKEY_CTX_free(dh_ctx);
+    EVP_PKEY_free(server_pkey);
+    EVP_PKEY_free(pkey);
+    return -1;
+  }
+  EVP_PKEY_CTX_free(dh_ctx);
+  EVP_PKEY_free(server_pkey);
+  EVP_PKEY_free(pkey);
+
+  /* MAC = HMAC-SHA256(shared_secret, server_ephemeral_pubkey) */
+  if (!HMAC(EVP_sha256(), shared, (int) shared_len,
+            (unsigned char *) server_msg_plain, 32,
+            hmac_out, &hmac_len) || hmac_len != 32) {
+    snprintf(error_msg, sizeof error_msg,
+             "AUTHENTICATE: ECDH-X25519: HMAC-SHA256(): %s",
+             ERR_error_string(ERR_get_error(), NULL));
+    sasl_error(error_msg);
+    return -1;
+  }
+
+  /* Response: client_longterm_pubkey (32) || HMAC (32) = 64 bytes total */
+  memcpy(client_msg_plain,      client_pubkey, 32);
+  memcpy(client_msg_plain + 32, hmac_out,      32);
+  return 64;
+}
+#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
 
 static int sasl_scram_step_1(char *restrict client_msg_plain,
                              int client_msg_plain_len,
@@ -362,12 +508,11 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
     sasl_error("AUTHENTICATE: iteration count missing from SCRAM challenge");
     return -1;
   }
-  /* TODO: normalize(password)
-   * Eggdrop doesnt have support for utf8 normalization yet
-   * tcl also doesnt have it in core yet, only in tcllib
-   * We could use glib or something, but we dont want dependency bloat just
-   * for one function
-   */
+  /* SASLprep (RFC 4013): validate and warn about password contents.
+   * Full Unicode NFC normalization is not implemented; ASCII passwords are
+   * handled correctly.  See sasl_saslprep_check() for details. */
+  if (sasl_saslprep_check(sasl_password) < 0)
+    return -1;
 
   /* ClientKey       := HMAC(SaltedPassword, "Client Key") */
 
@@ -571,14 +716,21 @@ static int gotauthenticate(char *from, char *msg)
       case SASL_MECHANISM_SCRAM_SHA_256:
       case SASL_MECHANISM_SCRAM_SHA_512:
         client_msg_plain_len = sasl_scram_step_0(client_msg_plain, sizeof client_msg_plain);
+        break;
 #endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0: X25519 */
+      case SASL_MECHANISM_ECDH_X25519_CHALLENGE:
+        /* Step 0: identify ourselves (same format as ECDSA step 0) */
+        client_msg_plain_len = sasl_ecdsa_nist256p_challenge_step_0(client_msg_plain, sizeof client_msg_plain);
+        break;
+#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
     }
   } else {
     if ((server_msg_plain_len = b64_pton(msg, (unsigned char*) server_msg_plain, sizeof server_msg_plain)) == -1) {
       sasl_error("AUTHENTICATE: could not base64 decode line from server");
       return 0;
     }
-    if (server_msg_plain_len < 2) {
+    if (server_msg_plain_len < 2 && sasl_mechanism != SASL_MECHANISM_ECDH_X25519_CHALLENGE) {
       sasl_error("AUTHENTICATE: server message too short");
       return 0;
     }
@@ -591,6 +743,12 @@ static int gotauthenticate(char *from, char *msg)
       if ((client_msg_plain_len = sasl_ecdsa_nist256p_challenge_step_1(client_msg_plain, server_msg_plain, server_msg_plain_len)) < 0)
         return 0;
     }
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0: X25519 */
+    else if (sasl_mechanism == SASL_MECHANISM_ECDH_X25519_CHALLENGE) {
+      if ((client_msg_plain_len = sasl_ecdh_x25519_step_1(client_msg_plain, server_msg_plain, server_msg_plain_len)) < 0)
+        return 0;
+    }
+#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
     else
       if (step == 0) {
@@ -632,6 +790,11 @@ static char *traced_sasl_mechanism(ClientData cdata, Tcl_Interp *irp,
     return "SASL SCRAM functionality needs openssl version 1.0.0 or higher, "
            "please choose a different SASL method";
 #endif /* OPENSSL_VERSION_NUMBER < 0x10000000L */
+#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
+  if (sasl_mechanism == SASL_MECHANISM_ECDH_X25519_CHALLENGE)
+    return "SASL ECDH-X25519-CHALLENGE requires OpenSSL 1.1.0 or higher, "
+           "please choose a different SASL method";
+#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
 #else /* TLS */
   if (sasl_mechanism != SASL_MECHANISM_PLAIN)
     return "The selected SASL authentication method requires TLS libraries "
@@ -663,10 +826,11 @@ static tcl_ints sasl_tcl_ints[] = {
 };
 
 static tcl_strings sasl_tcl_strings[] = {
-  {"sasl-username",  sasl_username,  NICKMAX,            0},
-  {"sasl-password",  sasl_password,  SASL_PASSWORD_MAX,  0},
-  {"sasl-ecdsa-key", sasl_ecdsa_key, SASL_ECDSA_KEY_MAX, 0},
-  {NULL,             NULL,           0,                  0}
+  {"sasl-username",   sasl_username,   NICKMAX,            0},
+  {"sasl-password",   sasl_password,   SASL_PASSWORD_MAX,  0},
+  {"sasl-ecdsa-key",  sasl_ecdsa_key,  SASL_ECDSA_KEY_MAX, 0},
+  {"sasl-x25519-key", sasl_x25519_key, SASL_ECDSA_KEY_MAX, 0},
+  {NULL,              NULL,            0,                  0}
 };
 
 static void sasl_close()
@@ -693,7 +857,7 @@ static void sasl_start()
 */
 int sasl_authenticate_initial(const struct cap_values *cap_value_list)
 {
-  char error_msg[128];
+  char error_msg[384]; /* large enough for mechanism name + server list */
   putlog(LOG_DEBUG, "*", "SASL: Starting authentication process");
 #ifdef TLS
   int servidx = findanyidx(serv);
@@ -703,9 +867,19 @@ int sasl_authenticate_initial(const struct cap_values *cap_value_list)
   }
 #endif
   if (!is_cap_value(cap_value_list, SASL_MECHANISMS[sasl_mechanism])) {
+    char supported[256] = "";
+    const struct cap_values *v;
+    /* Build a space-separated list of what the server actually advertised */
+    for (v = cap_value_list; v; v = v->next) {
+      if (supported[0])
+        strlcat(supported, " ", sizeof supported);
+      strlcat(supported, v->name, sizeof supported);
+    }
     snprintf(error_msg, sizeof error_msg,
-             "authentication mechanism %s not supported by server",
-             SASL_MECHANISMS[sasl_mechanism]); /* TODO: report server supported mechanisms */
+             "authentication mechanism %s not supported by server%s%s",
+             SASL_MECHANISMS[sasl_mechanism],
+             supported[0] ? "; server supports: " : "",
+             supported);
     sasl_error(error_msg);
     return 1;
   }
