@@ -200,6 +200,19 @@ if cc.has_header_symbol('sys/socket.h', 'SOCK_CLOEXEC',
 endif
 
 # -------------------------------------------------------------------------
+# kqueue — BSD / macOS kernel event notification (FreeBSD, OpenBSD, macOS)
+# Used as the high-performance back-end on platforms without epoll/io_uring.
+# Priority: io_uring > epoll > kqueue > select
+# -------------------------------------------------------------------------
+if cc.has_header('sys/event.h') and cc.has_function('kqueue',
+    prefix: '#include <sys/types.h>\n#include <sys/event.h>\n#include <sys/time.h>')
+  cdata.set('HAVE_KQUEUE', 1)
+  message('kqueue detected — using kqueue back-end on non-Linux')
+else
+  message('kqueue not found')
+endif
+
+# -------------------------------------------------------------------------
 # liburing — io_uring (Linux ≥ 5.1)
 # When available, the io_uring back-end is preferred over epoll.
 # -------------------------------------------------------------------------

@@ -67,12 +67,12 @@
  * Priority order:
  *   1. io_uring  (Linux ≥ 5.1, requires liburing)
  *   2. epoll     (Linux ≥ 2.6, glibc sys/epoll.h)
- *   3. select()  (portable fallback)
+ *   3. kqueue    (BSD / macOS, sys/event.h)
+ *   4. select()  (portable fallback)
  *
- * The epoll and io_uring back-ends both keep a persistent kernel-side
- * interest set.  Sockets are registered in setsock() / allocsock() and
- * removed in killsock(), so sockread() never rebuilds the whole set from
- * scratch on every call.
+ * All back-ends keep a persistent kernel-side interest set.  Sockets are
+ * registered in allocsock() and removed in killsock(), so sockread()
+ * never rebuilds the whole set from scratch on every call.
  * ----------------------------------------------------------------------- */
 #if defined(HAVE_LIBURING)
 #  include <liburing.h>
@@ -80,6 +80,11 @@
 #elif defined(HAVE_EPOLL)
 #  include <sys/epoll.h>
 #  define EGG_EPOLL 1
+#elif defined(HAVE_KQUEUE)
+#  include <sys/types.h>
+#  include <sys/event.h>
+#  include <sys/time.h>
+#  define EGG_KQUEUE 1
 #endif
 
 #ifdef EGG_IO_URING
@@ -237,6 +242,59 @@ static void epoll_mod_sock(int sock, int slist_idx, int extra_flags)
 }
 #endif /* EGG_EPOLL */
 
+#ifdef EGG_KQUEUE
+/*
+ * kqueue back-end — BSD / macOS high-performance event notification.
+ *
+ * A single kqueue fd holds the persistent interest set for all sockets.
+ * EVFILT_READ is registered when a socket is allocated and removed when
+ * killed.  EVFILT_WRITE with EV_ONESHOT is used on-demand for connect
+ * completion and write-drain checks; it auto-removes after firing once.
+ *
+ * kevent() udata carries the slist index for O(1) socket lookup after
+ * an event fires — the same pattern used in the epoll ev.data.u32 field.
+ */
+static int egg_kqueue_fd = -1;
+
+static void kqueue_ensure_init(void)
+{
+  if (egg_kqueue_fd < 0) {
+    egg_kqueue_fd = kqueue();
+    if (egg_kqueue_fd < 0)
+      fatal("kqueue() failed", 0);
+    fcntl(egg_kqueue_fd, F_SETFD, FD_CLOEXEC);
+  }
+}
+
+/* Register persistent EVFILT_READ (+ optionally one-shot EVFILT_WRITE). */
+static void kqueue_add_sock(int sock, int slist_idx, int add_write)
+{
+  struct kevent kev[2];
+  int n = 0;
+
+  kqueue_ensure_init();
+  EV_SET(&kev[n++], (uintptr_t)sock, EVFILT_READ,
+         EV_ADD | EV_ENABLE, 0, 0, (void *)(uintptr_t)slist_idx);
+  if (add_write)
+    EV_SET(&kev[n++], (uintptr_t)sock, EVFILT_WRITE,
+           EV_ADD | EV_ENABLE | EV_ONESHOT, 0, 0,
+           (void *)(uintptr_t)slist_idx);
+  kevent(egg_kqueue_fd, kev, n, NULL, 0, NULL);
+}
+
+/* Remove all filters for sock from the kqueue interest set. */
+static void kqueue_del_sock(int sock)
+{
+  struct kevent kev[2];
+
+  if (egg_kqueue_fd < 0) return;
+  EV_SET(&kev[0], (uintptr_t)sock, EVFILT_READ,  EV_DELETE, 0, 0, NULL);
+  EV_SET(&kev[1], (uintptr_t)sock, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+  /* Ignore ENOENT errors — filter may never have been registered */
+  kevent(egg_kqueue_fd, kev, 2, NULL, 0, NULL);
+}
+#endif /* EGG_KQUEUE */
+
 /*
  * Write-readiness epoll fd — used exclusively by dequeue_sockets().
  *
@@ -274,6 +332,9 @@ static void wepoll_ensure_init(void)
 #  endif
 }
 #endif /* EGG_IO_URING || EGG_EPOLL */
+/* Note: EGG_KQUEUE uses egg_kqueue_fd directly for write-readiness;
+ * no separate write fd needed since EVFILT_WRITE with EV_ONESHOT
+ * auto-removes after firing and coexists on the same kqueue fd. */
 
 extern struct dcc_t *dcc;
 extern int backgrd, use_stderr, resolve_timeout, dcc_total;
@@ -575,6 +636,11 @@ int allocsock(int sock, int options)
           int extra = (options & SOCK_CONNECT) ? EPOLLOUT : 0;
           epoll_add_sock(sock, i, extra);
         }
+#elif defined(EGG_KQUEUE)
+        {
+          int add_write = (options & SOCK_CONNECT) ? 1 : 0;
+          kqueue_add_sock(sock, i, add_write);
+        }
 #else
         (void)0;
 #endif
@@ -729,6 +795,9 @@ void killsock(int sock)
 #endif
 #ifdef EGG_EPOLL
       epoll_del_sock(sock);
+#endif
+#ifdef EGG_KQUEUE
+      kqueue_del_sock(sock);
 #endif
       td->socklist[i].flags = SOCK_UNUSED;
       return;
@@ -1206,17 +1275,20 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
   t.tv_usec = td->blocktime.tv_usec;
 
   /* -------------------------------------------------------------------
-   * I/O wait: io_uring → epoll → select fallback chain.
+   * I/O wait: io_uring → epoll → kqueue → select fallback chain.
    *
-   * epoll / io_uring only cover non-TCL eggdrop sockets.  TCL sockets
-   * still go through a zero-timeout select() so their handlers fire.
+   * The async back-ends (io_uring, epoll, kqueue) only cover non-TCL
+   * eggdrop sockets.  TCL sockets always go through a zero-timeout
+   * select() so their handlers fire normally.
    * ------------------------------------------------------------------- */
-#if defined(EGG_IO_URING) || defined(EGG_EPOLL)
+#if defined(EGG_IO_URING) || defined(EGG_EPOLL) || defined(EGG_KQUEUE)
   if (!tclonly
-#ifdef EGG_IO_URING
+#if defined(EGG_IO_URING)
       && egg_ring_inited == 1
-#else
+#elif defined(EGG_EPOLL)
       && egg_epoll_fd >= 0
+#else /* EGG_KQUEUE */
+      && egg_kqueue_fd >= 0
 #endif
      ) {
     /* --- TCL + EGG_TDNS sockets: quick non-blocking select() --- */
@@ -1312,7 +1384,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       }
       if ((int)nready > 0) x = (int)nready;
     }
-#else /* EGG_EPOLL */
+#elif defined(EGG_EPOLL)
     {
       struct epoll_event epevs[64];
       int timeout_ms = (int)(t.tv_sec * 1000 + (int)(t.tv_usec / 1000));
@@ -1345,7 +1417,47 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
         }
       }
     }
-#endif /* EGG_EPOLL */
+#else /* EGG_KQUEUE */
+    {
+      /*
+       * kqueue: block until an event arrives or timeout expires.
+       * EVFILT_READ  → mark fd readable (normal data, EOF via EV_EOF)
+       * EVFILT_WRITE → mark fd writable (connect completion)
+       * EV_ERROR     → mark both error and readable so read() surfaces it
+       */
+      struct kevent kevs[64];
+      struct timespec ts;
+      int k;
+      ts.tv_sec  = t.tv_sec;
+      ts.tv_nsec = t.tv_usec * 1000L;
+      call_hook(HOOK_PRE_SELECT);
+      x = kevent(egg_kqueue_fd, NULL, 0, kevs, 64, &ts);
+      call_hook(HOOK_POST_SELECT);
+      if (x < 0) x = (errno == EINTR) ? 0 : -1;
+      if (x > 0) {
+        for (k = 0; k < x; k++) {
+          uint32_t si = (uint32_t)(uintptr_t)kevs[k].udata;
+          if (si < (unsigned)slistmax && !(slist[si].flags & SOCK_UNUSED)) {
+            fd = slist[si].sock;
+            if (kevs[k].filter == EVFILT_READ || (kevs[k].flags & EV_EOF)) {
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            }
+            if (kevs[k].filter == EVFILT_WRITE) {
+              FD_SET(fd, &fdw);
+              if (fd > maxfd_w) maxfd_w = fd;
+            }
+            if (kevs[k].flags & EV_ERROR) {
+              FD_SET(fd, &fde);
+              if (fd > maxfd_e) maxfd_e = fd;
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            }
+          }
+        }
+      }
+    }
+#endif /* EGG_KQUEUE */
 
     if (x == -1) return -2;
 
@@ -1372,7 +1484,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       if (x > 0 || tcl_ready) x = 1; /* at least one ready */
     }
   } else
-#endif /* EGG_IO_URING || EGG_EPOLL */
+#endif /* EGG_IO_URING || EGG_EPOLL || EGG_KQUEUE */
   {
     /* ---- select() fallback ---- */
     maxfd_r = preparefdset(&fdr, slist, slistmax, tclonly, TCL_READABLE);
@@ -1984,7 +2096,42 @@ void dequeue_sockets()
     if (x <= 0)
       return;
   } else
-#endif /* EGG_IO_URING || EGG_EPOLL */
+#elif defined(EGG_KQUEUE)
+  /*
+   * kqueue write-readiness: register a one-shot EVFILT_WRITE for each
+   * socket with pending outbuf data, then collect with zero timeout.
+   * EV_ONESHOT auto-removes the filter after it fires, so no cleanup loop
+   * is needed.  Any stale EVFILT_READ events collected here are discarded
+   * (they will be processed by sockread() in the normal main loop).
+   */
+  if (egg_kqueue_fd >= 0) {
+    struct kevent kevs[64];
+    struct timespec zt = {0, 0};
+    int k;
+    for (i = 0; i < td->MAXSOCKS; i++) {
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL
+#  ifdef TLS
+          && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
+#  endif
+         ) {
+        struct kevent kev;
+        EV_SET(&kev, (uintptr_t)socklist[i].sock, EVFILT_WRITE,
+               EV_ADD | EV_ENABLE | EV_ONESHOT, 0, 0, (void *)(uintptr_t)i);
+        kevent(egg_kqueue_fd, &kev, 1, NULL, 0, NULL);
+      }
+    }
+    x = kevent(egg_kqueue_fd, NULL, 0, kevs, 64, &zt);
+    for (k = 0; k < x; k++) {
+      if (kevs[k].filter == EVFILT_WRITE || (kevs[k].flags & EV_ERROR)) {
+        uint32_t si = (uint32_t)(uintptr_t)kevs[k].udata;
+        if (si < (unsigned)td->MAXSOCKS)
+          FD_SET(socklist[si].sock, &wfds);
+      }
+    }
+    if (x <= 0) return;
+  } else
+#endif /* EGG_KQUEUE */
   {
     /* select() fallback: zero-timeout write-readiness check */
     int maxfd = -1;
