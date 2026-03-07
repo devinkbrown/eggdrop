@@ -43,6 +43,11 @@ static int monitor_show(Tcl_Obj *mlist, int mode, char *nick);
 static void monitor_clear();
 int account_notify = 1, extended_join = 1, account_tag = 0;
 
+/* Account name from the IRCv3 'account' message tag for the message
+ * currently being processed in server_activity().  Empty string means
+ * the tag was absent.  Handlers may read this during dispatch. */
+static char current_msgtag_account[NICKMAX + 1];
+
 extern int sasl;
 extern int sasl_authenticate_initial(const struct cap_values *);
 
@@ -492,7 +497,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
   if (!strcasecmp(floodhost, botuserhost))
     return 0;
 
-  u = lookup_user_record(NULL, NULL, from); // TODO: get account somehow
+  u = lookup_user_record(NULL, current_msgtag_account[0] ? current_msgtag_account : NULL, from);
   atr = u ? u->flags : 0;
   if (atr & (USER_BOT | USER_FRIEND))
     return 0;
@@ -538,7 +543,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     lastmsgs[which] = 0;
     lastmsgtime[which] = 0;
     lastmsghost[which][0] = 0;
-    u = lookup_user_record(NULL, NULL, from); // TODO: get account somehow
+    u = lookup_user_record(NULL, current_msgtag_account[0] ? current_msgtag_account : NULL, from);
     if (check_tcl_flud(floodnick, floodhost, u, ftype, "*"))
       return 0;
     /* Private msg */
@@ -606,7 +611,10 @@ static int gotmsg(char *from, char *msg)
               putlog(LOG_PUBLIC, to, "CTCP %s: %s from %s (%s) to %s",
                      code, ctcp, nick, uhost, to);
           } else {
-            u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+            {
+              memberlist *_m = find_member_from_nick(nick);
+              u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+            }
             if (!ignoring || trigger_on_ignore) {
               if (!check_tcl_ctcp(nick, uhost, u, to, code, ctcp) && !ignoring) {
                 if ((lowercase_ctcp && !strcasecmp(code, "DCC")) ||
@@ -669,7 +677,10 @@ static int gotmsg(char *from, char *msg)
     }
 
     detect_flood(nick, uhost, from, FLOOD_PRIVMSG);
-    u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+    {
+      memberlist *_m = find_member_from_nick(nick);
+      u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+    }
     code = newsplit(&msg);
     rmspace(msg);
 
@@ -736,7 +747,10 @@ static int gotnotice(char *from, char *msg)
                    "CTCP reply %s: %s from %s (%s) to %s", code, ctcp,
                    nick, uhost, to);
         } else {
-          u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+          {
+            memberlist *_m = find_member_from_nick(nick);
+            u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+          }
           if (!ignoring || trigger_on_ignore) {
             check_tcl_ctcr(nick, uhost, u, to, code, ctcp);
             if (!ignoring)
@@ -772,7 +786,10 @@ static int gotnotice(char *from, char *msg)
     }
 
     detect_flood(nick, uhost, from, FLOOD_NOTICE);
-    u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+    {
+      memberlist *_m = find_member_from_nick(nick);
+      u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+    }
 
     if (!ignoring || trigger_on_ignore)
       if (check_tcl_notc(nick, uhost, u, botname, msg) == 2)
@@ -1267,6 +1284,17 @@ static void server_activity(int idx, char *tagmsg, int len)
       !match_ignore(from))) {
     putlog(LOG_RAW, "*", "[@] %s", rawmsg);
   }
+  /* Extract IRCv3 'account' tag so handlers can use it for user lookup. */
+  {
+    Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
+    Tcl_Obj *acctval = NULL;
+    Tcl_IncrRefCount(acctkey);
+    if (Tcl_DictObjGet(interp, tagdict, acctkey, &acctval) == TCL_OK && acctval)
+      strlcpy(current_msgtag_account, Tcl_GetString(acctval), sizeof current_msgtag_account);
+    else
+      current_msgtag_account[0] = '\0';
+    Tcl_DecrRefCount(acctkey);
+  }
   /* Check both raw and rawt, to allow backwards compatibility with older
    * scripts. If rawt returns 1 (blocking), don't process raw binds.*/
   /* Tcl_GetString() must not be modified, so we have to copy because string C API is not const char* */
@@ -1275,6 +1303,7 @@ static void server_activity(int idx, char *tagmsg, int len)
   if (!ret) {
     check_tcl_raw(from, code, msgptr);
   }
+  current_msgtag_account[0] = '\0';
   Tcl_DecrRefCount(tagdict);
 }
 
