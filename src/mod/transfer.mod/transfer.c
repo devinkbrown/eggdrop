@@ -38,6 +38,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
+#  include <sys/sendfile.h>
+#  define EGG_SENDFILE 1
+#endif
+
 
 static Function *global = NULL;
 
@@ -210,6 +215,9 @@ static void check_tcl_toutlost(struct userrec *u, char *nick, char *path,
  * In that case, we delay further sending until we receive the
  * dcc outdone event.
  *
+ * On Linux, sendfile() is used as a zero-copy fast path when available,
+ * bypassing the userspace buffer entirely.
+ *
  * Note: To optimize buffer sizes, we default to PMAX_SIZE, but
  *       allocate a smaller buffer for smaller pending_data sizes.
  */
@@ -217,21 +225,47 @@ static void check_tcl_toutlost(struct userrec *u, char *nick, char *path,
 static unsigned long pump_file_to_sock(FILE *file, long sock,
                                        unsigned long pending_data)
 {
-  unsigned long actual_size, r;
-  const unsigned long buf_len = pending_data >= PMAX_SIZE ?
-                      PMAX_SIZE : pending_data;
-  char *bf = nmalloc(buf_len);
+#ifdef EGG_SENDFILE
+  /* Zero-copy fast path: sendfile() moves data file→socket in the kernel,
+   * no userspace copy needed.  Skip if outbuf already has queued data so
+   * we don't bypass the write ordering. */
+  if (!sock_has_data(SOCK_DATA_OUTGOING, sock)) {
+    int   in_fd = fileno(file);
+    off_t off   = (off_t)ftell(file);
 
-  if (bf) {
-    do {
-      actual_size = pending_data >= buf_len ? buf_len : pending_data;
-      r = fread(bf, 1, actual_size, file);
-      if (!r)
-        break;
-      tputs(sock, bf, r);
-      pending_data -= r;
-    } while (!sock_has_data(SOCK_DATA_OUTGOING, sock) && pending_data != 0);
-    nfree(bf);
+    while (pending_data > 0) {
+      size_t  want = pending_data > 65536 ? 65536 : (size_t)pending_data;
+      ssize_t sent = sendfile((int)sock, in_fd, &off, want);
+
+      if (sent > 0)
+        pending_data -= (unsigned long)sent;
+      else
+        break; /* EAGAIN (socket full) or error */
+    }
+    /* Keep FILE* position in sync with the kernel-level offset */
+    fseek(file, off, SEEK_SET);
+    return pending_data;
+  }
+#endif /* EGG_SENDFILE */
+
+  /* Fallback: read chunks into userspace and write via tputs */
+  {
+    unsigned long actual_size, r;
+    const unsigned long buf_len = pending_data >= PMAX_SIZE ?
+                        PMAX_SIZE : pending_data;
+    char *bf = nmalloc(buf_len);
+
+    if (bf) {
+      do {
+        actual_size = pending_data >= buf_len ? buf_len : pending_data;
+        r = fread(bf, 1, actual_size, file);
+        if (!r)
+          break;
+        tputs(sock, bf, r);
+        pending_data -= r;
+      } while (!sock_has_data(SOCK_DATA_OUTGOING, sock) && pending_data != 0);
+      nfree(bf);
+    }
   }
   return pending_data;
 }

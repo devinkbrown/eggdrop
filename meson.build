@@ -229,6 +229,22 @@ else
 endif
 
 # -------------------------------------------------------------------------
+# sendfile — zero-copy file-to-socket (Linux ≥ 2.2, sys/sendfile.h)
+# Used by transfer.mod to avoid userspace copy during DCC file sends.
+# -------------------------------------------------------------------------
+if cc.has_header('sys/sendfile.h')
+  cdata.set('HAVE_SYS_SENDFILE_H', 1)
+  if cc.has_function('sendfile', prefix: '#include <sys/sendfile.h>')
+    cdata.set('HAVE_SENDFILE', 1)
+    message('sendfile() detected — zero-copy DCC transfers enabled')
+  else
+    message('sendfile() not found — using read/write for DCC')
+  endif
+else
+  message('sys/sendfile.h not found — using read/write for DCC')
+endif
+
+# -------------------------------------------------------------------------
 # liburing — io_uring (Linux ≥ 5.1)
 # When available, the io_uring back-end is preferred over epoll.
 # -------------------------------------------------------------------------

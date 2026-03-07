@@ -671,14 +671,15 @@ typedef struct {
 } ssl_appdata;
 #endif /* TLS */
 
+/* Ring-buffer for outgoing socket data (eliminates memmove on partial write) */
+#include "compat/mbuf.h"
+
 /* These are used by the net module to keep track of sockets and what's
  * queued on them
  */
 struct sock_handler {
   char *inbuf;
-  char *outbuf;
-  unsigned long outbuflen;      /* bytes of data in outbuf      */
-  unsigned long outbufcap;      /* allocated capacity of outbuf */
+  egg_mbuf_t *outbuf;           /* ring buffer for pending outgoing data */
   unsigned long inbuflen;       /* Inbuf could be binary data   */
 #ifdef HAVE_LIBURING
   char *recv_buf;               /* kernel-filled async recv buffer (READMAX+2 bytes) */
