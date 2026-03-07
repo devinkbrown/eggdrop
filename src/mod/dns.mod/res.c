@@ -55,6 +55,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 #include <errno.h>
 
 /* =========================================================================
@@ -171,15 +172,35 @@ static inline socklen_t res_ss_len(const struct sockaddr_storage *ss) {
 #define GET_SS_LEN(ss)      res_ss_len(ss)
 #define SET_SS_LEN(ss, l)   /* length is implicit in family */
 
-/* Random ID generation */
+/* Random ID generation — uses getrandom(2) (Linux ≥ 3.17) with a
+ * /dev/urandom fallback so query IDs are unpredictable and resist
+ * off-path DNS cache poisoning (Kaminsky-style attacks). */
 static inline void op_get_random(void *buf, size_t len) {
-  /* Simple LCG seeded from time+pid; good enough for DNS query IDs */
-  static uint32_t seed = 0;
-  if (!seed) seed = (uint32_t)(time(NULL) ^ getpid());
-  uint8_t *p = (uint8_t *)buf;
-  for (size_t i = 0; i < len; i++) {
-    seed = seed * 1664525u + 1013904223u;
-    p[i] = (uint8_t)(seed >> 16);
+#if defined(SYS_getrandom)
+  /* getrandom() never blocks for urandom-quality entropy and has no fd. */
+  ssize_t got = syscall(SYS_getrandom, buf, len, 0);
+  if (got == (ssize_t)len)
+    return;
+#endif
+  /* Fallback: /dev/urandom */
+  {
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+      ssize_t got = read(fd, buf, len);
+      close(fd);
+      if (got == (ssize_t)len)
+        return;
+    }
+  }
+  /* Last resort: time+pid XOR mix (weak, but better than nothing) */
+  {
+    static uint32_t seed = 0;
+    if (!seed) seed = (uint32_t)(time(NULL) ^ getpid());
+    uint8_t *p = (uint8_t *)buf;
+    for (size_t i = 0; i < len; i++) {
+      seed = seed * 1664525u + 1013904223u;
+      p[i] = (uint8_t)(seed >> 16);
+    }
   }
 }
 
@@ -618,11 +639,18 @@ static int            ns_failures[IRCD_MAXNS];
 # endif
 #endif
 
+#define DOT_RECONNECT_DELAY 30  /* seconds between reconnect attempts */
+
 #ifdef EGG_TLS
 static int  dot_active = 0;
 static int  dot_fd     = -1;                    /* TLS/TCP fd, -1 = closed */
 static int  dot_verify = 1;                     /* 1 = verify server cert (default) */
 static char dot_host[IRCD_RES_HOSTLEN + 1];     /* hostname for SNI        */
+
+/* Saved DoT server address and port for automatic reconnects */
+static struct sockaddr_storage dot_sa_saved;
+static uint16_t                dot_port_saved = 0;
+static int                     dot_sa_valid   = 0; /* 1 when saved addr is set */
 #endif
 
 /* =========================================================================
@@ -940,12 +968,15 @@ void res_read_dns(void)
     struct threaddata *td = threaddata();
     int idx = findsock(dot_fd);
     if (idx < 0 || !td->socklist[idx].ssl) {
-      /* SSL session gone — disable DoT */
+      /* SSL session gone — disable DoT and schedule reconnect */
       putlog(LOG_MISC, "*",
-             "DNS: DoT connection lost (no SSL session); disabling DoT");
+             "DNS: DoT connection lost (no SSL session); reconnecting in %ds",
+             DOT_RECONNECT_DELAY);
       dot_active = 0;
       killsock(dot_fd);
       dot_fd = -1;
+      if (dot_sa_valid)
+        dot_reconnect_seconds = DOT_RECONNECT_DELAY;
       return;
     }
 
@@ -960,12 +991,15 @@ void res_read_dns(void)
         int err = SSL_get_error(td->socklist[idx].ssl, got);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
           break; /* no more data this tick */
-        /* Connection error — disable DoT */
+        /* Connection error — disable DoT and schedule reconnect */
         putlog(LOG_MISC, "*",
-               "DNS: DoT read error (%d); disabling DoT", err);
+               "DNS: DoT read error (%d); reconnecting in %ds",
+               err, DOT_RECONNECT_DELAY);
         dot_active = 0;
         killsock(dot_fd);
         dot_fd = -1;
+        if (dot_sa_valid)
+          dot_reconnect_seconds = DOT_RECONNECT_DELAY;
         return;
       }
       if (got != 2)
@@ -1094,7 +1128,10 @@ void res_secondly_check(void)
 #ifdef EGG_TLS
   if (dot_reconnect_seconds > 0 && --dot_reconnect_seconds == 0) {
     dot_reconnect_seconds = -1;
-    /* DoT reconnect: I/O handled via eggdrop socket loop */
+    if (dot_sa_valid && !dot_active) {
+      putlog(LOG_MISC, "*", "DNS: attempting DoT reconnect to saved server");
+      res_enable_dot(&dot_sa_saved, dot_host, dot_port_saved, dot_verify);
+    }
   }
 #endif
 }
@@ -1183,6 +1220,7 @@ void restart_resolver(void)
 #ifdef EGG_TLS
   dot_active = 0;
   dot_reconnect_seconds = -1;
+  dot_sa_valid = 0;
   if (dot_fd >= 0) {
     killsock(dot_fd);
     dot_fd = -1;
@@ -1265,6 +1303,11 @@ void res_enable_dot(const struct sockaddr_storage *sa,
 
   dot_verify = verify;
 
+  /* Save address for automatic reconnect */
+  memcpy(&dot_sa_saved, sa, sizeof dot_sa_saved);
+  dot_port_saved = port;
+  dot_sa_valid   = 1;
+
   /* Tear down any existing DoT connection first */
   if (dot_fd >= 0) {
     dot_active = 0;
@@ -1335,6 +1378,7 @@ void res_disable_dot(void)
 {
   dot_active = 0;
   dot_reconnect_seconds = -1;
+  dot_sa_valid = 0;
   if (dot_fd >= 0) {
     killsock(dot_fd);
     dot_fd = -1;
