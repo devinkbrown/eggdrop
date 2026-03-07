@@ -254,12 +254,96 @@ static int dns_report(int idx, int details)
 static int dns_check_servercount(void)
 {
   static int oldcount = -1;
-  if (oldcount != myres.nscount && !myres.nscount) {
+  /* dns_nscount includes IPv6 servers that myres (IPv4-only) omits.
+   * Warn only when both are zero — i.e., genuinely no nameservers at all. */
+  int total = myres.nscount > 0 ? myres.nscount : dns_nscount;
+  if (oldcount != total && !total) {
     putlog(LOG_MISC, "*", "WARNING: No nameservers found. Please set the dns-servers config variable.");
   }
-  oldcount = myres.nscount;
+  oldcount = total;
   return 0;
 }
+
+/* =========================================================================
+ * Tcl command: dnsdot ?on server ?port? ?-noverify?? | off
+ *
+ * Examples:
+ *   dnsdot on 1.1.1.1           — enable DoT to 1.1.1.1 port 853, verify cert
+ *   dnsdot on 1.1.1.1 853       — same, explicit port
+ *   dnsdot on ::1 853 -noverify — allow self-signed cert
+ *   dnsdot off                  — disable DoT, revert to plain UDP
+ *   dnsdot                      — report current DoT status
+ * ====================================================================== */
+static int tcl_dnsdot(ClientData cd, Tcl_Interp *irp, int argc,
+                      EGG_CONST char *argv[])
+{
+  (void)cd;
+
+  if (argc < 2) {
+#ifdef EGG_TLS
+    Tcl_AppendResult(irp, dot_active ? "on" : "off", NULL);
+#else
+    Tcl_AppendResult(irp, "unavailable (TLS not compiled in)", NULL);
+#endif
+    return TCL_OK;
+  }
+
+  if (!strcasecmp(argv[1], "off")) {
+    res_disable_dot();
+    return TCL_OK;
+  }
+
+  if (!strcasecmp(argv[1], "on")) {
+    struct sockaddr_storage sa;
+    const char *addr;
+    uint16_t    port    = 853;
+    int         verify  = 1;
+    int         i;
+
+    if (argc < 3) {
+      Tcl_AppendResult(irp, "Usage: dnsdot on <server> [port] [-noverify]",
+                       NULL);
+      return TCL_ERROR;
+    }
+    addr = argv[2];
+
+    for (i = 3; i < argc; i++) {
+      if (!strcasecmp(argv[i], "-noverify"))
+        verify = 0;
+      else
+        port = (uint16_t)atoi(argv[i]);
+    }
+
+    memset(&sa, 0, sizeof sa);
+    if (inet_pton(AF_INET, addr,
+                  &((struct sockaddr_in *)&sa)->sin_addr) == 1) {
+      ((struct sockaddr_in *)&sa)->sin_family = AF_INET;
+    }
+#ifdef IPV6
+    else if (inet_pton(AF_INET6, addr,
+                       &((struct sockaddr_in6 *)&sa)->sin6_addr) == 1) {
+      ((struct sockaddr_in6 *)&sa)->sin6_family = AF_INET6;
+    }
+#endif
+    else {
+      Tcl_AppendResult(irp, "Invalid server address (must be numeric IP)",
+                       NULL);
+      return TCL_ERROR;
+    }
+
+    res_enable_dot(&sa, addr, port, verify);
+    return TCL_OK;
+  }
+
+  Tcl_AppendResult(irp, "Usage: dnsdot [on <server> [port] [-noverify] | off]",
+                   NULL);
+  return TCL_ERROR;
+}
+
+static tcl_cmds dnscmds[] = {
+  {"dnsdot", tcl_dnsdot},
+  {NULL,     NULL}
+};
 
 static char *dns_close()
 {
@@ -271,6 +355,7 @@ static char *dns_close()
   del_hook(HOOK_REHASH, (Function) dns_check_servercount);
   rem_tcl_ints(dnsints);
   rem_tcl_strings(dnsstrings);
+  rem_tcl_commands(dnscmds);
   Tcl_UntraceVar(interp, "dns-servers",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  dns_change, NULL);
@@ -325,9 +410,13 @@ char *dns_start(Function *global_funcs)
   dcc[idx].sock = resfd;
   dcc[idx].timeval = now;
   strlcpy(dcc[idx].nick, "(dns)", sizeof(dcc[idx].nick));
-  memcpy(&dcc[idx].sockname.addr.sa, &myres.nsaddr_list[0],
-             sizeof(myres.nsaddr_list[0]));
-  dcc[idx].sockname.addrlen = sizeof(myres.nsaddr_list[0]);
+  /* myres only holds IPv4 servers; guard against IPv6-only configs where
+   * myres.nscount may be 0 even though dns_nscount > 0. */
+  if (myres.nscount > 0) {
+    memcpy(&dcc[idx].sockname.addr.sa, &myres.nsaddr_list[0],
+               sizeof(myres.nsaddr_list[0]));
+    dcc[idx].sockname.addrlen = sizeof(myres.nsaddr_list[0]);
+  }
 
   Tcl_TraceVar(interp, "dns-servers",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -338,6 +427,7 @@ char *dns_start(Function *global_funcs)
   add_hook(HOOK_REHASH, (Function) dns_check_servercount);
   add_tcl_ints(dnsints);
   add_tcl_strings(dnsstrings);
+  add_tcl_commands(dnscmds);
   return NULL;
 #endif /* EGG_TDNS */
 }

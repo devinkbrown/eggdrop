@@ -41,6 +41,7 @@
  */
 
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -48,6 +49,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+
+/* Map eggdrop's compile-time TLS flag (TLS) to the EGG_TLS name used in
+ * this file so that #ifdef EGG_TLS guards are consistent with res.c. */
+#ifdef TLS
+# ifndef EGG_TLS
+#  define EGG_TLS 1
+# endif
+#endif
 
 /* =========================================================================
  * Compatibility macro: nonull — used by dns_event_failure in dns.mod/dns.c
@@ -114,7 +123,11 @@ static inline void hdr_put_u16(unsigned char *p, uint16_t v) {
 #define HDR_QDCOUNT(pkt) hdr_u16((const unsigned char *)(pkt) + 4)
 #define HDR_ANCOUNT(pkt) hdr_u16((const unsigned char *)(pkt) + 6)
 #define HDR_QR(pkt)      (HDR_FLAGS(pkt) >> 15)
+#define HDR_OPCODE(pkt)  ((HDR_FLAGS(pkt) >> 11) & 0xf)
 #define HDR_RCODE(pkt)   (HDR_FLAGS(pkt) & 0xf)
+
+/* TC (Truncation) bit in the DNS flags word */
+#define DNS_FLAG_TC  0x0200
 
 /* =========================================================================
  * GET_SS_FAMILY / GET_SS_LEN — portable sockaddr_storage helpers
@@ -200,6 +213,42 @@ static void sync_internal_from_myres(void)
 static int resfd = -1;
 
 /* =========================================================================
+ * DoT (DNS over TLS, RFC 7858) — state
+ *
+ * Guarded by EGG_TLS (mapped from the eggdrop build flag TLS above).
+ *
+ * dot_fd:     TCP socket registered in eggdrop's socklist.  -1 = closed.
+ * dot_active: 1 after TLS handshake completes; queries go via tputs().
+ * dot_host:   hostname for SNI (saved from res_enable_dot call).
+ *
+ * Reassembly buffer: SSL_read() may return fewer bytes than requested.
+ * We buffer across events using a two-phase state machine:
+ *   phase 0 — accumulate the 2-byte RFC 7858 length prefix
+ *   phase 1 — accumulate the DNS payload
+ * ====================================================================== */
+#ifdef EGG_TLS
+static int  dot_active = 0;
+static int  dot_fd     = -1;
+static int  dot_verify = 1;
+static char dot_host[DNS_RES_HOSTLEN + 1];
+
+static struct sockaddr_storage dot_sa_saved;
+static uint16_t                dot_port_saved = 0;
+static int                     dot_sa_valid   = 0;
+
+#define DOT_RECONNECT_DELAY 30   /* seconds between automatic reconnects */
+static int dot_reconnect_seconds = -1;
+
+#define DOT_RXBUF_SIZE (2 + DNS_HDR_SIZE + DNS_MAXPKT)
+static unsigned char dot_rxbuf[DOT_RXBUF_SIZE];
+static int           dot_rxoff    = 0;  /* bytes accumulated in current phase */
+static int           dot_rxneed   = 2;  /* bytes needed to finish current phase */
+static int           dot_rx_phase = 0;  /* 0 = length prefix, 1 = payload */
+#define DOT_RX_RESET() \
+  do { dot_rxoff = 0; dot_rxneed = 2; dot_rx_phase = 0; } while (0)
+#endif /* EGG_TLS */
+
+/* =========================================================================
  * struct resolve + expireresolves compatibility
  *
  * dns.mod/dns.c defines dns_event_success / dns_event_failure which
@@ -258,14 +307,32 @@ static void req_list_remove(struct dns_req *r)
  * Random ID generation (simple LCG, good enough for DNS query IDs)
  * ====================================================================== */
 
-static uint32_t dns_rand_seed = 0;
-
+/* dns_random_u16 — generate a cryptographically unpredictable query ID.
+ * Uses getrandom(2) (Linux ≥ 3.17) with /dev/urandom and LCG fallbacks,
+ * matching res.c's approach to resist off-path cache-poisoning attacks. */
 static uint16_t dns_random_u16(void)
 {
-  if (!dns_rand_seed)
-    dns_rand_seed = (uint32_t)(time(NULL) ^ getpid());
-  dns_rand_seed = dns_rand_seed * 1664525u + 1013904223u;
-  return (uint16_t)(dns_rand_seed >> 16);
+  uint16_t id;
+#if defined(SYS_getrandom)
+  if (syscall(SYS_getrandom, &id, sizeof id, 0) == (ssize_t)sizeof id)
+    return id;
+#endif
+  {
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+      ssize_t n = read(fd, &id, sizeof id);
+      close(fd);
+      if (n == (ssize_t)sizeof id)
+        return id;
+    }
+  }
+  /* Last resort: time+pid XOR mix (weak but better than nothing) */
+  {
+    static uint32_t seed = 0;
+    if (!seed) seed = (uint32_t)(time(NULL) ^ getpid());
+    seed = seed * 1664525u + 1013904223u;
+    return (uint16_t)(seed >> 16);
+  }
 }
 
 static struct dns_req *find_req_by_id(uint16_t id)
@@ -514,7 +581,7 @@ static int choose_ns(int attempt)
 }
 
 /* =========================================================================
- * Forward declaration
+ * Forward declarations
  * ====================================================================== */
 
 static void send_dns_query(struct dns_req *req);
@@ -522,6 +589,11 @@ static void start_fcrdns_check(struct dns_req *ptr_req);
 static void finish_fcrdns(struct dns_req *fwd);
 static void finish_req_success(struct dns_req *req, int type);
 static void finish_req_failure(struct dns_req *req, int type);
+
+/* DoT API — defined after init_dns_core(), called from dns_check_expires() */
+void res_enable_dot(const struct sockaddr_storage *sa,
+                    const char *addr_str, uint16_t port, int verify);
+void res_disable_dot(void);
 
 /* =========================================================================
  * Send a DNS query packet over UDP
@@ -534,6 +606,27 @@ static void send_dns_query(struct dns_req *req)
   int           pktlen, attempt, ns;
   ssize_t       sent;
   const struct sockaddr_storage *sa;
+
+#ifdef EGG_TLS
+  if (dot_active && dot_fd >= 0) {
+    /* DoT send path (RFC 7858):
+     * Prefix the DNS wire packet with a 2-byte big-endian message length
+     * field and write the framed packet via tputs().  tputs() routes
+     * through the socklist ssl pointer set up by ssl_handshake(), so TLS
+     * encryption is transparent.  No EDNS0 OPT RR needed over TCP. */
+    unsigned char framed[2 + DNS_MAXPKT];
+    qtype  = (uint16_t)(req->type & ~DNS_FLAG_FCRDNS);
+    pktlen = dns_build_query(framed + 2, sizeof framed - 2,
+                             req->id, qtype, req->qname);
+    if (pktlen < 0)
+      return;
+    framed[0] = (unsigned char)((unsigned)pktlen >> 8);
+    framed[1] = (unsigned char)((unsigned)pktlen & 0xff);
+    tputs(dot_fd, (char *)framed, (unsigned int)(pktlen + 2));
+    /* Single persistent TCP connection — no per-server index */
+    return;
+  }
+#endif
 
   if (resfd < 0) return;
 
@@ -592,13 +685,25 @@ static void process_answer(struct dns_req *req,
 {
   int      rcode, base_type;
   size_t   off;
-  uint16_t qdcount, ancount, qi, ai;
+  uint16_t ancount, ai;
 
   if (pktlen < DNS_HDR_SIZE) return;
   if (HDR_ID(pkt) != req->id) return;
   if (HDR_QR(pkt) != 1) return;
+  /* Discard non-QUERY responses (STATUS, NOTIFY, UPDATE, etc.) */
+  if (HDR_OPCODE(pkt) != 0) return;
+  /* QDCOUNT must echo the single question we sent */
+  if (HDR_QDCOUNT(pkt) != 1) return;
 
   rcode = HDR_RCODE(pkt);
+
+  /* TC: truncated UDP response.  Treat as transient so the retry loop
+   * tries again (possibly via DoT if enabled). */
+  if (HDR_FLAGS(pkt) & DNS_FLAG_TC) {
+    if (req->last_ns >= 0 && req->last_ns < DNS_MAXNS)
+      dns_ns_failures[req->last_ns]++;
+    return;
+  }
 
   if (rcode == DNS_RC_SERVFAIL || rcode == DNS_RC_NOTIMP ||
       rcode == DNS_RC_REFUSED) {
@@ -611,12 +716,8 @@ static void process_answer(struct dns_req *req,
     if (req->last_ns >= 0 && req->last_ns < DNS_MAXNS)
       dns_ns_failures[req->last_ns] /= 4;
     {
-      int type = (req->type & DNS_FLAG_FCRDNS) ? T_A : T_PTR;
-      if ((req->type & ~DNS_FLAG_FCRDNS) == DNS_TYPE_A ||
-          (req->type & ~DNS_FLAG_FCRDNS) == DNS_TYPE_AAAA)
-        type = T_A;
-      else
-        type = T_PTR;
+      int type = ((req->type & ~DNS_FLAG_FCRDNS) == DNS_TYPE_PTR)
+                 ? T_PTR : T_A;
       finish_req_failure(req, type);
     }
     free_req(req);
@@ -632,19 +733,24 @@ static void process_answer(struct dns_req *req,
     return;
   }
 
-  /* Skip question section */
-  off     = DNS_HDR_SIZE;
-  qdcount = HDR_QDCOUNT(pkt);
-  for (qi = 0; qi < qdcount; qi++) {
-    int n = dns_name_skip(pkt, pktlen, off);
+  /* Skip question section — QDCOUNT is validated as 1 above, so exactly
+   * one name + QTYPE/QCLASS (4 bytes) follows the fixed header. */
+  {
+    int n;
+    off = DNS_HDR_SIZE;
+    n   = dns_name_skip(pkt, pktlen, off);
     if (n < 0) return;
     off += (size_t)n;
     if (off + 4 > pktlen) return;
     off += 4;
   }
 
-  /* Process answer RRs */
+  /* Process answer RRs.  Cap ANCOUNT: the loop already breaks on
+   * out-of-bounds, but the cap makes the worst case explicit. */
+#define DNS_MAX_ANCOUNT 64
   ancount   = HDR_ANCOUNT(pkt);
+  if (ancount > DNS_MAX_ANCOUNT)
+    ancount = DNS_MAX_ANCOUNT;
   base_type = req->type & ~DNS_FLAG_FCRDNS;
 
   for (ai = 0; ai < ancount; ai++) {
@@ -826,6 +932,84 @@ static void dns_ack(void)
   uint16_t                id;
   struct dns_req         *req;
 
+#ifdef EGG_TLS
+  if (dot_active && dot_fd >= 0) {
+    /* DoT receive path (RFC 7858):
+     * Drive the two-phase reassembly state machine (dot_rx_phase /
+     * dot_rxbuf) until SSL_read() returns WANT_READ (no more data
+     * this tick) or an error.  Partial reads across calls leave
+     * dot_rxoff < dot_rxneed and resume on the next readable event. */
+    int idx = findsock(dot_fd);
+    if (idx < 0 || !socklist[idx].ssl) {
+      putlog(LOG_MISC, "*",
+             "DNS: DoT connection lost (no SSL session); reconnecting in %ds",
+             DOT_RECONNECT_DELAY);
+      DOT_RX_RESET();
+      dot_active = 0;
+      killsock(dot_fd);
+      dot_fd = -1;
+      if (dot_sa_valid)
+        dot_reconnect_seconds = DOT_RECONNECT_DELAY;
+      return;
+    }
+
+    for (;;) {
+      int got = SSL_read(socklist[idx].ssl,
+                         dot_rxbuf + dot_rxoff,
+                         dot_rxneed - dot_rxoff);
+      if (got <= 0) {
+        int err = SSL_get_error(socklist[idx].ssl, got);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+          break; /* no more data this tick */
+        DOT_RX_RESET();
+        putlog(LOG_MISC, "*",
+               "DNS: DoT read error (%d); reconnecting in %ds",
+               err, DOT_RECONNECT_DELAY);
+        dot_active = 0;
+        killsock(dot_fd);
+        dot_fd = -1;
+        if (dot_sa_valid)
+          dot_reconnect_seconds = DOT_RECONNECT_DELAY;
+        return;
+      }
+      dot_rxoff += got;
+
+      if (dot_rxoff < dot_rxneed)
+        break; /* still accumulating */
+
+      if (dot_rx_phase == 0) {
+        /* Completed 2-byte length prefix */
+        uint16_t msglen = ((uint16_t)dot_rxbuf[0] << 8) | dot_rxbuf[1];
+        if (msglen == 0 || msglen > (uint16_t)(DNS_HDR_SIZE + DNS_MAXPKT)) {
+          DOT_RX_RESET();
+          putlog(LOG_MISC, "*",
+                 "DNS: DoT malformed frame (len=%u); reconnecting", msglen);
+          dot_active = 0;
+          killsock(dot_fd);
+          dot_fd = -1;
+          if (dot_sa_valid)
+            dot_reconnect_seconds = DOT_RECONNECT_DELAY;
+          return;
+        }
+        dot_rx_phase = 1;
+        dot_rxoff    = 0;
+        dot_rxneed   = (int)msglen;
+      } else {
+        /* Completed DNS payload — process it */
+        uint16_t msglen = (uint16_t)dot_rxneed;
+        if ((size_t)msglen > DNS_HDR_SIZE) {
+          id  = hdr_u16(dot_rxbuf);
+          req = find_req_by_id(id);
+          if (req)
+            process_answer(req, dot_rxbuf, (size_t)msglen);
+        }
+        DOT_RX_RESET();
+      }
+    }
+    return; /* DoT path handled; skip UDP */
+  }
+#endif /* EGG_TLS */
+
   if (resfd < 0) return;
 
   /* Keep nameserver list in sync with myres (TCL dns-servers may have updated it) */
@@ -902,6 +1086,17 @@ static void dns_check_expires(void)
     r->sent_at      = t;
     send_dns_query(r);
   }
+
+#ifdef EGG_TLS
+  /* Automatic DoT reconnect countdown */
+  if (dot_reconnect_seconds > 0 && --dot_reconnect_seconds == 0) {
+    dot_reconnect_seconds = -1;
+    if (dot_sa_valid && !dot_active) {
+      putlog(LOG_MISC, "*", "DNS: attempting DoT reconnect to saved server");
+      res_enable_dot(&dot_sa_saved, dot_host, dot_port_saved, dot_verify);
+    }
+  }
+#endif
 }
 
 /* =========================================================================
@@ -1090,6 +1285,18 @@ static int init_dns_core(void)
   }
   req_head = req_tail = NULL;
 
+#ifdef EGG_TLS
+  /* Tear down any active DoT connection; it will reconnect via res_enable_dot
+   * if dot_sa_valid is set after init completes. */
+  DOT_RX_RESET();
+  dot_active            = 0;
+  dot_reconnect_seconds = -1;
+  if (dot_fd >= 0) {
+    killsock(dot_fd);
+    dot_fd = -1;
+  }
+#endif
+
   dns_nscount   = 0;
   dns_domain[0] = '\0';
   memset(dns_ns_failures, 0, sizeof dns_ns_failures);
@@ -1098,7 +1305,9 @@ static int init_dns_core(void)
   parse_resolv_conf();
   sync_myres_from_internal();
 
-  if (!myres.nscount) {
+  /* Use dns_nscount (all families) not myres.nscount (IPv4 only) so that
+   * configurations with IPv6-only nameservers are not incorrectly rejected. */
+  if (!dns_nscount) {
     putlog(LOG_MISC, "*", "DNS: No nameservers defined.");
     return 0;
   }
@@ -1109,3 +1318,127 @@ static int init_dns_core(void)
   return 1;
 }
 
+
+/* =========================================================================
+ * DoT public API — res_enable_dot / res_disable_dot
+ *
+ * res_enable_dot() opens a TLS/TCP connection to the specified DoT server.
+ * On success dot_active = 1 and all subsequent queries use TLS.
+ * On failure the UDP path remains active.
+ *
+ * res_disable_dot() tears down the DoT connection and reverts to plain UDP.
+ *
+ * When TLS is not compiled in, both functions are no-ops that log a warning.
+ * ====================================================================== */
+#ifdef EGG_TLS
+
+void res_enable_dot(const struct sockaddr_storage *sa,
+                    const char *addr_str, uint16_t port, int verify)
+{
+  int                     fd, af;
+  struct sockaddr_storage target;
+  socklen_t               targetlen;
+
+  if (!sa || !addr_str)
+    return;
+
+  dot_verify = verify;
+
+  /* Save for automatic reconnect */
+  memcpy(&dot_sa_saved, sa, sizeof dot_sa_saved);
+  dot_port_saved = port;
+  dot_sa_valid   = 1;
+
+  /* Tear down any existing DoT connection */
+  if (dot_fd >= 0) {
+    DOT_RX_RESET();
+    dot_active = 0;
+    killsock(dot_fd);
+    dot_fd = -1;
+  }
+  dot_reconnect_seconds = -1;
+
+  strlcpy(dot_host, addr_str, sizeof dot_host);
+
+  /* Apply requested port to target address */
+  memcpy(&target, sa, sizeof target);
+  af = GET_SS_FAMILY(&target);
+  if (af == AF_INET) {
+    ((struct sockaddr_in *)&target)->sin_port = htons(port ? port : 853);
+    targetlen = sizeof(struct sockaddr_in);
+  }
+#ifdef IPV6
+  else if (af == AF_INET6) {
+    ((struct sockaddr_in6 *)&target)->sin6_port = htons(port ? port : 853);
+    targetlen = sizeof(struct sockaddr_in6);
+  }
+#endif
+  else {
+    putlog(LOG_MISC, "*", "DNS: DoT: unsupported address family %d", af);
+    return;
+  }
+
+  /* Allocate a TCP socket registered in eggdrop's socklist */
+  fd = getsock(af, 0);
+  if (fd < 0) {
+    putlog(LOG_MISC, "*", "DNS: DoT: getsock() failed: %s", strerror(errno));
+    return;
+  }
+
+  /* Direct TCP connect (EINPROGRESS expected on non-blocking socket) */
+  if (connect(fd, (const struct sockaddr *)&target, targetlen) < 0 &&
+      errno != EINPROGRESS) {
+    putlog(LOG_MISC, "*", "DNS: DoT: connect() to %s:%u failed: %s",
+           addr_str, (unsigned)port, strerror(errno));
+    killsock(fd);
+    return;
+  }
+
+  dot_fd = fd;
+
+  /* TLS handshake.  ssl_handshake() wires up socklist[].ssl so that
+   * SSL_read() / tputs() work transparently via the module macros.
+   * TLS_VERIFYPEER enforces chain + CN/SAN matching (RFC 7858 §3.2). */
+  if (ssl_handshake(dot_fd, TLS_CONNECT,
+                    dot_verify ? TLS_VERIFYPEER : 0,
+                    LOG_MISC, dot_host, NULL) != 0) {
+    putlog(LOG_MISC, "*",
+           "DNS: DoT: TLS handshake with %s failed; disabling DoT", addr_str);
+    killsock(dot_fd);
+    dot_fd = -1;
+    return;
+  }
+
+  dot_active = 1;
+  putlog(LOG_MISC, "*", "DNS: DoT active — using TLS resolver %s port %u",
+         addr_str, (unsigned)(port ? port : 853));
+}
+
+void res_disable_dot(void)
+{
+  DOT_RX_RESET();
+  dot_active            = 0;
+  dot_reconnect_seconds = -1;
+  dot_sa_valid          = 0;
+  if (dot_fd >= 0) {
+    killsock(dot_fd);
+    dot_fd = -1;
+  }
+  putlog(LOG_MISC, "*", "DNS: DoT disabled; using plain UDP");
+}
+
+#else /* !EGG_TLS */
+
+void res_enable_dot(const struct sockaddr_storage *sa,
+                    const char *addr_str, uint16_t port, int verify)
+{
+  (void)sa; (void)addr_str; (void)port; (void)verify;
+  putlog(LOG_MISC, "*", "DNS: DoT not available (TLS not compiled in)");
+}
+
+void res_disable_dot(void)
+{
+  /* nothing when TLS not compiled in */
+}
+
+#endif /* EGG_TLS */
