@@ -39,11 +39,13 @@
  */
 
 #define _GNU_SOURCE 1
-/* Include main.h (which in turn includes eggdrop.h, proto.h, and all
- * standard headers via config.h) so that res.c can be compiled both as
- * a standalone translation unit (e.g. libeggres static library or the
- * use-res-dns module) and as a #include inside dns.c.  main.h has
- * include guards so double-inclusion is safe. */
+/* Include main.h (which in turn includes eggdrop.h and, when NOT
+ * MAKING_MODS, proto.h as well) so that res.c compiles as a standalone
+ * translation unit.  When compiled inside the dns module unity build
+ * (dns.c #includes res.c after #including module.h), the include guards
+ * in main.h make this a no-op and the global[] dispatch macros from
+ * module.h are already in scope.  main.h has include guards so
+ * double-inclusion is safe. */
 #include "../../main.h"
 #include "dns.h"
 #include "res.h"
@@ -293,7 +295,7 @@ static int resfd = -1;
  * dns.mod/dns.c iterate this list, but with the new resolver all
  * memory is managed internally per-query.  The cache concept from the
  * old coredns.c no longer applies; we return 0 / NULL safely. */
-static struct resolve *expireresolves = NULL;
+static struct resolve *expireresolves __attribute__((unused)) = NULL;
 
 /* myres: struct __res_state used by dns_change() and dns_report() in
  * dns.mod/dns.c to get/set nameserver addresses via TCL "dns-servers"
@@ -322,7 +324,7 @@ static void sync_myres_from_irc(void) {
 }
 
 /* Sync irc_nsaddr_list from myres (called after dns_change() TCL write) */
-static void sync_irc_from_myres(void) {
+static void __attribute__((unused)) sync_irc_from_myres(void) {
   int i;
   irc_nscount = 0;
   for (i = 0; i < myres.nscount && i < IRCD_MAXNS; i++) {
@@ -1576,7 +1578,7 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
  * dns_lookup — reverse lookup (IP -> hostname).
  * Registered on HOOK_DNS_HOSTBYIP; receives a sockname_t *.
  */
-static void dns_lookup(sockname_t *addr)
+static void __attribute__((unused)) dns_lookup(sockname_t *addr)
 {
   struct egg_dns_ctx *ctx;
   struct DNSQuery    *q;
@@ -1615,7 +1617,7 @@ static void dns_lookup(sockname_t *addr)
  * dns_forward — forward lookup (hostname -> IP).
  * Registered on HOOK_DNS_IPBYHOST; receives a char *.
  */
-static void dns_forward(char *hostn)
+static void __attribute__((unused)) dns_forward(char *hostn)
 {
   struct egg_dns_ctx *ctx;
   struct DNSQuery    *q;
@@ -1654,7 +1656,7 @@ static void dns_forward(char *hostn)
  * dns_check_expires — called every second via HOOK_SECONDLY.
  * Delegates to res_secondly_check().
  */
-static void dns_check_expires(void)
+static void __attribute__((unused)) dns_check_expires(void)
 {
   res_secondly_check();
 }
@@ -1663,7 +1665,7 @@ static void dns_check_expires(void)
  * dns_ack — called from DCC_DNS activity handler.
  * Reads pending UDP replies.
  */
-static void dns_ack(void)
+static void __attribute__((unused)) dns_ack(void)
 {
   res_read_udp();
 }
@@ -1672,7 +1674,7 @@ static void dns_ack(void)
  * init_dns_core — initialise the resolver; returns 1 on success, 0 on error.
  * Called from dns_start() in dns.mod/dns.c.
  */
-static int init_dns_core(void)
+static int __attribute__((unused)) init_dns_core(void)
 {
   init_resolver();
 
