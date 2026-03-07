@@ -252,6 +252,7 @@ static int dot_reconnect_seconds = -1;  /* -1 = not scheduled */
 #define DNS_INITIAL_TIMEOUT  4
 #define DNS_MAX_RETRIES      3
 #define DNS_TIMER_INTERVAL   1
+#define DNS_MAX_CNAME_DEPTH  8  /* RFC 1034 §3.6.2 recommends ≤ a few hops */
 
 /* High bit of dns_req.type marks a forward-confirmation query */
 #define DNS_FLAG_FCRDNS  0x8000
@@ -629,6 +630,7 @@ struct dns_req {
   time_t                      sent_at;
   int                         timeout;
   int                         last_ns;
+  int                         cname_depth;  /* CNAME hops followed so far */
   char                        qname[IRCD_RES_HOSTLEN + 1];
   struct sockaddr_storage     orig_addr;
   char                        hostname[IRCD_RES_HOSTLEN + 1];
@@ -893,6 +895,11 @@ static int process_answer(struct dns_req *req,
   ancount   = HDR_ANCOUNT(pkt);
   base_type = req->type & ~DNS_FLAG_FCRDNS;
 
+  /* CNAME chain: if all answers are CNAMEs (no matching A/AAAA/PTR), we
+   * follow the chain by issuing a fresh query for the canonical name. */
+  char cname_target[IRCD_RES_HOSTLEN + 1];
+  cname_target[0] = '\0';
+
   for (ai = 0; ai < ancount; ai++) {
     uint16_t rrtype, rdlen;
     int n = dns_name_skip(pkt, pktlen, off);
@@ -911,6 +918,11 @@ static int process_answer(struct dns_req *req,
       break;
 
     if (rrtype == DNS_TYPE_CNAME) {
+      /* Decode the canonical name so we can follow the chain if needed */
+      char cname_buf[IRCD_RES_HOSTLEN + 1];
+      int nc = dns_name_decode(pkt, pktlen, off, cname_buf, sizeof cname_buf);
+      if (nc > 0 && cname_buf[0] != '\0')
+        op_strlcpy(cname_target, cname_buf, sizeof cname_target);
       off += rdlen;
       continue;
     }
@@ -966,6 +978,23 @@ static int process_answer(struct dns_req *req,
     }
 
     off += rdlen;
+  }
+
+  /* No matching RR found.  If we decoded a CNAME target and haven't hit
+   * the depth limit, follow the chain by issuing a new query. */
+  if (cname_target[0] != '\0' && req->cname_depth < DNS_MAX_CNAME_DEPTH) {
+    struct dns_req *cname_req = make_req(req->query,
+                                         req->type & ~DNS_FLAG_FCRDNS);
+    cname_req->cname_depth = req->cname_depth + 1;
+    op_strlcpy(cname_req->qname, cname_target, sizeof cname_req->qname);
+    memcpy(&cname_req->orig_addr, &req->orig_addr, sizeof cname_req->orig_addr);
+    if (req->type & DNS_FLAG_FCRDNS) {
+      cname_req->type |= DNS_FLAG_FCRDNS;
+      op_strlcpy(cname_req->hostname, req->hostname, sizeof cname_req->hostname);
+    }
+    free_req(req);
+    send_dns_query(cname_req);
+    return 1;
   }
 
   handle_req_done(req, NULL);
