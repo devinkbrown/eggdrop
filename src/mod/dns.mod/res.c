@@ -298,8 +298,13 @@ static char irc_domain[IRCD_RES_HOSTLEN + 1];
  * ====================================================================== */
 
 /* resfd: the UDP socket file descriptor used by dns.mod/dns.c for
- * DCC_DNS registration and eof_dns_socket recovery. */
-static int resfd = -1;
+ * DCC_DNS registration and eof_dns_socket recovery.
+ * resfd_family: the address family (AF_INET or AF_INET6) of resfd.
+ * Nameservers whose family doesn't match resfd_family are skipped when
+ * sending UDP queries, preventing silent EAFNOSUPPORT failures in mixed
+ * IPv4/IPv6 resolver configurations. */
+static int resfd        = -1;
+static int resfd_family = AF_INET;
 
 /* expireresolves: kept NULL; dns_free_cache() / dns_cache_expmem() in
  * dns.mod/dns.c iterate this list, but with the new resolver all
@@ -838,6 +843,24 @@ static void send_dns_query(struct dns_req *req)
   if (ns < 0 || ns >= irc_nscount)
     return;
 
+  /* Skip nameservers whose address family doesn't match the UDP socket.
+   * A mixed IPv4/IPv6 resolv.conf would otherwise cause sendto() to fail
+   * with EAFNOSUPPORT, silently dropping the query until it times out. */
+  {
+    int i;
+    for (i = 0; i < irc_nscount; i++) {
+      int try_ns = (ns + i) % irc_nscount;
+      if ((int)GET_SS_FAMILY(&irc_nsaddr_list[try_ns]) == resfd_family) {
+        ns = try_ns;
+        break;
+      }
+    }
+    if ((int)GET_SS_FAMILY(&irc_nsaddr_list[ns]) != resfd_family) {
+      idebug("res: no nameserver matches UDP socket family (af=%d)", resfd_family);
+      return;
+    }
+  }
+
   sa   = &irc_nsaddr_list[ns];
   sent = sendto(resfd, buf, (size_t)pktlen, 0,
                 (const struct sockaddr *)sa, GET_SS_LEN(sa));
@@ -1291,6 +1314,7 @@ static int init_dns_network(void)
            ? AF_INET6 : AF_INET;
 
   resfd = socket(family, SOCK_DGRAM, 0);
+  resfd_family = family;
   if (resfd < 0) {
     putlog(LOG_MISC, "*",
            "DNS: Unable to allocate UDP socket: %s", strerror(errno));
