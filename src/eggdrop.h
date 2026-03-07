@@ -680,6 +680,10 @@ struct sock_handler {
   unsigned long outbuflen;      /* bytes of data in outbuf      */
   unsigned long outbufcap;      /* allocated capacity of outbuf */
   unsigned long inbuflen;       /* Inbuf could be binary data   */
+#ifdef HAVE_LIBURING
+  char *recv_buf;               /* kernel-filled async recv buffer (READMAX+2 bytes) */
+  int   recv_len;               /* bytes ready: -1=none, 0=EOF, >0=data available   */
+#endif
 };
 
 struct tclsock_handler {

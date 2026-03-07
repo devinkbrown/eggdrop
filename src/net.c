@@ -82,42 +82,97 @@
 /* Maximum events returned by a single io_uring_peek_batch_cqe() call. */
 #  define URING_BATCH 64
 static struct io_uring egg_ring;
-static int egg_ring_inited = 0;
-/* Per-fd: is there an active POLL_ADD SQE outstanding? */
+static int egg_ring_inited = 0;    /* 0=uninit, 1=active, -1=disabled */
+static int egg_ring_sqpoll = 0;    /* 1 = SQPOLL thread active         */
+/* Per-fd: is there an active SQE outstanding? */
 #  define URING_MAP_SIZE 65536
-static uint8_t uring_polled[URING_MAP_SIZE]; /* 1 = poll submitted */
+static uint8_t uring_polled[URING_MAP_SIZE]; /* 1 = SQE submitted */
+
+/*
+ * user_data encoding:
+ *   bits [31:0]  — slist index
+ *   bit  [32]    — 1 = RECV op, 0 = POLL_ADD op
+ */
+#  define URING_UD_POLL(si)    ((uint64_t)(uint32_t)(si))
+#  define URING_UD_RECV(si)    ((uint64_t)(1ULL << 32) | (uint32_t)(si))
+#  define URING_UD_IS_RECV(ud) (!!((uint64_t)(ud) >> 32))
+#  define URING_UD_IDX(ud)     ((uint32_t)(ud))
 
 static void uring_ensure_init(void)
 {
   if (!egg_ring_inited) {
-    if (io_uring_queue_init(256, &egg_ring, 0) < 0) {
-      putlog(LOG_MISC, "*", "io_uring_queue_init failed: %s — falling back to epoll/select",
-             strerror(errno));
-      egg_ring_inited = -1; /* disabled */
-      return;
+    struct io_uring_params p;
+
+    /*
+     * Try SQPOLL first: a kernel-side submission-queue polling thread
+     * means we never call io_uring_submit() as a syscall — the kernel
+     * drains new SQEs automatically.  Requires CAP_SYS_NICE on Linux
+     * older than 5.11; fails silently on older kernels without the priv.
+     */
+    memset(&p, 0, sizeof p);
+    p.flags = IORING_SETUP_SQPOLL;
+    p.sq_thread_idle = 2000; /* ms before kernel thread auto-parks */
+    if (io_uring_queue_init_params(256, &egg_ring, &p) == 0) {
+      egg_ring_sqpoll = 1;
+      putlog(LOG_MISC, "*", "io_uring: SQPOLL ring initialised (no submit syscalls)");
+    } else {
+      /* Standard ring — we call io_uring_submit() ourselves */
+      memset(&p, 0, sizeof p);
+      if (io_uring_queue_init_params(256, &egg_ring, &p) < 0) {
+        putlog(LOG_MISC, "*", "io_uring_queue_init failed: %s — falling back to epoll/select",
+               strerror(errno));
+        egg_ring_inited = -1;
+        return;
+      }
     }
     memset(uring_polled, 0, sizeof uring_polled);
     egg_ring_inited = 1;
   }
 }
 
-/* Submit a one-shot POLL_ADD for sock.  user_data = socklist index. */
-static void uring_poll_sock(int sock, int slist_idx)
+/*
+ * Submit a one-shot RECV (non-TLS) or POLL_ADD (TLS / no recv_buf) for sl.
+ *
+ * For non-TLS sockets the kernel writes received data directly into
+ * sl->handler.sock.recv_buf, eliminating the separate read() syscall.
+ * For TLS sockets we fall back to POLL_ADD and let SSL_read() handle
+ * the ciphertext decryption.
+ */
+static void uring_recv_sock(sock_list *sl, int slist_idx)
 {
   struct io_uring_sqe *sqe;
+  int sock = sl->sock;
+  int use_recv = 0;
 
   if (egg_ring_inited != 1 || (unsigned)sock >= URING_MAP_SIZE)
     return;
   if (uring_polled[sock])
     return;
+
+#ifdef TLS
+  /* RECV bypasses SSL record framing — only safe for plaintext sockets */
+  if (!sl->ssl && sl->handler.sock.recv_buf)
+    use_recv = 1;
+#else
+  if (sl->handler.sock.recv_buf)
+    use_recv = 1;
+#endif
+
   sqe = io_uring_get_sqe(&egg_ring);
   if (!sqe) {
-    io_uring_submit(&egg_ring);
+    if (!egg_ring_sqpoll)
+      io_uring_submit(&egg_ring);
     sqe = io_uring_get_sqe(&egg_ring);
     if (!sqe) return;
   }
-  io_uring_prep_poll_add(sqe, sock, POLLIN | POLLHUP | POLLERR);
-  io_uring_sqe_set_data64(sqe, (uint64_t)(uint32_t)slist_idx);
+
+  if (use_recv) {
+    io_uring_prep_recv(sqe, sock, sl->handler.sock.recv_buf, READMAX, 0);
+    io_uring_sqe_set_data64(sqe, URING_UD_RECV(slist_idx));
+  } else {
+    io_uring_prep_poll_add(sqe, sock, POLLIN | POLLHUP | POLLERR);
+    io_uring_sqe_set_data64(sqe, URING_UD_POLL(slist_idx));
+  }
   uring_polled[sock] = 1;
 }
 
@@ -462,10 +517,16 @@ int allocsock(int sock, int options)
       /* Register with the async I/O backend */
       if (!(options & (SOCK_UNUSED | SOCK_NONSOCK | SOCK_VIRTUAL))) {
 #ifdef EGG_IO_URING
+        /* Initialise recv_buf before registering so uring_recv_sock()
+         * can immediately decide whether to submit RECV vs POLL_ADD. */
+        td->socklist[i].handler.sock.recv_buf = NULL;
+        td->socklist[i].handler.sock.recv_len = -1;
         uring_ensure_init();
-        if (egg_ring_inited == 1)
-          uring_poll_sock(sock, i);
-        else
+        if (egg_ring_inited == 1) {
+          td->socklist[i].handler.sock.recv_buf = (char *)nmalloc(READMAX + 2);
+          td->socklist[i].handler.sock.recv_len = -1;
+          uring_recv_sock(&td->socklist[i], i);
+        } else
 #endif
 #ifdef EGG_EPOLL
         {
@@ -541,6 +602,14 @@ void setsock(int sock, int options)
     /* Turn off Nagle's algorithm, see man tcp */
     if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &parm, sizeof parm))
       debug2("net: setsock(): setsockopt() s %i level IPPROTO_TCP optname TCP_NODELAY error %s", sock, strerror(errno));
+    /* Enlarge kernel socket buffers — reduces data loss under burst load */
+    {
+      int bufsz = 131072; /* 128 KB */
+      if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &bufsz, sizeof bufsz))
+        debug2("net: setsock(): SO_RCVBUF error %s on sock %d", strerror(errno), sock);
+      if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &bufsz, sizeof bufsz))
+        debug2("net: setsock(): SO_SNDBUF error %s on sock %d", strerror(errno), sock);
+    }
   }
   if (options & SOCK_LISTEN) {
     /* Tris says this lets us grab the same port again next time */
@@ -548,13 +617,20 @@ void setsock(int sock, int options)
       debug2("net: setsock(): setsockopt() s %i level SOL_SOCKET optname SO_REUSEADDR error %s", sock, strerror(errno));
   }
   /* Yay async i/o ! */
-  if ((sock != STDOUT) || backgrd)
+  if ((sock != STDOUT) || backgrd) {
     fcntl(sock, F_SETFL, O_NONBLOCK);
+    /* Prevent fd leaking into child processes (bg scripts, exec hooks) */
+    fcntl(sock, F_SETFD, fcntl(sock, F_GETFD) | FD_CLOEXEC);
+  }
 }
 
 int getsock(int af, int options)
 {
-  int sock = socket(af, SOCK_STREAM, 0);
+  int sock = socket(af, SOCK_STREAM
+#ifdef SOCK_CLOEXEC
+                    | SOCK_CLOEXEC
+#endif
+                    , 0);
 
   if (sock >= 0)
     setsock(sock, options);
@@ -597,6 +673,13 @@ void killsock(int sock)
           td->socklist[i].handler.sock.outbuflen = 0;
           td->socklist[i].handler.sock.outbufcap = 0;
         }
+#ifdef EGG_IO_URING
+        if (td->socklist[i].handler.sock.recv_buf != NULL) {
+          nfree(td->socklist[i].handler.sock.recv_buf);
+          td->socklist[i].handler.sock.recv_buf = NULL;
+        }
+        td->socklist[i].handler.sock.recv_len = -1;
+#endif
       }
       /* Deregister from async I/O backend */
 #ifdef EGG_IO_URING
@@ -1122,16 +1205,18 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
 
     /* --- Main socket wait via epoll or io_uring --- */
 #ifdef EGG_IO_URING
-    /* Submit POLL_ADD SQEs for any new/reactivated sockets */
+    /* (Re-)arm RECV or POLL_ADD SQEs for any socket without one pending */
     for (i = 0; i < slistmax; i++) {
       if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL)))
-        uring_poll_sock(slist[i].sock, i);
+        uring_recv_sock(&slist[i], i);
     }
-    io_uring_submit(&egg_ring);
+    /* Flush the SQ: no-op when SQPOLL thread is active */
+    if (!egg_ring_sqpoll)
+      io_uring_submit(&egg_ring);
     {
       struct __kernel_timespec ts;
       struct io_uring_cqe *cqes[URING_BATCH];
-      unsigned nready;
+      unsigned nready, k;
       ts.tv_sec  = t.tv_sec;
       ts.tv_nsec = t.tv_usec * 1000L;
       call_hook(HOOK_PRE_SELECT);
@@ -1140,13 +1225,31 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       if (x == -ETIME) x = 0;
       else if (x < 0) x = (errno == EINTR) ? 0 : -1;
       nready = io_uring_peek_batch_cqe(&egg_ring, cqes, URING_BATCH);
-      for (unsigned k = 0; k < nready; k++) {
-        uint32_t si = (uint32_t)io_uring_cqe_get_data64(cqes[k]);
+      for (k = 0; k < nready; k++) {
+        uint64_t ud = io_uring_cqe_get_data64(cqes[k]);
+        uint32_t si = URING_UD_IDX(ud);
         if (si < (unsigned)slistmax && !(slist[si].flags & SOCK_UNUSED)) {
           fd = slist[si].sock;
-          FD_SET(fd, &fdr);
-          if (fd > maxfd_r) maxfd_r = fd;
-          uring_unpoll_sock(fd); /* one-shot: will re-add next cycle */
+          uring_unpoll_sock(fd); /* one-shot: cleared here, re-armed next round */
+          if (URING_UD_IS_RECV(ud)) {
+            int res = cqes[k]->res;
+            if (res >= 0) {
+              /* Kernel delivered data (or EOF) directly into recv_buf */
+              slist[si].handler.sock.recv_len = res;
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            } else if (res != -EAGAIN && res != -EWOULDBLOCK) {
+              /* Error or unsupported op: fall through to normal read() path
+               * which will surface the error naturally. */
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            }
+            /* -EAGAIN/-EWOULDBLOCK: socket not ready; resubmit next round */
+          } else {
+            /* POLL_ADD: just mark the fd readable */
+            FD_SET(fd, &fdr);
+            if (fd > maxfd_r) maxfd_r = fd;
+          }
         }
         io_uring_cqe_seen(&egg_ring, cqes[k]);
       }
@@ -1303,10 +1406,29 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
             }
             x = -1;
           }
-        } else
-          x = read(slist[i].sock, s, grab);
+        } else {
+#ifdef EGG_IO_URING
+          /* Fast path: kernel already deposited data into recv_buf via RECV op */
+          if (slist[i].handler.sock.recv_len >= 0) {
+            int rl = slist[i].handler.sock.recv_len;
+            slist[i].handler.sock.recv_len = -1;
+            if (rl == 0) { errno = 0; x = 0; }
+            else { x = (rl < grab) ? rl : grab; memcpy(s, slist[i].handler.sock.recv_buf, x); }
+          } else
+#endif
+            x = read(slist[i].sock, s, grab);
+        }
       }
 #else
+#ifdef EGG_IO_URING
+      /* Fast path: kernel already deposited data into recv_buf via RECV op */
+      if (slist[i].handler.sock.recv_len >= 0) {
+        int rl = slist[i].handler.sock.recv_len;
+        slist[i].handler.sock.recv_len = -1;
+        if (rl == 0) { errno = 0; x = 0; }
+        else { x = (rl < grab) ? rl : grab; memcpy(s, slist[i].handler.sock.recv_buf, x); }
+      } else
+#endif
         x = read(slist[i].sock, s, grab);
 #endif
       if (x <= 0) {           /* eof */
