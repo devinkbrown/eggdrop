@@ -1437,6 +1437,14 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           if (kevs[k].filter == EVFILT_WRITE) {
             FD_SET(fd, &fdw);
             if (fd > maxfd_w) maxfd_w = fd;
+            /* On BSD/macOS, non-blocking connect() completion (success or
+             * failure) signals EVFILT_WRITE rather than EVFILT_READ.  Also
+             * signal fdr so the SOCK_CONNECT processing path in the loop
+             * below picks it up — mirrors the EPOLLIN behaviour on Linux. */
+            if (slist[si].flags & SOCK_CONNECT) {
+              FD_SET(fd, &fdr);
+              if (fd > maxfd_r) maxfd_r = fd;
+            }
           }
         }
       }
