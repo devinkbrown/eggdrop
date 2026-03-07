@@ -25,6 +25,17 @@
 
 #include "main.h"
 
+/* RFC 1459 case-insensitive comparison.
+ *
+ * The special IRC mappings are:
+ *   { | } ~  (lowercase)  <->  [ \ ] ^  (uppercase)
+ *
+ * For bytes 0x80-0xFF (UTF-8 multi-byte sequences), each byte maps to itself
+ * in both the upper and lower tables, so two NFC-normalised UTF-8 strings that
+ * are identical as Unicode text will compare equal here.  Full Unicode case-
+ * folding (e.g. comparing 'Ä' with 'ä') is not performed; that would require
+ * a Unicode case-fold table and is beyond the scope of RFC 1459 casemapping.
+ */
 int _rfc_casecmp(const char *s1, const char *s2)
 {
   unsigned char *str1 = (unsigned char *) s1;

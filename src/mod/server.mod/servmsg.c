@@ -50,6 +50,9 @@ static char current_msgtag_account[NICKMAX + 1];
 
 extern int sasl;
 extern int sasl_authenticate_initial(const struct cap_values *);
+/* UTF-8 helpers from misc.c (core) */
+extern int utf8_sanitize(char *);
+extern size_t utf8_strlen(const char *);
 
 /* We try to change to a preferred unique nick here. We always first try the
  * specified alternate nick. If that fails, we repeatedly modify the nick
@@ -78,9 +81,11 @@ static int gotfake433(char *from)
       /* Alternate nickname defined. Let's try that first. */
       strlcpy(botname, alt, sizeof(botname));
     else {
-      /* Fall back to appending count char. */
+      /* Fall back to appending count char. nick_len is server-reported max
+       * length; modern servers that support Unicode nicks count codepoints,
+       * so compare against utf8_strlen() to handle multi-byte nicknames. */
       altnick_char = '0';
-      if ((l + 1) == nick_len) {
+      if ((int)utf8_strlen(botname) >= nick_len) {
         botname[l] = altnick_char;
       } else {
         botname[++l] = altnick_char;
@@ -1245,6 +1250,11 @@ static void server_activity(int idx, char *tagmsg, int len)
   char rawmsg[RECVLINEMAX+7];
   int ret;
   Tcl_Obj *tagdict = Tcl_NewDictObj();
+
+  /* Sanitize incoming IRC messages: replace invalid UTF-8 bytes with '?'.
+   * Modern IRC servers and clients use UTF-8; malformed sequences could cause
+   * issues in Tcl's string handling (which is internally UTF-8). */
+  utf8_sanitize(tagmsg);
 
   Tcl_IncrRefCount(tagdict);
   if (trying_server) {
