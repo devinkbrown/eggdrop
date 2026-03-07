@@ -2007,9 +2007,9 @@ void tputs(int z, char *s, unsigned int len)
 /* tputs might queue data for sockets, let's dump as much of it as
  * possible.
  *
- * Uses epoll (or io_uring) with timeout=0 to check which sockets are
- * ready for writing, then drains their outbuf.  Falls back to a
- * zero-timeout select() when neither async back-end is available.
+ * Uses epoll, kqueue, or io_uring with timeout=0 to check which sockets
+ * are ready for writing, then drains their outbuf.  Falls back to a
+ * zero-timeout select() when no async back-end is available.
  */
 void dequeue_sockets()
 {
