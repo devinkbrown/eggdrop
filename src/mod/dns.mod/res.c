@@ -602,8 +602,11 @@ static int            ns_failures[IRCD_MAXNS];
  *   1. getsock(AF, SOCK_STREAM) allocates a TCP fd in eggdrop's socklist.
  *   2. connect() is called directly (avoids open_telnet_raw which assumes
  *      a dcc[] entry exists for the socket).
- *   3. ssl_handshake(dot_fd, TLS_CONNECT, 0, LOG_MISC, dot_host, NULL)
- *      wraps the fd in an OpenSSL session.
+ *   3. ssl_handshake(dot_fd, TLS_CONNECT, verify_flags, LOG_MISC, dot_host, NULL)
+ *      wraps the fd in an OpenSSL session.  When dot_verify != 0 (default),
+ *      TLS_VERIFYPEER is passed so eggdrop's ssl_verify() callback enforces
+ *      full chain validation and CN/SAN hostname matching (RFC 7858 §3.2).
+ *      Pass verify=0 only for private/self-signed resolvers.
  *   4. On success dot_active = 1; on failure killsock(dot_fd) and
  *      dot_fd = -1.
  * ====================================================================== */
@@ -618,6 +621,7 @@ static int            ns_failures[IRCD_MAXNS];
 #ifdef EGG_TLS
 static int  dot_active = 0;
 static int  dot_fd     = -1;                    /* TLS/TCP fd, -1 = closed */
+static int  dot_verify = 1;                     /* 1 = verify server cert (default) */
 static char dot_host[IRCD_RES_HOSTLEN + 1];     /* hostname for SNI        */
 #endif
 
@@ -1250,7 +1254,7 @@ void gethost_byaddr(const struct sockaddr_storage *addr,
  * DoT connections do not have.
  */
 void res_enable_dot(const struct sockaddr_storage *sa,
-                    const char *addr_str, uint16_t port)
+                    const char *addr_str, uint16_t port, int verify)
 {
   int   fd, af;
   struct sockaddr_storage target;
@@ -1258,6 +1262,8 @@ void res_enable_dot(const struct sockaddr_storage *sa,
 
   if (!sa || !addr_str)
     return;
+
+  dot_verify = verify;
 
   /* Tear down any existing DoT connection first */
   if (dot_fd >= 0) {
@@ -1310,7 +1316,9 @@ void res_enable_dot(const struct sockaddr_storage *sa,
    * it sets up the SSL * on socklist[i].ssl so tputs() / SSL_read()
    * will use TLS automatically.
    */
-  if (ssl_handshake(dot_fd, TLS_CONNECT, 0, LOG_MISC, dot_host, NULL) != 0) {
+  if (ssl_handshake(dot_fd, TLS_CONNECT,
+                    dot_verify ? TLS_VERIFYPEER : 0,
+                    LOG_MISC, dot_host, NULL) != 0) {
     putlog(LOG_MISC, "*",
            "DNS: DoT: TLS handshake with %s failed; disabling DoT", addr_str);
     killsock(dot_fd);
@@ -1337,9 +1345,9 @@ void res_disable_dot(void)
 #else /* !EGG_TLS */
 
 void res_enable_dot(const struct sockaddr_storage *sa,
-                    const char *addr_str, uint16_t port)
+                    const char *addr_str, uint16_t port, int verify)
 {
-  (void)sa; (void)addr_str; (void)port;
+  (void)sa; (void)addr_str; (void)port; (void)verify;
   iwarn("DoT: TLS not compiled in — secure_dns ignored");
 }
 

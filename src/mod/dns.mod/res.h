@@ -65,9 +65,12 @@ void restart_resolver(void);
 
 /* DNS over TLS (RFC 7858) — stubbed unless EGG_TLS is defined.
  * sa must have the address family set; port is applied separately.
+ * verify != 0 (recommended default) enables full TLS certificate chain
+ * validation and hostname matching (TLS_VERIFYPEER).  Pass verify=0
+ * only for private/self-signed resolvers.
  * When TLS is not compiled in, res_enable_dot() logs a warning. */
 void res_enable_dot(const struct sockaddr_storage *sa,
-                    const char *addr_str, uint16_t port);
+                    const char *addr_str, uint16_t port, int verify);
 void res_disable_dot(void);
 
 /* Forward lookup (hostname -> address).  type must be T_A or T_AAAA. */
