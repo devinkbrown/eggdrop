@@ -879,7 +879,7 @@ static int process_answer(struct dns_req *req,
                           const unsigned char *pkt, size_t pktlen)
 {
   size_t   off;
-  uint16_t qdcount, ancount, ai, qi;
+  uint16_t ancount, ai;
   int      base_type, rcode;
 
   if (pktlen < DNS_HDR_SIZE)
@@ -931,12 +931,12 @@ static int process_answer(struct dns_req *req,
     return 1;
   }
 
-  /* Skip question section */
-  off     = DNS_HDR_SIZE;
-  qdcount = HDR_QDCOUNT(pkt);
-
-  for (qi = 0; qi < qdcount; qi++) {
-    int n = dns_name_skip(pkt, pktlen, off);
+  /* Skip question section — QDCOUNT is validated as 1 above, so exactly
+   * one question name + QTYPE/QCLASS (4 bytes) follows the header. */
+  {
+    int n;
+    off = DNS_HDR_SIZE;
+    n   = dns_name_skip(pkt, pktlen, off);
     if (n < 0)
       return 0;
     off += (size_t)n;
@@ -945,8 +945,14 @@ static int process_answer(struct dns_req *req,
     off += 4;
   }
 
-  /* Process answer RRs */
+  /* Process answer RRs.  Cap ANCOUNT to avoid tight loops on malformed
+   * responses with absurdly large wire counts (e.g. 65535 with a 200-byte
+   * packet).  The loop already breaks on out-of-bounds access, but the
+   * cap makes the worst case explicit and cheap. */
+#define DNS_MAX_ANCOUNT 64
   ancount   = HDR_ANCOUNT(pkt);
+  if (ancount > DNS_MAX_ANCOUNT)
+    ancount = DNS_MAX_ANCOUNT;
   base_type = req->type & ~DNS_FLAG_FCRDNS;
 
   /* CNAME chain: if all answers are CNAMEs (no matching A/AAAA/PTR), we
@@ -1103,10 +1109,11 @@ void res_read_dns(void)
 #ifdef EGG_TLS
   if (dot_active && dot_fd >= 0) {
     /* DoT receive path (RFC 7858):
-     * Read the 2-byte message length, then the payload.  We use a
-     * blocking-style loop here; since dot_fd is non-blocking the
-     * SSL_read() calls will return EAGAIN / SSL_ERROR_WANT_READ when
-     * no data is available, which we treat as "done for this tick".
+     * Drive the two-phase reassembly state machine (dot_rx_phase /
+     * dot_rxbuf) until SSL_read() returns WANT_READ (no more data this
+     * tick) or an error.  The state machine survives partial reads across
+     * calls, so a short SSL_read() of the 2-byte length prefix or payload
+     * simply leaves dot_rxoff < dot_rxneed and resumes next event.
      */
     struct threaddata *td = threaddata();
     int idx = findsock(dot_fd);
