@@ -2571,13 +2571,24 @@ static int gotmsg(char *from, char *msg)
   struct chanset_t *chan;
   struct userrec *u;
 
-  /* Only handle if message is to a channel, or to @#channel. */
-  /* FIXME: Properly handle ovNotices (@+#channel), vNotices (+#channel), etc. */
-  if (!strchr(CHANMETA "@", msg[0]))
-    return 0;
+  /* Only handle if message is to a channel or a STATUSMSG-prefixed channel
+   * (e.g. @#channel for ops, +#channel for voiced).  STATUSMSG prefix chars
+   * come from server 005 PREFIX; strip them to find the real channel name. */
+  {
+    const char *pfx = isupport_get_prefixchars();
+    if (!strchr(CHANMETA, msg[0]) && !strchr(pfx, msg[0]))
+      return 0;
+  }
 
   to = newsplit(&msg);
-  realto = (to[0] == '@') ? to + 1 : to;
+  realto = to;
+  {
+    /* Strip leading STATUSMSG prefix chars (e.g. "@", "+") before the
+     * channel name.  A status prefix always precedes a CHANMETA char. */
+    const char *pfx = isupport_get_prefixchars();
+    while (*realto && strchr(pfx, *realto) && realto[1] && strchr(CHANMETA, realto[1]))
+      realto++;
+  }
   chan = findchan(realto);
   if (!chan)
     return 0; /* Unknown channel; don't process. */
@@ -2697,11 +2708,19 @@ static int gotnotice(char *from, char *msg)
   struct chanset_t *chan;
   int ignoring;
 
-  if (!strchr(CHANMETA "@", *msg))
-    return 0;
+  {
+    const char *pfx = isupport_get_prefixchars();
+    if (!strchr(CHANMETA, *msg) && !strchr(pfx, *msg))
+      return 0;
+  }
   ignoring = match_ignore(from);
   to = newsplit(&msg);
-  realto = (*to == '@') ? to + 1 : to;
+  realto = to;
+  {
+    const char *pfx = isupport_get_prefixchars();
+    while (*realto && strchr(pfx, *realto) && realto[1] && strchr(CHANMETA, realto[1]))
+      realto++;
+  }
   chan = findchan(realto);
   if (!chan)
     return 0;                   /* Notice to an unknown channel?? */
