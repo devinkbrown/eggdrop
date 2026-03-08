@@ -1155,7 +1155,7 @@ static void bot_filereq(int idx, char *tobot)
       else {
         Function f = fs->funcs[FILESYS_REMOTE_REQ];
 
-        f(idx, from, path);
+        ((void (*)(int, char *, char *)) f)(idx, from, path);
       }
     } else {                      /* Pass it on */
       i = nextbot(tobot);

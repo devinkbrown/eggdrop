@@ -361,7 +361,7 @@ static cmd_t mydcc[] = {
   {NULL,    NULL, NULL,          NULL}
 };
 
-static char *console_close()
+static char *console_close(void)
 {
   rem_builtins(H_chon, mychon);
   rem_builtins(H_dcc, mydcc);
@@ -373,7 +373,7 @@ static char *console_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *console_start();
+EXPORT_SCOPE char *console_start(Function *global_funcs);
 
 static Function console_table[] = {
   (Function) console_start,

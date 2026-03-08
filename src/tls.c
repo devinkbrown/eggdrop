@@ -61,7 +61,7 @@ char tls_ciphers[2049] = "";  /* A list of ciphers for SSL to use             */
 /* Count allocated memory for SSL. This excludes memory allocated by OpenSSL's
  * family of malloc functions.
  */
-int expmem_tls()
+int expmem_tls(void)
 {
   int i, tot;
   struct threaddata *td = threaddata();
@@ -231,7 +231,7 @@ void verify_cert_expiry(int idx) {
  *
  * Return value: 0 on successful initialization, !=0 on failure
  */
-int ssl_init()
+int ssl_init(void)
 {
   /* OpenSSL library initialization
    * If you are using 1.1.0 or above then you don't need to take any further steps. */
@@ -424,7 +424,7 @@ int ssl_init()
 }
 
 /* Free the SSL CTX, clean up the mess */
-void ssl_cleanup()
+void ssl_cleanup(void)
 {
   if (ssl_ctx) {
     SSL_CTX_free(ssl_ctx);
@@ -884,7 +884,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
        using H_tls */
     sock = SSL_get_fd(ssl);
     if (data->cb)
-      data->cb(sock);
+      ((int (*)(int)) data->cb)(sock);
     /* Call TLS binds. We allow scripts to take over or disable displaying of
        certificate information. */
     if (check_tcl_tls(sock))

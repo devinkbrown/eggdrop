@@ -51,27 +51,27 @@ static int memtbl_size = MEMTBLSIZE_START;
 #endif
 
 /* Prototypes */
-int expected_memory();
-int expmem_chanprog();
-int expmem_misc();
-int expmem_fileq();
-int expmem_users();
-int expmem_dccutil();
-int expmem_botnet();
-int expmem_tcl();
-int expmem_tclhash();
-int expmem_tclmisc();
-int expmem_net();
-int expmem_language();
-int expmem_tcldcc();
-int expmem_dns();
+int expected_memory(void);
+int expmem_chanprog(void);
+int expmem_misc(void);
+int expmem_fileq(void);
+int expmem_users(void);
+int expmem_dccutil(void);
+int expmem_botnet(void);
+int expmem_tcl(void);
+int expmem_tclhash(void);
+int expmem_tclmisc(void);
+int expmem_net(void);
+int expmem_language(void);
+int expmem_tcldcc(void);
+int expmem_dns(void);
 #ifdef TLS
-int expmem_tls();
+int expmem_tls(void);
 #endif
 
 /* Initialize the memory structure
  */
-void init_mem()
+void init_mem(void)
 {
 #ifdef DEBUG_MEM
   size_t size;

@@ -378,7 +378,7 @@ IP my_atoul(char *s)
   return ret;
 }
 
-int expmem_net()
+int expmem_net(void)
 {
   int i, tot = 0;
   struct threaddata *td = threaddata();
@@ -2028,7 +2028,7 @@ void tputs(int z, char *s, unsigned int len)
  * are ready for writing, then drains their outbuf.  Falls back to a
  * zero-timeout select() when no async back-end is available.
  */
-void dequeue_sockets()
+void dequeue_sockets(void)
 {
   int i, x;
   fd_set wfds;

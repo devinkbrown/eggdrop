@@ -85,7 +85,7 @@ void dcc_map_clear(int sock)
  *
  * increase_socks_max() can be called by Tcl threads
  */
-int increase_socks_max()
+int increase_socks_max(void)
 {
   struct threaddata *td = threaddata();
   int osock = td->MAXSOCKS, max_dcc_new;
@@ -129,7 +129,7 @@ int increase_socks_max()
   return 0;
 }
 
-int expmem_dccutil()
+int expmem_dccutil(void)
 {
   int tot, i;
 

@@ -532,7 +532,7 @@ int check_validity(char *nme, IntFunc func)
 
 static int builtin_3char STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *, char *, char *) = (void (*)(char *, char *, char *)) cd;
 
   BADARGS(4, 4, " from to args");
 
@@ -543,7 +543,7 @@ static int builtin_3char STDVAR
 
 static int builtin_2char STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *, char *) = (void (*)(char *, char *)) cd;
 
   BADARGS(3, 3, " nick msg");
 
@@ -554,7 +554,7 @@ static int builtin_2char STDVAR
 
 static int builtin_5int STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(int, int, int, int, int) = (void (*)(int, int, int, int, int)) cd;
 
   BADARGS(6, 6, " min hrs dom mon year");
 
@@ -565,7 +565,7 @@ static int builtin_5int STDVAR
 
 static int builtin_cron STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(int, int, int, int, int) = (void (*)(int, int, int, int, int)) cd;
 
   BADARGS(6, 6, " min hrs dom mon weekday");
 
@@ -576,7 +576,7 @@ static int builtin_cron STDVAR
 
 static int builtin_char STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *) = (void (*)(char *)) cd;
 
   BADARGS(2, 2, " handle");
 
@@ -587,7 +587,7 @@ static int builtin_char STDVAR
 
 static int builtin_chpt STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *, char *, int) = (void (*)(char *, char *, int)) cd;
 
   BADARGS(3, 3, " bot nick sock");
 
@@ -598,7 +598,8 @@ static int builtin_chpt STDVAR
 
 static int builtin_chjn STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *, char *, int, char, int, char *) =
+    (void (*)(char *, char *, int, char, int, char *)) cd;
 
   BADARGS(6, 6, " bot nick chan# flag&sock host");
 
@@ -616,9 +617,9 @@ static int builtin_evnt STDVAR
 
   CHECKVALIDITY(builtin_evnt);
   if (argc==2) {
-    F(argv[1]);
+    ((void (*)(char *)) F)(argv[1]);
   } else {
-    F(argv[1], argv[2]);
+    ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   }
   return TCL_OK;
 }
@@ -637,7 +638,7 @@ static int builtin_idxchar STDVAR
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
   }
-  r = (((char *(*)()) F) (idx, argv[2]));
+  r = ((char *(*)(int, char *)) F)(idx, argv[2]);
 
   Tcl_ResetResult(irp);
   Tcl_AppendResult(irp, r, NULL);
@@ -657,14 +658,14 @@ static int builtin_charidx STDVAR
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, int_to_base10(F(argv[1], idx)), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((intptr_t (*)(char *, int)) F)(argv[1], idx)), NULL);
 
   return TCL_OK;
 }
 
 static int builtin_chat STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *, int, char *) = (void (*)(char *, int, char *)) cd;
   int ch;
 
   BADARGS(4, 4, " handle idx text");
@@ -701,7 +702,7 @@ static int builtin_dcc STDVAR
   debug4("tcl: builtin dcc call: %s %s %s %s", argv[0], argv[1], argv[2],
          (!strcmp(argv[0] + 5, "newpass") || !strcmp(argv[0] + 5, "chpass")) ?
          "[something]" : argv[3]);
-  F(dcc[idx].user, idx, argv[3]);
+  ((void (*)(struct userrec *, int, char *)) F)(dcc[idx].user, idx, argv[3]);
   Tcl_ResetResult(irp);
   Tcl_AppendResult(irp, "0", NULL);
   return TCL_OK;
@@ -709,7 +710,7 @@ static int builtin_dcc STDVAR
 
 static int builtin_log STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(char *, char *, char *) = (void (*)(char *, char *, char *)) cd;
 
   BADARGS(3, 3, " lvl chan msg");
 
@@ -721,7 +722,7 @@ static int builtin_log STDVAR
 #ifdef TLS
 static int builtin_idx STDVAR
 {
-  Function F = (Function) cd;
+  void (*F)(int) = (void (*)(int)) cd;
 
   BADARGS(2, 2, " idx");
 

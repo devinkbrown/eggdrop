@@ -262,7 +262,7 @@ static int tcl_setchan STDVAR
   if ((me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (idx);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(idx);
   }
   return TCL_OK;
 }
@@ -345,7 +345,7 @@ static int tcl_do_console(Tcl_Interp *irp, ClientData cd, int argc,
   if (argc > 2 && (me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (i);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(i);
   }
   return TCL_OK;
 }
@@ -402,7 +402,7 @@ static int tcl_strip STDVAR
   if (argc > 2 && (me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (i);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(i);
   }
   return TCL_OK;
 }
@@ -433,7 +433,7 @@ static int tcl_echo STDVAR
   if (argc > 2 && (me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (i);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(i);
   }
   return TCL_OK;
 }
@@ -470,7 +470,7 @@ static int tcl_page STDVAR
   if ((argc > 2) && (me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (i);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(i);
   }
   return TCL_OK;
 }

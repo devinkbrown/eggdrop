@@ -511,7 +511,7 @@ static void dcc_bot(int idx, char *code, int i)
 
     if (!y) {
       /* Found a match */
-      (C_bot[i].func) (idx, msg);
+      ((int (*)(int, char *)) C_bot[i].func)(idx, msg);
       f = 1;
     } else if (y < 0)
       return;

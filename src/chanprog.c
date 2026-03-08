@@ -155,7 +155,7 @@ void clear_chanlist_member(const char *nick)
 
 /* Calculate the memory we should be using
  */
-int expmem_chanprog()
+int expmem_chanprog(void)
 {
   int tot = 0;
   tcl_timer_t *t;
@@ -167,7 +167,7 @@ int expmem_chanprog()
   return tot;
 }
 
-float getcputime()
+float getcputime(void)
 {
   float stime, utime;
   struct rusage ru;
@@ -355,7 +355,7 @@ void tell_settings(int idx)
           (ignore_time != 1) ? "s" : "");
 }
 
-void reaffirm_owners()
+void reaffirm_owners(void)
 {
   char *p, *q, s[sizeof owner];
   struct userrec *u;
@@ -381,7 +381,7 @@ void reaffirm_owners()
   }
 }
 
-void chanprog()
+void chanprog(void)
 {
   int i;
 
@@ -458,7 +458,7 @@ void chanprog()
 
 /* Reload the user file from disk
  */
-void reload()
+void reload(void)
 {
   if (!file_readable(userfile)) {
     putlog(LOG_MISC, "*", "%s", MISC_CANTRELOADUSER);
@@ -477,7 +477,7 @@ void reload()
   call_hook(HOOK_READ_USERFILE);
 }
 
-void rehash()
+void rehash(void)
 {
   call_hook(HOOK_PRE_REHASH);
   noshare = 1;
@@ -674,7 +674,7 @@ int isowner(char *name) {
 /*
  * Adds the -HQ user to the userlist and takes care of needed permissions
  */
-void add_hq_user()
+void add_hq_user(void)
 {
   if (!backgrd && term_z >= 0) {
     /* HACK: Workaround using dcc[].nick not to pass literal "-HQ" as a non-const arg */

@@ -234,7 +234,7 @@ static tcl_strings my_tcl_strings[] = {
   {NULL,            NULL,          0,  0}
 };
 
-EXPORT_SCOPE char *pbkdf2_start();
+EXPORT_SCOPE char *pbkdf2_start(Function *global_funcs);
 
 static Function pbkdf2_table[] = {
   (Function) pbkdf2_start,

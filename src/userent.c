@@ -37,7 +37,7 @@ int remove_pass = 0; /* create and keep encryption mod passwords */
 struct user_entry_type *entry_type_list;
 
 
-void init_userent()
+void init_userent(void)
 {
   entry_type_list = 0;
   add_entry_type(&USERENTRY_COMMENT);

@@ -703,7 +703,7 @@ static int tcl_setuser STDVAR
   if (me && !strcasecmp(argv[2], "hosts") && argc == 3) {
     Function *func = me->funcs;
 
-    (func[IRC_CHECK_THIS_USER]) (argv[1], 1, NULL);
+    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 1, NULL);
   }
   if (!(e = find_user_entry(et, u))) {
     e = user_malloc(sizeof(struct user_entry));
@@ -721,7 +721,7 @@ static int tcl_setuser STDVAR
   if (me && !strcasecmp(argv[2], "hosts") && argc == 4) {
     Function *func = me->funcs;
 
-    (func[IRC_CHECK_THIS_USER]) (argv[1], 0, NULL);
+    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 0, NULL);
   }
   return r;
 }

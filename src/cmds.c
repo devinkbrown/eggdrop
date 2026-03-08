@@ -766,7 +766,7 @@ static void do_console(struct userrec *u, int idx, char *par, int reset)
   if ((me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (dest);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(dest);
   }
 }
 
@@ -2000,7 +2000,7 @@ static void remove_from_handle(struct userrec *u, int idx, char *handle, char *h
       if ((me = module_find("irc", 0, 0))) {
         Function *func = me->funcs;
 
-        (func[IRC_CHECK_THIS_USER]) (handle, 2, host);
+        ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(handle, 2, host);
       }
     } else {
       dprintf(idx, "Failed.\n");
@@ -2237,7 +2237,7 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
   }
   if (chg && (me = module_find("irc", 0, 0))) {
     Function *func = me->funcs;
-    (func[IRC_CHECK_THIS_USER]) (hand, 0, NULL);
+    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(hand, 0, NULL);
   }
   if (tmpchg)
     nfree(tmpchg);
@@ -2509,7 +2509,7 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
   if ((me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (idx);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(idx);
   }
 }
 
@@ -2536,7 +2536,7 @@ static void cmd_echo(struct userrec *u, int idx, char *par)
   if ((me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (idx);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(idx);
   }
 }
 
@@ -2703,7 +2703,7 @@ static void cmd_strip(struct userrec *u, int idx, char *par)
   if ((me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (dest);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(dest);
   }
 }
 
@@ -2831,7 +2831,7 @@ static void cmd_page(struct userrec *u, int idx, char *par)
   if ((me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
 
-    (func[CONSOLE_DOSTORE]) (idx);
+    ((int (*)(int)) func[CONSOLE_DOSTORE])(idx);
   }
 }
 
@@ -3138,7 +3138,7 @@ static void cmd_mns_user(struct userrec *u, int idx, char *par)
   if ((me = module_find("irc", 0, 0))) {
     Function *func = me->funcs;
 
-    (func[IRC_CHECK_THIS_USER]) (handle, 1, NULL);
+    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(handle, 1, NULL);
   }
   if (deluser(handle)) {
     putlog(LOG_CMDS, "*", "#%s# -user %s", dcc[idx].nick, handle);
@@ -3172,7 +3172,7 @@ static void cmd_pls_host(struct userrec *u, int idx, char *par)
     dprintf(idx, "Added '%s' to %s.\n", host, handle);
     if ((me = module_find("irc", 0, 0))) {
       Function *func = me->funcs;
-      (func[IRC_CHECK_THIS_USER]) (handle, 0, NULL);
+      ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(handle, 0, NULL);
     }
   }
 }

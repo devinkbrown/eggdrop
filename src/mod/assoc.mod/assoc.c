@@ -55,7 +55,7 @@ static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
       botnet_send_zapf(idx2, botnetnick, dcc[idx2].nick, x);
 }
 
-static int assoc_expmem()
+static int assoc_expmem(void)
 {
   assoc_t *a;
   int size = 0;
@@ -102,7 +102,7 @@ static void kill_assoc(int chan)
   }
 }
 
-static void kill_all_assoc()
+static void kill_all_assoc(void)
 {
   assoc_t *a, *x;
 
@@ -381,7 +381,7 @@ static tcl_cmds mytcl[] = {
   {NULL,                 NULL}
 };
 
-static char *assoc_close()
+static char *assoc_close(void)
 {
   kill_all_assoc();
   rem_builtins(H_dcc, mydcc);
@@ -394,7 +394,7 @@ static char *assoc_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *assoc_start();
+EXPORT_SCOPE char *assoc_start(Function *global_funcs);
 
 static Function assoc_table[] = {
   (Function) assoc_start,

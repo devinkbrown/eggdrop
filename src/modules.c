@@ -127,11 +127,11 @@ void check_static(char *name, char *(*func) ())
 
 
 /* The null functions */
-void null_func()
+void null_func(void)
 {
 }
 
-int false_func()
+int false_func(void)
 {
   return 0;
 }
@@ -159,10 +159,10 @@ char *(*encrypt_pass2) (char *) = 0;
 char *(*verify_pass2) (char *, char *) = 0;
 char *(*encrypt_string) (char *, char *) = 0;
 char *(*decrypt_string) (char *, char *) = 0;
-void (*shareout) () = null_func;
+void (*shareout) (void *, const char *, ...) = (void (*)(void *, const char *, ...)) null_func;
 void (*sharein) (int, char *) = null_share;
 void (*qserver) (int, char *, int) = (void (*)(int, char *, int)) null_func;
-void (*add_mode) () = null_func;
+void (*add_mode) (struct chanset_t *, char, char, char *) = (void (*)(struct chanset_t *, char, char, char *)) null_func;
 int (*match_noterej) (struct userrec *, char *) =
     (int (*)(struct userrec *, char *)) false_func;
 int (*rfc_casecmp) (const char *, const char *) = _rfc_casecmp;
@@ -1074,7 +1074,7 @@ void add_hook(int hook_num, Function func)
       decrypt_string = (char *(*)(char *, char *)) func;
       break;
     case HOOK_SHAREOUT:
-      shareout = (void (*)()) func;
+      shareout = (void (*)(void *, const char *, ...)) func;
       break;
     case HOOK_SHAREIN:
       sharein = (void (*)(int, char *)) func;
@@ -1084,8 +1084,8 @@ void add_hook(int hook_num, Function func)
         qserver = (void (*)(int, char *, int)) func;
       break;
     case HOOK_ADD_MODE:
-      if (add_mode == (void (*)()) null_func)
-        add_mode = (void (*)()) func;
+      if (add_mode == (void (*)(struct chanset_t *, char, char, char *)) null_func)
+        add_mode = (void (*)(struct chanset_t *, char, char, char *)) func;
       break;
       /* special hook <drummer> */
     case HOOK_RFC_CASECMP:
@@ -1166,8 +1166,8 @@ void del_hook(int hook_num, Function func)
         decrypt_string = (char *(*)(char *, char *)) null_func;
       break;
     case HOOK_SHAREOUT:
-      if (shareout == (void (*)()) func)
-        shareout = null_func;
+      if (shareout == (void (*)(void *, const char *, ...)) func)
+        shareout = (void (*)(void *, const char *, ...)) null_func;
       break;
     case HOOK_SHAREIN:
       if (sharein == (void (*)(int, char *)) func)
@@ -1178,8 +1178,8 @@ void del_hook(int hook_num, Function func)
         qserver = null_func;
       break;
     case HOOK_ADD_MODE:
-      if (add_mode == (void (*)()) func)
-        add_mode = null_func;
+      if (add_mode == (void (*)(struct chanset_t *, char, char, char *)) func)
+        add_mode = (void (*)(struct chanset_t *, char, char, char *)) null_func;
       break;
     case HOOK_MATCH_NOTEREJ:
       if (match_noterej == (int (*)(struct userrec *, char *)) func)

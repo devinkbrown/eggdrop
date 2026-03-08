@@ -105,7 +105,7 @@ struct tcl_unicodesup_info {
 
 
 
-int expmem_tcl()
+int expmem_tcl(void)
 {
   return strtot;
 }
@@ -132,7 +132,7 @@ static void botnet_change(char *new)
  *     Vars, traces, misc
  */
 
-int init_misc();
+int init_misc(void);
 
 /* Used for read/write to integer couplets */
 typedef struct {
@@ -397,21 +397,21 @@ void add_tcl_objcommands(tcl_cmds *table)
 }
 
 /* Get the current tcl result string. */
-const char *tcl_resultstring()
+const char *tcl_resultstring(void)
 {
   const char *result;
   result = Tcl_GetStringResult(interp);
   return result;
 }
 
-int tcl_resultempty() {
+int tcl_resultempty(void) {
   const char *result;
   result = tcl_resultstring();
   return (result && result[0]) ? 0 : 1;
 }
 
 /* Get the current tcl result as int. replaces atoi(interp->result) */
-int tcl_resultint()
+int tcl_resultint(void)
 {
   int result;
   if (Tcl_GetIntFromObj(NULL, Tcl_GetObjResult(interp), &result) != TCL_OK)
@@ -526,7 +526,7 @@ static tcl_coups def_tcl_coups[] = {
 /* Set up Tcl variables that will hook into eggdrop internal vars via
  * trace callbacks.
  */
-static void init_traces()
+static void init_traces(void)
 {
   add_tcl_coups(def_tcl_coups);
   add_tcl_strings(def_tcl_strings);
@@ -537,7 +537,7 @@ static void init_traces()
   Tcl_TraceVar(interp, "remove-pass", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES, traced_remove_pass, NULL);
 }
 
-void kill_tcl()
+void kill_tcl(void)
 {
   rem_tcl_coups(def_tcl_coups);
   rem_tcl_strings(def_tcl_strings);
@@ -597,7 +597,7 @@ void tickle_FinalizeNotifier(ClientData cd)
     nfree(td->socklist);
 }
 
-ClientData tickle_InitNotifier()
+ClientData tickle_InitNotifier(void)
 {
   static int ismainthread = 1;
   init_threaddata(ismainthread);
@@ -629,7 +629,7 @@ int tclthreadmainloop(int zero)
 
 struct threaddata *td_main = 0;
 
-struct threaddata *threaddata()
+struct threaddata *threaddata(void)
 {
   static Tcl_ThreadDataKey tdkey;
   struct threaddata *td = Tcl_GetThreadData(&tdkey, sizeof(struct threaddata));
@@ -1249,7 +1249,7 @@ void rem_tcl_coups(tcl_coups *list)
 
 /* Check if the Tcl library supports threads
 */
-int tcl_threaded()
+int tcl_threaded(void)
 {
   if (Tcl_GetCurrentThread() != (Tcl_ThreadId)0)
     return 1;
@@ -1259,7 +1259,7 @@ int tcl_threaded()
 
 /* Check if we need to fork before initializing Tcl
 */
-int fork_before_tcl()
+int fork_before_tcl(void)
 {
   return 0;
 }
