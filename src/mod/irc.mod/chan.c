@@ -1196,14 +1196,10 @@ static int got354(char *from, char *msg)
       chname = newsplit(&msg);  /* Grab the channel */
       chan = findchan(chname);  /* See if I'm on channel */
       if (chan) {               /* Am I? */
-        user = newsplit(&msg);  /* Grab the user */
-        host = newsplit(&msg);  /* Grab the host */
-        nick = newsplit(&msg);  /* Grab the nick */
-        if (strchr(nick, '.') || strchr(nick, ':')) { /* FIXME: Use 005 WHOX instead */
-          host = nick;
-          nick = newsplit(&msg);
-        }
-        flags = newsplit(&msg);     /* Grab the flags */
+        user = newsplit(&msg);  /* Grab the user (ident) - field 'u' */
+        host = newsplit(&msg);  /* Grab the host          - field 'h' */
+        nick = newsplit(&msg);  /* Grab the nick          - field 'n' */
+        flags = newsplit(&msg); /* Grab the flags         - field 'f' */
         account = newsplit(&msg);   /* Grab the account name */
         fixcolon(account);
         got352or4(chan, user, host, nick, flags, account);
