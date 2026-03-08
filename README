@@ -24,14 +24,35 @@ FORK NOTICE
          upstream. This fork adds it — including a proper IOCP I/O
          backend — so Eggdrop can run as a first-class Windows process.
 
-         The IOCP backend was adapted from libop, the I/O layer of the
-         ophion project (https://github.com/devinkbrown/ophion), also
-         by devinkbrown. libop already solved the hard parts of Windows
-         async I/O (zero-byte overlapped WSARecv/WSASend, stale
-         completion detection, SQPOLL-style batching) in a clean C API.
-         Reusing that work meant the Windows backend could be added to
-         Eggdrop in a single coherent pass rather than being bolted on
-         piece by piece.
+  Why libop is used here:
+
+         Eggdrop's existing I/O loop (net.c) was written for POSIX and
+         had no path for Windows async I/O whatsoever. Writing IOCP from
+         scratch inside a foreign codebase is error-prone: getting the
+         overlapped structure layout right, handling stale completions
+         after a socket is closed, draining the completion port safely,
+         and avoiding double-frees are all subtle failure modes.
+
+         libop is the I/O layer of the ophion project
+         (https://github.com/devinkbrown/ophion), written by the same
+         author. It had already solved all of those problems in
+         production-tested C:
+
+           - Zero-byte overlapped WSARecv/WSASend arms readiness
+             notifications without touching the data buffer, matching
+             exactly how epoll/kqueue signal readability.
+           - The OVERLAPPED struct is the first member of every pending
+             operation, so GetQueuedCompletionStatus results cast back
+             to the pending struct without undefined behaviour.
+           - Stale completions (arriving after the socket is closed) are
+             detected by recording the socket fd and slot index at arm
+             time and checking them on arrival.
+           - Read/write arms are tracked per-slot so the port is never
+             double-armed.
+
+         Adapting libop's design meant the Windows backend could be
+         dropped into Eggdrop in a single coherent pass and reviewed as
+         a unit, rather than being bolted on piece by piece over time.
 
       3. All five major platforms (Linux/io_uring, Linux/epoll,
          macOS+BSD/kqueue, Windows/IOCP, fallback/select) now have a
