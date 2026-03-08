@@ -212,7 +212,7 @@ the Tcl proc, and an explanation.
 
   bind rmst <flags> <mask> <proc>
 
-  procname <chan> <tags>
+  procname <chan> <tags> <msg>
 
   Description: Called when Eggdrop receives a ROOMSTATE message. mask is
   in the format of #channel keys and can use wildcards. For example, to
@@ -230,7 +230,7 @@ the Tcl proc, and an explanation.
 
   bind usst <flags> <mask> <proc>
 
-  procname <chan> <tags>
+  procname <chan> <tags> <msg>
 
   Description: Called when Eggdrop receives a USERSTATE message. mask is
   in the format of #channel keys and can use wildcards (see the RMST
@@ -243,11 +243,11 @@ the Tcl proc, and an explanation.
 
   bind usrntc <flags> <mask> <proc>
 
-  procname <chan> <tags>
+  procname <chan> <tags> <msg>
 
   Description: Called when Eggdrop received a USERNOTICE message. mask
   is in the format of #channel keys and can use wildcards (see the RMST
   bind for additional details on format). chan is the channel Eggdrop
   received the USERNOTICE message for, and tags is a list of key/value
   pairs provided in the USERNOTICE message, suitable for use as a Tcl
-  dict. flags` is ignored.
+  dict. msg is the optional human-readable text body of the USERNOTICE (e.g. a subscriber's custom message on sub/resub), and will be an empty string if the event carries no text. flags` is ignored.
