@@ -1,4 +1,4 @@
-Last revised: October 25, 2010
+Last revised: March 8, 2026
 
 Eggdrop Core Settings
 
@@ -6,23 +6,43 @@ This file describes the syntax and all the settings of your Eggdrop
 configuration file. Please note that you don't need to set all of these
 variables to make your bot work properly.
 
-EXECUTABLE PATH
+CONFIG FILE FORMATS
 
-The first line in an Eggdrop configuration file should contain a fully
-qualified path to your Eggdrop executable. It has to be implemented in
-the way the example shows to make the config file work as a shell
-script.
+Eggdrop supports two configuration file formats. The format is
+auto-detected from the file extension:
 
-Example:
+  .toml  Modern TOML format (recommended). No Tcl knowledge needed,
+         no shebang line, no 'chmod u+x'. Sections group related
+         settings together. Example:
 
-    #! /path/to/eggdrop
+             [bot]
+             username = "lamest"
+             admin    = "Lamer <email: lamer@lamest.lame.org>"
+
+         To generate an initial TOML config interactively:
+
+             eggdrop --setup mybot.toml
+
+         To migrate an existing .conf to TOML:
+
+             python3 scripts/conf2toml.py mybot.conf mybot.toml
+
+  other  Legacy Tcl-script format (.conf). Still fully supported.
+         The first line used to contain a shebang for direct execution;
+         this is no longer needed or recommended. Example:
+
+             set username "lamest"
+             set admin "Lamer <email: lamer@lamest.lame.org>"
+
+Settings below are shown in TOML format first, with the legacy Tcl
+equivalent in parentheses for reference.
 
 BASIC SETTINGS
 
 You can change the basic Eggdrop appearance and behavior in this
 section.
 
-  set username "lamest"
+  username = "lamest"                    (set username "lamest")
 
       This setting defines the username the bot uses on IRC. This
       setting has no effect if an ident daemon is running on your bot's

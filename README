@@ -12,6 +12,10 @@ FORK NOTICE
 
   Notable differences from upstream:
 
+    - TOML configuration format: eggdrop.toml replaces the Tcl-script
+      config. Run 'eggdrop --setup' for an interactive wizard that
+      creates a ready-to-use config with no Tcl knowledge required.
+      No 'chmod u+x' needed. Legacy .conf files still work unchanged.
     - Build system replaced: autoconf/make → Meson + Ninja
     - Native Windows (MinGW / MSVC) support via IOCP event backend
     - Cygwin legacy hacks removed; Cygwin compiles on the POSIX path
@@ -128,6 +132,11 @@ SYSTEM PRE-REQUISITES
   usually packaged as 'tcl-dev' or 'tcl-devel'. Source is available at
   https://www.tcl.tk/software/tcltk/download.html.
 
+  Note: Tcl is still required to build and run Eggdrop even when using
+  the new TOML config format, because Tcl is used for the scripting
+  engine and module API. The TOML format only removes the need to know
+  Tcl when writing the configuration file.
+
   OpenSSL (and its development headers) is required to enable SSL/TLS
   protection of network data. Headers are usually packaged as
   'libssl-dev'. TLS can be disabled at configure time:
@@ -160,16 +169,71 @@ MINIMUM REQUIREMENTS
   I/O: IOCP (Windows native)      Windows SDK         Windows 7+
   -----------------------------------------------------------------------
 
+CONFIGURATION
+
+  This fork uses TOML as the primary configuration format. TOML is a
+  modern, human-readable format that requires no knowledge of Tcl.
+
+  QUICK METHOD — interactive wizard (recommended for new installs):
+
+      eggdrop --setup mybot.toml
+
+    This asks you a handful of questions and writes a ready-to-use
+    config file. No 'chmod u+x' required.
+
+  MANUAL METHOD — copy and edit the sample file:
+
+      cp eggdrop-basic.toml mybot.toml
+      $EDITOR mybot.toml          # at minimum set nick, servers, owner
+
+  CONFIG FORMAT:
+
+      [bot]
+      nick    = "MyBot"
+      altnick = "MyBot0"
+      owner   = "MyNick"
+
+      [servers]
+      list = ["irc.libera.chat:+6697"]
+
+      [channels]
+      list = ["#mychannel"]
+
+      [modules]
+      load = ["pbkdf2", "blowfish", "channels", "server", "ctcp", "irc",
+              "notes", "console", "uptime"]
+
+      [scripts]
+      load = ["scripts/alltools.tcl"]
+
+  For the full reference, see eggdrop.toml (all settings, fully
+  documented) or run 'eggdrop --setup' to generate a personalised copy.
+
+  LEGACY FORMAT: .conf files are still supported. Pass one explicitly:
+
+      eggdrop mybot.conf
+
+  The bot auto-detects the format by file extension (.toml vs. anything
+  else). The default config file name is now eggdrop.toml.
+
 QUICK STARTUP
 
-  Please see the Install file after you finish reading this file.
+  Please see the INSTALL file after you finish reading this file.
 
 UPGRADING
 
   The upgrade process for Eggdrop is very simple, simply download the
   new source code and repeat the compile process. You will want to read
   the NEWS for any new configuration file settings you want to add.
-  Please see Upgrading for full details.
+  Please see the UPGRADING file for full details.
+
+  MIGRATION TO TOML: Existing .conf files continue to work with no
+  changes. When you are ready to switch, run:
+
+      eggdrop --setup mybot.toml
+
+  and answer the prompts, or manually copy your settings from your
+  existing .conf into a .toml file using the new format.
 
 COMMAND LINE
 
@@ -182,22 +246,24 @@ COMMAND LINE
 
   The options available are:
 
-    -t: Don't background, use terminal. Your console will drop into an
+    -s [outfile]: Run the interactive setup wizard. Prompts for key
+        settings and writes a ready-to-use TOML config file. If
+        outfile is omitted, writes to eggdrop.toml. No chmod needed.
+        Example: eggdrop --setup mybot.toml
 
+    -t: Don't background, use terminal. Your console will drop into an
         interactive partyline session, similar to a DCC chat with the
         bot. This is useful for troubleshooting connection issues with
         the bot.
 
     -c: Don't background, show channel info. Every 10 seconds your screen
-
         will clear and you will see the current channel status, sort of
         like "top".
 
-    -m: Create userfile. If you don't have a userfile, this will make Eggdrop
-
-        create one and give owner status to the first person that
-        introduces himself or herself to it. You'll need to do this when
-        you first set up your bot.
+    -m: Create userfile. If you don't have a userfile, this will make
+        Eggdrop create one and give owner status to the first person
+        that introduces himself or herself to it. You'll need to do
+        this when you first set up your bot.
 
     -h: Show help, then quit.
 
@@ -221,18 +287,18 @@ is still running, and attempt to restart it if it is not.
   To auto-generate a systemd job, from the Eggdrop install directory,
   simply run:
 
-      ./scripts/autobotchk <Eggdrop config file> -systemd
+      ./scripts/autobotchk <eggdrop.toml> -systemd
 
-  To auto-geneerate a script to check Eggdrop's status and run it via a
+  To auto-generate a script to check Eggdrop's status and run it via a
   crontab entry, simply run:
 
-      ./scripts/autobotchk <Eggdrop config file>
+      ./scripts/autobotchk <eggdrop.toml>
 
   This will crontab your bot using the default setup. If you want a list
   of autobotchk options, type './autobotchk'. A crontab example with
   options would be:
 
-      ./scripts/autobotchk <Eggdrop config file> -noemail -5
+      ./scripts/autobotchk <eggdrop.toml> -noemail -5
 
   This would setup crontab to run the botchk every 5 minutes and not
   send you an email saying that it restarted your bot.
@@ -242,7 +308,8 @@ DOCUMENTATION
   We're trying to keep the documentation up to date. If you feel that
   anything is missing here or that anything should be added, etc, please
   create an issue, or better yet a pull request, at
-  https://www.github.com/eggheads/eggdrop Thank you!
+  https://www.github.com/devinkbrown/eggdrop (for this fork) or
+  https://www.github.com/eggheads/eggdrop (for upstream). Thank you!
 
 OBTAINING HELP
 

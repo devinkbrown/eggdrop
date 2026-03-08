@@ -178,30 +178,56 @@ QUICK STARTUP
 
 [The following steps are performed in the directory you installed Eggdrop into]
 
-5.  Edit your config file completely.
+5.  Create your configuration file.
+
+    OPTION A — interactive wizard (recommended):
+
+        ./eggdrop --setup mybot.toml
+
+      Answer a handful of questions; the wizard writes a complete TOML
+      config for you. No Tcl knowledge needed, no chmod required.
+
+    OPTION B — copy and edit the sample TOML file:
+
+        cp eggdrop-basic.toml mybot.toml
+        $EDITOR mybot.toml
+
+      At minimum, set your nick, IRC servers, and owner handle.
+      See eggdrop.toml for the full reference with every setting
+      documented. The format is straightforward key = "value" pairs
+      organised into sections like [bot], [servers], [channels].
+
+    OPTION C — migrate an existing .conf to TOML:
+
+        python3 scripts/conf2toml.py mybot.conf mybot.toml
+
+      The .conf files are no longer installed, but the bot still loads
+      them when passed on the command line (the Tcl parser is used
+      automatically for any file without a .toml extension). This
+      allows a zero-downtime migration.
 
 6.  Start the bot with the "-m" option to create a user file:
 
-        ./eggdrop -m LamestBot.conf
+        ./eggdrop -m mybot.toml
 
-7.  When starting the bot in the future, drop the "-m". You can make the
-    config file executable and use it as a start script:
+    Note: No 'chmod u+x' is needed for TOML configs. The bot reads the
+    file directly; it is not executed as a shell script.
 
-        chmod u+x LamestBot.conf
-        ./LamestBot.conf
+7.  When starting the bot in the future, simply drop the "-m":
 
-    The first line of the config MUST contain the correct path to the
-    Eggdrop executable.
+        ./eggdrop mybot.toml
+
+    That's it. No need to make the file executable or add a shebang line.
 
 8.  Run your bot via systemd or crontab so it restarts automatically:
 
     systemd:
 
-        ./scripts/autobotchk [yourconfig.conf] -systemd
+        ./scripts/autobotchk mybot.toml -systemd
 
     crontab:
 
-        ./scripts/autobotchk [yourconfig.conf]
+        ./scripts/autobotchk mybot.toml
 
 9.  Smile. You have an Eggdrop!
 
