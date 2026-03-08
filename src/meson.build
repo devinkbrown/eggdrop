@@ -56,6 +56,7 @@ md5_dep = declare_dependency(link_with: md5_lib)
 core_sources = files(
   'bg.c',
   'botcmd.c',
+  'configtoml.c',
   'botmsg.c',
   'botnet.c',
   'chanprog.c',
@@ -316,16 +317,20 @@ install_subdir('../help',     install_dir: get_option('datadir') / 'eggdrop',
   strip_directory: true)
 install_subdir('../language', install_dir: get_option('datadir') / 'eggdrop',
   strip_directory: true)
-install_data('../eggdrop.conf',
+# Primary TOML configs — modern format, no chmod required.
+install_data('../eggdrop.toml',
   install_dir: get_option('datadir') / 'eggdrop')
-install_data('../eggdrop-basic.conf',
+install_data('../eggdrop-basic.toml',
   install_dir: get_option('datadir') / 'eggdrop')
 
-# Install eggdrop.conf also as eggdrop.conf.example so users always have
-# an unmodified reference copy alongside their active configuration.
+# Legacy Tcl configs — kept for backward-compatibility.
+# The bot still loads .conf files as Tcl scripts when passed explicitly.
 install_data('../eggdrop.conf',
   install_dir: get_option('datadir') / 'eggdrop',
-  rename: 'eggdrop.conf.example')
+  rename: 'eggdrop.conf.legacy')
+install_data('../eggdrop-basic.conf',
+  install_dir: get_option('datadir') / 'eggdrop',
+  rename: 'eggdrop-basic.conf.legacy')
 
 # -------------------------------------------------------------------------
 # Distribution note

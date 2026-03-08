@@ -1,0 +1,557 @@
+# Eggdrop TOML configuration file
+# This is the complete, fully-documented replacement for eggdrop.conf.
+#
+# Run the bot:
+#   eggdrop eggdrop.toml          (normal start)
+#   eggdrop -m eggdrop.toml       (first run — creates user file)
+#   eggdrop -t eggdrop.toml       (foreground / terminal mode)
+#
+# Quick start:
+#   eggdrop --setup mybot.toml    (interactive wizard — no editing needed)
+#
+# No chmod u+x required. This file is NOT executed as a shell script.
+# Tcl scripts are still loaded via [scripts] — see the bottom of this file.
+#
+# Full documentation: doc/settings/
+# Support           : https://www.eggheads.org  /  Libera #eggdrop
+
+# ────────────────────────────────────────────────────────────────────────────
+# MODULES
+# List modules to load at startup. Comment out lines you don't need.
+# Module files live in the mod_path directory (see [paths]).
+# ────────────────────────────────────────────────────────────────────────────
+
+[modules]
+load = [
+  "pbkdf2",     # Generation-2 userfile encryption (recommended)
+  "blowfish",   # Legacy userfile encryption support
+  "channels",   # Channel tracking and management
+  "server",     # Core IRC server support
+  "ctcp",       # CTCP functionality
+  "irc",        # Basic IRC functionality
+  # "transfer",   # DCC SEND/GET and userfile transfer
+  # "share",      # Userfile sharing between botnets
+  # "compress",   # Compress userfiles during transfer (requires zlib)
+  # "filesys",    # Built-in file server
+  "notes",      # Store notes for offline users
+  "console",    # Persist console settings across restarts
+  # "seen",       # Basic !seen command
+  # "assoc",      # Party-line channel naming
+  "uptime",     # Report uptime to https://www.eggheads.org/uptime/
+  # "ident",      # Ident daemon support
+  # "twitch",     # Twitch gaming service support
+  # "webui",      # Browser-based administration UI (requires TLS)
+]
+
+# ────────────────────────────────────────────────────────────────────────────
+# BOT IDENTITY
+# ────────────────────────────────────────────────────────────────────────────
+
+[bot]
+# Primary nick used on IRC and on the botnet.
+nick     = "Lamestbot"
+
+# Alternate nick if the primary nick is taken. '?' → random digit.
+altnick  = "Llamab?t"
+
+# IRC GECOS / "real name" field. Cannot be blank.
+realname = "/msg LamestBot hello"
+
+# IRC username (ident). Ignored when an ident daemon is running.
+username = "lamest"
+
+# Contact shown in .status and /msg help. Please fill this in.
+admin    = "Lamer <email: lamer@lamest.lame.org>"
+
+# IRC network name (informational; shared with other bots).
+network  = "I.didn't.edit.my.config.file.net"
+
+# Timezone name (3+ letters). Used for timestamps.
+timezone = "EST"
+
+# UTC offset in hours (positive = west of prime meridian).
+offset   = "5"
+
+# ── Owner (REQUIRED) ────────────────────────────────────────────────────────
+# Comma-separated list of bot owner handles (must exist in the user file).
+# YOU MUST UNCOMMENT AND EDIT THIS.
+# owner = "MyNick, MyOtherNick"
+
+# Separate botnet nick. Defaults to the IRC nick if unset.
+# botnet_nick = "LlamaBot"
+
+# Pid file path. Defaults to "pid.<botnetnick>" if unset.
+# pidfile = "pid.LamestBot"
+
+# Who gets a note when a new user is learned? Typically "$owner".
+notify_newusers = "$owner"
+
+# Default flags for new users added via the 'hello' msg command.
+default_flags = "hp"
+
+# User-defined whois fields shown in .whois output.
+whois_fields = "url birthday"
+
+# ────────────────────────────────────────────────────────────────────────────
+# SERVERS
+# Format for each entry:
+#   "host:port"           plain connection
+#   "host:+port"          SSL/TLS connection
+#   "host:+port:password" SSL/TLS with server password
+#
+# The bot cycles through the list when disconnected.
+# YOU MUST CHANGE THESE to your IRC network's servers.
+# ────────────────────────────────────────────────────────────────────────────
+
+[servers]
+list = [
+  "you.need.to.change.this:6667",
+  "another.example.com:6669:password",
+  "2001:db8:618:5c0:263:::6669:password",
+  "ssl.example.net:+7000",
+]
+
+# ────────────────────────────────────────────────────────────────────────────
+# CHANNELS
+# Channels the bot should join automatically.
+# Per-channel flags and settings can be configured in the DCC console
+# with the .chanset and .chansave commands.
+# ────────────────────────────────────────────────────────────────────────────
+
+[channels]
+list = ["#egghelp"]
+
+# ────────────────────────────────────────────────────────────────────────────
+# LOGGING
+# Each entry: "flags channel logfile"
+#
+# Common flag letters:
+#   m  private messages/ctcps    o  commands / errors
+#   c  channel text              j  joins / parts / quits
+#   k  kicks / bans / modes      s  server messages
+#   b  bot messages              e  misc errors
+#   p  public msg/notice (chan)  *  all of the above
+# User-defined levels: 1–8 (usable by Tcl scripts)
+# Raw-traffic flags (d h r t u v) — only visible to +n users.
+#
+# The channel field can be a specific channel name or "*" for all channels.
+# ────────────────────────────────────────────────────────────────────────────
+
+[logging]
+entries = [
+  "mco * logs/eggdrop.log",
+  # "jpk #lamest logs/lamest.log",   # channel-specific log example
+]
+
+# Maximum number of simultaneous open log files (minimum 5).
+max_logs = 20
+
+# Maximum log file size in kilobytes (0 = unlimited).
+max_logsize = 0
+
+# Log raw IRC/botnet traffic (large security risk — +n users only).
+raw_log = 0
+
+# Add timestamps to log entries.
+log_time = 1
+
+# Timestamp format (strftime). Keep under 32 chars.
+timestamp_format = "[%H:%M:%S]"
+
+# Keep all logfiles forever (suffix with date).
+keep_all_logs = 0
+
+# Log file date suffix format (strftime). Default: "04May2000".
+logfile_suffix = ".%d%b%Y"
+
+# Hour and minute (24h, HHMM) when logfiles rotate. 300 = 03:00.
+switch_logfiles_at = 300
+
+# Suppress "Writing user file…" messages (1), backup messages (2),
+# and "Switching logfiles…" messages (3).
+quiet_save = 0
+
+# ────────────────────────────────────────────────────────────────────────────
+# FILE PATHS
+# ────────────────────────────────────────────────────────────────────────────
+
+[paths]
+# Eggdrop user and channel data files.
+userfile  = "LamestBot.user"
+chanfile  = "LamestBot.chan"
+
+# Unix permissions on the user file (octal string).
+userfile_perm = "0600"
+
+# Help files directory.
+help_path = "help/"
+
+# Text files directory (MOTD, banner, etc.).
+text_path = "text/"
+
+# MOTD displayed to users on DCC/telnet connect.
+motd = "text/motd"
+
+# Banner displayed before the login prompt on telnet.
+telnet_banner = "text/banner"
+
+# Directory for temporary files.
+temp = "/tmp"
+
+# Module directory (compiled .so / .dll files).
+mod_path = "modules/"
+
+# Notes file (used by the notes module).
+notefile = "LamestBot.notes"
+
+# ────────────────────────────────────────────────────────────────────────────
+# NETWORKING
+# ────────────────────────────────────────────────────────────────────────────
+
+[network]
+# Bind to a specific IPv4 address (multi-homed hosts).
+# vhost4 = "99.99.0.0"
+
+# Bind to a specific IPv6 address.
+# vhost6 = "2001:db8::c001:b07"
+
+# External IP for NAT setups (home routers, etc.).
+# nat_ip = "127.0.0.1"
+
+# Prefer IPv6 connections when available.
+prefer_ipv6 = 0
+
+# Default IRC port when none is specified in a server entry.
+default_port = 6667
+
+# Seconds before an IRC connection attempt times out.
+connect_timeout = 15
+
+# DNS lookup timeout in seconds.
+# resolve_timeout = 5
+
+# Reserved port range for DCC (e.g. "2010:2020").
+# reserved_portrange = "2010:2020"
+
+# ── DNS-over-TLS (optional) ─────────────────────────────────────────────────
+# dns_dot_server     = "1.1.1.1"
+# dns_dot_port       = 853
+# dns_dot_servername = "cloudflare-dns.com"
+
+# ────────────────────────────────────────────────────────────────────────────
+# SSL / TLS SETTINGS
+# ────────────────────────────────────────────────────────────────────────────
+
+[ssl]
+# ssl_privatekey = "eggdrop.key"
+# ssl_certificate = "eggdrop.crt"
+capath = "/etc/ssl/"
+# ssl_cafile = ""
+# ssl_ciphers = ""
+# ssl_dhparam = "dhparam.pem"
+# ssl_verify_depth = 9
+# ssl_cert_auth = 0
+# ssl_verify_dcc = 0
+# ssl_verify_bots = 0
+# ssl_verify_clients = 0
+
+# ────────────────────────────────────────────────────────────────────────────
+# SECURITY
+# ────────────────────────────────────────────────────────────────────────────
+
+[security]
+# Only permanent owners may use .tcl, .set, .python (1) or also .dump (2).
+# Setting to 0 is a security risk — gives owner shell-level access.
+must_be_owner = 1
+
+# Hide the "Eggdrop" server string in DCC/telnet banners.
+stealth_telnets = 0
+
+# Custom stealth login prompt (if stealth_telnets is 1).
+# stealth_prompt = "\n\nNickname.\n"
+
+# Require users to provide a password before DCC chat is accepted.
+require_p = 1
+
+# Allow telnet connections without a password. Dangerous!
+open_telnets = 0
+
+# Protect telnet port from brute-force attempts.
+protect_telnet = 0
+
+# Sanity-check DCC filenames.
+dcc_sanitycheck = 0
+
+# Maximum DCC flood connections (per time window).
+dcc_flood_thr = 3
+
+# Max telnet logins per minute before flood protection triggers.
+telnet_flood = "16:60"
+
+# Extra paranoia for telnet flood detection.
+paranoid_telnet_flood = 1
+
+# Seconds before an unverified DCC chat request times out.
+password_timeout = 180  # not a standard eggdrop var, but logical home
+
+# Enable CIDR support for b/e/I modes.
+cidr_support = 0
+
+# Show OS name and release in .status output.
+show_uname = 1
+
+# ────────────────────────────────────────────────────────────────────────────
+# BOT BEHAVIOUR
+# ────────────────────────────────────────────────────────────────────────────
+
+[behaviour]
+# Maximum simultaneous socket connections.
+max_socks = 100
+
+# Allow +d and +k users to use commands bound as "-|-".
+allow_dk_cmds = 1
+
+# Seconds to wait before re-checking a duplicate bot claim.
+dupwait_timeout = 5
+
+# Maximum time (s) between server pings before assuming a stoned server.
+check_stoned = 1
+
+# Quit on unrecognised server error codes.
+serverror_quit = 1
+
+# How many queued server messages before the queue is dropped.
+max_queue_msg = 300
+
+# Fire bindings even when the source is on the ignore list.
+trigger_on_ignore = 0
+
+# Prevent identical binds from being added twice.
+exclusive_binds = 0
+
+# Stack commands sent to the server.
+double_mode   = 1
+double_server = 1
+double_help   = 1
+
+# Optimize KICK commands (combine multi-user kicks).
+optimize_kicks = 1
+
+# Maximum recursion depth for bind stacks.
+stack_limit = 4
+
+# Hourly update check minute (0–59).
+hourly_updates = 0
+
+# Ignore time in seconds for flood protection.
+ignore_time = 15
+
+# Remote-boot authentication level (0=none, 1=owner only, 2=always require pw).
+remote_boots = 2
+
+# Propagate unlink commands across the botnet.
+share_unlinks = 1
+
+# Seconds to wait before assuming a split user has quit.
+wait_split = 600
+
+# Seconds to wait before no longer displaying split-info.
+wait_info = 180
+
+# IRC ident timeout in seconds.
+ident_timeout = 5
+
+# ────────────────────────────────────────────────────────────────────────────
+# SERVER / IRC MODULE SETTINGS
+# ────────────────────────────────────────────────────────────────────────────
+
+[irc]
+# IRC network type. Affects mode/ban handling.
+# EFnet, IRCnet, Undernet, DALnet, Libera, QuakeNet, etc.
+net_type = "EFnet"
+
+# Maximum nick length (0 = server default).
+# nick_len = 9
+
+# CTCP reply mode. 0 = normal, 1 = ignore all, 2 = reply to ctcp in channel.
+ctcp_mode = 0
+
+# Default IRC port when none is specified.
+default_port = 6667
+
+# Don't bounce bans set by other bots on the channel.
+bounce_bans    = 0
+bounce_exempts = 0
+bounce_invites = 0
+bounce_modes   = 0
+
+# Learn new users from the IRC userbase.
+learn_users = 0
+
+# Buffer length for mode strings.
+mode_buf_length = 200
+
+# Characters that grant op status (usually "@").
+opchars = "@"
+
+# Suppress info if there is no channel record for the user.
+no_chanrec_info = 0
+
+# Prevent mixing ban types (IP-only vs. nick!user@host).
+prevent_mixing = 1
+
+# ────────────────────────────────────────────────────────────────────────────
+# DCC / FILE TRANSFER (transfer.mod)
+# ────────────────────────────────────────────────────────────────────────────
+
+[transfer]
+# Maximum simultaneous downloads.
+max_dloads = 3
+
+# DCC transfer block size in bytes (0 = single send).
+dcc_block = 0
+
+# Seconds before an idle DCC transfer times out.
+xfer_timeout = 30
+
+# ────────────────────────────────────────────────────────────────────────────
+# FILE SERVER (filesys.mod)
+# ────────────────────────────────────────────────────────────────────────────
+
+[filesys]
+# Root path of the file system visible to users.
+files_path    = "/home/mydir/filesys"
+
+# Incoming upload directory.
+incoming_path = "/home/mydir/filesys/incoming"
+
+# Upload files into the current directory instead of incoming_path.
+upload_to_pwd = 0
+
+# filedb_path = ""
+
+# Maximum simultaneous file-area users.
+max_file_users = 20
+
+# Maximum size of a single uploadable file in kilobytes.
+max_filesize = 1024
+
+# ────────────────────────────────────────────────────────────────────────────
+# NOTES MODULE (notes.mod)
+# ────────────────────────────────────────────────────────────────────────────
+
+[notes]
+# Maximum stored notes per user.
+max_notes = 50
+
+# Note lifetime in days (0 = forever).
+note_life = 60
+
+# Allow note forwarding.
+allow_fwd = 0
+
+# Notify users of waiting notes.
+notify_users = 0
+
+# Notify on IRC join.
+notify_onjoin = 1
+
+# ────────────────────────────────────────────────────────────────────────────
+# CONSOLE MODULE (console.mod)
+# ────────────────────────────────────────────────────────────────────────────
+
+[console]
+# Default console flags shown when a user connects to DCC.
+console_flags = "mkcoblxs"
+
+# Auto-save console settings on change.
+console_autosave = 1
+
+# Force all DCC users into a channel view.
+force_channel = 0
+
+# Show info in the party-line.
+info_party = 0
+
+# ────────────────────────────────────────────────────────────────────────────
+# PASSWORD / ENCRYPTION
+# ────────────────────────────────────────────────────────────────────────────
+
+[crypto]
+# PBKDF2 hash method: SHA256 or SHA512.
+# pbkdf2_method = "SHA256"
+
+# PBKDF2 iteration count.
+# pbkdf2_rounds = 16000
+
+# Blowfish encryption mode: cbc or ecb.
+blowfish_use_mode = "cbc"
+
+# ────────────────────────────────────────────────────────────────────────────
+# IDENT MODULE (ident.mod)
+# ────────────────────────────────────────────────────────────────────────────
+
+[ident]
+# Ident method: 0 = built-in, 1 = system identd.
+# ident_method = 0
+
+# Port for the built-in ident server.
+# ident_port = 113
+
+# ────────────────────────────────────────────────────────────────────────────
+# WEBUI MODULE (webui.mod)  — requires TLS
+# Also uncomment "webui" in [modules].load above.
+# ────────────────────────────────────────────────────────────────────────────
+
+# [webui]
+# To configure the WebUI listening port, add Tcl commands in [tcl]:
+#   commands = ["listen 8080 webui", "listen +8443 webui"]
+
+# ────────────────────────────────────────────────────────────────────────────
+# TCL COMMANDS
+# Raw Tcl commands executed after all other settings are applied.
+# Use this for:
+#   - unbinding built-in commands  (unbind dcc n simul *dcc:simul)
+#   - per-channel flag tweaks      (channel set #chan +protectops)
+#   - webui listen ports           (listen 8080 webui)
+# ────────────────────────────────────────────────────────────────────────────
+
+[tcl]
+commands = [
+  # Disable the 'simul' partyline command (owners can simulate other users).
+  # Remove this line only if you fully trust all your owners.
+  "unbind dcc n simul *dcc:simul",
+
+  # Uncomment to disable .tcl and .set DCC commands:
+  # "unbind dcc n tcl *dcc:tcl",
+  # "unbind dcc n set *dcc:set",
+
+  # Uncomment to disable the 'ident' and 'addhost' MSG commands:
+  # "unbind msg - ident *msg:ident",
+  # "unbind msg - addhost *msg:addhost",
+]
+
+# ────────────────────────────────────────────────────────────────────────────
+# TCL SCRIPTS
+# Tcl script files to load. Paths are relative to the eggdrop install dir.
+# ────────────────────────────────────────────────────────────────────────────
+
+[scripts]
+load = [
+  "scripts/autoscripts.tcl",  # Autoscripts framework (see doc/AUTOSCRIPTS)
+  "scripts/alltools.tcl",     # Useful utility functions
+  "scripts/action.fix.tcl",   # Fix /me action display
+  "scripts/dccwhois.tcl",     # Let users .whois themselves
+  "scripts/userinfo.tcl",     # URL, email, ICQ info commands
+  # "scripts/compat.tcl",     # Backwards-compat shims (may break newer scripts)
+  # "scripts/myscript.tcl",   # Add your own scripts here
+]
+
+# ────────────────────────────────────────────────────────────────────────────
+# HELP FILES
+# ────────────────────────────────────────────────────────────────────────────
+
+[help]
+load = [
+  "userinfo.help",
+]
