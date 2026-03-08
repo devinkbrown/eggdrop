@@ -403,10 +403,12 @@ class Conf2Toml:
                 self._add("modules", "_load", f'"{m.group(1)}"')
                 continue
 
-            # logfile flags channel "file"
-            m = re.match(r'^logfile\s+(\S+)\s+(\S+)\s+"?([^"]+)"?', stripped)
+            # logfile flags channel "file"  (file may be quoted with spaces)
+            m = re.match(r'^logfile\s+(\S+)\s+(\S+)\s+"([^"]+)"', stripped) or \
+                re.match(r"^logfile\s+(\S+)\s+(\S+)\s+'([^']+)'", stripped) or \
+                re.match(r'^logfile\s+(\S+)\s+(\S+)\s+(\S+)', stripped)
             if m:
-                entry = f"{m.group(1)} {m.group(2)} {m.group(3)}"
+                entry = f"{m.group(1)} {m.group(2)} {m.group(3).strip()}"
                 self._add("logging", "_entries", f'"{entry}"')
                 continue
 
@@ -440,12 +442,30 @@ class Conf2Toml:
                 self._add("tcl", "_commands", _to_toml_tcl(block))
                 continue
 
-            # Single-line: unbind / bind / proc (already balanced) / putquick / etc.
-            if re.match(r'^(unbind|bind|proc|putquick|pysource|listen)\s', stripped):
+            # Single-line Tcl commands passed through verbatim.
+            # This covers the common eggdrop directives that don't need
+            # special conversion and will be evaluated by Tcl at startup.
+            _KNOWN_TCL = re.compile(
+                r'^('
+                r'unbind|bind|proc|'        # event binding / procedure definition
+                r'putquick|putserv|putlog|putloglev|puts|'  # output
+                r'pysource|'                # Python module
+                r'listen|'                  # DCC/telnet port
+                r'setudef|'                 # user-defined channel flags/fields
+                r'package\s+require|'       # Tcl package loading
+                r'namespace\s+eval|'        # namespace (single-line balanced)
+                r'channel\s+set|'           # per-channel option (single-line)
+                r'module\s+|'               # legacy module command
+                r'expr|'                    # expression evaluation
+                r'global|variable|'         # variable scoping
+                r'interp|rename'            # interpreter manipulation
+                r')\s'
+            )
+            if _KNOWN_TCL.match(stripped):
                 self._add("tcl", "_commands", _to_toml_tcl(stripped))
                 continue
 
-            # Anything else we don't recognise
+            # Anything else we don't recognise — still pass to [tcl] but warn
             self._add("tcl", "_commands", _to_toml_tcl(stripped))
             self._warn(f"Unrecognised line passed to [tcl]: {stripped[:60]}", lineno)
 

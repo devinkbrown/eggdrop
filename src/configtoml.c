@@ -253,8 +253,14 @@ static int parse_string_array(const char *src, ArrayCb cb, void *ud)
   while (*src) {
     while (*src && isspace((unsigned char)*src))
       src++;
-    if (*src == ']' || *src == '#' || !*src)
+    if (*src == ']' || !*src)
       break;
+    /* TOML comment between array elements: skip to end of line. */
+    if (*src == '#') {
+      while (*src && *src != '\n')
+        src++;
+      continue;
+    }
     if (*src == '"' || *src == '\'') {
       src = parse_quoted(src, item, sizeof item);
       if (!src)
@@ -262,7 +268,7 @@ static int parse_string_array(const char *src, ArrayCb cb, void *ud)
       cb(item, ud);
     }
     /* Advance past comma or to closing bracket */
-    while (*src && *src != ',' && *src != ']')
+    while (*src && *src != ',' && *src != ']' && *src != '\n')
       src++;
     if (*src == ',')
       src++;
@@ -576,12 +582,17 @@ int readtomlconfig(const char *fname)
         if (!fgets(line, sizeof line, fp))
           break;
         lineno++;
-        char *lp = trim(line);
-        /* Skip comment-only lines inside the array continuation. */
-        if (*lp == '#')
-          continue;
+        /*
+         * Append the raw line (trimmed of newline only, NOT of leading '#').
+         * Lines beginning with '#' may be Tcl comments inside a triple-quoted
+         * string and must not be discarded.  parse_string_array() handles
+         * TOML-level '#' comments between array elements by skipping to EOL.
+         */
+        size_t llen = strlen(line);
+        while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
+          line[--llen] = '\0';
         strlcat(ml_value, "\n", sizeof ml_value);
-        strlcat(ml_value, lp, sizeof ml_value);
+        strlcat(ml_value, line, sizeof ml_value);
       }
       v = ml_value;
     }

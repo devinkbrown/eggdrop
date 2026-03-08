@@ -252,6 +252,53 @@ class TestConf2Toml(unittest.TestCase):
         self.assertIn('"""', toml)
         self.assertIn('bind evnt', toml)
 
+    def test_tcl_comment_inside_proc_preserved(self):
+        """Tcl # comments inside proc bodies must survive conversion."""
+        conf = (
+            'proc foo {} {\n'
+            '  # this is a Tcl comment\n'
+            '  return 1\n'
+            '}'
+        )
+        toml = self._convert(conf)
+        self.assertIn('# this is a Tcl comment', toml)
+
+    def test_setudef_goes_to_tcl(self):
+        toml = self._convert('setudef flag quiet')
+        self.assertIn('[tcl]', toml)
+        self.assertIn('setudef', toml)
+
+    def test_package_require_goes_to_tcl(self):
+        toml = self._convert('package require http')
+        self.assertIn('[tcl]', toml)
+        self.assertIn('package require http', toml)
+
+    def test_putlog_goes_to_tcl(self):
+        toml = self._convert('putlog "Bot starting up"')
+        self.assertIn('[tcl]', toml)
+        self.assertIn('putlog', toml)
+
+    def test_logfile_quoted_path_with_spaces(self):
+        toml = self._convert('logfile mco * "/var/log/my bot/eggdrop.log"')
+        self.assertIn('/var/log/my bot/eggdrop.log', toml)
+
+    def test_channel_set_single_line_goes_to_tcl(self):
+        toml = self._convert('channel set #egghelp chanmode "+nt"')
+        self.assertIn('[tcl]', toml)
+        self.assertIn('channel set #egghelp', toml)
+
+    def test_channel_set_multiline_goes_to_tcl(self):
+        conf = (
+            'channel set #egghelp {\n'
+            '  chanmode "+nt"\n'
+            '  enforcebans 1\n'
+            '}'
+        )
+        toml = self._convert(conf)
+        self.assertIn('[tcl]', toml)
+        self.assertIn('"""', toml)
+        self.assertIn('chanmode', toml)
+
     # ── Comment and blank line handling ───────────────────────────────────
 
     def test_comments_skipped(self):
