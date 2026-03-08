@@ -5,6 +5,7 @@ project('eggdrop', 'c',
     'c_std=gnu99',
     'warning_level=1',
     'b_pie=false',
+    'optimization=2',
   ],
   meson_version: '>=0.57.0',
 )
@@ -333,6 +334,12 @@ elif host_system == 'windows' or host_system == 'cygwin'
 else
   mod_ext = 'so'
   cdata.set_quoted('EGG_MOD_EXT', 'so')
+endif
+
+# Use pipes between compiler stages to avoid temp-file I/O during
+# parallel builds (GCC and Clang both honour -pipe).
+if cc.has_argument('-pipe')
+  add_project_arguments('-pipe', language: 'c')
 endif
 
 # Debug flags
