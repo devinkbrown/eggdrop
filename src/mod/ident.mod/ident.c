@@ -101,7 +101,7 @@ static struct dcc_table DCC_IDENTD = {
   NULL
 };
 
-static void ident_oidentd()
+static void ident_oidentd(void)
 {
   char *home = getenv("HOME");
   FILE *fd;
@@ -212,7 +212,7 @@ static void ident_oidentd()
   }
 }
 
-static void ident_builtin_on()
+static void ident_builtin_on(void)
 {
   int idx, s;
 
