@@ -140,10 +140,6 @@ typedef struct {
   int *right; /* right side */
 } coupletinfo;
 
-/* FIXME: tcl_eggcouplet() should be redesigned so we can use
- * TCL_TRACE_WRITES | TCL_TRACE_READS as the bit mask instead
- * of 2 calls as is done in add_tcl_coups().
- */
 /* Read/write integer couplets (int1:int2) */
 static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
@@ -152,14 +148,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
   char *s, s1[41];
   coupletinfo *cp = (coupletinfo *) cdata;
 
-  if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
-    egg_snprintf(s1, sizeof s1, "%d:%d", *(cp->left), *(cp->right));
-    Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
-    if (flags & TCL_TRACE_UNSETS)
-      Tcl_TraceVar(interp, name1,
-                   TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                   tcl_eggcouplet, cdata);
-  } else {                        /* writes */
+  if (flags & TCL_TRACE_WRITES) {
     s = (char *) Tcl_GetVar2(interp, name1, name2, 0);
     if (s != NULL) {
       int nr1, nr2;
@@ -173,6 +162,14 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
       *(cp->left) = nr1;
       *(cp->right) = nr2;
     }
+  }
+  if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
+    egg_snprintf(s1, sizeof s1, "%d:%d", *(cp->left), *(cp->right));
+    Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
+    if (flags & TCL_TRACE_UNSETS)
+      Tcl_TraceVar(interp, name1,
+                   TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
+                   tcl_eggcouplet, cdata);
   }
   return NULL;
 }
@@ -1228,9 +1225,7 @@ void add_tcl_coups(tcl_coups *list)
     cp->left = list[i].lptr;
     cp->right = list[i].rptr;
     tcl_eggcouplet((ClientData) cp, interp, list[i].name, NULL,
-                   TCL_TRACE_WRITES);
-    tcl_eggcouplet((ClientData) cp, interp, list[i].name, NULL,
-                   TCL_TRACE_READS);
+                   TCL_TRACE_WRITES | TCL_TRACE_READS);
     Tcl_TraceVar(interp, list[i].name,
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  tcl_eggcouplet, (ClientData) cp);
