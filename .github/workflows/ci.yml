@@ -31,12 +31,10 @@ jobs:
 
       - name: Set up Homebrew pkg-config paths
         run: |
-          OPENSSL_PREFIX=$(brew --prefix openssl@3 2>/dev/null || true)
-          TCLTK_PREFIX=$(brew --prefix tcl-tk 2>/dev/null || true)
-          PKG_PATH=""
-          [ -n "$OPENSSL_PREFIX" ] && PKG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
-          [ -n "$TCLTK_PREFIX" ] && PKG_PATH="${PKG_PATH:+$PKG_PATH:}$TCLTK_PREFIX/lib/pkgconfig"
-          [ -n "$PKG_PATH" ] && echo "PKG_CONFIG_PATH=$PKG_PATH" >> $GITHUB_ENV
+          BREW=$(brew --prefix)
+          echo "PKG_CONFIG_PATH=${BREW}/opt/openssl@3/lib/pkgconfig:${BREW}/opt/tcl-tk/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L${BREW}/opt/openssl@3/lib -L${BREW}/opt/tcl-tk/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I${BREW}/opt/openssl@3/include -I${BREW}/opt/tcl-tk/include" >> $GITHUB_ENV
 
       - name: Build with Meson
         run: meson setup build_ci && ninja -C build_ci
