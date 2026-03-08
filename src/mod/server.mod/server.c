@@ -108,7 +108,7 @@ static struct monitor_list *monitor = NULL;
 
 
 static p_tcl_bind_list H_wall, H_raw, H_notc, H_msgm, H_msg, H_flud, H_ctcr,
-                       H_ctcp, H_out, H_rawt, H_monitor;
+                       H_ctcp, H_out, H_rawt, H_monitor, H_stdreply;
 
 static void empty_msgq(void);
 static void next_server(int *, char *, unsigned int *, char *);
@@ -1417,6 +1417,17 @@ static int server_rawt STDVAR
   return TCL_OK;
 }
 
+static int server_stdreply STDVAR
+{
+  Function F = (Function) cd;
+
+  BADARGS(7, 7, " from type command code context description");
+
+  CHECKVALIDITY(server_stdreply);
+  F(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
+  return TCL_OK;
+}
+
 static int server_out STDVAR
 {
   Function F = (Function) cd;
@@ -2253,6 +2264,7 @@ static char *server_close()
   del_bind_table(H_ctcp);
   del_bind_table(H_out);
   del_bind_table(H_monitor);
+  del_bind_table(H_stdreply);
   rem_tcl_coups(my_tcl_coups);
   rem_tcl_strings(my_tcl_strings);
   rem_tcl_ints(my_tcl_ints);
@@ -2365,7 +2377,8 @@ static Function server_table[] = {
   (Function) encode_msgtags,
   /* 52 - 55 */
   (Function) & H_monitor,
-  (Function) isupport_get_prefixchars
+  (Function) isupport_get_prefixchars,
+  (Function) & H_stdreply,        /* p_tcl_bind_list                      */
 };
 
 char *server_start(Function *global_funcs)
@@ -2476,6 +2489,7 @@ char *server_start(Function *global_funcs)
   H_ctcp = add_bind_table("ctcp", HT_STACKABLE, server_6char);
   H_out = add_bind_table("out", HT_STACKABLE, server_out);
   H_monitor = add_bind_table("monitor", HT_STACKABLE, monitor_2char);
+  H_stdreply = add_bind_table("stdreply", HT_STACKABLE, server_stdreply);
   isupport_init();
   add_builtins(H_raw, my_raw_binds);
   add_builtins(H_rawt, my_rawt_binds);
