@@ -281,7 +281,9 @@ static void refresh_who_chan(char *channame)
 {
   if (!twitch) {    /* Twitch doesn't support WHOs */
     if (use_354)
-      dprintf(DP_MODE, "WHO %s c%%chnufat,222\n", channame);
+      /* Field order: channel, user(ident), host, nick, flags, account.
+       * Matches the field-read order in got354() in chan.c. */
+      dprintf(DP_MODE, "WHO %s c%%cuhnfa,222\n", channame);
     else
       dprintf(DP_MODE, "WHO %s\n", channame);
   }
