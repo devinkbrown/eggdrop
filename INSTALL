@@ -40,6 +40,47 @@ DEPENDENCIES
     Winsock2 and MsWSock are provided by the Windows SDK and are linked
     automatically -- no extra package is needed for the IOCP backend.
 
+  Windows (MSVC — Visual Studio 2019 or later):
+
+    1. Install Visual Studio with the "Desktop development with C++" workload,
+       or install the standalone Build Tools:
+           https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022
+
+    2. Install Meson and Ninja.  The easiest way is via pip in a normal
+       Command Prompt (not a developer prompt):
+
+           pip install meson ninja
+
+       Alternatively, download the Meson MSI installer from
+           https://github.com/mesonbuild/meson/releases
+
+    3. Install dependencies using vcpkg (recommended):
+
+           git clone https://github.com/microsoft/vcpkg
+           cd vcpkg
+           bootstrap-vcpkg.bat
+           vcpkg install tcl:x64-windows openssl:x64-windows
+
+       Then set the toolchain so Meson finds the packages:
+
+           set VCPKG_ROOT=C:\path\to\vcpkg
+
+    4. Open an "x64 Native Tools Command Prompt for VS 2022" (or 2019).
+       This sets up the MSVC environment (cl.exe, link.exe, etc.).
+
+    5. Configure and build from that prompt:
+
+           meson setup build/ --vsenv ^
+               -Dtcl_root=%VCPKG_ROOT%\installed\x64-windows ^
+               -Dopenssl_root=%VCPKG_ROOT%\installed\x64-windows
+           ninja -j%NUMBER_OF_PROCESSORS% -C build/
+
+       Meson detects cl.exe automatically when run from a developer prompt.
+
+    Winsock2 (ws2_32.lib) and MsWSock (mswsock.lib) ship with the Windows
+    SDK included in every Visual Studio installation and are linked
+    automatically by the build system.
+
   Cygwin:
 
     Cygwin compiles on the POSIX path using select() as its I/O backend.
@@ -73,7 +114,7 @@ QUICK STARTUP
 
         ninja -j$(sysctl -n hw.logicalcpu) -C build/
 
-    Windows (MSYS2 shell):
+    Windows (MSYS2 shell or MSVC developer prompt):
 
         ninja -j%NUMBER_OF_PROCESSORS% -C build/
 
