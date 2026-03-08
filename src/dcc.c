@@ -30,6 +30,10 @@
 /* Includes for botnet md5 challenge/response code <cybah> */
 #include "md5/md5.h"
 
+/* Size of the 'other' buffer passed to dcc_table display() callbacks,
+ * declared as  char other[160]  in tell_dcc() (dccutil.c). */
+#define DCC_DISPLAY_BUF 160
+
 extern struct userrec *userlist;
 extern struct chanset_t *chanset;
 extern Tcl_Interp *interp;
@@ -431,7 +435,7 @@ static void timeout_dcc_bot_new(int idx)
 
 static void display_dcc_bot_new(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "bot*  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, DCC_DISPLAY_BUF, "bot*  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static int expmem_dcc_bot_(void *x)
@@ -537,7 +541,7 @@ static void eof_dcc_bot(int idx)
 
 static void display_dcc_bot(int idx, char *buf)
 {
-  int i = snprintf(buf, sizeof(buf), "bot   flags: ");
+  int i = snprintf(buf, DCC_DISPLAY_BUF, "bot   flags: ");
 
   buf[i++] = b_status(idx) & STAT_PINGED ? 'P' : 'p';
   buf[i++] = b_status(idx) & STAT_SHARE ? 'U' : 'u';
@@ -554,7 +558,7 @@ static void display_dcc_bot(int idx, char *buf)
 
 static void display_dcc_fork_bot(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "conn  bot");
+  snprintf(buf, DCC_DISPLAY_BUF, "conn  bot");
 }
 
 struct dcc_table DCC_BOT = {
@@ -785,7 +789,7 @@ static void tout_dcc_chat_pass(int idx)
 
 static void display_dcc_chat_pass(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "pass  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, DCC_DISPLAY_BUF, "pass  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static int expmem_dcc_general(void *x)
@@ -1466,10 +1470,10 @@ static void eof_dcc_telnet(int idx)
 static void display_telnet(int idx, char *buf)
 {
 #ifdef TLS
-  snprintf(buf, sizeof(buf), "lstn  %s%d%s", dcc[idx].ssl ? "+" : "", dcc[idx].port,
+  snprintf(buf, DCC_DISPLAY_BUF, "lstn  %s%d%s", dcc[idx].ssl ? "+" : "", dcc[idx].port,
           (dcc[idx].status & LSTN_PUBLIC) ? " pub" : "");
 #else
-  snprintf(buf, sizeof(buf), "lstn  %d%s", dcc[idx].port,
+  snprintf(buf, DCC_DISPLAY_BUF, "lstn  %d%s", dcc[idx].port,
           (dcc[idx].status & LSTN_PUBLIC) ? " pub" : "");
 #endif
 }
@@ -1523,7 +1527,7 @@ static void timeout_dupwait(int idx)
 
 static void display_dupwait(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "wait  duplicate?");
+  snprintf(buf, DCC_DISPLAY_BUF, "wait  duplicate?");
 }
 
 static int expmem_dupwait(void *x)
@@ -1876,7 +1880,7 @@ static void timeout_dcc_telnet_id(int idx)
 
 static void display_dcc_telnet_id(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "t-in  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, DCC_DISPLAY_BUF, "t-in  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 struct dcc_table DCC_TELNET_ID = {
@@ -2027,12 +2031,12 @@ static void tout_dcc_telnet_pw(int idx)
 
 static void display_dcc_telnet_new(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "new   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, DCC_DISPLAY_BUF, "new   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static void display_dcc_telnet_pw(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "newp  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, DCC_DISPLAY_BUF, "newp  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 struct dcc_table DCC_TELNET_NEW = {
@@ -2149,7 +2153,7 @@ static void eof_dcc_script(int idx)
 
 static void display_dcc_script(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "scri  %s", dcc[idx].u.script->command);
+  snprintf(buf, DCC_DISPLAY_BUF, "scri  %s", dcc[idx].u.script->command);
 }
 
 static int expmem_dcc_script(void *x)
@@ -2207,7 +2211,7 @@ static void eof_dcc_socket(int idx)
 
 static void display_dcc_socket(int idx, char *buf)
 {
-  strlcpy(buf, "sock  (stranded)", sizeof(buf));
+  strlcpy(buf, "sock  (stranded)", DCC_DISPLAY_BUF);
 }
 
 struct dcc_table DCC_SOCKET = {
@@ -2226,7 +2230,7 @@ struct dcc_table DCC_SOCKET = {
 
 static void display_dcc_lost(int idx, char *buf)
 {
-  strlcpy(buf, "lost", sizeof(buf));
+  strlcpy(buf, "lost", DCC_DISPLAY_BUF);
 }
 
 struct dcc_table DCC_LOST = {
@@ -2268,7 +2272,7 @@ void eof_dcc_identwait(int idx)
 
 static void display_dcc_identwait(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "idtw  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, DCC_DISPLAY_BUF, "idtw  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 struct dcc_table DCC_IDENTWAIT = {
@@ -2340,7 +2344,7 @@ void timeout_dcc_ident(int idx)
 
 static void display_dcc_ident(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "idnt  (sock %d)", dcc[idx].u.ident_sock);
+  snprintf(buf, DCC_DISPLAY_BUF, "idnt  (sock %d)", dcc[idx].u.ident_sock);
 }
 
 struct dcc_table DCC_IDENT = {
