@@ -4,28 +4,50 @@ This is the quick install guide; if you have had little or no experience
 with UNIX or Eggdrop, READ THE README FILE NOW! This file is best for
 experienced users.
 
-NOTE: This fork uses Meson + Ninja instead of the traditional autoconf/make
-build system used by upstream Eggdrop. The steps below reflect that.
+NOTE: This fork uses Meson + Ninja. The traditional autoconf/make build
+system used by upstream Eggdrop is not present here.
 
 DEPENDENCIES
 
-  Required:
-    - Tcl development headers (e.g. tcl-dev / tcl-devel)
+  Required on all platforms:
+    - Tcl development headers  (tcl-dev / tcl-devel, version >= 8.6)
     - Meson  >= 0.57.0
     - Ninja  (any recent version)
 
   Optional:
-    - OpenSSL development headers (libssl-dev) -- for TLS support
-    - Python >= 3.8 development headers -- for the Python scripting module
-    - zlib development headers (zlib-dev) -- for the compress module
+    - OpenSSL development headers (libssl-dev)  -- TLS support
+    - Python >= 3.8 development headers          -- Python scripting module
+    - zlib development headers (zlib-dev)        -- compress module
+    - liburing                                   -- io_uring backend (Linux)
 
-  Debian/Ubuntu example:
+  Debian/Ubuntu:
 
       sudo apt-get install meson ninja-build tcl-dev libssl-dev
 
-  macOS (Homebrew) example:
+  Fedora/RHEL:
+
+      sudo dnf install meson ninja-build tcl-devel openssl-devel
+
+  macOS (Homebrew):
 
       brew install meson ninja tcl-tk openssl@3
+
+  Windows (MSYS2/MinGW-w64):
+
+      pacman -S mingw-w64-ucrt-x86_64-meson mingw-w64-ucrt-x86_64-ninja \
+                mingw-w64-ucrt-x86_64-tcl mingw-w64-ucrt-x86_64-openssl
+
+    Winsock2 and MsWSock are provided by the Windows SDK and are linked
+    automatically -- no extra package is needed for the IOCP backend.
+
+  Cygwin:
+
+    Cygwin compiles on the POSIX path using select() as its I/O backend.
+    Install the following packages via the Cygwin setup tool:
+
+        Interpreters: tcl, tcl-devel
+        Net:          openssl, libssl-devel
+        Devel:        meson, gcc-core, git, ninja
 
 QUICK STARTUP
 
@@ -43,19 +65,24 @@ QUICK STARTUP
 
 2.  Compile using all available CPU cores:
 
+    Linux / Cygwin:
+
         ninja -j$(nproc) -C build/
 
-    On macOS, use:
+    macOS:
 
         ninja -j$(sysctl -n hw.logicalcpu) -C build/
 
-3.  Install into your home directory (default prefix is /usr/local; override
-    with --prefix during setup):
+    Windows (MSYS2 shell):
+
+        ninja -j%NUMBER_OF_PROCESSORS% -C build/
+
+3.  Install (default prefix is /usr/local; override with --prefix at setup):
 
         meson setup build/ --prefix=$HOME/eggdrop
         ninja -C build/ install
 
-    Or install to a custom path:
+    Or install to a custom path after the fact:
 
         meson install -C build/ --destdir /path/to/install
 
@@ -96,9 +123,24 @@ QUICK STARTUP
 
 9.  Smile. You have an Eggdrop!
 
+I/O BACKENDS
+
+  The build system automatically selects the best available I/O backend:
+
+    Platform           Backend     Notes
+    ------------------ ----------- ------------------------------------
+    Linux >= 5.1       io_uring    Requires liburing; kernel polling
+    Linux              epoll       High-performance, persistent interest
+    macOS / BSD        kqueue      High-performance, persistent interest
+    Windows (native)   IOCP        Zero-byte overlapped WSARecv/WSASend
+    Cygwin / fallback  select()    Portable; rebuilds fd_set each loop
+
+  To force select() (e.g. for debugging), build without the relevant
+  library: configure without liburing and on a system without epoll/kqueue.
+
 DEBUG BUILDS
 
-  To build with debug symbols and extra logging, pass the egg-debug option:
+  To build with debug symbols and extra logging:
 
       meson setup build/ -Degg-debug=true
       ninja -C build/
