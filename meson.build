@@ -39,10 +39,19 @@ cdata.set('HANDLEN', opt_handlen)
 
 # OS / platform detection
 host_system = host_machine.system()
+is_native_windows = (host_system == 'windows')
+is_cygwin         = (host_system == 'cygwin')
+
 if host_system == 'darwin'
   cdata.set('EGG_DARWIN_BUNDLE', 1)
-elif host_system == 'cygwin' or host_system == 'windows'
-  cdata.set('CYGWIN_HACKS', 1)
+elif is_native_windows
+  # Native Windows (MinGW / MSVC): IOCP event loop, Winsock2.
+  # Cygwin is a POSIX emulation layer — it does not expose Win32 IOCP
+  # APIs, so it takes the plain POSIX path and uses select() as its
+  # I/O backend.  No special define is set for Cygwin.
+  cdata.set('EGG_NATIVE_WIN32', 1)
+  cdata.set('HAVE_IOCP', 1)
+  message('Native Windows build — IOCP backend enabled')
 endif
 
 # -------------------------------------------------------------------------
@@ -52,7 +61,7 @@ req_headers = [
   'stdint.h', 'inttypes.h', 'stddef.h', 'stdlib.h', 'stdio.h',
   'string.h', 'strings.h', 'memory.h', 'unistd.h', 'fcntl.h',
   'dirent.h', 'sys/types.h', 'sys/stat.h', 'sys/time.h',
-  'sys/socket.h', 'netinet/in.h', 'netinet/in6.h', 'arpa/inet.h',
+  'sys/uio.h', 'sys/socket.h', 'netinet/in.h', 'netinet/in6.h', 'arpa/inet.h',
   'arpa/nameser.h', 'netdb.h', 'resolv.h', 'dlfcn.h',
 ]
 foreach h : req_headers
@@ -305,6 +314,15 @@ resolv_dep = cc.find_library('resolv', required: false)
 nsl_dep    = cc.find_library('nsl',    required: false)
 m_dep      = cc.find_library('m',      required: false)
 
+# Windows-native Winsock2 + MsWSock (required for IOCP / WSARecv / WSASend)
+if is_native_windows
+  ws2_dep     = cc.find_library('ws2_32',  required: true)
+  mswsock_dep = cc.find_library('mswsock', required: true)
+else
+  ws2_dep     = dependency('', required: false)
+  mswsock_dep = dependency('', required: false)
+endif
+
 # b64_ntop / b64_pton — BSD/glibc base64 (part of libresolv on Linux).
 # When present, set HAVE_BASE64 so our compat/base64.c is skipped.
 if cc.has_function('b64_ntop', dependencies: resolv_dep,
@@ -313,7 +331,11 @@ if cc.has_function('b64_ntop', dependencies: resolv_dep,
 endif
 
 # Module loading method
-if cc.has_function('dlopen', dependencies: dl_dep)
+if is_native_windows
+  # Native Windows: LoadLibrary() / GetProcAddress() — no dlopen
+  cdata.set('MODULES_OK', 1)
+  cdata.set('MOD_USE_WIN32', 1)
+elif cc.has_function('dlopen', dependencies: dl_dep)
   cdata.set('HAVE_DLOPEN', 1)
   cdata.set('DLOPEN_1', 1)
   cdata.set('MODULES_OK', 1)
@@ -375,6 +397,8 @@ elif have_epoll
   _io_backend = 'epoll'
 elif have_kqueue
   _io_backend = 'kqueue'
+elif is_native_windows
+  _io_backend = 'iocp'
 else
   _io_backend = 'select'
 endif

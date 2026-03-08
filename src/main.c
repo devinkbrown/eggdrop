@@ -29,12 +29,14 @@
  * list available at eggheads@eggheads.org.
  */
 
-/* We need config.h for CYGWIN_HACKS, but windows.h must be included before
- * eggdrop headers, because the malloc/free macros break the inclusion.
- * The SSL undefs are a workaround for bug #2182 in openssl with msys/mingw.
+/* config.h must be included before eggdrop headers so that EGG_NATIVE_WIN32
+ * and other platform macros are visible.  On Windows, winsock2.h/windows.h
+ * must precede any OpenSSL headers; the undefs work around OpenSSL bug #2182
+ * (macro name collisions with MSYS/MinGW Win32 headers).
  */
 #include <config.h>
-#ifdef CYGWIN_HACKS
+#ifdef EGG_NATIVE_WIN32
+#  include <winsock2.h>
 #  include <windows.h>
 #  undef X509_NAME
 #  undef X509_EXTENSIONS
@@ -48,8 +50,10 @@
 #include "main.h"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <resolv.h>
+#ifndef EGG_NATIVE_WIN32
+#  include <fcntl.h>
+#  include <resolv.h>
+#endif
 #include <setjmp.h>
 #include <signal.h>
 
@@ -945,7 +949,9 @@ int main(int arg_c, char **arg_v)
   int i, j, xx;
   char s[26];
   FILE *f;
+#ifndef EGG_NATIVE_WIN32
   struct sigaction sv;
+#endif
   struct chanset_t *chan;
 #ifdef DEBUG
   struct rlimit cdlim;
@@ -965,6 +971,16 @@ int main(int arg_c, char **arg_v)
   cdlim.rlim_cur = RLIM_INFINITY;
   cdlim.rlim_max = RLIM_INFINITY;
   setrlimit(RLIMIT_CORE, &cdlim);
+#endif
+
+#ifdef EGG_NATIVE_WIN32
+  /* Initialise Winsock 2.2 — required before any socket calls on Windows */
+  {
+    WSADATA wsa;
+    int wsa_err = WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (wsa_err != 0)
+      fatal("WSAStartup failed", 0);
+  }
 #endif
 
   argc = arg_c;
@@ -994,20 +1010,21 @@ int main(int arg_c, char **arg_v)
   setsysinfo(SSI_NVPAIRS, (char *) nvpair, 1, NULL, 0);
 #endif
 
+#ifndef EGG_NATIVE_WIN32
   /* Set up error traps: */
   sv.sa_handler = got_bus;
   sigemptyset(&sv.sa_mask);
-#ifdef SA_RESETHAND
+#  ifdef SA_RESETHAND
   sv.sa_flags = SA_RESETHAND;
-#else
+#  else
   sv.sa_flags = 0;
-#endif
+#  endif
   sigaction(SIGBUS, &sv, NULL);
   sv.sa_handler = got_segv;
   sigaction(SIGSEGV, &sv, NULL);
-#ifdef SA_RESETHAND
+#  ifdef SA_RESETHAND
   sv.sa_flags = 0;
-#endif
+#  endif
   sv.sa_handler = got_fpe;
   sigaction(SIGFPE, &sv, NULL);
   sv.sa_handler = got_term;
@@ -1026,6 +1043,7 @@ int main(int arg_c, char **arg_v)
   // see https://discuss.python.org/t/asyncio-skipping-signal-handling-setup-during-import-for-python-embedded-context/37054/6
   sv.sa_handler = got_term;
   sigaction(SIGINT, &sv, NULL);
+#endif /* !EGG_NATIVE_WIN32 */
 
   /* Initialize variables and stuff */
   now = time(NULL);
@@ -1040,10 +1058,9 @@ int main(int arg_c, char **arg_v)
 
   printf("\n%s\n", version);
 
-#ifndef CYGWIN_HACKS
-  /* Don't allow eggdrop to run as root
-   * This check isn't useful under cygwin and has been
-   * reported to cause trouble in some situations.
+#ifndef EGG_NATIVE_WIN32
+  /* Don't allow eggdrop to run as root.
+   * Not applicable on Windows (no POSIX uid concept).
    */
   if (((int) getuid() == 0) || ((int) geteuid() == 0))
     fatal("ERROR: Eggdrop will not run as root!", 0);
@@ -1098,6 +1115,7 @@ int main(int arg_c, char **arg_v)
   if (f != NULL) {
     if (fgets(s, 10, f) != NULL) {
       xx = atoi(s);
+#ifndef EGG_NATIVE_WIN32
       i = kill(xx, SIGCHLD);      /* Meaningless kill to determine if pid
                                    * is used */
       if (i == 0 || errno != ESRCH) {
@@ -1106,6 +1124,9 @@ int main(int arg_c, char **arg_v)
         bg_send_quit(BG_ABORT);
         exit(1);
       }
+#else
+      (void)xx; /* On Windows we can't signal another process; skip check */
+#endif
     } else {
       printf("Error checking for existing Eggdrop process.\n");
     }
@@ -1151,8 +1172,14 @@ int main(int arg_c, char **arg_v)
     if (freopen("/dev/null", "w", stderr) == NULL) {
       putlog(LOG_MISC, "*", "Error renaming stderr file handle: %s", strerror(errno));
     }
-#ifdef CYGWIN_HACKS
-    FreeConsole();
+#ifdef EGG_NATIVE_WIN32
+    /* Hide the console window when running in background mode on native Windows */
+    {
+      HWND con = GetConsoleWindow();
+      if (con)
+        ShowWindow(con, SW_HIDE);
+    }
+    WSACleanup();
 #endif
   }
 

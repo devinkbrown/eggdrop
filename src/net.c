@@ -56,7 +56,9 @@
 #  include <unistd.h>
 #endif
 #include <setjmp.h>
-#include <sys/uio.h>   /* writev() */
+#ifndef EGG_NATIVE_WIN32
+#  include <sys/uio.h>   /* writev() — provided by compat shim on Windows */
+#endif
 
 #ifdef TLS
 #  include <openssl/err.h>
@@ -69,7 +71,8 @@
  *   1. io_uring  (Linux ≥ 5.1, requires liburing)
  *   2. epoll     (Linux ≥ 2.6, glibc sys/epoll.h)
  *   3. kqueue    (BSD / macOS, sys/event.h)
- *   4. select()  (portable fallback)
+ *   4. IOCP      (Windows native — MinGW / MSVC)
+ *   5. select()  (portable fallback)
  *
  * All back-ends keep a persistent kernel-side interest set.  Sockets are
  * registered in allocsock() and removed in killsock(), so sockread()
@@ -86,7 +89,68 @@
 #  include <sys/event.h>
 #  include <sys/time.h>
 #  define EGG_KQUEUE 1
+#elif defined(HAVE_IOCP)
+#  define EGG_IOCP 1
 #endif
+
+/* -----------------------------------------------------------------------
+ * Native Windows socket compatibility shims
+ * On native Windows (MinGW / MSVC) we use Winsock2; the CRT close() does
+ * not close sockets, non-blocking mode uses ioctlsocket(), and error codes
+ * come from WSAGetLastError().  The macros below paper over these
+ * differences so the rest of net.c can use POSIX names throughout.
+ * ----------------------------------------------------------------------- */
+#ifdef EGG_NATIVE_WIN32
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#  include <mswsock.h>
+/* close() a socket handle */
+#  define egg_closesocket(s)    closesocket(s)
+/* Set a socket non-blocking */
+static inline void egg_setnonblock(int sock) {
+  u_long on = 1;
+  ioctlsocket((SOCKET)(ULONG_PTR)sock, FIONBIO, &on);
+}
+/* POSIX errno codes mapped to their Winsock equivalents */
+#  ifndef EINPROGRESS
+#    define EINPROGRESS  WSAEWOULDBLOCK
+#  endif
+#  ifndef EAGAIN
+#    define EAGAIN       WSAEWOULDBLOCK
+#  endif
+#  ifndef EWOULDBLOCK
+#    define EWOULDBLOCK  WSAEWOULDBLOCK
+#  endif
+#  ifndef ECONNREFUSED
+#    define ECONNREFUSED WSAECONNREFUSED
+#  endif
+#  ifndef ENOTCONN
+#    define ENOTCONN     WSAENOTCONN
+#  endif
+/* writev() replacement using WSASend with multiple buffers */
+#  include <stddef.h>
+struct iovec { void *iov_base; size_t iov_len; };
+static inline int egg_writev(int sock, const struct iovec *iov, int cnt) {
+  WSABUF bufs[2];
+  DWORD sent = 0;
+  int i;
+  for (i = 0; i < cnt && i < 2; i++) {
+    bufs[i].buf = (char *)iov[i].iov_base;
+    bufs[i].len = (ULONG)iov[i].iov_len;
+  }
+  if (WSASend((SOCKET)(ULONG_PTR)sock, bufs, (DWORD)cnt, &sent, 0,
+              NULL, NULL) == SOCKET_ERROR)
+    return -1;
+  return (int)sent;
+}
+#  define writev(s, iov, cnt) egg_writev(s, iov, cnt)
+#  define write(s, buf, len)  send((SOCKET)(ULONG_PTR)(s), (const char*)(buf), (int)(len), 0)
+#else  /* POSIX */
+#  define egg_closesocket(s)  close(s)
+static inline void egg_setnonblock(int sock) {
+  fcntl(sock, F_SETFL, O_NONBLOCK);
+}
+#endif /* EGG_NATIVE_WIN32 */
 
 #ifdef EGG_IO_URING
 /* Maximum events returned by a single io_uring_peek_batch_cqe() call. */
@@ -295,6 +359,126 @@ static void kqueue_del_sock(int sock)
   kevent(egg_kqueue_fd, kev, 2, NULL, 0, NULL);
 }
 #endif /* EGG_KQUEUE */
+
+#ifdef EGG_IOCP
+/*
+ * IOCP backend — Windows I/O Completion Ports
+ * Adapted from libop/src/iocp.c (Ophion IRC Daemon, Copyright 2026 ophion
+ * development team, GPLv2+).
+ *
+ * Zero-byte overlapped WSARecv/WSASend: posting a zero-byte recv arms a
+ * readiness notification — the IOCP fires a completion as soon as the
+ * socket becomes readable/writable, without transferring any data.  The
+ * real recv() / SSL_read() then runs in the normal dispatch path.
+ *
+ * Stale-completion detection: each iocp_pending_t records the slist slot
+ * index and the socket fd at the time of posting.  When a completion
+ * arrives we verify both values still match; if the slot was recycled or
+ * the socket closed in the meantime we discard the event safely.
+ */
+
+/* Maximum completions drained per sockread() call */
+#define IOCP_BATCH_MAX 64
+/*
+ * Upper bound on tracked slist slots.  IRC bots rarely need more than a
+ * few hundred simultaneous connections; 2048 gives comfortable headroom.
+ */
+#define IOCP_SLOT_MAX  2048
+
+typedef enum { IOCP_OP_READ, IOCP_OP_WRITE } iocp_op_t;
+
+/*
+ * OVERLAPPED *must* be the first member so that the OVERLAPPED pointer
+ * returned by GetQueuedCompletionStatus can be cast directly to
+ * iocp_pending_t * without UB.
+ */
+typedef struct iocp_pending {
+  OVERLAPPED ov;    /* MUST be first — cast target                  */
+  int        si;    /* slist slot index at time of arming           */
+  int        sock;  /* socket fd at time of arming (stale detection)*/
+  iocp_op_t  op;
+} iocp_pending_t;
+
+static HANDLE egg_hcp = NULL;                    /* single completion port */
+static uint8_t iocp_read_armed[IOCP_SLOT_MAX];  /* 1 = read OVERLAPPED pending */
+
+static void iocp_ensure_init(void)
+{
+  if (!egg_hcp) {
+    egg_hcp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
+    if (!egg_hcp)
+      fatal("IOCP: CreateIoCompletionPort failed", 0);
+    memset(iocp_read_armed, 0, sizeof iocp_read_armed);
+    putlog(LOG_MISC, "*", "IOCP: I/O completion port initialised");
+  }
+}
+
+/* Associate a socket with the completion port immediately after creation. */
+static void iocp_add_sock(int sock, int si)
+{
+  iocp_ensure_init();
+  /* key = si so GetQueuedCompletionStatus returns it directly */
+  CreateIoCompletionPort((HANDLE)(ULONG_PTR)sock, egg_hcp,
+                         (ULONG_PTR)(intptr_t)si, 0);
+  /* ERROR_INVALID_PARAMETER means the handle is already associated — ignore */
+}
+
+/*
+ * Closing the SOCKET cancels all pending overlapped operations.
+ * GetQueuedCompletionStatus will return those as failed completions with
+ * ERROR_OPERATION_ABORTED; the stale-detection check discards them safely.
+ */
+static void iocp_del_sock(int si)
+{
+  if ((unsigned)si < IOCP_SLOT_MAX)
+    iocp_read_armed[si] = 0;
+}
+
+/* Post a zero-byte overlapped WSARecv to arm a read-readiness notification. */
+static void iocp_arm_read(int sock, int si)
+{
+  iocp_pending_t *pend;
+  WSABUF buf = { 0, NULL };
+  DWORD  flags = 0;
+  int    rc;
+
+  if ((unsigned)si >= IOCP_SLOT_MAX || iocp_read_armed[si])
+    return;
+
+  pend = (iocp_pending_t *)nmalloc(sizeof *pend);
+  memset(&pend->ov, 0, sizeof pend->ov);
+  pend->si   = si;
+  pend->sock = sock;
+  pend->op   = IOCP_OP_READ;
+
+  rc = WSARecv((SOCKET)(ULONG_PTR)sock, &buf, 1, NULL, &flags,
+               &pend->ov, NULL);
+  if (rc == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
+    nfree(pend);
+    return;
+  }
+  iocp_read_armed[si] = 1;
+}
+
+/* Post a zero-byte overlapped WSASend to arm a write-readiness notification. */
+static void iocp_arm_write(int sock, int si)
+{
+  iocp_pending_t *pend;
+  WSABUF buf = { 0, NULL };
+  int    rc;
+
+  pend = (iocp_pending_t *)nmalloc(sizeof *pend);
+  memset(&pend->ov, 0, sizeof pend->ov);
+  pend->si   = si;
+  pend->sock = sock;
+  pend->op   = IOCP_OP_WRITE;
+
+  rc = WSASend((SOCKET)(ULONG_PTR)sock, &buf, 1, NULL, 0,
+               &pend->ov, NULL);
+  if (rc == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
+    nfree(pend);
+}
+#endif /* EGG_IOCP */
 
 /*
  * Write-readiness epoll fd — used exclusively by dequeue_sockets().
@@ -640,6 +824,18 @@ int allocsock(int sock, int options)
           int add_write = (options & SOCK_CONNECT) ? 1 : 0;
           kqueue_add_sock(sock, i, add_write);
         }
+#elif defined(EGG_IOCP)
+        {
+          iocp_add_sock(sock, i);
+          /* Arm initial read; write arm happens in dequeue_sockets() */
+          if (!(options & SOCK_CONNECT))
+            iocp_arm_read(sock, i);
+          /* For SOCK_CONNECT, write-readiness signals connect completion;
+           * arm a write overlapped so the IOCP fires when the connect
+           * either succeeds or fails. */
+          else
+            iocp_arm_write(sock, i);
+        }
 #else
         (void)0;
 #endif
@@ -749,9 +945,11 @@ void setsock(int sock, int options)
   }
   /* Yay async i/o ! */
   if ((sock != STDOUT) || backgrd) {
-    fcntl(sock, F_SETFL, O_NONBLOCK);
+    egg_setnonblock(sock);
+#ifndef EGG_NATIVE_WIN32
     /* Prevent fd leaking into child processes (bg scripts, exec hooks) */
     fcntl(sock, F_SETFD, fcntl(sock, F_GETFD) | FD_CLOEXEC);
+#endif
   }
 }
 
@@ -793,7 +991,7 @@ void killsock(int sock)
           td->socklist[i].ssl = NULL;
         }
 #endif
-        close(td->socklist[i].sock);
+        egg_closesocket(td->socklist[i].sock);
         if (td->socklist[i].handler.sock.inbuf != NULL) {
           nfree(td->socklist[i].handler.sock.inbuf);
           td->socklist[i].handler.sock.inbuf = NULL;
@@ -819,6 +1017,12 @@ void killsock(int sock)
 #endif
 #ifdef EGG_KQUEUE
       kqueue_del_sock(sock);
+#endif
+#ifdef EGG_IOCP
+      iocp_del_sock(i);
+      /* Closing the SOCKET above already cancelled all pending overlapped
+       * operations; completions will drain with ERROR_OPERATION_ABORTED
+       * and be discarded via stale-detection in the event loop. */
 #endif
       td->socklist[i].flags = SOCK_UNUSED;
       return;
@@ -1488,6 +1692,78 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     }
 #endif /* EGG_KQUEUE */
 
+#ifdef EGG_IOCP
+    {
+      /*
+       * IOCP backend — drain completion queue.
+       * Adapted from libop/src/iocp.c (Ophion IRC Daemon, GPLv2+).
+       *
+       * Re-arm read overlapped for any slot without one pending, then call
+       * GetQueuedCompletionStatus() up to IOCP_BATCH_MAX times:
+       *   first call uses the full timeout (honours the main loop cadence);
+       *   subsequent calls use timeout 0 to drain without blocking.
+       *
+       * Read completions mark the fd readable; write completions (used for
+       * SOCK_CONNECT and write-drain detection) mark the fd writable.
+       */
+      int k;
+      DWORD wait_ms = (DWORD)(t.tv_sec * 1000 + t.tv_usec / 1000);
+
+      for (i = 0; i < slistmax; i++) {
+        if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL)))
+          iocp_arm_read(slist[i].sock, i);
+      }
+
+      call_hook(HOOK_PRE_SELECT);
+      for (k = 0; k < IOCP_BATCH_MAX; k++) {
+        DWORD      bytes = 0;
+        ULONG_PTR  key   = 0;
+        OVERLAPPED *ov   = NULL;
+        iocp_pending_t *pend;
+        BOOL ok;
+        int psi, psock;
+        iocp_op_t pop;
+
+        ok = GetQueuedCompletionStatus(egg_hcp, &bytes, &key, &ov,
+                                       k == 0 ? wait_ms : 0);
+        if (!ok && ov == NULL)
+          break;  /* timeout or port closed */
+        if (ov == NULL)
+          continue;
+
+        pend  = (iocp_pending_t *)ov; /* OVERLAPPED is first member */
+        psi   = pend->si;
+        psock = pend->sock;
+        pop   = pend->op;
+        nfree(pend);
+
+        /* Stale check: slot recycled or socket closed since arming */
+        if ((unsigned)psi >= (unsigned)slistmax ||
+            slist[psi].sock != psock ||
+            (slist[psi].flags & SOCK_UNUSED))
+          continue;
+
+        fd = psock;
+        if (pop == IOCP_OP_READ) {
+          iocp_read_armed[psi] = 0; /* one-shot; re-armed at top of loop */
+          FD_SET(fd, &fdr);
+          if (fd > maxfd_r) maxfd_r = fd;
+        } else { /* IOCP_OP_WRITE — connect completion or write-drain */
+          FD_SET(fd, &fdw);
+          if (fd > maxfd_w) maxfd_w = fd;
+          /* Also signal readable for SOCK_CONNECT so the existing
+           * connect-completion path in the dispatch loop fires. */
+          if (slist[psi].flags & SOCK_CONNECT) {
+            FD_SET(fd, &fdr);
+            if (fd > maxfd_r) maxfd_r = fd;
+          }
+        }
+        x = 1;
+      }
+      call_hook(HOOK_POST_SELECT);
+    }
+#endif /* EGG_IOCP */
+
     if (x == -1) return -2;
 
     /* Count any TCL/TDNS events ready from the earlier select() */
@@ -2149,6 +2425,58 @@ void dequeue_sockets(void)
     if (x <= 0) return;
   } else
 #endif /* EGG_KQUEUE */
+#ifdef EGG_IOCP
+  /*
+   * IOCP write-readiness: post a zero-byte overlapped WSASend for each
+   * socket with pending outbuf data, then drain completions with a zero
+   * timeout.  The IOCP fires immediately if the socket can accept data.
+   * Adapted from libop/src/iocp.c (Ophion IRC Daemon, GPLv2+).
+   */
+  if (egg_hcp) {
+    int k;
+    for (i = 0; i < td->MAXSOCKS; i++) {
+      if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[i].handler.sock.outbuf != NULL
+#  ifdef TLS
+          && !(socklist[i].ssl && !SSL_is_init_finished(socklist[i].ssl))
+#  endif
+         )
+        iocp_arm_write(socklist[i].sock, i);
+    }
+    for (k = 0; k < IOCP_BATCH_MAX; k++) {
+      DWORD      bytes = 0;
+      ULONG_PTR  key   = 0;
+      OVERLAPPED *ov   = NULL;
+      iocp_pending_t *pend;
+      BOOL ok;
+
+      ok = GetQueuedCompletionStatus(egg_hcp, &bytes, &key, &ov, 0);
+      if (!ok && ov == NULL) break;
+      if (ov == NULL) continue;
+
+      pend = (iocp_pending_t *)ov;
+      {
+        int psi   = pend->si;
+        int psock = pend->sock;
+        nfree(pend);
+        if ((unsigned)psi < (unsigned)td->MAXSOCKS &&
+            socklist[psi].sock == psock &&
+            !(socklist[psi].flags & SOCK_UNUSED))
+          FD_SET(psock, &wfds);
+      }
+    }
+    /* Check if any write fds were set */
+    {
+      int any = 0;
+      for (i = 0; i < td->MAXSOCKS && !any; i++)
+        if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+            socklist[i].handler.sock.outbuf != NULL &&
+            FD_ISSET(socklist[i].sock, &wfds))
+          any = 1;
+      if (!any) return;
+    }
+  } else
+#endif /* EGG_IOCP */
   {
     /* select() fallback: zero-timeout write-readiness check */
     int maxfd = -1;
@@ -2174,18 +2502,21 @@ void dequeue_sockets(void)
   for (i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
         (socklist[i].handler.sock.outbuf != NULL) && (FD_ISSET(socklist[i].sock, &wfds))) {
-#ifdef CYGWIN_HACKS
-      int res;
-      socklen_t res_len;
-      if (socklist[i].flags == SOCK_CONNECT) {
-        res_len = sizeof(res);
-        getsockopt(socklist[i].sock, SOL_SOCKET, SO_ERROR, &res, &res_len);
-        if (res == ECONNREFUSED) { /* Connection refused */
+#ifdef EGG_NATIVE_WIN32
+      /* On Windows, a non-blocking connect() failure surfaces as
+       * write-readiness rather than an error condition.
+       * Read SO_ERROR to detect connection refused before attempting to
+       * drain the outbuf. */
+      if (socklist[i].flags & SOCK_CONNECT) {
+        int res = 0;
+        socklen_t res_len = sizeof(res);
+        getsockopt(socklist[i].sock, SOL_SOCKET, SO_ERROR, (char *)&res, &res_len);
+        if (res == ECONNREFUSED) {
           int idx = findanyidx(socklist[i].sock);
           putlog(LOG_MISC, "*", "Connection refused: %s:%i", dcc[idx].host,
                  dcc[idx].port);
           socklist[i].flags |= SOCK_EOFD;
-          return ;
+          return;
         }
       }
 #endif

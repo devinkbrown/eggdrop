@@ -134,6 +134,12 @@ endif
 if m_dep.found()
   eggdrop_deps += m_dep
 endif
+if ws2_dep.found()
+  eggdrop_deps += ws2_dep
+endif
+if mswsock_dep.found()
+  eggdrop_deps += mswsock_dep
+endif
 
 # -------------------------------------------------------------------------
 # Module definitions
