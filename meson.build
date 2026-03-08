@@ -186,10 +186,11 @@ else
 endif
 
 # -------------------------------------------------------------------------
-# kqueue — BSD / macOS (sys/event.h)
+# kqueue — BSD / macOS (sys/event.h + kqueue() function)
 # Used when epoll is unavailable (i.e. on macOS, FreeBSD, OpenBSD, NetBSD).
 # -------------------------------------------------------------------------
-have_kqueue = cc.has_header('sys/event.h')
+have_kqueue = cc.has_header('sys/event.h') and cc.has_function('kqueue',
+    prefix: '#include <sys/types.h>\n#include <sys/event.h>\n#include <sys/time.h>')
 if have_kqueue
   cdata.set('HAVE_KQUEUE', 1)
   if not have_epoll
@@ -214,19 +215,6 @@ endif
 if cc.has_header_symbol('sys/socket.h', 'SOCK_CLOEXEC',
     prefix: '#define _GNU_SOURCE')
   cdata.set('HAVE_SOCK_CLOEXEC', 1)
-endif
-
-# -------------------------------------------------------------------------
-# kqueue — BSD / macOS kernel event notification (FreeBSD, OpenBSD, macOS)
-# Used as the high-performance back-end on platforms without epoll/io_uring.
-# Priority: io_uring > epoll > kqueue > select
-# -------------------------------------------------------------------------
-if cc.has_header('sys/event.h') and cc.has_function('kqueue',
-    prefix: '#include <sys/types.h>\n#include <sys/event.h>\n#include <sys/time.h>')
-  cdata.set('HAVE_KQUEUE', 1)
-  message('kqueue detected — using kqueue back-end on non-Linux')
-else
-  message('kqueue not found')
 endif
 
 # -------------------------------------------------------------------------

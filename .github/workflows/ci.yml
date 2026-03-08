@@ -29,5 +29,9 @@ jobs:
       - name: Install dependencies
         run: brew install meson ninja openssl tcl-tk
 
+      - name: Set up Homebrew pkg-config paths
+        run: |
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix tcl-tk)/lib/pkgconfig" >> $GITHUB_ENV
+
       - name: Build with Meson
         run: meson setup build_ci && ninja -C build_ci
