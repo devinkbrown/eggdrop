@@ -835,7 +835,7 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
       /* overwrite command objv[0] with original Tcl command instead of this function */
       new_objv[i] = info->cmd;
     } else if (i == 1 && needs_unicodesup(Tcl_GetString(orig_objv[1]))) {
-      int len;
+      Tcl_Size len;
       const char *oldstr = Tcl_GetStringFromObj(orig_objv[1], &len);
 
       /* overwrite string argument by replacing 4-byet utf-8 sequences with surrogate pairs */
@@ -858,7 +858,7 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
   nfree(new_objv);
   /* overwrite Tcl's result by replacing surrogates back to 4-byte utf-8 sequences*/
   if (ret == TCL_OK) {
-    int len;
+    Tcl_Size len;
     Tcl_Obj *resultobj = Tcl_GetObjResult(interp);
     const char *str = Tcl_GetStringFromObj(resultobj, &len);
 
