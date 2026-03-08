@@ -40,7 +40,7 @@ struct capability *find_capability(char *capname);
 static int monitor_add(char * nick, int send);
 static int monitor_del (char *nick);
 static int monitor_show(Tcl_Obj *mlist, int mode, char *nick);
-static void monitor_clear();
+static void monitor_clear(void);
 int account_notify = 1, extended_join = 1, account_tag = 0;
 
 /* Account name from the IRCv3 'account' message tag for the message
@@ -844,7 +844,7 @@ static int gotwall(char *from, char *msg)
 
 /* Called once a minute...
  */
-static void minutely_checks()
+static void minutely_checks(void)
 {
   char *alt;
 

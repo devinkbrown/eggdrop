@@ -79,7 +79,7 @@ static int can_resync(char *);
 static void dump_resync(int);
 static void q_resync(char *, struct chanset_t *);
 static void cancel_user_xfer(int, void *);
-static int private_globals_bitmask();
+static int private_globals_bitmask(void);
 
 #include "share.h"
 
@@ -123,7 +123,7 @@ static void add_delay(struct chanset_t *chan, int plsmns, int mode, char *mask)
   delay_tail = d;
 }
 
-static void check_delay()
+static void check_delay(void)
 {
   struct delay_mode *d = NULL, *prev = NULL, *dnext = NULL;
 
@@ -153,7 +153,7 @@ static void check_delay()
   }
 }
 
-static void delay_free_mem()
+static void delay_free_mem(void)
 {
   struct delay_mode *d = NULL, *dnext = NULL;
 
@@ -170,7 +170,7 @@ static void delay_free_mem()
   delay_tail = NULL;
 }
 
-static int delay_expmem()
+static int delay_expmem(void)
 {
   int size = 0;
   struct delay_mode *d = NULL;
@@ -365,7 +365,7 @@ static void share_chattr(int idx, char *par)
             if ((me = module_find("irc", 0, 0))) {
               Function *func = me->funcs;
 
-              (func[IRC_RECHECK_CHANNEL]) (cst, 0);
+              ((void (*)(struct chanset_t *, int)) func[IRC_RECHECK_CHANNEL])(cst, 0);
             }
           } else
             putlog(LOG_CMDS, "*",
@@ -393,7 +393,7 @@ static void share_chattr(int idx, char *par)
             Function *func = me->funcs;
 
             for (cst = chanset; cst; cst = cst->next)
-              (func[IRC_RECHECK_CHANNEL]) (cst, 0);
+              ((void (*)(struct chanset_t *, int)) func[IRC_RECHECK_CHANNEL])(cst, 0);
           }
         } else
           putlog(LOG_CMDS, "*", "Rejected global flags for %s from %s",
@@ -944,7 +944,7 @@ static void share_pls_ban(int idx, char *par)
     if ((me = module_find("irc", 0, 0)))
       for (chan = chanset; chan != NULL; chan = chan->next)
         if (channel_shared(chan) && (bot_chan(fr) || bot_global(fr)))
-          (me->funcs[IRC_CHECK_THIS_BAN]) (chan, ban, flags & MASKREC_STICKY);
+          ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, flags & MASKREC_STICKY);
     noshare = 0;
   }
 }
@@ -986,7 +986,7 @@ static void share_pls_banchan(int idx, char *par)
       u_addban(chan, ban, from, par, expire_time, flags);
       /* check ban against users in chan */
       if ((me = module_find("irc", 0, 0)))
-        (me->funcs[IRC_CHECK_THIS_BAN]) (chan, ban, flags & MASKREC_STICKY);
+        ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, flags & MASKREC_STICKY);
       noshare = 0;
     }
   }
@@ -1344,7 +1344,7 @@ static void share_version(int idx, char *par)
   }
 }
 
-static void hook_read_userfile()
+static void hook_read_userfile(void)
 {
   int i;
 
@@ -1452,7 +1452,7 @@ static void sharein_mod(int idx, char *msg)
       break_down_flags(C_share[i].flags, &req, NULL);
       get_user_flagrec(dcc[idx].user, &fr, NULL);
       if (flagrec_eq(&req, &fr)) {
-        (C_share[i].func) (idx, msg);
+        ((void (*)(int, char *)) C_share[i].func)(idx, msg);
       } else {
         putlog(LOG_DEBUG, "*", "Userfile modification from %s rejected: incorrect bot flag permissions for \"%s %s\"", dcc[idx].nick, code, msg);
       }
@@ -1583,7 +1583,7 @@ static int flush_tbuf(char *bot)
 
 /* Flush all tbufs older than 15 minutes.
  */
-static void check_expired_tbufs()
+static void check_expired_tbufs(void)
 {
   int i;
   tandbuf *t, *tnext = NULL;
@@ -2224,7 +2224,7 @@ static cmd_t my_cmds[] = {
   {NULL,    NULL, NULL,                 NULL}
 };
 
-static char *share_close()
+static char *share_close(void)
 {
   int i;
   tandbuf *t, *tnext = NULL;
@@ -2261,7 +2261,7 @@ static char *share_close()
   return NULL;
 }
 
-static int share_expmem()
+static int share_expmem(void)
 {
   int tot = 0;
   struct share_msgq *q;
@@ -2381,7 +2381,7 @@ char *share_start(Function *global_funcs)
   return NULL;
 }
 
-static int private_globals_bitmask()
+static int private_globals_bitmask(void)
 {
   struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
 

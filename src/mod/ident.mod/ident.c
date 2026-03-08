@@ -255,7 +255,7 @@ static void ident_builtin_off(void)
   rem_builtins(H_raw, ident_raw);
 }
 
-static void ident_ident()
+static void ident_ident(void)
 {
   if (ident_method == IDENT_METHOD_OIDENT)
     ident_oidentd();
@@ -268,7 +268,7 @@ static cmd_t ident_event[] = {
   {NULL,    NULL, NULL,                  NULL}
 };
 
-static char *ident_close()
+static char *ident_close(void)
 {
   ident_builtin_off();
   rem_builtins(H_event, ident_event);

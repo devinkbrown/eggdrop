@@ -481,7 +481,7 @@ static void do_channel_part(struct chanset_t *chan)
 /* Report the channel status of every active channel to dcc chat every
  * 5 minutes.
  */
-static void status_log()
+static void status_log(void)
 {
   masklist *b;
   memberlist *m;
@@ -599,7 +599,7 @@ static void check_lonely_channel(struct chanset_t *chan)
   }
 }
 
-static void check_expired_chanstuff()
+static void check_expired_chanstuff(void)
 {
   masklist *b, *e;
   memberlist *m, *n;
@@ -1039,7 +1039,7 @@ static tcl_ints myints[] = {
 
 /* Flush the modes for EVERY channel.
  */
-static void flush_modes()
+static void flush_modes(void)
 {
   struct chanset_t *chan;
   memberlist *m;
@@ -1169,7 +1169,7 @@ static void irc_report(int idx, int details)
  * they support max_modes. If they support max_modes, set each of
  * other sub-max settings equal to max_modes
  */
-static void do_nettype()
+static void do_nettype(void)
 {
   switch (net_type_int) {
   case NETT_EFNET:
@@ -1319,12 +1319,12 @@ static char *traced_rfccompliant(ClientData cdata, Tcl_Interp *irp,
   return NULL;
 }
 
-static int irc_expmem()
+static int irc_expmem(void)
 {
   return 0;
 }
 
-static char *irc_close()
+static char *irc_close(void)
 {
   struct chanset_t *chan;
 

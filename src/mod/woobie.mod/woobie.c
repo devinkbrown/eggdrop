@@ -37,7 +37,7 @@ static Function *global = NULL;
 
 /* Calculate the memory we keep allocated.
  */
-static int woobie_expmem()
+static int woobie_expmem(void)
 {
   int size = 0;
 
@@ -84,7 +84,7 @@ static cmd_t mydcc[] = {
   {NULL,      NULL,  NULL,        NULL}  /* Mark end. */
 };
 
-static char *woobie_close()
+static char *woobie_close(void)
 {
   rem_builtins(H_dcc, mydcc);
   module_undepend(MODULE_NAME);

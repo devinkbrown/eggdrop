@@ -159,7 +159,7 @@ static void notes_change(char *oldnick, char *newnick)
 
 /* Get rid of old useless notes.
  */
-static void expire_notes()
+static void expire_notes(void)
 {
   FILE *f, *g;
   char s[513], *to, *from, *ts, *s1;
@@ -826,7 +826,7 @@ static int msg_notes(char *nick, char *host, struct userrec *u, char *par)
   return 1;
 }
 
-static void notes_hourly()
+static void notes_hourly(void)
 {
   expire_notes();
   if (notify_users) {
@@ -1154,7 +1154,7 @@ static cmd_t notes_load[] = {
   {NULL,     NULL, NULL,                         NULL}
 };
 
-static char *notes_close()
+static char *notes_close(void)
 {
   p_tcl_bind_list H_temp;
 
@@ -1179,7 +1179,7 @@ static char *notes_close()
   return NULL;
 }
 
-static int notes_expmem()
+static int notes_expmem(void)
 {
   return 0;
 }

@@ -43,7 +43,7 @@
 
 /* Are there too many people in the file system?
  */
-static int too_many_filers()
+static int too_many_filers(void)
 {
   int i, n = 0;
 
@@ -1337,11 +1337,9 @@ static void filesys_note(int idx, char *par)
   struct userrec *u = get_user_by_handle(userlist, dcc[idx].nick);
   module_entry *me = module_find("notes", 2, 1);
 
-  if (me && me->funcs) {
-    Function f = me->funcs[NOTES_CMD_NOTE];
-
-    (f) (u, idx, par);
-  } else
+  if (me && me->funcs)
+    ((void (*)(struct userrec *, int, char *)) me->funcs[NOTES_CMD_NOTE])(u, idx, par);
+  else
     dprintf(idx, "Sending of notes is not supported.\n");
 }
 

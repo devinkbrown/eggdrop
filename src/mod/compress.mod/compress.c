@@ -413,7 +413,7 @@ static int compress_report(int idx, int details)
   return 0;
 }
 
-static char *compress_close()
+static char *compress_close(void)
 {
   rem_help_reference("compress.help");
   rem_tcl_commands(my_tcl_cmds);
