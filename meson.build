@@ -44,12 +44,14 @@ is_cygwin         = (host_system == 'cygwin')
 
 if host_system == 'darwin'
   cdata.set('EGG_DARWIN_BUNDLE', 1)
-elif is_native_windows or is_cygwin
-  # Both native Windows (MinGW / MSVC) and Cygwin use the IOCP path;
-  # Cygwin is treated as native Windows — no CYGWIN_HACKS legacy layer.
+elif is_native_windows
+  # Native Windows (MinGW / MSVC): IOCP event loop, Winsock2.
+  # Cygwin is a POSIX emulation layer — it does not expose Win32 IOCP
+  # APIs, so it takes the plain POSIX path and uses select() as its
+  # I/O backend.  No special define is set for Cygwin.
   cdata.set('EGG_NATIVE_WIN32', 1)
   cdata.set('HAVE_IOCP', 1)
-  message('Windows build (native or Cygwin) — IOCP backend enabled')
+  message('Native Windows build — IOCP backend enabled')
 endif
 
 # -------------------------------------------------------------------------
