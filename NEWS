@@ -1,5 +1,5 @@
 News
-Last revised: June 14, 2025
+Last revised: March 8, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -13,6 +13,39 @@ Last revised: June 14, 2025
 
   In general, always make a BACKUP of your config and user/chanfile
   before performing an upgrade!
+
+     _________________________________________________________________
+
+devinkbrown fork (based on v1.10.1):
+
+ Build system changes:
+    - Replaced autoconf/make with Meson + Ninja. See INSTALL for the new
+      quick-start instructions. All platforms (Linux, macOS, Windows,
+      Cygwin) are supported via a single meson setup / ninja workflow.
+    - Build now defaults to optimisation level 2 and passes -pipe where
+      the compiler supports it.
+
+ Platform changes:
+    - Added native Windows support (MinGW-w64 and MSVC). The bot
+      compiles and links against Winsock2/MsWSock with no Cygwin layer
+      required. Module loading uses LoadLibrary/GetProcAddress.
+    - Added IOCP (I/O Completion Ports) backend for native Windows builds,
+      using zero-byte overlapped WSARecv/WSASend to arm readiness
+      notifications. This gives the same efficient event-driven I/O on
+      Windows that epoll/kqueue provide on Linux/macOS.
+    - I/O backend priority chain is now: io_uring → epoll → kqueue →
+      IOCP → select(). Each backend is auto-detected at configure time.
+    - Removed CYGWIN_HACKS. Cygwin still compiles on the plain POSIX
+      path (select() fallback) and is unaffected by the Windows changes.
+    - On native Windows the bot always runs in the foreground; the
+      console window is hidden via ShowWindow() instead of fork().
+
+ Documentation changes:
+    - INSTALL completely rewritten for the Meson build system with
+      per-platform dependency installation steps (Debian/Ubuntu, Fedora,
+      macOS Homebrew, MSYS2/MinGW-w64, MSVC/vcpkg, Cygwin).
+    - README updated with fork notice, new build instructions, and the
+      full I/O backend table.
 
      _________________________________________________________________
 
