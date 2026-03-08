@@ -10,6 +10,28 @@ FORK NOTICE
 
       https://github.com/eggheads/eggdrop
 
+  Why this fork exists:
+
+    Upstream Eggdrop has excellent IRC bot functionality but carries
+    decades of build-system and portability debt. This fork was created
+    to modernise those areas:
+
+      1. The autoconf/make build system is replaced with Meson + Ninja,
+         which is faster, easier to maintain, and works out of the box
+         on Linux, macOS, Windows (MinGW and MSVC), and Cygwin.
+
+      2. Native Windows support (without Cygwin) has never existed in
+         upstream. This fork adds it — including a proper IOCP I/O
+         backend — so Eggdrop can run as a first-class Windows process.
+
+      3. All five major platforms (Linux/io_uring, Linux/epoll,
+         macOS+BSD/kqueue, Windows/IOCP, fallback/select) now have a
+         native, scalable I/O backend.
+
+    If upstream picks up these changes this fork may be retired or
+    rebased on top of upstream. Until then it tracks upstream bug fixes
+    and pulls them in as they land.
+
   Notable differences from upstream:
 
     - Build system replaced: autoconf/make → Meson + Ninja
