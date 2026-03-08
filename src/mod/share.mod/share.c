@@ -365,7 +365,7 @@ static void share_chattr(int idx, char *par)
             if ((me = module_find("irc", 0, 0))) {
               Function *func = me->funcs;
 
-              (func[IRC_RECHECK_CHANNEL]) (cst, 0);
+              ((void (*)(struct chanset_t *, int)) func[IRC_RECHECK_CHANNEL])(cst, 0);
             }
           } else
             putlog(LOG_CMDS, "*",
@@ -393,7 +393,7 @@ static void share_chattr(int idx, char *par)
             Function *func = me->funcs;
 
             for (cst = chanset; cst; cst = cst->next)
-              (func[IRC_RECHECK_CHANNEL]) (cst, 0);
+              ((void (*)(struct chanset_t *, int)) func[IRC_RECHECK_CHANNEL])(cst, 0);
           }
         } else
           putlog(LOG_CMDS, "*", "Rejected global flags for %s from %s",
@@ -1452,7 +1452,7 @@ static void sharein_mod(int idx, char *msg)
       break_down_flags(C_share[i].flags, &req, NULL);
       get_user_flagrec(dcc[idx].user, &fr, NULL);
       if (flagrec_eq(&req, &fr)) {
-        (C_share[i].func) (idx, msg);
+        ((void (*)(int, char *)) C_share[i].func)(idx, msg);
       } else {
         putlog(LOG_DEBUG, "*", "Userfile modification from %s rejected: incorrect bot flag permissions for \"%s %s\"", dcc[idx].nick, code, msg);
       }
