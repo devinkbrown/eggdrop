@@ -24,6 +24,15 @@ FORK NOTICE
          upstream. This fork adds it — including a proper IOCP I/O
          backend — so Eggdrop can run as a first-class Windows process.
 
+         The IOCP backend was adapted from libop, the I/O layer of the
+         ophion project (https://github.com/devinkbrown/ophion), also
+         by devinkbrown. libop already solved the hard parts of Windows
+         async I/O (zero-byte overlapped WSARecv/WSASend, stale
+         completion detection, SQPOLL-style batching) in a clean C API.
+         Reusing that work meant the Windows backend could be added to
+         Eggdrop in a single coherent pass rather than being bolted on
+         piece by piece.
+
       3. All five major platforms (Linux/io_uring, Linux/epoll,
          macOS+BSD/kqueue, Windows/IOCP, fallback/select) now have a
          native, scalable I/O backend.
