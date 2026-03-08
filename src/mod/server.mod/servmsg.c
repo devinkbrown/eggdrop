@@ -350,10 +350,12 @@ char *encode_msgtags(Tcl_Obj *msgtagdict) {
     Tcl_DStringFree(&ds);
   }
   for (Tcl_DictObjFirst(interp, msgtagdict, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
-    if (Tcl_DStringLength(&ds)) {
+    const char *encoded = encode_msgtag(Tcl_GetString(key), Tcl_GetString(value));
+    if (!encoded[0])
+      continue; /* encode_msgtag() rejected the key as invalid */
+    if (Tcl_DStringLength(&ds))
       Tcl_DStringAppend(&ds, ";", -1);
-    }
-    Tcl_DStringAppend(&ds, encode_msgtag(Tcl_GetString(key), Tcl_GetString(value)), -1);
+    Tcl_DStringAppend(&ds, encoded, -1);
   }
 
   return Tcl_DStringValue(&ds);
@@ -367,13 +369,14 @@ static int got001(char *from, char *msg)
   struct chanset_t *chan;
   struct server_list *x = serverlist;
 
-  /* FIXME - x should never be NULL anywhere in this function, but
-   * apparently it sometimes is. */
+  /* serverlist can be NULL during rapid reconnects or if the server list is
+   * cleared while a connection is in progress.  Guard defensively: walk only
+   * when the list is present and bail out below if we cannot find curserv. */
   if (x) {
     for (i = curserv; i > 0 && x; i--)
       x = x->next;
     if (!x) {
-      putlog(LOG_MISC, "*", "Invalid server list!");
+      putlog(LOG_MISC, "*", "Invalid server list (curserv=%d)!", curserv);
     } else {
       if (x->realname)
         nfree(x->realname);
@@ -385,7 +388,7 @@ static int got001(char *from, char *msg)
     realservername = nmalloc(strlen(from) + 1);
     strlcpy(realservername, from, strlen(from) + 1);
   } else
-    putlog(LOG_MISC, "*", "No server list!");
+    putlog(LOG_MISC, "*", "No server list when receiving 001!");
 
   server_online = now;
   fixcolon(msg);
@@ -1017,9 +1020,11 @@ static int got451(char *from, char *msg)
  */
 static int goterror(char *from, char *msg)
 {
-  /* FIXME: fixcolon doesn't do what we need here, this is a temp fix
-   * fixcolon(msg);
-   */
+  /* IRC ERROR messages always carry a trailing parameter prefixed with ':'.
+   * The fixcolon() macro handles that case correctly, but its else-branch
+   * calls newsplit() which would consume the first word of a message that
+   * lacks the colon — silently dropping part of the error text.  Advance
+   * past a leading ':' directly to avoid that data loss. */
   if (msg[0] == ':')
     msg++;
   putlog(LOG_SERV | LOG_MSGS, "*", "-ERROR from server- %s", msg);
@@ -1200,11 +1205,39 @@ static char *encode_msgtag_value(char *value)
   return buf;
 }
 
-/* TODO: validity enforcement on used characters in key? */
+/* Validate an IRCv3 message-tag key.
+ *
+ * Per the message-tags spec a key must match:
+ *   ['+'] [ <vendor> '/' ] <sequence of A-Z a-z 0-9 '-' '_' '.' >
+ *
+ * Returns 1 if every character is valid, 0 otherwise.
+ */
+static int msgtag_key_valid(const char *key)
+{
+  if (!key || !*key)
+    return 0;
+  /* Optional client-only prefix */
+  if (*key == '+')
+    key++;
+  /* Optional vendor prefix ends at the first '/' */
+  for (; *key; key++) {
+    if (isalnum((unsigned char)*key) || *key == '-' || *key == '_' ||
+        *key == '.' || *key == '/')
+      continue;
+    return 0;
+  }
+  return 1;
+}
+
 static char *encode_msgtag(char *key, char *value)
 {
   static char buf[TOTALTAGMAX+1];
 
+  if (!msgtag_key_valid(key)) {
+    putlog(LOG_SERV, "*", "Dropping message tag with invalid key: %s", key);
+    buf[0] = '\0';
+    return buf;
+  }
   snprintf(buf, sizeof buf, "%s%s", key, encode_msgtag_value(value));
   return buf;
 }

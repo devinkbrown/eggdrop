@@ -135,9 +135,14 @@ char *unsigned_int_to_base10(unsigned int val)
   return buf_base10 + i;
 }
 
-// TODO: this should probably not be used eggdrop core anymore
-// and only stay for 3rd party module compatibility
-// Reason: No sane compiler error checking possible, hardcoded 1024 limit
+/* simple_sprintf() — kept for third-party module ABI compatibility.
+ *
+ * New code in eggdrop core should use snprintf() instead.  simple_sprintf()
+ * silently truncates output at 1023 bytes and its format string is not
+ * validated by any compiler (%D is a non-standard base-64 specifier).
+ * Removing it from the exported module API would break third-party modules,
+ * so it stays as-is; internal callers should migrate to snprintf() over time.
+ */
 int simple_sprintf (char *buf, const char *format, ...)
 {
   char *s;

@@ -490,13 +490,9 @@ static int builtin_fil STDVAR
     return TCL_ERROR;
   }
 
-  /* FIXME: This is an ugly hack. It is not documented as a
-   *        'feature' because it will eventually go away.
-   */
-  if (F == CMD_LEAVE) {
-    Tcl_AppendResult(irp, "break", NULL);
-    return TCL_OK;
-  }
+  /* CMD_LEAVE signals filesys 'quit' via TCL_BREAK (see tclhash.c). */
+  if (F == CMD_LEAVE)
+    return TCL_BREAK;
 
   F(idx, argv[3]);
   Tcl_ResetResult(irp);
