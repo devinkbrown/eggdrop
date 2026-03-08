@@ -68,7 +68,7 @@ static char cap_request[55];
 
 /* Calculate the memory we keep allocated.
  */
-static int twitch_expmem()
+static int twitch_expmem(void)
 {
   int size = 0;
 
@@ -827,7 +827,7 @@ static cmd_t twitch_rawt[] = {
 };
 
 
-static char *twitch_close()
+static char *twitch_close(void)
 {
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_raw, twitch_raw);

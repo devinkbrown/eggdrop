@@ -61,7 +61,7 @@ static struct box_t {
 static uint32_t *bf_P;
 static uint32_t **bf_S;
 
-static int blowfish_expmem()
+static int blowfish_expmem(void)
 {
   int i, tot = 0;
 
@@ -683,7 +683,7 @@ static tcl_strings my_tcl_strings[] = {
   {NULL,                NULL,    0, 0}
 };
 
-static char *blowfish_close()
+static char *blowfish_close(void)
 {
   return "You can't unload the encryption module";
 }

@@ -173,7 +173,7 @@ static void write_to_server(char *s, unsigned int len) {
  * it will *not* send anything from hq until the 'burst' value drops
  * down to 0 again (allowing a sudden mq flood to sneak through).
  */
-static void deq_msg()
+static void deq_msg(void)
 {
   struct msgq *q;
   int ok = 0;
@@ -803,7 +803,7 @@ static int deq_kick(int which)
 
 /* Clean out the msg queues (like when changing servers).
  */
-static void empty_msgq()
+static void empty_msgq(void)
 {
   msgq_clear(&modeq);
   msgq_clear(&mq);
@@ -1321,7 +1321,7 @@ static int monitor_show(Tcl_Obj *mlist, int mode, char *nick) {
 }
 
 
-static void monitor_clear()
+static void monitor_clear(void)
 {
   struct monitor_list *current = monitor;
   struct monitor_list *next = NULL;
@@ -2015,7 +2015,7 @@ static void dcc_chat_hostresolved(int i)
  *     Server timer functions
  */
 
-static void server_secondly()
+static void server_secondly(void)
 {
   if (cycle_time)
     cycle_time--;
@@ -2026,7 +2026,7 @@ static void server_secondly()
     sasl_secondly();
 }
 
-static void server_5minutely()
+static void server_5minutely(void)
 {
   if (check_stoned && server_online) {
     if (lastpingcheck && (now - lastpingcheck >= 240)) {
@@ -2046,7 +2046,7 @@ static void server_5minutely()
   }
 }
 
-static void server_prerehash()
+static void server_prerehash(void)
 {
   struct server_list *x;
 
@@ -2059,7 +2059,7 @@ static void server_prerehash()
   }
 }
 
-static void server_postrehash()
+static void server_postrehash(void)
 {
   strlcpy(botname, origbotname, NICKLEN);
   if (!botname[0])
@@ -2081,7 +2081,7 @@ static void server_postrehash()
     strlcpy(botname, oldnick, sizeof(botname));
 }
 
-static void server_die()
+static void server_die(void)
 {
   char msg[MSGMAX];
   cycle_time = 100;
@@ -2121,7 +2121,7 @@ static int msgq_expmem(struct msgq_head *qh)
   return tot;
 }
 
-static int server_expmem()
+static int server_expmem(void)
 {
   int tot = 0;
   struct server_list *s = serverlist;
@@ -2241,7 +2241,7 @@ static cmd_t my_ctcps[] = {
   {NULL,  NULL, NULL,                  NULL}
 };
 
-static char *server_close()
+static char *server_close(void)
 {
   cycle_time = 100;
   nuke_server("Connection reset by peer");

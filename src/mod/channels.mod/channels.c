@@ -405,7 +405,7 @@ static char *convert_element(char *src, char *dst)
  *    instead of ""
  *  - We will write empty need-xxxx too, why not? (less code + laziness)
  */
-static void write_channels()
+static void write_channels(void)
 {
   FILE *f;
   char s[sizeof chanfile + 4], s1[26], w[1024], w2[1024], name[163];
@@ -550,7 +550,7 @@ static void read_channels(int create, int reload)
   }
 }
 
-static void backup_chanfile()
+static void backup_chanfile(void)
 {
   char s[sizeof chanfile + 4];
 
@@ -560,12 +560,12 @@ static void backup_chanfile()
   copyfile(chanfile, s);
 }
 
-static void channels_prerehash()
+static void channels_prerehash(void)
 {
   write_channels();
 }
 
-static void channels_rehash()
+static void channels_rehash(void)
 {
   /* add channels from the chanfile but don't remove missing ones */
   read_channels(1, 0);
@@ -727,7 +727,7 @@ static int expmem_masklist(masklist *m)
   return result;
 }
 
-static int channels_expmem()
+static int channels_expmem(void)
 {
   int tot = 0, i;
   struct chanset_t *chan;
@@ -854,7 +854,7 @@ static tcl_strings my_tcl_strings[] = {
   {NULL,              NULL,          0,             0}
 };
 
-static char *channels_close()
+static char *channels_close(void)
 {
   write_channels();
   free_udef(udef);

@@ -90,7 +90,7 @@ static void sasl_error(const char *msg)
   }
 }
 
-static void sasl_secondly()
+static void sasl_secondly(void)
 {
   if (!--sasl_timeout_time)
     sasl_error("timeout");
@@ -833,7 +833,7 @@ static tcl_strings sasl_tcl_strings[] = {
   {NULL,              NULL,            0,                  0}
 };
 
-static void sasl_close()
+static void sasl_close(void)
 {
   rem_builtins(H_raw, sasl_raw);
   rem_tcl_ints(sasl_tcl_ints);
@@ -842,7 +842,7 @@ static void sasl_close()
                  traced_sasl_mechanism, NULL);
 }
 
-static void sasl_start()
+static void sasl_start(void)
 {
   Tcl_TraceVar(interp, "sasl-mechanism", TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_sasl_mechanism, NULL);

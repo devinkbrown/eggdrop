@@ -340,10 +340,8 @@ static void eof_dcc_send(int idx)
     if (!l) {
       module_entry *fs = module_find("filesys", 0, 0);
 
-      if (fs != NULL) {
-        Function f = fs->funcs[FILESYS_ADDFILE];
-        f(dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname, hand);
-      }
+      if (fs != NULL)
+        ((void (*)(char *, char *, char *)) fs->funcs[FILESYS_ADDFILE])(dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname, hand);
       stats_add_upload(u, dcc[idx].u.xfer->length);
       check_tcl_sentrcvd(u, dcc[idx].nick, nfn, H_rcvd);
     }
@@ -353,10 +351,8 @@ static void eof_dcc_send(int idx)
     if (!strcmp(dcc[idx].nick, "*users")) {
       module_entry *me = module_find("share", 0, 0);
 
-      if (me && me->funcs) {
-        Function f = me->funcs[SHARE_FINISH];
-        (f) (idx);
-      }
+      if (me && me->funcs)
+        ((void (*)(int)) me->funcs[SHARE_FINISH])(idx);
 
     } else {
 
@@ -560,18 +556,15 @@ static void dcc_get(int idx, char *buf, int len)
       unlink(dcc[idx].u.xfer->filename);
       /* Any sharebot things that were queued: */
       if (me && me->funcs[SHARE_DUMP_RESYNC])
-        ((me->funcs)[SHARE_DUMP_RESYNC]) (y);
+        ((void (*)(int)) me->funcs[SHARE_DUMP_RESYNC])(y);
       xnick[0] = 0;
     } else {
       module_entry *fs = module_find("filesys", 0, 0);
       struct userrec *u = get_user_by_handle(userlist, dcc[idx].u.xfer->from);
 
       check_tcl_sentrcvd(u, dcc[idx].nick, dcc[idx].u.xfer->dir, H_sent);
-      if (fs != NULL) {
-        Function f = fs->funcs[FILESYS_INCRGOTS];
-
-        f(dcc[idx].u.xfer->dir);
-      }
+      if (fs != NULL)
+        ((void (*)(char *)) fs->funcs[FILESYS_INCRGOTS])(dcc[idx].u.xfer->dir);
       /* Download is credited to the user who requested it
        * (not the user who actually received it)
        */
@@ -1159,7 +1152,7 @@ static int server_transfer_setup(char *mod)
   return 1;
 }
 
-static char *transfer_close()
+static char *transfer_close(void)
 {
   int i;
   p_tcl_bind_list H_ctcp;
@@ -1191,7 +1184,7 @@ static char *transfer_close()
   return NULL;
 }
 
-static int transfer_expmem()
+static int transfer_expmem(void)
 {
   return expmem_fileq();
 }

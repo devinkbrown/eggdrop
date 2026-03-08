@@ -345,7 +345,7 @@ static tcl_cmds dnscmds[] = {
   {NULL,     NULL}
 };
 
-static char *dns_close()
+static char *dns_close(void)
 {
   int i;
 

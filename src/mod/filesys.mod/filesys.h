@@ -28,7 +28,7 @@
 #include "transfer.mod/transfer.h"
 
 #ifdef MAKING_FILESYS
-static int too_many_filers();
+static int too_many_filers(void);
 static int welcome_to_files(int);
 static void add_file(char *, char *, char *);
 static void incr_file_gots(char *);

@@ -82,7 +82,7 @@ static int dcc_users = 0;
 static char filedb_path[121] = "";
 
 /* Prototypes */
-static int is_valid();
+static int is_valid(void);
 static void eof_dcc_files(int idx);
 static void dcc_files(int idx, char *buf, int i);
 static void disp_dcc_files(int idx, char *buf);
@@ -902,7 +902,7 @@ static cmd_t myload[] = {
   {NULL,     NULL, NULL,                                     NULL}
 };
 
-static int filesys_expmem()
+static int filesys_expmem(void)
 {
   return 0;
 }
@@ -933,7 +933,7 @@ static void filesys_report(int idx, int details)
   }
 }
 
-static char *filesys_close()
+static char *filesys_close(void)
 {
   int i;
   p_tcl_bind_list H_ctcp;
@@ -1016,7 +1016,7 @@ char *filesys_start(Function *global_funcs)
   return NULL;
 }
 
-static int is_valid()
+static int is_valid(void)
 {
   return dccdir[0];
 }

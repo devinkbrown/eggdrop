@@ -57,7 +57,7 @@ extern struct hook_entry {
                                                                 \
         for (p = hook_list[x]; p; p = pn) {                     \
                 pn = p->next;                                   \
-                p->func();                                      \
+                ((void (*)(void)) p->func)();                   \
         }                                                       \
 } while (0)
 

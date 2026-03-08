@@ -132,8 +132,8 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
     else
       strlcpy(s, who, sizeof s);
     if ((me = module_find("server", 0, 0)) && me->funcs) {
-      egg_snprintf(s1, sizeof s1, "%s!%s", me->funcs[SERVER_BOTNAME],
-                   me->funcs[SERVER_BOTUSERHOST]);
+      egg_snprintf(s1, sizeof s1, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
+                   (char *) me->funcs[SERVER_BOTUSERHOST]);
       if (match_addr(s, s1)) {
         dprintf(idx, "I'm not going to ban myself.\n");
         putlog(LOG_CMDS, "*", "#%s# attempted +ban %s", dcc[idx].nick, s);
@@ -159,7 +159,7 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
        * no reason to set mode if irc.mod aint loaded. (dw 001120)
        */
       if ((me = module_find("irc", 0, 0)))
-        (me->funcs[IRC_CHECK_THIS_BAN]) (chan, s, sticky);
+        ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, s, sticky);
     } else {
       u_addban(NULL, s, dcc[idx].nick, par,
                expire_time ? now + expire_time : 0, 0);
@@ -176,7 +176,7 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
       }
       if ((me = module_find("irc", 0, 0)))
         for (chan = chanset; chan != NULL; chan = chan->next)
-          (me->funcs[IRC_CHECK_THIS_BAN]) (chan, s, sticky);
+          ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, s, sticky);
     }
   }
 }
@@ -1056,7 +1056,7 @@ static void cmd_stick_yn(int idx, char *par, int yn)
       dprintf(idx, "%stuck ban: %s\n", yn ? "S" : "Uns", s);
       if ((me = module_find("irc", 0, 0)))
         for (achan = chanset; achan != NULL; achan = achan->next)
-          (me->funcs[IRC_CHECK_THIS_BAN]) (achan, s, yn);
+          ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(achan, s, yn);
       return;
     }
     strlcpy(chname, dcc[idx].u.chat->con_chan, sizeof chname);
@@ -1078,7 +1078,7 @@ static void cmd_stick_yn(int idx, char *par, int yn)
            yn ? "" : "un", s, chname);
     dprintf(idx, "%stuck %s ban: %s\n", yn ? "S" : "Uns", chname, s);
     if ((me = module_find("irc", 0, 0)))
-      (me->funcs[IRC_CHECK_THIS_BAN]) (chan, s, yn);
+      ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, s, yn);
     return;
   }
   dprintf(idx, "No such ban.\n");

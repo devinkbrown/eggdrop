@@ -46,7 +46,7 @@ static PyThreadState *_pythreadsave;
 
 EXPORT_SCOPE char *python_start(Function *global_funcs);
 
-static int python_expmem()
+static int python_expmem(void)
 {
   /* Return the number of live Python heap blocks * sizeof(PyObject) as a
    * proxy for interpreter memory.  sys.getallocatedblocks() is the stable
@@ -151,7 +151,7 @@ static void python_report(int idx, int details)
   }
 }
 
-static char *python_close()
+static char *python_close(void)
 {
   /* Forbid unloading, because:
    * - Reloading (Reexecuting PyDateTime_IMPORT) would crash

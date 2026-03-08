@@ -231,7 +231,7 @@ static void check_expired_dcc(void)
 #else
 static int nested_debug = 0;
 
-static void write_debug()
+static void write_debug(void)
 {
   int x;
   char s[26];

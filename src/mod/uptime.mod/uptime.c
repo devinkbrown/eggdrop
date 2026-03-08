@@ -87,7 +87,7 @@ static char uptime_version[48] = "";
 static void check_secondly(void);
 static void check_minutely(void);
 
-static int uptime_expmem()
+static int uptime_expmem(void)
 {
   return 0;
 }
@@ -108,7 +108,7 @@ static void uptime_report(int idx, int details)
   }
 }
 
-static unsigned long get_ip()
+static unsigned long get_ip(void)
 {
   struct hostent *hp;
   IP ip;
@@ -228,7 +228,7 @@ static int send_uptime(void)
   return len;
 }
 
-static void check_minutely()
+static void check_minutely(void)
 {
   minutes++;
   if (minutes >= next_minutes) {
@@ -238,7 +238,7 @@ static void check_minutely()
   }
 }
 
-static void check_secondly()
+static void check_secondly(void)
 {
   seconds++;
   if (seconds >= next_seconds) {  /* DING! */
@@ -258,12 +258,12 @@ static void check_secondly()
   }
 }
 
-void expire_dnscache()
+void expire_dnscache(void)
 {
   uptimeip = -1;
 }
 
-static char *uptime_close()
+static char *uptime_close(void)
 {
   return "You cannot unload the uptime module "
          "(doing so will reset your stats).";
