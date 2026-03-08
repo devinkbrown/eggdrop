@@ -56,7 +56,9 @@
 #  include <unistd.h>
 #endif
 #include <setjmp.h>
-#include <sys/uio.h>   /* writev() */
+#ifndef EGG_NATIVE_WIN32
+#  include <sys/uio.h>   /* writev() — provided by compat shim on Windows */
+#endif
 
 #ifdef TLS
 #  include <openssl/err.h>

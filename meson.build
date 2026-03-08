@@ -61,7 +61,7 @@ req_headers = [
   'stdint.h', 'inttypes.h', 'stddef.h', 'stdlib.h', 'stdio.h',
   'string.h', 'strings.h', 'memory.h', 'unistd.h', 'fcntl.h',
   'dirent.h', 'sys/types.h', 'sys/stat.h', 'sys/time.h',
-  'sys/socket.h', 'netinet/in.h', 'netinet/in6.h', 'arpa/inet.h',
+  'sys/uio.h', 'sys/socket.h', 'netinet/in.h', 'netinet/in6.h', 'arpa/inet.h',
   'arpa/nameser.h', 'netdb.h', 'resolv.h', 'dlfcn.h',
 ]
 foreach h : req_headers
@@ -331,7 +331,11 @@ if cc.has_function('b64_ntop', dependencies: resolv_dep,
 endif
 
 # Module loading method
-if cc.has_function('dlopen', dependencies: dl_dep)
+if is_native_windows
+  # Native Windows: LoadLibrary() / GetProcAddress() — no dlopen
+  cdata.set('MODULES_OK', 1)
+  cdata.set('MOD_USE_WIN32', 1)
+elif cc.has_function('dlopen', dependencies: dl_dep)
   cdata.set('HAVE_DLOPEN', 1)
   cdata.set('DLOPEN_1', 1)
   cdata.set('MODULES_OK', 1)
