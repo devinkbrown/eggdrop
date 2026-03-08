@@ -505,8 +505,11 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   (*stack)->next = old;
   (*stack)->mins = (*stack)->interval = elapse;
   (*stack)->count = count;
-  (*stack)->cmd = nmalloc(strlen(cmd) + 1);
-  strlcpy((*stack)->cmd, cmd, strlen(cmd) + 1);
+  {
+    size_t cmdlen = strlen(cmd) + 1;
+    (*stack)->cmd = nmalloc(cmdlen);
+    strlcpy((*stack)->cmd, cmd, cmdlen);
+  }
   /* If it's just being added back and already had an id,
    * don't create a new one.
    */
@@ -515,8 +518,11 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   else
     (*stack)->id = timer_id++;
   if (name) {
-    (*stack)->name = nmalloc(strlen(name) + 1);
-    strlcpy((*stack)->name, name, strlen(name) + 1);
+    {
+      size_t namelen = strlen(name) + 1;
+      (*stack)->name = nmalloc(namelen);
+      strlcpy((*stack)->name, name, namelen);
+    }
   } else {
     (*stack)->name = NULL;
     ret = snprintf(stringid, sizeof stringid, "%lu", (*stack)->id);
