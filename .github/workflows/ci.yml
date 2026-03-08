@@ -31,7 +31,10 @@ jobs:
 
       - name: Set up Homebrew pkg-config paths
         run: |
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix tcl-tk)/lib/pkgconfig" >> $GITHUB_ENV
+          BREW=$(brew --prefix)
+          echo "PKG_CONFIG_PATH=${BREW}/opt/openssl@3/lib/pkgconfig:${BREW}/opt/tcl-tk/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L${BREW}/opt/openssl@3/lib -L${BREW}/opt/tcl-tk/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I${BREW}/opt/openssl@3/include -I${BREW}/opt/tcl-tk/include" >> $GITHUB_ENV
 
       - name: Build with Meson
         run: meson setup build_ci && ninja -C build_ci
