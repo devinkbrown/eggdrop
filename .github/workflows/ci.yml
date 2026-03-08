@@ -17,7 +17,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y meson ninja-build libssl-dev tcl-dev
 
       - name: Build with Meson
-        run: meson setup build_ci && ninja -C build_ci
+        run: meson setup build_ci && ninja -j$(nproc) -C build_ci
 
   build-macos:
     name: Build (macOS)
@@ -42,7 +42,7 @@ jobs:
       - name: Build with Meson
         run: |
           meson setup build_ci 2>&1
-          ninja -C build_ci 2>&1 | tee /tmp/build.log; BUILD_EXIT=${PIPESTATUS[0]}
+          ninja -j$(sysctl -n hw.logicalcpu) -C build_ci 2>&1 | tee /tmp/build.log; BUILD_EXIT=${PIPESTATUS[0]}
           if [ "$BUILD_EXIT" -ne 0 ]; then
             echo "=== Build failed — last 300 lines of output ==="
             tail -300 /tmp/build.log
