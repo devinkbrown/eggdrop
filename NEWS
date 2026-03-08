@@ -18,6 +18,21 @@ Last revised: March 8, 2026
 
 devinkbrown fork (based on v1.10.1):
 
+ Configuration changes:
+    - Added TOML configuration format as a modern alternative to the
+      traditional Tcl-script config. Files with a .toml extension are
+      parsed automatically; no chmod u+x is required.
+    - Added interactive first-time setup wizard: run `eggdrop --setup`
+      (or `eggdrop -s [output.toml]`) to answer a few questions and
+      generate a ready-to-use TOML config without hand-editing.
+    - Shipped eggdrop-basic.toml as the human-friendly TOML counterpart
+      to eggdrop-basic.conf. Both formats are fully supported and can
+      coexist; existing .conf files continue to work unchanged.
+    - Fixed silent HTTP response truncation in the webui module: the
+      snprintf calls for 404, 200-OK, and 101-Upgrade responses were
+      passing sizeof(char*) (pointer size = 8) instead of the actual
+      allocated buffer length, truncating all responses to 7 characters.
+
  Build system changes:
     - Replaced autoconf/make with Meson + Ninja. See INSTALL for the new
       quick-start instructions. All platforms (Linux, macOS, Windows,

@@ -66,6 +66,7 @@
 #include "chan.h"
 #include "modules.h"
 #include "bg.h"
+#include "configtoml.h"
 
 #ifdef HAVE_GETRANDOM
 #  include <sys/random.h>
@@ -108,7 +109,7 @@ int con_chan = 0;   /* Foreground: constantly display channel stats? */
 int term_z = -1;    /* Foreground: use the terminal as a partyline?  */
 int use_stderr = 1; /* Send stuff to stderr instead of logfiles?     */
 
-char configfile[121] = "eggdrop.conf";  /* Default config file name */
+char configfile[121] = "eggdrop.toml";  /* Default config file name */
 char pid_file[121];                     /* Name of the pid file     */
 char helpdir[121] = "help/";            /* Directory of help files  */
 char textdir[121] = "text/";            /* Directory for text files */
@@ -470,8 +471,13 @@ static void show_help(void) {
          "-c  Don't background; display channel stats every 10 seconds.\n"
          "-t  Don't background; use terminal to simulate DCC chat.\n"
          "-m  Create userfile.\n"
+         "-s  Run the interactive setup wizard and write a TOML config.\n"
          "-h  Show this help and exit.\n"
-         "-v  Show version info and exit.\n\n", argv0);
+         "-v  Show version info and exit.\n\n"
+         "Config file formats:\n"
+         "  eggdrop.conf  -- traditional Tcl script (default)\n"
+         "  eggdrop.toml  -- modern TOML format (auto-detected by extension)\n\n",
+         argv0);
   bg_send_quit(BG_ABORT);
 }
 
@@ -488,8 +494,9 @@ static void do_arg(void)
   #define CLI_N        1 << 4
   #define CLI_H        1 << 5
   #define CLI_BAD_FLAG 1 << 6
+  #define CLI_S        1 << 7   /* setup wizard */
 
-  while ((option = getopt(argc, argv, "hnctmv")) != -1) {
+  while ((option = getopt(argc, argv, "hnctmvs")) != -1) {
     switch (option) {
       case 'n':
         cliflags |= CLI_N;
@@ -517,6 +524,9 @@ static void do_arg(void)
       case 'h':
         cliflags |= CLI_H;
         break;
+      case 's':
+        cliflags |= CLI_S;
+        break;
       default:
         cliflags |= CLI_BAD_FLAG;
         break;
@@ -531,6 +541,11 @@ static void do_arg(void)
   } else if (cliflags & CLI_V) {
     show_ver();
     exit(0);
+  } else if (cliflags & CLI_S) {
+    /* Interactive setup wizard — writes a TOML config, then exits. */
+    const char *outfile = (argc > optind) ? argv[optind] : "eggdrop.toml";
+    printf("\n%s\n", version);
+    exit(run_setup_wizard(outfile));
   } else if (argc > (optind + 1)) {
     printf("\n");
     printf("WARNING: More than one config file value detected\n");

@@ -29,6 +29,7 @@
 #include "main.h"
 #include <sys/utsname.h>
 #include "modules.h"
+#include "configtoml.h"
 
 extern struct dcc_t *dcc;
 extern struct userrec *userlist;
@@ -396,9 +397,27 @@ void chanprog(void)
   /* Turn off read-only variables (make them write-able) for rehash */
   protect_readonly = 0;
 
-  /* Now read it */
-  if (!readtclprog(configfile))
-    fatal(MISC_NOCONFIGFILE, 0);
+  /* Now read it.
+   *
+   * .toml extension → TOML parser (no Tcl scripting knowledge required).
+   * Any other extension → traditional Tcl-script parser (backward-compat).
+   */
+  {
+    size_t cflen = strlen(configfile);
+    int ok;
+    if (cflen >= 5 && strcmp(configfile + cflen - 5, ".toml") == 0)
+      ok = readtomlconfig(configfile);
+    else {
+      putlog(LOG_MISC, "*",
+             "NOTE: Loading '%s' as a Tcl config script. "
+             "Consider migrating to TOML: run 'eggdrop --setup' to generate "
+             "a modern eggdrop.toml with no Tcl knowledge required.",
+             configfile);
+      ok = readtclprog(configfile);
+    }
+    if (!ok)
+      fatal(MISC_NOCONFIGFILE, 0);
+  }
 
   for (i = 0; i < max_logs; i++) {
     if (logs[i].flags & LF_EXPIRING) {

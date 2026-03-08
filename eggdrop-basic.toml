@@ -1,0 +1,170 @@
+# Eggdrop TOML configuration file
+# This is the modern alternative to eggdrop-basic.conf.
+#
+# Run the bot with:
+#   eggdrop mybot.toml          (reads TOML automatically)
+#   eggdrop -m mybot.toml       (first run: creates user file)
+#
+# No chmod needed — the bot reads this file directly; it is NOT
+# executed as a script.
+#
+# To generate a personalised copy interactively, run:
+#   eggdrop --setup mybot.toml
+#
+# Full reference for every setting: doc/settings/
+
+# ---------------------------------------------------------------------------
+# Modules
+# ---------------------------------------------------------------------------
+# List the modules to load at startup.  Comment out (prefix with #) any
+# module you don't need.  Module files live in the modules/ directory.
+
+[modules]
+load = [
+  "pbkdf2",    # Generation-2 userfile encryption (recommended)
+  "blowfish",  # Legacy userfile encryption support
+  "channels",  # Channel tracking and management
+  "server",    # Core IRC server support
+  "ctcp",      # CTCP functionality
+  "irc",       # Basic IRC functionality
+  # "transfer",  # DCC SEND/GET and userfile transfer
+  # "share",     # Userfile sharing between botnets
+  # "compress",  # Compress userfiles during transfer (requires zlib)
+  # "filesys",   # Built-in file server
+  "notes",     # Store notes for offline users
+  "console",   # Persist console settings across restarts
+  # "seen",      # Basic !seen command
+  # "assoc",     # Party-line channel naming
+  "uptime",    # Report uptime to https://www.eggheads.org/uptime/
+  # "ident",     # Ident daemon support
+  # "twitch",    # Twitch gaming service support
+  # "webui",     # Browser-based administration UI (requires TLS)
+]
+
+# ---------------------------------------------------------------------------
+# Bot identity
+# ---------------------------------------------------------------------------
+
+[bot]
+# Primary nick used on IRC and on the botnet.
+nick     = "Lamestbot"
+
+# Alternate nick if the primary nick is taken.
+# '?' characters are replaced with random digits.
+altnick  = "Llamab?t"
+
+# IRC GECOS / "real name" field.
+realname = "/msg Lamestbot hello"
+
+# IRC username (ident).  Ignored when an ident daemon is running.
+username = "lamest"
+
+# Contact information shown in .status and /msg help.
+admin    = "Lamer <email: lamer@lamest.lame.org>"
+
+# IRC network name (informational only; shared with other bots).
+network  = "I.didn't.edit.my.config.file.net"
+
+# Comma-separated list of bot owner handles (must exist in the user file).
+# Uncomment and edit this — it is required!
+# owner = "MyNick, MyOtherNick"
+
+# Separate botnet nick (default: same as nick).
+# botnet_nick = "LlamaBot"
+
+# ---------------------------------------------------------------------------
+# Servers
+# ---------------------------------------------------------------------------
+# Format for each entry:
+#   "host:port"             plain connection
+#   "host:+port"            SSL/TLS connection
+#   "host:+port:password"   SSL/TLS with a server password
+#
+# The bot cycles through the list when disconnected.
+
+[servers]
+list = [
+  "you.need.to.change.this:6667",
+  "another.example.com:6669",
+  "ssl.example.net:+7000",
+]
+
+# ---------------------------------------------------------------------------
+# Channels
+# ---------------------------------------------------------------------------
+# Channels the bot should join automatically.
+
+[channels]
+list = ["#egghelp"]
+
+# ---------------------------------------------------------------------------
+# File paths
+# ---------------------------------------------------------------------------
+
+[paths]
+# User and channel data files.
+userfile  = "LamestBot.user"
+chanfile  = "LamestBot.chan"
+
+# Notes file (used by the notes module).
+notefile  = "LamestBot.notes"
+
+# Directory containing help files.
+help_path = "help/"
+
+# Directory for temporary files.
+tempdir   = "/tmp"
+
+# Directory containing compiled module (.so / .dll) files.
+mod_path  = "modules/"
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+# Each entry is a space-separated triple: "flags channel logfile"
+#
+# Common flags:
+#   m = private messages    o = user commands    c = channel text
+#   b = bot messages        j = joins/parts      s = server messages
+#   k = kicks/bans          e = errors           *  = all
+#
+# Use "*" as the channel name to log everything regardless of channel.
+
+[logging]
+entries = [
+  "mco * LamestBot.log",
+]
+
+# ---------------------------------------------------------------------------
+# Networking
+# ---------------------------------------------------------------------------
+
+[network]
+# Bind to a specific IPv4 address (useful on multi-homed hosts).
+# vhost4 = "0.0.0.0"
+
+# Bind to a specific IPv6 address.
+# vhost6 = "0::0"
+
+# External IP for NAT setups (home routers, etc.).
+# nat_ip = ""
+
+# Default IRC port when none is specified in a server entry.
+default_port = 6667
+
+# Prefer IPv6 connections when available.
+prefer_ipv6 = 0
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+[security]
+# Hide the "Eggdrop" server string in DCC/telnet banners.
+stealth_telnets = 0
+
+# Require users to send a password before the bot accepts DCC chat.
+require_p = 0
+
+# Seconds before an unverified DCC chat request times out.
+password_timeout = 180

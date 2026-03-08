@@ -75,7 +75,7 @@ static void put_404(int idx) {
     "404 Not Found",
     stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   response = nmalloc(i + 1);
-  snprintf(response, sizeof(response),
+  snprintf(response, i + 1,
     "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
     "Content-Length: 13\r\n"
     "Content-Type: text/plain\r\n"
@@ -143,7 +143,7 @@ static void put_file(int idx, int file_cache_index) {
     (intmax_t) sb.st_size, f->content_type,
     stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
   response = nmalloc(i + sb.st_size);
-  snprintf(response, sizeof(response),
+  snprintf(response, i + 1,
     "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
     "Content-Length: %jd\r\n"
     "Content-Type: %s\r\n" /* at least firefox 144 needs this */
@@ -233,7 +233,7 @@ static void webui_http_activity(int idx, char *buf, int len)
       "Sec-WebSocket-Accept: %s\r\n"
       "\r\n", out);
     response = nmalloc(i + 1);
-    snprintf(response, sizeof(response),
+    snprintf(response, i + 1,
       "HTTP/1.1 101 Switching Protocols\r\n"
       "Upgrade: websocket\r\n"
       "Connection: Upgrade\r\n"
@@ -280,9 +280,9 @@ static void webui_http_activity(int idx, char *buf, int len)
 static void webui_http_display(int idx, char *buf)
 {
   if (!dcc[idx].ssl)
-    strlcpy(buf, "webui http", sizeof(buf));
+    strlcpy(buf, "webui http", 160);
   else
-    strlcpy(buf, "webui https", sizeof(buf));
+    strlcpy(buf, "webui https", 160);
 }
 
 static struct dcc_table DCC_WEBUI_HTTP = {
