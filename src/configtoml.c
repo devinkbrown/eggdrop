@@ -95,8 +95,45 @@ static char *trim(char *s)
  */
 static const char *parse_quoted(const char *src, char *dst, size_t dstlen)
 {
-  char quote = *src++;
   size_t i = 0;
+
+  /* Triple-quoted strings: """...""" or '''...''' (may span multiple lines). */
+  if ((src[0] == '"' && src[1] == '"' && src[2] == '"') ||
+      (src[0] == '\'' && src[1] == '\'' && src[2] == '\'')) {
+    char q = src[0];
+    src += 3;
+    /* Per TOML spec: an immediate newline after the opening """ is trimmed. */
+    if (*src == '\n') src++;
+    while (*src) {
+      if (src[0] == q && src[1] == q && src[2] == q) {
+        src += 3;
+        break;
+      }
+      if (q == '"' && *src == '\\') {
+        src++;
+        switch (*src) {
+          case 'n':  if (i < dstlen - 1) dst[i++] = '\n'; break;
+          case 't':  if (i < dstlen - 1) dst[i++] = '\t'; break;
+          case 'r':  if (i < dstlen - 1) dst[i++] = '\r'; break;
+          case '"':  if (i < dstlen - 1) dst[i++] = '"';  break;
+          case '\\': if (i < dstlen - 1) dst[i++] = '\\'; break;
+          case '\n': /* line-ending backslash: skip whitespace */
+            while (*src && isspace((unsigned char)*src)) src++;
+            continue;
+          default:   if (i < dstlen - 1) dst[i++] = *src; break;
+        }
+      } else {
+        if (i < dstlen - 1)
+          dst[i++] = *src;
+      }
+      if (*src) src++;
+    }
+    dst[i] = '\0';
+    return src;
+  }
+
+  /* Single-character quote: " or ' */
+  char quote = *src++;
 
   while (*src && *src != quote) {
     if (*src == '\\' && quote == '"') {
@@ -163,6 +200,44 @@ static void run_tcl_cmd(const char *cmd)
 typedef void (*ArrayCb)(const char *item, void *ud);
 
 /*
+ * Returns 1 if the string (which must begin with '[') contains a closing ']'
+ * that is not inside a string or nested array.  Used to detect whether an
+ * array value spans multiple lines and needs further accumulation.
+ */
+static int array_is_complete(const char *s)
+{
+  int depth = 0;
+  while (*s) {
+    /* Triple-quoted strings */
+    if ((s[0] == '"' && s[1] == '"' && s[2] == '"') ||
+        (s[0] == '\'' && s[1] == '\'' && s[2] == '\'')) {
+      char q = s[0];
+      s += 3;
+      while (*s) {
+        if (s[0] == q && s[1] == q && s[2] == q) { s += 3; break; }
+        if (*s == '\\') s++;   /* skip escaped char */
+        if (*s) s++;
+      }
+      continue;
+    }
+    /* Single or double-quoted string */
+    if (*s == '"' || *s == '\'') {
+      char q = *s++;
+      while (*s && *s != q) {
+        if (*s == '\\') s++;
+        if (*s) s++;
+      }
+      if (*s) s++;
+      continue;
+    }
+    if (*s == '[')       depth++;
+    else if (*s == ']') { depth--; if (depth == 0) return 1; }
+    s++;
+  }
+  return 0;
+}
+
+/*
  * Parse a TOML inline string array: ["a", "b", …]
  * Calls cb(item, ud) for each string element found.
  * Returns 0 on success, -1 on parse error.
@@ -178,8 +253,14 @@ static int parse_string_array(const char *src, ArrayCb cb, void *ud)
   while (*src) {
     while (*src && isspace((unsigned char)*src))
       src++;
-    if (*src == ']' || *src == '#' || !*src)
+    if (*src == ']' || !*src)
       break;
+    /* TOML comment between array elements: skip to end of line. */
+    if (*src == '#') {
+      while (*src && *src != '\n')
+        src++;
+      continue;
+    }
     if (*src == '"' || *src == '\'') {
       src = parse_quoted(src, item, sizeof item);
       if (!src)
@@ -187,7 +268,7 @@ static int parse_string_array(const char *src, ArrayCb cb, void *ud)
       cb(item, ud);
     }
     /* Advance past comma or to closing bracket */
-    while (*src && *src != ',' && *src != ']')
+    while (*src && *src != ',' && *src != ']' && *src != '\n')
       src++;
     if (*src == ',')
       src++;
@@ -427,6 +508,11 @@ int readtomlconfig(const char *fname)
 {
   FILE *fp;
   char line[TOML_LINE_MAX];
+  /*
+   * ml_value: accumulation buffer for multi-line arrays.
+   * Sized for many triple-quoted Tcl proc definitions.
+   */
+  static char ml_value[TOML_LINE_MAX * 64];
   char key[256], value[TOML_LINE_MAX];
   char sec_name[128] = "";
   TomlSection cur_sec = SEC_NONE;
@@ -483,6 +569,33 @@ int readtomlconfig(const char *fname)
       continue;
 
     strlcpy(key, k, sizeof key);
+
+    /*
+     * Multi-line array: if the value starts with '[' but the closing ']'
+     * is not yet present (e.g. the array spans multiple lines or contains
+     * triple-quoted strings), keep reading lines until the array is complete.
+     * This is required for [tcl] commands that include proc definitions.
+     */
+    if (*v == '[' && !array_is_complete(v)) {
+      strlcpy(ml_value, v, sizeof ml_value);
+      while (!array_is_complete(ml_value)) {
+        if (!fgets(line, sizeof line, fp))
+          break;
+        lineno++;
+        /*
+         * Append the raw line (trimmed of newline only, NOT of leading '#').
+         * Lines beginning with '#' may be Tcl comments inside a triple-quoted
+         * string and must not be discarded.  parse_string_array() handles
+         * TOML-level '#' comments between array elements by skipping to EOL.
+         */
+        size_t llen = strlen(line);
+        while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
+          line[--llen] = '\0';
+        strlcat(ml_value, "\n", sizeof ml_value);
+        strlcat(ml_value, line, sizeof ml_value);
+      }
+      v = ml_value;
+    }
 
     if (parse_value(v, value, sizeof value) < 0) {
       putlog(LOG_MISC, "*", "TOML config:%d: parse error for key '%s'",

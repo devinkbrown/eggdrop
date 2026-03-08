@@ -317,20 +317,11 @@ install_subdir('../help',     install_dir: get_option('datadir') / 'eggdrop',
   strip_directory: true)
 install_subdir('../language', install_dir: get_option('datadir') / 'eggdrop',
   strip_directory: true)
-# Primary TOML configs — modern format, no chmod required.
+# TOML configuration files — primary format, no chmod required.
 install_data('../eggdrop.toml',
   install_dir: get_option('datadir') / 'eggdrop')
 install_data('../eggdrop-basic.toml',
   install_dir: get_option('datadir') / 'eggdrop')
-
-# Legacy Tcl configs — kept for backward-compatibility.
-# The bot still loads .conf files as Tcl scripts when passed explicitly.
-install_data('../eggdrop.conf',
-  install_dir: get_option('datadir') / 'eggdrop',
-  rename: 'eggdrop.conf.legacy')
-install_data('../eggdrop-basic.conf',
-  install_dir: get_option('datadir') / 'eggdrop',
-  rename: 'eggdrop-basic.conf.legacy')
 
 # -------------------------------------------------------------------------
 # Distribution note
