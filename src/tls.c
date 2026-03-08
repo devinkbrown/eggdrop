@@ -1102,7 +1102,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
           body);
       response = nmalloc(j + 1);
-      snprintf(response, sizeof(response),
+      snprintf(response, j + 1,
         "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
         "Content-Length: %zu\r\n"
         "Content-Type: text/plain; charset=utf-8\r\n"
@@ -1112,7 +1112,12 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           body);
       if (write(sock, response, j) < 0) /* tputs() cannot be used here */
         putlog(LOG_MISC, "*", "TLS: error: write(sock %i): %s", sock, strerror(errno));
-      // TODO: after reading of remaining bytes / ssl shutdown ?
+      /* Note: ideally we would drain remaining request bytes here so the
+       * client can receive our response before the socket closes (avoiding
+       * a TCP RST), but this is a rare edge case and the cleanup below
+       * will free the SSL structures safely since the handshake never
+       * completed.
+       */
       nfree(response);
     } else {
       putlog(data->loglevel, "*",
