@@ -56,7 +56,7 @@ static PyObject *py_displayhook(PyObject *self, PyObject *o) {
 }
 
 static void cmd_python(struct userrec *u, int idx, char *par) {
-  PyObject *pobj, *ptype, *pvalue, *ptraceback;
+  PyObject *pobj;
   PyObject *pystr, *module_name, *pymodule, *pyfunc, *pyval, *item;
   Py_ssize_t n;
   int i;
@@ -76,6 +76,42 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
     // always None
     Py_DECREF(pobj);
   } else if (PyErr_Occurred()) {
+#if PY_VERSION_HEX >= 0x030C0000
+    /* Python 3.12+: PyErr_Fetch() was deprecated in 3.12 and removed in 3.14.
+     * PyErr_GetRaisedException() returns the current exception (already
+     * normalized) and clears the interpreter's error indicator. */
+    PyObject *exc = PyErr_GetRaisedException();
+    pystr = PyObject_Str(exc);
+    // Get "pretty" error result
+    dprintf(eval_idx, "Python Error: %s\n", PyUnicode_AsUTF8(pystr));
+    Py_DECREF(pystr);
+    module_name = PyUnicode_FromString("traceback");
+    pymodule = PyImport_Import(module_name);
+    Py_DECREF(module_name);
+    // format backtrace and print (format_exception(exc) — single-arg form, Python 3.10+)
+    pyfunc = PyObject_GetAttrString(pymodule, "format_exception");
+    if (pyfunc && PyCallable_Check(pyfunc)) {
+      pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, NULL);
+      // Check if traceback is a list and handle as such
+      if (pyval && PyList_Check(pyval)) {
+        n = PyList_Size(pyval);
+        for (i = 0; i < n; i++) {
+          item = PyList_GetItem(pyval, i);
+          pystr = PyObject_Str(item);
+          dprintf(idx, "%s", PyUnicode_AsUTF8(pystr));
+        }
+      } else {
+        pystr = PyObject_Str(pyval);
+        dprintf(idx, "%s", PyUnicode_AsUTF8(pystr));
+      }
+      Py_XDECREF(pyval);
+    }
+    Py_XDECREF(pyfunc);
+    Py_DECREF(pymodule);
+    Py_XDECREF(exc);
+#else
+    /* Python < 3.12: use the legacy three-component exception API. */
+    PyObject *ptype, *pvalue, *ptraceback;
     PyErr_Fetch(&ptype, &pvalue, &ptraceback);
     pystr = PyObject_Str(pvalue);
     // Get "pretty" error result
@@ -101,6 +137,10 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
       }
       Py_XDECREF(pyval);
     }
+    Py_XDECREF(ptype);
+    Py_XDECREF(pvalue);
+    Py_XDECREF(ptraceback);
+#endif
   }
   return;
 }

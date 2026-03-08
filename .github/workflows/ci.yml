@@ -35,6 +35,16 @@ jobs:
           echo "PKG_CONFIG_PATH=${BREW}/opt/openssl@3/lib/pkgconfig:${BREW}/opt/tcl-tk/lib/pkgconfig" >> $GITHUB_ENV
           echo "LDFLAGS=-L${BREW}/opt/openssl@3/lib -L${BREW}/opt/tcl-tk/lib" >> $GITHUB_ENV
           echo "CPPFLAGS=-I${BREW}/opt/openssl@3/include -I${BREW}/opt/tcl-tk/include" >> $GITHUB_ENV
+          # Meson reads CFLAGS (not CPPFLAGS) for compiler include paths used in
+          # feature-probe tests (cc.has_header, cc.has_function, etc.).
+          echo "CFLAGS=-I${BREW}/opt/openssl@3/include -I${BREW}/opt/tcl-tk/include" >> $GITHUB_ENV
 
       - name: Build with Meson
-        run: meson setup build_ci && ninja -C build_ci
+        run: |
+          meson setup build_ci 2>&1
+          ninja -C build_ci 2>&1 | tee /tmp/build.log; BUILD_EXIT=${PIPESTATUS[0]}
+          if [ "$BUILD_EXIT" -ne 0 ]; then
+            echo "=== Build failed — last 300 lines of output ==="
+            tail -300 /tmp/build.log
+          fi
+          exit "$BUILD_EXIT"
