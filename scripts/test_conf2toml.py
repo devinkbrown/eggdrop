@@ -193,6 +193,65 @@ class TestConf2Toml(unittest.TestCase):
         toml = self._convert('bind evnt - init-server evnt:init_server')
         self.assertIn('[tcl]', toml)
 
+    def test_proc_single_line_goes_to_tcl(self):
+        """A proc whose body is all on one line is a balanced single-line cmd."""
+        toml = self._convert('proc myproc {} { return 1 }')
+        self.assertIn('[tcl]', toml)
+        self.assertIn('myproc', toml)
+
+    def test_proc_multiline_uses_triple_quote(self):
+        """Multi-line proc definitions must be wrapped in triple-quoted strings."""
+        conf = (
+            'proc myproc {args} {\n'
+            '  putlog "hello"\n'
+            '  return 1\n'
+            '}'
+        )
+        toml = self._convert(conf)
+        self.assertIn('[tcl]', toml)
+        self.assertIn('"""', toml)
+        self.assertIn('proc myproc', toml)
+        self.assertIn('putlog', toml)
+
+    def test_multiline_proc_does_not_split_body(self):
+        """Each line of the proc body must not become a separate [tcl] entry."""
+        conf = (
+            'proc foo {} {\n'
+            '  set x 1\n'
+            '  return $x\n'
+            '}'
+        )
+        toml = self._convert(conf)
+        # The body lines should appear together inside the triple-quoted block,
+        # not as multiple separate commands = [...] entries.
+        self.assertIn('set x 1', toml)
+        self.assertIn('return $x', toml)
+        # Only one triple-quoted block (one '"""' pair = two occurrences)
+        self.assertEqual(toml.count('"""'), 2)
+
+    def test_namespace_multiline(self):
+        """namespace eval blocks span multiple lines — same treatment as proc."""
+        conf = (
+            'namespace eval myns {\n'
+            '  variable foo 1\n'
+            '}'
+        )
+        toml = self._convert(conf)
+        self.assertIn('"""', toml)
+        self.assertIn('namespace eval myns', toml)
+
+    def test_multiline_then_single_line(self):
+        """Multi-line block followed by single-line bind — both in [tcl]."""
+        conf = (
+            'proc evnt:init {args} {\n'
+            '  putlog "inited"\n'
+            '}\n'
+            'bind evnt - init-server evnt:init'
+        )
+        toml = self._convert(conf)
+        self.assertIn('"""', toml)
+        self.assertIn('bind evnt', toml)
+
     # ── Comment and blank line handling ───────────────────────────────────
 
     def test_comments_skipped(self):

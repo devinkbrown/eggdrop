@@ -223,6 +223,48 @@ SECTION_ORDER = [
 
 
 # ---------------------------------------------------------------------------
+# Tcl brace-depth counting (for multi-line block detection)
+# ---------------------------------------------------------------------------
+
+def _brace_depth(line: str) -> int:
+    """
+    Return the net number of unclosed '{' in *line*, ignoring braces
+    inside double-quoted strings and after Tcl-style backslash escapes.
+    """
+    depth = 0
+    in_str = False
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if c == '\\':
+            i += 2   # skip escaped character
+            continue
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+        i += 1
+    return depth
+
+
+def _to_toml_tcl(raw: str) -> str:
+    """
+    Serialise a raw Tcl command (single or multi-line) as a TOML string value.
+    Multi-line blocks (those containing newlines) are emitted as
+    triple-quoted strings so the TOML parser can evaluate them intact.
+    Single-line commands are emitted as ordinary double-quoted strings.
+    """
+    if '\n' in raw:
+        # Triple-quoted: content is literal, no escaping needed for Tcl
+        return f'"""\n{raw}\n"""'
+    escaped = raw.replace('\\', '\\\\').replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+# ---------------------------------------------------------------------------
 # Tcl value → TOML value helpers
 # ---------------------------------------------------------------------------
 
@@ -281,11 +323,33 @@ class Conf2Toml:
     def _warn(self, msg: str, lineno: int):
         self.warnings.append(f"  line {lineno}: {msg}")
 
+    def _accumulate_block(self, lines: list, start: int, first_line: str) -> tuple:
+        """
+        Accumulate a multi-line Tcl block starting at *start* (0-based index
+        into *lines*).  *first_line* is the already-stripped first line.
+
+        Returns (block_text, next_lineno) where next_lineno is the 1-based
+        line number of the first line AFTER the block.
+        """
+        depth = _brace_depth(first_line)
+        block = [first_line]
+        idx = start          # index into lines (0-based), points at first_line
+        while depth > 0 and idx + 1 < len(lines):
+            idx += 1
+            next_line = lines[idx]
+            block.append(next_line)
+            depth += _brace_depth(next_line)
+        return '\n'.join(block), idx + 2   # +2: idx is 0-based, lineno is 1-based
+
     def parse(self, text: str):
         lines = text.splitlines()
         lineno = 0
-        for line in lines:
+        idx = -1   # 0-based index into lines; incremented at top of loop
+
+        while idx + 1 < len(lines):
+            idx += 1
             lineno += 1
+            line = lines[idx]
             stripped = line.strip()
 
             # Skip blank lines, comments, and the shebang
@@ -366,15 +430,23 @@ class Conf2Toml:
             if re.match(r'^if\s+.*die', stripped):
                 continue
 
-            # unbind / bind / proc / putquick — pass as raw [tcl] command
+            # Multi-line Tcl: proc definitions, if/else blocks, namespace evals, etc.
+            # Detect by counting unmatched open braces on the first line.
+            if _brace_depth(stripped) > 0:
+                block, next_lineno = self._accumulate_block(lines, idx, stripped)
+                # Advance the main loop past the consumed lines
+                idx = next_lineno - 2   # will be incremented at top of loop
+                lineno = next_lineno - 1
+                self._add("tcl", "_commands", _to_toml_tcl(block))
+                continue
+
+            # Single-line: unbind / bind / proc (already balanced) / putquick / etc.
             if re.match(r'^(unbind|bind|proc|putquick|pysource|listen)\s', stripped):
-                escaped = stripped.replace('\\', '\\\\').replace('"', '\\"')
-                self._add("tcl", "_commands", f'"{escaped}"')
+                self._add("tcl", "_commands", _to_toml_tcl(stripped))
                 continue
 
             # Anything else we don't recognise
-            escaped = stripped.replace('\\', '\\\\').replace('"', '\\"')
-            self._add("tcl", "_commands", f'"{escaped}"')
+            self._add("tcl", "_commands", _to_toml_tcl(stripped))
             self._warn(f"Unrecognised line passed to [tcl]: {stripped[:60]}", lineno)
 
     def render(self) -> str:
@@ -470,7 +542,12 @@ class Conf2Toml:
                         )
                     out.append("commands = [")
                     for v in list_items:
-                        out.append(f"  {v},")
+                        if v.startswith('"""'):
+                            # Triple-quoted multi-line block: emit without indent
+                            # so the closing """ is at column 0 (valid TOML)
+                            out.append(f"  {v},")
+                        else:
+                            out.append(f"  {v},")
                     out.append("]")
                     out.append("")
                 continue
