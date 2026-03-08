@@ -1376,8 +1376,14 @@ static int got311(char *from, char *msg)
 
 static int gotsetname(char *from, char *msg)
 {
+  char *nick = splitnick(&from);
+
   fixcolon(msg);
-  strlcpy(botrealname, msg, sizeof botrealname);
+  /* Only update botrealname when the server echoes back our own SETNAME.
+   * With the setname CAP enabled the server also sends SETNAME for other
+   * channel members; those must not overwrite our realname. */
+  if (match_my_nick(nick))
+    strlcpy(botrealname, msg, sizeof botrealname);
   return 0;
 }
 
@@ -1630,6 +1636,9 @@ static int gotcap(char *from, char *msg) {
         if (!current->enabled)
           add_req(current->name);
       } else if (!strcmp(current->name, "chghost")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "setname")) {
         if (!current->enabled)
           add_req(current->name);
       }
