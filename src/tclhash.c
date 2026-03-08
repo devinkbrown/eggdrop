@@ -689,13 +689,11 @@ static int builtin_dcc STDVAR
     return TCL_ERROR;
   }
 
-  /* FIXME: This is an ugly hack. It is not documented as a
-   *        'feature' because it will eventually go away.
-   */
-  if (F == CMD_LEAVE) {
-    Tcl_AppendResult(irp, "break", NULL);
-    return TCL_OK;
-  }
+  /* CMD_LEAVE is the sentinel for partyline/filesys 'quit'.  Return
+   * TCL_BREAK so check_bind() can detect it via the Tcl return-code
+   * rather than inspecting the result string. */
+  if (F == CMD_LEAVE)
+    return TCL_BREAK;
 
   /* Check if it's a password change, if so, don't show the password. We
    * don't need pretty formats here, as it's only for debugging purposes.
@@ -770,10 +768,8 @@ static int trigger_bind(const char *proc, const char *param, char *mask)
     return BIND_EXECUTED;
   }
 
-  /* FIXME: This is an ugly hack. It is not documented as a
-   *        'feature' because it will eventually go away.
-   */
-  if (!strcmp(tcl_resultstring(), "break"))
+  /* CMD_LEAVE (partyline/filesys quit) signals via TCL_BREAK. */
+  if (x == TCL_BREAK)
     return BIND_QUIT;
 
   return (tcl_resultint() > 0) ? BIND_EXEC_LOG : BIND_EXECUTED;
