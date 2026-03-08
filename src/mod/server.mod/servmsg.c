@@ -1781,30 +1781,54 @@ static int got730or1(char *from, char *msg, int code)
   return 0;
 }
 
+static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
+                               char *code, char *context, char *desc)
+{
+  char mask[MSGMAX];
+  int x;
+
+  snprintf(mask, sizeof mask, "%s:%s:%s", msgtype, cmd, code);
+  Tcl_SetVar(interp, "_sr1", from,     0);
+  Tcl_SetVar(interp, "_sr2", msgtype,  0);
+  Tcl_SetVar(interp, "_sr3", cmd,      0);
+  Tcl_SetVar(interp, "_sr4", code,     0);
+  Tcl_SetVar(interp, "_sr5", context,  0);
+  Tcl_SetVar(interp, "_sr6", desc,     0);
+  x = check_tcl_bind(H_stdreply, mask, 0,
+                     " $_sr1 $_sr2 $_sr3 $_sr4 $_sr5 $_sr6",
+                     MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
+  return (x == BIND_EXEC_LOG);
+}
+
 /* Got IRCv3 standard-reply
- * <FAIL/NOTE/WARN> <command> <code> [<context>...] <description>
+ * :<server> <FAIL|WARN|NOTE> <command> <code> [<context>...] :<description>
  */
 static int gotstdreply(char *from, char *msgtype, char *msg)
 {
-  char *cmd, *code, *text;
+  char *cmd, *code, *text, *p;
   char context[MSGMAX] = "";
-  int len;
 
-  cmd = newsplit(&msg);
+  cmd  = newsplit(&msg);
   code = newsplit(&msg);
-/* TODO: Once this feature is better implemented, consider how to handle
- * one-word descriptions that aren't technically required to have a :
- */
-  text = strstr(msg, " :");
-  if (text) {
-    text++;
-    if (text != msg) {
-      len = text - msg;
+  /* Find the human-readable description: it follows a " :" separator when it
+   * may contain spaces, or is simply the remaining word if there is no " :". */
+  p = strstr(msg, " :");
+  if (p) {
+    /* context tokens sit between code and the " :" */
+    if (p != msg) {
+      int len = p - msg;
       snprintf(context, sizeof context, "%.*s", len, msg);
     }
-    fixcolon(text);
+    text = p + 2;           /* skip the " :" */
+  } else {
+    /* single-word description with no context */
+    text = msg;
+    if (*text == ':')
+      text++;               /* strip bare leading colon if present */
   }
-  putlog(LOG_SERV, "*", "%s: %s: Received a %s message from %s: %s", cmd, code, msgtype, from, text);
+  putlog(LOG_SERV, "*", "%s: %s: Received a %s message from %s: %s",
+         cmd, code, msgtype, from, text);
+  check_tcl_stdreply(from, msgtype, cmd, code, context, text);
   return 0;
 }
 

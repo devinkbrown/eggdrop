@@ -4006,6 +4006,28 @@ the Tcl proc, and an explanation.
   the setting that was changed, and the value it was set to (0/1 for
   -/+, string, or X:Y formatted value).
 
+(58) STDREPLY (stackable)
+
+  bind stdreply <flags> <mask> <proc>
+
+  procname <from> <type> <command> <code> <context> <description>
+
+  Description: triggered when the server sends an IRCv3 standard-reply
+  (FAIL, WARN, or NOTE). flags are ignored. The mask matches
+  "TYPE:COMMAND:CODE" and supports wildcards, e.g. "FAIL:*:*" to catch
+  all FAIL replies, or "*:PRIVMSG:INVALID_UTF8" to catch a specific
+  error code regardless of reply type. The proc is called with:
+
+    from        - server hostname that sent the reply
+    type        - FAIL, WARN, or NOTE
+    command     - IRC command the reply refers to (e.g. PRIVMSG, JOIN)
+    code        - machine-readable code (e.g. INVALID_UTF8)
+    context     - space-separated context tokens between code and
+                  description (may be empty)
+    description - human-readable description
+
+  Module: server
+
 Return Values
 
 Several bindings pay attention to the value you return from the
