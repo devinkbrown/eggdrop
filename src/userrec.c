@@ -748,7 +748,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
     strlcpy(xk->key, "created", sizeof(xk->key));
     l = snprintf(NULL, 0, "%" PRId64, (int64_t) now);
     xk->data = nmalloc(l + 1);
-    snprintf(xk->data, sizeof(xk->data), "%" PRId64, (int64_t) now);
+    snprintf(xk->data, l + 1, "%" PRId64, (int64_t) now);
     set_user(&USERENTRY_XTRA, u, xk);
   }
   /* Strip out commas -- they're illegal */

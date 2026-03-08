@@ -1019,7 +1019,7 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
   while (curr) {
     t = user_malloc(sizeof(struct list_type));
     t->extra = user_malloc(strlen(curr->key) + strlen(curr->data) + 4);
-    snprintf(t->extra, sizeof(t->extra), "%s %s", curr->key, curr->data);
+    snprintf(t->extra, strlen(curr->key) + strlen(curr->data) + 4, "%s %s", curr->key, curr->data);
     list_insert((&e->u.list), t);
     next = curr->next;
     nfree(curr->key);
