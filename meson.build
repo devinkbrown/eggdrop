@@ -136,7 +136,8 @@ if not tcl_dep.found()
   tcl_dep = declare_dependency(dependencies: tcl_lib,
                                include_directories: tcl_inc)
 endif
-cdata.set('TCL_VERSION', '"8.6"')
+# TCL_VERSION is defined by tcl.h itself; do not define it in config.h to
+# avoid a macro redefinition conflict when Tcl 9.x headers are used.
 
 # -------------------------------------------------------------------------
 # TLS / OpenSSL — optional
@@ -185,6 +186,23 @@ else
 endif
 
 # -------------------------------------------------------------------------
+# kqueue — BSD / macOS (sys/event.h + kqueue() function)
+# Used when epoll is unavailable (i.e. on macOS, FreeBSD, OpenBSD, NetBSD).
+# -------------------------------------------------------------------------
+have_kqueue = cc.has_header('sys/event.h') and cc.has_function('kqueue',
+    prefix: '#include <sys/types.h>\n#include <sys/event.h>\n#include <sys/time.h>')
+if have_kqueue
+  cdata.set('HAVE_KQUEUE', 1)
+  if not have_epoll
+    message('kqueue detected — using kqueue back-end')
+  else
+    message('kqueue detected (epoll preferred on this platform)')
+  endif
+else
+  message('kqueue not found')
+endif
+
+# -------------------------------------------------------------------------
 # accept4 — Linux ≥ 2.6.28, glibc ≥ 2.10
 # Atomically sets SOCK_NONBLOCK | SOCK_CLOEXEC on the accepted socket,
 # avoiding two racy fcntl() calls after plain accept().
@@ -200,16 +218,19 @@ if cc.has_header_symbol('sys/socket.h', 'SOCK_CLOEXEC',
 endif
 
 # -------------------------------------------------------------------------
-# kqueue — BSD / macOS kernel event notification (FreeBSD, OpenBSD, macOS)
-# Used as the high-performance back-end on platforms without epoll/io_uring.
-# Priority: io_uring > epoll > kqueue > select
+# sendfile — zero-copy file-to-socket (Linux ≥ 2.2, sys/sendfile.h)
+# Used by transfer.mod to avoid userspace copy during DCC file sends.
 # -------------------------------------------------------------------------
-if cc.has_header('sys/event.h') and cc.has_function('kqueue',
-    prefix: '#include <sys/types.h>\n#include <sys/event.h>\n#include <sys/time.h>')
-  cdata.set('HAVE_KQUEUE', 1)
-  message('kqueue detected — using kqueue back-end on non-Linux')
+if cc.has_header('sys/sendfile.h')
+  cdata.set('HAVE_SYS_SENDFILE_H', 1)
+  if cc.has_function('sendfile', prefix: '#include <sys/sendfile.h>')
+    cdata.set('HAVE_SENDFILE', 1)
+    message('sendfile() detected — zero-copy DCC transfers enabled')
+  else
+    message('sendfile() not found — using read/write for DCC')
+  endif
 else
-  message('kqueue not found')
+  message('sys/sendfile.h not found — using read/write for DCC')
 endif
 
 # -------------------------------------------------------------------------
@@ -307,6 +328,15 @@ subdir('src')
 # -------------------------------------------------------------------------
 # Summary
 # -------------------------------------------------------------------------
+if have_uring
+  _io_backend = 'io_uring'
+elif have_epoll
+  _io_backend = 'epoll'
+elif have_kqueue
+  _io_backend = 'kqueue'
+else
+  _io_backend = 'select'
+endif
 summary({
   'Prefix':         get_option('prefix'),
   'IPv6':           opt_ipv6,
@@ -317,4 +347,5 @@ summary({
   'Static modules': opt_static,
   'Executable':     opt_exec,
   'HANDLEN':        opt_handlen,
+  'I/O backend':    _io_backend,
 }, section: 'Eggdrop configuration')

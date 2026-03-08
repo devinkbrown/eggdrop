@@ -284,14 +284,14 @@ static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
         MATCH_MASK | BIND_STACKABLE);
 }
 
-/* TODO: the actual message is missing */
-static void check_tcl_usernotice(char *chan, Tcl_Obj *tags) {
+static void check_tcl_usernotice(char *chan, char *msg, Tcl_Obj *tags) {
   char mask[TOTALTAGMAX + 200]; /* channel + msgid */
 
   snprintf(mask, sizeof mask, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usrntc1", chan, 0);
   Tcl_SetVar(interp, "_usrntc2", Tcl_GetString(tags), 0);
-  check_tcl_bind(H_usrntc, mask, NULL, " $_usrntc1 $_usrntc2",
+  Tcl_SetVar(interp, "_usrntc3", msg ? msg : "", 0);
+  check_tcl_bind(H_usrntc, mask, NULL, " $_usrntc1 $_usrntc2 $_usrntc3",
         MATCH_MASK | BIND_STACKABLE);
 }
 
@@ -559,7 +559,7 @@ static int gotusernotice(char *from, char *msg, Tcl_Obj *tags) {
     GET_MSGTAG_VALUE_STR(tags, "msg-param-threshold", value, "USERNOTICE:BITSBADGETIER");
     putlog(LOG_SERV, "*", "* TWITCH: %s earned a %s bits badge", login, value);
   }
-  check_tcl_usernotice(chan, tags);
+  check_tcl_usernotice(chan, msg, tags);
   return 0;
 }
 

@@ -144,27 +144,34 @@ static X509 *ssl_getcert(int sock)
  * Return value: ptr to the hexadecimal representation of the fingerprint or
  * NULL in case of error.
  */
-static char *ssl_getfp_from_cert(X509 *cert)
+/* Compute a hex fingerprint from cert using the given digest algorithm.
+ * Returns a pointer to a static buffer, or NULL on error.
+ * Does NOT free cert — callers are responsible for cert lifetime.
+ */
+static char *ssl_fp_from_cert(X509 *cert, const EVP_MD *digest)
 {
   char *p;
   unsigned int i;
-  static char fp[SHA_DIGEST_LENGTH * 3];
-  unsigned char md[SHA_DIGEST_LENGTH];
+  static char fp[EVP_MAX_MD_SIZE * 3];
+  unsigned char md[EVP_MAX_MD_SIZE];
 
-  if (!X509_digest(cert, EVP_sha1(), md, &i)) {
-    putlog(LOG_MISC, "*", "ERROR: TLS: ssl_getfp_from_cert(): X509_digest()");
-    X509_free(cert);
+  if (!X509_digest(cert, digest, md, &i)) {
+    putlog(LOG_MISC, "*", "ERROR: TLS: ssl_fp_from_cert(): X509_digest()");
     return NULL;
   }
   if (!(p = OPENSSL_buf2hexstr(md, i))) {
-    putlog(LOG_MISC, "*", "ERROR: TLS: ssl_getfp_from_cert(): OPENSSL_buf2hexstr()");
-    X509_free(cert);
+    putlog(LOG_MISC, "*", "ERROR: TLS: ssl_fp_from_cert(): OPENSSL_buf2hexstr()");
     return NULL;
   }
   strlcpy(fp, p, sizeof fp);
   OPENSSL_free(p);
-
   return fp;
+}
+
+/* SHA-1 fingerprint (used by ssl_getfp() / CertFP auth). */
+static char *ssl_getfp_from_cert(X509 *cert)
+{
+  return ssl_fp_from_cert(cert, EVP_sha1());
 }
 
 /* Get the certificate fingerprint of the connection corresponding
@@ -268,20 +275,18 @@ int ssl_init()
       fatal("Unable to load TLS certificate (ssl-certificate config setting)!", 0);
     }
 
-    /* TODO: sha256 fingerprint
-     *       print this fingerprint to every user / every partyline login
-     *       maybe only print it when webui is enabled
-     *       compatibility to older openssl is possible, similar to #1411
-     *       this functionality could be sepped into a side-PR
-     *       or functionality of #1411 can be reused once merged
-     *
-     *       for now, just disable the fingerprint for openssl < 1.0.2
-     */
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L /* 1.0.2 */
-    // TODO: ssl_getfp_from_cert() must not free the cert from SSL_CTX_get0_certificate()
-    putlog(LOG_MISC, "*", "Certificate loaded: %s (sha1 fingerprint %s)",
-           tls_certfile,
-           ssl_getfp_from_cert(SSL_CTX_get0_certificate(ssl_ctx)));
+    /* SSL_CTX_get0_certificate() returns a pointer that must NOT be freed. */
+    {
+      X509 *own_cert = SSL_CTX_get0_certificate(ssl_ctx);
+      const char *sha1fp   = ssl_fp_from_cert(own_cert, EVP_sha1());
+      const char *sha256fp = ssl_fp_from_cert(own_cert, EVP_sha256());
+      putlog(LOG_MISC, "*", "Certificate loaded: %s", tls_certfile);
+      if (sha1fp)
+        putlog(LOG_MISC, "*", "  SHA-1   fingerprint: %s", sha1fp);
+      if (sha256fp)
+        putlog(LOG_MISC, "*", "  SHA-256 fingerprint: %s", sha256fp);
+    }
 #endif
 
     verify_cert_expiry(0);
@@ -1097,7 +1102,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
           body);
       response = nmalloc(j + 1);
-      snprintf(response, sizeof(response),
+      snprintf(response, j + 1,
         "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
         "Content-Length: %zu\r\n"
         "Content-Type: text/plain; charset=utf-8\r\n"
@@ -1107,7 +1112,12 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           body);
       if (write(sock, response, j) < 0) /* tputs() cannot be used here */
         putlog(LOG_MISC, "*", "TLS: error: write(sock %i): %s", sock, strerror(errno));
-      // TODO: after reading of remaining bytes / ssl shutdown ?
+      /* Note: ideally we would drain remaining request bytes here so the
+       * client can receive our response before the socket closes (avoiding
+       * a TCP RST), but this is a rare edge case and the cleanup below
+       * will free the SSL structures safely since the handshake never
+       * completed.
+       */
       nfree(response);
     } else {
       putlog(data->loglevel, "*",

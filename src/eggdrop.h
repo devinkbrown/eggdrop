@@ -49,7 +49,7 @@
  *       You should leave this at 32 characters and modify nick-len in the
  *       configuration file instead.
  */
-#define CHANNELLEN 80 /* FIXME see issue #3 and issue #38 and rfc1459 <= 200 */
+#define CHANNELLEN 200 /* RFC 1459 allows up to 200 chars; see issue #3 and #38 */
 #define HANDLEN    32 /* valid values 9->NICKMAX                             */
 #define NICKMAX    32 /* valid values HANDLEN->32                            */
 #define USERLEN    10
@@ -671,14 +671,15 @@ typedef struct {
 } ssl_appdata;
 #endif /* TLS */
 
+/* Ring-buffer for outgoing socket data (eliminates memmove on partial write) */
+#include "compat/mbuf.h"
+
 /* These are used by the net module to keep track of sockets and what's
  * queued on them
  */
 struct sock_handler {
   char *inbuf;
-  char *outbuf;
-  unsigned long outbuflen;      /* bytes of data in outbuf      */
-  unsigned long outbufcap;      /* allocated capacity of outbuf */
+  egg_mbuf_t *outbuf;           /* ring buffer for pending outgoing data */
   unsigned long inbuflen;       /* Inbuf could be binary data   */
 #ifdef HAVE_LIBURING
   char *recv_buf;               /* kernel-filled async recv buffer (READMAX+2 bytes) */

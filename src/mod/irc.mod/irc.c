@@ -238,13 +238,13 @@ static void maybe_revenge(struct chanset_t *chan, char *whobad,
   strlcpy(buf, whobad, sizeof buf);
   badnick = splitnick(&whobad);
   m = ismember(chan, badnick);
-  u = lookup_user_record(m, NULL, buf); // TODO: get account from msgtags
+  u = lookup_user_record(m, m ? m->account : NULL, buf);
 
   /* Get info about victim */
   strlcpy(buf, whovictim, sizeof buf);
   victim = splitnick(&whovictim);
   m = ismember(chan, victim);
-  u2 = lookup_user_record(m, NULL, buf); // TODO: get account from msgtags
+  u2 = lookup_user_record(m, m ? m->account : NULL, buf);
   mevictim = match_my_nick(victim);
 
   /* Do we want to revenge? */
@@ -281,7 +281,9 @@ static void refresh_who_chan(char *channame)
 {
   if (!twitch) {    /* Twitch doesn't support WHOs */
     if (use_354)
-      dprintf(DP_MODE, "WHO %s c%%chnufat,222\n", channame);
+      /* Field order: channel, user(ident), host, nick, flags, account.
+       * Matches the field-read order in got354() in chan.c. */
+      dprintf(DP_MODE, "WHO %s c%%cuhnfa,222\n", channame);
     else
       dprintf(DP_MODE, "WHO %s\n", channame);
   }
@@ -920,7 +922,9 @@ static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
   simple_sprintf(host, "%s!%s", nick, from);
   chan = findchan(chname);
   m = ismember(chan, nick);
-  u = lookup_user_record(m ? m : find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+  if (!m)
+    m = find_member_from_nick(nick);
+  u = lookup_user_record(m, m ? m->account : NULL, from);
   hand = u ? u->handle : "*";
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_pub1", nick, 0);
@@ -950,7 +954,9 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
   simple_sprintf(host, "%s!%s", nick, from);
   chan = findchan(chname);
   m = ismember(chan, nick);
-  u = lookup_user_record(m ? m : find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+  if (!m)
+    m = find_member_from_nick(nick);
+  u = lookup_user_record(m, m ? m->account : NULL, from);
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_pubm1", nick, 0);
   Tcl_SetVar(interp, "_pubm2", from, 0);

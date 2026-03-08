@@ -43,8 +43,16 @@ static int monitor_show(Tcl_Obj *mlist, int mode, char *nick);
 static void monitor_clear();
 int account_notify = 1, extended_join = 1, account_tag = 0;
 
+/* Account name from the IRCv3 'account' message tag for the message
+ * currently being processed in server_activity().  Empty string means
+ * the tag was absent.  Handlers may read this during dispatch. */
+static char current_msgtag_account[NICKMAX + 1];
+
 extern int sasl;
 extern int sasl_authenticate_initial(const struct cap_values *);
+/* UTF-8 helpers from misc.c (core) */
+extern int utf8_sanitize(char *);
+extern size_t utf8_strlen(const char *);
 
 /* We try to change to a preferred unique nick here. We always first try the
  * specified alternate nick. If that fails, we repeatedly modify the nick
@@ -73,9 +81,11 @@ static int gotfake433(char *from)
       /* Alternate nickname defined. Let's try that first. */
       strlcpy(botname, alt, sizeof(botname));
     else {
-      /* Fall back to appending count char. */
+      /* Fall back to appending count char. nick_len is server-reported max
+       * length; modern servers that support Unicode nicks count codepoints,
+       * so compare against utf8_strlen() to handle multi-byte nicknames. */
       altnick_char = '0';
-      if ((l + 1) == nick_len) {
+      if ((int)utf8_strlen(botname) >= nick_len) {
         botname[l] = altnick_char;
       } else {
         botname[++l] = altnick_char;
@@ -368,12 +378,12 @@ static int got001(char *from, char *msg)
       if (x->realname)
         nfree(x->realname);
       x->realname = nmalloc(strlen(from) + 1);
-      strlcpy(x->realname, from, sizeof(x->realname));
+      strlcpy(x->realname, from, strlen(from) + 1);
     }
     if (realservername)
       nfree(realservername);
     realservername = nmalloc(strlen(from) + 1);
-    strlcpy(realservername, from, sizeof(realservername));
+    strlcpy(realservername, from, strlen(from) + 1);
   } else
     putlog(LOG_MISC, "*", "No server list!");
 
@@ -492,7 +502,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
   if (!strcasecmp(floodhost, botuserhost))
     return 0;
 
-  u = lookup_user_record(NULL, NULL, from); // TODO: get account somehow
+  u = lookup_user_record(NULL, current_msgtag_account[0] ? current_msgtag_account : NULL, from);
   atr = u ? u->flags : 0;
   if (atr & (USER_BOT | USER_FRIEND))
     return 0;
@@ -538,7 +548,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     lastmsgs[which] = 0;
     lastmsgtime[which] = 0;
     lastmsghost[which][0] = 0;
-    u = lookup_user_record(NULL, NULL, from); // TODO: get account somehow
+    u = lookup_user_record(NULL, current_msgtag_account[0] ? current_msgtag_account : NULL, from);
     if (check_tcl_flud(floodnick, floodhost, u, ftype, "*"))
       return 0;
     /* Private msg */
@@ -606,7 +616,10 @@ static int gotmsg(char *from, char *msg)
               putlog(LOG_PUBLIC, to, "CTCP %s: %s from %s (%s) to %s",
                      code, ctcp, nick, uhost, to);
           } else {
-            u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+            {
+              memberlist *_m = find_member_from_nick(nick);
+              u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+            }
             if (!ignoring || trigger_on_ignore) {
               if (!check_tcl_ctcp(nick, uhost, u, to, code, ctcp) && !ignoring) {
                 if ((lowercase_ctcp && !strcasecmp(code, "DCC")) ||
@@ -669,7 +682,10 @@ static int gotmsg(char *from, char *msg)
     }
 
     detect_flood(nick, uhost, from, FLOOD_PRIVMSG);
-    u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+    {
+      memberlist *_m = find_member_from_nick(nick);
+      u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+    }
     code = newsplit(&msg);
     rmspace(msg);
 
@@ -736,7 +752,10 @@ static int gotnotice(char *from, char *msg)
                    "CTCP reply %s: %s from %s (%s) to %s", code, ctcp,
                    nick, uhost, to);
         } else {
-          u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+          {
+            memberlist *_m = find_member_from_nick(nick);
+            u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+          }
           if (!ignoring || trigger_on_ignore) {
             check_tcl_ctcr(nick, uhost, u, to, code, ctcp);
             if (!ignoring)
@@ -772,7 +791,10 @@ static int gotnotice(char *from, char *msg)
     }
 
     detect_flood(nick, uhost, from, FLOOD_NOTICE);
-    u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+    {
+      memberlist *_m = find_member_from_nick(nick);
+      u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
+    }
 
     if (!ignoring || trigger_on_ignore)
       if (check_tcl_notc(nick, uhost, u, botname, msg) == 2)
@@ -1112,7 +1134,7 @@ static void eof_server(int idx)
 
 static void display_server(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "%s  (lag: %d)", trying_server ? "conn" : "serv", server_lag);
+  snprintf(buf, 160, "%s  (lag: %d)", trying_server ? "conn" : "serv", server_lag);
 }
 
 static void connect_server(void);
@@ -1229,6 +1251,11 @@ static void server_activity(int idx, char *tagmsg, int len)
   int ret;
   Tcl_Obj *tagdict = Tcl_NewDictObj();
 
+  /* Sanitize incoming IRC messages: replace invalid UTF-8 bytes with '?'.
+   * Modern IRC servers and clients use UTF-8; malformed sequences could cause
+   * issues in Tcl's string handling (which is internally UTF-8). */
+  utf8_sanitize(tagmsg);
+
   Tcl_IncrRefCount(tagdict);
   if (trying_server) {
     strlcpy(dcc[idx].nick, "(server)", sizeof(dcc[idx].nick));
@@ -1267,6 +1294,17 @@ static void server_activity(int idx, char *tagmsg, int len)
       !match_ignore(from))) {
     putlog(LOG_RAW, "*", "[@] %s", rawmsg);
   }
+  /* Extract IRCv3 'account' tag so handlers can use it for user lookup. */
+  {
+    Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
+    Tcl_Obj *acctval = NULL;
+    Tcl_IncrRefCount(acctkey);
+    if (Tcl_DictObjGet(interp, tagdict, acctkey, &acctval) == TCL_OK && acctval)
+      strlcpy(current_msgtag_account, Tcl_GetString(acctval), sizeof current_msgtag_account);
+    else
+      current_msgtag_account[0] = '\0';
+    Tcl_DecrRefCount(acctkey);
+  }
   /* Check both raw and rawt, to allow backwards compatibility with older
    * scripts. If rawt returns 1 (blocking), don't process raw binds.*/
   /* Tcl_GetString() must not be modified, so we have to copy because string C API is not const char* */
@@ -1275,6 +1313,7 @@ static void server_activity(int idx, char *tagmsg, int len)
   if (!ret) {
     check_tcl_raw(from, code, msgptr);
   }
+  current_msgtag_account[0] = '\0';
   Tcl_DecrRefCount(tagdict);
 }
 
@@ -1337,8 +1376,14 @@ static int got311(char *from, char *msg)
 
 static int gotsetname(char *from, char *msg)
 {
+  char *nick = splitnick(&from);
+
   fixcolon(msg);
-  strlcpy(botrealname, msg, sizeof botrealname);
+  /* Only update botrealname when the server echoes back our own SETNAME.
+   * With the setname CAP enabled the server also sends SETNAME for other
+   * channel members; those must not overwrite our realname. */
+  if (match_my_nick(nick))
+    strlcpy(botrealname, msg, sizeof botrealname);
   return 0;
 }
 
@@ -1578,8 +1623,23 @@ static int gotcap(char *from, char *msg) {
       } else if (!strcmp(current->name, "invite-notify")) {
         if ((invite_notify) && (!current->enabled))
           add_req(current->name);
+      } else if (!strcmp(current->name, "away-notify")) {
+        if ((away_notify) && (!current->enabled))
+          add_req(current->name);
       } else if (!strcmp(current->name, "message-tags")) {
         if ((message_tags) && (!current->enabled))
+          add_req(current->name);
+      } else if (!strcmp(current->name, "multi-prefix")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "userhost-in-names")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "chghost")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "setname")) {
+        if (!current->enabled)
           add_req(current->name);
       }
       /* Add any custom capes the user listed */
@@ -1730,30 +1790,54 @@ static int got730or1(char *from, char *msg, int code)
   return 0;
 }
 
+static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
+                               char *code, char *context, char *desc)
+{
+  char mask[MSGMAX];
+  int x;
+
+  snprintf(mask, sizeof mask, "%s:%s:%s", msgtype, cmd, code);
+  Tcl_SetVar(interp, "_sr1", from,     0);
+  Tcl_SetVar(interp, "_sr2", msgtype,  0);
+  Tcl_SetVar(interp, "_sr3", cmd,      0);
+  Tcl_SetVar(interp, "_sr4", code,     0);
+  Tcl_SetVar(interp, "_sr5", context,  0);
+  Tcl_SetVar(interp, "_sr6", desc,     0);
+  x = check_tcl_bind(H_stdreply, mask, 0,
+                     " $_sr1 $_sr2 $_sr3 $_sr4 $_sr5 $_sr6",
+                     MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
+  return (x == BIND_EXEC_LOG);
+}
+
 /* Got IRCv3 standard-reply
- * <FAIL/NOTE/WARN> <command> <code> [<context>...] <description>
+ * :<server> <FAIL|WARN|NOTE> <command> <code> [<context>...] :<description>
  */
 static int gotstdreply(char *from, char *msgtype, char *msg)
 {
-  char *cmd, *code, *text;
+  char *cmd, *code, *text, *p;
   char context[MSGMAX] = "";
-  int len;
 
-  cmd = newsplit(&msg);
+  cmd  = newsplit(&msg);
   code = newsplit(&msg);
-/* TODO: Once this feature is better implemented, consider how to handle
- * one-word descriptions that aren't technically required to have a :
- */
-  text = strstr(msg, " :");
-  if (text) {
-    text++;
-    if (text != msg) {
-      len = text - msg;
+  /* Find the human-readable description: it follows a " :" separator when it
+   * may contain spaces, or is simply the remaining word if there is no " :". */
+  p = strstr(msg, " :");
+  if (p) {
+    /* context tokens sit between code and the " :" */
+    if (p != msg) {
+      int len = p - msg;
       snprintf(context, sizeof context, "%.*s", len, msg);
     }
-    fixcolon(text);
+    text = p + 2;           /* skip the " :" */
+  } else {
+    /* single-word description with no context */
+    text = msg;
+    if (*text == ':')
+      text++;               /* strip bare leading colon if present */
   }
-  putlog(LOG_SERV, "*", "%s: %s: Received a %s message from %s: %s", cmd, code, msgtype, from, text);
+  putlog(LOG_SERV, "*", "%s: %s: Received a %s message from %s: %s",
+         cmd, code, msgtype, from, text);
+  check_tcl_stdreply(from, msgtype, cmd, code, context, text);
   return 0;
 }
 

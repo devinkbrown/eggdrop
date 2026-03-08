@@ -115,7 +115,7 @@ static void put_file(int idx, int file_cache_index) {
       put_404(idx);
       return;
     }
-    f->data = nrealloc(f->data, sb.st_size); /* TODO: nfree() on module unloading */
+    f->data = nrealloc(f->data, sb.st_size);
     if (read(fd, f->data, sb.st_size) < 0) {
       putlog(LOG_MISC, "*", "WEBUI error: read(%s): %s", f->filename, strerror(errno));
       if ((fd = close(fd)) < 0)
@@ -159,22 +159,24 @@ static void webui_http_activity(int idx, char *buf, int len)
   int r, i, listen_idx;
   char *response;
 
-  if (len < 6) { /* TODO: better len check */
+  if (len > 0 && buf[0] == 0x16) { /* 0x16 = TLS handshake on plain port */
     putlog(LOG_MISC, "*",
-           "WEBUI error: %s sent something other than http GET request",
+           "WEBUI error: %s requested TLS handshake for non-ssl port",
            iptostr(&dcc[idx].sockname.addr.sa));
+    tputs(dcc[idx].sock, (char *) alert, sizeof alert);
     killsock(dcc[idx].sock);
     lostdcc(idx);
     return;
   }
-  if (buf[0] == 0x16) { /* 0x16 = TLS handshake */
-      putlog(LOG_MISC, "*",
-             "WEBUI error: %s requested TLS handshake for non-ssl port",
-             iptostr(&dcc[idx].sockname.addr.sa));
-      tputs(dcc[idx].sock, (char *) alert, sizeof alert);
-      killsock(dcc[idx].sock);
-      lostdcc(idx);
-      return;
+  /* Minimum valid HTTP request is "GET / HTTP/1.1\r\n" (16 bytes).
+   * We only serve GET requests; reject anything else early. */
+  if (len < 16 || strncmp(buf, "GET ", 4)) {
+    putlog(LOG_MISC, "*",
+           "WEBUI error: %s sent something other than an HTTP GET request",
+           iptostr(&dcc[idx].sockname.addr.sa));
+    killsock(dcc[idx].sock);
+    lostdcc(idx);
+    return;
   }
   r = getrusage(RUSAGE_SELF, &ru1);
   debug2("webui: webui_http_activity(): idx %i len %i", idx, len);
@@ -216,7 +218,6 @@ static void webui_http_activity(int idx, char *buf, int len)
 #endif
 
     char out[WS_LEN + 1];
-    /* TODO: remove assert / debug */
     if (b64_ntop(hash, sizeof hash, out, sizeof out) != WS_LEN) {
       putlog(LOG_MISC, "*", "WEBUI error: b64_ntop() != WS_LEN");
       return;
@@ -466,24 +467,38 @@ static size_t webui_frame(char **dst, char *src, size_t len) {
   return len;
 }
 
-/* TODO: return error code ? */
 static void webui_unframe(int sock, char *buf, int *len)
 {
-  int i;
+  int i, hdrlen;
   uint8_t *key, *payload;
   uint16_t status_code;
 
-  if (*len < 6) { /* TODO: better len check */
-
-    /* TODO: return error code ? */
-    putlog(LOG_MISC, "*", "WEBUI error: bogus WebSocket frame from sock %i", sock);
+  /* WebSocket frame layout (client→server, always masked):
+   *   byte 0: FIN+opcode, byte 1: MASK bit + payload-len (7 bits)
+   *   payload-len == 0..125 → 2-byte header + 4-byte mask = 6 bytes min
+   *   payload-len == 126    → 2+2-byte ext-len + 4-byte mask = 8 bytes min
+   *   payload-len == 127    → 2+8-byte ext-len + 4-byte mask = 14 bytes min
+   */
+  key = (uint8_t *) buf;
+  if (*len < 2) {
+    putlog(LOG_MISC, "*", "WEBUI error: WebSocket frame too short (%d bytes) from sock %i", *len, sock);
     killsock(sock);
     lostdcc(findanyidx(sock));
     return;
   }
-  /* xor decrypt
-   */
-  key = (uint8_t *) buf;
+  if (key[1] < 0xfe)
+    hdrlen = 6;
+  else if (key[1] == 0xfe)
+    hdrlen = 8;
+  else
+    hdrlen = 14;
+  if (*len < hdrlen) {
+    putlog(LOG_MISC, "*", "WEBUI error: truncated WebSocket frame (%d < %d bytes) from sock %i", *len, hdrlen, sock);
+    killsock(sock);
+    lostdcc(findanyidx(sock));
+    return;
+  }
+  /* xor decrypt */
   if (key[1] < 0xfe) {
     key += 2;
     *len -= 6;
@@ -528,6 +543,14 @@ static char *webui_close(void)
       debug2("webui: webui_close(): closing sock idx %i, %li", idx, dcc[idx].sock);
       killsock(dcc[idx].sock);
       lostdcc(idx);
+    }
+  }
+  for (idx = 0; idx < (int)(sizeof file_cache / sizeof file_cache[0]); idx++) {
+    if (file_cache[idx].data) {
+      nfree(file_cache[idx].data);
+      file_cache[idx].data = NULL;
+      file_cache[idx].st_mtim.tv_sec  = -1;
+      file_cache[idx].st_mtim.tv_nsec = -1;
     }
   }
   return NULL;

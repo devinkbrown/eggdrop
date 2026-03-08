@@ -1177,12 +1177,18 @@ int build_flags(char *string, struct flag_record *plus,
 
 int flagrec_ok(struct flag_record *req, struct flag_record *have)
 {
-  /* FIXME: flag masks with '&' in them won't be subject to
-   *        further tests below. Example: 'o&j'
-   */
-  if (req->match & FR_AND)
+  if (req->match & FR_AND) {
+    /* When require-p is off, +o (or channel +q/owner) implies +p, exactly
+     * as the FR_OR path does below.  Apply that implication before the
+     * AND-equality check so that, e.g., a "p&o" bind succeeds for an +o
+     * user even without an explicit +p flag. */
+    if (!require_p && ((have->global & USER_OP) || (have->chan & USER_OWNER))) {
+      struct flag_record have_with_p = *have;
+      have_with_p.global |= USER_PARTY;
+      return flagrec_eq(req, &have_with_p);
+    }
     return flagrec_eq(req, have);
-  else if (req->match & FR_OR) {
+  } else if (req->match & FR_OR) {
     int hav = have->global;
 
     /* Exception 1 - global +d/+k cant use -|-, unless they are +p */

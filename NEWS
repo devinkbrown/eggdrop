@@ -19,6 +19,9 @@ Last revised: June 14, 2025
 Eggdrop v1.10.1:
 
  General changes:
+    - Added kqueue I/O back-end for macOS, FreeBSD, OpenBSD, and NetBSD,
+      replacing the select() fallback with an efficient event-driven
+      interface that scales with the number of active (not total) sockets
     - Added a new SCRAM authentication method for SASL
     - Fixed an issue where the bot can crash if the bot parts while the
       channel memberlist is not yet synched

@@ -1,6 +1,15 @@
 
-Eggdrop Changes (Last Updated 2024-10-13):
+Eggdrop Changes (Last Updated 2026-03-07):
 __________________________________________
+
+Eggdrop v1.10.1:
+
+  2026-03-07 * Add kqueue I/O back-end for macOS/BSD (FreeBSD, OpenBSD,
+               NetBSD). Replaces select() on those platforms with a
+               persistent kernel interest set that wakes only on active
+               sockets, eliminating per-call fd_set rebuilds and the
+               FD_SETSIZE limit. Detection via meson (sys/event.h).
+               Priority chain: io_uring > epoll > kqueue > select.
 
 Eggdrop v1.10.0:
 

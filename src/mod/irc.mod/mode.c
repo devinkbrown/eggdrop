@@ -52,11 +52,23 @@ static struct chanset_t *modebind_refresh(char *chname,
   if (!chname || !(chan = findchan(chname)))
     return NULL;
   if (usrhost) {
-    u = lookup_user_record(NULL, NULL, usrhost); // TODO: get account from somewhere
+    char tmphost[UHOSTLEN];
+    char *p;
+    memberlist *_mu;
+    strlcpy(tmphost, usrhost, sizeof tmphost);
+    p = tmphost;
+    _mu = ismember(chan, splitnick(&p));
+    u = lookup_user_record(_mu, _mu ? _mu->account : NULL, usrhost);
     get_user_flagrec(u, usr, chan->dname);
   }
   if (vcrhost) {
-    u = lookup_user_record(NULL, NULL, vcrhost); // TODO: get account from somewhere
+    char tmphost[UHOSTLEN];
+    char *p;
+    memberlist *_mv;
+    strlcpy(tmphost, vcrhost, sizeof tmphost);
+    p = tmphost;
+    _mv = ismember(chan, splitnick(&p));
+    u = lookup_user_record(_mv, _mv ? _mv->account : NULL, vcrhost);
     get_user_flagrec(u, vcr, chan->dname);
   }
   return chan;

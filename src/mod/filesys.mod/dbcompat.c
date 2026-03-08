@@ -203,65 +203,91 @@ static void convert_version2(FILE *fdb_s, FILE *fdb_t)
 }
 
 /* Converts old versions of the filedb to the newest. Returns 1 if all went
- * well and otherwise 0. The new db is first written to a temporary place
- * and then moved over to the original db's position.
+ * well and otherwise 0.
  *
- * Note: Unfortunately there is a small time-frame where aren't locking the
- *       DB, but want to replace it with a new one, using movefile().
- *       TODO: Copy old db to tmp file and then build the new db directly
- *             in the original file. This solves the tiny locking problem.
+ * The old content is first copied to a backup file while the original is
+ * still locked, then the original is truncated and the new DB is written
+ * directly into it.  The lock is held throughout so there is no window
+ * where another process can access a partially-converted or missing file.
+ * On failure the backup is used to restore the original content.
  *
  * Also remember to check the returned *fdb_s on failure, as it could be
  * NULL.
  */
-static int convert_old_db(FILE ** fdb_s, char *filedb)
+static int convert_old_db(FILE **fdb_s, char *filedb)
 {
   filedb_top fdbt;
-  FILE *fdb_t;
   int ret = 0;                  /* Default to 'failure' */
 
   filedb_readtop(*fdb_s, &fdbt);
   /* Old DB version? */
   if (fdbt.version > 0 && fdbt.version < FILEDB_VERSION3) {
     char *tempdb;
+    FILE *fdb_backup;
 
     putlog(LOG_MISC, "*", "Converting old filedb %s to newest format.",
            filedb);
-    /* Create temp DB name */
+    /* Create backup name */
     tempdb = nmalloc(strlen(filedb) + 5);
     simple_sprintf(tempdb, "%s-tmp", filedb);
 
-    fdb_t = fopen(tempdb, "w+b");       /* Open temp DB         */
-    if (fdb_t) {
-      filedb_initdb(fdb_t);     /* Initialise new DB    */
+    /* Step 1: Copy old content to backup while original is still locked */
+    if (fcopyfile(*fdb_s, tempdb) != 0) {
+      putlog(LOG_MISC, "*", "(!) Backing up filedb %s before conversion failed.",
+             filedb);
+      my_free(tempdb);
+      return 0;
+    }
 
-      /* Convert old database to new one, saving
-       * in temporary db file
-       */
+    fdb_backup = fopen(tempdb, "rb");
+    if (!fdb_backup) {
+      putlog(LOG_MISC, "*", "(!) Opening backup filedb %s failed.", tempdb);
+      unlink(tempdb);
+      my_free(tempdb);
+      return 0;
+    }
+
+    /* Step 2: Truncate the original file and write the new DB into it.
+     * The lock is kept throughout - no unlock/reopen race window. */
+    if (ftruncate(fileno(*fdb_s), 0) == 0) {
+      rewind(*fdb_s);
+      filedb_initdb(*fdb_s);
+
       if (fdbt.version == FILEDB_VERSION1)
-        convert_version1(*fdb_s, fdb_t);        /* v1 -> v3             */
+        convert_version1(fdb_backup, *fdb_s);   /* v1 -> v3 */
       else
-        convert_version2(*fdb_s, fdb_t);        /* v2 -> v3             */
+        convert_version2(fdb_backup, *fdb_s);   /* v2 -> v3 */
 
-      unlockfile(*fdb_s);
-      fclose(fdb_t);
-      fclose(*fdb_s);
+      fflush(*fdb_s);
+      ret = 1;
+    } else {
+      putlog(LOG_MISC, "*",
+             "(!) Truncating filedb %s for in-place conversion failed.",
+             filedb);
+    }
 
-      /* Move over db to new location */
-      if (movefile(tempdb, filedb))
-        putlog(LOG_MISC, "*", "(!) Moving file db from %s to %s failed.",
-               tempdb, filedb);
+    fclose(fdb_backup);
 
-      *fdb_s = fopen(filedb, "r+b");    /* Reopen new db        */
-      if (*fdb_s) {
-        lockfile(*fdb_s);
-        /* Now we should have recreated the original situation,
-         * with the file pointer just pointing to the new version
-         * of the DB instead of the original one.
-         */
-        ret = 1;
-      } else
-        putlog(LOG_MISC, "*", "(!) Reopening db %s failed.", filedb);
+    if (ret) {
+      unlink(tempdb);           /* Remove backup on success */
+    } else {
+      /* Restore original from backup */
+      putlog(LOG_MISC, "*",
+             "(!) Restoring filedb %s from backup after failed conversion.",
+             filedb);
+      if (ftruncate(fileno(*fdb_s), 0) == 0) {
+        FILE *restore = fopen(tempdb, "rb");
+        if (restore) {
+          char buf[512];
+          size_t n;
+          rewind(*fdb_s);
+          while ((n = fread(buf, 1, sizeof buf, restore)) > 0)
+            fwrite(buf, 1, n, *fdb_s);
+          fflush(*fdb_s);
+          fclose(restore);
+        }
+      }
+      unlink(tempdb);
     }
     my_free(tempdb);
     /* Database already at the newest version? */

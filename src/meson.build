@@ -35,7 +35,7 @@ compat_lib = static_library('eggcompat',
   sources: compat_sources,
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
-  dependencies: [tcl_dep],
+  dependencies: [tcl_dep, tls_dep],
 )
 compat_dep = declare_dependency(link_with: compat_lib)
 
@@ -46,7 +46,7 @@ md5_lib = static_library('eggmd5',
   sources: ['md5/md5c.c'],
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
-  dependencies: [tcl_dep],
+  dependencies: [tcl_dep, tls_dep],
 )
 md5_dep = declare_dependency(link_with: md5_lib)
 
@@ -237,7 +237,7 @@ if fs.exists(meson.current_source_dir() / 'mod/dns.mod/res.c')
     sources: files('mod/dns.mod/res.c'),
     include_directories: [top_inc, src_inc],
     c_args: core_cargs,
-    dependencies: [tcl_dep],
+    dependencies: [tcl_dep, tls_dep],
   )
   eggres_dep = declare_dependency(link_with: eggres_lib)
 endif

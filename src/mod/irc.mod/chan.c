@@ -1196,14 +1196,10 @@ static int got354(char *from, char *msg)
       chname = newsplit(&msg);  /* Grab the channel */
       chan = findchan(chname);  /* See if I'm on channel */
       if (chan) {               /* Am I? */
-        user = newsplit(&msg);  /* Grab the user */
-        host = newsplit(&msg);  /* Grab the host */
-        nick = newsplit(&msg);  /* Grab the nick */
-        if (strchr(nick, '.') || strchr(nick, ':')) { /* FIXME: Use 005 WHOX instead */
-          host = nick;
-          nick = newsplit(&msg);
-        }
-        flags = newsplit(&msg);     /* Grab the flags */
+        user = newsplit(&msg);  /* Grab the user (ident) - field 'u' */
+        host = newsplit(&msg);  /* Grab the host          - field 'h' */
+        nick = newsplit(&msg);  /* Grab the nick          - field 'n' */
+        flags = newsplit(&msg); /* Grab the flags         - field 'f' */
         account = newsplit(&msg);   /* Grab the account name */
         fixcolon(account);
         got352or4(chan, user, host, nick, flags, account);
@@ -1837,7 +1833,7 @@ static int gottopic(char *from, char *msg)
     if (m != NULL)
       m->last = now;
     set_topic(chan, msg);
-    u = lookup_user_record(m, NULL, from); // TODO: get account from msgtags
+    u = lookup_user_record(m, m ? m->account : NULL, from);
     check_tcl_topc(nick, from, u, chan->dname, msg);
   }
   return 0;
@@ -2083,7 +2079,8 @@ static int gotjoin(char *from, char *channame)
             goto exit;
           }
         } else {
-          u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+          memberlist *_mj = find_member_from_nick(nick);
+          u = lookup_user_record(_mj, _mj ? _mj->account : NULL, from);
         }
         check_tcl_join(nick, uhost, u, chan->dname);
 
@@ -2259,7 +2256,6 @@ static int gotpart(char *from, char *msg)
     strlcpy(uhost, from, sizeof uhost);
     nick = splitnick(&from);
     m = ismember(chan, nick);
-    // TODO: check account from rawt account-tags
     if (m)
       u = get_user_from_member(m);
     else
@@ -2354,7 +2350,7 @@ static int gotkick(char *from, char *origmsg)
       return 0;
 
     m = ismember(chan, whodid);
-    u = lookup_user_record(m, NULL, from); // TODO: get account from msgtags
+    u = lookup_user_record(m, m ? m->account : NULL, from);
     if (m)
       m->last = now;
     /* This _needs_ to use chan->dname <cybah> */
@@ -2571,13 +2567,24 @@ static int gotmsg(char *from, char *msg)
   struct chanset_t *chan;
   struct userrec *u;
 
-  /* Only handle if message is to a channel, or to @#channel. */
-  /* FIXME: Properly handle ovNotices (@+#channel), vNotices (+#channel), etc. */
-  if (!strchr(CHANMETA "@", msg[0]))
-    return 0;
+  /* Only handle if message is to a channel or a STATUSMSG-prefixed channel
+   * (e.g. @#channel for ops, +#channel for voiced).  STATUSMSG prefix chars
+   * come from server 005 PREFIX; strip them to find the real channel name. */
+  {
+    const char *pfx = isupport_get_prefixchars();
+    if (!strchr(CHANMETA, msg[0]) && !strchr(pfx, msg[0]))
+      return 0;
+  }
 
   to = newsplit(&msg);
-  realto = (to[0] == '@') ? to + 1 : to;
+  realto = to;
+  {
+    /* Strip leading STATUSMSG prefix chars (e.g. "@", "+") before the
+     * channel name.  A status prefix always precedes a CHANMETA char. */
+    const char *pfx = isupport_get_prefixchars();
+    while (*realto && strchr(pfx, *realto) && realto[1] && strchr(CHANMETA, realto[1]))
+      realto++;
+  }
   chan = findchan(realto);
   if (!chan)
     return 0; /* Unknown channel; don't process. */
@@ -2613,7 +2620,10 @@ static int gotmsg(char *from, char *msg)
         ctcp_count++;
         if (ctcp[0] != ' ') {
           code = newsplit(&ctcp);
-          u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+          {
+            memberlist *_mc = find_member_from_nick(nick);
+            u = lookup_user_record(_mc, _mc ? _mc->account : NULL, from);
+          }
           if (!ignoring || trigger_on_ignore) {
             if (!check_tcl_ctcp(nick, uhost, u, to, code, ctcp)) {
               chan = findchan(realto);
@@ -2694,18 +2704,29 @@ static int gotnotice(char *from, char *msg)
   struct chanset_t *chan;
   int ignoring;
 
-  if (!strchr(CHANMETA "@", *msg))
-    return 0;
+  {
+    const char *pfx = isupport_get_prefixchars();
+    if (!strchr(CHANMETA, *msg) && !strchr(pfx, *msg))
+      return 0;
+  }
   ignoring = match_ignore(from);
   to = newsplit(&msg);
-  realto = (*to == '@') ? to + 1 : to;
+  realto = to;
+  {
+    const char *pfx = isupport_get_prefixchars();
+    while (*realto && strchr(pfx, *realto) && realto[1] && strchr(CHANMETA, realto[1]))
+      realto++;
+  }
   chan = findchan(realto);
   if (!chan)
     return 0;                   /* Notice to an unknown channel?? */
   fixcolon(msg);
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
-  u = lookup_user_record(find_member_from_nick(nick), NULL, from); // TODO: get account from msgtags
+  {
+    memberlist *_mn = find_member_from_nick(nick);
+    u = lookup_user_record(_mn, _mn ? _mn->account : NULL, from);
+  }
   /* Check for CTCP: */
   p = strchr(msg, 1);
   while (p && *p) {
