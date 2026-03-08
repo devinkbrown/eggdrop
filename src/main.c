@@ -29,12 +29,14 @@
  * list available at eggheads@eggheads.org.
  */
 
-/* We need config.h for CYGWIN_HACKS, but windows.h must be included before
- * eggdrop headers, because the malloc/free macros break the inclusion.
- * The SSL undefs are a workaround for bug #2182 in openssl with msys/mingw.
+/* config.h must be included before eggdrop headers so that platform macros
+ * (EGG_NATIVE_WIN32, CYGWIN_HACKS, …) are visible.  On Windows, windows.h
+ * must precede any OpenSSL headers; the undefs work around OpenSSL bug #2182
+ * (macro name collisions with MSYS/MinGW Win32 headers).
  */
 #include <config.h>
-#ifdef CYGWIN_HACKS
+#if defined(EGG_NATIVE_WIN32) || defined(CYGWIN_HACKS)
+#  include <winsock2.h>
 #  include <windows.h>
 #  undef X509_NAME
 #  undef X509_EXTENSIONS
@@ -967,6 +969,16 @@ int main(int arg_c, char **arg_v)
   setrlimit(RLIMIT_CORE, &cdlim);
 #endif
 
+#ifdef EGG_NATIVE_WIN32
+  /* Initialise Winsock 2.2 — required before any socket calls on Windows */
+  {
+    WSADATA wsa;
+    int wsa_err = WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (wsa_err != 0)
+      fatal("WSAStartup failed", 0);
+  }
+#endif
+
   argc = arg_c;
   argv = arg_v;
   argv0 = argv[0];
@@ -1040,10 +1052,9 @@ int main(int arg_c, char **arg_v)
 
   printf("\n%s\n", version);
 
-#ifndef CYGWIN_HACKS
-  /* Don't allow eggdrop to run as root
-   * This check isn't useful under cygwin and has been
-   * reported to cause trouble in some situations.
+#if !defined(CYGWIN_HACKS) && !defined(EGG_NATIVE_WIN32)
+  /* Don't allow eggdrop to run as root.
+   * Not applicable on Cygwin or native Windows (no POSIX uid concept).
    */
   if (((int) getuid() == 0) || ((int) geteuid() == 0))
     fatal("ERROR: Eggdrop will not run as root!", 0);
@@ -1153,6 +1164,14 @@ int main(int arg_c, char **arg_v)
     }
 #ifdef CYGWIN_HACKS
     FreeConsole();
+#elif defined(EGG_NATIVE_WIN32)
+    /* Hide the console window when running in background mode on native Windows */
+    {
+      HWND con = GetConsoleWindow();
+      if (con)
+        ShowWindow(con, SW_HIDE);
+    }
+    WSACleanup();
 #endif
   }
 

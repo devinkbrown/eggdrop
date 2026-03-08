@@ -39,10 +39,19 @@ cdata.set('HANDLEN', opt_handlen)
 
 # OS / platform detection
 host_system = host_machine.system()
+is_native_windows = (host_system == 'windows')
+is_cygwin         = (host_system == 'cygwin')
+
 if host_system == 'darwin'
   cdata.set('EGG_DARWIN_BUNDLE', 1)
-elif host_system == 'cygwin' or host_system == 'windows'
+elif is_cygwin
+  # Cygwin: legacy POSIX-emulation path; kept as fallback
   cdata.set('CYGWIN_HACKS', 1)
+elif is_native_windows
+  # Native Windows (MinGW / MSVC): IOCP event loop, Winsock2
+  cdata.set('EGG_NATIVE_WIN32', 1)
+  cdata.set('HAVE_IOCP', 1)
+  message('Native Windows build — IOCP backend enabled')
 endif
 
 # -------------------------------------------------------------------------
@@ -305,6 +314,15 @@ resolv_dep = cc.find_library('resolv', required: false)
 nsl_dep    = cc.find_library('nsl',    required: false)
 m_dep      = cc.find_library('m',      required: false)
 
+# Windows-native Winsock2 + MsWSock (required for IOCP / WSARecv / WSASend)
+if is_native_windows
+  ws2_dep     = cc.find_library('ws2_32',  required: true)
+  mswsock_dep = cc.find_library('mswsock', required: true)
+else
+  ws2_dep     = dependency('', required: false)
+  mswsock_dep = dependency('', required: false)
+endif
+
 # b64_ntop / b64_pton — BSD/glibc base64 (part of libresolv on Linux).
 # When present, set HAVE_BASE64 so our compat/base64.c is skipped.
 if cc.has_function('b64_ntop', dependencies: resolv_dep,
@@ -375,6 +393,8 @@ elif have_epoll
   _io_backend = 'epoll'
 elif have_kqueue
   _io_backend = 'kqueue'
+elif is_native_windows
+  _io_backend = 'iocp'
 else
   _io_backend = 'select'
 endif
