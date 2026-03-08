@@ -15,7 +15,18 @@ FORK NOTICE
     - Build system replaced: autoconf/make → Meson + Ninja
     - Native Windows (MinGW / MSVC) support via IOCP event backend
     - Cygwin legacy hacks removed; Cygwin compiles on the POSIX path
-    - I/O backends in priority order: io_uring, epoll, kqueue, IOCP, select
+    - I/O backends, auto-selected in priority order:
+
+        Platform                  Backend
+        ------------------------  ----------
+        Linux >= 5.1 + liburing   io_uring
+        Linux                     epoll
+        macOS / FreeBSD / OpenBSD / NetBSD   kqueue  (upstream v1.10.1)
+        Windows native            IOCP
+        Cygwin / fallback         select()
+
+    - BSD and macOS are fully covered by the kqueue backend inherited
+      from upstream v1.10.1; no select() fallback is used there
     - Various bug fixes and patches under review for upstream inclusion
 
   Issues and changes specific to this fork should be reported at the
