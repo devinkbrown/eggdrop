@@ -34,9 +34,14 @@ devinkbrown fork (based on v1.10.1):
       required. Module loading uses LoadLibrary/GetProcAddress.
     - Added IOCP (I/O Completion Ports) backend for native Windows builds,
       using zero-byte overlapped WSARecv/WSASend to arm readiness
-      notifications — the Windows equivalent of epoll/kqueue. The
-      implementation was adapted from libop (ophion project, also by
-      devinkbrown), which already provided a proven IOCP abstraction.
+      notifications — the Windows equivalent of epoll/kqueue.
+      Implementation adapted from libop (https://github.com/devinkbrown/ophion),
+      the I/O layer of the ophion project by the same author. libop was
+      chosen because it had already solved the hard parts in
+      production-tested C: safe OVERLAPPED-first-member casting, stale
+      completion detection after socket close, and per-slot double-arm
+      prevention. Adapting proven code avoided reimplementing those
+      failure modes from scratch inside Eggdrop.
     - I/O backend priority chain is now: io_uring → epoll → kqueue →
       IOCP → select(). Each backend is auto-detected at configure time.
       Every major platform has a native, scalable backend; select() is

@@ -1,6 +1,45 @@
 
-Eggdrop Changes (Last Updated 2026-03-07):
+Eggdrop Changes (Last Updated 2026-03-08):
 __________________________________________
+
+devinkbrown fork (based on v1.10.1):
+
+  2026-03-08 * docs: expand README with full libop rationale — explains
+               why IOCP from scratch is error-prone and what libop
+               already solved (overlapped layout, stale completions,
+               double-arm prevention)
+             * docs: update NEWS with libop credit and rationale
+             * docs: add 'Why this fork exists' and 'Why libop' sections
+               to README; add BSD/macOS kqueue coverage note
+
+  2026-03-07 * win32: stub bg.c fork/pipe/kill — bg_prepare_split(),
+               bg_do_split(), bg_send_quit() are no-ops on Windows;
+               bot runs in foreground with console hidden via ShowWindow
+             * win32: guard sigaction block and kill(SIGCHLD) check in
+               main.c with #ifndef EGG_NATIVE_WIN32
+             * win32: add MOD_USE_WIN32 module-loading path using
+               LoadLibraryA/GetProcAddress/FreeLibrary; meson.build
+               sets MOD_USE_WIN32 before dlopen probe on Windows
+             * win32: guard sys/uio.h in net.c, fcntl.h and resolv.h
+               in main.c with #ifndef EGG_NATIVE_WIN32
+             * build: add sys/uio.h to meson req_headers for
+               HAVE_SYS_UIO_H detection
+             * win32: add native Windows support — EGG_NATIVE_WIN32
+               define, Winsock2/MsWSock deps, IOCP I/O backend adapted
+               from libop (https://github.com/devinkbrown/ophion).
+               Zero-byte overlapped WSARecv/WSASend; stale completion
+               detection via slot index + socket fd recorded at arm time
+             * build: replace autoconf/make with Meson + Ninja;
+               optimization=2 default; -pipe flag where supported;
+               per-platform dependency detection via pkg-config
+             * win32: remove CYGWIN_HACKS; Cygwin retains plain POSIX
+               path (select() fallback); only host_system=='windows'
+               gets EGG_NATIVE_WIN32 and IOCP
+             * docs: rewrite INSTALL for Meson with per-platform
+               dependency steps (Debian, Fedora, macOS, MSYS2, MSVC,
+               Cygwin); add MSVC/vcpkg section; document I/O backends
+             * docs: update README with fork notice, build instructions,
+               and I/O backend table
 
 Eggdrop v1.10.1:
 
