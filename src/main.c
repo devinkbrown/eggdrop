@@ -29,13 +29,13 @@
  * list available at eggheads@eggheads.org.
  */
 
-/* config.h must be included before eggdrop headers so that platform macros
- * (EGG_NATIVE_WIN32, CYGWIN_HACKS, …) are visible.  On Windows, windows.h
+/* config.h must be included before eggdrop headers so that EGG_NATIVE_WIN32
+ * and other platform macros are visible.  On Windows, winsock2.h/windows.h
  * must precede any OpenSSL headers; the undefs work around OpenSSL bug #2182
  * (macro name collisions with MSYS/MinGW Win32 headers).
  */
 #include <config.h>
-#if defined(EGG_NATIVE_WIN32) || defined(CYGWIN_HACKS)
+#ifdef EGG_NATIVE_WIN32
 #  include <winsock2.h>
 #  include <windows.h>
 #  undef X509_NAME
@@ -1052,9 +1052,9 @@ int main(int arg_c, char **arg_v)
 
   printf("\n%s\n", version);
 
-#if !defined(CYGWIN_HACKS) && !defined(EGG_NATIVE_WIN32)
+#ifndef EGG_NATIVE_WIN32
   /* Don't allow eggdrop to run as root.
-   * Not applicable on Cygwin or native Windows (no POSIX uid concept).
+   * Not applicable on Windows (no POSIX uid concept).
    */
   if (((int) getuid() == 0) || ((int) geteuid() == 0))
     fatal("ERROR: Eggdrop will not run as root!", 0);
@@ -1162,9 +1162,7 @@ int main(int arg_c, char **arg_v)
     if (freopen("/dev/null", "w", stderr) == NULL) {
       putlog(LOG_MISC, "*", "Error renaming stderr file handle: %s", strerror(errno));
     }
-#ifdef CYGWIN_HACKS
-    FreeConsole();
-#elif defined(EGG_NATIVE_WIN32)
+#ifdef EGG_NATIVE_WIN32
     /* Hide the console window when running in background mode on native Windows */
     {
       HWND con = GetConsoleWindow();

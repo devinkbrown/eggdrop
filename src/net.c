@@ -2500,9 +2500,9 @@ void dequeue_sockets(void)
   for (i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
         (socklist[i].handler.sock.outbuf != NULL) && (FD_ISSET(socklist[i].sock, &wfds))) {
-#if defined(CYGWIN_HACKS) || defined(EGG_NATIVE_WIN32)
-      /* On Windows (Cygwin and native), a non-blocking connect() failure
-       * surfaces as write-readiness rather than an error condition.
+#ifdef EGG_NATIVE_WIN32
+      /* On Windows, a non-blocking connect() failure surfaces as
+       * write-readiness rather than an error condition.
        * Read SO_ERROR to detect connection refused before attempting to
        * drain the outbuf. */
       if (socklist[i].flags & SOCK_CONNECT) {

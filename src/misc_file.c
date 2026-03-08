@@ -42,7 +42,7 @@ int copyfile(char *oldpath, char *newpath)
   char buf[512];
   struct stat st;
 
-#if defined(CYGWIN_HACKS) || defined(EGG_NATIVE_WIN32)
+#ifdef EGG_NATIVE_WIN32
   fi = open(oldpath, O_RDONLY | O_BINARY, 0);
 #else
   fi = open(oldpath, O_RDONLY, 0);
@@ -92,7 +92,7 @@ int copyfilef(char *oldpath, FILE *newfile)
   struct stat st;
   off_t oripos;
 
-#if defined(CYGWIN_HACKS) || defined(EGG_NATIVE_WIN32)
+#ifdef EGG_NATIVE_WIN32
   fi = open(oldpath, O_RDONLY | O_BINARY, 0);
 #else
   fi = open(oldpath, O_RDONLY, 0);
