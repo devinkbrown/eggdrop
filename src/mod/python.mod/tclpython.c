@@ -22,7 +22,7 @@
 static int tcl_pysource STDVAR
 {
   FILE *fp;
-  PyObject *pobj, *ptype, *pvalue, *ptraceback;
+  PyObject *pobj;
   PyObject *pystr;
   Py_ssize_t n;
   const char *res = NULL;
@@ -40,6 +40,45 @@ static int tcl_pysource STDVAR
   Py_XDECREF(pobj);
 
   if (PyErr_Occurred()) {
+#if PY_VERSION_HEX >= 0x030C0000
+    /* Python 3.12+: PyErr_Fetch() was deprecated in 3.12 and removed in 3.14.
+     * PyErr_GetRaisedException() returns the current exception (already
+     * normalized, with __traceback__ attached) and clears the error indicator.
+     * traceback.format_exception(exc) accepts a single exception since 3.10. */
+    PyObject *exc = PyErr_GetRaisedException();
+    PyObject *module_name, *pymodule, *pyfunc, *pyval, *item;
+
+    pystr = PyObject_Str(exc);
+    Tcl_AppendResult(irp, "Error loading python: ", PyUnicode_AsUTF8(pystr), NULL);
+    Py_DECREF(pystr);
+    module_name = PyUnicode_FromString("traceback");
+    pymodule = PyImport_Import(module_name);
+    Py_DECREF(module_name);
+    // format backtrace and print (single-arg form works for both traced/untraceable exceptions)
+    pyfunc = PyObject_GetAttrString(pymodule, "format_exception");
+    if (pyfunc && PyCallable_Check(pyfunc)) {
+      pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, NULL);
+      if (pyval && PyList_Check(pyval)) {
+        n = PyList_Size(pyval);
+        for (i = 0; i < n; i++) {
+          item = PyList_GetItem(pyval, i);
+          pystr = PyObject_Str(item);
+          res = PyUnicode_AsUTF8(pystr);
+          // strip \n
+          putlog(LOG_MISC, "*", "%.*s", (int)(strlen(res) - 1), res);
+          Py_DECREF(pystr);
+        }
+      } else {
+        putlog(LOG_MISC, "*", "Error fetching python traceback");
+      }
+      Py_XDECREF(pyval);
+    }
+    Py_XDECREF(pyfunc);
+    Py_DECREF(pymodule);
+    Py_XDECREF(exc);
+#else
+    /* Python < 3.12: use the legacy three-component exception API. */
+    PyObject *ptype, *pvalue, *ptraceback;
     PyErr_Fetch(&ptype, &pvalue, &ptraceback);
     pystr = PyObject_Str(pvalue);
     Tcl_AppendResult(irp, "Error loading python: ", PyUnicode_AsUTF8(pystr), NULL);
@@ -78,6 +117,7 @@ static int tcl_pysource STDVAR
     Py_XDECREF(ptype);
     Py_XDECREF(pvalue);
     Py_XDECREF(ptraceback);
+#endif
     return TCL_ERROR;
   }
   return TCL_OK;
