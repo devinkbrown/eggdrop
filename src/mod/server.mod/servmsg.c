@@ -1617,8 +1617,20 @@ static int gotcap(char *from, char *msg) {
       } else if (!strcmp(current->name, "invite-notify")) {
         if ((invite_notify) && (!current->enabled))
           add_req(current->name);
+      } else if (!strcmp(current->name, "away-notify")) {
+        if ((away_notify) && (!current->enabled))
+          add_req(current->name);
       } else if (!strcmp(current->name, "message-tags")) {
         if ((message_tags) && (!current->enabled))
+          add_req(current->name);
+      } else if (!strcmp(current->name, "multi-prefix")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "userhost-in-names")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "chghost")) {
+        if (!current->enabled)
           add_req(current->name);
       }
       /* Add any custom capes the user listed */
