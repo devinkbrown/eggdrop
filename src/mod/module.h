@@ -88,8 +88,8 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 /* Redefine for module-relevance */
 
 /* 0 - 3 */
-#define nmalloc(x) (((void *(*)())global[0])((x),MODULE_NAME,__FILE__,__LINE__))
-#define nfree(x) (global[1]((x),MODULE_NAME,__FILE__,__LINE__))
+#define nmalloc(x) (((void *(*)(int, const char *, const char *, int))global[0])((x),MODULE_NAME,__FILE__,__LINE__))
+#define nfree(x) (((void (*)(void *, const char *, const char *, int))global[1])((x),MODULE_NAME,__FILE__,__LINE__))
 #define Context do {} while (0) /* For backward compatibility only */
 #define module_rename ((int (*)(char *, char *))global[3])
 /* 4 - 7 */
@@ -116,7 +116,7 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 #define base64_to_int ((int (*) (char *))global[20])
 #define int_to_base64 ((char * (*) (int))global[21])
 #define int_to_base10 ((char * (*) (int))global[22])
-#define simple_sprintf ((int (*)())global[23])
+#define simple_sprintf ((int (*)(char *, const char *, ...))global[23])
 /* 24 - 27 */
 #define botnet_send_zapf ((void (*)(int, char *, char *, char *))global[24])
 #define botnet_send_zapf_broad ((void (*)(int, char *, char *, char *))global[25])
@@ -389,7 +389,7 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 /* 228 - 231 */
 #define add_lang_section ((void(*)(char *))global[228])
 #define user_realloc(x,y) ((void *(*)(void *,int,char *,int))global[229])((x),(y),__FILE__,__LINE__)
-#define nrealloc(x,y) (((void *(*)())global[230])((x),(y),MODULE_NAME,__FILE__,__LINE__))
+#define nrealloc(x,y) (((void *(*)(void *, int, const char *, const char *, int))global[230])((x),(y),MODULE_NAME,__FILE__,__LINE__))
 #define xtra_set ((int(*)(struct userrec *,struct user_entry *, void *))global[231])
 /* 232 - 235 */
 #define ContextNote(note) do {} while (0) /* For backward compatibility only */
@@ -424,7 +424,7 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 #define users_in_subtree ((int (*)(tand_t *))global[250])
 #define egg_inet_aton ((int (*)(const char *cp, struct in_addr *addr))global[251])
 /* 252 - 255 */
-#define egg_snprintf (global[252])
+#define egg_snprintf ((int (*)(char *, size_t, const char *, ...))global[252])
 #define egg_vsnprintf ((int (*)(char *, size_t, const char *, va_list))global[253])
 /* was egg_memset() -- use memset() instead */
 /* was egg_strcasecmp() -- use strcasecmp() instead */
@@ -513,7 +513,7 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 /* 312 - 315 */
 #define USERENTRY_PASS2 (*(struct user_entry_type *)global[312])
 #define crypto_verify ((int ( *) (const char *, const char *))global[313])
-#define egg_uname ((char *(*) ())global[314])
+#define egg_uname ((char *(*)(void))global[314])
 #define get_expire_time ((time_t (*) (Tcl_Interp *, const char *))global[315])
 /* 316 - 319 */
 #define USERENTRY_ACCOUNT (*(struct user_entry_type *)(global[316]))
