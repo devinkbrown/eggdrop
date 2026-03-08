@@ -634,7 +634,7 @@ static int tcl_newchanban STDVAR
     return TCL_ERROR;
   if (u_addban(chan, ban, from, cmt, expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
-      (me->funcs[IRC_CHECK_THIS_BAN]) (chan, ban, sticky);
+      ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, sticky);
   return TCL_OK;
 }
 
@@ -671,7 +671,7 @@ static int tcl_newban STDVAR
   if (u_addban(NULL, ban, from, cmt, expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
       for (chan = chanset; chan != NULL; chan = chan->next)
-        (me->funcs[IRC_CHECK_THIS_BAN]) (chan, ban, sticky);
+        ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, sticky);
   return TCL_OK;
 }
 
@@ -1748,11 +1748,11 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                                        CHAN_BITCH | CHAN_AUTOVOICE |
                                        CHAN_AUTOHALFOP)) {
       if ((me = module_find("irc", 0, 0)))
-        (me->funcs[IRC_RECHECK_CHANNEL]) (chan, 1);
+        ((void (*)(struct chanset_t *, int)) me->funcs[IRC_RECHECK_CHANNEL])(chan, 1);
     } else if (old_mode_pls_prot != chan->mode_pls_prot ||
              old_mode_mns_prot != chan->mode_mns_prot)
       if ((me = module_find("irc", 1, 2)))
-        (me->funcs[IRC_RECHECK_CHANNEL_MODES]) (chan);
+        ((void (*)(struct chanset_t *)) me->funcs[IRC_RECHECK_CHANNEL_MODES])(chan);
   }
   if (x > 0)
     return TCL_ERROR;

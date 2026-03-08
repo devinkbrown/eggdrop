@@ -381,12 +381,12 @@ static int got001(char *from, char *msg)
       if (x->realname)
         nfree(x->realname);
       x->realname = nmalloc(strlen(from) + 1);
-      strlcpy(x->realname, from, strlen(from) + 1);
+      strcpy(x->realname, from);
     }
     if (realservername)
       nfree(realservername);
     realservername = nmalloc(strlen(from) + 1);
-    strlcpy(realservername, from, strlen(from) + 1);
+    strcpy(realservername, from);
   } else
     putlog(LOG_MISC, "*", "No server list when receiving 001!");
 
@@ -448,7 +448,7 @@ static int got442(char *from, char *msg)
 
     putlog(LOG_MISC, chname, IRC_SERVNOTONCHAN, chname);
     if (me && me->funcs)
-      (me->funcs[CHANNEL_CLEAR]) (chan, CHAN_RESETALL);
+      ((void (*)(struct chanset_t *, int)) me->funcs[CHANNEL_CLEAR])(chan, CHAN_RESETALL);
     chan->status &= ~CHAN_ACTIVE;
 
     key = chan->channel.key[0] ? chan->channel.key : chan->key_prot;
@@ -475,7 +475,7 @@ static void nuke_server(char *reason)
     for (chan = chanset; chan; chan = chan->next) {
       if (channel_active(chan))
         if ((me = module_find("irc", 1, 3)) != NULL)
-          (me->funcs[CHANNEL_CLEAR]) (chan, CHAN_RESETALL);
+          ((void (*)(struct chanset_t *, int)) me->funcs[CHANNEL_CLEAR])(chan, CHAN_RESETALL);
     }
 
     disconnect_server(servidx);
@@ -1153,7 +1153,7 @@ static void kill_server(int idx, void *x)
     struct chanset_t *chan;
 
     for (chan = chanset; chan; chan = chan->next)
-      (me->funcs[CHANNEL_CLEAR]) (chan, CHAN_RESETALL);
+      ((void (*)(struct chanset_t *, int)) me->funcs[CHANNEL_CLEAR])(chan, CHAN_RESETALL);
   }
   /* A new server connection will be automatically initiated in
    * about 2 seconds. */

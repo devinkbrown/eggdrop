@@ -494,7 +494,7 @@ static int builtin_fil STDVAR
   if (F == CMD_LEAVE)
     return TCL_BREAK;
 
-  F(idx, argv[3]);
+  ((void (*)(int, char *)) F)(idx, argv[3]);
   Tcl_ResetResult(irp);
   return TCL_OK;
 }
@@ -967,7 +967,7 @@ static char *filesys_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *filesys_start();
+EXPORT_SCOPE char *filesys_start(Function *global_funcs);
 
 static Function filesys_table[] = {
   /* 0 - 3 */

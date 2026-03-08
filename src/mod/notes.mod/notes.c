@@ -1198,7 +1198,7 @@ static void notes_report(int idx, int details)
   }
 }
 
-EXPORT_SCOPE char *notes_start();
+EXPORT_SCOPE char *notes_start(Function *global_funcs);
 
 static Function notes_table[] = {
   (Function) notes_start,

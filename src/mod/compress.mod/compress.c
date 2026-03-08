@@ -424,7 +424,7 @@ static char *compress_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *compress_start();
+EXPORT_SCOPE char *compress_start(Function *global_funcs);
 
 static Function compress_table[] = {
   /* 0 - 3 */

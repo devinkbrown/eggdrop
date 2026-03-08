@@ -154,7 +154,7 @@ static int builtin_sentrcvd STDVAR
   BADARGS(4, 4, " hand nick path");
 
   CHECKVALIDITY(builtin_sentrcvd);
-  F(argv[1], argv[2], argv[3]);
+  ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
 
@@ -165,7 +165,7 @@ static int builtin_toutlost STDVAR
   BADARGS(6, 6, " hand nick path acked length");
 
   CHECKVALIDITY(builtin_toutlost);
-  F(argv[1], argv[2], argv[3], argv[4], argv[5]);
+  ((void (*)(char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5]);
   return TCL_OK;
 }
 
@@ -1209,7 +1209,7 @@ static void transfer_report(int idx, int details)
   }
 }
 
-EXPORT_SCOPE char *transfer_start();
+EXPORT_SCOPE char *transfer_start(Function *global_funcs);
 
 static Function transfer_table[] = {
   (Function) transfer_start,

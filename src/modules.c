@@ -847,7 +847,7 @@ const char *module_load(char *name)
   p->funcs = 0;
   p->next = module_list;
   module_list = p;
-  e = (((char *(*)()) f) (global_table));
+  e = ((char *(*)(Function *)) f)(global_table);
   if (e) {
     module_list = module_list->next;
     nfree(p->name);
@@ -883,7 +883,7 @@ char *module_unload(char *name, char *user)
         return MOD_NOCLOSEDEF;
       if (f) {
         check_tcl_unld(name);
-        e = (((char *(*)()) f[MODCALL_CLOSE]) (user));
+        e = ((char *(*)(char *)) f[MODCALL_CLOSE])(user);
         if (e != NULL)
           return e;
 #ifndef STATIC
@@ -1103,7 +1103,7 @@ void add_hook(int hook_num, Function func)
       }
       break;
     case HOOK_MATCH_NOTEREJ:
-      if (match_noterej == false_func)
+      if (match_noterej == (int (*)(struct userrec *, char *)) false_func)
         match_noterej = (int (*)(struct userrec *, char *)) func;
       break;
     case HOOK_DNS_HOSTBYIP:
@@ -1175,7 +1175,7 @@ void del_hook(int hook_num, Function func)
       break;
     case HOOK_QSERV:
       if (qserver == (void (*)(int, char *, int)) func)
-        qserver = null_func;
+        qserver = (void (*)(int, char *, int)) null_func;
       break;
     case HOOK_ADD_MODE:
       if (add_mode == (void (*)(struct chanset_t *, char, char, char *)) func)
@@ -1183,7 +1183,7 @@ void del_hook(int hook_num, Function func)
       break;
     case HOOK_MATCH_NOTEREJ:
       if (match_noterej == (int (*)(struct userrec *, char *)) func)
-        match_noterej = false_func;
+        match_noterej = (int (*)(struct userrec *, char *)) false_func;
       break;
     case HOOK_DNS_HOSTBYIP:
       if (dns_hostbyip == (void (*)(sockname_t *)) func)
@@ -1231,7 +1231,7 @@ void do_module_report(int idx, int details, char *which)
         Function f = p->funcs[MODCALL_REPORT];
 
         if (f != NULL)
-          f(idx, details);
+          ((void (*)(int, int)) f)(idx, details);
       }
       if (which)
         return;

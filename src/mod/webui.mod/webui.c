@@ -31,6 +31,9 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#  define st_mtim st_mtimespec
+#endif
 #include <openssl/sha.h>
 #include "src/version.h"
 
@@ -556,7 +559,7 @@ static char *webui_close(void)
   return NULL;
 }
 
-EXPORT_SCOPE char *webui_start();
+EXPORT_SCOPE char *webui_start(Function *global_funcs);
 
 static Function webui_table[] = {
   (Function) webui_start,
