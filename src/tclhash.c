@@ -764,8 +764,7 @@ static int trigger_bind(const char *proc, const char *param, char *mask)
            (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
 
   if (x == TCL_ERROR) {
-    /* FIXME: we really should be able to log longer errors */
-    putlog(LOG_MISC, "*", "Tcl error [%s]: %.*s", proc, 400, tcl_resultstring());
+    putlog(LOG_MISC, "*", "Tcl error [%s]: %s", proc, tcl_resultstring());
     Tcl_BackgroundError(interp);
 
     return BIND_EXECUTED;
