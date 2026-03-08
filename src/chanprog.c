@@ -155,7 +155,7 @@ void clear_chanlist_member(const char *nick)
 
 /* Calculate the memory we should be using
  */
-int expmem_chanprog()
+int expmem_chanprog(void)
 {
   int tot = 0;
   tcl_timer_t *t;
@@ -167,7 +167,7 @@ int expmem_chanprog()
   return tot;
 }
 
-float getcputime()
+float getcputime(void)
 {
   float stime, utime;
   struct rusage ru;
@@ -355,7 +355,7 @@ void tell_settings(int idx)
           (ignore_time != 1) ? "s" : "");
 }
 
-void reaffirm_owners()
+void reaffirm_owners(void)
 {
   char *p, *q, s[sizeof owner];
   struct userrec *u;
@@ -381,7 +381,7 @@ void reaffirm_owners()
   }
 }
 
-void chanprog()
+void chanprog(void)
 {
   int i;
 
@@ -458,7 +458,7 @@ void chanprog()
 
 /* Reload the user file from disk
  */
-void reload()
+void reload(void)
 {
   if (!file_readable(userfile)) {
     putlog(LOG_MISC, "*", "%s", MISC_CANTRELOADUSER);
@@ -477,7 +477,7 @@ void reload()
   call_hook(HOOK_READ_USERFILE);
 }
 
-void rehash()
+void rehash(void)
 {
   call_hook(HOOK_PRE_REHASH);
   noshare = 1;
@@ -505,8 +505,11 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   (*stack)->next = old;
   (*stack)->mins = (*stack)->interval = elapse;
   (*stack)->count = count;
-  (*stack)->cmd = nmalloc(strlen(cmd) + 1);
-  strlcpy((*stack)->cmd, cmd, strlen(cmd) + 1);
+  {
+    size_t cmdlen = strlen(cmd) + 1;
+    (*stack)->cmd = nmalloc(cmdlen);
+    strlcpy((*stack)->cmd, cmd, cmdlen);
+  }
   /* If it's just being added back and already had an id,
    * don't create a new one.
    */
@@ -515,8 +518,11 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   else
     (*stack)->id = timer_id++;
   if (name) {
-    (*stack)->name = nmalloc(strlen(name) + 1);
-    strlcpy((*stack)->name, name, strlen(name) + 1);
+    {
+      size_t namelen = strlen(name) + 1;
+      (*stack)->name = nmalloc(namelen);
+      strlcpy((*stack)->name, name, namelen);
+    }
   } else {
     (*stack)->name = NULL;
     ret = snprintf(stringid, sizeof stringid, "%lu", (*stack)->id);
@@ -668,7 +674,7 @@ int isowner(char *name) {
 /*
  * Adds the -HQ user to the userlist and takes care of needed permissions
  */
-void add_hq_user()
+void add_hq_user(void)
 {
   if (!backgrd && term_z >= 0) {
     /* HACK: Workaround using dcc[].nick not to pass literal "-HQ" as a non-const arg */

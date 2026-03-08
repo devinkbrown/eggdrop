@@ -176,20 +176,20 @@ void fatal(const char *s, int recoverable)
   }
 }
 
-int expmem_chanprog();
-int expmem_users();
-int expmem_misc();
-int expmem_dccutil();
-int expmem_botnet();
-int expmem_tcl();
-int expmem_tclhash();
-int expmem_net();
-int expmem_language();
-int expmem_tcldcc();
-int expmem_tclmisc();
-int expmem_dns();
+int expmem_chanprog(void);
+int expmem_users(void);
+int expmem_misc(void);
+int expmem_dccutil(void);
+int expmem_botnet(void);
+int expmem_tcl(void);
+int expmem_tclhash(void);
+int expmem_net(void);
+int expmem_language(void);
+int expmem_tcldcc(void);
+int expmem_tclmisc(void);
+int expmem_dns(void);
 #ifdef TLS
-int expmem_tls();
+int expmem_tls(void);
 #endif
 
 /* For mem.c : calculate memory we SHOULD be using
@@ -208,7 +208,7 @@ int expected_memory(void)
   return tot;
 }
 
-static void check_expired_dcc()
+static void check_expired_dcc(void)
 {
   int i;
 
@@ -426,7 +426,7 @@ void eggAssert(const char *file, int line, const char *module)
 }
 #endif
 
-static void show_ver() {
+static void show_ver(void) {
   char x[512], *z = x;
 
   strlcpy(x, egg_version, sizeof x);
@@ -459,7 +459,7 @@ static void show_ver() {
    meaning other languages can't be loaded yet.
    English (or an error) is the only possible option.
 */
-static void show_help() {
+static void show_help(void) {
   printf("\n%s\n\n", version);
   printf("Usage: %s [options] [config-file]\n\n"
          "Options:\n"
@@ -471,7 +471,7 @@ static void show_help() {
   bg_send_quit(BG_ABORT);
 }
 
-static void do_arg()
+static void do_arg(void)
 {
   int option = 0;
 /* Put this back if removing n flag warning
@@ -544,7 +544,7 @@ static struct tm nowtm;
 
 /* Called once a second.
  */
-static void core_secondly()
+static void core_secondly(void)
 {
   static int cnt = 10; /* Don't wait the first 10 seconds to display */
   int miltime;
@@ -640,39 +640,39 @@ static void core_secondly()
   }
 }
 
-static void core_minutely()
+static void core_minutely(void)
 {
   check_tcl_time_and_cron(&nowtm);
   do_check_timers(&timer);
   check_logsize();
 }
 
-static void core_hourly()
+static void core_hourly(void)
 {
   write_userfile(-1);
 }
 
-static void event_rehash()
+static void event_rehash(void)
 {
   check_tcl_event("rehash");
 }
 
-static void event_prerehash()
+static void event_prerehash(void)
 {
   check_tcl_event("prerehash");
 }
 
-static void event_save()
+static void event_save(void)
 {
   check_tcl_event("save");
 }
 
-static void event_logfile()
+static void event_logfile(void)
 {
   check_tcl_event("logfile");
 }
 
-static void event_resettraffic()
+static void event_resettraffic(void)
 {
   otraffic_irc += otraffic_irc_today;
   itraffic_irc += itraffic_irc_today;
@@ -691,31 +691,31 @@ static void event_resettraffic()
   itraffic_trans_today = otraffic_trans_today = 0;
 }
 
-static void event_loaded()
+static void event_loaded(void)
 {
   check_tcl_event("loaded");
 }
 
-void kill_tcl();
+void kill_tcl(void);
 extern module_entry *module_list;
-void restart_chons();
+void restart_chons(void);
 
 #ifdef STATIC
-void check_static(char *, char *(*)());
+void check_static(char *, char *(*)(void));
 
 #include "mod/static.h"
 #endif
 void init_threaddata(int);
-int init_mem();
-int init_userent();
-int init_misc();
-int init_bots();
-int init_modules();
+int init_mem(void);
+int init_userent(void);
+int init_misc(void);
+int init_bots(void);
+int init_modules(void);
 void init_tcl0(int, char **);
 void init_tcl1(int, char **);
 void init_language(int);
 #ifdef TLS
-int ssl_init();
+int ssl_init(void);
 #endif
 
 static void mainloop(int toplevel)
@@ -889,7 +889,7 @@ static void mainloop(int toplevel)
         if (p->funcs) {
           startfunc = p->funcs[MODCALL_START];
           if (startfunc)
-            startfunc(NULL);
+            ((char *(*)(Function *)) startfunc)(NULL);
           else
             debug2("module: %s: %s", p->name, MOD_NOSTARTDEF);
         }

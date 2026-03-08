@@ -275,9 +275,15 @@ typedef uint32_t IP;
 
 /***********************************************************************/
 
-/* It's used in so many places, let's put it here */
+/* It's used in so many places, let's put it here.
+ * The empty parameter list () is intentional: these are generic function
+ * pointer types used for type-erased storage.  Silence the strict-prototypes
+ * diagnostic that fires on every TU that includes this header. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-prototypes"
 typedef intptr_t (*Function) ();
 typedef int (*IntFunc) ();
+#pragma GCC diagnostic pop
 
 #ifdef IPV6
   #include "compat/in6.h"

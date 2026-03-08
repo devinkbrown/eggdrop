@@ -246,7 +246,7 @@ static tcl_ints myints[] = {
   {NULL,              NULL, 0}
 };
 
-static char *ctcp_close()
+static char *ctcp_close(void)
 {
   rem_tcl_strings(mystrings);
   rem_tcl_ints(myints);
@@ -256,7 +256,7 @@ static char *ctcp_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *ctcp_start();
+EXPORT_SCOPE char *ctcp_start(Function *global_funcs);
 
 static Function ctcp_table[] = {
   (Function) ctcp_start,

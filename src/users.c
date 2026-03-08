@@ -194,7 +194,7 @@ void tell_ignores(int idx, char *match)
 }
 
 /* check for expired timed-ignores */
-void check_expired_ignores()
+void check_expired_ignores(void)
 {
   struct igrec **u = &global_ign;
 

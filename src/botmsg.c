@@ -216,7 +216,7 @@ void send_tand_but(int x, char *buf, int len)
       dprint(i, buf, len);
 }
 
-void botnet_send_bye()
+void botnet_send_bye(void)
 {
   if (tands > 0) {
     send_tand_but(-1, "bye\n", 4);

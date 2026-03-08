@@ -37,7 +37,7 @@ int remove_pass = 0; /* create and keep encryption mod passwords */
 struct user_entry_type *entry_type_list;
 
 
-void init_userent()
+void init_userent(void)
 {
   entry_type_list = 0;
   add_entry_type(&USERENTRY_COMMENT);
@@ -1303,8 +1303,11 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
     *t = user_malloc(sizeof(struct list_type));
 
     (*t)->next = NULL;
-    (*t)->extra = user_malloc(strlen(host) + 1);
-    strlcpy((*t)->extra, host, strlen(host) + 1);
+    {
+      size_t hostlen = strlen(host) + 1;
+      (*t)->extra = user_malloc(hostlen);
+      strlcpy((*t)->extra, host, hostlen);
+    }
   }
   return 1;
 }
@@ -1492,8 +1495,11 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
     *t = user_malloc(sizeof(struct list_type));
 
     (*t)->next = NULL;
-    (*t)->extra = user_malloc(strlen(acct) + 1);
-    strlcpy((*t)->extra, acct, strlen(acct) + 1);
+    {
+      size_t acctlen = strlen(acct) + 1;
+      (*t)->extra = user_malloc(acctlen);
+      strlcpy((*t)->extra, acct, acctlen);
+    }
   }
   return 1;
 }

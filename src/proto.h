@@ -151,7 +151,7 @@ char *add_cr(char *);
 void dprint(int, char *, int);
 void dprintf (int, const char *format, ...) ATTRIBUTE_FORMAT(printf,2,3);
 void chatout (const char *format, ...) ATTRIBUTE_FORMAT(printf,1,2);
-extern void (*shareout) ();
+extern void (*shareout) (void *, const char *, ...) ATTRIBUTE_FORMAT(printf, 2, 3);
 extern void (*sharein) (int, char *);
 void chanout_but(int x, int chan, const char *format, ...) ATTRIBUTE_FORMAT(printf,3,4);
 void dcc_chatter(int);
@@ -320,7 +320,7 @@ int readtclprog(char *fname);
 /* tls.c */
 #ifdef TLS
 void verify_cert_expiry(int);
-void ssl_cleanup();
+void ssl_cleanup(void);
 int ssl_handshake(int, int, int, int, char *, IntFunc);
 char *ssl_fpconv(char *in, char *out);
 const char *ssl_getuid(int sock);

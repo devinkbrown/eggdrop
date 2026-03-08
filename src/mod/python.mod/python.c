@@ -142,8 +142,13 @@ static char *init_python() {
 
 static void python_report(int idx, int details)
 {
-  if (details)
-    dprintf(idx, "    python version: %s (header version " PY_VERSION ")\n", Py_GetVersion());
+  if (details) {
+    /* Py_GetVersion() was deprecated in Python 3.13.  sys.version (via
+     * PySys_GetObject) is the stable equivalent and won't be removed. */
+    PyObject *pyver = PySys_GetObject("version"); /* borrowed reference */
+    dprintf(idx, "    python version: %s (header version " PY_VERSION ")\n",
+            pyver ? PyUnicode_AsUTF8(pyver) : PY_VERSION);
+  }
 }
 
 static char *python_close()

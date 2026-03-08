@@ -74,7 +74,7 @@ static struct help_ref {
 
 /* Expected memory usage
  */
-int expmem_misc()
+int expmem_misc(void)
 {
   struct help_ref *current;
   struct help_list_t *item;
@@ -89,7 +89,7 @@ int expmem_misc()
   return tot + (max_logs * sizeof(log_t));
 }
 
-void init_misc()
+void init_misc(void)
 {
   static int last = 0;
 
@@ -659,7 +659,7 @@ void logsuffix_change(char *s)
   }
 }
 
-void check_logsize()
+void check_logsize(void)
 {
   struct stat ss;
   int i;
@@ -739,7 +739,7 @@ static void subst_addcol(char *s, char *newcol)
   }
 }
 
-char *egg_uname()
+char *egg_uname(void)
 {
   struct utsname u;
   static char sysrel[(sizeof u.sysname) + (sizeof u.release)];

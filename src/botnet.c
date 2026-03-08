@@ -46,7 +46,7 @@ int share_unlinks = 0;             /* Allow remote unlinks of my sharebots? */
 int tls_vfybots = 0;               /* Verify SSL certificates from bots? */
 #endif
 
-int expmem_botnet()
+int expmem_botnet(void)
 {
   int size = 0, i;
 
@@ -61,7 +61,7 @@ int expmem_botnet()
   return size;
 }
 
-void init_bots()
+void init_bots(void)
 {
   tandbot = NULL;
 }
@@ -1668,7 +1668,7 @@ struct dcc_table DCC_PRE_RELAY = {
 
 /* Every 5 minutes, send 'ping' to each bot -- no exceptions
  */
-void check_botnet_pings()
+void check_botnet_pings(void)
 {
   int i;
   int bots, users;
@@ -1745,7 +1745,7 @@ void zapfbot(int idx)
   lostdcc(idx);
 }
 
-void restart_chons()
+void restart_chons(void)
 {
   int i;
 

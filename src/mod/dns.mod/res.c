@@ -122,8 +122,9 @@ static inline void res_dlinkDelete(res_dlink_node *m, res_dlink_list *list) {
 #define op_strlcpy(dst, src, sz)    strlcpy(dst, src, sz)
 
 /* Socket helpers */
-static inline int res_inet_pton_sock(const char *addr,
-                                     struct sockaddr_storage *ss)
+static inline __attribute__((unused))
+int res_inet_pton_sock(const char *addr,
+                       struct sockaddr_storage *ss)
 {
   memset(ss, 0, sizeof(*ss));
   if (inet_pton(AF_INET, addr,
@@ -142,8 +143,9 @@ static inline int res_inet_pton_sock(const char *addr,
 }
 #define op_inet_pton_sock(addr, ss)  res_inet_pton_sock(addr, ss)
 
-static inline const char *res_inet_ntop_sock(const struct sockaddr *sa,
-                                              char *buf, size_t len)
+static inline __attribute__((unused))
+const char *res_inet_ntop_sock(const struct sockaddr *sa,
+                               char *buf, size_t len)
 {
   if (sa->sa_family == AF_INET)
     return inet_ntop(AF_INET,

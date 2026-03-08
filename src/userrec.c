@@ -91,7 +91,7 @@ static int expmem_mask(struct maskrec *m)
 
 /* Memory we should be using
  */
-int expmem_users()
+int expmem_users(void)
 {
   int tot;
   struct userrec *u;
@@ -600,7 +600,7 @@ static int sort_compare(struct userrec *a, struct userrec *b)
   return (strcasecmp(a->handle, b->handle) > 0);
 }
 
-static void sort_userlist()
+static void sort_userlist(void)
 {
   int again;
   struct userrec *last, *p, *c, *n;

@@ -571,7 +571,7 @@ char *get_language(int idx)
   return text;
 }
 
-int expmem_language()
+int expmem_language(void)
 {
   lang_tab *l;
   lang_sec *ls;

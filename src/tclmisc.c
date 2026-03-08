@@ -39,7 +39,7 @@ extern int max_logs, cache_hit, cache_miss;
 extern log_t *logs;
 extern Tcl_Interp *interp;
 
-int expmem_tclmisc()
+int expmem_tclmisc(void)
 {
   int i, tot = 0;
 

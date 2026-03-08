@@ -78,11 +78,11 @@
 #include "channels.mod/channels.h"
 
 static Function *global = NULL;
-static void wordshift();
-static void do_seen();
-static char *match_trigger();
-static char *getxtra();
-static char *fixnick();
+static void wordshift(char *first, char *rest);
+static void do_seen(int idx, char *prefix, char *nick, char *hand, char *channel, char *text);
+static char *match_trigger(char *word);
+static char *getxtra(char *hand, char *field);
+static char *fixnick(char *nick);
 
 typedef struct {
   char *key;
@@ -99,7 +99,7 @@ static trig_data trigdata[] = {
   {NULL,                                                  NULL}
 };
 
-static int seen_expmem()
+static int seen_expmem(void)
 {
   return 0;
 }
@@ -612,7 +612,7 @@ static cmd_t seen_load[] = {
   {NULL,     NULL, NULL,              NULL}
 };
 
-static char *seen_close()
+static char *seen_close(void)
 {
   p_tcl_bind_list H_temp;
 
@@ -627,7 +627,7 @@ static char *seen_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *seen_start();
+EXPORT_SCOPE char *seen_start(Function *egg_func_table);
 
 static Function seen_table[] = {
   (Function) seen_start,

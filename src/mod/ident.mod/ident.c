@@ -43,7 +43,7 @@ static tcl_ints identints[] = {
   {NULL,           NULL,          0}
 };
 
-static void ident_builtin_off();
+static void ident_builtin_off(void);
 
 static cmd_t ident_raw[] = {
   {"001", "",   (IntFunc) ident_builtin_off, "ident:001"},
@@ -241,7 +241,7 @@ static void ident_builtin_on()
   add_builtins(H_raw, ident_raw);
 }
 
-static void ident_builtin_off()
+static void ident_builtin_off(void)
 {
   int idx;
 
@@ -277,7 +277,7 @@ static char *ident_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *ident_start();
+EXPORT_SCOPE char *ident_start(Function *global_funcs);
 
 static Function ident_table[] = {
   (Function) ident_start,
