@@ -1,160 +1,121 @@
-Installing Eggdrop
+Installing Eggdrop (devinkbrown fork)
 
 This is the quick install guide; if you have had little or no experience
 with UNIX or Eggdrop, READ THE README FILE NOW! This file is best for
 experienced users.
 
-For more information on compiling Eggdrop, see the Compile Guide in
-doc/COMPILE-GUIDE (and of course, the README FILE).
+NOTE: This fork uses Meson + Ninja instead of the traditional autoconf/make
+build system used by upstream Eggdrop. The steps below reflect that.
+
+DEPENDENCIES
+
+  Required:
+    - Tcl development headers (e.g. tcl-dev / tcl-devel)
+    - Meson  >= 0.57.0
+    - Ninja  (any recent version)
+
+  Optional:
+    - OpenSSL development headers (libssl-dev) -- for TLS support
+    - Python >= 3.8 development headers -- for the Python scripting module
+    - zlib development headers (zlib-dev) -- for the compress module
+
+  Debian/Ubuntu example:
+
+      sudo apt-get install meson ninja-build tcl-dev libssl-dev
+
+  macOS (Homebrew) example:
+
+      brew install meson ninja tcl-tk openssl@3
 
 QUICK STARTUP
 
-Eggdrop uses the GNU autoconfigure scripts to make things easier.
+1.  Configure the build directory:
 
-1.  
+        meson setup build/
 
-    Type './configure' from the Eggdrop directory. The configure script
+    Common configuration options:
 
-        will determine how your system is set up and figure out how to
-        correctly compile Eggdrop. It will also try to find Tcl, which
-        is required to compile.
+        meson setup build/ -Dipv6=true -Dtls=enabled -Dpython=auto
 
-2.  
+    To list all available options:
 
-    Type either 'make config' or 'make iconfig' to determine which
+        meson configure
 
-        modules will be compiled. 'make config' compiles the default
-        modules (everything but woobie.mod). If you want to choose which
-        modules to compile, use 'make iconfig'.
+2.  Compile using all available CPU cores:
 
-3.  
+        ninja -j$(nproc) -C build/
 
-    Type 'make' from the Eggdrop directory, or to force a statically
+    On macOS, use:
 
-        linked module bot, type 'make static'. Otherwise, the Makefile
-        will compile whatever type of bot the configure script
-        determined your system will support. Dynamic is always the
-        better way to go if possible. There are also the 'debug' and
-        'sdebug' (static-debug) options, which will give more detailed
-        output on a (highly unlikely :) crash. This will help the
-        development team track down the crash and fix the bug. Debug and
-        sdebug will take a little longer to compile and will enlarge the
-        binary a bit, but it's worth it if you want to support Eggdrop
-        development.
+        ninja -j$(sysctl -n hw.logicalcpu) -C build/
 
-4.  
+3.  Install into your home directory (default prefix is /usr/local; override
+    with --prefix during setup):
 
-    Eggdrop must be installed in a directory somewhere. This is
+        meson setup build/ --prefix=$HOME/eggdrop
+        ninja -C build/ install
 
-        accomplished by entering the UNIX command:
+    Or install to a custom path:
 
-            make install
+        meson install -C build/ --destdir /path/to/install
 
-        This will install the Eggdrop in your home directory in a
-        directory called 'eggdrop' (i.e. /home/user/eggdrop).
+4.  Since version 1.8, Eggdrop can use SSL to protect botnet links. If you
+    intend on protecting botnet traffic between Eggdrops, you must generate
+    SSL certificates. See doc/TLS for details.
 
-        If you want to install to a different directory, use:
+[The following steps are performed in the directory you installed Eggdrop into]
 
-            make install DEST=<directory>
+5.  Edit your config file completely.
 
-        For example:
-
-            make install DEST=/home/user/otherdir
-
-        Note that you must use full path for every file to be correctly
-        installed.
-
-5.  Since version 1.8, Eggdrop can use SSL to protect botnet links. If
-    you intend on protecting botnet traffic between Eggdrops, you must
-    generate SSL certificates by running:
-
-        make sslcert
-
-        Or, if you installed your eggdrop to a different directory in step 4, you
-        will want to run:
-
-        make sslcert DEST=<directory>
-
-        For those using scripts to install Eggdrop, you can non-interactively
-        generate a key and certificate by running:
-
-        make sslsilent
-
-        Read docs/TLS for more info on this process.
-
-[The following steps are performed in the directory you just installed
-Eggdrop into from the previous step]
-
-6.  Edit your config file completely.
-
-7.  Start the bot with the "-m" option to create a user file, i.e. :
+6.  Start the bot with the "-m" option to create a user file:
 
         ./eggdrop -m LamestBot.conf
 
-8.  
+7.  When starting the bot in the future, drop the "-m". If you have edited
+    your config file correctly, you can type:
 
-    When starting the bot in the future, drop the "-m". If you have edited
+        chmod u+x LamestBot.conf
 
-        your config file correctly, you can type:
+    From then on, you can use your config file as a shell script:
 
-            chmod u+x <my-config-file-name>
+        ./LamestBot.conf
 
-        For example:
+    The top line of your script MUST contain the correct path to the Eggdrop
+    executable.
 
-            chmod u+x LamestBot.conf
+8.  It's advisable to run your bot via crontab or systemd so it restarts
+    automatically if the machine goes down. Eggdrop includes a helper script:
 
-        From then on, you will be able to use your config file as a
-        shell script. You can just type "./LamestBot.conf" from your
-        shell prompt to start up your bot. For this to work, the top
-        line of your script MUST contain the correct path to the Eggdrop
-        executable.
+    For a systemd job:
 
-9.  
+        ./scripts/autobotchk [yourconfig.conf] -systemd
 
-    It's advisable to run your bot via crontab, so that it will
+    For a crontab job:
 
-        automatically restart if the machine goes down or (heaven
-        forbid) the bot should crash. Eggdrop includes a helper script
-        to auto-generate either a systemd or crontab entry. To add a
-        systemd job, run:
+        ./scripts/autobotchk [yourconfig.conf]
 
-            ./scripts/autobotchk [yourconfig.conf] -systemd
+9.  Smile. You have an Eggdrop!
 
-        or to add a crontab job, run:
+DEBUG BUILDS
 
-            ./scripts/autobotchk [yourconfig.conf]
+  To build with debug symbols and extra logging, pass the egg-debug option:
 
-10. Smile. You have an Eggdrop!
-
-CYGWIN REQUIREMENTS (WINDOWS)
-
-Eggdrop requires the following packages to be added from the Cygwin
-installation tool prior to compiling:
-
-    Interpreters: tcl, tcl-devel
-    Net:          openssl, libssl-devel
-    Devel:        autoconf, gcc-core, git, make
-    Libs:         zlib-devel
+      meson setup build/ -Degg-debug=true
+      ninja -C build/
 
 MODULES
 
-Modules are small pieces of code that can either be compiled into the
-binary or can be compiled separately into a file. This allows for a much
-smaller binary.
+  Modules are compiled automatically by Meson. Each module can be
+  individually enabled or disabled at configure time:
 
-If there are any modules that you have made or downloaded, you can add
-them to the bot by placing them in the /src/mod directory with a mod
-extension. They will be automatically compiled during make for you. They
-must have a valid Makefile and, of course, be compatible with the rest
-of the Eggdrop source.
+      meson setup build/ -Dmodule-compress=false -Dmodule-python=false
 
-If you wish to add a module at a later time, follow the same steps in
-paragraph 2. After you have moved the appropriate files, you will only
-need to type 'make modules' to compile only the modules portion of the
-bot.
+  To see all module toggle options:
+
+      meson configure build/
 
 This is the end. If you read to this point, hopefully you have also read
-the README file. If not, then READ IT!&@#%@!
+the README file. If not, then READ IT!
 
 Have fun with Eggdrop!
 

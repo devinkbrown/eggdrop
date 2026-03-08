@@ -3,6 +3,22 @@ README
   Please, at least SKIM this document before asking questions. In fact,
   READ IT if you've never successfully set up an Eggdrop bot before.
 
+FORK NOTICE
+
+  This is a personal fork of Eggdrop maintained by devinkbrown. It is
+  not an official Eggdrop release. The upstream project lives at:
+
+      https://github.com/eggheads/eggdrop
+
+  Notable differences from upstream:
+
+    - Build system migrated from autoconf/make to Meson + Ninja
+    - Various bug fixes and patches under review for upstream inclusion
+
+  Issues and changes specific to this fork should be reported at the
+  fork repository. General Eggdrop questions can still be directed to
+  the upstream channels listed in the OBTAINING HELP section below.
+
 NOTICE
 
   Make SURE that you select your +n (owner) users wisely. They have 100%
@@ -76,12 +92,16 @@ Git Development Snapshot
   either clone the repository via git or download a development
   snapshot.
 
-  To clone the repository, simply type:
+  To clone this fork, simply type:
+
+      git clone https://github.com/devinkbrown/eggdrop.git
+
+  To clone the upstream Eggdrop repository instead:
 
       git clone https://github.com/eggheads/eggdrop.git
 
-  Otherwise, you can download the development snapshot as a tar archive
-  from:
+  Otherwise, you can download the upstream development snapshot as a tar
+  archive from:
 
     https://github.com/eggheads/eggdrop/archive/develop.tar.gz
 
