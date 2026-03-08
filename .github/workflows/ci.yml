@@ -27,11 +27,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: brew install meson ninja openssl tcl-tk
+        run: brew install meson ninja openssl@3 tcl-tk
 
       - name: Set up Homebrew pkg-config paths
         run: |
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix tcl-tk)/lib/pkgconfig" >> $GITHUB_ENV
+          OPENSSL_PREFIX=$(brew --prefix openssl@3 2>/dev/null || true)
+          TCLTK_PREFIX=$(brew --prefix tcl-tk 2>/dev/null || true)
+          PKG_PATH=""
+          [ -n "$OPENSSL_PREFIX" ] && PKG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
+          [ -n "$TCLTK_PREFIX" ] && PKG_PATH="${PKG_PATH:+$PKG_PATH:}$TCLTK_PREFIX/lib/pkgconfig"
+          [ -n "$PKG_PATH" ] && echo "PKG_CONFIG_PATH=$PKG_PATH" >> $GITHUB_ENV
 
       - name: Build with Meson
         run: meson setup build_ci && ninja -C build_ci
