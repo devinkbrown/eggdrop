@@ -136,7 +136,8 @@ if not tcl_dep.found()
   tcl_dep = declare_dependency(dependencies: tcl_lib,
                                include_directories: tcl_inc)
 endif
-cdata.set('TCL_VERSION', '"8.6"')
+# TCL_VERSION is defined by tcl.h itself; do not define it in config.h to
+# avoid a macro redefinition conflict when Tcl 9.x headers are used.
 
 # -------------------------------------------------------------------------
 # TLS / OpenSSL — optional

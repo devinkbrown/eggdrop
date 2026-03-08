@@ -35,7 +35,7 @@ compat_lib = static_library('eggcompat',
   sources: compat_sources,
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
-  dependencies: [tcl_dep],
+  dependencies: [tcl_dep, tls_dep],
 )
 compat_dep = declare_dependency(link_with: compat_lib)
 
