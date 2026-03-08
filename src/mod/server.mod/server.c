@@ -1347,7 +1347,7 @@ static int server_6char STDVAR
 
   CHECKVALIDITY(server_6char);
   snprintf(x, sizeof x, "%d",
-           F(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
+           ((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
   Tcl_AppendResult(irp, x, NULL);
   return TCL_OK;
 }
@@ -1359,7 +1359,7 @@ static int server_5char STDVAR
   BADARGS(6, 6, " nick user@host handle dest/channel text");
 
   CHECKVALIDITY(server_5char);
-  F(argv[1], argv[2], argv[3], argv[4], argv[5]);
+  ((void (*)(char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5]);
   return TCL_OK;
 }
 
@@ -1370,7 +1370,7 @@ static int server_2char STDVAR
   BADARGS(3, 3, " nick msg");
 
   CHECKVALIDITY(server_2char);
-  F(argv[1], argv[2]);
+  ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   return TCL_OK;
 }
 
@@ -1381,7 +1381,7 @@ static int server_msg STDVAR
   BADARGS(5, 5, " nick uhost hand buffer");
 
   CHECKVALIDITY(server_msg);
-  F(argv[1], argv[2], get_user_by_handle(userlist, argv[3]), argv[4]);
+  ((void (*)(char *, char *, struct userrec *, char *)) F)(argv[1], argv[2], get_user_by_handle(userlist, argv[3]), argv[4]);
   return TCL_OK;
 }
 
@@ -1392,7 +1392,7 @@ static int server_raw STDVAR
   BADARGS(4, 4, " from code args");
 
   CHECKVALIDITY(server_raw);
-  Tcl_AppendResult(irp, int_to_base10(F(argv[1], argv[3])), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *)) F)(argv[1], argv[3])), NULL);
   return TCL_OK;
 }
 
@@ -1412,7 +1412,7 @@ static int server_rawt STDVAR
     return TCL_ERROR;
   }
   Tcl_IncrRefCount(tagdict);
-  Tcl_AppendResult(irp, int_to_base10(F(argv[1], argv[3], tagdict)), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, Tcl_Obj *)) F)(argv[1], argv[3], tagdict)), NULL);
   Tcl_DecrRefCount(tagdict);
   return TCL_OK;
 }
@@ -1424,7 +1424,7 @@ static int server_stdreply STDVAR
   BADARGS(7, 7, " from type command code context description");
 
   CHECKVALIDITY(server_stdreply);
-  F(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
+  ((void (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
   return TCL_OK;
 }
 
@@ -1435,7 +1435,7 @@ static int server_out STDVAR
   BADARGS(4, 4, " queue message sent");
 
   CHECKVALIDITY(server_out);
-  F(argv[1], argv[2], argv[3]);
+  ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
 
@@ -1446,7 +1446,7 @@ static int monitor_2char STDVAR
   BADARGS(3, 3, "nick online");
 
   CHECKVALIDITY(monitor_2char);
-  F(argv[1], argv[2]);
+  ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   return TCL_OK;
 }
 
@@ -2304,7 +2304,7 @@ static char *server_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *server_start();
+EXPORT_SCOPE char *server_start(Function *global_funcs);
 
 static Function server_table[] = {
   (Function) server_start,

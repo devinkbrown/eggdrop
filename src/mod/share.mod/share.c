@@ -2332,7 +2332,7 @@ static void share_report(int idx, int details)
   }
 }
 
-EXPORT_SCOPE char *share_start();
+EXPORT_SCOPE char *share_start(Function *global_funcs);
 
 static Function share_table[] = {
   /* 0 - 3 */

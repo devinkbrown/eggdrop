@@ -94,7 +94,7 @@ static char *woobie_close()
 /* Define the prototype here, to avoid warning messages in the
  * woobie_table.
  */
-EXPORT_SCOPE char *woobie_start();
+EXPORT_SCOPE char *woobie_start(Function *global_funcs);
 
 /* This function table is exported and may be used by other modules and
  * the core.

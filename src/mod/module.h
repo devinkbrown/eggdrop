@@ -84,12 +84,13 @@ typedef void (*putlogfunc)(int, char*, const char*, ...) ATTRIBUTE_FORMAT(printf
 typedef void (*dprintffunc)(int, const char *, ...) ATTRIBUTE_FORMAT(printf,2,3);
 typedef void (*chatoutfunc)(const char *, ...) ATTRIBUTE_FORMAT(printf,1,2);
 typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(printf,3,4);
+typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,2,3);
 
 /* Redefine for module-relevance */
 
 /* 0 - 3 */
 #define nmalloc(x) (((void *(*)(int, const char *, const char *, int))global[0])((x),MODULE_NAME,__FILE__,__LINE__))
-#define nfree(x) (((void (*)(void *, const char *, const char *, int))global[1])((x),MODULE_NAME,__FILE__,__LINE__))
+#define nfree(x) (((void (*)(const void *, const char *, const char *, int))global[1])((x),MODULE_NAME,__FILE__,__LINE__))
 #define Context do {} while (0) /* For backward compatibility only */
 #define module_rename ((int (*)(char *, char *))global[3])
 /* 4 - 7 */
@@ -173,7 +174,7 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 #define flagrec_eq ((int(*)(struct flag_record*,struct flag_record *))global[66])
 #define flagrec_ok ((int(*)(struct flag_record*,struct flag_record *))global[67])
 /* 68 - 71 */
-#define shareout (*(Function*)(global[68]))
+#define shareout (*(shareoutfunc *)(global[68]))
 #define dprintf ((dprintffunc)(global[69]))
 #define chatout ((chatoutfunc)(global[70]))
 #define chanout_but ((chanout_butfunc)(global[71]))
@@ -280,7 +281,7 @@ typedef void (*chanout_butfunc)(int, int, const char *, ...) ATTRIBUTE_FORMAT(pr
 #define addignore ((void (*) (char *, char *, char *,time_t))global[140])
 #define match_ignore ((int (*)(char *))global[141])
 #define delignore ((int (*)(char *))global[142])
-#define fatal (global[143])
+#define fatal ((void (*)(const char *, int))global[143])
 /* 144 - 147 */
 #define xtra_kill ((void (*)(struct user_entry *))global[144])
 #define xtra_unpack ((void (*)(struct userrec *, struct user_entry *))global[145])

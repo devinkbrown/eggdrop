@@ -748,7 +748,7 @@ static int twitch_2char STDVAR
   BADARGS(3, 3, " nick chan");
 
   CHECKVALIDITY(twitch_2char);
-  F(argv[1], argv[2]);
+  ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   return TCL_OK;
 }
 
@@ -759,7 +759,7 @@ static int twitch_3char STDVAR
   BADARGS(4, 4, " from msg tags");
 
   CHECKVALIDITY(twitch_3char);
-  F(argv[1], argv[2], argv[3]);
+  ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
 
@@ -848,7 +848,7 @@ static char *twitch_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *twitch_start();
+EXPORT_SCOPE char *twitch_start(Function *global_funcs);
 
 static Function twitch_table[] = {
   (Function) twitch_start,

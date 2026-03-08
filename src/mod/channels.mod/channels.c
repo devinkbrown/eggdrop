@@ -250,7 +250,7 @@ static int builtin_chanset STDVAR
   BADARGS(3, 3, " chan setting value");
 
   CHECKVALIDITY(builtin_chanset);
-  F(argv[1], argv[2], argv[3]);
+  ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
 
@@ -317,7 +317,7 @@ static void remove_channel(struct chanset_t *chan)
   (void) chanset_unlink(chan);
 
   if ((me = module_find("irc", 1, 3)) != NULL)
-    (me->funcs[IRC_DO_CHANNEL_PART]) (chan);
+    ((void (*)(struct chanset_t *)) me->funcs[IRC_DO_CHANNEL_PART])(chan);
 
   clear_channel(chan, 0);
   noshare = 1;
@@ -885,7 +885,7 @@ static char *channels_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *channels_start();
+EXPORT_SCOPE char *channels_start(Function *global_funcs);
 
 static Function channels_table[] = {
   /* 0 - 3 */

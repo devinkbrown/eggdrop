@@ -714,7 +714,7 @@ static int channels_6char STDVAR
   BADARGS(7, 7, " nick user@host handle desto/chan keyword/nick text");
 
   CHECKVALIDITY(channels_6char);
-  snprintf(x, sizeof(x), "%d", (int) F(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
+  snprintf(x, sizeof(x), "%d", ((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
   Tcl_AppendResult(irp, x, NULL);
   return TCL_OK;
 }
@@ -726,7 +726,7 @@ static int channels_5char STDVAR
   BADARGS(6, 6, " nick user@host handle channel text");
 
   CHECKVALIDITY(channels_5char);
-  F(argv[1], argv[2], argv[3], argv[4], argv[5]);
+  ((void (*)(char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5]);
   return TCL_OK;
 }
 
@@ -737,7 +737,7 @@ static int channels_4char STDVAR
   BADARGS(5, 5, " nick uhost hand chan/param");
 
   CHECKVALIDITY(channels_4char);
-  F(argv[1], argv[2], argv[3], argv[4]);
+  ((void (*)(char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4]);
   return TCL_OK;
 }
 
@@ -748,7 +748,7 @@ static int channels_2char STDVAR
   BADARGS(3, 3, " channel type");
 
   CHECKVALIDITY(channels_2char);
-  F(argv[1], argv[2]);
+  ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   return TCL_OK;
 }
 
@@ -759,7 +759,7 @@ static int invite_4char STDVAR
   BADARGS(5, 5, " nick uhost channel invitee");
 
   CHECKVALIDITY(invite_4char);
-  F(argv[1], argv[2], argv[3], argv[4]);
+  ((void (*)(char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4]);
   return TCL_OK;
 }
 
@@ -1373,7 +1373,7 @@ static char *irc_close()
   return NULL;
 }
 
-EXPORT_SCOPE char *irc_start();
+EXPORT_SCOPE char *irc_start(Function *global_funcs);
 
 static Function irc_table[] = {
   /* 0 - 3 */

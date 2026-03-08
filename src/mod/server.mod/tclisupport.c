@@ -188,7 +188,7 @@ int isupport_bind STDVAR
   Function F = (Function) cd;
   BADARGS(4, 4, " key isset value");
   CHECKVALIDITY(isupport_bind);
-  F(argv[1], argv[2], argv[3]);
+  ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
 
