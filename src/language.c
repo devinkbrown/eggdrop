@@ -385,9 +385,11 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
 
   if (!ldir)
     ldir = LANGDIR;
-  langfile = nmalloc(strlen(ldir) + strlen(sec->section) + strlen(language) +
-             8);
-  snprintf(langfile, sizeof(langfile), "%s/%s.%s.lang", ldir, sec->section, language);
+  {
+    size_t lflen = strlen(ldir) + strlen(sec->section) + strlen(language) + 8;
+    langfile = nmalloc(lflen);
+    snprintf(langfile, lflen, "%s/%s.%s.lang", ldir, sec->section, language);
+  }
 
   if (file_readable(langfile)) {
     /* Save language used for this section */
