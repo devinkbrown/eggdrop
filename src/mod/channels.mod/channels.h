@@ -79,6 +79,7 @@ static int u_setsticky_mask(struct chanset_t *chan, maskrec *m, char *uhost,
 
 static int u_equals_mask(maskrec *u, char *uhost);
 static int u_match_mask(struct maskrec *rec, char *mask);
+static int u_match_mask_trie(struct maskrec *rec, struct _egg_patricia_tree_t *ip_trie, char *mask);
 static int u_delexempt(struct chanset_t *c, char *who, int doit);
 static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
                        char *note, time_t expire_time, int flags);
@@ -186,6 +187,8 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define channel_free_member(x)  ((void (*)(void *))channels_funcs[50])(x)
 #define channel_malloc_mask()   ((void *(*)(void))channels_funcs[51])()
 #define channel_free_mask(x)    ((void (*)(void *))channels_funcs[52])(x)
+/* 53 */
+#define u_match_mask_trie ((int (*)(maskrec *, struct _egg_patricia_tree_t *, char *))channels_funcs[53])
 
 #endif /* MAKING_CHANNELS */
 

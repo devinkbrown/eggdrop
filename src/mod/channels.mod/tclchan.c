@@ -511,7 +511,7 @@ static int tcl_matchban STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_match_mask(chan->bans, argv[1]))
+    if (u_match_mask_trie(chan->bans, chan->ban_ip_trie, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -544,7 +544,7 @@ static int tcl_matchexempt STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_match_mask(chan->exempts, argv[1]))
+    if (u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -577,7 +577,7 @@ static int tcl_matchinvite STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_match_mask(chan->invites, argv[1]))
+    if (u_match_mask_trie(chan->invites, chan->invite_ip_trie, argv[1]))
       ok = 1;
   }
   if (argc == 4) {

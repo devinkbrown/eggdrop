@@ -342,7 +342,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, char *from,
     case FLOOD_JOIN:
     case FLOOD_NICK:
       if (use_exempts && (u_match_mask(global_exempts, from) ||
-          u_match_mask(chan->exempts, from)))
+          u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, from)))
         return 1;
       simple_sprintf(h, "*!*@%s", p);
       if (!isbanned(chan, h) && (me_op(chan) || me_halfop(chan))) {
@@ -350,7 +350,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, char *from,
         do_mask(chan, chan->channel.ban, h, 'b');
       }
       if ((u_match_mask(global_bans, from)) ||
-          (u_match_mask(chan->bans, from)))
+          (u_match_mask_trie(chan->bans, chan->ban_ip_trie, from)))
         return 1;               /* Already banned */
       if (which == FLOOD_JOIN)
         putlog(LOG_MISC | LOG_JOIN, chan->dname, IRC_FLOODIGNORE3, p);
@@ -436,7 +436,7 @@ static void kick_all(struct chanset_t *chan, char *hostmask, char *comment,
         !match_my_nick(m->nick) && !chan_issplit(m) &&
         !glob_friend(fr) && !chan_friend(fr) && !(use_exempts && ((bantype &&
         isexempted(chan, s)) || (u_match_mask(global_exempts, s) ||
-        u_match_mask(chan->exempts, s)))) && !(channel_dontkickops(chan) &&
+        u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, s)))) && !(channel_dontkickops(chan) &&
         (chan_op(fr) || (glob_op(fr) && !chan_deop(fr))))) {
       if (!flushed) {
         /* We need to kick someone, flush eventual bans first */
@@ -678,7 +678,7 @@ static void check_this_ban(struct chanset_t *chan, char *banmask, int sticky)
     if (match_addr(banmask, user) &&
         !(use_exempts &&
           (u_match_mask(global_exempts, user) ||
-           u_match_mask(chan->exempts, user))))
+           u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, user))))
       refresh_ban_kick(chan, user, m->nick);
   }
   if (!isbanned(chan, banmask) && (!channel_dynamicbans(chan) || sticky))
@@ -860,11 +860,11 @@ static void check_this_member(struct chanset_t *chan, char *nick,
 
     snprintf(s, sizeof(s), "%s!%s", m->nick, m->userhost);
     if (use_invites && (u_match_mask(global_invites, s) ||
-        u_match_mask(chan->invites, s)))
+        u_match_mask_trie(chan->invites, chan->invite_ip_trie, s)))
       refresh_invite(chan, s);
     if (!(use_exempts && (u_match_mask(global_exempts, s) ||
-        u_match_mask(chan->exempts, s)))) {
-      if (u_match_mask(global_bans, s) || u_match_mask(chan->bans, s))
+        u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, s)))) {
+      if (u_match_mask(global_bans, s) || u_match_mask_trie(chan->bans, chan->ban_ip_trie, s))
         refresh_ban_kick(chan, s, m->nick);
       if (!chan_sentkick(m) && (chan_kick(*fr) || glob_kick(*fr)) &&
           (me_op(chan) || (me_halfop(chan) && !chan_hasop(m)))) {
@@ -2156,11 +2156,11 @@ static int gotjoin(char *from, char *channame)
          */
         if ((me_op(chan) || (strchr(NOHALFOPS_MODES, 'I') == NULL)) &&
             (u_match_mask(global_invites, from) ||
-            u_match_mask(chan->invites, from)))
+            u_match_mask_trie(chan->invites, chan->invite_ip_trie, from)))
           refresh_invite(chan, from);
         if ((me_op(chan) || (strchr(NOHALFOPS_MODES, 'b') == NULL)) &&
             (!use_exempts || (!u_match_mask(global_exempts, from) &&
-            !u_match_mask(chan->exempts, from)))) {
+            !u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, from)))) {
           if (channel_enforcebans(chan) && !chan_op(fr) && !glob_op(fr) &&
               !glob_friend(fr) && !chan_friend(fr) && !chan_sentkick(m) &&
               (!use_exempts || !isexempted(chan, from)) && (me_op(chan) ||
@@ -2175,7 +2175,7 @@ static int gotjoin(char *from, char *channame)
             }
           }
           /* If it matches a ban, dispose of them. */
-          if (u_match_mask(global_bans, from) || u_match_mask(chan->bans, from))
+          if (u_match_mask(global_bans, from) || u_match_mask_trie(chan->bans, chan->ban_ip_trie, from))
             refresh_ban_kick(chan, from, nick);
           else if (!chan_sentkick(m) && (glob_kick(fr) || chan_kick(fr)) &&
                    (me_op(chan) || (me_halfop(chan) && !chan_hasop(m)))) {

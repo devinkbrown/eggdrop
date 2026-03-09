@@ -25,7 +25,9 @@
 #define MAKING_CHANNELS
 
 #include <sys/stat.h>
+#include <ctype.h>
 #include "src/mod/module.h"
+#include "../../patricia.h"
 
 static Function *global = NULL;
 
@@ -404,6 +406,10 @@ static void remove_channel(struct chanset_t *chan)
   /* Remove channel-invites */
   while (chan->invites)
     u_delinvite(chan, chan->invites->mask, 1);
+  /* Destroy any remaining CIDR trie structures */
+  ip_trie_destroy(&chan->ban_ip_trie);
+  ip_trie_destroy(&chan->exempt_ip_trie);
+  ip_trie_destroy(&chan->invite_ip_trie);
   /* Remove channel specific user flags */
   user_del_chan(chan->dname);
   noshare = 0;
@@ -1029,6 +1035,8 @@ static Function channels_table[] = {
   (Function) channel_free_member,   /* [50] free  a memberlist node back       */
   (Function) channel_malloc_mask,   /* [51] alloc a masklist  node from slab   */
   (Function) channel_free_mask,     /* [52] free  a masklist  node back        */
+  /* 53 */
+  (Function) u_match_mask_trie,     /* [53] like u_match_mask + patricia trie  */
 };
 
 char *channels_start(Function *global_funcs)

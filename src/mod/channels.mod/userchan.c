@@ -20,6 +20,95 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* -----------------------------------------------------------------------
+ * Patricia-trie helpers for fast CIDR ban/exempt/invite matching.
+ *
+ * Each chanset_t carries three egg_patricia_tree_t * tries (stored as
+ * struct _egg_patricia_tree_t * in chan.h to avoid pulling in socket
+ * headers everywhere).  Only masks whose host portion is CIDR notation
+ * (e.g. *!*@192.168.0.0/24) are inserted; glob patterns fall through
+ * to the existing linear scan.
+ * ----------------------------------------------------------------------- */
+
+/* Return the host portion of a ban mask (everything after '@'). */
+static const char *mask_host(const char *mask)
+{
+  const char *p = strchr(mask, '@');
+  return p ? p + 1 : mask;
+}
+
+/* Return 1 if the host portion of a mask is CIDR notation. */
+static int mask_is_cidr(const char *mask)
+{
+  const char *host  = mask_host(mask);
+  const char *slash = strchr(host, '/');
+  return slash != NULL && str_isdigit(slash + 1);
+}
+
+/* Return 1 if s is a bare IP address (no wildcards). */
+static int str_is_ip(const char *s)
+{
+  if (!*s || strchr(s, '*') || strchr(s, '?'))
+    return 0;
+  for (; *s; s++)
+    if (!isxdigit((unsigned char)*s) && *s != '.' && *s != ':')
+      return 0;
+  return 1;
+}
+
+/* Insert a CIDR ban mask into a trie, creating the trie if needed.
+ * *trie_ptr is a struct _egg_patricia_tree_t * (cast to/from egg_patricia_tree_t *). */
+static void ip_trie_add(struct _egg_patricia_tree_t **trie_ptr,
+                        const char *mask, maskrec *rec)
+{
+  egg_patricia_tree_t *trie;
+  egg_patricia_node_t *node;
+
+  if (!mask_is_cidr(mask))
+    return;
+  if (!*trie_ptr)
+    *trie_ptr = (struct _egg_patricia_tree_t *)egg_new_patricia(EGG_PATRICIA_MAXBITS);
+  trie = (egg_patricia_tree_t *)*trie_ptr;
+  node = make_and_lookup(trie, mask_host(mask));
+  if (node)
+    node->data = rec;
+}
+
+/* Remove a CIDR ban mask from a trie. */
+static void ip_trie_del(struct _egg_patricia_tree_t *trie_arg, const char *mask)
+{
+  egg_patricia_tree_t *trie = (egg_patricia_tree_t *)trie_arg;
+  egg_patricia_node_t *node;
+
+  if (!trie || !mask_is_cidr(mask))
+    return;
+  node = egg_match_exact_string(trie, mask_host(mask));
+  if (node)
+    egg_patricia_remove(trie, node);
+}
+
+/* Look up a host string in a trie.  Returns the matching maskrec * or NULL. */
+static maskrec *ip_trie_match(struct _egg_patricia_tree_t *trie_arg,
+                               const char *host)
+{
+  egg_patricia_tree_t *trie = (egg_patricia_tree_t *)trie_arg;
+  egg_patricia_node_t *node;
+
+  if (!trie || !str_is_ip(host))
+    return NULL;
+  node = egg_match_string(trie, host);
+  return node ? (maskrec *)node->data : NULL;
+}
+
+/* Destroy a trie and set the pointer to NULL. */
+static void ip_trie_destroy(struct _egg_patricia_tree_t **trie_ptr)
+{
+  if (*trie_ptr) {
+    egg_destroy_patricia((egg_patricia_tree_t *)*trie_ptr, NULL);
+    *trie_ptr = NULL;
+  }
+}
+
 struct chanuserrec *get_chanrec(struct userrec *u, char *chname)
 {
   struct chanuserrec *ch;
@@ -226,6 +315,27 @@ static int u_match_mask(maskrec *rec, char *mask)
   return 0;
 }
 
+/* u_match_mask_trie: like u_match_mask but uses a patricia trie as a fast
+ * path for IP-format hosts before falling through to the linear scan.
+ * Call this instead of u_match_mask when you have a chanset_t available. */
+static int u_match_mask_trie(maskrec *rec,
+                              struct _egg_patricia_tree_t *ip_trie,
+                              char *mask)
+{
+  const char *host = strchr(mask, '@');
+
+  if (host && ip_trie) {
+    maskrec *hit = ip_trie_match(ip_trie, host + 1);
+    if (hit)
+      return 1; /* CIDR match found in O(addr_bits) */
+  }
+  /* Fall through: glob patterns and any remaining maskrecs */
+  for (; rec; rec = rec->next)
+    if (match_addr(rec->mask, mask))
+      return 1;
+  return 0;
+}
+
 static int u_delban(struct chanset_t *c, char *who, int doit)
 {
   int j, i = 0;
@@ -266,6 +376,9 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
         nfree(mask);
       }
     }
+    /* Remove from CIDR trie before freeing the node */
+    if (c)
+      ip_trie_del(c->ban_ip_trie, (*u)->mask);
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
@@ -321,6 +434,8 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
         nfree(mask);
       }
     }
+    if (c)
+      ip_trie_del(c->exempt_ip_trie, (*u)->mask);
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
@@ -377,6 +492,8 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
         nfree(mask);
       }
     }
+    if (c)
+      ip_trie_del(c->invite_ip_trie, (*u)->mask);
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
@@ -471,6 +588,9 @@ static int u_addban(struct chanset_t *chan, char *ban, char *from, char *note,
   strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
   strlcpy(p->desc, note, sizeof(p->desc));
+  /* Maintain CIDR fast-path trie for channel bans */
+  if (chan)
+    ip_trie_add(&chan->ban_ip_trie, host, p);
   if (!noshare) {
     char *mask = str_escape(host, ':', '\\');
 
@@ -535,6 +655,9 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
   strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
   strlcpy(p->desc, note, sizeof(p->desc));
+  /* Maintain CIDR fast-path trie for channel invites */
+  if (chan)
+    ip_trie_add(&chan->invite_ip_trie, host, p);
   if (!noshare) {
     char *mask = str_escape(host, ':', '\\');
 
@@ -599,6 +722,9 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
   strlcpy(p->user, from, sizeof(p->user));
   p->desc = user_malloc(strlen(note) + 1);
   strlcpy(p->desc, note, sizeof(p->desc));
+  /* Maintain CIDR fast-path trie for channel exempts */
+  if (chan)
+    ip_trie_add(&chan->exempt_ip_trie, host, p);
   if (!noshare) {
     char *mask = str_escape(host, ':', '\\');
 

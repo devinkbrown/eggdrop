@@ -27,6 +27,7 @@
 #include "main.h"
 #include "modules.h"
 #include "tandem.h"
+#include "dictionary.h"
 
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
@@ -38,6 +39,22 @@ extern time_t now;
 int noshare = 1;                   /* don't send out to sharebots       */
 struct userrec *userlist = NULL;   /* user records are stored here      */
 struct userrec *lastuser = NULL;   /* last accessed user record         */
+
+/* Splay-tree index from lowercase handle → userrec *.
+ * Maintained by adduser/deluser/change_handle/clear_userlist.
+ * Rebuilt lazily on first get_user_by_handle() after a bulk load. */
+static egg_dictionary *user_handle_dict = NULL;
+
+static void user_dict_rebuild(void)
+{
+  struct userrec *u;
+
+  if (user_handle_dict)
+    egg_dictionary_destroy(user_handle_dict, NULL, NULL);
+  user_handle_dict = egg_dictionary_create("userhandles", egg_dict_strcasecmp);
+  for (u = userlist; u; u = u->next)
+    egg_dictionary_add(user_handle_dict, u->handle, u);
+}
 maskrec *global_bans = NULL, *global_exempts = NULL, *global_invites = NULL;
 struct igrec *global_ign = NULL;
 int cache_hit = 0, cache_miss = 0; /* temporary cache accounting        */
@@ -219,16 +236,27 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
   if (!handle[0] || (handle[0] == '*'))
     return NULL;
   if (bu == userlist) {
+    /* L1: last-accessed record */
     if (lastuser && !strcasecmp(lastuser->handle, handle)) {
       cache_hit++;
       return lastuser;
     }
+    /* L2: active DCC connections */
     ret = check_dcclist_hand(handle);
     if (ret) {
       cache_hit++;
       return ret;
     }
     cache_miss++;
+    /* L3: dictionary index — O(log n) instead of O(n) linear scan */
+    if (!user_handle_dict && userlist)
+      user_dict_rebuild();
+    if (user_handle_dict) {
+      ret = egg_dictionary_retrieve(user_handle_dict, handle);
+      if (ret)
+        lastuser = ret;
+      return ret;
+    }
   }
   for (u = bu; u; u = u->next)
     if (!strcasecmp(u->handle, handle)) {
@@ -356,6 +384,10 @@ void clear_userlist(struct userrec *bu)
       dcc[i].user = NULL;
     clear_chanlist();
     lastuser = NULL;
+    if (user_handle_dict) {
+      egg_dictionary_destroy(user_handle_dict, NULL, NULL);
+      user_handle_dict = NULL;
+    }
 
     while (global_ign)
       delignore(global_ign->igmask);
@@ -702,6 +734,10 @@ int change_handle(struct userrec *u, char *newh)
     shareout(NULL, "h %s %s\n", u->handle, newh);
   strlcpy(s, u->handle, sizeof s);
   strlcpy(u->handle, newh, sizeof u->handle);
+  if (user_handle_dict) {
+    egg_dictionary_delete(user_handle_dict, s);
+    egg_dictionary_add(user_handle_dict, u->handle, u);
+  }
   for (i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT || dcc[i].type == &DCC_CHAT_PASS) &&
         !strcasecmp(dcc[i].nick, s)) {
@@ -788,8 +824,11 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
     while (x->next != NULL)
       x = x->next;
     x->next = u;
-    if (bu == userlist)
+    if (bu == userlist) {
       lastuser = u;
+      if (user_handle_dict)
+        egg_dictionary_add(user_handle_dict, u->handle, u);
+    }
   }
   return bu;
 }
@@ -854,6 +893,8 @@ int deluser(char *handle)
     if (dcc[fnd].user == u)
       dcc[fnd].user = 0;        /* Clear any dcc users for this entry,
                                  * null is safe-ish */
+  if (user_handle_dict)
+    egg_dictionary_delete(user_handle_dict, handle);
   clear_chanlist();
   freeuser(u);
   lastuser = NULL;
