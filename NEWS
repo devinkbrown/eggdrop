@@ -1,5 +1,5 @@
 News
-Last revised: March 9, 2026
+Last revised: March 9, 2026 (build-warning cleanup)
      _________________________________________________________________
 
                                 What's new?
@@ -17,6 +17,20 @@ Last revised: March 9, 2026
      _________________________________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+ Build-warning cleanup (GCC -Wsizeof-pointer-memaccess / -Wformat-truncation):
+    - Fixed all snprintf(ptr, sizeof(ptr), ...) calls where the destination
+      is a char * (pointer), causing sizeof to return 8 (pointer width)
+      instead of the actual buffer length. Affected files: filesys.mod
+      (files.c, filesys.c, filedb3.c, tclfiles.c, dbcompat.c), transfer.mod
+      (transfer.c, transferqueue.c, tcltransfer.c), and core sources
+      botnet.c, language.c, and misc.c.
+    - Fixed #define nstrdup redefinition warning: module.h now #undef nstrdup
+      before redefining it for module-level use, silencing the warning that
+      fired in every module compiled after eggdrop.h.
+    - Fixed _POSIX_C_SOURCE redefinition warning in python.mod: glibc
+      features.h (202405L) was conflicting with Python 3.14's pyconfig.h
+      (200809L). An #undef before #include <Python.h> resolves it.
 
  Memory and performance changes:
     - Replaced glibc malloc with an mmap-backed slab allocator (egg_bh)
