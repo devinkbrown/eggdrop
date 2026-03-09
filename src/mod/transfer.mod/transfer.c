@@ -321,9 +321,12 @@ static void eof_dcc_send(int idx)
       return;
     }
 
-    nfn = nmalloc(strlen(dcc[idx].u.xfer->dir)
-                  + strlen(dcc[idx].u.xfer->origname) + 1);
-    snprintf(nfn, sizeof(nfn), "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
+    {
+      size_t nfnlen = strlen(dcc[idx].u.xfer->dir)
+                      + strlen(dcc[idx].u.xfer->origname) + 1;
+      nfn = nmalloc(nfnlen);
+      snprintf(nfn, nfnlen, "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
+    }
 
     if ((l = fcopyfile(dcc[idx].u.xfer->f, nfn))) {
       putlog(LOG_MISC | LOG_FILES, "*", TRANSFER_FAILED_MOVE, nfn);
@@ -752,28 +755,28 @@ static void tout_dcc_send(int idx)
 static void display_dcc_get(int idx, char *buf)
 {
   if (dcc[idx].status == dcc[idx].u.xfer->length)
-    snprintf(buf, sizeof(buf), TRANSFER_SEND, dcc[idx].u.xfer->acked,
+    snprintf(buf, 160, TRANSFER_SEND, dcc[idx].u.xfer->acked,
             dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
   else
-    snprintf(buf, sizeof(buf), TRANSFER_SEND, dcc[idx].status,
+    snprintf(buf, 160, TRANSFER_SEND, dcc[idx].status,
             dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
 }
 
 static void display_dcc_get_p(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), TRANSFER_SEND_WAITED, now - dcc[idx].timeval,
+  snprintf(buf, 160, TRANSFER_SEND_WAITED, now - dcc[idx].timeval,
           dcc[idx].u.xfer->origname);
 }
 
 static void display_dcc_send(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), TRANSFER_SEND, dcc[idx].status,
+  snprintf(buf, 160, TRANSFER_SEND, dcc[idx].status,
           dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
 }
 
 static void display_dcc_fork_send(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "%s", TRANSFER_CONN_SEND);
+  snprintf(buf, 160, "%s", TRANSFER_CONN_SEND);
 }
 
 static int expmem_dcc_xfer(void *x)

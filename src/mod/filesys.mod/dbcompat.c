@@ -41,8 +41,11 @@ static int convert_old_files(char *path, char *newfiledb)
   int in_file = 0, i;
   struct stat st;
 
-  s1 = nmalloc(strlen(path) + 8);
-  snprintf(s1, sizeof(s1), "%s/.files", path);
+  {
+    size_t s1len = strlen(path) + 8;
+    s1 = nmalloc(s1len);
+    snprintf(s1, s1len, "%s/.files", path);
+  }
   f = fopen(s1, "r");
   my_free(s1);
   if (f == NULL)

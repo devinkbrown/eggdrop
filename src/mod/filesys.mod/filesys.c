@@ -444,11 +444,13 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
     return 0;
   }
   if (dir[0]) {
-    s = nmalloc(strlen(dccdir) + strlen(dir) + strlen(fn) + 2);
-    snprintf(s, sizeof(s), "%s%s/%s", dccdir, dir, fn);
+    size_t slen = strlen(dccdir) + strlen(dir) + strlen(fn) + 2;
+    s = nmalloc(slen);
+    snprintf(s, slen, "%s%s/%s", dccdir, dir, fn);
   } else {
-    s = nmalloc(strlen(dccdir) + strlen(fn) + 1);
-    snprintf(s, sizeof(s), "%s%s", dccdir, fn);
+    size_t slen = strlen(dccdir) + strlen(fn) + 1;
+    s = nmalloc(slen);
+    snprintf(s, slen, "%s%s", dccdir, fn);
   }
 
   if (!file_readable(s)) {
@@ -510,7 +512,7 @@ static void tout_dcc_files_pass(int i)
 
 static void disp_dcc_files(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "file  flags: %c%c%c%c%c",
+  snprintf(buf, 160, "file  flags: %c%c%c%c%c",
           dcc[idx].status & STAT_CHAT ? 'C' : 'c',
           dcc[idx].status & STAT_PARTY ? 'P' : 'p',
           dcc[idx].status & STAT_TELNET ? 'T' : 't',
@@ -520,7 +522,7 @@ static void disp_dcc_files(int idx, char *buf)
 
 static void disp_dcc_files_pass(int idx, char *buf)
 {
-  snprintf(buf, sizeof(buf), "fpas  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  snprintf(buf, 160, "fpas  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static void kill_dcc_files(int idx, void *x)
@@ -713,8 +715,11 @@ static char *mktempfile(char *filename)
     strncpy(fn, filename, l);
     fn[l] = 0;
   }
-  tempname = nmalloc(l + MKTEMPFILE_TOT + 1);
-  snprintf(tempname, sizeof(tempname), "%li-%s-%s", (long) getpid(), rands, fn);
+  {
+    size_t tlen = l + MKTEMPFILE_TOT + 1;
+    tempname = nmalloc(tlen);
+    snprintf(tempname, tlen, "%li-%s-%s", (long) getpid(), rands, fn);
+  }
   if (fn != filename)
     my_free(fn);
   return tempname;
@@ -757,9 +762,12 @@ static void filesys_dcc_send_hostresolved(int i)
   } else
     strlcpy(dcc[i].u.xfer->dir, dccin, sizeof(dcc[i].u.xfer->dir));
   dcc[i].u.xfer->length = len;
-  s1 = nmalloc(strlen(dcc[i].u.xfer->dir) +
-               strlen(dcc[i].u.xfer->origname) + 1);
-  snprintf(s1, sizeof(s1), "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
+  {
+    size_t s1len = strlen(dcc[i].u.xfer->dir) +
+                   strlen(dcc[i].u.xfer->origname) + 1;
+    s1 = nmalloc(s1len);
+    snprintf(s1, s1len, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
+  }
 
   if (file_readable(s1)) {
     dprintf(DP_HELP, "NOTICE %s :File `%s' already exists.\n", dcc[i].nick,

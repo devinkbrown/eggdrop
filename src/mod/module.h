@@ -533,6 +533,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define findsock ((int(*)(int))global[327])
 /* 328 - 331 */
 #define stealth_telnets (*(int *)(global[328]))
+#undef nstrdup
 #define nstrdup(x) (((char *(*)(const char *, const char *, const char *, int))global[329])((x),MODULE_NAME,__FILE__,__LINE__))
 
 

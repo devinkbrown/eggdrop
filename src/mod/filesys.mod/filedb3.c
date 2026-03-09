@@ -659,10 +659,13 @@ static void filedb_update(char *path, FILE *fdb, int sort)
   while (dd != NULL) {
     malloc_strcpy(name, dd->d_name);
     if (name[0] != '.') {
-      s = nmalloc(strlen(path) + strlen(name) + 2);
-      snprintf(s, sizeof(s), "%s/%s", path, name);
-      stat(s, &st);
-      my_free(s);
+      {
+        size_t slen = strlen(path) + strlen(name) + 2;
+        s = nmalloc(slen);
+        snprintf(s, slen, "%s/%s", path, name);
+        stat(s, &st);
+        my_free(s);
+      }
       filedb_readtop(fdb, NULL);
       fdbe = filedb_matchfile(fdb, ftell(fdb), name);
       if (!fdbe) {
@@ -697,8 +700,11 @@ static void filedb_update(char *path, FILE *fdb, int sort)
     where = ftell(fdb);
     if (!(fdbe->stat & FILE_UNUSED) && !(fdbe->stat & FILE_ISLINK) &&
         fdbe->filename) {
-      s = nmalloc(strlen(path) + 1 + strlen(fdbe->filename) + 1);
-      snprintf(s, sizeof(s), "%s/%s", path, fdbe->filename);
+      {
+        size_t slen = strlen(path) + 1 + strlen(fdbe->filename) + 1;
+        s = nmalloc(slen);
+        snprintf(s, slen, "%s/%s", path, fdbe->filename);
+      }
       if (stat(s, &st) != 0)
         /* gone file */
         filedb_delfile(fdb, fdbe->pos);
@@ -913,29 +919,33 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         /* Too long? */
         if (strlen(fdbe->filename) > 45) {
           /* Display the filename on its own line. */
-          s2 = nmalloc(strlen(fdbe->filename) + 3);
-          snprintf(s2, sizeof(s2), "%s/\n", fdbe->filename);
+          size_t s2len = strlen(fdbe->filename) + 3;
+          s2 = nmalloc(s2len);
+          snprintf(s2, s2len, "%s/\n", fdbe->filename);
           filelist_addout(flist, s2);
           my_free(s2);
         } else {
-          s2 = nmalloc(strlen(fdbe->filename) + 2);
-          snprintf(s2, sizeof(s2), "%s/", fdbe->filename);
+          size_t s2len = strlen(fdbe->filename) + 2;
+          s2 = nmalloc(s2len);
+          snprintf(s2, s2len, "%s/", fdbe->filename);
         }
         /* Note: You have to keep the sprintf and the nmalloc statements
          *       in sync, i.e. always check that you allocate enough
          *       memory.
          */
         if ((fdbe->flags_req) && (user.global &(USER_MASTER | USER_JANITOR))) {
-          s3 = nmalloc(42 + strlen(s2 ? s2 : "") + 6 +
-                       strlen(FILES_REQUIRES) + strlen(fdbe->flags_req) + 1 +
-                       strlen(fdbe->chan ? fdbe->chan : "") + 1);
-          snprintf(s3, sizeof(s3), "%-30s <DIR%s>  (%s %s%s%s)\n", s2,
+          size_t s3len = 42 + strlen(s2 ? s2 : "") + 6 +
+                         strlen(FILES_REQUIRES) + strlen(fdbe->flags_req) + 1 +
+                         strlen(fdbe->chan ? fdbe->chan : "") + 1;
+          s3 = nmalloc(s3len);
+          snprintf(s3, s3len, "%-30s <DIR%s>  (%s %s%s%s)\n", s2,
                   fdbe->stat & FILE_SHARE ?
                   " SHARE" : "", FILES_REQUIRES, fdbe->flags_req,
                   fdbe->chan ? " " : "", fdbe->chan ? fdbe->chan : "");
         } else {
-          s3 = nmalloc(38 + strlen(s2 ? s2 : ""));
-          snprintf(s3, sizeof(s3), "%-30s <DIR>\n", s2 ? s2 : "");
+          size_t s3len = 38 + strlen(s2 ? s2 : "");
+          s3 = nmalloc(s3len);
+          snprintf(s3, s3len, "%-30s <DIR>\n", s2 ? s2 : "");
         }
         if (s2)
           my_free(s2);
@@ -960,24 +970,29 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
           strlcpy(s1, "     ", sizeof(s1));
         /* Too long? */
         if (strlen(fdbe->filename) > 30) {
-          s3 = nmalloc(strlen(fdbe->filename) + 2);
-          snprintf(s3, sizeof(s3), "%s\n", fdbe->filename);
+          size_t s3len = strlen(fdbe->filename) + 2;
+          s3 = nmalloc(s3len);
+          snprintf(s3, s3len, "%s\n", fdbe->filename);
           filelist_addout(flist, s3);
           my_free(s3);
           /* Causes filename to be displayed on its own line */
         } else
           malloc_strcpy(s3, fdbe->filename);
-        s4 = nmalloc(69 + strlen(s3 ? s3 : "") + strlen(s1) +
-                     strlen(fdbe->uploader) + strlen(t) + strlen(s2));
-        snprintf(s4, sizeof(s4), "%-30s %s  %-9s (%s)  %6d%s\n", s3 ? s3 : "", s1,
-                fdbe->uploader, t, fdbe->gots, s2);
+        {
+          size_t s4len = 69 + strlen(s3 ? s3 : "") + strlen(s1) +
+                         strlen(fdbe->uploader) + strlen(t) + strlen(s2);
+          s4 = nmalloc(s4len);
+          snprintf(s4, s4len, "%-30s %s  %-9s (%s)  %6d%s\n", s3 ? s3 : "", s1,
+                  fdbe->uploader, t, fdbe->gots, s2);
+        }
         if (s3)
           my_free(s3);
         filelist_addout(flist, s4);
         my_free(s4);
         if (fdbe->sharelink) {
-          s4 = nmalloc(9 + strlen(fdbe->sharelink));
-          snprintf(s4, sizeof(s4), "   --> %s\n", fdbe->sharelink);
+          size_t s4len = 9 + strlen(fdbe->sharelink);
+          s4 = nmalloc(s4len);
+          snprintf(s4, s4len, "   --> %s\n", fdbe->sharelink);
           filelist_addout(flist, s4);
           my_free(s4);
         }
@@ -989,8 +1004,11 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
           if ((fdbe->desc)[0]) {
             char *sd;
 
-            sd = nmalloc(strlen(fdbe->desc) + 5);
-            snprintf(sd, sizeof(sd), "   %s\n", fdbe->desc);
+            {
+              size_t sdlen = strlen(fdbe->desc) + 5;
+              sd = nmalloc(sdlen);
+              snprintf(sd, sdlen, "   %s\n", fdbe->desc);
+            }
             filelist_addout(flist, sd);
             my_free(sd);
           }
@@ -1054,8 +1072,11 @@ static void remote_filereq(int idx, char *from, char *file)
           (fdbe->stat & (FILE_HIDDEN | FILE_DIR)))
         reject = FILES_NOSHARE;
       else {
-        s1 = nmalloc(strlen(dccdir) + strlen(dir) + strlen(what) + 2);
-        snprintf(s1, sizeof(s1), "%s%s%s%s", dccdir, dir, dir[0] ? "/" : "", what);
+        {
+          size_t s1len = strlen(dccdir) + strlen(dir) + strlen(what) + 2;
+          s1 = nmalloc(s1len);
+          snprintf(s1, s1len, "%s%s%s%s", dccdir, dir, dir[0] ? "/" : "", what);
+        }
         i = raw_dcc_send(s1, "*remote", FILES_REMOTE);
         if (i > 0) {
           reject = FILES_SENDERR;
