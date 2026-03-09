@@ -8,8 +8,9 @@ devinkbrown fork (based on v1.10.1):
                add -fno-strict-aliasing globally (eggdrop uses void*/char*
                casts), -pipe for faster parallel builds, -Wl,--as-needed
                on ELF platforms to drop unused library links.  New
-               native-opt build option enables -march=native/-mcpu=native
-               (off by default; for non-portable local builds only).
+               native-opt build option enables cpu-family-aware native
+               tuning: -march=native on x86/x86_64/RISC-V/MIPS/s390x,
+               -mcpu=native on ARM/AArch64/PowerPC; off by default.
                Enable LTO (b_lto=true) and strip asserts in release
                (b_ndebug=if-release) by default.
              * build: add -fvisibility=hidden to all module shared-object
