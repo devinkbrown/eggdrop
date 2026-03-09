@@ -4,7 +4,23 @@ __________________________________________
 
 devinkbrown fork (based on v1.10.1):
 
-  2026-03-09 * build: fix all -Wsizeof-pointer-memaccess warnings — every
+  2026-03-09 * build: optimize compiler/linker flags across all platforms:
+               add -fno-strict-aliasing globally (eggdrop uses void*/char*
+               casts), -pipe for faster parallel builds, -Wl,--as-needed
+               on ELF platforms to drop unused library links.  New
+               native-opt build option enables -march=native/-mcpu=native
+               (off by default; for non-portable local builds only).
+               Enable LTO (b_lto=true) and strip asserts in release
+               (b_ndebug=if-release) by default.
+             * build: add -fvisibility=hidden to all module shared-object
+               builds; update EXPORT_SCOPE in module.h to use
+               __attribute__((visibility("default"))) on GCC/Clang ELF
+               targets so only the module entry point is exported. Keeps
+               __declspec(dllexport) for Cygwin/Windows.
+             * build: remove unneeded tcl_dep/tls_dep from md5_lib (md5c.c
+               uses only <string.h>); move global -DDEBUG/-g to
+               add_project_arguments so they are not duplicated per target.
+             * build: fix all -Wsizeof-pointer-memaccess warnings — every
                snprintf(ptr, sizeof(ptr), ...) where ptr is a char *
                parameter or nmalloc'd pointer now uses the correct buffer
                length.  Affected: filesys.mod (files.c, filesys.c,

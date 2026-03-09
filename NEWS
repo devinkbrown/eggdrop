@@ -1,5 +1,5 @@
 News
-Last revised: March 9, 2026 (build-warning cleanup)
+Last revised: March 9, 2026 (build system optimizations)
      _________________________________________________________________
 
                                 What's new?
@@ -74,6 +74,29 @@ devinkbrown fork (based on v1.10.1):
       Cygwin) are supported via a single meson setup / ninja workflow.
     - Build now defaults to optimisation level 2 and passes -pipe where
       the compiler supports it.
+    - LTO (Link-Time Optimization) enabled by default (b_lto=true) for
+      cross-file inlining and dead-code elimination. assert() is stripped
+      in release builds (b_ndebug=if-release).
+    - Added -fno-strict-aliasing globally: eggdrop uses void*/char* casts
+      that technically violate strict-aliasing rules; disabling the
+      optimization prevents undefined behaviour from being compiled away.
+    - Added -Wl,--as-needed on ELF platforms: only libraries that are
+      actually referenced are linked, reducing startup time and avoiding
+      spurious dlopen dependencies.
+    - Added native-opt build option (default off): pass
+      -Dopts=native-opt=true to meson to tune the binary for the exact
+      CPU running the build (-march=native on x86_64, -mcpu=native on
+      ARM/AArch64). Non-portable; not for distribution builds.
+    - Module shared objects now built with -fvisibility=hidden so that
+      all internal symbols are private. Module entry points are marked
+      with EXPORT_SCOPE which expands to
+      __attribute__((visibility("default"))) on GCC/Clang ELF targets
+      and __declspec(dllexport) on Cygwin/Windows.
+    - Removed unneeded Tcl and OpenSSL dependencies from the MD5 static
+      library; md5c.c only uses <string.h> and has no Tcl/TLS code.
+    - Deduplicated -DDEBUG/-g: these flags are now applied once via
+      add_project_arguments() rather than being duplicated into each
+      per-target c_args list.
 
  Platform changes:
     - macOS, FreeBSD, OpenBSD, and NetBSD use the kqueue backend
