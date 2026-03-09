@@ -241,11 +241,17 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
           s = nrealloc(s, strlen(s) + 2);
           strcat(s, "/");
       }
-      work = nmalloc(strlen(s) + strlen(elem) + 1);
-      snprintf(work, sizeof(work), "%s%s", s, elem);
+      {
+        size_t worklen = strlen(s) + strlen(elem) + 1;
+        work = nmalloc(worklen);
+        snprintf(work, worklen, "%s%s", s, elem);
+      }
       malloc_strcpy(*real, work);
-      s = nrealloc(s, strlen(dccdir) + strlen(*real) + 1);
-      snprintf(s, sizeof(s), "%s%s", dccdir, *real);
+      {
+        size_t slen = strlen(dccdir) + strlen(*real) + 1;
+        s = nrealloc(s, slen);
+        snprintf(s, slen, "%s%s", dccdir, *real);
+      }
     }
     p = strchr(new, '/');
   }
@@ -255,8 +261,11 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
   if (work)
     my_free(work);
   /* Sanity check: does this dir exist? */
-  s = nrealloc(s, strlen(dccdir) + strlen(*real) + 1);
-  snprintf(s, sizeof(s), "%s%s", dccdir, *real);
+  {
+    size_t slen = strlen(dccdir) + strlen(*real) + 1;
+    s = nrealloc(s, slen);
+    snprintf(s, slen, "%s%s", dccdir, *real);
+  }
   dir = opendir(s);
   my_free(s);
   if (!dir)
