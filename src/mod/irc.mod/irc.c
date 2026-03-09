@@ -299,7 +299,7 @@ static void newmask(masklist *m, char *s, char *who)
   if (m->mask[0])
     return;                     /* Already existent mask */
 
-  m->next = (masklist *) channel_malloc(sizeof(masklist));
+  m->next = (masklist *) channel_malloc_mask();
   m->next->next = NULL;
   m->next->mask = (char *) channel_malloc(1);
   m->next->mask[0] = 0;
@@ -330,7 +330,7 @@ static int killmember(struct chanset_t *chan, char *nick)
     old->next = x->next;
   else
     chan->channel.member = x->next;
-  nfree(x);
+  channel_free_member(x);
   chan->channel.members--;
 
   /* The following two errors should NEVER happen. We will try to correct
@@ -344,7 +344,7 @@ static int killmember(struct chanset_t *chan, char *nick)
            chan->channel.members);
   }
   if (!chan->channel.member) {
-    chan->channel.member = (memberlist *) channel_malloc(sizeof(memberlist));
+    chan->channel.member = (memberlist *) channel_malloc_member();
     chan->channel.member->nick[0] = 0;
     chan->channel.member->next = NULL;
   }

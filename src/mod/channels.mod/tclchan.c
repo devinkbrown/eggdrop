@@ -2045,12 +2045,11 @@ static void init_channel(struct chanset_t *chan, int reset)
   if (flags & CHAN_RESETWHO) {
     for (m = chan->channel.member; m; m = m1) {
       m1 = m->next;
-      nfree(m);
+      channel_free_member(m);
     }
     chan->channel.members = 0;
-    chan->channel.member = nmalloc(sizeof *chan->channel.member);
-    /* Since we don't have channel_malloc, manually bzero */
-    egg_bzero(chan->channel.member, sizeof *chan->channel.member);
+    chan->channel.member = channel_malloc_member();
+    /* channel_malloc_member zero-fills the allocation */
   }
 
   if (flags & CHAN_RESETMODES) {
@@ -2064,15 +2063,15 @@ static void init_channel(struct chanset_t *chan, int reset)
   }
 
   if (flags & CHAN_RESETBANS) {
-    chan->channel.ban = nmalloc(sizeof(masklist));
+    chan->channel.ban = channel_malloc_mask();
     init_masklist(chan->channel.ban);
   }
   if (flags & CHAN_RESETEXEMPTS) {
-    chan->channel.exempt = nmalloc(sizeof(masklist));
+    chan->channel.exempt = channel_malloc_mask();
     init_masklist(chan->channel.exempt);
   }
   if (flags & CHAN_RESETINVITED) {
-    chan->channel.invite = nmalloc(sizeof(masklist));
+    chan->channel.invite = channel_malloc_mask();
     init_masklist(chan->channel.invite);
   }
   if (flags & CHAN_RESETTOPIC)
@@ -2089,7 +2088,7 @@ static void clear_masklist(masklist *m)
       nfree(m->mask);
     if (m->who)
       nfree(m->who);
-    nfree(m);
+    channel_free_mask(m);
   }
 }
 
@@ -2106,7 +2105,7 @@ static void clear_channel(struct chanset_t *chan, int reset)
       if (reset)
          m->flags &= ~WHO_SYNCED;
       else
-        nfree(m);
+        channel_free_member(m);
     }
   }
   if (flags & CHAN_RESETBANS) {
