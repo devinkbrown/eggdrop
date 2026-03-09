@@ -414,12 +414,11 @@ endif
 # Write config.h
 # -------------------------------------------------------------------------
 config_h = configure_file(output: 'config.h', configuration: cdata)
-config_inc = include_directories('.')
 
 # -------------------------------------------------------------------------
 # Global include directories
 # -------------------------------------------------------------------------
-top_inc = include_directories('.')
+top_inc = include_directories('.')   # also covers generated config.h
 src_inc = include_directories('src')
 mod_inc = include_directories('src/mod')
 
@@ -450,6 +449,7 @@ summary({
   'Python module':  have_python,
   'Compress module': have_zlib,
   'Static modules': opt_static,
+  'Native CPU opt': opt_native,
   'Executable':     opt_exec,
   'HANDLEN':        opt_handlen,
   'I/O backend':    _io_backend,
