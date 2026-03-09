@@ -6,6 +6,8 @@ project('eggdrop', 'c',
     'warning_level=1',
     'b_pie=false',
     'optimization=2',
+    'b_lto=true',           # cross-file inlining + dead code elimination
+    'b_ndebug=if-release',  # strip assert() in non-debug builds
   ],
   meson_version: '>=0.57.0',
 )
@@ -16,6 +18,7 @@ cc = meson.get_compiler('c')
 # Build options
 # -------------------------------------------------------------------------
 opt_ipv6    = get_option('ipv6')
+opt_native  = get_option('native-opt')
 opt_tls     = get_option('tls')
 opt_tdns    = get_option('tdns')
 opt_python  = get_option('python')
@@ -99,6 +102,7 @@ req_funcs = [
   'snprintf', 'vsnprintf',
   'getentropy', 'getrandom',
   'pledge', 'unveil',
+  'base64_encode', 'base64_decode',
 ]
 foreach f : req_funcs
   if cc.has_function(f)
@@ -106,12 +110,6 @@ foreach f : req_funcs
   endif
 endforeach
 
-# base64_encode / base64_decode - some platforms have them
-foreach f : ['base64_encode', 'base64_decode']
-  if cc.has_function(f)
-    cdata.set('HAVE_' + f.to_upper(), 1)
-  endif
-endforeach
 
 # -------------------------------------------------------------------------
 # Tcl — required
@@ -358,10 +356,38 @@ else
   cdata.set_quoted('EGG_MOD_EXT', 'so')
 endif
 
-# Use pipes between compiler stages to avoid temp-file I/O during
-# parallel builds (GCC and Clang both honour -pipe).
+# ---------------------------------------------------------------------------
+# Compiler / linker flag optimizations
+# ---------------------------------------------------------------------------
+
+# -pipe: use pipes between compiler stages instead of temp files.
+# Speeds up parallel builds on all platforms.
 if cc.has_argument('-pipe')
   add_project_arguments('-pipe', language: 'c')
+endif
+
+# -fno-strict-aliasing: eggdrop uses void*/char* casts that technically
+# violate strict-aliasing rules; disable the optimisation to prevent UB.
+if cc.has_argument('-fno-strict-aliasing')
+  add_project_arguments('-fno-strict-aliasing', language: 'c')
+endif
+
+# -Wl,--as-needed: only link libraries that are actually referenced,
+# reducing startup time and avoiding spurious dependencies.
+if not is_native_windows
+  if cc.has_link_argument('-Wl,--as-needed')
+    add_project_link_arguments('-Wl,--as-needed', language: 'c')
+  endif
+endif
+
+# -march=native / -mcpu=native: tune for the exact CPU running the build.
+# Non-portable — disable when cross-compiling or building for distribution.
+if opt_native
+  _march = (host_machine.cpu_family() in ['aarch64', 'arm'])  \
+           ? '-mcpu=native' : '-march=native'
+  if cc.has_argument(_march)
+    add_project_arguments(_march, language: 'c')
+  endif
 endif
 
 # Debug flags

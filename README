@@ -83,6 +83,16 @@ FORK NOTICE
 
     - BSD and macOS are fully covered by the kqueue backend inherited
       from upstream v1.10.1; no select() fallback is used there
+    - Build warning cleanup: all -Wsizeof-pointer-memaccess and
+      -Wformat-truncation warnings eliminated. snprintf calls now use
+      the correct buffer length instead of sizeof(char *). The nstrdup
+      macro redefinition and the Python 3.14 _POSIX_C_SOURCE conflict
+      are also resolved. The tree builds clean with GCC 15.
+    - Build optimizations: LTO enabled by default; -fno-strict-aliasing
+      applied globally (eggdrop uses void*/char* casts); -Wl,--as-needed
+      on ELF platforms; module .so files built with -fvisibility=hidden
+      so only entry points are exported. Optional -march=native tuning
+      via -Dnative-opt=true (off by default).
     - Various bug fixes and patches under review for upstream inclusion
 
   Issues and changes specific to this fork should be reported at the

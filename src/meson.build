@@ -46,7 +46,6 @@ md5_lib = static_library('eggmd5',
   sources: ['md5/md5c.c'],
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
-  dependencies: [tcl_dep, tls_dep],
 )
 md5_dep = declare_dependency(link_with: md5_lib)
 
@@ -101,8 +100,10 @@ core_cargs = [
   '-DHANDLEN=@0@'.format(opt_handlen),
 ]
 
+# -DDEBUG_MEM is eggdrop-specific (memory tracking); the generic -DDEBUG/-g
+# flags are applied globally via add_project_arguments() in the top meson.build.
 if opt_debug
-  core_cargs += ['-DDEBUG', '-DDEBUG_MEM', '-g']
+  core_cargs += ['-DDEBUG_MEM']
 endif
 
 # -------------------------------------------------------------------------
@@ -218,9 +219,12 @@ endforeach
 # -------------------------------------------------------------------------
 # Module compile flags (shared by all modules)
 # -------------------------------------------------------------------------
-module_cargs = core_cargs + [
-  '-DMAKING_MODS',
-]
+# -fvisibility=hidden: hide all symbols by default in modules; only the
+# entry point decorated with EXPORT_SCOPE is visible to dlopen().
+_fvis = (not is_native_windows and cc.has_argument('-fvisibility=hidden')) \
+        ? ['-fvisibility=hidden'] : []
+
+module_cargs = core_cargs + ['-DMAKING_MODS'] + _fvis
 
 module_inc = [top_inc, src_inc, include_directories('mod')]
 
@@ -311,17 +315,14 @@ endif
 # Install: scripts, help, language, config, text
 # (paths relative to project root, not src/)
 # -------------------------------------------------------------------------
-install_subdir('../scripts',  install_dir: get_option('datadir') / 'eggdrop',
-  strip_directory: true)
-install_subdir('../help',     install_dir: get_option('datadir') / 'eggdrop',
-  strip_directory: true)
-install_subdir('../language', install_dir: get_option('datadir') / 'eggdrop',
-  strip_directory: true)
+_root = meson.project_source_root()
+_ddir = get_option('datadir') / 'eggdrop'
+install_subdir(_root / 'scripts',  install_dir: _ddir, strip_directory: true)
+install_subdir(_root / 'help',     install_dir: _ddir, strip_directory: true)
+install_subdir(_root / 'language', install_dir: _ddir, strip_directory: true)
 # TOML configuration files — primary format, no chmod required.
-install_data('../eggdrop.toml',
-  install_dir: get_option('datadir') / 'eggdrop')
-install_data('../eggdrop-basic.toml',
-  install_dir: get_option('datadir') / 'eggdrop')
+install_data(_root / 'eggdrop.toml',       install_dir: _ddir)
+install_data(_root / 'eggdrop-basic.toml', install_dir: _ddir)
 
 # -------------------------------------------------------------------------
 # Distribution note

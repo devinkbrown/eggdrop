@@ -70,8 +70,17 @@
 #  undef egg_snprintf
 #endif
 
-#if defined (__CYGWIN__) && !defined(STATIC)
-#  define EXPORT_SCOPE  __declspec(dllexport)
+/* Mark module entry points visible when -fvisibility=hidden is in effect.
+ * On Cygwin/Windows dlexport is required; on ELF platforms (Linux, BSD,
+ * macOS with clang) the GCC visibility attribute suffices. */
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  ifndef STATIC
+#    define EXPORT_SCOPE  __declspec(dllexport)
+#  else
+#    define EXPORT_SCOPE
+#  endif
+#elif defined(__GNUC__) || defined(__clang__)
+#  define EXPORT_SCOPE  __attribute__((visibility("default")))
 #else
 #  define EXPORT_SCOPE
 #endif

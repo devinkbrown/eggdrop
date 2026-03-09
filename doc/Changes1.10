@@ -4,6 +4,36 @@ __________________________________________
 
 devinkbrown fork (based on v1.10.1):
 
+  2026-03-09 * build: optimize compiler/linker flags across all platforms:
+               add -fno-strict-aliasing globally (eggdrop uses void*/char*
+               casts), -pipe for faster parallel builds, -Wl,--as-needed
+               on ELF platforms to drop unused library links.  New
+               native-opt build option enables -march=native/-mcpu=native
+               (off by default; for non-portable local builds only).
+               Enable LTO (b_lto=true) and strip asserts in release
+               (b_ndebug=if-release) by default.
+             * build: add -fvisibility=hidden to all module shared-object
+               builds; update EXPORT_SCOPE in module.h to use
+               __attribute__((visibility("default"))) on GCC/Clang ELF
+               targets so only the module entry point is exported. Keeps
+               __declspec(dllexport) for Cygwin/Windows.
+             * build: remove unneeded tcl_dep/tls_dep from md5_lib (md5c.c
+               uses only <string.h>); move global -DDEBUG/-g to
+               add_project_arguments so they are not duplicated per target.
+             * build: fix all -Wsizeof-pointer-memaccess warnings — every
+               snprintf(ptr, sizeof(ptr), ...) where ptr is a char *
+               parameter or nmalloc'd pointer now uses the correct buffer
+               length.  Affected: filesys.mod (files.c, filesys.c,
+               filedb3.c, tclfiles.c, dbcompat.c), transfer.mod
+               (transfer.c, transferqueue.c, tcltransfer.c), and core
+               botnet.c, language.c, misc.c.
+             * build: add #undef nstrdup before the module.h redefinition
+               to silence the macro-redefinition warning in every module.
+             * build: add #undef _POSIX_C_SOURCE before #include <Python.h>
+               in python.mod to resolve the glibc/Python 3.14 header
+               conflict (202405L vs 200809L).
+             [Patch by: devinkbrown]
+
   2026-03-08 * docs: expand README with full libop rationale — explains
                why IOCP from scratch is error-prone and what libop
                already solved (overlapped layout, stale completions,
