@@ -377,5 +377,75 @@ die "edit me"
         self.assertIn('"mco * eggdrop.log"', toml)
 
 
+class TestRoundTrip(unittest.TestCase):
+    """
+    Integration test: convert the real eggdrop.conf reference config and
+    verify the output is sane and warning-free.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        conf_path = Path(__file__).parent.parent / "eggdrop.conf"
+        if not conf_path.exists():
+            cls.toml = None
+            cls.warnings = []
+            return
+        text = conf_path.read_text(errors="replace")
+        c = Conf2Toml()
+        c.parse(text)
+        cls.toml = c.render()
+        cls.warnings = c.warnings
+
+    def _skip_if_missing(self):
+        if self.toml is None:
+            self.skipTest("eggdrop.conf not found")
+
+    def test_no_warnings(self):
+        """Full eggdrop.conf conversion should produce zero warnings."""
+        self._skip_if_missing()
+        self.assertEqual(
+            self.warnings, [],
+            "Unexpected warnings:\n" + "\n".join(self.warnings)
+        )
+
+    def test_required_sections_present(self):
+        self._skip_if_missing()
+        # [channels] is omitted when eggdrop.conf has no uncommented channel add
+        for sec in ('[bot]', '[servers]', '[modules]', '[logging]', '[paths]'):
+            self.assertIn(sec, self.toml, f"Missing section: {sec}")
+
+    def test_nick_converted(self):
+        self._skip_if_missing()
+        self.assertIn('nick =', self.toml)
+
+    def test_servers_converted(self):
+        self._skip_if_missing()
+        # eggdrop.conf has at least one server add
+        self.assertIn('[servers]', self.toml)
+        self.assertIn('list = [', self.toml)
+
+    def test_multiline_set_no_spill(self):
+        """set default-chanset { ... } must not spill raw flag lines into output."""
+        self._skip_if_missing()
+        # The flag tokens from the default-chanset block should NOT appear as
+        # bare unrecognised lines — they belong inside a quoted string value.
+        self.assertNotIn('\n-autoop', self.toml)
+        self.assertNotIn('\n+cycle', self.toml)
+
+    def test_backslash_continuation(self):
+        """Backslash-continued lines produce a single merged logical line."""
+        c = Conf2Toml()
+        c.parse('set nick "Long\\\nNick"')
+        toml = c.render()
+        self.assertIn('nick =', toml)
+        self.assertEqual(c.warnings, [])
+
+    def test_toml_is_valid_utf8_text(self):
+        self._skip_if_missing()
+        # Render must produce a non-empty string with section headers
+        self.assertGreater(len(self.toml), 100)
+        self.toml.encode('utf-8')   # should not raise
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
