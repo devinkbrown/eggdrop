@@ -31,6 +31,10 @@
 #undef interp
 #define tclinterp (*(Tcl_Interp **)(global[128]))
 #undef days
+/* glibc features.h (pulled in via signal.h) defines _POSIX_C_SOURCE to a
+ * newer value than Python's pyconfig.h expects; undef before Python headers
+ * to suppress the redefinition warning. */
+#undef _POSIX_C_SOURCE
 #include <Python.h>
 #include <datetime.h>
 #include "src/mod/server.mod/server.h"
