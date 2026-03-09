@@ -72,6 +72,12 @@ option('module-woobie',   type: 'boolean', value: true,
   description: 'Build woobie example module')
 
 # -------------------------------------------------------------------------
+# CPU tuning option
+# -------------------------------------------------------------------------
+option('native-opt', type: 'boolean', value: false,
+  description: 'Tune binary for the current CPU with -march=native / -mcpu=native (non-portable builds only)')
+
+# -------------------------------------------------------------------------
 # DNS resolver backend options
 # -------------------------------------------------------------------------
 option('use-res-dns', type: 'boolean', value: false,
