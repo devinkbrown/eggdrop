@@ -400,7 +400,7 @@ void maskaddr(const char *s, char *nw, int type)
     u = strchr(h, '.');
     if (d > 3 || (d == 3 && strlen(p) > 3))
       u = strchr(++u, '.'); /* ccTLD or not? Look above. */
-    snprintf(nw, sizeof(nw), "*%s", u);
+    snprintf(nw, UHOSTLEN, "*%s", u);
   } else if (!*h)
       /* take care if the mask is empty or contains only '@' */
       strlcpy(nw, "*", sizeof(nw));
@@ -458,7 +458,7 @@ void daysago(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, sizeof(out), "%d day%s ago", days, (days == 1) ? "" : "s");
+    snprintf(out, 41, "%d day%s ago", days, (days == 1) ? "" : "s");
     return;
   }
   strftime(out, 6, "%H:%M", localtime(&then));
@@ -472,7 +472,7 @@ void days(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, sizeof(out), "in %d day%s", days, (days == 1) ? "" : "s");
+    snprintf(out, 41, "in %d day%s", days, (days == 1) ? "" : "s");
     return;
   }
   strftime(out, 9, "at %H:%M", localtime(&now));
@@ -489,7 +489,7 @@ void daysdur(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, sizeof(out), "for %d day%s", days, (days == 1) ? "" : "s");
+    snprintf(out, 41, "for %d day%s", days, (days == 1) ? "" : "s");
     return;
   }
   strlcpy(out, "for ", sizeof(out));
@@ -1463,7 +1463,7 @@ char *str_escape(const char *str, const char div, const char mask)
     }
 
     if (*s == div || *s == mask) {
-      snprintf(b, sizeof(b), "%c%02x", mask, *s);
+      snprintf(b, 4, "%c%02x", mask, *s);
       b += 3;
       blen += 3;
     } else {

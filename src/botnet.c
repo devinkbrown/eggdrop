@@ -1563,12 +1563,12 @@ static void dcc_relaying(int idx, char *buf, int j)
 
 static void display_relay(int i, char *other)
 {
-  snprintf(other, sizeof(other), "rela  -> sock %d", dcc[i].u.relay->sock);
+  snprintf(other, 160, "rela  -> sock %d", dcc[i].u.relay->sock);
 }
 
 static void display_relaying(int i, char *other)
 {
-  snprintf(other, sizeof(other), ">rly  -> sock %d", dcc[i].u.relay->sock);
+  snprintf(other, 160, ">rly  -> sock %d", dcc[i].u.relay->sock);
 }
 
 static void display_tandem_relay(int i, char *other)
