@@ -73,10 +73,15 @@ static egg_bh *masklist_heap   = NULL;
 
 static void channel_bh_init(void)
 {
-  /* Pass elemsperblock=0: egg_bh_create auto-computes EPB so each slab
-   * fills exactly one OS page, growing new slabs dynamically on demand. */
-  memberlist_heap = egg_bh_create(sizeof(memberlist), 0, "memberlist");
-  masklist_heap   = egg_bh_create(sizeof(masklist),   0, "masklist");
+  /* memberlist: 64 per slab (~28 KB).  sizeof(memberlist) ~= 450 bytes so the
+   * page-auto value is only ~8 — far too few for typical IRC channels (dozens
+   * to hundreds of members).  64 covers most channels in 1–2 slabs and avoids
+   * churning through mmap() calls on busy servers.
+   *
+   * masklist: 0 (auto).  sizeof(masklist) == 32, so auto gives ~127/page —
+   * already the right granularity for a ban/exempt/invite list. */
+  memberlist_heap = egg_bh_create(sizeof(memberlist), 64, "memberlist");
+  masklist_heap   = egg_bh_create(sizeof(masklist),    0, "masklist");
 }
 
 static void channel_bh_destroy(void)
