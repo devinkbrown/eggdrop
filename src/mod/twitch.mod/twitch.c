@@ -66,12 +66,30 @@ static char cap_request[55];
   (valuevar) = Tcl_GetString(msgtagtmpvalue);                                                               \
 } while (0)
 
+/* Free one twitchchan node and its dynamically allocated fields. */
+static void twitch_free_tchan(twitchchan_t *tchan)
+{
+  nfree(tchan->mods);
+  nfree(tchan->vips);
+  nfree(tchan->userstate.badges);
+  nfree(tchan->userstate.emote_sets);
+  nfree(tchan);
+}
+
 /* Calculate the memory we keep allocated.
  */
 static int twitch_expmem(void)
 {
   int size = 0;
+  twitchchan_t *tchan;
 
+  for (tchan = twitchchan; tchan; tchan = tchan->next) {
+    size += sizeof(twitchchan_t);
+    if (tchan->mods)             size += strlen(tchan->mods) + 1;
+    if (tchan->vips)             size += strlen(tchan->vips) + 1;
+    if (tchan->userstate.badges)     size += strlen(tchan->userstate.badges) + 1;
+    if (tchan->userstate.emote_sets) size += strlen(tchan->userstate.emote_sets) + 1;
+  }
   return size;
 }
 
@@ -166,10 +184,10 @@ static void cmd_userstate(struct userrec *u, int idx, char *par) {
   dprintf(idx, "Userstate for %s:\n", tchan->dname);
   dprintf(idx, "---------------------------------\n");
   dprintf(idx, "Display Name: %s\n", tchan->userstate.display_name);
-  dprintf(idx, "Badges:       %s\n", tchan->userstate.badges);
+  dprintf(idx, "Badges:       %s\n", tchan->userstate.badges ? tchan->userstate.badges : "");
   dprintf(idx, "Badge Info:   %d\n", tchan->userstate.badge_info);
   dprintf(idx, "Color:        %s\n", tchan->userstate.color);
-  dprintf(idx, "Emote-Sets:   %s\n", tchan->userstate.emote_sets);
+  dprintf(idx, "Emote-Sets:   %s\n", tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "");
   dprintf(idx, "Moderator:    %s\n", tchan->userstate.mod ? "yes" : "no");
   dprintf(idx, "End of userstate info.\n");
   return;
@@ -335,12 +353,14 @@ static int gotnotice (char *from, char *msg, Tcl_Obj *tags) {
     modptr = msg + 36; /* Remove "The moderators of this channel are: " */
     remove_chars(modptr, ',');
     remove_chars(modptr, '.');
-    strlcpy(tchan->mods, modptr, sizeof tchan->mods);
+    nfree(tchan->mods);
+    tchan->mods = nstrdup(modptr);
   } else if (!strcmp(msgid, "vips_success")) {
     vipptr = msg + 30; /* Remove "The VIPs of this channel are: " from str */
     remove_chars(vipptr, ',');
     remove_chars(vipptr, '.');
-    strlcpy(tchan->vips, vipptr, sizeof tchan->vips);
+    nfree(tchan->vips);
+    tchan->vips = nstrdup(vipptr);
   }
   return 0;
 }
@@ -437,18 +457,20 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
     if (!strcmp(k, "badge-info") && tchan->userstate.badge_info != n) {
       changed = 1;
       tchan->userstate.badge_info = n;
-    } else if (!strcmp(k, "badges") && strcmp(tchan->userstate.badges, v)) {
+    } else if (!strcmp(k, "badges") && strcmp(tchan->userstate.badges ? tchan->userstate.badges : "", v)) {
       changed = 1;
-      strlcpy(tchan->userstate.badges, v, sizeof tchan->userstate.badges);
+      nfree(tchan->userstate.badges);
+      tchan->userstate.badges = nstrdup(v);
     } else if (!strcmp(k, "color") && strcmp(tchan->userstate.color, v)) {
       changed = 1;
       strlcpy(tchan->userstate.color, v, sizeof tchan->userstate.color);
     } else if (!strcmp(k, "display-name") && strcmp(tchan->userstate.display_name, v)) {
       changed = 1;
       strlcpy(tchan->userstate.display_name, v, sizeof tchan->userstate.display_name);
-    } else if (!strcmp(k, "emote-sets") && strcmp(tchan->userstate.emote_sets, v)) {
+    } else if (!strcmp(k, "emote-sets") && strcmp(tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "", v)) {
       changed = 1;
-      strlcpy(tchan->userstate.emote_sets, v, sizeof tchan->userstate.emote_sets);
+      nfree(tchan->userstate.emote_sets);
+      tchan->userstate.emote_sets = nstrdup(v);
     } else if (!strcmp(k, "mod") && tchan->userstate.mod != n) {
       changed = 1;
       tchan->userstate.mod = n;
@@ -579,13 +601,13 @@ static int tcl_userstate STDVAR {
   snprintf(s, sizeof s, "%d", tchan->userstate.badge_info);
   Tcl_DStringAppendElement(&usdict, s);
   Tcl_DStringAppendElement(&usdict, "badges");
-  Tcl_DStringAppendElement(&usdict, tchan->userstate.badges);
+  Tcl_DStringAppendElement(&usdict, tchan->userstate.badges ? tchan->userstate.badges : "");
   Tcl_DStringAppendElement(&usdict, "color");
   Tcl_DStringAppendElement(&usdict, tchan->userstate.color);
   Tcl_DStringAppendElement(&usdict, "display-name");
   Tcl_DStringAppendElement(&usdict, tchan->userstate.display_name);
   Tcl_DStringAppendElement(&usdict, "emote-sets");
-  Tcl_DStringAppendElement(&usdict, tchan->userstate.emote_sets);
+  Tcl_DStringAppendElement(&usdict, tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "");
   Tcl_DStringAppendElement(&usdict, "mod");
   snprintf(s, sizeof s, "%d", tchan->userstate.mod);
   Tcl_DStringAppendElement(&usdict, s);
@@ -604,7 +626,7 @@ static int tcl_twitchmods STDVAR {
     Tcl_AppendResult(irp, "No such channel", NULL);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, tchan->mods, NULL);
+  Tcl_AppendResult(irp, tchan->mods ? tchan->mods : "", NULL);
   return TCL_OK;
 }
 
@@ -617,7 +639,7 @@ static int tcl_twitchvips STDVAR {
     Tcl_AppendResult(irp, "No such channel", NULL);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, tchan->vips, NULL);
+  Tcl_AppendResult(irp, tchan->vips ? tchan->vips : "", NULL);
   return TCL_OK;
 }
 
@@ -641,12 +663,12 @@ static int tcl_ismod STDVAR {
     tchan = twitchchan;
   }
   /* If there's no mods, no reason to even check, eh? */
-  if (!strlen(tchan->mods)) {
+  if (!tchan->mods || !tchan->mods[0]) {
     Tcl_AppendResult(irp, "0", NULL);
     return TCL_OK;
   }
   while (tchan && (thechan == NULL || thechan == tchan)) {
-    if (strstr(tchan->mods, argv[1])) {
+    if (tchan->mods && strstr(tchan->mods, argv[1])) {
       Tcl_AppendResult(irp, "1", NULL);
       return TCL_OK;
     }
@@ -677,12 +699,12 @@ static int tcl_isvip STDVAR {
     tchan = twitchchan;
   }
   /* If there's no VIPs, no reason to even check, eh? */
-  if (!strlen(tchan->vips)) {
+  if (!tchan->vips || !tchan->vips[0]) {
     Tcl_AppendResult(irp, "0", NULL);
     return TCL_OK;
   }
   while (tchan && (thechan == NULL || thechan == tchan)) {
-    if (strstr(tchan->vips, argv[1])) {
+    if (tchan->vips && strstr(tchan->vips, argv[1])) {
       Tcl_AppendResult(irp, "1", NULL);
       return TCL_OK;
     }
@@ -829,6 +851,15 @@ static cmd_t twitch_rawt[] = {
 
 static char *twitch_close(void)
 {
+  twitchchan_t *tchan = twitchchan, *next;
+
+  while (tchan) {
+    next = tchan->next;
+    twitch_free_tchan(tchan);
+    tchan = next;
+  }
+  twitchchan = NULL;
+
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_raw, twitch_raw);
   rem_builtins(H_rawt, twitch_rawt);
