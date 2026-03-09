@@ -1018,10 +1018,13 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         if ((fdbe->desc)[0]) {
           char *sd;
 
-          sd = nmalloc(strlen(fdbe->desc) + 5);
-          snprintf(sd, sizeof(sd), "   %s\n", fdbe->desc);
-          filelist_addout(flist, sd);
-          my_free(sd);
+          {
+            size_t sdlen = strlen(fdbe->desc) + 5;
+            sd = nmalloc(sdlen);
+            snprintf(sd, sdlen, "   %s\n", fdbe->desc);
+            filelist_addout(flist, sd);
+            my_free(sd);
+          }
         }
       }
       cnt++;
