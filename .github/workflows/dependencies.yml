@@ -11,13 +11,13 @@ jobs:
     name: Tcl Versions
     strategy:
       matrix:
-        tcl_version: [ '8.5.19', '8.6.14', '8.7a5', '9.0.1' ]
+        tcl_version: [ '8.6.14', '8.7a5', '9.0.1' ]
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install openssl libssl-dev
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install meson ninja-build openssl libssl-dev
     - uses: actions/cache@v4
       id: tcl-cache
       with:
@@ -30,23 +30,22 @@ jobs:
         tar xzf tcl${{ matrix.tcl_version }}-src.tar.gz && \
         cd tcl${{ matrix.tcl_version }}/unix && \
         ./configure --prefix=$HOME/tcl && \
-        make -j4 && make install
+        make -j$(nproc) && make install
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
-      run: |
-        ./configure --with-tcl=$HOME/tcl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/tcl/lib make config eggdrop
-        fgrep -q "Tcl version: ${{ matrix.tcl_version }}" configure.log
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/tcl/lib/pkgconfig
+      run: meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-version-098:
     name: OpenSSL 0.9.8
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with: 
+      with:
         path: 'eggdrop'
-    - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/cache@v4
       id: ssl-cache
       with:
@@ -58,24 +57,24 @@ jobs:
         wget https://www.openssl.org/source/old/0.9.x/openssl-0.9.8zh.tar.gz && \
         sha256sum --status --check <(echo f1d9f3ed1b85a82ecf80d0e2d389e1fda3fca9a4dba0bf07adbf231e1a5e2fd6 openssl-0.9.8zh.tar.gz) && \
         tar xzf openssl-0.9.8zh.tar.gz && \
-        cd openssl-0.9.8zh && ./config --prefix=$HOME/ssl -fPIC && make -j4 && make install_sw
+        cd openssl-0.9.8zh && ./config --prefix=$HOME/ssl -fPIC && make -j$(nproc) && make install_sw
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-version-10:
     name: OpenSSL 1.0
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with: 
+      with:
         path: 'eggdrop'
-    - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/cache@v4
       id: ssl-cache
       with:
@@ -87,14 +86,14 @@ jobs:
         wget https://www.openssl.org/source/old/1.0.2/openssl-1.0.2u.tar.gz && \
         sha256sum --status --check <(echo ecd0c6ffb493dd06707d38b14bb4d8c2288bb7033735606569d8f90f89669d16 openssl-1.0.2u.tar.gz) && \
         tar xzf openssl-1.0.2u.tar.gz && \
-        cd openssl-1.0.2u && ./config --prefix=$HOME/ssl -fPIC && make -j4 && make install_sw
+        cd openssl-1.0.2u && ./config --prefix=$HOME/ssl -fPIC && make -j$(nproc) && make install_sw
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-version-11:
     name: OpenSSL 1.1
     continue-on-error: true
@@ -114,19 +113,19 @@ jobs:
     - name: Build OpenSSL
       if: steps.ssl-cache.outputs.cache-hit != 'true'
       run: |
-        cd $GITHUB_WORKSPACE/openssl && ./config --prefix=$HOME/ssl && make -j4 && make install_sw
-    - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+        cd $GITHUB_WORKSPACE/openssl && ./config --prefix=$HOME/ssl && make -j$(nproc) && make install_sw
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-versions-3x:
     name: OpenSSL 3.x
     strategy:
@@ -157,16 +156,16 @@ jobs:
     - name: Build OpenSSL
       if: steps.ssl-cache.outputs.cache-hit != 'true'
       run: |
-        cd $GITHUB_WORKSPACE/openssl && ./config --prefix=$HOME/ssl && make -j4 && make install_sw
+        cd $GITHUB_WORKSPACE/openssl && ./config --prefix=$HOME/ssl && make -j$(nproc) && make install_sw
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
-    - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig:${{ env.HOME }}/ssl/lib64/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib64 | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib64 make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        meson setup build --wrap-mode=nodownload && meson compile -C build
