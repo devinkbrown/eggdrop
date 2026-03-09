@@ -146,6 +146,19 @@ VAR_MAP = {
     "ident-timeout":    ("behaviour", "ident_timeout"),
     "console":          ("behaviour", "console_flags"),
 
+    # [server] — server module settings
+    "quiet-reject":         ("server", "quiet_reject"),
+    "lowercase-ctcp":       ("server", "lowercase_ctcp"),
+    "answer-ctcp":          ("server", "answer_ctcp"),
+    "flood-msg":            ("server", "flood_msg"),
+    "flood-ctcp":           ("server", "flood_ctcp"),
+    "server-cycle-wait":    ("server", "server_cycle_wait"),
+    "server-timeout":       ("server", "server_timeout"),
+    "msg-rate":             ("server", "msg_rate"),
+    "keep-nick":            ("server", "keep_nick"),
+    "account-notify":       ("server", "account_notify"),
+    "extended-join":        ("server", "extended_join"),
+
     # [irc]
     "net-type":         ("irc", "net_type"),
     "nick-len":         ("irc", "nick_len"),
@@ -211,6 +224,31 @@ VAR_MAP = {
     "override-bots":    ("share", "override_bots"),
     "share-compressed": ("share", "share_compressed"),
     "compress-level":   ("share", "compress_level"),
+    "share-greet":      ("share", "share_greet"),
+
+    # [channels] — default channel settings (channels.mod)
+    "default-flood-chan":        ("channels", "default_flood_chan"),
+    "default-flood-deop":        ("channels", "default_flood_deop"),
+    "default-flood-kick":        ("channels", "default_flood_kick"),
+    "default-flood-join":        ("channels", "default_flood_join"),
+    "default-flood-ctcp":        ("channels", "default_flood_ctcp"),
+    "default-flood-nick":        ("channels", "default_flood_nick"),
+    "default-aop-delay":         ("channels", "default_aop_delay"),
+    "default-idle-kick":         ("channels", "default_idle_kick"),
+    "default-chanmode":          ("channels", "default_chanmode"),
+    "default-stopnethack-mode":  ("channels", "default_stopnethack_mode"),
+    "default-revenge-mode":      ("channels", "default_revenge_mode"),
+    "default-ban-type":          ("channels", "default_ban_type"),
+    "default-ban-time":          ("channels", "default_ban_time"),
+    "default-exempt-time":       ("channels", "default_exempt_time"),
+    "default-invite-time":       ("channels", "default_invite_time"),
+    "default-chanset":           ("channels", "default_chanset"),
+
+    # [behaviour] — miscellaneous settings from various modules
+    "use-telnet-banner":  ("behaviour", "use_telnet_banner"),
+    "force-expire":       ("behaviour", "force_expire"),
+    "use-info":           ("behaviour", "use_info"),
+    "allow-ps":           ("behaviour", "allow_ps"),
 }
 
 # Prefer this section order in the output
@@ -357,6 +395,14 @@ class Conf2Toml:
                stripped.startswith(';') or stripped.startswith('#!'):
                 continue
 
+            # Backslash line-continuation: join continuation lines so the
+            # rest of the parser sees one logical line.
+            while stripped.endswith('\\') and idx + 1 < len(lines):
+                stripped = stripped[:-1]          # drop trailing backslash
+                idx += 1
+                lineno += 1
+                stripped = stripped + lines[idx].strip()
+
             # Remove inline comments (after ; or #, not inside quotes)
             # Simple approach: strip after the first unquoted semicolon
             stripped = _strip_tcl_comment(stripped)
@@ -366,6 +412,14 @@ class Conf2Toml:
             if m:
                 varname = m.group(1).strip()
                 rawval  = m.group(2).strip()
+                # Multi-line brace value: set foo { ... } spanning several lines.
+                if _brace_depth(rawval) > 0:
+                    block, next_lineno = self._accumulate_block(lines, idx, stripped)
+                    idx = next_lineno - 2
+                    lineno = next_lineno - 1
+                    # Re-extract rawval from the complete block.
+                    m2 = re.match(r'^set\s+\S+\s+(.*)', block, re.DOTALL)
+                    rawval = m2.group(1).strip() if m2 else block
                 if varname in VAR_MAP:
                     sec, key = VAR_MAP[varname]
                     self._add(sec, key, to_toml_value(rawval))

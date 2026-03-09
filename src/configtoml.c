@@ -280,6 +280,9 @@ static int parse_string_array(const char *src, ArrayCb cb, void *ud)
  * Array callbacks for special sections
  * --------------------------------------------------------------------- */
 
+/* Count of servers added during the current readtomlconfig() call. */
+static int toml_server_count = 0;
+
 static void cb_loadmodule(const char *name, void *ud)
 {
   char cmd[256];
@@ -331,6 +334,7 @@ static void cb_server_add(const char *entry, void *ud)
   }
 
   run_tcl_cmd(cmd);
+  toml_server_count++;
 }
 
 static void cb_channel_add(const char *name, void *ud)
@@ -517,6 +521,7 @@ int readtomlconfig(const char *fname)
   char sec_name[128] = "";
   TomlSection cur_sec = SEC_NONE;
   int lineno = 0;
+  int ok = 1;
 
   fp = fopen(fname, "r");
   if (!fp) {
@@ -607,7 +612,33 @@ int readtomlconfig(const char *fname)
   }
 
   fclose(fp);
-  return 1;
+
+  /* ---- Validate required settings ---- */
+  {
+    const char *nick_val  = Tcl_GetVar(interp, "nick",  TCL_GLOBAL_ONLY);
+    const char *owner_val = Tcl_GetVar(interp, "owner", TCL_GLOBAL_ONLY);
+
+    if (!nick_val || !*nick_val) {
+      putlog(LOG_MISC, "*",
+             "TOML config: 'nick' is not set in [bot] — bot will not function.");
+      ok = 0;
+    }
+    if (!owner_val || !*owner_val) {
+      putlog(LOG_MISC, "*",
+             "TOML config: 'owner' is not set in [security] — no one can "
+             "control this bot.");
+      ok = 0;
+    }
+    if (toml_server_count == 0) {
+      putlog(LOG_MISC, "*",
+             "TOML config: no servers defined in [servers] list — "
+             "the bot will not connect to IRC.");
+      ok = 0;
+    }
+    toml_server_count = 0;   /* reset for potential reload */
+  }
+
+  return ok;
 }
 
 /* -----------------------------------------------------------------------
@@ -667,8 +698,9 @@ int run_setup_wizard(const char *outfile)
   char nick[64], altnick[64], realname[128], username[64];
   char admin[128], network[64], owner[64];
   char server[256], channel[64];
-  char userfile[64], chanfile[64];
+  char userfile[64], chanfile[64], logfile[128];
   int  use_ssl;
+  int  want_notes, want_transfer, want_filesys, want_seen;
   FILE *fp;
 
   printf("\n");
@@ -696,8 +728,15 @@ int run_setup_wizard(const char *outfile)
   prompt("Channel to join", "#egghelp", channel, sizeof channel);
 
   printf("\n── Files ─────────────────────────────────────\n");
-  prompt("User file name",  "eggdrop.user", userfile, sizeof userfile);
-  prompt("Chan file name",  "eggdrop.chan", chanfile,  sizeof chanfile);
+  prompt("User file name",  "eggdrop.user",     userfile, sizeof userfile);
+  prompt("Chan file name",  "eggdrop.chan",      chanfile, sizeof chanfile);
+  prompt("Log file name",   "eggdrop.log",       logfile,  sizeof logfile);
+
+  printf("\n── Optional modules ──────────────────────────\n");
+  want_notes    = prompt_yn("Enable notes (user-to-user messaging)?", 1);
+  want_seen     = prompt_yn("Enable seen (track last seen time)?",    0);
+  want_transfer = prompt_yn("Enable transfer (DCC file transfers)?",  0);
+  want_filesys  = prompt_yn("Enable filesys (bot file system)?",      0);
 
   printf("\n");
 
@@ -718,21 +757,30 @@ int run_setup_wizard(const char *outfile)
 "# Report issues    : https://github.com/eggheads/eggdrop/issues\n"
 "\n", outfile);
 
+  /* [modules] — always-on core set, plus whatever the user opted into. */
   fprintf(fp,
 "[modules]\n"
-"# Modules to load at startup.  Remove or comment out lines you don't need.\n"
+"# Modules to load at startup.  Comment out lines you don't need.\n"
 "load = [\n"
 "  \"pbkdf2\",    # Generation-2 userfile encryption (recommended)\n"
 "  \"blowfish\",  # Legacy userfile encryption support\n"
 "  \"channels\",  # Channel tracking\n"
 "  \"server\",    # Core IRC server support\n"
-"  \"ctcp\",      # CTCP functionality\n"
+"  \"ctcp\",      # CTCP reply handling\n"
 "  \"irc\",       # Basic IRC functionality\n"
-"  \"notes\",     # Note storage for users\n"
 "  \"console\",   # Console setting persistence\n"
-"  \"uptime\",    # Uptime reporting\n"
-"]\n"
-"\n");
+"  \"uptime\",    # Uptime reporting\n");
+
+  if (want_notes)
+    fprintf(fp, "  \"notes\",     # User-to-user note storage\n");
+  if (want_seen)
+    fprintf(fp, "  \"seen\",      # Last-seen time tracking\n");
+  if (want_transfer)
+    fprintf(fp, "  \"transfer\",  # DCC file transfer support\n");
+  if (want_filesys)
+    fprintf(fp, "  \"filesys\",   # In-bot file system\n");
+
+  fprintf(fp, "]\n\n");
 
   fprintf(fp,
 "[bot]\n"
@@ -773,9 +821,9 @@ int run_setup_wizard(const char *outfile)
 "# Each entry: \"flags channel logfile\"\n"
 "#   flags: m=messages, o=commands, c=channel, b=bots, …\n"
 "entries = [\n"
-"  \"mco * eggdrop.log\",\n"
+"  \"mco * %s\",\n"
 "]\n"
-"\n");
+"\n", logfile);
 
   fprintf(fp,
 "[network]\n"
@@ -788,8 +836,8 @@ int run_setup_wizard(const char *outfile)
 
   fprintf(fp,
 "[security]\n"
-"stealth_telnets = 0\n"
-"require_p       = 0\n"
+"stealth_telnets  = 0\n"
+"require_p        = 0\n"
 "password_timeout = 180\n"
 "# share_unlinks  = 1\n"
 );
@@ -797,12 +845,14 @@ int run_setup_wizard(const char *outfile)
   fclose(fp);
 
   printf("╔══════════════════════════════════════════════╗\n");
-  printf("║  Config written to: %-25s║\n", outfile);
+  printf("║  Config written successfully.                ║\n");
   printf("╠══════════════════════════════════════════════╣\n");
   printf("║  Next steps:                                 ║\n");
-  printf("║    eggdrop -m %s\n", outfile);
-  printf("║  (The -m flag creates your user file.)       ║\n");
-  printf("╚══════════════════════════════════════════════╝\n\n");
+  printf("║    1. Review the generated file.             ║\n");
+  printf("║    2. Create user file:  eggdrop -m <conf>   ║\n");
+  printf("║    3. Start the bot:     eggdrop <conf>      ║\n");
+  printf("╚══════════════════════════════════════════════╝\n");
+  printf("\n  Config file: %s\n\n", outfile);
 
   return 0;
 }
