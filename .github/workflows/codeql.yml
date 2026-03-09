@@ -26,10 +26,10 @@ jobs:
           languages: c
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev tcl-dev
+        run: sudo apt-get update && sudo apt-get install -y meson ninja-build libssl-dev tcl-dev
 
       - name: Build
-        run: ./configure && make config && make -j$(nproc)
+        run: meson setup build && ninja -j$(nproc) -C build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

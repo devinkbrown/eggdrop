@@ -16,27 +16,27 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install clang tcl tcl-dev openssl libssl-dev
+      run: sudo apt-get update && sudo apt-get install clang meson ninja-build tcl tcl-dev openssl libssl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
       if: ${{ matrix.cc == 'gcc' }}
     - name: Build
       env:
         CC: ${{ matrix.cc }}
-      run: ./configure && make config && make -j$(nproc) && make install
+      run: meson setup build && ninja -j$(nproc) -C build
   feature-test:
     name: Features
     continue-on-error: true
     needs: default-build
     strategy:
       matrix:
-        conf_tls: [ '', '--disable-tls' ]
-        conf_ipv6: [ '', '--disable-ipv6' ]
-        conf_tdns: [ '', '--disable-tdns' ]
+        opt_tls:  [ '', '-Dtls=disabled' ]
+        opt_ipv6: [ '', '-Dipv6=false' ]
+        opt_tdns: [ '', '-Dtdns=false' ]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev openssl libssl-dev
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev openssl libssl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
-      run: ./configure ${{ matrix.conf_tls }} ${{ matrix.conf_ipv6 }} ${{ matrix.conf_tdns }} && make config && make -j$(nproc)
+      run: meson setup build ${{ matrix.opt_tls }} ${{ matrix.opt_ipv6 }} ${{ matrix.opt_tdns }} && ninja -j$(nproc) -C build

@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install openssl libssl-dev
+      run: sudo apt-get update && sudo apt-get install meson ninja-build openssl libssl-dev
     - uses: actions/cache@v4
       id: tcl-cache
       with:
@@ -34,19 +34,20 @@ jobs:
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
       run: |
-        ./configure --with-tcl=$HOME/tcl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/tcl/lib make config eggdrop
-        fgrep -q "Tcl version: ${{ matrix.tcl_version }}" configure.log
+        PKG_CONFIG_PATH=$HOME/tcl/lib/pkgconfig \
+          LD_LIBRARY_PATH=$HOME/tcl/lib \
+          meson setup build
+        ninja -j$(nproc) -C build
   ssl-version-098:
     name: OpenSSL 0.9.8
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with: 
+      with:
         path: 'eggdrop'
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/cache@v4
       id: ssl-cache
       with:
@@ -63,19 +64,20 @@ jobs:
     - name: Build
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig \
+          LD_LIBRARY_PATH=$HOME/ssl/lib \
+          meson setup build
+        ninja -j$(nproc) -C build
   ssl-version-10:
     name: OpenSSL 1.0
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with: 
+      with:
         path: 'eggdrop'
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/cache@v4
       id: ssl-cache
       with:
@@ -92,9 +94,10 @@ jobs:
     - name: Build
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig \
+          LD_LIBRARY_PATH=$HOME/ssl/lib \
+          meson setup build
+        ninja -j$(nproc) -C build
   ssl-version-11:
     name: OpenSSL 1.1
     continue-on-error: true
@@ -116,7 +119,7 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/openssl && ./config --prefix=$HOME/ssl && make -j$(nproc) && make install_sw
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
@@ -124,9 +127,10 @@ jobs:
     - name: Build
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig \
+          LD_LIBRARY_PATH=$HOME/ssl/lib \
+          meson setup build
+        ninja -j$(nproc) -C build
   ssl-versions-3x:
     name: OpenSSL 3.x
     strategy:
@@ -162,11 +166,12 @@ jobs:
       with:
         path: 'eggdrop'
     - name: install dependencies
-      run: sudo apt-get update && sudo apt-get install tcl tcl-dev
+      run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        ./configure --with-sslinc=$HOME/ssl/include --with-ssllib=$HOME/ssl/lib64 | tee configure.log
-        LD_LIBRARY_PATH=$HOME/ssl/lib64 make config eggdrop
-        fgrep -q "SSL/TLS Support: yes" configure.log
+        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig:$HOME/ssl/lib64/pkgconfig \
+          LD_LIBRARY_PATH=$HOME/ssl/lib:$HOME/ssl/lib64 \
+          meson setup build
+        ninja -j$(nproc) -C build
