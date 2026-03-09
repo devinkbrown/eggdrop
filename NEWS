@@ -1,5 +1,5 @@
 News
-Last revised: March 8, 2026
+Last revised: March 9, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -17,6 +17,27 @@ Last revised: March 8, 2026
      _________________________________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+ Memory and performance changes:
+    - Replaced glibc malloc with an mmap-backed slab allocator (egg_bh)
+      for the two hottest allocation types: memberlist nodes (one per
+      channel member) and masklist nodes (bans/exempts/invites).
+      Alloc/free is now O(1) with no heap fragmentation; memory is
+      returned to the OS when slabs are destroyed. Exported via new
+      typed functions channel_malloc_member / channel_free_member /
+      channel_malloc_mask / channel_free_mask (channels_funcs[49-52]).
+    - Fixed n_realloc() silently returning NULL on out-of-memory instead
+      of aborting, matching the existing n_malloc() behaviour.
+    - Added n_strdup() / nstrdup() with DEBUG_MEM tracking. Modules
+      gain nstrdup via global[329] with correct MODULE_NAME attribution.
+
+ twitch.mod changes:
+    - Replaced fixed 8191-byte mods, vips, badges, and emote_sets
+      buffers with dynamic char * fields. Each twitchchan_t previously
+      consumed ~40 KB of RSS at startup regardless of channel state and
+      silently truncated large mod or VIP lists at 8190 bytes. Memory is
+      now allocated on first update and released on module unload.
+      twitch_expmem() now reports actual live usage.
 
  Configuration changes:
     - Added TOML configuration format as a modern alternative to the
