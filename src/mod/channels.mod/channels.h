@@ -178,8 +178,14 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define remove_channel ((void (*)(struct chanset_t *))channels_funcs[45])
 #define global_ban_time (*(int *)(channels_funcs[46]))
 #define global_exempt_time (*(int *)(channels_funcs[47]))
-/* 48 - 51 */
+/* 48 - 52 */
 #define global_invite_time (*(int *)(channels_funcs[48]))
+/* Slab-backed typed allocators for the two most allocation-intensive objects.
+ * Use these instead of channel_malloc/nfree for memberlist and masklist nodes. */
+#define channel_malloc_member() ((void *(*)(void))channels_funcs[49])()
+#define channel_free_member(x)  ((void (*)(void *))channels_funcs[50])(x)
+#define channel_malloc_mask()   ((void *(*)(void))channels_funcs[51])()
+#define channel_free_mask(x)    ((void (*)(void *))channels_funcs[52])(x)
 
 #endif /* MAKING_CHANNELS */
 

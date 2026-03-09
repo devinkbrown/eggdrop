@@ -50,12 +50,80 @@ static int gfld_chan_thr, gfld_chan_time, gfld_deop_thr, gfld_deop_time,
            gfld_ctcp_thr, gfld_ctcp_time, gfld_nick_thr, gfld_nick_time;
 
 #include "channels.h"
-#include "cmdschan.c"
-#include "tclchan.c"
-#include "userchan.c"
-#include "udefchan.c"
 
+/* -----------------------------------------------------------------------
+ * Slab heaps for hot-path fixed-size objects.
+ *
+ * memberlist nodes are created/destroyed on every channel JOIN/PART/KICK.
+ * masklist  nodes are created/destroyed on every ban/exempt/invite add/remove.
+ * Routing these through mmap-backed slabs keeps the heap unfragmented and
+ * returns memory to the OS when the slab is destroyed (e.g. on module unload).
+ *
+ * We use explicit typed alloc/free pairs rather than size-based dispatch to
+ * avoid collisions: sizeof(masklist)==32, which is also a valid string length
+ * for 31-character ban masks.
+ *
+ * These functions are defined here, before the unity-build includes below,
+ * so that tclchan.c / cmdschan.c / userchan.c can call them directly.
+ * ----------------------------------------------------------------------- */
+#include "../../compat/balloc.h"
 
+static egg_bh *memberlist_heap = NULL;
+static egg_bh *masklist_heap   = NULL;
+
+static void channel_bh_init(void)
+{
+  /* memberlist: 64 per slab (~28 KB).  sizeof(memberlist) ~= 450 bytes so the
+   * page-auto value is only ~8 — far too few for typical IRC channels (dozens
+   * to hundreds of members).  64 covers most channels in 1–2 slabs and avoids
+   * churning through mmap() calls on busy servers.
+   *
+   * masklist: 0 (auto).  sizeof(masklist) == 32, so auto gives ~127/page —
+   * already the right granularity for a ban/exempt/invite list. */
+  memberlist_heap = egg_bh_create(sizeof(memberlist), 64, "memberlist");
+  masklist_heap   = egg_bh_create(sizeof(masklist),    0, "masklist");
+}
+
+static void channel_bh_destroy(void)
+{
+  if (memberlist_heap) {
+    egg_bh_destroy(memberlist_heap);
+    memberlist_heap = NULL;
+  }
+  if (masklist_heap) {
+    egg_bh_destroy(masklist_heap);
+    masklist_heap = NULL;
+  }
+}
+
+/* Type-specific alloc/free for memberlist nodes.
+ * egg_bh_alloc already zero-fills; callers do not need egg_bzero. */
+static void *channel_malloc_member(void)
+{
+  return egg_bh_alloc(memberlist_heap);
+}
+
+static void channel_free_member(void *ptr)
+{
+  if (!ptr)
+    return;
+  egg_bh_free(memberlist_heap, ptr);
+}
+
+/* Type-specific alloc/free for masklist nodes. */
+static void *channel_malloc_mask(void)
+{
+  return egg_bh_alloc(masklist_heap);
+}
+
+static void channel_free_mask(void *ptr)
+{
+  if (!ptr)
+    return;
+  egg_bh_free(masklist_heap, ptr);
+}
+
+/* General-purpose allocator for variable-length objects (strings etc.). */
 static void *channel_malloc(int size, char *file, int line)
 {
   char *p;
@@ -68,6 +136,12 @@ static void *channel_malloc(int size, char *file, int line)
   egg_bzero(p, size);
   return p;
 }
+
+/* Unity-build includes: these files can call the functions defined above. */
+#include "cmdschan.c"
+#include "tclchan.c"
+#include "userchan.c"
+#include "udefchan.c"
 
 static void set_mode_protect(struct chanset_t *chan, char *set)
 {
@@ -857,6 +931,7 @@ static tcl_strings my_tcl_strings[] = {
 static char *channels_close(void)
 {
   write_channels();
+  channel_bh_destroy();
   free_udef(udef);
   if (lastdeletedmask)
     nfree(lastdeletedmask);
@@ -950,11 +1025,16 @@ static Function channels_table[] = {
   (Function) & global_exempt_time,
   /* 48 - 51 */
   (Function) & global_invite_time,
+  (Function) channel_malloc_member, /* [49] alloc a memberlist node from slab */
+  (Function) channel_free_member,   /* [50] free  a memberlist node back       */
+  (Function) channel_malloc_mask,   /* [51] alloc a masklist  node from slab   */
+  (Function) channel_free_mask,     /* [52] free  a masklist  node back        */
 };
 
 char *channels_start(Function *global_funcs)
 {
   global = global_funcs;
+  channel_bh_init();
 
   gfld_chan_thr = 15;
   gfld_chan_time = 60;

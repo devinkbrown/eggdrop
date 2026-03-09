@@ -636,7 +636,8 @@ Function global_table[] = {
   (Function) dcc_telnet_hostresolved2,
   (Function) findsock,
 /* 328 - 331 */
-  (Function) & stealth_telnets    /* int                                 */
+  (Function) & stealth_telnets,   /* int                                 */
+  (Function) mod_strdup            /* char *(str, modname, file, line)    */
 };
 
 void init_modules(void)
@@ -1061,6 +1062,21 @@ void mod_free(void *ptr, const char *modname, const char *filename, int line)
   egg_snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
   x[19] = 0;
   n_free(ptr, x, line);
+}
+
+char *mod_strdup(const char *str, const char *modname,
+                 const char *filename, int line)
+{
+#ifdef DEBUG_MEM
+  char x[100], *p;
+
+  p = strrchr(filename, '/');
+  egg_snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
+  x[19] = 0;
+  return n_strdup(str, x, line);
+#else
+  return nstrdup(str);
+#endif
 }
 
 /* Hooks, various tables of functions to call on certain events

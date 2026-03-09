@@ -21,6 +21,9 @@
 
 typedef struct egg_bh egg_bh;
 
+/* egg_bh_create: create a slab heap for objects of size elemsize.
+ * elemsperblock: elements per slab; pass 0 to auto-compute so each slab
+ * fills exactly one OS page (recommended for most callers). */
 egg_bh *egg_bh_create(size_t elemsize, int elemsperblock, const char *desc);
 void   *egg_bh_alloc(egg_bh *bh);
 void    egg_bh_free(egg_bh *bh, void *ptr);

@@ -48,7 +48,7 @@ static memberlist *newmember(struct chanset_t *chan)
   memberlist *x;
 
   for (x = chan->channel.member; x && x->nick[0]; x = x->next);
-  x->next = (memberlist *) channel_malloc(sizeof(memberlist));
+  x->next = (memberlist *) channel_malloc_member();
   x->next->next = NULL;
   x->next->nick[0] = 0;
   x->next->split = 0L;
@@ -70,7 +70,7 @@ static void sync_members(struct chanset_t *chan)
         prev->next = next;
       else
         chan->channel.member = next;
-      nfree(m);
+      channel_free_member(m);
       chan->channel.members--;
     } else
       prev = m;

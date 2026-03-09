@@ -80,6 +80,8 @@
  * ----------------------------------------------------------------------- */
 #if defined(HAVE_LIBURING)
 #  include <liburing.h>
+#  include <poll.h>        /* POLLIN, POLLHUP, POLLERR for io_uring_prep_poll_add */
+#  include <sys/epoll.h>   /* epoll for write-readiness detection in io_uring mode */
 #  define EGG_IO_URING 1
 #elif defined(HAVE_EPOLL)
 #  include <sys/epoll.h>

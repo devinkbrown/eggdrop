@@ -137,8 +137,8 @@ egg_bh_grow(egg_bh *bh)
 egg_bh *
 egg_bh_create(size_t elemsize, int elemsperblock, const char *desc)
 {
-	if (elemsize == 0 || elemsperblock <= 0)
-		egg_bh_fail("egg_bh_create: idiotic sizes");
+	if (elemsize == 0)
+		egg_bh_fail("egg_bh_create: elemsize is zero");
 	if (elemsize < sizeof(void *))
 		egg_bh_fail("egg_bh_create: elemsize too small for free-list pointer");
 
@@ -148,16 +148,32 @@ egg_bh_create(size_t elemsize, int elemsperblock, const char *desc)
 	if (bh == NULL)
 		egg_bh_fail("egg_bh_create: malloc failed");
 
-	bh->elemSize      = elemsize;
-	bh->elem_stride   = ALIGN_UP(elemsize, sizeof(void *));
-	bh->elemsPerBlock = (unsigned long)elemsperblock;
+	bh->elemSize    = elemsize;
+	bh->elem_stride = ALIGN_UP(elemsize, sizeof(void *));
 	/* Ensure the data region starts after the slab header, aligned to stride. */
-	bh->data_off      = ALIGN_UP(sizeof(egg_bh_slab_t), bh->elem_stride);
+	bh->data_off    = ALIGN_UP(sizeof(egg_bh_slab_t), bh->elem_stride);
+
+	/* elemsperblock == 0: auto-compute to fill exactly one OS page.
+	 * This keeps slabs at a predictable size regardless of elemsize or
+	 * platform, and avoids hardcoding magic numbers at call sites. */
+	if (elemsperblock <= 0) {
+		size_t usable = (size_t)egg_page_size - bh->data_off;
+		elemsperblock = (int)(usable / bh->elem_stride);
+		if (elemsperblock < 1)
+			elemsperblock = 1;
+	}
+	bh->elemsPerBlock = (unsigned long)elemsperblock;
 	bh->free_head     = NULL;
 	bh->block_list    = NULL;
 	bh->nfree         = 0;
 	bh->nused         = 0;
-	bh->desc          = (desc != NULL) ? strdup(desc) : NULL;
+	if (desc != NULL) {
+		bh->desc = strdup(desc);
+		if (bh->desc == NULL)
+			egg_bh_fail("egg_bh_create: strdup failed for desc");
+	} else {
+		bh->desc = NULL;
+	}
 
 	egg_bh_grow(bh);   /* pre-populate one slab */
 	return bh;
