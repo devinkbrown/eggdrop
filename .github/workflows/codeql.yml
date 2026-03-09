@@ -29,7 +29,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libssl-dev tcl-dev
 
       - name: Build
-        run: ./configure && make config && make -j4
+        run: ./configure && make config && make -j$(nproc)
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
