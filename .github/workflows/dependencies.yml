@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install meson ninja-build openssl libssl-dev
     - uses: actions/cache@v4
       id: tcl-cache
@@ -33,11 +33,9 @@ jobs:
         make -j$(nproc) && make install
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
-      run: |
-        PKG_CONFIG_PATH=$HOME/tcl/lib/pkgconfig \
-          LD_LIBRARY_PATH=$HOME/tcl/lib \
-          meson setup build
-        ninja -j$(nproc) -C build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/tcl/lib/pkgconfig
+      run: meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-version-098:
     name: OpenSSL 0.9.8
     continue-on-error: true
@@ -46,7 +44,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/cache@v4
       id: ssl-cache
@@ -62,12 +60,11 @@ jobs:
         cd openssl-0.9.8zh && ./config --prefix=$HOME/ssl -fPIC && make -j$(nproc) && make install_sw
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig \
-          LD_LIBRARY_PATH=$HOME/ssl/lib \
-          meson setup build
-        ninja -j$(nproc) -C build
+        meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-version-10:
     name: OpenSSL 1.0
     continue-on-error: true
@@ -76,7 +73,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/cache@v4
       id: ssl-cache
@@ -92,12 +89,11 @@ jobs:
         cd openssl-1.0.2u && ./config --prefix=$HOME/ssl -fPIC && make -j$(nproc) && make install_sw
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig \
-          LD_LIBRARY_PATH=$HOME/ssl/lib \
-          meson setup build
-        ninja -j$(nproc) -C build
+        meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-version-11:
     name: OpenSSL 1.1
     continue-on-error: true
@@ -118,19 +114,18 @@ jobs:
       if: steps.ssl-cache.outputs.cache-hit != 'true'
       run: |
         cd $GITHUB_WORKSPACE/openssl && ./config --prefix=$HOME/ssl && make -j$(nproc) && make install_sw
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig \
-          LD_LIBRARY_PATH=$HOME/ssl/lib \
-          meson setup build
-        ninja -j$(nproc) -C build
+        meson setup build --wrap-mode=nodownload && meson compile -C build
   ssl-versions-3x:
     name: OpenSSL 3.x
     strategy:
@@ -165,13 +160,12 @@ jobs:
     - uses: actions/checkout@v4
       with:
         path: 'eggdrop'
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
+      env:
+        PKG_CONFIG_PATH: ${{ env.HOME }}/ssl/lib/pkgconfig:${{ env.HOME }}/ssl/lib64/pkgconfig
       run: |
         cd $GITHUB_WORKSPACE/eggdrop
-        PKG_CONFIG_PATH=$HOME/ssl/lib/pkgconfig:$HOME/ssl/lib64/pkgconfig \
-          LD_LIBRARY_PATH=$HOME/ssl/lib:$HOME/ssl/lib64 \
-          meson setup build
-        ninja -j$(nproc) -C build
+        meson setup build --wrap-mode=nodownload && meson compile -C build

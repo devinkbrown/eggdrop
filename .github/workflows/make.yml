@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install clang meson ninja-build tcl tcl-dev openssl libssl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
       if: ${{ matrix.cc == 'gcc' }}
     - name: Build
       env:
         CC: ${{ matrix.cc }}
-      run: meson setup build && ninja -j$(nproc) -C build
+      run: meson setup build --wrap-mode=nodownload && meson compile -C build
   feature-test:
     name: Features
     continue-on-error: true
@@ -35,8 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: install dependencies
+    - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev openssl libssl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
-      run: meson setup build ${{ matrix.opt_tls }} ${{ matrix.opt_ipv6 }} ${{ matrix.opt_tdns }} && ninja -j$(nproc) -C build
+      run: meson setup build --wrap-mode=nodownload ${{ matrix.opt_tls }} ${{ matrix.opt_ipv6 }} ${{ matrix.opt_tdns }} && meson compile -C build

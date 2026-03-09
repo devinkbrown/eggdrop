@@ -29,7 +29,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y meson ninja-build libssl-dev tcl-dev
 
       - name: Build
-        run: meson setup build && ninja -j$(nproc) -C build
+        run: meson setup build --wrap-mode=nodownload && meson compile -C build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
