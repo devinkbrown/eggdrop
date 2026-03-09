@@ -5,9 +5,9 @@ project('eggdrop', 'c',
     'c_std=gnu99',
     'warning_level=1',
     'b_pie=false',
-    'optimization=2',
-    'b_lto=true',           # cross-file inlining + dead code elimination
-    'b_ndebug=if-release',  # strip assert() in non-debug builds
+    'buildtype=debugoptimized',  # -O2 + -g; release builds add -O3 via --buildtype=release
+    'b_lto=true',                # cross-file inlining + dead code elimination
+    'b_ndebug=if-release',       # strip assert() in non-debug builds
   ],
   meson_version: '>=0.57.0',
 )
@@ -450,6 +450,7 @@ summary({
   'Compress module': have_zlib,
   'Static modules': opt_static,
   'Native CPU opt': opt_native,
+  'LTO':            get_option('b_lto'),
   'Executable':     opt_exec,
   'HANDLEN':        opt_handlen,
   'I/O backend':    _io_backend,
