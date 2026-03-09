@@ -167,7 +167,13 @@ egg_bh_create(size_t elemsize, int elemsperblock, const char *desc)
 	bh->block_list    = NULL;
 	bh->nfree         = 0;
 	bh->nused         = 0;
-	bh->desc          = (desc != NULL) ? strdup(desc) : NULL;
+	if (desc != NULL) {
+		bh->desc = strdup(desc);
+		if (bh->desc == NULL)
+			egg_bh_fail("egg_bh_create: strdup failed for desc");
+	} else {
+		bh->desc = NULL;
+	}
 
 	egg_bh_grow(bh);   /* pre-populate one slab */
 	return bh;

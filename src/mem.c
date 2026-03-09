@@ -387,8 +387,9 @@ void *n_realloc(void *ptr, int size, const char *file, int line)
 
   x = (void *) realloc(ptr, size);
   if (x == NULL && size > 0) {
-    putlog(LOG_MISC, "*", "*** FAILED REALLOC %s (%d)", file, line);
-    return NULL;
+    putlog(LOG_MISC, "*", "*** FAILED REALLOC %s (%d) (%d): %s", file, line,
+           size, strerror(errno));
+    fatal("Memory reallocation failed", 0);
   }
 #ifdef DEBUG_MEM
   for (i = 0; (i < lastused) && (memtbl[i].ptr != ptr); i++);
@@ -440,4 +441,25 @@ void n_free(void *ptr, const char *file, int line)
   }
 #endif
   free(ptr);
+}
+
+/* n_strdup -- abort-on-OOM strdup.
+ * Implemented via n_malloc so DEBUG_MEM tracking is consistent with
+ * nmalloc/nfree: the allocation appears as a normal n_malloc entry and
+ * must be freed with nfree, not free().
+ */
+char *n_strdup(const char *str, const char *file, int line)
+{
+  size_t len;
+  char  *p;
+
+  if (str == NULL) {
+    putlog(LOG_MISC, "*", "*** ATTEMPTING TO STRDUP NULL PTR: %s (%d)",
+           file, line);
+    fatal("Null pointer passed to n_strdup", 0);
+  }
+  len = strlen(str) + 1;
+  p   = (char *) n_malloc((int)len, file, line);
+  memcpy(p, str, len);
+  return p;
 }

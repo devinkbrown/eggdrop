@@ -225,7 +225,8 @@ int cron_match(const char *, const char *);
 /* mem.c */
 void *n_malloc(int, const char *, int);
 void *n_realloc(void *, int, const char *, int);
-void n_free(void *, const char *, int);
+void  n_free(void *, const char *, int);
+char *n_strdup(const char *, const char *, int);
 void tell_mem_status(char *);
 void tell_mem_status_dcc(int);
 void debug_mem_to_dcc(int);
