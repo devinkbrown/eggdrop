@@ -382,11 +382,25 @@ endif
 
 # -march=native / -mcpu=native: tune for the exact CPU running the build.
 # Non-portable — disable when cross-compiling or building for distribution.
+#
+# Flag selection by architecture:
+#   ARM / AArch64 / PowerPC  →  -mcpu=native  (sets core type + tune)
+#   x86 / x86_64 / RISC-V / MIPS / s390x / everything else  →  -march=native
+#
+# cc.has_argument() probes the compiler so the build never silently passes
+# an unsupported flag.
 if opt_native
-  _march = (host_machine.cpu_family() in ['aarch64', 'arm'])  \
-           ? '-mcpu=native' : '-march=native'
-  if cc.has_argument(_march)
-    add_project_arguments(_march, language: 'c')
+  _cpu = host_machine.cpu_family()
+  if _cpu in ['aarch64', 'arm', 'ppc', 'ppc64']
+    _tune_flag = '-mcpu=native'
+  else
+    _tune_flag = '-march=native'
+  endif
+  if cc.has_argument(_tune_flag)
+    add_project_arguments(_tune_flag, language: 'c')
+    message('native-opt: tuning with ' + _tune_flag + ' (cpu_family=' + _cpu + ')')
+  else
+    warning('native-opt: ' + _tune_flag + ' not supported by this compiler; skipped')
   endif
 endif
 

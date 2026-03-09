@@ -84,9 +84,11 @@ devinkbrown fork (based on v1.10.1):
       actually referenced are linked, reducing startup time and avoiding
       spurious dlopen dependencies.
     - Added native-opt build option (default off): pass
-      -Dopts=native-opt=true to meson to tune the binary for the exact
-      CPU running the build (-march=native on x86_64, -mcpu=native on
-      ARM/AArch64). Non-portable; not for distribution builds.
+      -Dnative-opt=true to meson to tune the binary for the exact CPU
+      running the build. Flag selected automatically by architecture:
+      -march=native on x86/x86_64/RISC-V/MIPS/s390x, -mcpu=native on
+      ARM/AArch64/PowerPC (sets core type and tune in one flag).
+      Non-portable; not for distribution builds.
     - Module shared objects now built with -fvisibility=hidden so that
       all internal symbols are private. Module entry points are marked
       with EXPORT_SCOPE which expands to

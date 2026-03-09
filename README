@@ -92,7 +92,8 @@ FORK NOTICE
       applied globally (eggdrop uses void*/char* casts); -Wl,--as-needed
       on ELF platforms; module .so files built with -fvisibility=hidden
       so only entry points are exported. Optional -march=native tuning
-      via -Dnative-opt=true (off by default).
+      via -Dnative-opt=true (off by default; -mcpu=native on
+      ARM/AArch64/PowerPC, -march=native everywhere else).
     - Various bug fixes and patches under review for upstream inclusion
 
   Issues and changes specific to this fork should be reported at the
