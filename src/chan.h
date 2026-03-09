@@ -156,6 +156,10 @@ struct chan_t {
 #define CHANINVIS  0x40000 /* d - QuakeNet's asuka     */
 #define CHANNOAMSG 0x80000 /* T - QuakeNet's snircd    */
 
+/* Forward declaration: full definition lives in patricia.h.
+ * chan.h only needs pointer-size, so the header isn't pulled in here. */
+struct _egg_patricia_tree_t;
+
 struct chanset_t {
   struct chanset_t *next;
   struct chan_t channel;
@@ -193,6 +197,9 @@ struct chanset_t {
   maskrec *bans,         /* temporary channel bans            */
           *exempts,      /* temporary channel exempts         */
           *invites;      /* temporary channel invites         */
+  struct _egg_patricia_tree_t *ban_ip_trie;    /* CIDR ban fast path    */
+  struct _egg_patricia_tree_t *exempt_ip_trie; /* CIDR exempt fast path */
+  struct _egg_patricia_tree_t *invite_ip_trie; /* CIDR invite fast path */
   int mode_pls_prot;     /* modes to enforce                  */
   int mode_mns_prot;     /* modes to reject                   */
   int limit_prot;        /* desired limit                     */

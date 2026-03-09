@@ -223,7 +223,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
     return;
   }
   if (use_exempts && (u_match_mask(global_exempts, s) ||
-      u_match_mask(chan->exempts, s))) {
+      u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, s))) {
     dprintf(idx, "%s is permanently exempted!\n", nick);
     return;
   }
