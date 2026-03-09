@@ -389,6 +389,7 @@ endif
 #
 # cc.has_argument() probes the compiler so the build never silently passes
 # an unsupported flag.
+_native_summary = 'off'
 if opt_native
   _cpu = host_machine.cpu_family()
   if _cpu in ['aarch64', 'arm', 'ppc', 'ppc64']
@@ -398,8 +399,9 @@ if opt_native
   endif
   if cc.has_argument(_tune_flag)
     add_project_arguments(_tune_flag, language: 'c')
-    message('native-opt: tuning with ' + _tune_flag + ' (cpu_family=' + _cpu + ')')
+    _native_summary = _tune_flag + '  (cpu_family=' + _cpu + ')'
   else
+    _native_summary = 'unsupported by compiler'
     warning('native-opt: ' + _tune_flag + ' not supported by this compiler; skipped')
   endif
 endif
@@ -449,7 +451,7 @@ summary({
   'Python module':  have_python,
   'Compress module': have_zlib,
   'Static modules': opt_static,
-  'Native CPU opt': opt_native,
+  'Native CPU opt': _native_summary,
   'LTO':            get_option('b_lto'),
   'Executable':     opt_exec,
   'HANDLEN':        opt_handlen,
