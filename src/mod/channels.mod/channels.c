@@ -68,19 +68,15 @@ static int gfld_chan_thr, gfld_chan_time, gfld_deop_thr, gfld_deop_time,
  * ----------------------------------------------------------------------- */
 #include "../../compat/balloc.h"
 
-/* Elements per slab — tuned for typical busy IRC channels. */
-#define MEMBERLIST_SLAB_EPB 128
-#define MASKLIST_SLAB_EPB    64
-
 static egg_bh *memberlist_heap = NULL;
 static egg_bh *masklist_heap   = NULL;
 
 static void channel_bh_init(void)
 {
-  memberlist_heap = egg_bh_create(sizeof(memberlist), MEMBERLIST_SLAB_EPB,
-                                  "memberlist");
-  masklist_heap   = egg_bh_create(sizeof(masklist),   MASKLIST_SLAB_EPB,
-                                  "masklist");
+  /* Pass elemsperblock=0: egg_bh_create auto-computes EPB so each slab
+   * fills exactly one OS page, growing new slabs dynamically on demand. */
+  memberlist_heap = egg_bh_create(sizeof(memberlist), 0, "memberlist");
+  masklist_heap   = egg_bh_create(sizeof(masklist),   0, "masklist");
 }
 
 static void channel_bh_destroy(void)
