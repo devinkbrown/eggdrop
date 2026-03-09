@@ -323,8 +323,11 @@ static int tcl_mkdir STDVAR
   fdbe = filedb_matchfile(fdb, ftell(fdb), p);
 
   if (!fdbe) {
-    t = nmalloc(strlen(dccdir) + strlen(d) + strlen(p) + 2);
-    snprintf(t, sizeof(t), "%s%s/%s", dccdir, d, p);
+    {
+      size_t tlen = strlen(dccdir) + strlen(d) + strlen(p) + 2;
+      t = nmalloc(tlen);
+      snprintf(t, tlen, "%s%s/%s", dccdir, d, p);
+    }
     if (mkdir(t, 0755) != 0) {
       Tcl_AppendResult(irp, "1", NULL);
       my_free(t);
@@ -411,12 +414,15 @@ static int tcl_rmdir STDVAR
     return TCL_OK;
   }
   /* Erase '.filedb' and '.files' if they exist */
-  t = nmalloc(strlen(dccdir) + strlen(d) + strlen(p) + 11);
-  snprintf(t, sizeof(t), "%s%s/%s/.filedb", dccdir, d, p);
-  unlink(t);
-  snprintf(t, sizeof(t), "%s%s/%s/.files", dccdir, d, p);
-  unlink(t);
-  snprintf(t, sizeof(t), "%s%s/%s", dccdir, d, p);
+  {
+    size_t tlen = strlen(dccdir) + strlen(d) + strlen(p) + 11;
+    t = nmalloc(tlen);
+    snprintf(t, tlen, "%s%s/%s/.filedb", dccdir, d, p);
+    unlink(t);
+    snprintf(t, tlen, "%s%s/%s/.files", dccdir, d, p);
+    unlink(t);
+    snprintf(t, tlen, "%s%s/%s", dccdir, d, p);
+  }
   my_free(s);
   if (rmdir(t) == 0) {
     filedb_delfile(fdb, fdbe->pos);
@@ -533,14 +539,18 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
     where = ftell(fdb_old);
     skip_this = 0;
     if (!(fdbe_old->stat & (FILE_HIDDEN | FILE_DIR))) {
-      s = nmalloc(strlen(dccdir) + strlen(oldpath)
-                  + strlen(fdbe_old->filename) + 2);
-      s1 = nmalloc(strlen(dccdir) + strlen(newpath)
-                   + strlen(newfn[0] ? newfn : fdbe_old->filename) + 2);
-      snprintf(s, sizeof(s), "%s%s%s%s", dccdir, oldpath,
-              oldpath[0] ? "/" : "", fdbe_old->filename);
-      snprintf(s1, sizeof(s1), "%s%s%s%s", dccdir, newpath,
-              newpath[0] ? "/" : "", newfn[0] ? newfn : fdbe_old->filename);
+      {
+        size_t slen = strlen(dccdir) + strlen(oldpath)
+                      + strlen(fdbe_old->filename) + 2;
+        size_t s1len = strlen(dccdir) + strlen(newpath)
+                       + strlen(newfn[0] ? newfn : fdbe_old->filename) + 2;
+        s = nmalloc(slen);
+        s1 = nmalloc(s1len);
+        snprintf(s, slen, "%s%s%s%s", dccdir, oldpath,
+                oldpath[0] ? "/" : "", fdbe_old->filename);
+        snprintf(s1, s1len, "%s%s%s%s", dccdir, newpath,
+                newpath[0] ? "/" : "", newfn[0] ? newfn : fdbe_old->filename);
+      }
       if (!strcmp(s, s1)) {
         Tcl_AppendResult(irp, "-3", NULL);      /* Stupid copy to self */
         skip_this = 1;
