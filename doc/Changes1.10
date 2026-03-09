@@ -1,5 +1,5 @@
 
-Eggdrop Changes (Last Updated 2026-03-08):
+Eggdrop Changes (Last Updated 2026-03-09):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
@@ -42,6 +42,30 @@ devinkbrown fork (based on v1.10.1):
                and I/O backend table
 
 Eggdrop v1.10.1:
+
+  2026-03-09 * twitch.mod: replace fixed 8191-byte mods/vips/badges/emote_sets
+               buffers with dynamic char * allocations.  Each twitchchan_t
+               previously wasted ~40 KB of RSS at startup regardless of
+               channel content and silently truncated large mod/VIP lists.
+               Memory is now allocated on first update and freed on module
+               unload.  twitch_expmem() now reports actual live usage.
+               [Patch by: devinkbrown]
+
+  2026-03-09 * channels.mod/irc.mod: add mmap-backed slab allocator
+               (egg_bh) for memberlist and masklist nodes.  Hot-path
+               alloc/free drops from glibc malloc overhead to an
+               intrusive free-list pop/push.  Memory is returned to the
+               OS when a slab is destroyed rather than held in the
+               malloc arena.  Typed allocator functions (channel_malloc_member,
+               channel_free_member, channel_malloc_mask, channel_free_mask)
+               are exported via channels_funcs[49-52] for use by irc.mod.
+               [Patch by: devinkbrown]
+
+  2026-03-09 * mem: fix n_realloc() silently returning NULL on OOM instead
+               of aborting like n_malloc(); add n_strdup() / nstrdup()
+               tracked by DEBUG_MEM.  Modules gain nstrdup via global[329]
+               with correct MODULE_NAME attribution.
+               [Patch by: devinkbrown]
 
   2026-03-07 * Add kqueue I/O back-end for macOS/BSD (FreeBSD, OpenBSD,
                NetBSD). Replaces select() on those platforms with a
