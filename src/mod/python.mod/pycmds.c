@@ -304,8 +304,8 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   Py_INCREF(callback);
 
   bind = PyObject_New(PythonBind, &PythonBindType);
-  bind->mask = strdup(mask);
-  bind->flags = strdup(flags);
+  bind->mask = nstrdup(mask);
+  bind->flags = nstrdup(flags);
   bind->bindtable = tl;
   bind->callback = callback;
   hash = PyObject_Hash((PyObject *)bind);
