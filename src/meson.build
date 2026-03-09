@@ -84,13 +84,6 @@ core_sources = files(
   'users.c',
 )
 
-# Optional new data-structure sources (from ophion import)
-foreach s : ['patricia.c', 'dictionary.c']
-  if fs.exists(meson.current_source_dir() / s)
-    core_sources += files(s)
-  endif
-endforeach
-
 # -------------------------------------------------------------------------
 # Core compile flags
 # -------------------------------------------------------------------------
