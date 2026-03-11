@@ -46,6 +46,7 @@ md5_lib = static_library('eggmd5',
   sources: ['md5/md5c.c'],
   include_directories: [top_inc, src_inc],
   c_args: ['-DHAVE_CONFIG_H'],
+  dependencies: [tcl_dep],
 )
 md5_dep = declare_dependency(link_with: md5_lib)
 
