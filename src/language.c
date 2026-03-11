@@ -380,25 +380,32 @@ int del_lang_section(char *section)
 
 static char *get_specific_langfile(char *language, lang_sec *sec)
 {
-  char *ldir = getenv("EGG_LANGDIR");
+  char *env_ldir = getenv("EGG_LANGDIR");
   char *langfile;
+  const char *dirs[2];
+  int i, ndirs = 0;
 
-  if (!ldir)
-    ldir = LANGDIR;
-  {
-    size_t lflen = strlen(ldir) + strlen(sec->section) + strlen(language) + 8;
+  if (env_ldir) {
+    dirs[ndirs++] = env_ldir;
+  } else {
+    dirs[ndirs++] = LANGDIR;
+#ifdef EGG_DATADIR
+    dirs[ndirs++] = EGG_DATADIR "/language";
+#endif
+  }
+
+  for (i = 0; i < ndirs; i++) {
+    size_t lflen = strlen(dirs[i]) + strlen(sec->section) + strlen(language) + 8;
     langfile = nmalloc(lflen);
-    snprintf(langfile, lflen, "%s/%s.%s.lang", ldir, sec->section, language);
+    snprintf(langfile, lflen, "%s/%s.%s.lang", dirs[i], sec->section, language);
+    if (file_readable(langfile)) {
+      /* Save language used for this section */
+      sec->lang = nrealloc(sec->lang, strlen(language) + 1);
+      strlcpy(sec->lang, language, sizeof(sec->lang));
+      return langfile;
+    }
+    nfree(langfile);
   }
-
-  if (file_readable(langfile)) {
-    /* Save language used for this section */
-    sec->lang = nrealloc(sec->lang, strlen(language) + 1);
-    strlcpy(sec->lang, language, sizeof(sec->lang));
-    return langfile;
-  }
-
-  nfree(langfile);
   return NULL;
 }
 

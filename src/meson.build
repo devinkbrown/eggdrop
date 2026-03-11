@@ -98,6 +98,7 @@ core_cargs = [
   '-DHAVE_CONFIG_H',
   '-DEGG_VERSION="@0@"'.format(meson.project_version()),
   '-DHANDLEN=@0@'.format(opt_handlen),
+  '-DEGG_DATADIR="@0@"'.format(get_option('prefix') / get_option('datadir') / 'eggdrop'),
 ]
 
 # -DDEBUG_MEM is eggdrop-specific (memory tracking); the generic -DDEBUG/-g
