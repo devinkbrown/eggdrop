@@ -754,6 +754,12 @@ const char *module_load(char *name)
   } else {
     snprintf(workbuf, sizeof workbuf, "%s%s." EGG_MOD_EXT, moddir, name);
   }
+#ifdef EGG_MODDIR
+  /* Fall back to the compiled-in install directory if the configured path
+   * doesn't exist (e.g. running an installed binary from an arbitrary CWD). */
+  if (access(workbuf, F_OK) != 0)
+    snprintf(workbuf, sizeof workbuf, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
+#endif
 
 #  ifdef MOD_USE_SHL
   hand = shl_load(workbuf, BIND_IMMEDIATE, 0L);

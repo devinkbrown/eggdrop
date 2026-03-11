@@ -813,7 +813,11 @@ int run_setup_wizard(const char *outfile)
 "userfile = \"%s\"\n"
 "chanfile  = \"%s\"\n"
 "help_path = \"help/\"\n"
+#ifdef EGG_MODDIR
+"mod_path  = \"" EGG_MODDIR "/\"\n"
+#else
 "mod_path  = \"modules/\"\n"
+#endif
 "\n", userfile, chanfile);
 
   fprintf(fp,
