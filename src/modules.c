@@ -122,7 +122,7 @@ void check_static(char *name, char *(*func) ())
   struct static_list *p = nmalloc(sizeof(struct static_list));
 
   p->name = nmalloc(strlen(name) + 1);
-  strlcpy(p->name, name, sizeof(p->name));
+  strlcpy(p->name, name, strlen(name) + 1);
   p->func = func;
   p->next = static_modules;
   static_modules = p;
@@ -646,7 +646,7 @@ void init_modules(void)
 
   module_list = nmalloc(sizeof(module_entry));
   module_list->name = nmalloc(8);
-  strlcpy(module_list->name, "eggdrop", sizeof(module_list->name));
+  strlcpy(module_list->name, "eggdrop", strlen("eggdrop") + 1);
   module_list->major = (egg_numver) / 10000;
   module_list->minor = (egg_numver / 100) % 100;
 #ifndef STATIC
@@ -864,7 +864,7 @@ const char *module_load(char *name)
   if (p == NULL)
     return "Malloc error";
   p->name = nmalloc(strlen(name) + 1);
-  strlcpy(p->name, name, sizeof(p->name));
+  strlcpy(p->name, name, strlen(name) + 1);
   p->major = 0;
   p->minor = 0;
 #ifndef STATIC
@@ -971,7 +971,7 @@ static int module_rename(char *name, char *newname)
     if (!strcasecmp(name, p->name)) {
       nfree(p->name);
       p->name = nmalloc(strlen(newname) + 1);
-      strlcpy(p->name, newname, sizeof(p->name));
+      strlcpy(p->name, newname, strlen(newname) + 1);
       return 1;
     }
   }
