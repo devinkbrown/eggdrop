@@ -322,6 +322,13 @@ _ddir = get_option('datadir') / 'eggdrop'
 install_subdir(_root / 'scripts',  install_dir: _ddir, strip_directory: true)
 install_subdir(_root / 'help',     install_dir: _ddir, strip_directory: true)
 install_subdir(_root / 'language', install_dir: _ddir, strip_directory: true)
+# Module-specific language files (console, notes, transfer, filesys, assoc)
+foreach _mod : ['assoc', 'console', 'filesys', 'notes', 'transfer']
+  _modlang = meson.current_source_dir() / 'mod' / _mod + '.mod' / 'language'
+  if fs.is_dir(_modlang)
+    install_subdir(_modlang, install_dir: _ddir / 'language', strip_directory: true)
+  endif
+endforeach
 # TOML configuration files — primary format, no chmod required.
 install_data(_root / 'eggdrop.toml',       install_dir: _ddir)
 install_data(_root / 'eggdrop-basic.toml', install_dir: _ddir)

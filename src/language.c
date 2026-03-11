@@ -125,7 +125,7 @@ static void add_lang(char *lang)
   /* No existing entry, create a new one */
   lp = nmalloc(sizeof(lang_pri));
   lp->lang = nmalloc(strlen(lang) + 1);
-  strlcpy(lp->lang, lang, sizeof(lp->lang));
+  strlcpy(lp->lang, lang, strlen(lang) + 1);
   lp->next = NULL;
 
   /* If we have other entries, point to the beginning of the old list */
@@ -168,7 +168,7 @@ static int add_message(int lidx, char *ltext)
     if (l->idx && (l->idx == lidx)) {
       nfree(l->text);
       l->text = nmalloc(strlen(ltext) + 1);
-      strlcpy(l->text, ltext, sizeof(l->text));
+      strlcpy(l->text, ltext, strlen(ltext) + 1);
       return 1;
     }
     if (!l->next)
@@ -182,7 +182,7 @@ static int add_message(int lidx, char *ltext)
     l = langtab[lidx & 63] = nmalloc(sizeof(lang_tab));
   l->idx = lidx;
   l->text = nmalloc(strlen(ltext) + 1);
-  strlcpy(l->text, ltext, sizeof(l->text));
+  strlcpy(l->text, ltext, strlen(ltext) + 1);
   l->next = 0;
   return 0;
 }
@@ -328,7 +328,7 @@ void add_lang_section(char *section)
   /* Create new section entry */
   ls = nmalloc(sizeof(lang_sec));
   ls->section = nmalloc(strlen(section) + 1);
-  strlcpy(ls->section, section, sizeof(ls->section));
+  strlcpy(ls->section, section, strlen(section) + 1);
   ls->lang = NULL;
   ls->next = NULL;
 
@@ -401,7 +401,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
     if (file_readable(langfile)) {
       /* Save language used for this section */
       sec->lang = nrealloc(sec->lang, strlen(language) + 1);
-      strlcpy(sec->lang, language, sizeof(sec->lang));
+      strlcpy(sec->lang, language, strlen(language) + 1);
       return langfile;
     }
     nfree(langfile);
