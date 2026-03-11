@@ -295,7 +295,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
         else
           firewallport = atoi(s);
       } else
-        strlcpy(st->str, s, sizeof(st->str));
+        strlcpy(st->str, s, abs(st->max) + 1);
       if ((st->flags) && (s[0])) {
         if (st->str[strlen(st->str) - 1] != '/')
           strcat(st->str, "/");
