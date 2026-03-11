@@ -250,7 +250,7 @@ static void read_lang(char *langfile)
         continue;
       }
       if ((ctmp = strchr(lbuf, ',')))
-        strlcpy(ltext, ctmp + 1, sizeof(ltext));
+        strlcpy(ltext, ctmp + 1, ltextsize);
       else 
         putlog(LOG_MISC, "*", "LANG: Malformed text line (missing ,) in %s at %d.",
                langfile, lline);
@@ -260,7 +260,7 @@ static void read_lang(char *langfile)
         ltextsize += sizeof lbuf;
         ltext = nrealloc(ltext, ltextsize);
       }
-      strlcpy(ltext + len, lbuf, sizeof(ltext) - len);
+      strlcpy(ltext + len, lbuf, ltextsize - len);
     }
     if ((ctmp = strchr(ltext, '\n'))) {
       lline++;
@@ -472,7 +472,7 @@ int cmd_loadlanguage(struct userrec *u, int idx, char *par)
   if (idx != DP_LOG)
     putlog(LOG_CMDS, "*", "#%s# language %s", dcc[idx].nick, par);
   buf = nmalloc(strlen(par) + 1);
-  strlcpy(buf, par, sizeof(buf));
+  strlcpy(buf, par, strlen(par) + 1);
   if (!split_lang(buf, &lang, &section)) {
     nfree(buf);
     dprintf(idx, "Invalid parameter %s.\n", par);
@@ -666,7 +666,7 @@ static int tcl_language STDVAR
   BADARGS(2, 2, " language");
 
   buf = nmalloc(strlen(argv[1]) + 1);
-  strlcpy(buf, argv[1], sizeof(buf));
+  strlcpy(buf, argv[1], strlen(argv[1]) + 1);
 
   if (!split_lang(buf, &lang, &section)) {
     Tcl_SetResult(irp, "Invalid parameter", TCL_STATIC);
