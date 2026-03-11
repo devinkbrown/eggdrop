@@ -91,6 +91,7 @@ egg_dictionary *egg_dictionary_create(const char *name,
 	DCF compare_cb)
 {
 	egg_dictionary *dtree = (egg_dictionary *) nmalloc(sizeof(egg_dictionary));
+	memset(dtree, 0, sizeof(egg_dictionary));
 
 	dtree->compare_cb = compare_cb;
 	dtree->id = nstrdup(name);
