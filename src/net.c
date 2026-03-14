@@ -1572,11 +1572,12 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     {
       struct __kernel_timespec ts;
       struct io_uring_cqe *cqes[URING_BATCH];
+      struct io_uring_cqe *cqe_wait;
       unsigned nready, k;
       ts.tv_sec  = t.tv_sec;
       ts.tv_nsec = t.tv_usec * 1000L;
       call_hook(HOOK_PRE_SELECT);
-      x = io_uring_wait_cqe_timeout(&egg_ring, NULL, &ts);
+      x = io_uring_wait_cqe_timeout(&egg_ring, &cqe_wait, &ts);
       call_hook(HOOK_POST_SELECT);
       if (x == -ETIME) x = 0;
       else if (x < 0) x = (errno == EINTR) ? 0 : -1;
