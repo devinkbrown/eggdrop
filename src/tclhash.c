@@ -444,7 +444,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   tc->flags.match = FR_GLOBAL | FR_CHAN;
   break_down_flags(flags, &(tc->flags), NULL);
   tc->func_name = nmalloc(strlen(proc) + 1);
-  strlcpy(tc->func_name, proc, sizeof(tc->func_name));
+  strlcpy(tc->func_name, proc, strlen(proc) + 1);
 
   /* Link into linked list of the bind's command list. */
   tc->next = tm->first;
