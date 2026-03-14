@@ -112,8 +112,8 @@ notefile  = "LamestBot.notes"
 # Directory containing help files.
 help_path = "help/"
 
-# Directory for temporary files.
-tempdir   = "/tmp"
+# Directory for temporary files (unused variable — omit unless a module needs it).
+# temp = "/tmp"
 
 # Directory containing compiled module (.so / .dll) files.
 mod_path  = "modules/"
@@ -166,5 +166,26 @@ stealth_telnets = 0
 # Require users to send a password before the bot accepts DCC chat.
 require_p = 0
 
-# Seconds before an unverified DCC chat request times out.
-password_timeout = 180
+# ---------------------------------------------------------------------------
+# TCL
+# Two ways to embed Tcl in the config:
+#
+#   commands = [...]      one-liners (unbind, listen, channel set, …)
+#   code = """…"""        multi-line script block (procs, bind calls, …)
+#
+# Both run after all settings are applied.
+# ---------------------------------------------------------------------------
+
+[tcl]
+commands = [
+  # Disable the 'simul' partyline command (security best practice).
+  "unbind dcc n simul *dcc:simul",
+]
+
+# Multi-line Tcl — uncomment to add procs, binds, etc.:
+# code = """
+# proc greet_join {nick host hand chan} {
+#   putserv "PRIVMSG $chan :Welcome, $nick!"
+# }
+# bind join - * greet_join
+# """

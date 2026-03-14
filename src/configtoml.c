@@ -200,6 +200,29 @@ static void run_tcl_cmd(const char *cmd)
 typedef void (*ArrayCb)(const char *item, void *ud);
 
 /*
+ * Returns 1 if a triple-quoted string (which must begin with """ or ''')
+ * contains its closing triple-quote.  Used to detect whether the value
+ * spans multiple lines and needs further line accumulation.
+ */
+static int triplestr_is_complete(const char *s)
+{
+  char q;
+  if (!s || (s[0] != '"' && s[0] != '\'') || s[1] != s[0] || s[2] != s[0])
+    return 1; /* not a triple-quoted string — treat as complete */
+  q = s[0];
+  s += 3;
+  /* Skip an immediate newline per TOML spec. */
+  if (*s == '\n') s++;
+  while (*s) {
+    if (s[0] == q && s[1] == q && s[2] == q)
+      return 1;
+    if (q == '"' && *s == '\\') s++; /* skip escaped char */
+    if (*s) s++;
+  }
+  return 0;
+}
+
+/*
  * Returns 1 if the string (which must begin with '[') contains a closing ']'
  * that is not inside a string or nested array.  Used to detect whether an
  * array value spans multiple lines and needs further accumulation.
@@ -494,6 +517,15 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         parse_string_array(value, cb_tcl_eval, NULL);
         return;
       }
+      /* [tcl] code = """..."""  — evaluate a multi-line Tcl script block.
+       * The value has already been unquoted by parse_value() / parse_quoted(),
+       * so we receive the raw Tcl text and can eval it directly.  This is
+       * more ergonomic than the commands array for proc definitions and other
+       * multi-statement code. */
+      if (strcmp(key, "code") == 0) {
+        run_tcl_cmd(value);
+        return;
+      }
       break;
 
     default:
@@ -576,30 +608,47 @@ int readtomlconfig(const char *fname)
     strlcpy(key, k, sizeof key);
 
     /*
-     * Multi-line array: if the value starts with '[' but the closing ']'
-     * is not yet present (e.g. the array spans multiple lines or contains
-     * triple-quoted strings), keep reading lines until the array is complete.
-     * This is required for [tcl] commands that include proc definitions.
+     * Multi-line value accumulation.
+     *
+     * Arrays: if the value starts with '[' but the closing ']' is not yet
+     * present, keep reading lines until the array is complete.  Required for
+     * [tcl] commands arrays that contain proc definitions.
+     *
+     * Triple-quoted strings: if the value starts with """ or ''' but the
+     * closing triple-quote is not yet present, accumulate lines likewise.
+     * Required for [tcl] code = """...""" multi-line Tcl script blocks.
      */
-    if (*v == '[' && !array_is_complete(v)) {
-      strlcpy(ml_value, v, sizeof ml_value);
-      while (!array_is_complete(ml_value)) {
-        if (!fgets(line, sizeof line, fp))
-          break;
-        lineno++;
-        /*
-         * Append the raw line (trimmed of newline only, NOT of leading '#').
-         * Lines beginning with '#' may be Tcl comments inside a triple-quoted
-         * string and must not be discarded.  parse_string_array() handles
-         * TOML-level '#' comments between array elements by skipping to EOL.
-         */
-        size_t llen = strlen(line);
-        while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
-          line[--llen] = '\0';
-        strlcat(ml_value, "\n", sizeof ml_value);
-        strlcat(ml_value, line, sizeof ml_value);
+    {
+      int needs_accum = 0;
+      int is_array = (*v == '[');
+      int is_triplestr = (!is_array &&
+                         ((*v == '"' && v[1] == '"' && v[2] == '"') ||
+                          (*v == '\'' && v[1] == '\'' && v[2] == '\'')));
+      if (is_array && !array_is_complete(v))
+        needs_accum = 1;
+      if (is_triplestr && !triplestr_is_complete(v))
+        needs_accum = 1;
+
+      if (needs_accum) {
+        strlcpy(ml_value, v, sizeof ml_value);
+        for (;;) {
+          int done = is_array ? array_is_complete(ml_value)
+                              : triplestr_is_complete(ml_value);
+          if (done) break;
+          if (!fgets(line, sizeof line, fp)) break;
+          lineno++;
+          /*
+           * Append the raw line (newline stripped, but NOT leading '#').
+           * Tcl comments inside triple-quoted strings must not be discarded.
+           */
+          size_t llen = strlen(line);
+          while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
+            line[--llen] = '\0';
+          strlcat(ml_value, "\n", sizeof ml_value);
+          strlcat(ml_value, line, sizeof ml_value);
+        }
+        v = ml_value;
       }
-      v = ml_value;
     }
 
     if (parse_value(v, value, sizeof value) < 0) {
@@ -840,11 +889,32 @@ int run_setup_wizard(const char *outfile)
 
   fprintf(fp,
 "[security]\n"
-"stealth_telnets  = 0\n"
-"require_p        = 0\n"
-"password_timeout = 180\n"
-"# share_unlinks  = 1\n"
-);
+"stealth_telnets = 0\n"
+"require_p       = 0\n"
+"# share_unlinks = 1\n"
+"\n");
+
+  fprintf(fp,
+"# ---------------------------------------------------------------------------\n"
+"# TCL COMMANDS\n"
+"# Raw Tcl executed after all settings are applied.\n"
+"# Use for unbinding built-in commands, per-channel tweaks, etc.\n"
+"# ---------------------------------------------------------------------------\n"
+"\n"
+"[tcl]\n"
+"commands = [\n"
+"  # Disable the 'simul' partyline command (security best practice).\n"
+"  \"unbind dcc n simul *dcc:simul\",\n"
+"]\n"
+"\n"
+"# Multi-line Tcl can also be written as a code block:\n"
+"# code = \"\"\"\n"
+"# proc my_greeting {nick host hand} {\n"
+"#   putserv \"PRIVMSG $nick :Welcome, $nick!\"\n"
+"# }\n"
+"# bind join - * my_greeting\n"
+"# \"\"\"\n"
+"\n");
 
   fclose(fp);
 

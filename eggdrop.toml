@@ -121,6 +121,50 @@ list = [
 [channels]
 list = ["#egghelp"]
 
+# ── Channel defaults (channels.mod) ─────────────────────────────────────────
+# These set the starting values for all channels. Individual channels can
+# be overridden with .chanset in the DCC console.
+#
+# Show user info/URL in public channels.
+use_info = 1
+
+# Allow public-say commands (.say, .act) from the partyline.
+allow_ps = 0
+
+# Share greeting messages with other bots.
+# share_greet = 0
+
+# Default chanmode enforced on managed channels.
+default_chanmode = "nt"
+
+# Ban/exempt/invite expiry in minutes (0 = never expire).
+default_ban_time    = 120
+default_exempt_time = 60
+default_invite_time = 60
+
+# Ban type: 1=*!*@host, 2=*!*user@host, 3=*!*user@*.host, 4=*!*@*.host, etc.
+default_ban_type = 3
+
+# Kick idle users after N minutes (0 = disabled).
+default_idle_kick = 0
+
+# Flood protection thresholds (count:seconds). Adjust per your network.
+default_flood_chan = "15:60"
+default_flood_deop = "3:10"
+default_flood_kick = "3:10"
+default_flood_join = "5:60"
+default_flood_ctcp = "3:60"
+default_flood_nick = "5:60"
+
+# Minimum and maximum seconds delay before auto-opping a user.
+default_aop_delay = "5:30"
+
+# Stopnethack mode (0=off, 1–4 vary strictness).
+default_stopnethack_mode = 0
+
+# Revenge mode for getting deoped/kicked (0=off, 1–3 vary strictness).
+default_revenge_mode = 0
+
 # ────────────────────────────────────────────────────────────────────────────
 # LOGGING
 # Each entry: "flags channel logfile"
@@ -195,8 +239,8 @@ motd = "text/motd"
 # Banner displayed before the login prompt on telnet.
 telnet_banner = "text/banner"
 
-# Directory for temporary files.
-temp = "/tmp"
+# Directory for temporary files. Historically "tempdir" — now unused by core.
+# temp = "/tmp"
 
 # Module directory (compiled .so / .dll files).
 mod_path = "modules/"
@@ -245,15 +289,16 @@ connect_timeout = 15
 [ssl]
 # ssl_privatekey = "eggdrop.key"
 # ssl_certificate = "eggdrop.crt"
-capath = "/etc/ssl/"
+ssl_capath = "/etc/ssl/"
 # ssl_cafile = ""
 # ssl_ciphers = ""
 # ssl_dhparam = "dhparam.pem"
-# ssl_verify_depth = 9
+# ssl_chain_depth = 9         # max certificate chain depth (Tcl: ssl-chain-depth)
 # ssl_cert_auth = 0
 # ssl_verify_dcc = 0
 # ssl_verify_bots = 0
 # ssl_verify_clients = 0
+# ssl_verify_server = 0       # verify SSL for IRC server connections
 
 # ────────────────────────────────────────────────────────────────────────────
 # SECURITY
@@ -290,9 +335,6 @@ telnet_flood = "16:60"
 
 # Extra paranoia for telnet flood detection.
 paranoid_telnet_flood = 1
-
-# Seconds before an unverified DCC chat request times out.
-password_timeout = 180  # not a standard eggdrop var, but logical home
 
 # Enable CIDR support for b/e/I modes.
 cidr_support = 0
@@ -361,6 +403,18 @@ wait_info = 180
 # IRC ident timeout in seconds.
 ident_timeout = 5
 
+# Display a text banner (text/banner) at the telnet login prompt.
+use_telnet_banner = 0
+
+# Expire bans/exempts/invites on channels even when the bot is alone.
+force_expire = 0
+
+# Share channel greeting messages when syncing with linked bots.
+share_greet = 0
+
+# For compress.mod: compress userfiles before sharing them.
+# share_compressed = 1
+
 # ────────────────────────────────────────────────────────────────────────────
 # SERVER / IRC MODULE SETTINGS
 # ────────────────────────────────────────────────────────────────────────────
@@ -375,9 +429,6 @@ net_type = "EFnet"
 
 # CTCP reply mode. 0 = normal, 1 = ignore all, 2 = reply to ctcp in channel.
 ctcp_mode = 0
-
-# Default IRC port when none is specified.
-default_port = 6667
 
 # Don't bounce bans set by other bots on the channel.
 bounce_bans    = 0
@@ -399,6 +450,45 @@ no_chanrec_info = 0
 
 # Prevent mixing ban types (IP-only vs. nick!user@host).
 prevent_mixing = 1
+
+# ── Server connection behaviour ─────────────────────────────────────────────
+# Seconds between reconnect attempts after disconnection.
+server_cycle_wait = 60
+
+# Seconds before an IRC server is declared unresponsive (no PING reply).
+server_timeout = 60
+
+# Try to reclaim the bot's primary nick if it's in use.
+keep_nick = 1
+
+# Silently drop INVITE/KICK/etc. while the bot has no channel record.
+quiet_reject = 1
+
+# Fold incoming CTCP commands to lowercase before matching.
+lowercase_ctcp = 0
+
+# Number of CTCP requests to answer per burst (0 = answer all).
+answer_ctcp = 3
+
+# Maximum messages per second to server (flood rate limit).
+msg_rate = 2
+
+# ── IRC capability settings ──────────────────────────────────────────────────
+# Request ACCOUNT-NOTIFY CAP (tells bot when nick's account changes).
+account_notify = 1
+
+# Request EXTENDED-JOIN CAP (includes account name in JOIN messages).
+extended_join = 1
+
+# Maximum nick length. 0 = use network default (set via ISUPPORT NICKLEN).
+# nick_len = 9
+
+# ── Message flood limits ─────────────────────────────────────────────────────
+# Max private messages before flood protection triggers (count:seconds).
+flood_msg = "5:60"
+
+# Max CTCP requests before flood protection triggers (count:seconds).
+flood_ctcp = "3:60"
 
 # ────────────────────────────────────────────────────────────────────────────
 # DCC / FILE TRANSFER (transfer.mod)
@@ -462,7 +552,8 @@ notify_onjoin = 1
 
 [console]
 # Default console flags shown when a user connects to DCC.
-console_flags = "mkcoblxs"
+# Must be named "console" to match the Tcl variable (not "console_flags").
+console = "mkcoblxs"
 
 # Auto-save console settings on change.
 console_autosave = 1
@@ -508,12 +599,18 @@ blowfish_use_mode = "cbc"
 #   commands = ["listen 8080 webui", "listen +8443 webui"]
 
 # ────────────────────────────────────────────────────────────────────────────
-# TCL COMMANDS
-# Raw Tcl commands executed after all other settings are applied.
-# Use this for:
-#   - unbinding built-in commands  (unbind dcc n simul *dcc:simul)
-#   - per-channel flag tweaks      (channel set #chan +protectops)
-#   - webui listen ports           (listen 8080 webui)
+# TCL
+# Two ways to embed Tcl in the config:
+#
+# 1. commands = [...]  — an array of individual Tcl statements, each executed
+#    in order.  Useful for one-liners like unbind / listen / channel set.
+#
+# 2. code = """..."""  — a single triple-quoted multi-line Tcl script block,
+#    executed as one unit after commands[].  Ideal for proc definitions,
+#    bind chains, and any multi-statement logic.
+#
+# Both run after all settings are applied, so they can reference any variable
+# or module that was loaded above.
 # ────────────────────────────────────────────────────────────────────────────
 
 [tcl]
@@ -529,7 +626,36 @@ commands = [
   # Uncomment to disable the 'ident' and 'addhost' MSG commands:
   # "unbind msg - ident *msg:ident",
   # "unbind msg - addhost *msg:addhost",
+
+  # Override default channel flags for every newly-added channel.
+  # Equivalent to the old "set default-chanset { ... }" Tcl block.
+  # Uncomment and edit the flags you want to change.
+  # """set default-chanset {
+  #   -autoop         -autovoice
+  #   -bitch          +cycle
+  #   +dontkickops    +dynamicbans
+  #   +dynamicexempts +dynamicinvites
+  #   -enforcebans    +greet
+  #   -inactive       -nodesynch
+  #   -protectfriends +protectops
+  #   -revenge        -revengebot
+  #   -secret         -seen
+  #   +shared         -statuslog
+  #   +userbans       +userexempts
+  #   +userinvites    -protecthalfops
+  #   -autohalfop     -static
+  # }""",
 ]
+
+# Multi-line Tcl script block — evaluated after commands[] above.
+# Uncomment and write any Tcl code here: proc definitions, bind calls, etc.
+#
+# code = """
+# proc greet_join {nick host hand chan} {
+#   putserv "PRIVMSG $chan :Welcome to $chan, $nick!"
+# }
+# bind join - * greet_join
+# """
 
 # ────────────────────────────────────────────────────────────────────────────
 # TCL SCRIPTS
