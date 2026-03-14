@@ -92,11 +92,19 @@ static char *init_python() {
   config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
     snprintf(venvpython, sizeof venvpython, "%s/bin/python3", venv);
-    status = PyConfig_SetBytesString(&config, &config.executable, venvpython);
-    if (PyStatus_Exception(status)) {
-      PyConfig_Clear(&config);
-      return "Python: Fatal error: Could not set venv executable";
+    /* Validate the venv executable exists and is runnable before telling
+     * Python to use it.  Py_InitializeFromConfig() issues a fatal (not just
+     * exception) status for a missing executable, which internally calls
+     * exit() before our PyStatus_Exception check can run, hard-crashing the
+     * process with no useful message. */
+    if (access(venvpython, X_OK) == 0) {
+      status = PyConfig_SetBytesString(&config, &config.executable, venvpython);
+      if (PyStatus_Exception(status)) {
+        PyConfig_Clear(&config);
+        return "Python: Fatal error: Could not set venv executable";
+      }
     }
+    /* else: venv executable is missing or broken; fall back to system Python */
   }
   status = PyConfig_SetBytesString(&config, &config.program_name, argv0);
   if (PyStatus_Exception(status)) {
@@ -124,19 +132,25 @@ static char *init_python() {
 
   PyRun_SimpleString("import sys");
   /* Add the directory of the eggdrop binary to sys.path so that scripts
-   * placed alongside the binary are importable regardless of CWD. */
+   * placed alongside the binary are importable regardless of CWD.
+   * Use the C API directly rather than PyRun_SimpleString to avoid
+   * constructing a Python string literal that could be malformed if argv0
+   * contains characters like '"' or '\'. */
   {
     char eggdir[PATH_MAX];
-    char pycode[PATH_MAX + 32];
     char *lastslash;
+    PyObject *syspath, *dirobj;
     strlcpy(eggdir, argv0, sizeof eggdir);
     lastslash = strrchr(eggdir, '/');
     if (lastslash && lastslash != eggdir)
       *lastslash = '\0';
     else
       strlcpy(eggdir, ".", sizeof eggdir);
-    snprintf(pycode, sizeof pycode, "sys.path.append(\"%s\")", eggdir);
-    PyRun_SimpleString(pycode);
+    syspath = PySys_GetObject("path"); /* borrowed reference */
+    dirobj = PyUnicode_DecodeFSDefault(eggdir);
+    if (syspath && dirobj)
+      PyList_Append(syspath, dirobj);
+    Py_XDECREF(dirobj);
   }
   PyRun_SimpleString("import eggdrop");
   PyRun_SimpleString("sys.displayhook = eggdrop.__displayhook__");
