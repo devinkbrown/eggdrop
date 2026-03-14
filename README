@@ -65,9 +65,18 @@ FORK NOTICE
   Notable differences from upstream:
 
     - TOML configuration format: eggdrop.toml replaces the Tcl-script
-      config. Run 'eggdrop --setup' for an interactive wizard that
-      creates a ready-to-use config with no Tcl knowledge required.
-      No 'chmod u+x' needed. Legacy .conf files still work unchanged.
+      config. Legacy .conf files still work unchanged.
+        · Run 'eggdrop --setup' for a five-step interactive wizard:
+          network-type menu, SSL/TLS + SASL, multiple channels, smart
+          nick-derived defaults, pre-write summary and confirmation.
+        · Full setting parity with eggdrop.conf: all 128+ Tcl variables
+          are documented in eggdrop.toml with correct key names.
+        · Inline Tcl via [tcl] commands = [...] for one-liners or
+          [tcl] code = """...""" for multi-line proc/bind blocks.
+        · No 'chmod u+x' required.
+    - io_uring SQPOLL: fixed three bugs that prevented IRC registration
+      on kernels using SQPOLL mode (SQPOLL tail flush, buffered recv
+      data overwrite, idle-return before dispatch).
     - Build system replaced: autoconf/make → Meson + Ninja
     - Native Windows (MinGW / MSVC) support via IOCP event backend
     - Cygwin legacy hacks removed; Cygwin compiles on the POSIX path
@@ -252,8 +261,16 @@ CONFIGURATION
 
       eggdrop --setup mybot.toml
 
-    This asks you a handful of questions and writes a ready-to-use
-    config file. No 'chmod u+x' required.
+    Five-step guided flow:
+      1. Bot identity — nick, altnick/realname/username auto-derived
+      2. IRC server   — network-type menu, hostname, SSL/TLS, port,
+                        server password, optional SASL authentication
+      3. Channels     — up to 8 channels, first required
+      4. Files        — user/chan/log, defaults from nick
+      5. Modules      — notes, seen, transfer, filesys
+
+    Prints a summary and asks for confirmation before writing.
+    No 'chmod u+x' required.
 
   MANUAL METHOD — copy and edit the sample file:
 
@@ -264,14 +281,14 @@ CONFIGURATION
 
       [bot]
       nick    = "MyBot"
-      altnick = "MyBot0"
+      altnick = "MyBot?"
       owner   = "MyNick"
 
       [servers]
       list = ["irc.libera.chat:+6697"]
 
       [channels]
-      list = ["#mychannel"]
+      list = ["#mychannel", "#egghelp"]
 
       [modules]
       load = ["pbkdf2", "blowfish", "channels", "server", "ctcp", "irc",
@@ -280,7 +297,19 @@ CONFIGURATION
       [scripts]
       load = ["scripts/alltools.tcl"]
 
-  For the full reference, see eggdrop.toml (all settings, fully
+      # One-liner Tcl commands run after settings are applied:
+      [tcl]
+      commands = ["unbind dcc n simul *dcc:simul"]
+
+      # Or a multi-line block for procs and binds:
+      # code = """
+      # proc greet {nick host hand chan} {
+      #   putserv "PRIVMSG $chan :Welcome, $nick!"
+      # }
+      # bind join - * greet
+      # """
+
+  For the full reference, see eggdrop.toml (all 128+ settings, fully
   documented) or run 'eggdrop --setup' to generate a personalised copy.
 
   LEGACY FORMAT: .conf files are still supported. Pass one explicitly:

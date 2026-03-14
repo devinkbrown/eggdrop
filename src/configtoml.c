@@ -200,6 +200,29 @@ static void run_tcl_cmd(const char *cmd)
 typedef void (*ArrayCb)(const char *item, void *ud);
 
 /*
+ * Returns 1 if a triple-quoted string (which must begin with """ or ''')
+ * contains its closing triple-quote.  Used to detect whether the value
+ * spans multiple lines and needs further line accumulation.
+ */
+static int triplestr_is_complete(const char *s)
+{
+  char q;
+  if (!s || (s[0] != '"' && s[0] != '\'') || s[1] != s[0] || s[2] != s[0])
+    return 1; /* not a triple-quoted string — treat as complete */
+  q = s[0];
+  s += 3;
+  /* Skip an immediate newline per TOML spec. */
+  if (*s == '\n') s++;
+  while (*s) {
+    if (s[0] == q && s[1] == q && s[2] == q)
+      return 1;
+    if (q == '"' && *s == '\\') s++; /* skip escaped char */
+    if (*s) s++;
+  }
+  return 0;
+}
+
+/*
  * Returns 1 if the string (which must begin with '[') contains a closing ']'
  * that is not inside a string or nested array.  Used to detect whether an
  * array value spans multiple lines and needs further accumulation.
@@ -494,6 +517,15 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         parse_string_array(value, cb_tcl_eval, NULL);
         return;
       }
+      /* [tcl] code = """..."""  — evaluate a multi-line Tcl script block.
+       * The value has already been unquoted by parse_value() / parse_quoted(),
+       * so we receive the raw Tcl text and can eval it directly.  This is
+       * more ergonomic than the commands array for proc definitions and other
+       * multi-statement code. */
+      if (strcmp(key, "code") == 0) {
+        run_tcl_cmd(value);
+        return;
+      }
       break;
 
     default:
@@ -576,30 +608,47 @@ int readtomlconfig(const char *fname)
     strlcpy(key, k, sizeof key);
 
     /*
-     * Multi-line array: if the value starts with '[' but the closing ']'
-     * is not yet present (e.g. the array spans multiple lines or contains
-     * triple-quoted strings), keep reading lines until the array is complete.
-     * This is required for [tcl] commands that include proc definitions.
+     * Multi-line value accumulation.
+     *
+     * Arrays: if the value starts with '[' but the closing ']' is not yet
+     * present, keep reading lines until the array is complete.  Required for
+     * [tcl] commands arrays that contain proc definitions.
+     *
+     * Triple-quoted strings: if the value starts with """ or ''' but the
+     * closing triple-quote is not yet present, accumulate lines likewise.
+     * Required for [tcl] code = """...""" multi-line Tcl script blocks.
      */
-    if (*v == '[' && !array_is_complete(v)) {
-      strlcpy(ml_value, v, sizeof ml_value);
-      while (!array_is_complete(ml_value)) {
-        if (!fgets(line, sizeof line, fp))
-          break;
-        lineno++;
-        /*
-         * Append the raw line (trimmed of newline only, NOT of leading '#').
-         * Lines beginning with '#' may be Tcl comments inside a triple-quoted
-         * string and must not be discarded.  parse_string_array() handles
-         * TOML-level '#' comments between array elements by skipping to EOL.
-         */
-        size_t llen = strlen(line);
-        while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
-          line[--llen] = '\0';
-        strlcat(ml_value, "\n", sizeof ml_value);
-        strlcat(ml_value, line, sizeof ml_value);
+    {
+      int needs_accum = 0;
+      int is_array = (*v == '[');
+      int is_triplestr = (!is_array &&
+                         ((*v == '"' && v[1] == '"' && v[2] == '"') ||
+                          (*v == '\'' && v[1] == '\'' && v[2] == '\'')));
+      if (is_array && !array_is_complete(v))
+        needs_accum = 1;
+      if (is_triplestr && !triplestr_is_complete(v))
+        needs_accum = 1;
+
+      if (needs_accum) {
+        strlcpy(ml_value, v, sizeof ml_value);
+        for (;;) {
+          int done = is_array ? array_is_complete(ml_value)
+                              : triplestr_is_complete(ml_value);
+          if (done) break;
+          if (!fgets(line, sizeof line, fp)) break;
+          lineno++;
+          /*
+           * Append the raw line (newline stripped, but NOT leading '#').
+           * Tcl comments inside triple-quoted strings must not be discarded.
+           */
+          size_t llen = strlen(line);
+          while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
+            line[--llen] = '\0';
+          strlcat(ml_value, "\n", sizeof ml_value);
+          strlcat(ml_value, line, sizeof ml_value);
+        }
+        v = ml_value;
       }
-      v = ml_value;
     }
 
     if (parse_value(v, value, sizeof value) < 0) {
@@ -693,53 +742,264 @@ static int prompt_yn(const char *question, int def)
   return (*buf == 'y' || *buf == 'Y');
 }
 
+/*
+ * Prompt for a required (non-empty) value.  Re-asks until the user
+ * types something.
+ */
+static void prompt_required(const char *question, char *buf, size_t buflen)
+{
+  for (;;) {
+    printf("  %s: ", question);
+    fflush(stdout);
+    if (!fgets(buf, (int)buflen, stdin)) {
+      buf[0] = '\0';
+      printf("\n");
+      return;
+    }
+    buf[strcspn(buf, "\r\n")] = '\0';
+    if (*buf)
+      return;
+    printf("  (Required — please enter a value.)\n");
+  }
+}
+
+/*
+ * Numbered-menu prompt.  options[] must be NULL-terminated.
+ * def is the 0-based default index.  Returns the 0-based chosen index.
+ */
+static int prompt_menu(const char *question,
+                       const char * const *options, int def)
+{
+  int n = 0, i;
+  char buf[16];
+
+  while (options[n])
+    n++;
+  for (i = 0; i < n; i++)
+    printf("    %d) %s%s\n", i + 1, options[i],
+           i == def ? "  (default)" : "");
+  for (;;) {
+    printf("  %s [%d]: ", question, def + 1);
+    fflush(stdout);
+    if (!fgets(buf, sizeof buf, stdin)) {
+      printf("\n");
+      return def;
+    }
+    buf[strcspn(buf, "\r\n")] = '\0';
+    if (!*buf)
+      return def;
+    i = atoi(buf) - 1;
+    if (i >= 0 && i < n)
+      return i;
+    printf("  Please enter a number between 1 and %d.\n", n);
+  }
+}
+
+/* Print a wizard step header. */
+static void step_header(int step, int total, const char *title)
+{
+  printf("\n  ┌─ Step %d/%d — %s\n", step, total, title);
+}
+
 int run_setup_wizard(const char *outfile)
 {
+  /* Bot identity */
   char nick[64], altnick[64], realname[128], username[64];
   char admin[128], network[64], owner[64];
-  char server[256], channel[64];
+  /* Server */
+  char server[256], server_pass[128], port_buf[16];
+  int  net_idx, net_type_val, use_ssl, port;
+  /* SASL */
+  int  want_sasl, sasl_mech_val;
+  char sasl_user[64], sasl_pass[128];
+  /* Channels */
+  char channels[8][64];
+  int  nchan;
+  /* Files */
   char userfile[64], chanfile[64], logfile[128];
-  int  use_ssl;
+  /* Modules */
   int  want_notes, want_transfer, want_filesys, want_seen;
+  /* Working buffer */
+  char tmp[128];
+  int  i;
   FILE *fp;
 
+  static const char * const net_labels[] = {
+    "Libera.Chat",  "EFnet",    "IRCnet",
+    "Undernet",     "DALnet",   "QuakeNet",
+    "Rizon",        "Other / custom",
+    NULL
+  };
+  static const char * const net_defaults[] = {
+    "irc.libera.chat",  "irc.efnet.org",   "irc.ircnet.net",
+    "irc.undernet.org", "irc.dal.net",     "irc.quakenet.org",
+    "irc.rizon.net",    "irc.example.net"
+  };
+  /* net_type Tcl var: 0=EFnet 1=IRCnet 2=Undernet 3=DALnet 4=Libera */
+  static const int net_type_map[] = { 4, 0, 1, 2, 3, 0, 0, 0 };
+
+  static const char * const sasl_labels[] = {
+    "PLAIN  (username + password)",
+    "EXTERNAL  (client certificate)",
+    "SCRAM-SHA-256",
+    "SCRAM-SHA-512",
+    NULL
+  };
+  /* Maps sasl_labels index → sasl_mechanism Tcl value */
+  static const int sasl_mech_map[] = { 0, 2, 3, 4 };
+
+  printf("\n"
+         "╔══════════════════════════════════════════════╗\n"
+         "║       Eggdrop Configuration Setup Wizard     ║\n"
+         "╠══════════════════════════════════════════════╣\n"
+         "║  This wizard creates a TOML config file.     ║\n"
+         "║  Press Enter to accept the default value.    ║\n"
+         "╚══════════════════════════════════════════════╝\n");
+
+  /* ── Step 1/5: Bot identity ─────────────────────────── */
+  step_header(1, 5, "Bot identity");
+  prompt_required("Bot nick (no spaces)", nick, sizeof nick);
+
+  /* Smart defaults derived from nick */
+  snprintf(tmp, sizeof tmp, "%s?", nick);
+  prompt("Alternate nick (? replaced by a random digit)", tmp,
+         altnick, sizeof altnick);
+
+  snprintf(tmp, sizeof tmp, "/msg %s help", nick);
+  prompt("Real name (IRC GECOS)", tmp, realname, sizeof realname);
+
+  /* Lowercase nick as default IRC username */
+  strlcpy(tmp, nick, sizeof tmp);
+  for (i = 0; tmp[i]; i++)
+    tmp[i] = (char)tolower((unsigned char)tmp[i]);
+  prompt("IRC username (ident)", tmp, username, sizeof username);
+
+  prompt("Admin contact", "Admin <admin@example.com>", admin, sizeof admin);
+  prompt_required("Bot owner handle (your IRC nick)", owner, sizeof owner);
+
+  /* ── Step 2/5: IRC server ───────────────────────────── */
+  step_header(2, 5, "IRC server");
+
+  printf("  Network:\n");
+  net_idx      = prompt_menu("Choose network", net_labels, 0);
+  net_type_val = net_type_map[net_idx];
+
+  /* Use short network name for [bot] network = ... */
+  if (net_idx < 7)
+    strlcpy(network, net_labels[net_idx], sizeof network);
+  else
+    prompt("Network name (display only)", "MyNetwork", network, sizeof network);
+
+  prompt("IRC server hostname", net_defaults[net_idx], server, sizeof server);
+  use_ssl = prompt_yn("Use SSL/TLS?", 1);
+
+  snprintf(tmp, sizeof tmp, "%d", use_ssl ? 6697 : 6667);
+  prompt("Port", tmp, port_buf, sizeof port_buf);
+  port = atoi(port_buf);
+  if (port <= 0 || port > 65535)
+    port = use_ssl ? 6697 : 6667;
+
+  printf("  Server password (leave empty for none): ");
+  fflush(stdout);
+  if (!fgets(server_pass, sizeof server_pass, stdin)) {
+    server_pass[0] = '\0';
+    printf("\n");
+  } else {
+    server_pass[strcspn(server_pass, "\r\n")] = '\0';
+  }
+
+  /* SASL — only offered when SSL is enabled */
+  want_sasl    = 0;
+  sasl_mech_val = 0;
+  sasl_user[0] = sasl_pass[0] = '\0';
+  if (use_ssl) {
+    printf("\n  ┌─ SASL authentication (optional)\n");
+    want_sasl = prompt_yn("Enable SASL?", 0);
+    if (want_sasl) {
+      int mech_idx;
+      printf("  Mechanism:\n");
+      mech_idx      = prompt_menu("Choose SASL mechanism", sasl_labels, 0);
+      sasl_mech_val = sasl_mech_map[mech_idx];
+      prompt("SASL username", nick, sasl_user, sizeof sasl_user);
+      if (sasl_mech_val != 2) /* not EXTERNAL — needs a password */
+        prompt_required("SASL password", sasl_pass, sizeof sasl_pass);
+    }
+  }
+
+  /* ── Step 3/5: Channels ─────────────────────────────── */
+  step_header(3, 5, "Channels");
+  printf("  Enter channels to join.  First is required; empty line to stop.\n");
+
+  nchan = 0;
+  for (;;) {
+    char cbuf[64];
+    int  required = (nchan == 0);
+
+    if (required) {
+      prompt_required("Channel 1 (e.g. #egghelp)", cbuf, sizeof cbuf);
+    } else {
+      printf("  Channel %d (Enter to stop): ", nchan + 1);
+      fflush(stdout);
+      if (!fgets(cbuf, sizeof cbuf, stdin)) { printf("\n"); break; }
+      cbuf[strcspn(cbuf, "\r\n")] = '\0';
+      if (!*cbuf)
+        break;
+    }
+
+    /* Validate: channel name must start with '#' */
+    if (cbuf[0] != '#') {
+      if (required) {
+        printf("  (Channel names must start with '#' — try again.)\n");
+        continue;
+      }
+      break;
+    }
+
+    strlcpy(channels[nchan], cbuf, sizeof channels[0]);
+    if (++nchan >= 8)
+      break;
+  }
+
+  /* ── Step 4/5: Files ────────────────────────────────── */
+  step_header(4, 5, "Files");
+
+  /* Defaults derived from nick */
+  snprintf(tmp, sizeof tmp, "%s.user", nick);
+  prompt("User file", tmp, userfile, sizeof userfile);
+  snprintf(tmp, sizeof tmp, "%s.chan", nick);
+  prompt("Chan file", tmp, chanfile, sizeof chanfile);
+  snprintf(tmp, sizeof tmp, "%s.log",  nick);
+  prompt("Log file",  tmp, logfile,  sizeof logfile);
+
+  /* ── Step 5/5: Optional modules ─────────────────────── */
+  step_header(5, 5, "Optional modules");
+  want_notes    = prompt_yn("Enable notes    (user-to-user messaging)?", 1);
+  want_seen     = prompt_yn("Enable seen     (track last-seen times)?",  0);
+  want_transfer = prompt_yn("Enable transfer (DCC file transfers)?",     0);
+  want_filesys  = prompt_yn("Enable filesys  (in-bot file system)?",     0);
+
+  /* ── Summary & confirmation ──────────────────────────── */
+  printf("\n"
+         "╔══════════════════════════════════════════════╗\n"
+         "║              Configuration Summary           ║\n"
+         "╚══════════════════════════════════════════════╝\n");
+  printf("  Nick       : %s / %s\n",     nick, altnick);
+  printf("  Owner      : %s\n",           owner);
+  printf("  Network    : %s  (%s)\n",     network, server);
+  printf("  Connection : %s port %d%s\n",
+         use_ssl ? "SSL/TLS" : "plain", port,
+         want_sasl ? " + SASL" : "");
+  printf("  Channels   :");
+  for (i = 0; i < nchan; i++)
+    printf(" %s", channels[i]);
   printf("\n");
-  printf("╔══════════════════════════════════════════════╗\n");
-  printf("║       Eggdrop Configuration Setup Wizard     ║\n");
-  printf("╠══════════════════════════════════════════════╣\n");
-  printf("║  This wizard creates a TOML config file.     ║\n");
-  printf("║  Press Enter to accept the default value.    ║\n");
-  printf("╚══════════════════════════════════════════════╝\n\n");
+  printf("  User file  : %s\n",           userfile);
+  printf("  Output     : %s\n\n",         outfile);
 
-  printf("── Bot identity ──────────────────────────────\n");
-  prompt("Bot nick",        "Eggdrop",          nick,     sizeof nick);
-  prompt("Alternate nick",  "Eggdrop0",         altnick,  sizeof altnick);
-  prompt("Real name",       "/msg Eggdrop help",realname, sizeof realname);
-  prompt("IRC username",    "eggdrop",          username, sizeof username);
-  prompt("Admin contact",   "Admin <admin@example.com>", admin, sizeof admin);
-  prompt("IRC network name","Libera",           network,  sizeof network);
-  prompt("Bot owner handle","YourNick",         owner,    sizeof owner);
+  if (!prompt_yn("Write this configuration to disk?", 1))
+    return 1;
 
-  printf("\n── Server ────────────────────────────────────\n");
-  prompt("IRC server hostname", "irc.libera.chat", server, sizeof server);
-  use_ssl = prompt_yn("Use SSL (port 6697)?", 1);
-
-  printf("\n── Channel ───────────────────────────────────\n");
-  prompt("Channel to join", "#egghelp", channel, sizeof channel);
-
-  printf("\n── Files ─────────────────────────────────────\n");
-  prompt("User file name",  "eggdrop.user",     userfile, sizeof userfile);
-  prompt("Chan file name",  "eggdrop.chan",      chanfile, sizeof chanfile);
-  prompt("Log file name",   "eggdrop.log",       logfile,  sizeof logfile);
-
-  printf("\n── Optional modules ──────────────────────────\n");
-  want_notes    = prompt_yn("Enable notes (user-to-user messaging)?", 1);
-  want_seen     = prompt_yn("Enable seen (track last seen time)?",    0);
-  want_transfer = prompt_yn("Enable transfer (DCC file transfers)?",  0);
-  want_filesys  = prompt_yn("Enable filesys (bot file system)?",      0);
-
-  printf("\n");
-
+  /* ── Write config ────────────────────────────────────── */
   fp = fopen(outfile, "w");
   if (!fp) {
     printf("ERROR: cannot write to '%s': %s\n", outfile, strerror(errno));
@@ -757,7 +1017,7 @@ int run_setup_wizard(const char *outfile)
 "# Report issues    : https://github.com/eggheads/eggdrop/issues\n"
 "\n", outfile);
 
-  /* [modules] — always-on core set, plus whatever the user opted into. */
+  /* [modules] */
   fprintf(fp,
 "[modules]\n"
 "# Modules to load at startup.  Comment out lines you don't need.\n"
@@ -770,7 +1030,6 @@ int run_setup_wizard(const char *outfile)
 "  \"irc\",       # Basic IRC functionality\n"
 "  \"console\",   # Console setting persistence\n"
 "  \"uptime\",    # Uptime reporting\n");
-
   if (want_notes)
     fprintf(fp, "  \"notes\",     # User-to-user note storage\n");
   if (want_seen)
@@ -779,38 +1038,44 @@ int run_setup_wizard(const char *outfile)
     fprintf(fp, "  \"transfer\",  # DCC file transfer support\n");
   if (want_filesys)
     fprintf(fp, "  \"filesys\",   # In-bot file system\n");
-
   fprintf(fp, "]\n\n");
 
+  /* [bot] */
   fprintf(fp,
 "[bot]\n"
-"nick        = \"%s\"\n"
-"altnick     = \"%s\"\n"
-"realname    = \"%s\"\n"
-"username    = \"%s\"\n"
-"admin       = \"%s\"\n"
-"network     = \"%s\"\n"
-"owner       = \"%s\"\n"
+"nick     = \"%s\"\n"
+"altnick  = \"%s\"\n"
+"realname = \"%s\"\n"
+"username = \"%s\"\n"
+"admin    = \"%s\"\n"
+"network  = \"%s\"\n"
+"owner    = \"%s\"\n"
 "\n", nick, altnick, realname, username, admin, network, owner);
 
+  /* [servers] */
   fprintf(fp,
 "[servers]\n"
 "# Format: \"host:port\" for plain, \"host:+port\" for SSL,\n"
 "#         \"host:+port:password\" to include a server password.\n"
-"list = [\n"
-"  \"%s:%s\",\n"
-"]\n"
-"\n",
-    server, use_ssl ? "+6697" : "6667");
+"list = [\n");
+  if (*server_pass)
+    fprintf(fp, "  \"%s:%s%d:%s\",\n",
+            server, use_ssl ? "+" : "", port, server_pass);
+  else
+    fprintf(fp, "  \"%s:%s%d\",\n",
+            server, use_ssl ? "+" : "", port);
+  fprintf(fp, "]\n\n");
 
-  fprintf(fp,
-"[channels]\n"
-"list = [\"%s\"]\n"
-"\n", channel);
+  /* [channels] */
+  fprintf(fp, "[channels]\nlist = [");
+  for (i = 0; i < nchan; i++)
+    fprintf(fp, "%s\"%s\"", i ? ", " : "", channels[i]);
+  fprintf(fp, "]\n\n");
 
+  /* [paths] */
   fprintf(fp,
 "[paths]\n"
-"userfile = \"%s\"\n"
+"userfile  = \"%s\"\n"
 "chanfile  = \"%s\"\n"
 "help_path = \"help/\"\n"
 #ifdef EGG_MODDIR
@@ -820,42 +1085,86 @@ int run_setup_wizard(const char *outfile)
 #endif
 "\n", userfile, chanfile);
 
+  /* [logging] */
   fprintf(fp,
 "[logging]\n"
-"# Each entry: \"flags channel logfile\"\n"
-"#   flags: m=messages, o=commands, c=channel, b=bots, …\n"
+"# Flags: m=messages o=commands c=channel b=bots j=joins s=server k=kicks\n"
 "entries = [\n"
 "  \"mco * %s\",\n"
 "]\n"
 "\n", logfile);
 
+  /* [irc] */
+  fprintf(fp,
+"[irc]\n"
+"# Network type affects protocol behaviour.\n"
+"# 0=EFnet  1=IRCnet  2=Undernet  3=DALnet  4=Libera.Chat / generic\n"
+"net_type = %d\n"
+"\n", net_type_val);
+
+  /* [network] */
   fprintf(fp,
 "[network]\n"
-"# Uncomment and set vhost4/vhost6 if you have multiple IPs.\n"
+"# Uncomment to bind to a specific address on multi-homed hosts.\n"
 "# vhost4 = \"0.0.0.0\"\n"
 "# vhost6 = \"0::0\"\n"
 "# nat_ip = \"\"  # set to external IP if behind NAT\n"
-"default_port = 6667\n"
-"\n");
+"default_port = %d\n"
+"\n", use_ssl ? 6697 : 6667);
 
+  /* [security] */
   fprintf(fp,
 "[security]\n"
-"stealth_telnets  = 0\n"
-"require_p        = 0\n"
-"password_timeout = 180\n"
-"# share_unlinks  = 1\n"
-);
+"stealth_telnets = 0\n"
+"require_p       = 0\n"
+"\n");
+
+  /* [sasl] — only written when the user enabled it */
+  if (want_sasl) {
+    fprintf(fp,
+"[sasl]\n"
+"sasl           = 1\n"
+"sasl_mechanism = %d\n"
+"sasl_username  = \"%s\"\n",
+            sasl_mech_val, sasl_user);
+    if (*sasl_pass)
+      fprintf(fp, "sasl_password  = \"%s\"\n", sasl_pass);
+    fprintf(fp, "\n");
+  }
+
+  /* [tcl] */
+  fprintf(fp,
+"# ---------------------------------------------------------------------------\n"
+"# TCL\n"
+"# Raw Tcl evaluated after all settings are applied.\n"
+"# ---------------------------------------------------------------------------\n"
+"\n"
+"[tcl]\n"
+"commands = [\n"
+"  # Disable the 'simul' partyline command (security best practice).\n"
+"  \"unbind dcc n simul *dcc:simul\",\n"
+"]\n"
+"\n"
+"# Multi-line Tcl can also be written as a code block:\n"
+"# code = \"\"\"\n"
+"# proc my_greeting {nick host hand chan} {\n"
+"#   putserv \"PRIVMSG $chan :Welcome, $nick!\"\n"
+"# }\n"
+"# bind join - * my_greeting\n"
+"# \"\"\"\n"
+"\n");
 
   fclose(fp);
 
-  printf("╔══════════════════════════════════════════════╗\n");
-  printf("║  Config written successfully.                ║\n");
-  printf("╠══════════════════════════════════════════════╣\n");
-  printf("║  Next steps:                                 ║\n");
-  printf("║    1. Review the generated file.             ║\n");
-  printf("║    2. Create user file:  eggdrop -m <conf>   ║\n");
-  printf("║    3. Start the bot:     eggdrop <conf>      ║\n");
-  printf("╚══════════════════════════════════════════════╝\n");
+  printf("\n"
+         "╔══════════════════════════════════════════════╗\n"
+         "║  Config written successfully!                ║\n"
+         "╠══════════════════════════════════════════════╣\n"
+         "║  Next steps:                                 ║\n"
+         "║    1. Review the generated file.             ║\n"
+         "║    2. Create user file:  eggdrop -m <conf>   ║\n"
+         "║    3. Start the bot:     eggdrop <conf>      ║\n"
+         "╚══════════════════════════════════════════════╝\n");
   printf("\n  Config file: %s\n\n", outfile);
 
   return 0;

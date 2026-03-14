@@ -1,8 +1,109 @@
 
-Eggdrop Changes (Last Updated 2026-03-09):
+Eggdrop Changes (Last Updated 2026-03-14):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-03-14 * net.c: fix three io_uring SQPOLL bugs that prevented IRC
+               registration from completing:
+               (1) SQPOLL SQ tail flush — io_uring_submit() was skipped
+                   when egg_ring_sqpoll=1, so prep_recv() filled SQE
+                   structs but never updated *sq->ktail.  The SQPOLL
+                   kernel thread monitors ktail; without the flush it
+                   never saw new SQEs and delivered no CQEs.  Fix:
+                   always call io_uring_submit() after prep_recv.
+               (2) Buffered recv_len data overwrite — when a RECV CQE
+                   arrived while SOCK_CONNECT was still set (server
+                   data sent immediately on connect, e.g. CAP LS), the
+                   dispatch loop took the "connect!" branch and returned
+                   without consuming recv_buf.  The next re-arm loop
+                   then called uring_recv_sock() and submitted a new
+                   SQE to the same buffer, silently clobbering the
+                   buffered bytes.  Fix: detect recv_len>=0 in the
+                   re-arm loop and surface the data via FD_SET instead
+                   of issuing a new SQE.
+               (3) Buffered data idle return — when recv_len>=0 data
+                   was surfaced via FD_SET but no new CQEs were queued,
+                   x remained 0 and the function returned -3 (idle)
+                   before reaching the dispatch loop.  Fix: track
+                   buffered_cnt in the re-arm loop; use a zero-timeout
+                   io_uring wait when buffered data is present; set
+                   x=buffered_cnt when x==0 so dispatch is reached.
+               [Patch by: devinkbrown]
+
+  2026-03-14 * configtoml.c: polish setup wizard (run_setup_wizard):
+               - Add prompt_required() — retries until non-empty input
+               - Add prompt_menu() — numbered-option selection helper
+               - Add step_header() — prints "Step N/5 — Title"
+               - Step 1/5 (Bot identity): nick required; altnick,
+                 realname, username, and file names all default to
+                 values derived from the nick entered
+               - Step 2/5 (IRC server): network-type menu (Libera,
+                 EFnet, IRCnet, Undernet, DALnet, QuakeNet, Rizon,
+                 Other) with per-network default server hostnames;
+                 editable port defaulting to 6697 (SSL) or 6667;
+                 optional server password; SASL sub-prompt (PLAIN/
+                 EXTERNAL/SCRAM-SHA-256/SCRAM-SHA-512) shown only
+                 when SSL is enabled
+               - Step 3/5 (Channels): collects up to 8 channels, first
+                 required and validated for '#' prefix; empty line
+                 stops collection
+               - Step 4/5 (Files): user/chan/log names, nick-derived
+                 defaults
+               - Step 5/5 (Modules): notes/seen/transfer/filesys y/n
+               - Summary table printed before write; write-to-disk
+                 confirmation prompt (Y/n) added
+               - Generated config now includes [irc] net_type and a
+                 [sasl] section when the user enabled SASL
+               [Patch by: devinkbrown]
+
+  2026-03-14 * eggdrop.toml: add [sasl] section, extra CAP flags, and
+               firewall setting (full parity with eggdrop.conf):
+               - [sasl]: sasl, sasl_mechanism (0=PLAIN 1=ECDSA-NIST256P
+                 2=EXTERNAL 3=SCRAM-SHA-256 4=SCRAM-SHA-512
+                 5=ECDH-X25519), sasl_username, sasl_password,
+                 sasl_ecdsa_key, sasl_x25519_key, sasl_continue,
+                 sasl_timeout
+               - [irc]: cap_request, away_notify, invite_notify,
+                 message_tags, account_tag, firewall
+               [Patch by: devinkbrown]
+
+  2026-03-14 * configtoml.c / eggdrop.toml / eggdrop-basic.toml:
+               full TOML↔Tcl setting parity and naming bug fixes:
+               Naming bugs (wrong Tcl variables were being set):
+               - [ssl] capath → ssl_capath  (Tcl var ssl-capath)
+               - [console] console_flags → console  (Tcl var console)
+               - [ssl] ssl_verify_depth → ssl_chain_depth
+                 (Tcl var ssl-chain-depth, bound to tls_maxdepth)
+               - [irc] duplicate default_port removed (already in
+                 [network]); password_timeout removed (not a
+                 registered Tcl variable — hardcoded in dcc.c)
+               - [ssl] ssl_verify_server added (was missing)
+               - eggdrop-basic.toml: tempdir (unused since modules.c
+                 migration) replaced with commented temp = "/tmp"
+               Missing settings added to eggdrop.toml:
+               - [irc]: server_cycle_wait, server_timeout, keep_nick,
+                 quiet_reject, lowercase_ctcp, answer_ctcp, msg_rate,
+                 account_notify, extended_join, nick_len,
+                 flood_msg, flood_ctcp
+               - [channels]: use_info, allow_ps, share_greet,
+                 default_chanmode, default_ban_type, default_ban_time,
+                 default_exempt_time, default_invite_time,
+                 default_idle_kick, default_flood_chan/deop/kick/
+                 join/ctcp/nick, default_aop_delay,
+                 default_stopnethack_mode, default_revenge_mode
+               - [behaviour]: use_telnet_banner, force_expire,
+                 share_greet, share_compressed (commented)
+               Tcl code-block support:
+               - Add triplestr_is_complete() to detect whether a
+                 triple-quoted string value (""" or ''') is complete
+               - Extend multi-line accumulation to handle triple-quoted
+                 strings in addition to inline arrays
+               - [tcl] code = """...""" is now evaluated as a single
+                 Tcl_Eval() call, suitable for proc definitions and
+                 bind chains; complements the existing commands = [...]
+                 array which runs one Tcl_Eval() per entry
+               [Patch by: devinkbrown]
 
   2026-03-09 * build: optimize compiler/linker flags across all platforms:
                add -fno-strict-aliasing globally (eggdrop uses void*/char*
