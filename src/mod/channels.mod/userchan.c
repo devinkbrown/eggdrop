@@ -382,7 +382,7 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strlcpy(lastdeletedmask, (*u)->mask, sizeof(lastdeletedmask));
+    strlcpy(lastdeletedmask, (*u)->mask, strlen((*u)->mask) + 1);
     nfree((*u)->mask);
     if ((*u)->desc)
       nfree((*u)->desc);
@@ -439,7 +439,7 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strlcpy(lastdeletedmask, (*u)->mask, sizeof(lastdeletedmask));
+    strlcpy(lastdeletedmask, (*u)->mask, strlen((*u)->mask) + 1);
     nfree((*u)->mask);
     if ((*u)->desc)
       nfree((*u)->desc);
@@ -497,7 +497,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
     if (lastdeletedmask)
       nfree(lastdeletedmask);
     lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strlcpy(lastdeletedmask, (*u)->mask, sizeof(lastdeletedmask));
+    strlcpy(lastdeletedmask, (*u)->mask, strlen((*u)->mask) + 1);
     nfree((*u)->mask);
     if ((*u)->desc)
       nfree((*u)->desc);
