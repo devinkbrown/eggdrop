@@ -246,7 +246,14 @@ static void uring_recv_sock(sock_list *sl, int slist_idx)
     io_uring_prep_recv(sqe, sock, sl->handler.sock.recv_buf, READMAX, 0);
     io_uring_sqe_set_data64(sqe, URING_UD_RECV(slist_idx));
   } else {
-    io_uring_prep_poll_add(sqe, sock, POLLIN | POLLHUP | POLLERR);
+    /* For connecting sockets, include POLLOUT so that non-blocking
+     * connect() completion (which signals write-readiness, not
+     * read-readiness) wakes us up.  Mirrors epoll EPOLLOUT and
+     * kqueue EVFILT_WRITE handling for SOCK_CONNECT sockets. */
+    int poll_mask = POLLIN | POLLHUP | POLLERR;
+    if (sl->flags & SOCK_CONNECT)
+      poll_mask |= POLLOUT;
+    io_uring_prep_poll_add(sqe, sock, poll_mask);
     io_uring_sqe_set_data64(sqe, URING_UD_POLL(slist_idx));
   }
   uring_polled[sock] = 1;
