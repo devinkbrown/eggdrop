@@ -409,7 +409,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   if (!tm) {
     tm = nmalloc_null(sizeof *tm);
     tm->mask = nmalloc(strlen(cmd) + 1);
-    strlcpy(tm->mask, cmd, sizeof(tm->mask));
+    strlcpy(tm->mask, cmd, strlen(cmd) + 1);
 
     /* Link into linked list of binds. */
     tm->next = tl->first;
@@ -951,7 +951,7 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
 
 finally:
   str = nmalloc(strlen(param) + 1);
-  strlcpy(str, param, sizeof(str));
+  strlcpy(str, param, strlen(param) + 1);
 
   for (varName = strtok_r(str,  " $:", &brkt);
        varName;
