@@ -87,19 +87,29 @@ static char *init_python() {
   PyStatus status;
   PyConfig config;
 
-  PyConfig_InitPythonConfig(&config);
-  config.install_signal_handlers = 0;
-  config.parse_argv = 0;
-  /* Force UTF-8 mode so Python does not try to coerce the C locale.
+  /* Force UTF-8 mode via PyPreConfig before touching PyConfig.
    * init_tcl1() calls setlocale(LC_CTYPE, "") before modules are loaded;
    * if the resulting locale has a non-UTF-8 encoding, Python 3.7+ attempts
    * a locale coercion (setlocale to "C.UTF-8").  On systems where that
    * locale is not installed the coercion fails with a *fatal* PyStatus,
    * which internally calls exit() before our PyStatus_Exception check on
-   * line 118 can run, hard-crashing the process.  UTF-8 mode skips the
-   * coercion step entirely and is the correct behaviour for an embedded
-   * interpreter used by an IRC bot. */
-  config.utf8_mode = 1;
+   * Py_InitializeFromConfig can run, hard-crashing the process.
+   * Py_PreInitialize with utf8_mode=1 skips the coercion step entirely and
+   * is the correct behaviour for an embedded interpreter.
+   * Note: utf8_mode lives in PyPreConfig for all Python versions (3.8+);
+   * it was also mirrored in PyConfig through 3.13 but removed in 3.14. */
+  {
+    PyPreConfig preconfig;
+    PyPreConfig_InitPythonConfig(&preconfig);
+    preconfig.utf8_mode = 1;
+    status = Py_PreInitialize(&preconfig);
+    if (PyStatus_Exception(status))
+      return "Python: Fatal error: Could not pre-initialize UTF-8 mode";
+  }
+
+  PyConfig_InitPythonConfig(&config);
+  config.install_signal_handlers = 0;
+  config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
     snprintf(venvpython, sizeof venvpython, "%s/bin/python3", venv);
     /* Validate the venv executable exists and is runnable before telling
