@@ -490,6 +490,57 @@ flood_msg = "5:60"
 # Max CTCP requests before flood protection triggers (count:seconds).
 flood_ctcp = "3:60"
 
+# ── Additional IRC capabilities (CAP negotiation) ────────────────────────────
+# Request additional CAP capabilities beyond the built-in set.
+# Space-separated list of extra CAP names.
+# cap_request = ""
+
+# Enable specific optional CAPs (1=request, 0=skip).
+away_notify   = 0     # away-notify: receive AWAY notices for tracked users
+invite_notify = 0     # invite-notify: receive INVITE notifications in channel
+message_tags  = 0     # message-tags: enable IRCv3 message tags
+account_tag   = 0     # account-tag: include account in tagged messages
+
+# ── Proxy / firewall ─────────────────────────────────────────────────────────
+# SOCKS4/5 or Sun passthru proxy.  Prefix with '!' for Sun telnet passthru.
+# firewall = "socks.example.com:1080"
+
+# ────────────────────────────────────────────────────────────────────────────
+# SASL AUTHENTICATION (server.mod)
+# Authenticate to IRC services via SASL during connection registration.
+# ────────────────────────────────────────────────────────────────────────────
+
+[sasl]
+# Enable SASL authentication (0=off, 1=on, 2=require — disconnect if it fails).
+sasl = 0
+
+# Authentication mechanism:
+#   0 = PLAIN               (username + password, plaintext — use only with SSL)
+#   1 = ECDSA-NIST256P-CHALLENGE
+#   2 = EXTERNAL            (client certificate)
+#   3 = SCRAM-SHA-256
+#   4 = SCRAM-SHA-512
+#   5 = ECDH-X25519-CHALLENGE
+sasl_mechanism = 0
+
+# SASL username (PLAIN/SCRAM mechanisms).
+# sasl_username = "MyNick"
+
+# SASL password (PLAIN/SCRAM mechanisms). Only used over SSL — never plaintext!
+# sasl_password = "hunter2"
+
+# Path to ECDSA private key file (ECDSA-NIST256P-CHALLENGE mechanism).
+# sasl_ecdsa_key = "eggdrop.pem"
+
+# Path to X25519 private key file (ECDH-X25519-CHALLENGE mechanism).
+# sasl_x25519_key = "eggdrop-x25519.pem"
+
+# Continue connecting even if SASL authentication fails.
+sasl_continue = 1
+
+# Seconds before SASL handshake times out.
+sasl_timeout = 15
+
 # ────────────────────────────────────────────────────────────────────────────
 # DCC / FILE TRANSFER (transfer.mod)
 # ────────────────────────────────────────────────────────────────────────────
