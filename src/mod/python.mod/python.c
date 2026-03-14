@@ -90,6 +90,16 @@ static char *init_python() {
   PyConfig_InitPythonConfig(&config);
   config.install_signal_handlers = 0;
   config.parse_argv = 0;
+  /* Force UTF-8 mode so Python does not try to coerce the C locale.
+   * init_tcl1() calls setlocale(LC_CTYPE, "") before modules are loaded;
+   * if the resulting locale has a non-UTF-8 encoding, Python 3.7+ attempts
+   * a locale coercion (setlocale to "C.UTF-8").  On systems where that
+   * locale is not installed the coercion fails with a *fatal* PyStatus,
+   * which internally calls exit() before our PyStatus_Exception check on
+   * line 118 can run, hard-crashing the process.  UTF-8 mode skips the
+   * coercion step entirely and is the correct behaviour for an embedded
+   * interpreter used by an IRC bot. */
+  config.utf8_mode = 1;
   if ((venv = getenv("VIRTUAL_ENV"))) {
     snprintf(venvpython, sizeof venvpython, "%s/bin/python3", venv);
     /* Validate the venv executable exists and is runnable before telling
@@ -121,13 +131,26 @@ static char *init_python() {
     return "Python: Fatal error: Could not initialize config";
   }
   PyConfig_Clear(&config);
+  /* PyDateTime_IMPORT expands to a PyCapsule_Import() call that can fail and
+   * set a pending Python exception.  Clear any exception it leaves behind so
+   * subsequent API calls are not short-circuited by a stale error indicator.
+   * PyDateTimeAPI being NULL is caught when it is actually used (unlikely at
+   * startup; the datetime module is always present in CPython). */
   PyDateTime_IMPORT;
+  PyErr_Clear();
   pmodule = PyImport_ImportModule("eggdrop");
   if (!pmodule) {
+    PyErr_Print();
     return "Error: could not import module 'eggdrop'";
   }
 
   pirp = PyImport_AddModule("__main__");
+  if (!pirp) {
+    /* Should never happen after a successful Py_InitializeFromConfig, but
+     * guard anyway: PyModule_GetDict(NULL) is an immediate segfault. */
+    Py_DECREF(pmodule);
+    return "Python: Fatal error: could not get __main__ module";
+  }
   pglobals = PyModule_GetDict(pirp);
 
   PyRun_SimpleString("import sys");
