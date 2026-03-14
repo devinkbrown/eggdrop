@@ -1,5 +1,5 @@
 News
-Last revised: March 9, 2026
+Last revised: March 14, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -17,6 +17,22 @@ Last revised: March 9, 2026
      _________________________________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+ Bug fixes:
+    - Fixed three io_uring SQPOLL bugs that prevented IRC registration
+      from completing when the SQPOLL kernel thread was active:
+      (1) io_uring_submit() was skipped for SQPOLL rings, so SQEs were
+          written but the kernel-visible tail was never updated; the
+          SQPOLL thread never saw new requests and delivered no CQEs.
+      (2) Server data arriving immediately on connect (e.g. CAP LS)
+          was silently overwritten: the re-arm loop called
+          uring_recv_sock() even when recv_buf already held data,
+          issuing a new SQE that clobbered the buffered bytes.
+      (3) When buffered recv data was present but no new CQEs were
+          queued, the event loop returned -3 (idle) before reaching the
+          dispatch path, so the buffered bytes were never processed.
+      Together these prevented the bot from receiving the server's CAP
+      LS response and completing IRC registration.
 
  Memory and performance changes:
     - Replaced glibc malloc with an mmap-backed slab allocator (egg_bh)
@@ -44,11 +60,46 @@ devinkbrown fork (based on v1.10.1):
       traditional Tcl-script config. Files with a .toml extension are
       parsed automatically; no chmod u+x is required.
     - Added interactive first-time setup wizard: run `eggdrop --setup`
-      (or `eggdrop -s [output.toml]`) to answer a few questions and
-      generate a ready-to-use TOML config without hand-editing.
+      (or `eggdrop -s [output.toml]`) to walk through a five-step
+      guided flow and generate a ready-to-use TOML config:
+        Step 1 — Bot identity: nick (required), altnick/realname/
+          username/filenames derived automatically from the nick.
+        Step 2 — IRC server: network-type menu (Libera/EFnet/IRCnet/
+          Undernet/DALnet/QuakeNet/Rizon/Other) with per-network
+          default hostnames; editable port (6697 SSL / 6667 plain);
+          optional server password.  SASL sub-step offered when SSL is
+          enabled: mechanism menu (PLAIN/EXTERNAL/SCRAM-SHA-256/
+          SCRAM-SHA-512), username/password prompts.
+        Step 3 — Channels: up to 8 channels; first required, validated
+          for '#' prefix; subsequent channels collected until empty.
+        Step 4 — Files: user/chan/log filenames, defaults from nick.
+        Step 5 — Optional modules: notes/seen/transfer/filesys.
+        Summary table printed before writing; write-to-disk confirmation.
+      Generated config includes [irc] net_type and a [sasl] section
+      when SASL was enabled.  No 'chmod u+x' required.
     - Shipped eggdrop-basic.toml as the human-friendly TOML counterpart
       to eggdrop-basic.conf. Both formats are fully supported and can
       coexist; existing .conf files continue to work unchanged.
+    - Full TOML↔Tcl setting parity: all 128+ Tcl variables from
+      eggdrop.conf are now present in eggdrop.toml. Naming bugs fixed:
+        · [ssl] capath → ssl_capath (sets Tcl var ssl-capath)
+        · [console] console_flags → console (sets Tcl var console)
+        · [ssl] ssl_verify_depth → ssl_chain_depth (Tcl: ssl-chain-depth)
+        · [irc] duplicate default_port removed (already in [network])
+      Missing settings added: [irc] server_cycle_wait, server_timeout,
+      keep_nick, quiet_reject, flood_msg, flood_ctcp, account_notify,
+      extended_join, cap_request, away_notify, invite_notify,
+      message_tags, account_tag, firewall; [channels] all default_*
+      flood/ban/exempt/invite settings; [behaviour] use_telnet_banner,
+      force_expire, share_greet; new [sasl] section with all eight
+      SASL mechanism fields.
+    - Added Tcl code-block support: [tcl] code = """...""" (triple-
+      quoted multi-line string) is evaluated as a single Tcl_Eval()
+      call, ideal for proc definitions and bind chains.  The parser now
+      detects incomplete triple-quoted values and accumulates continuation
+      lines before evaluating, the same way it already handled inline
+      arrays.  Both eggdrop.toml and eggdrop-basic.toml document the
+      feature with a commented example.
     - Fixed silent HTTP response truncation in the webui module: the
       snprintf calls for 404, 200-OK, and 101-Upgrade responses were
       passing sizeof(char*) (pointer size = 8) instead of the actual
