@@ -1807,10 +1807,25 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       {
         int tls_pending = 0;
         if (x == 0 && !tcl_ready) {
-          for (i = 0; i < slistmax && !tls_pending; i++)
-            if (!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-                slist[i].ssl && !SSL_is_init_finished(slist[i].ssl))
-              tls_pending = 1;
+          for (i = 0; i < slistmax; i++) {
+            if (!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL)) && slist[i].ssl) {
+              if (!SSL_is_init_finished(slist[i].ssl)) {
+                tls_pending = 1;
+              } else if (slist[i].flags & SOCK_CONNECT) {
+                /* TLS handshake completed but the connect has not yet been
+                 * reported to the upper layer (SOCK_CONNECT still set).  The
+                 * outstanding io_uring poll was submitted before SOCK_CONNECT
+                 * was set so it only watches POLLIN; the server won't send
+                 * data until we send NICK/USER, so POLLIN never fires.
+                 * Force-mark the socket readable so the dispatch loop below
+                 * can take the "connect!" path and clear SOCK_CONNECT. */
+                FD_SET(slist[i].sock, &fdr);
+                if (slist[i].sock > maxfd_r)
+                  maxfd_r = slist[i].sock;
+                x = 1;
+              }
+            }
+          }
         }
         if (x == 0 && !tcl_ready && !tls_pending)
           return -3; /* idle */
