@@ -236,8 +236,8 @@ static void uring_recv_sock(sock_list *sl, int slist_idx)
 
   sqe = io_uring_get_sqe(&egg_ring);
   if (!sqe) {
-    if (!egg_ring_sqpoll)
-      io_uring_submit(&egg_ring);
+    /* Ring full: flush pending SQEs (updates ktail for SQPOLL) to free slots */
+    io_uring_submit(&egg_ring);
     sqe = io_uring_get_sqe(&egg_ring);
     if (!sqe) return;
   }
@@ -1568,21 +1568,51 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
 
     /* --- Main socket wait via epoll or io_uring --- */
 #ifdef EGG_IO_URING
-    /* (Re-)arm RECV or POLL_ADD SQEs for any socket without one pending */
+    /* (Re-)arm RECV or POLL_ADD SQEs for any socket without one pending.
+     * Special case: if recv_len >= 0 there is already data in recv_buf from
+     * a previous RECV CQE that was not consumed (e.g. data arrived while the
+     * socket still had SOCK_CONNECT set and the "connect!" dispatch path
+     * returned before calling read()).  Surface the buffered data by marking
+     * the socket readable directly rather than issuing a new RECV SQE that
+     * would overwrite recv_buf and discard the unconsumed bytes. */
+    {
+    int buffered_cnt = 0;
     for (i = 0; i < slistmax; i++) {
-      if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL)))
-        uring_recv_sock(&slist[i], i);
+      if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL))) {
+        if (!slist[i].ssl && slist[i].handler.sock.recv_len >= 0) {
+          /* Buffered data present — surface directly without a new SQE */
+          FD_SET(slist[i].sock, &fdr);
+          if (slist[i].sock > maxfd_r) maxfd_r = slist[i].sock;
+          buffered_cnt++;
+        } else {
+          uring_recv_sock(&slist[i], i);
+        }
+      }
     }
-    /* Flush the SQ: no-op when SQPOLL thread is active */
-    if (!egg_ring_sqpoll)
-      io_uring_submit(&egg_ring);
+    /* Flush the SQ tail so the SQPOLL thread sees new SQEs.
+     * io_uring_prep_*() fills the SQE array but does NOT update the
+     * kernel-visible tail pointer (ktail); that only happens inside
+     * io_uring_submit() via io_uring_flush_sq().  Without this flush the
+     * SQPOLL thread monitors an unchanged tail and never picks up the new
+     * SQEs.  When the SQPOLL thread has auto-parked (IORING_SQ_NEED_WAKEUP),
+     * io_uring_submit() also issues io_uring_enter(IORING_ENTER_SQ_WAKEUP)
+     * to wake it — so this single call handles both the flush and wakeup
+     * cases correctly with no unnecessary syscall overhead. */
+    io_uring_submit(&egg_ring);
     {
       struct __kernel_timespec ts;
       struct io_uring_cqe *cqes[URING_BATCH];
       struct io_uring_cqe *cqe_wait;
       unsigned nready, k;
-      ts.tv_sec  = t.tv_sec;
-      ts.tv_nsec = t.tv_usec * 1000L;
+      /* If buffered recv_len data is already ready, poll with zero timeout
+       * to drain any additional CQEs without blocking. */
+      if (buffered_cnt > 0) {
+        ts.tv_sec  = 0;
+        ts.tv_nsec = 0;
+      } else {
+        ts.tv_sec  = t.tv_sec;
+        ts.tv_nsec = t.tv_usec * 1000L;
+      }
       call_hook(HOOK_PRE_SELECT);
       x = io_uring_wait_cqe_timeout(&egg_ring, &cqe_wait, &ts);
       call_hook(HOOK_POST_SELECT);
@@ -1618,6 +1648,11 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
         io_uring_cqe_seen(&egg_ring, cqes[k]);
       }
       if ((int)nready > 0) x = (int)nready;
+      /* Buffered recv_len data was surfaced via FD_SET above; ensure x > 0
+       * so the "return -3 (idle)" check below doesn't discard the ready fds
+       * before the dispatch loop can process them. */
+      if (buffered_cnt > 0 && x == 0) x = buffered_cnt;
+    }
     }
 #elif defined(EGG_EPOLL)
     {
