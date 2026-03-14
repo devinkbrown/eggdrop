@@ -1794,9 +1794,33 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           if (FD_ISSET(dtn->fildes[0], &fdr)) tcl_ready = 1;
       }
 #endif
+      /* When io_uring/epoll/kqueue reports no events (x==0) but a TLS
+       * handshake is in progress, do NOT return idle.  The initial
+       * POLL_ADD for a connecting socket is submitted before SOCK_CONNECT
+       * is set (at getsock time), so it only watches POLLIN.  TCP connect
+       * completion fires POLLOUT, which is not in that initial mask, so
+       * the backend stays quiet.  We must still reach the dispatch loop
+       * below so that the (slist[i].ssl && !SSL_is_init_finished(...))
+       * branch can call SSL_read(), which drives SSL_connect() and sends
+       * the ClientHello once the TCP layer allows it. */
+#ifdef TLS
+      {
+        int tls_pending = 0;
+        if (x == 0 && !tcl_ready) {
+          for (i = 0; i < slistmax && !tls_pending; i++)
+            if (!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+                slist[i].ssl && !SSL_is_init_finished(slist[i].ssl))
+              tls_pending = 1;
+        }
+        if (x == 0 && !tcl_ready && !tls_pending)
+          return -3; /* idle */
+        if (x > 0 || tcl_ready || tls_pending) x = 1; /* at least one ready */
+      }
+#else
       if (x == 0 && !tcl_ready)
         return -3; /* idle */
       if (x > 0 || tcl_ready) x = 1; /* at least one ready */
+#endif
     }
   } else
 #endif /* EGG_IO_URING || EGG_EPOLL || EGG_KQUEUE */
