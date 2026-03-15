@@ -1649,6 +1649,34 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       call_hook(HOOK_POST_SELECT);
       if (x == -ETIME) x = 0;
       else if (x < 0) x = (errno == EINTR) ? 0 : -1;
+#ifdef EGG_TDNS
+      /* Re-check DNS thread pipes after the io_uring wait: DNS may have
+       * resolved during the blocking wait and written to its pipe fd.
+       * The zero-timeout quick select above ran *before* the wait and
+       * only catches results that arrived before we slept.  A second
+       * zero-timeout select on just the TDNS pipe fds here ensures we
+       * pick up any resolution that completed while we were waiting. */
+      {
+        fd_set tdns_fdr;
+        int tdns_maxfd = -1;
+        FD_ZERO(&tdns_fdr);
+        for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
+          int tfd = dtn->fildes[0];
+          FD_SET(tfd, &tdns_fdr);
+          if (tfd > tdns_maxfd) tdns_maxfd = tfd;
+        }
+        if (tdns_maxfd >= 0) {
+          struct timeval zt = {0, 0};
+          if (select(tdns_maxfd + 1, &tdns_fdr, NULL, NULL, &zt) > 0) {
+            /* OR the ready bits into fdr so the TDNS handler below sees them */
+            for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
+              if (FD_ISSET(dtn->fildes[0], &tdns_fdr))
+                FD_SET(dtn->fildes[0], &fdr);
+            }
+          }
+        }
+      }
+#endif
       nready = io_uring_peek_batch_cqe(&egg_ring, cqes, URING_BATCH);
       for (k = 0; k < nready; k++) {
         uint64_t ud = io_uring_cqe_get_data64(cqes[k]);
