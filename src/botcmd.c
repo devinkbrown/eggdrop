@@ -373,6 +373,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
                      " %% = botmaster, @ = op, ^ = halfop)", BOT_PARTYMEMBS);
   else {
     snprintf(s, sizeof s, "assoc %d", chan);
+#ifdef HAVE_TCL
     if ((Tcl_Eval(interp, s) != TCL_OK) || tcl_resultempty())
       botnet_send_priv(idx, botnetnick, nick, NULL, "%s %s%d: (* = owner, + ="
                        " master, %% = botmaster, @ = op, ^ = halfop)\n",
@@ -383,6 +384,12 @@ static void remote_tell_who(int idx, char *nick, int chan)
                        "owner, + = master, %% = botmaster, @ = op, ^ = halfop)\n",
                        BOT_PEOPLEONCHAN, tcl_resultstring(), (chan < GLOBAL_CHANS) ?
                        "" : "*", chan % GLOBAL_CHANS);
+#else
+    botnet_send_priv(idx, botnetnick, nick, NULL, "%s %s%d: (* = owner, + ="
+                     " master, %% = botmaster, @ = op, ^ = halfop)\n",
+                     BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" : "*",
+                     chan % GLOBAL_CHANS);
+#endif /* HAVE_TCL */
   }
   for (i = 0; i < dcc_total; i++)
     if (dcc[i].type->flags & DCT_REMOTEWHO)

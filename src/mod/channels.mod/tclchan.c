@@ -20,6 +20,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 static int tcl_killban STDVAR
 {
   struct chanset_t *chan;
@@ -2493,3 +2496,5 @@ static tcl_cmds channels_cmds[] = {
   {"haschanrec",         tcl_haschanrec},
   {NULL,                           NULL}
 };
+
+#endif /* HAVE_TCL */

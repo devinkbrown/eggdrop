@@ -274,6 +274,7 @@ void tell_verbose_status(int idx)
     dprintf(idx, "OS: %s\n", sysrel);
   dprintf(idx, "Process ID: %d (parent %d)\n", getpid(), getppid());
 
+#ifdef HAVE_TCL
   /* info library */
   dprintf(idx, "%s %s\n", MISC_TCLLIBRARY,
           ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
@@ -287,6 +288,9 @@ void tell_verbose_status(int idx)
 
   if (tcl_threaded())
     dprintf(idx, "Tcl is threaded.\n");
+#else
+  dprintf(idx, "Tcl scripting: disabled\n");
+#endif /* HAVE_TCL */
 #ifdef TLS
   dprintf(idx, "TLS support is enabled.\n"
   #if defined HAVE_EVP_PKEY_GET1_EC_KEY && defined HAVE_OPENSSL_MD5
@@ -408,12 +412,21 @@ void chanprog(void)
     if (cflen >= 5 && strcmp(configfile + cflen - 5, ".toml") == 0)
       ok = readtomlconfig(configfile);
     else {
+#ifdef HAVE_TCL
       putlog(LOG_MISC, "*",
              "NOTE: Loading '%s' as a Tcl config script. "
              "Consider migrating to TOML: run 'eggdrop --setup' to generate "
              "a modern eggdrop.toml with no Tcl knowledge required.",
              configfile);
       ok = readtclprog(configfile);
+#else
+      putlog(LOG_MISC, "*",
+             "ERROR: Config file '%s' appears to be a Tcl script, but this "
+             "eggdrop was built without Tcl support. "
+             "Please use a TOML config file (run 'eggdrop --setup' to generate one).",
+             configfile);
+      ok = 0;
+#endif /* HAVE_TCL */
     }
     if (!ok)
       fatal(MISC_NOCONFIGFILE, 0);
@@ -635,7 +648,9 @@ void do_check_timers(tcl_timer_t ** stack)
     mark = mark->next;
     if (!old->mins) {
       snprintf(x, sizeof x, "timer%lu", old->id);
+#ifdef HAVE_TCL
       do_tcl(x, old->cmd);
+#endif
       if (old->count == 1) {
         nfree(old->cmd);
         if (old->name)
@@ -670,10 +685,11 @@ void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
   *stack = NULL;
 }
 
-/* Return list of timers
+/* Return list of timers (only meaningful when Tcl is present)
  */
 void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
 {
+#ifdef HAVE_TCL
   char mins[11], count[11], *x;
   EGG_CONST char *argv[4];
   tcl_timer_t *mark;
@@ -689,6 +705,7 @@ void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
     Tcl_AppendElement(irp, x);
     Tcl_Free((char *) x);
   }
+#endif /* HAVE_TCL */
 }
 
 /* Find a timer by name. Returns 1 if found, 0 if not

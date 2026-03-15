@@ -1138,7 +1138,8 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   return -4;
 }
 
-/* Tcl functions */
+/* Tcl functions — only compiled when Tcl support is present */
+#ifdef HAVE_TCL
 
 /* Is the connection secure? */
 static int tcl_istls STDVAR
@@ -1285,4 +1286,5 @@ tcl_cmds tcltls_cmds[] = {
   {NULL,                 NULL}
 };
 
+#endif /* HAVE_TCL */
 #endif /* TLS */

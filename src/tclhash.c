@@ -40,11 +40,18 @@ p_tcl_bind_list bind_table_list;
  * garbage_collect_tclhash() uses this to skip the traversal when nothing
  * has changed, turning the common idle case into an O(1) check. */
 static int tclhash_dirty = 0;
+
+/* Bind-table head pointers; always present (NULL when Tcl is disabled). */
 p_tcl_bind_list H_chat, H_act, H_bcst, H_chon, H_chof, H_load, H_unld, H_link,
                 H_disc, H_dcc, H_chjn, H_chpt, H_bot, H_time, H_nkch, H_away,
                 H_note, H_filt, H_event, H_die, H_cron, H_log = NULL;
 #ifdef TLS
 p_tcl_bind_list H_tls = NULL;
+#endif
+
+#ifdef HAVE_TCL  /* ---- All Tcl-API-dependent tclhash code below ---- */
+
+#ifdef TLS
 static int builtin_idx STDVAR;
 #endif
 
@@ -1418,3 +1425,98 @@ void rem_builtins(tcl_bind_list_t *table, cmd_t *cc)
     nfree(l);
   }
 }
+
+#else /* !HAVE_TCL — no-op stubs for the bind/hash system */
+
+void garbage_collect_tclhash(void) {}
+
+void init_bind(void) {}
+void kill_bind(void) {}
+int expmem_tclhash(void) { return 0; }
+
+tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
+{
+  return NULL;
+}
+
+void del_bind_table(tcl_bind_list_t *tl_which) {}
+
+tcl_bind_list_t *find_bind_table(const char *nme)
+{
+  return NULL;
+}
+
+int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
+                    const char *cmd, const char *proc)
+{
+  return 0;
+}
+
+int unbind_bind_entry(tcl_bind_list_t *tl, const char *flags,
+                      const char *cmd, const char *proc)
+{
+  return 0;
+}
+
+int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
+                   struct flag_record *atr, const char *param, int flags)
+{
+  return BIND_NOMATCH;
+}
+
+int check_tcl_dcc(const char *cmd, int idx, const char *args)
+{
+  return 0;
+}
+
+void check_tcl_chjn(const char *bot, const char *nick, int chan,
+                    char type, int sock, const char *host) {}
+void check_tcl_chpt(const char *bot, const char *hand, int sock, int chan) {}
+void check_tcl_bot(const char *nick, const char *code, const char *param) {}
+void check_tcl_link(const char *bot, const char *via) {}
+void check_tcl_disc(const char *bot) {}
+
+const char *check_tcl_filt(int idx, const char *text)
+{
+  return text;
+}
+
+int check_tcl_note(const char *from, const char *to, const char *text)
+{
+  return 0;
+}
+
+void check_tcl_listen(const char *cmd, int idx) {}
+void check_tcl_time_and_cron(struct tm *tm) {}
+void tell_binds(int idx, char *par) {}
+void check_tcl_nkch(const char *ohand, const char *nhand) {}
+void check_tcl_away(const char *bot, int idx, const char *msg) {}
+void check_tcl_chatactbcst(const char *from, int chan, const char *text,
+                            tcl_bind_list_t *tbl) {}
+void check_tcl_event(const char *event) {}
+void check_tcl_event_arg(const char *event, const char *arg) {}
+
+int check_tcl_signal(const char *event)
+{
+  return 0;
+}
+
+void check_tcl_die(char *reason) {}
+void check_tcl_log(int ltype, char *chan, char *msg) {}
+
+void check_tcl_chonof(char *hand, int sock, tcl_bind_list_t *tbl) {}
+void check_tcl_loadunld(const char *mod, tcl_bind_list_t *tbl) {}
+
+void add_builtins(tcl_bind_list_t *tl, cmd_t *cc) {}
+void rem_builtins(tcl_bind_list_t *tl, cmd_t *cc) {}
+
+int check_validity(char *fn, IntFunc func)
+{
+  return 1;
+}
+
+#ifdef TLS
+int check_tcl_tls(int sock) { return 0; }
+#endif
+
+#endif /* HAVE_TCL */

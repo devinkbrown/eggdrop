@@ -4,5 +4,63 @@
  * resolve the Tcl header path at configure time.  With the Meson build the
  * Tcl include directory is added to the compiler search path directly, so
  * we can include tcl.h by its canonical name.
+ *
+ * When Tcl is not available (HAVE_TCL not defined) this header provides
+ * minimal type stubs so the rest of the codebase compiles cleanly.  Any
+ * function that actually calls into the Tcl API must be guarded with
+ * #ifdef HAVE_TCL in its own translation unit.
  */
-#include <tcl.h>
+#ifndef _LUSH_H
+#define _LUSH_H
+
+#ifdef HAVE_TCL
+#  include <tcl.h>
+#else
+/* -----------------------------------------------------------------------
+ * Minimal Tcl type stubs for no-Tcl builds.
+ *
+ * These let declarations such as
+ *   extern Tcl_Interp *interp;
+ *   void foo(Tcl_Interp *irp, ...);
+ * compile without the real tcl.h.  Actual calls to Tcl_* functions are
+ * guarded by #ifdef HAVE_TCL in their respective translation units.
+ * ----------------------------------------------------------------------- */
+#  include <limits.h>   /* INT_MAX */
+
+typedef void           Tcl_Interp;
+typedef void          *ClientData;
+typedef void           Tcl_Obj;
+typedef int            Tcl_Size;
+/* Tcl_FileProc: callable type used in tclsock_handler / net.c */
+typedef void (Tcl_FileProc)(ClientData clientData, int mask);
+/* Tcl_DString: dynamic string (used in userent.c) */
+typedef struct {
+  char *string;
+  int length;
+  int spaceAvl;
+  char staticSpace[200];
+} Tcl_DString;
+/* Tcl_DictSearch: opaque iterator (used in servmsg.c) */
+typedef struct { void *p1; void *p2; void *p3; } Tcl_DictSearch;
+
+#  define TCL_SIZE_MAX      INT_MAX
+#  define TCL_SIZE_MODIFIER ""
+#  define TCL_PATCH_LEVEL   "*none*"
+#  define TCL_OK            0
+#  define TCL_ERROR         1
+#  define TCL_GLOBAL_ONLY   1
+#  define TCL_CONST86
+/* Tcl socket event mask bits (from tcl.h) */
+#  define TCL_READABLE      (1<<1)
+#  define TCL_WRITABLE      (1<<2)
+#  define TCL_EXCEPTION     (1<<3)
+/* Tcl result constants */
+#  define TCL_STATIC        ((void (*)(char *)) 0)
+#  define TCL_DYNAMIC       ((void (*)(char *)) 3)
+/* Tcl variable trace flags */
+#  define TCL_TRACE_READS      0x10
+#  define TCL_TRACE_WRITES     0x20
+#  define TCL_TRACE_UNSETS     0x40
+#  define TCL_TRACE_DESTROYED  0x80
+#endif /* HAVE_TCL */
+#endif /* _LUSH_H */

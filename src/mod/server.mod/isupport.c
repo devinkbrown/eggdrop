@@ -49,6 +49,7 @@ static int hexdigit2dec[128] = {
   -1, -1, -1, -1, -1, -1, -1, -1          /* 120 - 127 */
 };
 
+#ifdef HAVE_TCL
 int tcl_isupport STDOBJVAR;
 int isupport_bind STDVAR;
 int check_tcl_isupport(struct isupport *data, const char *key, const char *value);
@@ -58,6 +59,7 @@ static tcl_cmds my_tcl_objcmds[] = {
   {"isupport", tcl_isupport},
   {NULL,       NULL        }
 };
+#endif /* HAVE_TCL */
 
 /*** Utility functions ***/
 
@@ -416,28 +418,35 @@ void isupport_clear_values(int cleardefaultvalues) {
  * this is not necessary before each connect, just before the very first one to trigger default binds
  */
 void isupport_preconnect(void) {
+#ifdef HAVE_TCL
   const char *def = Tcl_GetVar(interp, "isupport-default", TCL_GLOBAL_ONLY);
-
   if (!def)
     def = isupport_default;
+#else
+  const char *def = isupport_default;
+#endif
   isupport_parse(def, isupport_setdefault);
 }
 
 void isupport_init(void) {
+#ifdef HAVE_TCL
   H_isupport = add_bind_table("isupport", HT_STACKABLE, isupport_bind);
   /* Must be added after reading, if the variable was set before loading mod. */
   Tcl_TraceVar(interp, "isupport-default",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_isupport, NULL);
   add_tcl_objcommands(my_tcl_objcmds);
+#endif
 }
 
 void isupport_fini(void) {
+#ifdef HAVE_TCL
   del_bind_table(H_isupport);
   Tcl_UntraceVar(interp, "isupport-default",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_isupport, NULL);
   rem_tcl_commands(my_tcl_objcmds);
+#endif
   isupport_clear();
 }
 

@@ -283,7 +283,9 @@ int utf8_sanitize(char *);
 IP my_atoul(char *);
 void setsock(int, int);
 int allocsock(int, int);
+#ifdef HAVE_TCL
 int alloctclsock(int, int, Tcl_FileProc *, ClientData);
+#endif /* HAVE_TCL */
 int getsock(int, int);
 void killsock(int);
 void killtclsock(int);

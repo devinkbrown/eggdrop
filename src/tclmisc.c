@@ -28,6 +28,9 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 
+/* This entire file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 extern p_tcl_bind_list bind_table_list;
 extern tcl_timer_t *timer, *utimer;
 extern struct dcc_t *dcc;
@@ -857,3 +860,5 @@ tcl_cmds tclmisc_cmds[] = {
   {"md5",                   tcl_md5},
   {NULL,                       NULL}
 };
+
+#endif /* HAVE_TCL */

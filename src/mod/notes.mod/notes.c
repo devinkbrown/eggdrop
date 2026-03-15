@@ -207,6 +207,7 @@ static void expire_notes(void)
 
 /* Add note to notefile.
  */
+#ifdef HAVE_TCL
 static int tcl_storenote STDVAR
 {
   FILE *f;
@@ -323,6 +324,7 @@ static int tcl_storenote STDVAR
   }
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 /* Convert a string like "2-4;8;16-"
  * in an array {2, 4, 8, 8, 16, maxnotes, -1}
@@ -372,6 +374,7 @@ static int notes_in(int dl[], int in)
   return 0;
 }
 
+#ifdef HAVE_TCL
 static int tcl_erasenotes STDVAR
 {
   FILE *f, *g;
@@ -455,6 +458,7 @@ static int tcl_listnotes STDVAR
   }
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 /*
  * srd="+" : index
@@ -656,6 +660,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   }
 }
 
+#ifdef HAVE_TCL
 static int tcl_notes STDVAR
 {
   int count, read, nl[128]; /* Is it enough? */
@@ -714,6 +719,7 @@ static int tcl_notes STDVAR
   fclose(f);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 
 /* notes <pass> <func>
@@ -1120,6 +1126,7 @@ static tcl_strings notes_strings[] = {
   {NULL,       NULL,     0,   0}
 };
 
+#ifdef HAVE_TCL
 static tcl_cmds notes_tcls[] = {
   {"notes",           tcl_notes},
   {"erasenotes", tcl_erasenotes},
@@ -1127,6 +1134,7 @@ static tcl_cmds notes_tcls[] = {
   {"storenote",   tcl_storenote},
   {NULL,                   NULL}
 };
+#endif /* HAVE_TCL */
 
 static int notes_irc_setup(char *mod)
 {
@@ -1158,7 +1166,9 @@ static char *notes_close(void)
 
   rem_tcl_ints(notes_ints);
   rem_tcl_strings(notes_strings);
+#ifdef HAVE_TCL
   rem_tcl_commands(notes_tcls);
+#endif
   if ((H_temp = find_bind_table("msg")))
     rem_builtins(H_temp, notes_msgs);
   if ((H_temp = find_bind_table("join")))
@@ -1221,7 +1231,9 @@ char *notes_start(Function *global_funcs)
   add_hook(HOOK_MATCH_NOTEREJ, (Function) match_note_ignore);
   add_tcl_ints(notes_ints);
   add_tcl_strings(notes_strings);
+#ifdef HAVE_TCL
   add_tcl_commands(notes_tcls);
+#endif
   add_builtins(H_dcc, notes_cmds);
   add_builtins(H_chon, notes_chon);
   add_builtins(H_away, notes_away);

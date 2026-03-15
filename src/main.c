@@ -190,8 +190,10 @@ int expmem_tcl(void);
 int expmem_tclhash(void);
 int expmem_net(void);
 int expmem_language(void);
+#ifdef HAVE_TCL
 int expmem_tcldcc(void);
 int expmem_tclmisc(void);
+#endif
 int expmem_dns(void);
 #ifdef TLS
 int expmem_tls(void);
@@ -205,8 +207,11 @@ int expected_memory(void)
 
   tot = expmem_chanprog() + expmem_users() + expmem_misc() + expmem_dccutil() +
         expmem_botnet() + expmem_tcl() + expmem_tclhash() + expmem_net() +
-        expmem_modules(0) + expmem_language() + expmem_tcldcc() +
-        expmem_tclmisc() + expmem_dns();
+        expmem_modules(0) + expmem_language() +
+#ifdef HAVE_TCL
+        expmem_tcldcc() + expmem_tclmisc() +
+#endif
+        expmem_dns();
 #ifdef TLS
   tot += expmem_tls();
 #endif
@@ -287,6 +292,7 @@ static void write_debug(void)
     dprintf(-x, "STATICALLY LINKED\n");
 #endif
 
+#ifdef HAVE_TCL
     /* info library */
     dprintf(-x, "Tcl library: %s\n",
             ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
@@ -300,6 +306,9 @@ static void write_debug(void)
 
     if (tcl_threaded())
       dprintf(-x, "Tcl is threaded\n");
+#else
+    dprintf(-x, "Tcl scripting: disabled\n");
+#endif /* HAVE_TCL */
 #ifdef IPV6
     dprintf(-x, "Compiled with IPv6 support\n");
 #else
@@ -901,8 +910,10 @@ static void mainloop(int toplevel)
         putlog(LOG_MISC, "*", "%s", MOD_STAGNANT);
       }
 
+#ifdef HAVE_TCL
       kill_tcl();
       init_tcl1(argc, argv);
+#endif
       init_language(0);
 
       /* this resets our modules which we didn't unload (encryption and uptime) */
@@ -929,8 +940,10 @@ static void mainloop(int toplevel)
   }
 
   if (!eggbusy) {
-/* Process all pending tcl events */
+#ifdef HAVE_TCL
+    /* Process all pending Tcl events */
     Tcl_ServiceAll();
+#endif
   }
 }
 

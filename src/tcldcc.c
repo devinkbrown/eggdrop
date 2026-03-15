@@ -28,6 +28,9 @@
 #include <errno.h>
 #include <signal.h>
 
+/* This entire file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 extern Tcl_Interp *interp;
 extern tcl_timer_t *timer, *utimer;
 extern struct dcc_t *dcc;
@@ -1506,3 +1509,5 @@ tcl_cmds tcldcc_cmds[] = {
   {"traffic",           tcl_traffic},
   {NULL,                       NULL}
 };
+
+#endif /* HAVE_TCL */

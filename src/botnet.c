@@ -439,6 +439,7 @@ void answer_local_whom(int idx, int chan)
             BOT_LOCALCHAN);
   else if (chan > 0) {
     snprintf(idle, sizeof idle, "assoc %d", chan);
+#ifdef HAVE_TCL
     if ((Tcl_Eval(interp, idle) != TCL_OK) || tcl_resultempty())
       dprintf(idx, "%s %s%d:\n", BOT_USERSONCHAN,
               (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
@@ -446,6 +447,10 @@ void answer_local_whom(int idx, int chan)
       dprintf(idx, "%s '%s%s' (%s%d):\n", BOT_USERSONCHAN,
               (chan < GLOBAL_CHANS) ? "" : "*", tcl_resultstring(),
               (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
+#else
+    dprintf(idx, "%s %s%d:\n", BOT_USERSONCHAN,
+            (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
+#endif /* HAVE_TCL */
   }
   /* Find longest nick and botnick */
   nicklen = botnicklen = 0;
@@ -991,7 +996,9 @@ int botunlink(int idx, char *nick, char *reason, char *from)
         check_tcl_chpt(party[i].bot, party[i].nick, party[i].sock,
                        party[i].chan);
     }
+#ifdef HAVE_TCL
     Tcl_Eval(interp, "killassoc &");
+#endif /* HAVE_TCL */
   }
   return 0;
 }

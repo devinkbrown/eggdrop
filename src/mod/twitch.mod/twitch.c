@@ -114,6 +114,7 @@ static void remove_chars(char* str, char c) {
     *pw = '\0';
 }
 
+#ifdef HAVE_TCL
 char *traced_keepnick(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
                    EGG_CONST char *name2, int flags)
 {
@@ -129,6 +130,7 @@ char *traced_keepnick(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   }
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 static void cmd_twcmd(struct userrec *u, int idx, char *par) {
   char *chname;
@@ -585,6 +587,7 @@ static int gotusernotice(char *from, char *msg, Tcl_Obj *tags) {
   return 0;
 }
 
+#ifdef HAVE_TCL
 static int tcl_userstate STDVAR {
   twitchchan_t *tchan;
   char s [3];
@@ -642,11 +645,13 @@ static int tcl_twitchvips STDVAR {
   Tcl_AppendResult(irp, tchan->vips ? tchan->vips : "", NULL);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 /* Checks if a user is a moderator or not. This differs from normal is* Tcl
  * cmds, as it does NOT check if the user is on the channel or not, as that
  * is unreliable on Twitch
  */
+#ifdef HAVE_TCL
 static int tcl_ismod STDVAR {
   twitchchan_t *tchan, *thechan=NULL;
 
@@ -677,12 +682,14 @@ static int tcl_ismod STDVAR {
   Tcl_AppendResult(irp, "0", NULL);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 
 /* Checks if a user is a VIP or not. This differs from normal is* Tcl
  * cmds, as it does NOT check if the user is on the channel or not, as that
  * is unreliable on Twitch
  */
+#ifdef HAVE_TCL
 static int tcl_isvip STDVAR {
   twitchchan_t *tchan, *thechan = NULL;
 
@@ -784,6 +791,7 @@ static int twitch_3char STDVAR
   ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 /* A report on the module status.
  *
@@ -809,6 +817,7 @@ static cmd_t mydcc[] = {
   {NULL,        NULL,   NULL,                      NULL}  /* Mark end. */
 };
 
+#ifdef HAVE_TCL
 static tcl_cmds mytcl[] = {
   {"twcmd",           tcl_twcmd},
   {"roomstate",   tcl_roomstate},
@@ -819,6 +828,7 @@ static tcl_cmds mytcl[] = {
   {"isvip",           tcl_isvip},
   {NULL,                   NULL}
 };
+#endif /* HAVE_TCL */
 
 /*
 static tcl_ints my_tcl_ints[] = {
@@ -863,7 +873,10 @@ static char *twitch_close(void)
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_raw, twitch_raw);
   rem_builtins(H_rawt, twitch_rawt);
+#ifdef HAVE_TCL
   rem_tcl_commands(mytcl);
+  Tcl_UntraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);
+#endif
   // rem_tcl_ints(my_tcl_ints);
   rem_tcl_strings(my_tcl_strings);
   del_bind_table(H_ccht);
@@ -874,7 +887,6 @@ static char *twitch_close(void)
   del_bind_table(H_rmst);
   del_bind_table(H_usst);
   del_bind_table(H_usrntc);
-  Tcl_UntraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);
   module_undepend(MODULE_NAME);
   return NULL;
 }
@@ -936,6 +948,7 @@ char *twitch_start(Function *global_funcs)
           "  Please check that net-type is set to twitch in config before loadmodule twitch and try again", 0);
   }
 
+#ifdef HAVE_TCL
   H_ccht = add_bind_table("ccht", HT_STACKABLE, twitch_2char);
   H_cmsg = add_bind_table("cmsg", HT_STACKABLE, twitch_3char);
   H_htgt = add_bind_table("htgt", HT_STACKABLE, twitch_2char);
@@ -944,7 +957,9 @@ char *twitch_start(Function *global_funcs)
   H_rmst = add_bind_table("rmst", HT_STACKABLE, twitch_3char);
   H_usst = add_bind_table("usst", HT_STACKABLE, twitch_3char);
   H_usrntc = add_bind_table("usrntc", HT_STACKABLE, twitch_3char);
+#endif
 
+#ifdef HAVE_TCL
   /* Override config setting with these values; they are required for Twitch */
   Tcl_SetVar(interp, "cap-request",
         "twitch.tv/commands twitch.tv/membership twitch.tv/tags", 0);
@@ -954,12 +969,15 @@ char *twitch_start(Function *global_funcs)
   }
   Tcl_SetVar2(interp, "keep-nick", NULL, "0", TCL_GLOBAL_ONLY);
   Tcl_TraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);
+#endif /* HAVE_TCL */
 
   /* Add command table to bind list */
   add_builtins(H_dcc, mydcc);
   add_builtins(H_raw, twitch_raw);
   add_builtins(H_rawt, twitch_rawt);
+#ifdef HAVE_TCL
   add_tcl_commands(mytcl);
+#endif
   // add_tcl_ints(my_tcl_ints);
   add_tcl_strings(my_tcl_strings);
   return NULL;

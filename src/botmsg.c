@@ -922,6 +922,7 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
 
   /* Call 'storenote' Tcl command. */
   snprintf(ss, sizeof ss, "%ld", (idx >= 0) ? dcc[idx].sock : -1);
+#ifdef HAVE_TCL
   Tcl_SetVar(interp, "_from", from, 0);
   Tcl_SetVar(interp, "_to",   to,   0);
   Tcl_SetVar(interp, "_data", msg,  0);
@@ -943,4 +944,7 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
 
   /* If we haven't returned anything else by now, assume an error occurred. */
   return NOTE_ERROR;
+#else
+  return NOTE_ERROR;
+#endif /* HAVE_TCL */
 }

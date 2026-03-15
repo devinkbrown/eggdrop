@@ -1367,6 +1367,7 @@ static void monitor_clear(void)
   }
 }
 
+#ifdef HAVE_TCL
 static int server_6char STDVAR
 {
   IntFunc F = (IntFunc) cd;
@@ -1478,6 +1479,7 @@ static int monitor_2char STDVAR
   ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 /* Read/write normal string variable.
  */
@@ -2453,6 +2455,7 @@ static char *server_close(void)
   rem_tcl_strings(my_tcl_strings);
   rem_tcl_ints(my_tcl_ints);
   rem_help_reference("server.help");
+#ifdef HAVE_TCL
   rem_tcl_commands(my_tcl_cmds);
   Tcl_UntraceVar(interp, "nick",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -2475,6 +2478,7 @@ static char *server_close(void)
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_nicklen, NULL);
   tcl_untraceserver("servers", NULL);
+#endif
   empty_msgq();
   del_hook(HOOK_SECONDLY, (Function) server_secondly);
   del_hook(HOOK_5MINUTELY, (Function) server_5minutely);
@@ -2638,6 +2642,7 @@ char *server_start(Function *global_funcs)
     return "This module requires Eggdrop 1.8.0 or later.";
   }
 
+#ifdef HAVE_TCL
   /* Fool bot in reading the values. */
   tcl_eggserver(NULL, interp, "servers", NULL, 0);
   tcl_traceserver("servers", NULL);
@@ -2676,6 +2681,7 @@ char *server_start(Function *global_funcs)
   H_out = add_bind_table("out", HT_STACKABLE, server_out);
   H_monitor = add_bind_table("monitor", HT_STACKABLE, monitor_2char);
   H_stdreply = add_bind_table("stdreply", HT_STACKABLE, server_stdreply);
+#endif /* HAVE_TCL */
   isupport_init();
   add_builtins(H_raw, my_raw_binds);
   add_builtins(H_rawt, my_rawt_binds);
@@ -2686,7 +2692,9 @@ char *server_start(Function *global_funcs)
   my_tcl_strings[0].buf = botname;
   add_tcl_strings(my_tcl_strings);
   add_tcl_ints(my_tcl_ints);
+#ifdef HAVE_TCL
   add_tcl_commands(my_tcl_cmds);
+#endif
   add_tcl_coups(my_tcl_coups);
   add_hook(HOOK_SECONDLY, (Function) server_secondly);
   add_hook(HOOK_5MINUTELY, (Function) server_5minutely);

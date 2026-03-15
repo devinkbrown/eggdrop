@@ -338,6 +338,7 @@ static int match_my_nick(char *nick)
 }
 
 char *encode_msgtags(Tcl_Obj *msgtagdict) {
+#ifdef HAVE_TCL
   int done = 0;
   Tcl_DictSearch s;
   Tcl_Obj *value, *key;
@@ -360,6 +361,9 @@ char *encode_msgtags(Tcl_Obj *msgtagdict) {
   }
 
   return Tcl_DStringValue(&ds);
+#else
+  return "";
+#endif
 }
 
 /* 001: welcome to IRC (use it to fix the server name) */

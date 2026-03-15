@@ -73,7 +73,11 @@ extern char tls_capath[], tls_cafile[], tls_certfile[], tls_keyfile[],
 extern struct dcc_t *dcc;
 extern tcl_timer_t *timer, *utimer;
 
+#ifdef HAVE_TCL
 Tcl_Interp *interp;
+#else
+void *interp = NULL;    /* NULL when Tcl scripting is disabled */
+#endif
 
 int protect_readonly = 0; /* Enable read-only protection? */
 char whois_fields[1025] = "";
@@ -92,16 +96,18 @@ int quiet_save = 0;
 int strtot = 0;
 int handlen = HANDLEN;
 
+#ifdef HAVE_TCL
 extern Tcl_VarTraceProc traced_myiphostname, traced_natip, traced_remove_pass;
 
 /* Unicode workaround for Tcl versions (8.5/8.6) that only support BMP characters (3 byte utf-8) */
-#if TCL_MAJOR_VERSION == 8 && TCL_MINOR_VERSION <= 6 && TCL_UTF_MAX < 4
-#  define TCL_WORKAROUND_UNICODESUP 1
+#  if TCL_MAJOR_VERSION == 8 && TCL_MINOR_VERSION <= 6 && TCL_UTF_MAX < 4
+#    define TCL_WORKAROUND_UNICODESUP 1
 struct tcl_unicodesup_info {
   const char *subcmd;
   Tcl_Obj *cmd;
 };
-#endif
+#  endif
+#endif /* HAVE_TCL */
 
 
 
@@ -109,6 +115,8 @@ int expmem_tcl(void)
 {
   return strtot;
 }
+
+#ifdef HAVE_TCL  /* ---- All Tcl-API-dependent code below ---- */
 
 static void botnet_change(char *new)
 {
@@ -1284,3 +1292,70 @@ time_t get_expire_time(Tcl_Interp * irp, const char *s) {
   }
   return now + 60 * expire_foo;
 }
+
+#else /* !HAVE_TCL — no-op stubs so the rest of the codebase links cleanly */
+
+/* The global interpreter pointer is declared above as 'void *interp = NULL'. */
+/* expmem_tcl() is defined above the #ifdef block and always compiled.       */
+
+void init_tcl0(int argc, char **argv) {}
+void init_tcl1(int argc, char **argv) {}
+void kill_tcl(void) {}
+
+void do_tcl(char *whatzit, char *script) {}
+
+int readtclprog(char *fname)
+{
+  return 0;
+}
+
+void add_tcl_commands(tcl_cmds *list) {}
+void add_tcl_objcommands(tcl_cmds *list) {}
+void add_cd_tcl_cmds(cd_tcl_cmd *list) {}
+void rem_tcl_commands(tcl_cmds *list) {}
+
+void add_tcl_strings(tcl_strings *list) {}
+void rem_tcl_strings(tcl_strings *list) {}
+
+void add_tcl_ints(tcl_ints *list) {}
+void rem_tcl_ints(tcl_ints *list) {}
+
+void add_tcl_coups(tcl_coups *list) {}
+void rem_tcl_coups(tcl_coups *list) {}
+
+const char *tcl_resultstring(void) { return ""; }
+int tcl_resultint(void) { return 0; }
+int tcl_resultempty(void) { return 1; }
+
+int tcl_threaded(void) { return 0; }
+int fork_before_tcl(void) { return 0; }
+
+time_t get_expire_time(Tcl_Interp *irp, const char *s)
+{
+  return 0;
+}
+
+/* threaddata / init_threaddata: no-TCL replacements using static storage.
+ * Without TCL there is no thread-local storage, but eggdrop without TCL is
+ * always single-threaded, so a single static instance is correct. */
+static struct threaddata td_static;
+struct threaddata *td_main = &td_static;
+
+struct threaddata *threaddata(void)
+{
+  return &td_static;
+}
+
+void init_threaddata(int mainthread)
+{
+  struct threaddata *td = &td_static;
+  td->mainloopfunc = NULL;
+  td->socklist = NULL;
+  td->mainthread = mainthread;
+  td->blocktime.tv_sec = 1;
+  td->blocktime.tv_usec = 0;
+  td->MAXSOCKS = 0;
+  increase_socks_max();
+}
+
+#endif /* HAVE_TCL */
