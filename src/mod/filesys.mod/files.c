@@ -157,15 +157,16 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
   malloc_strcpy(*real, current);
   if (!change[0])
     return 1;                   /* No change? */
-  new = nmalloc(strlen(change) + 2);    /* Add 2, because we add '/' below */
-  strlcpy(new, change, sizeof(new));
+  size_t new_sz = strlen(change) + 2;  /* +2: space for appended '/' and NUL */
+  new = nmalloc(new_sz);
+  strlcpy(new, change, new_sz);
   if (new[0] == '/') {
     /* EVERYONE has access here */
     (*real)[0] = 0;
     memmove(new, new + 1, strlen(new));
   }
   /* Cycle thru the elements */
-  strcat(new, "/");
+  strlcat(new, "/", new_sz);
   p = strchr(new, '/');
   while (p) {
     *p = 0;
@@ -238,8 +239,9 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
       free_fdbe(&fdbe);
       malloc_strcpy(s, *real);
       if (s[0] && s[strlen(s) - 1] != '/') {
-          s = nrealloc(s, strlen(s) + 2);
-          strcat(s, "/");
+          size_t s_sz = strlen(s) + 2;
+          s = nrealloc(s, s_sz);
+          strlcat(s, "/", s_sz);
       }
       {
         size_t worklen = strlen(s) + strlen(elem) + 1;

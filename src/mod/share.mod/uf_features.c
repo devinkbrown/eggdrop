@@ -238,8 +238,9 @@ static void uf_features_parse(int idx, char *par)
   uff_list_t *ul;
 
   uff_sbuf[0] = 0; /* Reset static buffer  */
-  p = s = buf = nmalloc(strlen(par) + 1); /* Allocate temp buffer */
-  strcpy(buf, par);
+  size_t par_sz = strlen(par) + 1;
+  p = s = buf = nmalloc(par_sz);        /* Allocate temp buffer */
+  strlcpy(buf, par, par_sz);
 
   /* Clear all currently set features. */
   dcc[idx].u.bot->uff_flags = 0;
@@ -253,8 +254,8 @@ static void uf_features_parse(int idx, char *par)
     if (ul && (ul->entry->ask_func == NULL || ul->entry->ask_func(idx))) {
       dcc[idx].u.bot->uff_flags |= ul->entry->flag; /* Set flag */
       if (uff_sbuf[0])
-        strncat(uff_sbuf, " ", sizeof uff_sbuf - strlen(uff_sbuf) - 1);
-      strncat(uff_sbuf, ul->entry->feature, sizeof uff_sbuf - strlen(uff_sbuf) - 1); /* Add feature to list */
+        strlcat(uff_sbuf, " ", sizeof uff_sbuf);
+      strlcat(uff_sbuf, ul->entry->feature, sizeof uff_sbuf);
     }
     p = ++s;
   }
@@ -287,8 +288,9 @@ static int uf_features_check(int idx, char *par)
   uff_list_t *ul;
 
   uff_sbuf[0] = 0; /* Reset static buffer  */
-  p = s = buf = nmalloc(strlen(par) + 1); /* Allocate temp buffer */
-  strcpy(buf, par);
+  size_t par_sz = strlen(par) + 1;
+  p = s = buf = nmalloc(par_sz);        /* Allocate temp buffer */
+  strlcpy(buf, par, par_sz);
 
   /* Clear all currently set features. */
   dcc[idx].u.bot->uff_flags = 0;

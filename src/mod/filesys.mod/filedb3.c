@@ -486,18 +486,18 @@ static filedb_entry *_filedb_matchfile(FILE *fdb, long pos, char *match,
   filedb_entry *fdbe = NULL;
 
   fseek(fdb, pos, SEEK_SET);
-  while (!feof(fdb)) {
+  while (1) {
     pos = ftell(fdb);
     fdbe = filedb_getfile(fdb, pos, GET_FILENAME);
-    if (fdbe) {
-      if (!(fdbe->stat & FILE_UNUSED) &&        /* Not unused?         */
-          wild_match_file(match, fdbe->filename)) {     /* Matches our mask?   */
-        free_fdbe(&fdbe);
-        fdbe = _filedb_getfile(fdb, pos, GET_FULL, file, line); /* Save all data now   */
-        return fdbe;
-      }
+    if (!fdbe)
+      break;
+    if (!(fdbe->stat & FILE_UNUSED) &&        /* Not unused?         */
+        wild_match_file(match, fdbe->filename)) {     /* Matches our mask?   */
       free_fdbe(&fdbe);
+      fdbe = _filedb_getfile(fdb, pos, GET_FULL, file, line); /* Save all data now   */
+      return fdbe;
     }
+    free_fdbe(&fdbe);
   }
   return NULL;
 }
@@ -513,28 +513,25 @@ static void filedb_cleanup(FILE *fdb)
   filedb_readtop(fdb, NULL);    /* Skip DB header  */
   oldpos = ftell(fdb);
   fseek(fdb, oldpos, SEEK_SET); /* Go to beginning */
-  while (!feof(fdb)) {          /* Loop until EOF  */
-    fdbe = filedb_getfile(fdb, oldpos, GET_HEADER);     /* Read header     */
-    if (fdbe) {
-      if (fdbe->stat & FILE_UNUSED) {   /* Found dirt!     */
-        free_fdbe(&fdbe);
-        while (!feof(fdb)) {    /* Loop until EOF  */
-          newpos = ftell(fdb);
-          fdbe = filedb_getfile(fdb, newpos, GET_FULL); /* Read next entry */
-          if (!fdbe)
-            break;
-          if (!(fdbe->stat & FILE_UNUSED)) {    /* Not unused?     */
-            temppos = ftell(fdb);
-            filedb_movefile(fdb, oldpos, fdbe); /* Move to top     */
-            oldpos = ftell(fdb);
-            fseek(fdb, temppos, SEEK_SET);
-          }
-          free_fdbe(&fdbe);
+  while ((fdbe = filedb_getfile(fdb, oldpos, GET_HEADER)) != NULL) {
+    if (fdbe->stat & FILE_UNUSED) {   /* Found dirt!     */
+      free_fdbe(&fdbe);
+      while (1) {               /* Scan forward for live entries */
+        newpos = ftell(fdb);
+        fdbe = filedb_getfile(fdb, newpos, GET_FULL); /* Read next entry */
+        if (!fdbe)
+          break;
+        if (!(fdbe->stat & FILE_UNUSED)) {    /* Not unused?     */
+          temppos = ftell(fdb);
+          filedb_movefile(fdb, oldpos, fdbe); /* Move to top     */
+          oldpos = ftell(fdb);
+          fseek(fdb, temppos, SEEK_SET);
         }
-      } else {
         free_fdbe(&fdbe);
-        oldpos = ftell(fdb);
       }
+    } else {
+      free_fdbe(&fdbe);
+      oldpos = ftell(fdb);
     }
   }
   if (ftruncate(fileno(fdb), oldpos) == -1) {       /* Shorten file    */
@@ -553,45 +550,42 @@ static void filedb_mergeempty(FILE *fdb)
   int modified;
 
   filedb_readtop(fdb, NULL);
-  while (!feof(fdb)) {
-    fdbe_t = filedb_getfile(fdb, ftell(fdb), GET_HEADER);
-    if (fdbe_t) {
-      if (fdbe_t->stat & FILE_UNUSED) {
-        modified = 0;
+  while ((fdbe_t = filedb_getfile(fdb, ftell(fdb), GET_HEADER)) != NULL) {
+    if (fdbe_t->stat & FILE_UNUSED) {
+      modified = 0;
+      fdbe_i = filedb_getfile(fdb, ftell(fdb), GET_HEADER);
+      while (fdbe_i) {
+        /* Is this entry in use? */
+        if (!(fdbe_i->stat & FILE_UNUSED))
+          break;              /* It is, exit loop. */
+
+        /* Woohoo, found an empty entry. Append it's space to
+         * our target entry's buffer space.
+         */
+        fdbe_t->buf_len += sizeof(filedb_header) + fdbe_i->buf_len;
+        modified++;
+        free_fdbe(&fdbe_i);
+        /* Get next file entry */
         fdbe_i = filedb_getfile(fdb, ftell(fdb), GET_HEADER);
-        while (fdbe_i) {
-          /* Is this entry in use? */
-          if (!(fdbe_i->stat & FILE_UNUSED))
-            break;              /* It is, exit loop. */
-
-          /* Woohoo, found an empty entry. Append it's space to
-           * our target entry's buffer space.
-           */
-          fdbe_t->buf_len += sizeof(filedb_header) + fdbe_i->buf_len;
-          modified++;
-          free_fdbe(&fdbe_i);
-          /* Get next file entry */
-          fdbe_i = filedb_getfile(fdb, ftell(fdb), GET_HEADER);
-        }
-
-        /* Did we exit the loop because of a used entry? */
-        if (fdbe_i) {
-          free_fdbe(&fdbe_i);
-          /* Did we find any empty entries before? */
-          if (modified)
-            filedb_updatefile(fdb, fdbe_t->pos, fdbe_t, UPDATE_SIZE);
-          /* ... or because we hit EOF? */
-        } else {
-          /* Truncate trailing empty entries and exit. */
-          if (ftruncate(fileno(fdb), fdbe_t->pos) == -1) {
-            putlog(LOG_MISC, "*", "FILESYS: Error truncating file");
-          }
-          free_fdbe(&fdbe_t);
-          return;
-        }
       }
-      free_fdbe(&fdbe_t);
+
+      /* Did we exit the loop because of a used entry? */
+      if (fdbe_i) {
+        free_fdbe(&fdbe_i);
+        /* Did we find any empty entries before? */
+        if (modified)
+          filedb_updatefile(fdb, fdbe_t->pos, fdbe_t, UPDATE_SIZE);
+        /* ... or because we hit EOF? */
+      } else {
+        /* Truncate trailing empty entries and exit. */
+        if (ftruncate(fileno(fdb), fdbe_t->pos) == -1) {
+          putlog(LOG_MISC, "*", "FILESYS: Error truncating file");
+        }
+        free_fdbe(&fdbe_t);
+        return;
+      }
     }
+    free_fdbe(&fdbe_t);
   }
 }
 
@@ -1251,13 +1245,10 @@ static void filedb_getfiles(Tcl_Interp *irp, char *dir)
   if (!fdb)
     return;
   filedb_readtop(fdb, NULL);
-  while (!feof(fdb)) {
-    fdbe = filedb_getfile(fdb, ftell(fdb), GET_FILENAME);
-    if (fdbe) {
-      if (!(fdbe->stat & (FILE_DIR | FILE_UNUSED)))
-        Tcl_AppendElement(irp, fdbe->filename);
-      free_fdbe(&fdbe);
-    }
+  while ((fdbe = filedb_getfile(fdb, ftell(fdb), GET_FILENAME)) != NULL) {
+    if (!(fdbe->stat & (FILE_DIR | FILE_UNUSED)))
+      Tcl_AppendElement(irp, fdbe->filename);
+    free_fdbe(&fdbe);
   }
   filedb_close(fdb);
 }
@@ -1271,13 +1262,10 @@ static void filedb_getdirs(Tcl_Interp *irp, char *dir)
   if (!fdb)
     return;
   filedb_readtop(fdb, NULL);
-  while (!feof(fdb)) {
-    fdbe = filedb_getfile(fdb, ftell(fdb), GET_FILENAME);
-    if (fdbe) {
-      if ((!(fdbe->stat & FILE_UNUSED)) && (fdbe->stat & FILE_DIR))
-        Tcl_AppendElement(irp, fdbe->filename);
-      free_fdbe(&fdbe);
-    }
+  while ((fdbe = filedb_getfile(fdb, ftell(fdb), GET_FILENAME)) != NULL) {
+    if ((!(fdbe->stat & FILE_UNUSED)) && (fdbe->stat & FILE_DIR))
+      Tcl_AppendElement(irp, fdbe->filename);
+    free_fdbe(&fdbe);
   }
   filedb_close(fdb);
 }
