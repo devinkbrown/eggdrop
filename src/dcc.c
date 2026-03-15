@@ -1190,14 +1190,13 @@ static void dcc_chat(int idx, char *buf, int i)
 
 static void display_dcc_chat(int idx, char *buf)
 {
-  int i = snprintf(buf, LOGLINELEN, "chat  flags: ");
-
-  buf[i++] = dcc[idx].status & STAT_CHAT ? 'C' : 'c';
-  buf[i++] = dcc[idx].status & STAT_PARTY ? 'P' : 'p';
-  buf[i++] = dcc[idx].status & STAT_TELNET ? 'T' : 't';
-  buf[i++] = dcc[idx].status & STAT_ECHO ? 'E' : 'e';
-  buf[i++] = dcc[idx].status & STAT_PAGE ? 'P' : 'p';
-  snprintf(buf + i, LOGLINELEN - i, "/%d", dcc[idx].u.chat->channel);
+  snprintf(buf, LOGLINELEN, "chat  flags: %c%c%c%c%c/%d",
+           dcc[idx].status & STAT_CHAT ? 'C' : 'c',
+           dcc[idx].status & STAT_PARTY ? 'P' : 'p',
+           dcc[idx].status & STAT_TELNET ? 'T' : 't',
+           dcc[idx].status & STAT_ECHO ? 'E' : 'e',
+           dcc[idx].status & STAT_PAGE ? 'P' : 'p',
+           dcc[idx].u.chat->channel);
 }
 
 struct dcc_table DCC_CHAT = {
