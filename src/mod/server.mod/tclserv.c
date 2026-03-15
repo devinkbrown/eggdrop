@@ -819,10 +819,10 @@ static int tcl_ircxnegotiate STDVAR
     Tcl_AppendResult(irp, "not connected to server", NULL);
     return TCL_ERROR;
   }
-  /* Force re-negotiate even if already enabled (allows manual reset) */
+  /* Force re-negotiate from phase 1 even if already enabled */
   ircx_negotiating = 0;
   ircx_enabled     = 0;
-  ircx_send_negotiate();
+  ircx_send_negotiate(); /* sends MODE <nick> ISIRCX (detection phase) */
   return TCL_OK;
 }
 

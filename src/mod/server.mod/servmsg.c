@@ -2011,8 +2011,15 @@ static int server_isupport(char *key, char *isset_str, char *value)
  * Reference: https://github.com/devinkbrown/ophion
  * ========================================================================= */
 
-/* Got 800: RPL_IRCX — server confirms IRCX mode enabled.
- * Format: :server 800 botnick :IRCX version network
+/* Got 800: RPL_IRCX — server response to MODE <nick> ISIRCX or IRCX command.
+ * Format: :server 800 botnick :IRCX <version> <network>
+ *
+ * This drives the two-phase IRCX negotiation state machine:
+ *   Phase 1 (ircx_negotiating==1): response to "MODE <nick> ISIRCX" (detection).
+ *     Server confirms IRCX is supported → we now send "IRCX" to enable it.
+ *   Phase 2 (ircx_negotiating==2): response to "IRCX" (enable).
+ *     IRCX mode is now fully active → set ircx_enabled and trigger auto-owner.
+ *   Phase 0 / already enabled: unsolicited 800 — treat as already-enabled.
  */
 static int got800(char *from, char *msg)
 {
@@ -2022,15 +2029,24 @@ static int got800(char *from, char *msg)
   /* Optional: remaining text is the network name on Ophion */
   if (*msg)
     strlcpy(ircx_network, msg, sizeof(ircx_network));
-  ircx_negotiating = 0;  /* negotiation confirmed */
-  ircx_enabled     = 1;
-  ircx_owner_support = 1;
-  ircx_prop_support  = 1;
-  putlog(LOG_MISC, "*", "IRCX: Mode enabled on %s (network: %s)",
-         from, ircx_network[0] ? ircx_network : "unknown");
 
-  /* Trigger auto-owner joins now that IRCX is confirmed */
-  ircx_do_autoowner();
+  if (ircx_negotiating == 1) {
+    /* Phase 1 complete: server supports IRCX. Send IRCX to enable it. */
+    ircx_negotiating = 2;
+    dprintf(DP_MODE, "IRCX\n");
+    putlog(LOG_MISC, "*", "IRCX: Detected on %s (network: %s), sending IRCX to enable",
+           from, ircx_network[0] ? ircx_network : "unknown");
+  } else {
+    /* Phase 2 complete (or unsolicited): IRCX mode now active. */
+    ircx_negotiating = 0;
+    ircx_enabled     = 1;
+    ircx_owner_support = 1;
+    ircx_prop_support  = 1;
+    putlog(LOG_MISC, "*", "IRCX: Mode enabled on %s (network: %s)",
+           from, ircx_network[0] ? ircx_network : "unknown");
+    /* Trigger auto-owner joins now that IRCX is confirmed */
+    ircx_do_autoowner();
+  }
   return 0;
 }
 

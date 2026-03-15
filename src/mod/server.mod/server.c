@@ -1691,6 +1691,20 @@ static void do_nettype(void)
 /* Send the IRCX command to enable IRCX mode on the current server.
  * Called automatically on Ophion net-type after login, or manually via Tcl.
  */
+/* IRCX negotiation is a two-phase handshake:
+ *
+ *   Phase 1 — Detection:
+ *     Client → "MODE <botnick> ISIRCX"
+ *     Server → "800 RPL_IRCX ..."   (if supported)
+ *
+ *   Phase 2 — Enable:
+ *     Client → "IRCX"
+ *     Server → "800 RPL_IRCX ..."   (IRCX mode now active)
+ *
+ * ircx_negotiating tracks phase: 0=idle, 1=detection sent, 2=enable sent.
+ * got800() advances the state machine: on phase 1 it sends IRCX (enable),
+ * on phase 2 it sets ircx_enabled=1 and triggers auto-owner joins.
+ */
 static void ircx_send_negotiate(void)
 {
   if (serv < 0) return;
@@ -1700,8 +1714,8 @@ static void ircx_send_negotiate(void)
     return;
   }
   ircx_negotiating = 1;
-  dprintf(DP_MODE, "IRCX\n");
-  putlog(LOG_MISC, "*", "IRCX: Sent IRCX negotiation command, awaiting 800 RPL_IRCX");
+  dprintf(DP_MODE, "MODE %s ISIRCX\n", botname);
+  putlog(LOG_MISC, "*", "IRCX: Sent MODE %s ISIRCX (phase 1: detection)", botname);
 }
 
 /* Send a PROP command to get/set a property on a channel or user. */
