@@ -2,8 +2,7 @@
 # This is the modern alternative to eggdrop-basic.conf.
 #
 # Run the bot with:
-#   eggdrop mybot.toml          (reads TOML automatically)
-#   eggdrop -m mybot.toml       (first run: creates user file)
+#   eggdrop mybot.toml          (reads TOML automatically; user file created on first run)
 #
 # No chmod needed — the bot reads this file directly; it is NOT
 # executed as a script.
@@ -65,7 +64,9 @@ admin    = "Lamer <email: lamer@lamest.lame.org>"
 # IRC network name (informational only; shared with other bots).
 network  = "I.didn't.edit.my.config.file.net"
 
-# Comma-separated list of bot owner handles (must exist in the user file).
+# Comma-separated list of bot owner handles.
+# On first run, if no user file exists, the bot creates it automatically with
+# these handles as owners — no -m flag needed.
 # Uncomment and edit this — it is required!
 # owner = "MyNick, MyOtherNick"
 

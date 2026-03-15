@@ -2,8 +2,7 @@
 # This is the complete, fully-documented replacement for eggdrop.conf.
 #
 # Run the bot:
-#   eggdrop eggdrop.toml          (normal start)
-#   eggdrop -m eggdrop.toml       (first run — creates user file)
+#   eggdrop eggdrop.toml          (start — user file created automatically on first run)
 #   eggdrop -t eggdrop.toml       (foreground / terminal mode)
 #
 # Quick start:
@@ -73,7 +72,9 @@ timezone = "EST"
 offset   = "5"
 
 # ── Owner (REQUIRED) ────────────────────────────────────────────────────────
-# Comma-separated list of bot owner handles (must exist in the user file).
+# Comma-separated list of bot owner handles.
+# On first run, if no user file exists, the bot creates it automatically with
+# these handles as owners (USER_MASTER | USER_OWNER).  No -m flag needed.
 # YOU MUST UNCOMMENT AND EDIT THIS.
 # owner = "MyNick, MyOtherNick"
 
