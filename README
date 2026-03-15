@@ -69,11 +69,21 @@ FORK NOTICE
         · Run 'eggdrop --setup' for a five-step interactive wizard:
           network-type menu, SSL/TLS + SASL, multiple channels, smart
           nick-derived defaults, pre-write summary and confirmation.
+          Generated config covers every section and setting.
         · Full setting parity with eggdrop.conf: all 128+ Tcl variables
           are documented in eggdrop.toml with correct key names.
+        · Per-channel settings via [[chanset]] blocks: all 26 flags and
+          all valued options including chanmode, flood thresholds, etc.
+        · Auto-create userfile on first run when owner = "Nick" is set
+          in the config — no -m flag needed for new TOML installs.
         · Inline Tcl via [tcl] commands = [...] for one-liners or
           [tcl] code = """...""" for multi-line proc/bind blocks.
         · No 'chmod u+x' required.
+    - IRCX/Ophion protocol support: set net_type = "Ophion" to enable
+      full IRCX mode negotiation, +q (channel owner) mode handling, and
+      channel CREATE/PROP/ACCESS commands.  New Tcl API: ircxprop,
+      ircxaccess, ircxcreate, ircxautoowner.  OWNERKEY credentials
+      persist to the channel file across restarts.
     - io_uring SQPOLL: fixed three bugs that prevented IRC registration
       on kernels using SQPOLL mode (SQPOLL tail flush, buffered recv
       data overwrite, idle-return before dispatch).
@@ -365,15 +375,18 @@ COMMAND LINE
 
     -m: Create userfile. If you don't have a userfile, this will make
         Eggdrop create one and give owner status to the first person
-        that introduces himself or herself to it. You'll need to do
-        this when you first set up your bot.
+        that introduces himself or herself to it.
+        Note: when using the TOML config format with owner = "Nick" set,
+        the bot creates the userfile automatically on first run and -m
+        is not required.  For legacy .conf files, -m is still needed.
 
     -h: Show help, then quit.
 
     -v: Show version info, then quit.
 
-  Most people never use any of the options except -m and you usually
-  only need to use that once.
+  When using the TOML format, most people only ever use -t (to test
+  the bot interactively) and -s (to run the setup wizard).  The -m
+  flag is only needed for legacy .conf file setups.
 
 AUTO-STARTING EGGDROP
 
