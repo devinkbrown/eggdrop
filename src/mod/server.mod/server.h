@@ -184,9 +184,9 @@ enum {
 #define IRCX_ACCESS_HOST    "HOST"    /* Channel host / operator (+o)       */
 #define IRCX_ACCESS_OWNER   "OWNER"   /* Channel owner (+q)                 */
 
-/* IRCX mode characters for owner/admin (ophion extensions) */
+/* IRCX mode character for owner (Ophion +q) */
 #define IRCX_MODE_OWNER   'q'         /* Owner mode  (+q)                   */
-#define IRCX_MODE_ADMIN   'a'         /* Admin mode  (+a) on some servers   */
+/* Note: +a in Ophion means "Auth Only" (registered users only), NOT admin  */
 
 /* Built-in IRCX channel property names (ophion m_ircx_prop_channel_builtins) */
 #define IRCX_PROP_OID         "OID"         /* Unique channel ID (read-only)  */
@@ -202,8 +202,8 @@ enum {
 #define IRCX_PROP_LAG         "LAG"         /* Per-channel message delay (s)  */
 #define IRCX_PROP_CLIENT      "CLIENT"      /* Client metadata (ops only)     */
 
-/* IRCX channel prefix for persistent/registered channels */
-#define IRCX_CHAN_PERSISTENT '%'
+/* Ophion persistent channels use mode +P (not a channel prefix).
+ * Note: '%' is the halfop prefix character in WHO/NAMES output, not a channel prefix. */
 
 /* IRCX access list entry - stored per channel.
  * Uses fixed-size arrays to remain includable from all modules. */

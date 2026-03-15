@@ -2447,6 +2447,8 @@ static char *server_close(void)
   del_hook(HOOK_REHASH, (Function) server_postrehash);
   del_hook(HOOK_DIE, (Function) server_die);
   sasl_close();
+  ircx_free_access_list();
+  ircx_free_autoowner_list();
   module_undepend(MODULE_NAME);
   return NULL;
 }

@@ -2015,15 +2015,12 @@ static int server_isupport(char *key, char *isset_str, char *value)
  */
 static int got800(char *from, char *msg)
 {
-  char *tok;
   newsplit(&msg); /* skip botnick */
   fixcolon(msg);
-  tok = newsplit(&msg);
-  /* Optional: capture IRCX version string */
-  if (*msg) {
-    /* The second token is often the network name on Ophion */
+  newsplit(&msg); /* skip IRCX version token */
+  /* Optional: remaining text is the network name on Ophion */
+  if (*msg)
     strlcpy(ircx_network, msg, sizeof(ircx_network));
-  }
   ircx_enabled = 1;
   ircx_owner_support = 1;
   ircx_prop_support = 1;
