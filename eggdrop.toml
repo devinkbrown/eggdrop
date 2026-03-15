@@ -503,9 +503,6 @@ force_expire = 0
 # Share channel greeting messages when syncing with linked bots.
 share_greet = 0
 
-# For compress.mod: compress userfiles before sharing them.
-# share_compressed = 1
-
 # ────────────────────────────────────────────────────────────────────────────
 # SERVER / IRC MODULE SETTINGS
 # ────────────────────────────────────────────────────────────────────────────
@@ -869,6 +866,9 @@ override_bots = 0
 # Example: "b n" keeps +b (bot) and +n (owner) flags local only.
 # private_globals = ""
 
+# Compress userfiles before sending to linked bots (requires compress.mod).
+# share_compressed = 1
+
 # ────────────────────────────────────────────────────────────────────────────
 # FILE SERVER (filesys.mod)
 # ────────────────────────────────────────────────────────────────────────────
@@ -1022,6 +1022,13 @@ commands = [
   # Uncomment to disable the 'ident' MSG command:
   # "unbind msg - ident *msg:ident",
   # Note: hello and addhost are controlled by allow_hello / allow_addhost above.
+
+  # Open a DCC/telnet port.  Replace 3333 with your chosen port number.
+  # The second argument is the listener type: all (anyone), bots (bots only),
+  # users (non-bot users), or idx (multi-protocol; rarely needed).
+  # Uncomment ONE of these:
+  # "listen 3333 all",     # standard partyline port (owner login, DCC, telnet)
+  # "listen +3333 all",    # same, but TLS-only (requires SSL configured above)
 
   # Override default channel flags for every newly-added channel.
   # Equivalent to the old "set default-chanset { ... }" Tcl block.

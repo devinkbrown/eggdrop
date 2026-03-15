@@ -1,5 +1,5 @@
 News
-Last revised: March 14, 2026
+Last revised: March 15, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -55,10 +55,36 @@ devinkbrown fork (based on v1.10.1):
       now allocated on first update and released on module unload.
       twitch_expmem() now reports actual live usage.
 
+ IRC module changes:
+    - Added IRCX/Ophion protocol support.  When net_type = "Ophion" the
+      bot automatically negotiates IRCX mode (RPL_IRCX 800), handles +q
+      (channel owner) in mode parsing, and supports the CREATE, PROP, and
+      ACCESS IRCX commands.  New Tcl commands: ircxprop, ircxaccess,
+      ircxcreate, ircxautoowner, ircxnegotiate, botisowner, isowner.
+      New DCC command: .create <#channel> [modes].  OWNERKEY credentials
+      are persisted to the channel file and restored on restart.  A new
+      [ircx] config section documents all Ophion-specific settings and
+      Tcl bind points.
+    - Added allow_hello and allow_addhost config settings (in [irc]).
+      Setting either to 0 globally disables the corresponding MSG command.
+      Previously users had to add "unbind msg …" Tcl to the config.
+
  Configuration changes:
     - Added TOML configuration format as a modern alternative to the
       traditional Tcl-script config. Files with a .toml extension are
       parsed automatically; no chmod u+x is required.
+    - Automatic userfile creation on first run: when owner = "Nick,…" is
+      set in the config and no user file exists, the bot creates the user
+      file automatically and adds each listed handle as an owner
+      (USER_MASTER | USER_OWNER).  The -m flag is no longer required for
+      new installs using TOML.  Connect via DCC or .tcl to set passwords.
+    - Added per-channel settings via [[chanset]] TOML array-of-table
+      blocks.  Each block configures one channel: all 26 boolean flags
+      (autoop, bitch, cycle, protectops, etc.) accept true/false values
+      which are dispatched as +/- prefix to "channel set"; valued options
+      (chanmode, idle_kick, flood_chan, ban_time, need_op, etc.) are set
+      directly.  IRCX ownerkey/ircx_create/ircx_create_modes keys are
+      handled per-channel and emitted as ircxautoowner calls.
     - Added interactive first-time setup wizard: run `eggdrop --setup`
       (or `eggdrop -s [output.toml]`) to walk through a five-step
       guided flow and generate a ready-to-use TOML config:
@@ -75,8 +101,12 @@ devinkbrown fork (based on v1.10.1):
         Step 4 — Files: user/chan/log filenames, defaults from nick.
         Step 5 — Optional modules: notes/seen/transfer/filesys.
         Summary table printed before writing; write-to-disk confirmation.
-      Generated config includes [irc] net_type and a [sasl] section
-      when SASL was enabled.  No 'chmod u+x' required.
+      The generated config now covers every section and setting:
+      [modules], [bot], [servers], [channels] with all default_* values,
+      [[chanset]], [paths], [logging], [irc] with advanced options,
+      [network], [security], [behaviour], [sasl], [ctcp], [ircx],
+      [share], [dns], [notes], [transfer], [filesys], [console],
+      [crypto], and [tcl].  No 'chmod u+x' required.
     - Shipped eggdrop-basic.toml as the human-friendly TOML counterpart
       to eggdrop-basic.conf. Both formats are fully supported and can
       coexist; existing .conf files continue to work unchanged.
@@ -89,10 +119,18 @@ devinkbrown fork (based on v1.10.1):
       Missing settings added: [irc] server_cycle_wait, server_timeout,
       keep_nick, quiet_reject, flood_msg, flood_ctcp, account_notify,
       extended_join, cap_request, away_notify, invite_notify,
-      message_tags, account_tag, firewall; [channels] all default_*
-      flood/ban/exempt/invite settings; [behaviour] use_telnet_banner,
-      force_expire, share_greet; new [sasl] section with all eight
-      SASL mechanism fields.
+      message_tags, account_tag, firewall, modes_per_line, kick_method,
+      include_lk, rfc_compliant, use_354, invite_key, max_bans,
+      max_exempts, max_invites, max_modes, check_mode_r, use_penalties,
+      use_fastdeq, init_server, connect_server, stackable_commands,
+      stackable2_commands; [channels] all default_* flood/ban/exempt/
+      invite/stopnethack/revenge settings; [behaviour] use_telnet_banner,
+      force_expire, share_greet; new [sasl] section with all eight SASL
+      mechanism fields; new [ctcp] section (ctcp_version/finger/userinfo);
+      new [share] section (allow_resync, resync_time, private_global,
+      private_user, override_bots, private_globals, share_compressed);
+      new [dns] section (dns_maxsends, dns_retrydelay, dns_cache,
+      dns_negcache, dns_servers); new [ircx] section for Ophion settings.
     - Added Tcl code-block support: [tcl] code = """...""" (triple-
       quoted multi-line string) is evaluated as a single Tcl_Eval()
       call, ideal for proc definitions and bind chains.  The parser now
