@@ -109,7 +109,8 @@ static struct monitor_list *monitor = NULL;
 /* =========================================================================
  * IRCX / Ophion network state (https://github.com/devinkbrown/ophion)
  * ========================================================================= */
-static int ircx_enabled = 0;           /* IRCX mode active on current server */
+static int ircx_enabled = 0;           /* IRCX mode active on current server  */
+static int ircx_negotiating = 0;       /* IRCX cmd sent, awaiting 800 reply   */
 static int ircx_auto_negotiate = 1;    /* Auto-send IRCX cmd on Ophion nets   */
 static int ircx_owner_support = 0;     /* Server supports +q owner mode       */
 static int ircx_prop_support = 0;      /* Server supports PROP command        */
@@ -1690,11 +1691,30 @@ static void do_nettype(void)
 /* Send the IRCX command to enable IRCX mode on the current server.
  * Called automatically on Ophion net-type after login, or manually via Tcl.
  */
+/* Send IRCX negotiation command.
+ *
+ * The Ophion IRCX handshake is a single command:
+ *   Client → "IRCX"
+ *   Server → "800 RPL_IRCX ..."   (IRCX mode now active)
+ *
+ * "ISIRCX" is an alias for "IRCX" in Ophion's message dispatch table that
+ * additionally allows unregistered clients to activate IRCX before 001.
+ * Post-registration, "IRCX" is the canonical command to use.
+ *
+ * ircx_negotiating prevents duplicate sends (both got001 and the ISUPPORT
+ * hook fire within the same server burst and would both try to send IRCX).
+ */
 static void ircx_send_negotiate(void)
 {
   if (serv < 0) return;
+  if (ircx_negotiating || ircx_enabled) {
+    putlog(LOG_DEBUG, "*", "IRCX: Skipping duplicate negotiate (negotiating=%d enabled=%d)",
+           ircx_negotiating, ircx_enabled);
+    return;
+  }
+  ircx_negotiating = 1;
   dprintf(DP_MODE, "IRCX\n");
-  putlog(LOG_MISC, "*", "IRCX: Sending IRCX negotiation command");
+  putlog(LOG_MISC, "*", "IRCX: Sent IRCX command, awaiting 800 RPL_IRCX");
 }
 
 /* Send a PROP command to get/set a property on a channel or user. */
@@ -2447,6 +2467,8 @@ static char *server_close(void)
   del_hook(HOOK_REHASH, (Function) server_postrehash);
   del_hook(HOOK_DIE, (Function) server_die);
   sasl_close();
+  ircx_free_access_list();
+  ircx_free_autoowner_list();
   module_undepend(MODULE_NAME);
   return NULL;
 }

@@ -794,6 +794,20 @@ static int tcl_ircxautoowner STDVAR
          existing->channel,
          existing->ownerkey[0] ? "***" : "(none)",
          existing->create_if_missing);
+
+  /* If IRCX is already active (e.g. this was called after got800()),
+   * immediately perform the join/create for this channel. */
+  if (ircx_enabled && serv >= 0) {
+    if (existing->ownerkey[0]) {
+      dprintf(DP_SERVER, "JOIN %s %s\n", existing->channel, existing->ownerkey);
+      putlog(LOG_MISC, existing->channel,
+             "IRCX: Auto-owner: joining %s with OWNERKEY (IRCX already active)",
+             existing->channel);
+    } else if (existing->create_if_missing) {
+      ircx_chan_create(existing->channel,
+                       existing->create_modes[0] ? existing->create_modes : NULL);
+    }
+  }
   return TCL_OK;
 }
 
@@ -801,11 +815,14 @@ static int tcl_ircxnegotiate STDVAR
 {
   BADARGS(1, 1, "");
 
-  if (!serv) {
+  if (serv < 0) {
     Tcl_AppendResult(irp, "not connected to server", NULL);
     return TCL_ERROR;
   }
-  ircx_send_negotiate();
+  /* Force re-negotiate even if already enabled */
+  ircx_negotiating = 0;
+  ircx_enabled     = 0;
+  ircx_send_negotiate(); /* sends IRCX command */
   return TCL_OK;
 }
 

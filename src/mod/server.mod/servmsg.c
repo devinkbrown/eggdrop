@@ -401,14 +401,11 @@ static int got001(char *from, char *msg)
   check_tcl_event("init-server");
 
   /* On Ophion/IRCX networks, negotiate IRCX mode right after login.
-   * The ISUPPORT hook will also trigger this if the server advertises IRCX,
-   * but we send it here proactively for Ophion net-type to ensure it fires
-   * before channel JOINs so OWNERKEY-based auto-owner works correctly.
+   * ircx_send_negotiate() guards against double-sends (ISUPPORT IRCX token
+   * may also fire this shortly after 001 via server_isupport_ircx).
    */
-  if (net_type_int == NETT_OPHION && ircx_auto_negotiate) {
-    dprintf(DP_MODE, "IRCX\n");
-    putlog(LOG_MISC, "*", "IRCX: Negotiating IRCX mode with Ophion server");
-  }
+  if (net_type_int == NETT_OPHION && ircx_auto_negotiate)
+    ircx_send_negotiate();
 
   if (!x)
     return 0;
@@ -476,6 +473,10 @@ static void nuke_server(char *reason)
 {
   struct chanset_t *chan;
   module_entry *me;
+
+  /* Reset IRCX per-connection state so next connect negotiates cleanly */
+  ircx_enabled     = 0;
+  ircx_negotiating = 0;
 
   if (serv >= 0) {
     int servidx = findanyidx(serv);
@@ -2010,23 +2011,26 @@ static int server_isupport(char *key, char *isset_str, char *value)
  * Reference: https://github.com/devinkbrown/ophion
  * ========================================================================= */
 
-/* Got 800: RPL_IRCX — server confirms IRCX mode enabled.
- * Format: :server 800 botnick :IRCX version network
+/* Got 800: RPL_IRCX — server confirms IRCX mode is now active.
+ * Format: :server 800 botnick :IRCX <version> <network>
+ *
+ * Ophion sends this in response to the client's "IRCX" command.
+ * "ISIRCX" is an alias (same server handler) for unregistered clients.
+ * Either way, receiving 800 means IRCX mode is fully enabled.
  */
 static int got800(char *from, char *msg)
 {
-  char *tok;
   newsplit(&msg); /* skip botnick */
   fixcolon(msg);
-  tok = newsplit(&msg);
-  /* Optional: capture IRCX version string */
-  if (*msg) {
-    /* The second token is often the network name on Ophion */
+  newsplit(&msg); /* skip IRCX version token */
+  /* Optional: remaining text is the network name on Ophion */
+  if (*msg)
     strlcpy(ircx_network, msg, sizeof(ircx_network));
-  }
-  ircx_enabled = 1;
+
+  ircx_negotiating = 0;
+  ircx_enabled     = 1;
   ircx_owner_support = 1;
-  ircx_prop_support = 1;
+  ircx_prop_support  = 1;
   putlog(LOG_MISC, "*", "IRCX: Mode enabled on %s (network: %s)",
          from, ircx_network[0] ? ircx_network : "unknown");
 
@@ -2120,10 +2124,10 @@ static int gotaccess(char *from, char *msg)
 static int server_isupport_ircx(char *key, char *isset_str, char *value)
 {
   if (!strcmp(key, "IRCX") && !strcmp(isset_str, "1") && ircx_auto_negotiate) {
-    putlog(LOG_MISC, "*", "IRCX: Server advertises IRCX support, negotiating...");
+    putlog(LOG_MISC, "*", "IRCX: Server advertises IRCX via ISUPPORT");
     ircx_owner_support = 1;
-    ircx_prop_support = 1;
-    dprintf(DP_MODE, "IRCX\n");
+    ircx_prop_support  = 1;
+    ircx_send_negotiate(); /* guarded against double-send */
   }
   return 0;
 }
@@ -2165,6 +2169,8 @@ static cmd_t my_raw_binds[] = {
   {"802",          "",   (IntFunc) got802,          NULL},
   {"803",          "",   (IntFunc) got803,          NULL},
   {"804",          "",   (IntFunc) got804,          NULL},
+  /* Note: 901 (ERR_NOTIRCX) and 902 (ERR_ALREADYIRCX) overlap with SASL
+   * numerics (RPL_LOGGEDOUT, ERR_NICKLOCKED) — sasl.c handles those. */
   {"PROP",         "",   (IntFunc) gotprop,         NULL},
   {"ACCESS",       "",   (IntFunc) gotaccess,       NULL},
   {"NICK",         "",   (IntFunc) gotnick,         NULL},

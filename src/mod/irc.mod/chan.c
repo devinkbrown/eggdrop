@@ -511,6 +511,8 @@ static void refresh_exempt(struct chanset_t *chan, char *user)
     for (e = cycle ? chan->exempts : global_exempts; e; e = e->next) {
       if (mask_match(user, e->mask)) {
         for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
+          if (b->mask[0] == '$')
+            continue; /* skip extended bans, server-side matching only */
           if (mask_match(b->mask, user)) {
             if (e->lastactive < now - 60 && !isexempted(chan, e->mask)) {
               do_mask(chan, chan->channel.exempt, e->mask, 'e');
@@ -554,8 +556,11 @@ static void enforce_bans(struct chanset_t *chan)
     return;
 
   simple_sprintf(me, "%s!%s", botname, botuserhost);
-  /* Go through all bans, kicking the users. */
+  /* Go through all bans, kicking the users.
+   * Skip extended bans ($a:, $z:, $r:, etc.) — server-side matching only. */
   for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
+    if (b->mask[0] == '$')
+      continue;
     if (!match_addr(b->mask, me))
       if (!isexempted(chan, b->mask))
         kick_all(chan, b->mask, IRC_YOUREBANNED, 1);

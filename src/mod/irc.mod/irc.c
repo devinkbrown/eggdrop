@@ -626,7 +626,8 @@ static void check_expired_chanstuff(void)
       if (me_op(chan) || me_halfop(chan)) {
         if (channel_dynamicbans(chan) && chan->ban_time)
           for (b = chan->channel.ban; b->mask[0]; b = b->next)
-            if (now - b->timer > 60 * chan->ban_time &&
+            if (b->mask[0] != '$' && /* skip extended bans ($a:, $z:, etc.) */
+                now - b->timer > 60 * chan->ban_time &&
                 !u_sticky_mask(chan->bans, b->mask) &&
                 !u_sticky_mask(global_bans, b->mask) &&
                 expired_mask(chan, b->who)) {
