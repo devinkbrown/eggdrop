@@ -229,7 +229,7 @@ void dcc_dnsipbyhost(char *hostn)
   de->type = &DNS_DCCEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
   de->res_data.hostname = nmalloc(strlen(hostn) + 1);
-  strlcpy(de->res_data.hostname, hostn, sizeof(de->res_data.hostname));
+  strcpy(de->res_data.hostname, hostn);
 
   /* Send request. */
   dns_ipbyhost(hostn);
@@ -349,7 +349,7 @@ static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
   de->type = &DNS_TCLEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
   de->res_data.hostname = nmalloc(strlen(hostn) + 1);
-  strlcpy(de->res_data.hostname, hostn, sizeof(de->res_data.hostname));
+  strcpy(de->res_data.hostname, hostn);
 
   /* Store additional data. */
   tclinfo = nmalloc(sizeof(devent_tclinfo_t));
