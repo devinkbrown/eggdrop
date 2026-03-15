@@ -835,14 +835,14 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   s[0] = 0;
   strlcpy(s, "Channels: ", sizeof s);
   for (chan = chanset; chan; chan = chan->next) {
-    strncat(s, chan->dname, sizeof(s) - 1 - strlen(s));
+    strlcat(s, chan->dname, sizeof s);
     if (!channel_active(chan))
-      strncat(s, " (trying)", sizeof(s) - 1 - strlen(s));
+      strlcat(s, " (trying)", sizeof s);
     else if (channel_pending(chan))
-      strncat(s, " (pending)", sizeof(s) - 1 - strlen(s));
+      strlcat(s, " (pending)", sizeof s);
     else if (!me_op(chan))
-      strncat(s, " (need ops)", sizeof(s) - 1 - strlen(s));
-    strncat(s, ", ", sizeof(s) - 1 - strlen(s));
+      strlcat(s, " (need ops)", sizeof s);
+    strlcat(s, ", ", sizeof s);
     if (strlen(s) > 140) {
       s[strlen(s) - 2] = 0; /* remove ', ' */
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, s);

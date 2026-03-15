@@ -263,8 +263,7 @@ int partynick(char *bot, int sock, char *nick)
   for (i = 0; i < parties; i++) {
     if (!strcasecmp(party[i].bot, bot) && (party[i].sock == sock)) {
       strlcpy(work, party[i].nick, sizeof(work));
-      strncpy(party[i].nick, nick, HANDLEN);
-      party[i].nick[HANDLEN] = 0;
+      strlcpy(party[i].nick, nick, HANDLEN + 1);
       strlcpy(nick, work, sizeof(nick));
       return i;
     }

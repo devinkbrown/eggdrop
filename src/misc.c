@@ -326,7 +326,7 @@ void maskaddr(const char *s, char *nw, int type)
   if (!u || (type % 10) < 5)
     *nw++ = '*';
   else {
-    strncpy(nw, s, u - s);
+    memcpy(nw, s, u - s);
     nw += u - s;
   }
   *nw++ = '!';
@@ -341,7 +341,7 @@ void maskaddr(const char *s, char *nw, int type)
       if (strchr("~+-^=", *u))
         u++; /* trim leading crap */
     }
-    strncpy(nw, u, h - u);
+    memcpy(nw, u, h - u);
     nw += h - u;
   }
   *nw++ = '@';
@@ -363,7 +363,7 @@ void maskaddr(const char *s, char *nw, int type)
   if (p && d > 2) {
     if ((u = strrchr(p, '.')))
       p = u;
-    strncpy(nw, h, ++p - h);
+    memcpy(nw, h, ++p - h);
     nw += p - h;
     strlcpy(nw, "*", sizeof(nw));
   } else if (!p && !num && type >= 10) {
@@ -387,7 +387,7 @@ void maskaddr(const char *s, char *nw, int type)
     *nw = 0;
   } else if (d > 2 && (p = strrchr(h, '.'))) {
     if (num) { /* IPv4 */
-      strncpy(nw, h, p - h);
+      memcpy(nw, h, p - h);
       nw += p - h;
       strlcpy(nw, ".*", sizeof(nw));
       return;
@@ -810,7 +810,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
      * if so return
      */
     if ((writeidx + (current - readidx)) >= (s + HELP_BUF_LEN)) {
-      strncpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
+      memcpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
       s[HELP_BUF_LEN] = 0;
       return;
     }
@@ -909,7 +909,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       if (!blind)
         for (chan = chanset; chan; chan = chan->next) {
           if ((strlen(chan->dname) + writeidx + 2) >= (s + HELP_BUF_LEN)) {
-            strncpy(writeidx, chan->dname, (s + HELP_BUF_LEN) - writeidx);
+            memcpy(writeidx, chan->dname, (s + HELP_BUF_LEN) - writeidx);
             s[HELP_BUF_LEN] = 0;
             return;
           }
@@ -989,7 +989,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     }
     if (towrite && !blind) {
       if ((writeidx + strlen(towrite)) >= (s + HELP_BUF_LEN)) {
-        strncpy(writeidx, towrite, (s + HELP_BUF_LEN) - writeidx);
+        memcpy(writeidx, towrite, (s + HELP_BUF_LEN) - writeidx);
         s[HELP_BUF_LEN] = 0;
         return;
       }
@@ -1006,7 +1006,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
   if (!blind) {
     i = strlen(readidx);
     if (i && ((writeidx + i) >= (s + HELP_BUF_LEN))) {
-      strncpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
+      memcpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
       s[HELP_BUF_LEN] = 0;
       return;
     }

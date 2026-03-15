@@ -596,8 +596,7 @@ static int botaddr_unpack(struct userrec *u, struct user_entry *e)
     strlcpy(bi->address, p, sizeof(bi->address));
   } else {
     bi->address = user_malloc((q - p) + 1);
-    strncpy(bi->address, p, q - p);
-    bi->address[q - p] = 0;
+    strlcpy(bi->address, p, (size_t)(q - p) + 1);
     q++;
 #ifdef TLS
     if (*q == '+')
@@ -1252,7 +1251,7 @@ static void hosts_display(int idx, struct user_entry *e)
   strlcpy(s, "  HOSTS: ", sizeof(s));
   for (q = e->u.list; q; q = q->next) {
     if (s[0] && !s[9])
-      strncat(s, q->extra, (sizeof s - strlen(s) -1));
+      strlcat(s, q->extra, sizeof s);
     else if (!s[0])
       snprintf(s, sizeof(s), "         %s", q->extra);
     else {
@@ -1446,7 +1445,7 @@ static void account_display(int idx, struct user_entry *e)
   strlcpy(s, "  ACCOUNTS: ", sizeof(s));
   for (q = e->u.list; q; q = q->next) {
     if (s[0] && !s[12])
-      strncat(s, q->extra, (sizeof s - strlen(s) -1));
+      strlcat(s, q->extra, sizeof s);
     else if (!s[0])
       snprintf(s, sizeof(s), "         %s", q->extra);
     else {

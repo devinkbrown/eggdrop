@@ -341,7 +341,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
       }
 
       i += l;
-      strncat(s, c->dname, ssize);
+      strlcat(s, c->dname, sizeof s);
 
       /* check if we need to trunc, normally only for first chans on the line.
        * CHANNELLEN is 80, so we likely won't ever hit this *now*, but if we

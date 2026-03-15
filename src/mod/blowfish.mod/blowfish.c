@@ -220,7 +220,7 @@ static void blowfish_init(uint8_t *key, int keybytes)
   bf_P = box[bx].P;
   bf_S = box[bx].S;
   box[bx].keybytes = keybytes;
-  strncpy(box[bx].key, (char *) key, keybytes);
+  memcpy(box[bx].key, key, keybytes);
   box[bx].key[keybytes] = 0;
   box[bx].lastuse = now;
   /* Robey: Reset blowfish boxes to initial state

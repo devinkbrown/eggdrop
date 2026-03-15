@@ -276,8 +276,8 @@ static char *uf_features_dump(int idx)
   for (ul = uff_list.start; ul; ul = ul->next)
     if (ul->entry->ask_func == NULL || ul->entry->ask_func(idx)) {
       if (uff_sbuf[0])
-        strncat(uff_sbuf, " ", sizeof uff_sbuf - strlen(uff_sbuf) - 1);
-      strncat(uff_sbuf, ul->entry->feature, sizeof uff_sbuf - strlen(uff_sbuf) - 1); /* Add feature to list  */
+        strlcat(uff_sbuf, " ", sizeof uff_sbuf);
+      strlcat(uff_sbuf, ul->entry->feature, sizeof uff_sbuf); /* Add feature to list  */
     }
   return uff_sbuf;
 }

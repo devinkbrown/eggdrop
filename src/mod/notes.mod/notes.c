@@ -509,7 +509,7 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
         lapse = (int) ((now - tt) / 86400);
         if (lapse > note_life - 7) {
           if (lapse >= note_life)
-            strncat(wt, NOTES_EXPIRE_TODAY, sizeof wt - strlen(wt) - 1);
+            strlcat(wt, NOTES_EXPIRE_TODAY, sizeof wt);
           else
             snprintf(dt + strlen(dt), sizeof(dt) - strlen(dt), NOTES_EXPIRE_XDAYS, note_life - lapse,
                     (note_life - lapse) == 1 ? "" : "S");

@@ -712,8 +712,7 @@ static char *mktempfile(char *filename)
     fn[NAME_MAX - MKTEMPFILE_TOT] = 0;
     l = NAME_MAX - MKTEMPFILE_TOT;
     fn = nmalloc(l + 1);
-    strncpy(fn, filename, l);
-    fn[l] = 0;
+    strlcpy(fn, filename, l + 1);
   }
   {
     size_t tlen = l + MKTEMPFILE_TOT + 1;
