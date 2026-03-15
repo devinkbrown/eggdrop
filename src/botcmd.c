@@ -296,10 +296,10 @@ static void bot_bye(int idx, char *par)
 
   bots = bots_in_subtree(findbot(dcc[idx].nick));
   users = users_in_subtree(findbot(dcc[idx].nick));
-  simple_sprintf(s, "%s %s. %s (lost %d bot%s and %d user%s)",
-                 BOT_DISCONNECTED, dcc[idx].nick, par[0] ?
-                 par : "No reason", bots, (bots != 1) ?
-                 "s" : "", users, (users != 1) ? "s" : "");
+  snprintf(s, sizeof s, "%s %s. %s (lost %d bot%s and %d user%s)",
+           BOT_DISCONNECTED, dcc[idx].nick, par[0] ?
+           par : "No reason", bots, (bots != 1) ?
+           "s" : "", users, (users != 1) ? "s" : "");
   putlog(LOG_BOTS, "*", "%s.", s);
   botnet_send_unlinked(idx, dcc[idx].nick, s);
   dprintf(idx, "*bye\n");
@@ -372,7 +372,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
     botnet_send_priv(idx, botnetnick, nick, NULL, "%s (* = owner, + = master,"
                      " %% = botmaster, @ = op, ^ = halfop)", BOT_PARTYMEMBS);
   else {
-    simple_sprintf(s, "assoc %d", chan);
+    snprintf(s, sizeof s, "assoc %d", chan);
     if ((Tcl_Eval(interp, s) != TCL_OK) || tcl_resultempty())
       botnet_send_priv(idx, botnetnick, nick, NULL, "%s %s%d: (* = owner, + ="
                        " master, %% = botmaster, @ = op, ^ = halfop)\n",
@@ -667,8 +667,8 @@ static void bot_nlinked(int idx, char *par)
   if (!next[0]) {
     putlog(LOG_BOTS, "*", "Invalid eggnet protocol from %s (zapfing)",
            dcc[idx].nick);
-    simple_sprintf(s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
-                   MISC_INVALIDBOT);
+    snprintf(s, sizeof s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
+             MISC_INVALIDBOT);
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
       dprintf(idx, "error invalid eggnet protocol for 'nlinked'\n");
@@ -679,8 +679,8 @@ static void bot_nlinked(int idx, char *par)
     /* Loop! */
     putlog(LOG_BOTS, "*", "%s %s (mutual: %s)",
            BOT_LOOPDETECT, dcc[idx].nick, newbot);
-    simple_sprintf(s, "%s %s: disconnecting %s", MISC_LOOP, newbot,
-                   dcc[idx].nick);
+    snprintf(s, sizeof s, "%s %s: disconnecting %s", MISC_LOOP, newbot,
+             dcc[idx].nick);
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
       dprintf(idx, "error Loop (%s)\n", newbot);
@@ -699,8 +699,8 @@ static void bot_nlinked(int idx, char *par)
   if (bogus) {
     putlog(LOG_BOTS, "*", "%s %s!  (%s -> %s)", BOT_BOGUSLINK, dcc[idx].nick,
            next, newbot);
-    simple_sprintf(s, "%s: %s %s", BOT_BOGUSLINK, dcc[idx].nick,
-                   MISC_DISCONNECTED);
+    snprintf(s, sizeof s, "%s: %s %s", BOT_BOGUSLINK, dcc[idx].nick,
+             MISC_DISCONNECTED);
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
       dprintf(idx, "error %s (%s -> %s)\n", BOT_BOGUSLINK, next, newbot);
@@ -711,8 +711,8 @@ static void bot_nlinked(int idx, char *par)
   if (bot_flags(dcc[idx].user) & BOT_LEAF) {
     putlog(LOG_BOTS, "*", "%s %s  (%s %s)",
            BOT_DISCONNLEAF, dcc[idx].nick, newbot, BOT_LINKEDTO);
-    simple_sprintf(s, "%s %s (to %s): %s",
-                   BOT_ILLEGALLINK, dcc[idx].nick, newbot, MISC_DISCONNECTED);
+    snprintf(s, sizeof s, "%s %s (to %s): %s",
+             BOT_ILLEGALLINK, dcc[idx].nick, newbot, MISC_DISCONNECTED);
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
       dprintf(idx, "error %s\n", BOT_YOUREALEAF);
@@ -767,9 +767,9 @@ static void bot_linked(int idx, char *par)
   bots = bots_in_subtree(findbot(dcc[idx].nick));
   users = users_in_subtree(findbot(dcc[idx].nick));
   putlog(LOG_BOTS, "*", "%s", BOT_OLDBOT);
-  simple_sprintf(s, "%s %s (%s) (lost %d bot%s and %d user%s",
-                 MISC_DISCONNECTED, dcc[idx].nick, MISC_OUTDATED,
-                 bots, (bots != 1) ? "s" : "", users, (users != 1) ? "s" : "");
+  snprintf(s, sizeof s, "%s %s (%s) (lost %d bot%s and %d user%s",
+           MISC_DISCONNECTED, dcc[idx].nick, MISC_OUTDATED,
+           bots, (bots != 1) ? "s" : "", users, (users != 1) ? "s" : "");
   putlog(LOG_BOTS, "*", "%s.", s);
   botnet_send_unlinked(idx, dcc[idx].nick, s);
   killsock(dcc[idx].sock);
@@ -905,9 +905,9 @@ static void bot_reject(int idx, char *par)
 
       /* I'm the connection to the rejected bot */
       dprintf(i, "bye %s\n", par[0] ? par : MISC_REJECTED);
-      simple_sprintf(s, "%s %s (%s: %s)",
-                     MISC_DISCONNECTED, dcc[i].nick, from,
-                     par[0] ? par : MISC_REJECTED);
+      snprintf(s, sizeof s, "%s %s (%s: %s)",
+               MISC_DISCONNECTED, dcc[i].nick, from,
+               par[0] ? par : MISC_REJECTED);
       putlog(LOG_BOTS, "*", "%s.", s);
       botnet_send_unlinked(i, dcc[i].nick, s);
       killsock(dcc[i].sock);
@@ -966,8 +966,8 @@ static void bot_thisbot(int idx, char *par)
 
     putlog(LOG_BOTS, "*", NET_WRONGBOT, dcc[idx].nick, par);
     dprintf(idx, "bye %s\n", MISC_IMPOSTER);
-    simple_sprintf(s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
-                   MISC_IMPOSTER);
+    snprintf(s, sizeof s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
+             MISC_IMPOSTER);
     putlog(LOG_BOTS, "*", "%s.", s);
     botnet_send_unlinked(idx, dcc[idx].nick, s);
     unvia(idx, findbot(dcc[idx].nick));
