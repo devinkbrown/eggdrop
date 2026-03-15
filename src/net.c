@@ -2691,23 +2691,23 @@ void tell_netdebug(int idx)
     if (!(socklist[i].flags & SOCK_UNUSED)) {
       snprintf(s, sizeof(s), " %d", socklist[i].sock);
       if (socklist[i].flags & SOCK_BINARY)
-        strcat(s, " (binary)");
+        strlcat(s, " (binary)", sizeof s);
       if (socklist[i].flags & SOCK_LISTEN)
-        strcat(s, " (listen)");
+        strlcat(s, " (listen)", sizeof s);
       if (socklist[i].flags & SOCK_PASS)
-        strcat(s, " (passed on)");
+        strlcat(s, " (passed on)", sizeof s);
       if (socklist[i].flags & SOCK_CONNECT)
-        strcat(s, " (connecting)");
+        strlcat(s, " (connecting)", sizeof s);
       if (socklist[i].flags & SOCK_STRONGCONN)
-        strcat(s, " (strong)");
+        strlcat(s, " (strong)", sizeof s);
       if (socklist[i].flags & SOCK_NONSOCK)
-        strcat(s, " (file)");
+        strlcat(s, " (file)", sizeof s);
 #ifdef TLS
       if (socklist[i].ssl)
-        strcat(s, " (TLS)");
+        strlcat(s, " (TLS)", sizeof s);
 #endif
       if (socklist[i].flags & SOCK_TCL)
-        strcat(s, " (tcl)");
+        strlcat(s, " (tcl)", sizeof s);
       if (!(socklist[i].flags & SOCK_TCL)) {
         if (socklist[i].handler.sock.inbuf != NULL)
           snprintf(s + strlen(s), sizeof(s) - strlen(s), " (inbuf: %04X)",
@@ -2716,7 +2716,7 @@ void tell_netdebug(int idx)
           snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06lX)",
                    (unsigned long) egg_mbuf_len(socklist[i].handler.sock.outbuf));
       }
-      strcat(s, ",");
+      strlcat(s, ",", sizeof s);
       dprintf(idx, "%s", s);
     }
   }

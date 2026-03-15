@@ -329,11 +329,11 @@ static void remote_tell_who(int idx, char *nick, int chan)
       if (i > 10) {
         /* check if ", #chan" fits or if there is a next chan, if ", #chan," fits */
         if ((c->next && i + l + 3 <= ssize) || (!c->next && i + l + 2 <= ssize)) {
-          strcat(s, ", ");
+          strlcat(s, ", ", sizeof s);
           i += 2;
         } else {
           /* output and prepare for more, there should always be place for ',' */
-          strcat(s, ",");
+          strlcat(s, ",", sizeof s);
           botnet_send_priv(idx, botnetnick, nick, NULL, "%s", s);
           strlcpy(s, "          ", sizeof(s));
           i = 10;
@@ -503,8 +503,8 @@ static void bot_infoq(int idx, char *par)
     /* Days */
     snprintf(s2, sizeof(s2), "%d day", days);
     if (days >= 2)
-      strcat(s2, "s");
-    strcat(s2, ", ");
+      strlcat(s2, "s", sizeof s2);
+    strlcat(s2, ", ", sizeof s2);
     now2 -= days * 86400;
   }
   hr = (time_t) ((int) now2 / 3600);
@@ -517,11 +517,11 @@ static void bot_infoq(int idx, char *par)
       if (!channel_secret(chan)) {
         if ((strlen(s) + strlen(chan->dname) + strlen(network)
              + strlen(botnetnick) + strlen(ver) + 1) >= 200) {
-          strcat(s, "++  ");
+          strlcat(s, "++  ", sizeof s);
           break;                /* Yegads..! */
         }
-        strcat(s, chan->dname);
-        strcat(s, ", ");
+        strlcat(s, chan->dname, sizeof s);
+        strlcat(s, ", ", sizeof s);
       }
     }
     if (s[0]) {

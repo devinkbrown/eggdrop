@@ -146,9 +146,10 @@ static void ident_oidentd(void)
           } else {
             /* If it is Eggdrop but not me, check for expiration and remove */
             if (!strstr(line, identstr)) {
+              char *saveptr = NULL;
               strlcpy(buf, line, sizeof buf);
-              strtok(buf, "!");
-              prevtime = atoi(strtok(NULL, "!"));
+              strtok_r(buf, "!", &saveptr);
+              prevtime = atoi(strtok_r(NULL, "!", &saveptr));
               if ((now - prevtime) > 300) {
                 putlog(LOG_DEBUG, "*", "IDENT: Removing expired oident.conf "
                     "entry: \"%s\"", buf);

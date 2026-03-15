@@ -318,8 +318,9 @@ int ssl_init(void)
     char *sep = " ";
     char *word;
     unsigned int protocols = 0;
+    char *saveptr = NULL;
     strlcpy(s, tls_protocols, sizeof(s));
-    for (word = strtok(s, sep); word; word = strtok(NULL, sep)) {
+    for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(NULL, sep, &saveptr)) {
       if (!strcmp(word, "SSLv2"))
         protocols |= EGG_SSLv2;
       if (!strcmp(word, "SSLv3"))

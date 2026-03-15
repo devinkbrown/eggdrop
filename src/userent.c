@@ -1260,8 +1260,8 @@ static void hosts_display(int idx, struct user_entry *e)
         dprintf(idx, "%s\n", s);
         snprintf(s, sizeof(s), "         %s", q->extra);
       } else {
-        strcat(s, ", ");
-        strcat(s, q->extra);
+        strlcat(s, ", ", sizeof s);
+        strlcat(s, q->extra, sizeof s);
       }
     }
   }
@@ -1454,8 +1454,8 @@ static void account_display(int idx, struct user_entry *e)
         dprintf(idx, "%s\n", s);
         snprintf(s, sizeof(s), "         %s", q->extra);
       } else {
-        strcat(s, ", ");
-        strcat(s, q->extra);
+        strlcat(s, ", ", sizeof s);
+        strlcat(s, q->extra, sizeof s);
       }
     }
   }

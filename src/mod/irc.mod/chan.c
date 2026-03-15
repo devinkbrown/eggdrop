@@ -1329,8 +1329,9 @@ static int got396(char *from, char *msg)
 
   nick = newsplit(&msg);
   if (match_my_nick(nick)) {  /* Double check this really is for me */
+    char *saveptr = NULL;
     strlcpy(userbuf, botuserhost, sizeof userbuf);
-    ident = strtok(userbuf, "@");
+    ident = strtok_r(userbuf, "@", &saveptr);
     uhost = newsplit(&msg);
     if (ident) {
       snprintf(botuserhost, UHOSTMAX, "%s@%s", ident, uhost);
@@ -1388,7 +1389,10 @@ static int got335(char *from, char *msg)
   memberlist *m;
   char *nick;
 
-  nick = strtok(msg, " ");
+  {
+    char *saveptr = NULL;
+    nick = strtok_r(msg, " ", &saveptr);
+  }
   /* Run for each channel the user is on */
   for (chan = chanset; chan; chan = chan->next) {
     m = ismember(chan, nick);
