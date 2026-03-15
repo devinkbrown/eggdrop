@@ -708,8 +708,7 @@ int readuserfile(char *file, struct userrec **ret)
     if (s[0] != '#' || s[1] > '4' || s[2] != 'v')
       fatal(USERF_INVALID, 0);
   }
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(buf, sizeof buf, f) != NULL) {
+  while (fgets(buf, sizeof buf, f) != NULL) {
       /* for the sake of git blame/history, I'm not re-indenting the next 255 lines*/
       s = buf;
       if (s[0] != '#' && s[0] != ';' && s[0]) {
@@ -776,8 +775,7 @@ int readuserfile(char *file, struct userrec **ret)
                 if (!rfc_casecmp(cr->channel, chname))
                   break;
               if (!cr) {
-                cr = (struct chanuserrec *)
-                  user_malloc(sizeof(struct chanuserrec));
+                cr = alloc_chanuserrec();
 
                 cr->next = u->chanrec;
                 u->chanrec = cr;
@@ -889,7 +887,7 @@ int readuserfile(char *file, struct userrec **ret)
               if (ue->name && !strcasecmp(code + 2, ue->name)) {
                 struct list_type *list;
 
-                list = user_malloc(sizeof(struct list_type));
+                list = alloc_list_type();
 
                 list->next = NULL;
                 list->extra = user_malloc(strlen(s) + 1);
@@ -898,12 +896,12 @@ int readuserfile(char *file, struct userrec **ret)
                 ok = 1;
               }
             if (!ok) {
-              ue = user_malloc(sizeof(struct user_entry));
+              ue = alloc_user_entry();
 
               ue->name = user_malloc(strlen(code) - 1);
               ue->type = NULL;
               strlcpy(ue->name, code + 2, sizeof(ue->name));
-              ue->u.list = user_malloc(sizeof(struct list_type));
+              ue->u.list = alloc_list_type();
 
               ue->u.list->next = NULL;
               ue->u.list->extra = user_malloc(strlen(s) + 1);

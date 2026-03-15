@@ -63,7 +63,7 @@ static int convert_old_files(char *path, char *newfiledb)
 
   putlog(LOG_FILES, "*", FILES_CONVERT, path);
   /* Scan contents of .files and painstakingly create .filedb entries */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     s1 = s;
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
@@ -147,7 +147,7 @@ static void convert_version1(FILE *fdb_s, FILE *fdb_t)
   filedb1 fdb1;
 
   fseek(fdb_s, 0L, SEEK_SET);
-  while (!feof(fdb_s) && fread(&fdb1, sizeof fdb1, 1, fdb_s) && !ferror(fdb_s)) {
+  while (fread(&fdb1, sizeof fdb1, 1, fdb_s) && !ferror(fdb_s)) {
     if (!(fdb1.stat & FILE_UNUSED)) {
       filedb_entry *fdbe = malloc_fdbe();
 
@@ -179,7 +179,7 @@ static void convert_version2(FILE *fdb_s, FILE *fdb_t)
   filedb2 fdb2;
 
   fseek(fdb_s, 0L, SEEK_SET);
-  while (!feof(fdb_s) && fread(&fdb2, sizeof fdb2, 1, fdb_s) && !ferror(fdb_s)) {
+  while (fread(&fdb2, sizeof fdb2, 1, fdb_s) && !ferror(fdb_s)) {
     if (!(fdb2.stat & FILE_UNUSED)) {
       filedb_entry *fdbe = malloc_fdbe();
 

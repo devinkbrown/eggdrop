@@ -1037,8 +1037,7 @@ static void scan_help_file(struct help_ref *current, char *filename, int type)
   struct help_list_t *list;
 
   if (is_file(filename) && (f = fopen(filename, "r"))) {
-    /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-    while (!feof(f) && fgets(s, HELP_BUF_LEN, f) != NULL) {
+    while (fgets(s, HELP_BUF_LEN, f) != NULL) {
       p = s;
       while ((q = strstr(p, "%{help="))) {
         q += 7;
@@ -1188,8 +1187,7 @@ void showhelp(char *who, char *file, struct flag_record *flags, int fl)
 
   if (f) {
     help_subst(NULL, NULL, 0, HELP_IRC, NULL);  /* Clear flags */
-    /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-    while (!feof(f) && fgets(s, HELP_BUF_LEN, f) != NULL) {
+    while (fgets(s, HELP_BUF_LEN, f) != NULL) {
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
@@ -1219,8 +1217,7 @@ static int display_tellhelp(int idx, char *file, FILE *f,
   if (f) {
     help_subst(NULL, NULL, 0,
                (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, NULL);
-    /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-    while (!feof(f) && fgets(s, HELP_BUF_LEN, f) != NULL) {
+    while (fgets(s, HELP_BUF_LEN, f) != NULL) {
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
@@ -1351,8 +1348,7 @@ void show_motd(int idx)
   /* reset the help_subst variables to their defaults */
   help_subst(NULL, NULL, 0,
              (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, NULL);
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(vv) && fgets(s, sizeof s, vv) != NULL) {
+  while (fgets(s, sizeof s, vv) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
@@ -1387,8 +1383,7 @@ void show_banner(int idx)
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   /* reset the help_subst variables to their defaults */
   help_subst(NULL, NULL, 0, 0, NULL);
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(vv) && fgets(s, sizeof s, vv) != NULL) {
+  while (fgets(s, sizeof s, vv) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])

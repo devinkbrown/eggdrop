@@ -28,6 +28,7 @@
 #include "modules.h"
 #include "tandem.h"
 #include "dictionary.h"
+#include "compat/balloc.h"
 
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
@@ -38,6 +39,79 @@ extern time_t now;
 
 int noshare = 1;                   /* don't send out to sharebots       */
 struct userrec *userlist = NULL;   /* user records are stored here      */
+
+/* libop balloc heaps for fixed-size user record structs.
+ * Replaced nmalloc(sizeof(*x)) / nfree(x) with these wrappers everywhere
+ * these structs are allocated or freed, giving O(1) slab alloc/free and
+ * returning memory to the OS when the heaps are destroyed on shutdown. */
+static egg_bh *userrec_heap    = NULL;
+static egg_bh *chanuserrec_heap = NULL;
+static egg_bh *user_entry_heap  = NULL;
+static egg_bh *list_type_heap   = NULL;
+
+void userrec_heaps_init(void)
+{
+  userrec_heap     = egg_bh_create(sizeof(struct userrec),    0, "userrec");
+  chanuserrec_heap = egg_bh_create(sizeof(struct chanuserrec), 0, "chanuserrec");
+  user_entry_heap  = egg_bh_create(sizeof(struct user_entry),  0, "user_entry");
+  list_type_heap   = egg_bh_create(sizeof(struct list_type),   0, "list_type");
+}
+
+void userrec_heaps_destroy(void)
+{
+  if (userrec_heap)     { egg_bh_destroy(userrec_heap);     userrec_heap     = NULL; }
+  if (chanuserrec_heap) { egg_bh_destroy(chanuserrec_heap); chanuserrec_heap = NULL; }
+  if (user_entry_heap)  { egg_bh_destroy(user_entry_heap);  user_entry_heap  = NULL; }
+  if (list_type_heap)   { egg_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
+}
+
+struct userrec *alloc_userrec(void)
+{
+  struct userrec *u = egg_bh_alloc(userrec_heap);
+  memset(u, 0, sizeof *u);
+  return u;
+}
+
+void free_userrec(struct userrec *u)
+{
+  egg_bh_free(userrec_heap, u);
+}
+
+struct chanuserrec *alloc_chanuserrec(void)
+{
+  struct chanuserrec *cr = egg_bh_alloc(chanuserrec_heap);
+  memset(cr, 0, sizeof *cr);
+  return cr;
+}
+
+void free_chanuserrec(struct chanuserrec *cr)
+{
+  egg_bh_free(chanuserrec_heap, cr);
+}
+
+struct user_entry *alloc_user_entry(void)
+{
+  struct user_entry *ue = egg_bh_alloc(user_entry_heap);
+  memset(ue, 0, sizeof *ue);
+  return ue;
+}
+
+void free_user_entry(struct user_entry *ue)
+{
+  egg_bh_free(user_entry_heap, ue);
+}
+
+struct list_type *alloc_list_type(void)
+{
+  struct list_type *lt = egg_bh_alloc(list_type_heap);
+  memset(lt, 0, sizeof *lt);
+  return lt;
+}
+
+void free_list_type(struct list_type *lt)
+{
+  egg_bh_free(list_type_heap, lt);
+}
 struct userrec *lastuser = NULL;   /* last accessed user record         */
 
 /* Splay-tree index from lowercase handle → userrec *.
@@ -54,6 +128,43 @@ static void user_dict_rebuild(void)
   user_handle_dict = egg_dictionary_create("userhandles", egg_dict_strcasecmp);
   for (u = userlist; u; u = u->next)
     egg_dictionary_add(user_handle_dict, u->handle, u);
+}
+
+/* Splay-tree index from IRC account name → userrec *.
+ *
+ * A user can have multiple accounts (each a separate list_type node under
+ * USERENTRY_ACCOUNT); every account string gets its own key in this tree
+ * pointing at the owning userrec.  "none" placeholder entries are skipped.
+ *
+ * Maintained by addaccount_by_handle / del_host_or_account(type=1) /
+ * deluser / clear_userlist.  Rebuilt lazily on the first
+ * get_user_by_account() call after a bulk load (e.g. readuserfile). */
+static egg_dictionary *user_account_dict = NULL;
+
+/* Invalidate (destroy) the account dict so it is lazily rebuilt on the next
+ * get_user_by_account() call.  Call this whenever accounts are modified via
+ * set_user(&USERENTRY_ACCOUNT, ...) directly rather than through the
+ * addaccount_by_handle / delaccount_by_handle API. */
+void user_account_dict_invalidate(void)
+{
+  if (user_account_dict) {
+    egg_dictionary_destroy(user_account_dict, NULL, NULL);
+    user_account_dict = NULL;
+  }
+}
+
+static void user_account_dict_rebuild(void)
+{
+  struct userrec *u;
+  struct list_type *q;
+
+  if (user_account_dict)
+    egg_dictionary_destroy(user_account_dict, NULL, NULL);
+  user_account_dict = egg_dictionary_create("useraccounts", egg_dict_strcasecmp);
+  for (u = userlist; u; u = u->next)
+    for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
+      if (q->extra && strcmp(q->extra, "none"))
+        egg_dictionary_add(user_account_dict, q->extra, u);
 }
 maskrec *global_bans = NULL, *global_exempts = NULL, *global_invites = NULL;
 struct igrec *global_ign = NULL;
@@ -205,8 +316,12 @@ memberlist *find_member_from_nick(char *nick) {
   return m;
 }
 
-/* Search userlist for a provided account name
- * Returns: userrecord for user containing the account
+/* Search userlist for a provided account name.
+ * Returns: userrecord for user containing the account, or NULL.
+ *
+ * Uses user_account_dict (splay tree, O(log n)) when available.
+ * Falls back to O(n×m) linear scan if the dict has not been built yet;
+ * the lazy rebuild triggers on the next call once userlist is populated.
  */
 struct userrec *get_user_by_account(char *acct)
 {
@@ -215,13 +330,16 @@ struct userrec *get_user_by_account(char *acct)
 
   if (!acct || !acct[0] || !strcmp(acct, "*"))
     return NULL;
-  for (u = userlist; u; u = u->next) {
-    for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next) {
-      if (!rfc_casecmp(q->extra, acct)) {
+  /* Lazy-build account index after a bulk load (e.g. readuserfile). */
+  if (!user_account_dict && userlist)
+    user_account_dict_rebuild();
+  if (user_account_dict)
+    return egg_dictionary_retrieve(user_account_dict, acct);
+  /* Fallback: O(n×m) linear scan (dict unavailable). */
+  for (u = userlist; u; u = u->next)
+    for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
+      if (!rfc_casecmp(q->extra, acct))
         return u;
-      }
-    }
-  }
   return NULL;
 }
 
@@ -387,6 +505,10 @@ void clear_userlist(struct userrec *bu)
     if (user_handle_dict) {
       egg_dictionary_destroy(user_handle_dict, NULL, NULL);
       user_handle_dict = NULL;
+    }
+    if (user_account_dict) {
+      egg_dictionary_destroy(user_account_dict, NULL, NULL);
+      user_account_dict = NULL;
     }
 
     while (global_ign)
@@ -762,7 +884,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   int oldshare = noshare;
 
   noshare = 1;
-  u = nmalloc(sizeof *u);
+  u = alloc_userrec();
 
   /* u->next=bu; bu=u; */
   strlcpy(u->handle, handle, sizeof u->handle);
@@ -847,7 +969,7 @@ void freeuser(struct userrec *u)
     ch = ch->next;
     if (z->info != NULL)
       nfree(z->info);
-    nfree(z);
+    free_chanuserrec(z);
   }
   u->chanrec = NULL;
   for (ue = u->entries; ue; ue = ut) {
@@ -858,14 +980,14 @@ void freeuser(struct userrec *u)
       for (lt = ue->u.list; lt; lt = ltt) {
         ltt = lt->next;
         nfree(lt->extra);
-        nfree(lt);
+        free_list_type(lt);
       }
       nfree(ue->name);
-      nfree(ue);
+      free_user_entry(ue);
     } else
       ue->type->kill(ue);
   }
-  nfree(u);
+  free_userrec(u);
 }
 
 int deluser(char *handle)
@@ -895,6 +1017,12 @@ int deluser(char *handle)
                                  * null is safe-ish */
   if (user_handle_dict)
     egg_dictionary_delete(user_handle_dict, handle);
+  if (user_account_dict) {
+    struct list_type *q;
+    for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
+      if (q->extra && strcmp(q->extra, "none"))
+        egg_dictionary_delete(user_account_dict, q->extra);
+  }
   clear_chanlist();
   freeuser(u);
   lastuser = NULL;
@@ -958,6 +1086,11 @@ static int del_host_or_account(char *handle, char *host, int type)
   }
   if (!noshare && i && !(u->flags & USER_UNSHARED))
     shareout(NULL, "-%s %s %s\n", type ? "a" : "h", handle, host);
+  /* For accounts: direct list_type manipulation above bypasses account_set,
+   * so invalidate the dict here. set_user("none") at line ~1028 also triggers
+   * account_set, but that's an additional redundant invalidate — harmless. */
+  if (type && i)
+    user_account_dict_invalidate();
   clear_chanlist();
   return i;
 }
@@ -1000,6 +1133,8 @@ void addhost_by_handle(char *handle, char *host)
 void addaccount_by_handle(char *handle, char *acct)
 {
   add_host_or_account(handle, acct, 1);
+  /* account_set() (called by set_user inside add_host_or_account) already
+   * invalidated user_account_dict; no further maintenance needed here. */
 }
 
 void touch_laston(struct userrec *u, char *where, time_t timeval)
@@ -1069,7 +1204,7 @@ void user_del_chan(char *dname)
 
         if (ch->info)
           nfree(ch->info);
-        nfree(ch);
+        free_chanuserrec(ch);
         break;
       }
       och = ch;

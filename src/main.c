@@ -728,6 +728,8 @@ void init_threaddata(int);
 int init_mem(void);
 int init_userent(void);
 int init_misc(void);
+void userrec_heaps_init(void);
+void userrec_heaps_destroy(void);
 int init_bots(void);
 int init_modules(void);
 void init_tcl0(int, char **);
@@ -1081,6 +1083,7 @@ int main(int arg_c, char **arg_v)
     fatal("ERROR: Eggdrop will not run as root!", 0);
 #endif
 
+  userrec_heaps_init();
   init_userent();
   init_misc();
   init_bots();

@@ -191,10 +191,10 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
           urec = get_user_from_member(m);
           if (!urec || !strcasecmp(object, urec->handle))
             break;
-          strcat(whoredirect, object);
-          strcat(whoredirect, " is ");
-          strcat(whoredirect, urec->handle);
-          strcat(whoredirect, ", and ");
+          strlcat(whoredirect, object, sizeof whoredirect);
+          strlcat(whoredirect, " is ", sizeof whoredirect);
+          strlcat(whoredirect, urec->handle, sizeof whoredirect);
+          strlcat(whoredirect, ", and ", sizeof whoredirect);
           strlcpy(object, urec->handle, sizeof object);
           break;
         }
@@ -285,17 +285,17 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
       if (admin[0]) {
         strlcpy(word2, admin, sizeof word2);
         wordshift(whotarget, word2);
-        strcat(whoredirect, "My owner is ");
-        strcat(whoredirect, whotarget);
-        strcat(whoredirect, ", and ");
+        strlcat(whoredirect, "My owner is ", sizeof whoredirect);
+        strlcat(whoredirect, whotarget, sizeof whoredirect);
+        strlcat(whoredirect, ", and ", sizeof whoredirect);
         if (!strcasecmp(whotarget, hand)) {
-          strcat(whoredirect, "that's YOU");
+          strlcat(whoredirect, "that's YOU", sizeof whoredirect);
           if (!strcasecmp(hand, nick))
-            strcat(whoredirect, "!!!");
+            strlcat(whoredirect, "!!!", sizeof whoredirect);
           else {
-            strcat(whoredirect, ", ");
-            strcat(whoredirect, nick);
-            strcat(whoredirect, "!");
+            strlcat(whoredirect, ", ", sizeof whoredirect);
+            strlcat(whoredirect, nick, sizeof whoredirect);
+            strlcat(whoredirect, "!", sizeof whoredirect);
           }
           dprintf(idx, "%s%s\n", prefix, whoredirect);
           return;
@@ -338,10 +338,10 @@ targetcont:
       urec = get_user_from_member(m);
       if (!urec || !strcasecmp(whotarget, urec->handle))
         break;
-      strcat(whoredirect, whotarget);
-      strcat(whoredirect, " is ");
-      strcat(whoredirect, urec->handle);
-      strcat(whoredirect, ", and ");
+      strlcat(whoredirect, whotarget, sizeof whoredirect);
+      strlcat(whoredirect, " is ", sizeof whoredirect);
+      strlcat(whoredirect, urec->handle, sizeof whoredirect);
+      strlcat(whoredirect, ", and ", sizeof whoredirect);
       break;
     }
     chan = chan->next;
@@ -354,10 +354,10 @@ targetcont:
       while (m && m->nick[0]) {
         urec = get_user_from_member(m);
         if (urec && !strcasecmp(urec->handle, whotarget)) {
-          strcat(whoredirect, whotarget);
-          strcat(whoredirect, " is ");
-          strcat(whoredirect, m->nick);
-          strcat(whoredirect, ", and ");
+          strlcat(whoredirect, whotarget, sizeof whoredirect);
+          strlcat(whoredirect, " is ", sizeof whoredirect);
+          strlcat(whoredirect, m->nick, sizeof whoredirect);
+          strlcat(whoredirect, ", and ", sizeof whoredirect);
           strlcpy(whotarget, m->nick, sizeof whotarget);
           break;
         }
@@ -416,9 +416,10 @@ targetcont:
       if (!strcasecmp(whotarget, dcc[i].nick)) {
         if (!rfc_casecmp(channel, dcc[i].u.chat->con_chan) &&
             dcc[i].u.chat->con_flags & LOG_PUBLIC) {
-          strcat(whoredirect, whotarget);
-          strcat(whoredirect,
-                 " is 'observing' this channel right now from my party line!");
+          strlcat(whoredirect, whotarget, sizeof whoredirect);
+          strlcat(whoredirect,
+                 " is 'observing' this channel right now from my party line!",
+                 sizeof whoredirect);
           dprintf(idx, "%s%s\n", prefix, whoredirect);
         } else {
           dprintf(idx,

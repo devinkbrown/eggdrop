@@ -189,6 +189,21 @@ struct userrec *lookup_user_record(memberlist *, char *, char *);
 struct userrec *check_chanlist(const char *);
 memberlist *find_member_from_nick(char *);
 
+/* Balloc-backed typed allocators for frequently-created fixed-size structs.
+ * Using libop's egg_bh slab allocator: O(1) alloc/free, memory returned to
+ * the OS on heap destroy, zero-initialised on alloc. */
+void userrec_heaps_init(void);
+void user_account_dict_invalidate(void);
+void userrec_heaps_destroy(void);
+struct userrec    *alloc_userrec(void);
+void               free_userrec(struct userrec *);
+struct chanuserrec *alloc_chanuserrec(void);
+void               free_chanuserrec(struct chanuserrec *);
+struct user_entry  *alloc_user_entry(void);
+void               free_user_entry(struct user_entry *);
+struct list_type   *alloc_list_type(void);
+void               free_list_type(struct list_type *);
+
 /* All the default userentry stuff, for code re-use
  */
 int def_unpack(struct userrec *u, struct user_entry *e);

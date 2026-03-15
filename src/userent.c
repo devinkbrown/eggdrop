@@ -1465,6 +1465,11 @@ static void account_display(int idx, struct user_entry *e)
 
 static int account_set(struct userrec *u, struct user_entry *e, void *buf)
 {
+  /* Any mutation to ACCOUNT entries invalidates the account dict so it is
+   * lazily rebuilt on the next get_user_by_account() call. This covers both
+   * the addaccount_by_handle / delaccount_by_handle public API and direct
+   * set_user(&USERENTRY_ACCOUNT, ...) calls from share.mod and dupuser. */
+  user_account_dict_invalidate();
   if (!buf || !strcasecmp(buf, "none")) {
     /* When the bot crashes, it's in this part, not in the 'else' part */
     list_type_kill(e->u.list);

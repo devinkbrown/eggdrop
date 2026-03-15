@@ -26,8 +26,13 @@
 
 #include "src/mod/module.h"
 #include "server.h"
+#include "../../compat/balloc.h"
 
 static Function *global = NULL;
+
+/* Slab allocator for monitor_list nodes.  O(1) alloc/free, zero-init on
+ * alloc (no separate memset needed), memory returned to OS on heap destroy. */
+static egg_bh *monitor_heap = NULL;
 
 static int ctcp_mode;
 static int serv;                /* sock # of server currently */
@@ -1254,11 +1259,9 @@ static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
  * Returns 2 if maximum number of nicks to be monitored reached
  */
 static int monitor_add(char * nick, int send) {
-  struct monitor_list *entry = nmalloc(sizeof(struct monitor_list));
+  struct monitor_list *entry;
   struct monitor_list *current = monitor;
   int count = 0;
-
-  memset(entry, 0, sizeof *entry);
 
   /* Check for duplicates before adding */
   while (current != NULL) {
@@ -1271,6 +1274,7 @@ static int monitor_add(char * nick, int send) {
   if (count >= max_monitor) {
     return 2;
   }
+  entry = egg_bh_alloc(monitor_heap); /* zero-filled by slab allocator */
   strlcpy(entry->nick, nick, NICKLEN);
   entry->next = monitor;
   monitor = entry;
@@ -1302,6 +1306,7 @@ static int monitor_del (char *nick) {
   } else {
     previous->next = current->next;
   }
+  egg_bh_free(monitor_heap, current);
   dprintf(DP_SERVER, "MONITOR - %s\n", nick);
   return 0;
 }
@@ -1355,14 +1360,11 @@ static void monitor_clear(void)
 
   monitor = NULL;
   dprintf(DP_SERVER, "MONITOR C");
-  /* Clear local linked list */
   while (current != NULL) {
     next = current->next;
-    nfree(current);
+    egg_bh_free(monitor_heap, current);
     current = next;
   }
-
-  return;
 }
 
 static int server_6char STDVAR
@@ -2331,7 +2333,7 @@ static void server_report(int idx, int details)
         strlcpy(s1, " (bad pong replies)", sizeof s1);
       else
         egg_snprintf(s1, sizeof s1, " (lag: %ds)", server_lag);
-      strcat(s, s1);
+      strlcat(s, s1, sizeof s);
     }
   }
 
@@ -2419,6 +2421,10 @@ static char *server_close(void)
   rem_builtins(H_ctcp, my_ctcps);
   rem_builtins(H_isupport, my_isupport_binds);
   isupport_fini();
+  if (monitor_heap) {
+    egg_bh_destroy(monitor_heap);
+    monitor_heap = NULL;
+  }
   /* Restore original commands. */
   del_bind_table(H_wall);
   del_bind_table(H_raw);
@@ -2678,6 +2684,7 @@ char *server_start(Function *global_funcs)
   add_hook(HOOK_PRE_REHASH, (Function) server_prerehash);
   add_hook(HOOK_REHASH, (Function) server_postrehash);
   add_hook(HOOK_DIE, (Function) server_die);
+  monitor_heap = egg_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
   mq.head = hq.head = modeq.head = NULL;
   mq.last = hq.last = modeq.last = NULL;
   mq.tot = hq.tot = modeq.tot = 0;

@@ -1075,8 +1075,7 @@ static void bot_motd(int idx, char *par)
     if (vv != NULL) {
       botnet_send_priv(idx, botnetnick, who, NULL, "--- %s\n", MISC_MOTDFILE);
       help_subst(NULL, NULL, 0, irc, NULL);
-      /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-      while (!feof(vv) && fgets(s, sizeof TBUF, vv) != NULL) {
+      while (fgets(s, sizeof TBUF, vv) != NULL) {
         if (s[strlen(s) - 1] == '\n')
           s[strlen(s) - 1] = 0;
         if (!s[0])
