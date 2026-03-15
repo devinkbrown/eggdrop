@@ -892,8 +892,14 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
         while (*msg == '<' || *msg == '>') {
           p = newsplit(&msg);
 
-          if (*p == '<')
-            l += snprintf(work + l, sizeof work - l, "via %s, ", p + 1);
+          if (*p == '<') {
+            int written = snprintf(work + l, sizeof work - l, "via %s, ", p + 1);
+
+            if (written > 0)
+              l += written;
+            if (l >= (int) sizeof work)
+              l = (int) sizeof work - 1;
+          }
           else if (*from == '@')
             fr = p + 1;
         }
