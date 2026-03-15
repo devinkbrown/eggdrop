@@ -99,6 +99,24 @@ list = [
 list = ["#egghelp"]
 
 # ---------------------------------------------------------------------------
+# Per-channel settings  [[chanset]]
+# ---------------------------------------------------------------------------
+# One [[chanset]] block per channel.  channel = "#name" is required.
+# Common keys: key_prot, chanmode, idle_kick, flood_pub, flood_join,
+#              aop_delay, stopnethack_mode, revenge_mode.
+# IRCX keys:   ownerkey, ircx_create, ircx_create_modes.
+#
+# [[chanset]]
+# channel  = "#egghelp"
+# chanmode = "+nts"
+#
+# [[chanset]]
+# channel          = "#ophion-channel"
+# ownerkey         = "s3cr3t"
+# ircx_create      = true
+# ircx_create_modes = "+nts"
+
+# ---------------------------------------------------------------------------
 # File paths
 # ---------------------------------------------------------------------------
 

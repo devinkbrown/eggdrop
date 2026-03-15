@@ -115,12 +115,46 @@ list = [
 # ────────────────────────────────────────────────────────────────────────────
 # CHANNELS
 # Channels the bot should join automatically.
-# Per-channel flags and settings can be configured in the DCC console
-# with the .chanset and .chansave commands.
 # ────────────────────────────────────────────────────────────────────────────
 
 [channels]
 list = ["#egghelp"]
+
+# ────────────────────────────────────────────────────────────────────────────
+# PER-CHANNEL SETTINGS  [[chanset]]
+#
+# One [[chanset]] block per channel.  The channel must appear in [channels]
+# list above (or be added at runtime) before these settings take effect.
+#
+# Supported keys:
+#   channel          = "#name"   — which channel this block applies to (required)
+#   key_prot         = "key"     — enforce this join key (+k mode)
+#   chanmode         = "+modes"  — force these channel modes
+#   idle_kick        = N         — kick idle users after N minutes (0 = off)
+#   flood_pub        = "N:S"     — pub flood threshold  (N lines in S seconds)
+#   flood_join       = "N:S"     — join flood threshold
+#   flood_nick       = "N:S"     — nick-change flood threshold
+#   aop_delay        = "min:max" — delay before auto-opping (seconds)
+#   stopnethack_mode = 0-4       — strictness of netsplit protection
+#   revenge_mode     = 0-3       — auto-punish deop/kick
+#   # IRCX / Ophion only:
+#   ownerkey         = "key"     — OWNERKEY for +q on join
+#   ircx_create      = true      — CREATE the channel if it does not exist
+#   ircx_create_modes = "+modes" — modes set immediately after CREATE
+#
+# Example:
+# [[chanset]]
+# channel          = "#egghelp"
+# chanmode         = "+nts"
+# idle_kick        = 30
+# flood_pub        = "20:60"
+#
+# [[chanset]]
+# channel          = "#ophion-channel"
+# ownerkey         = "s3cr3t"
+# ircx_create      = true
+# ircx_create_modes = "+nts"
+# ────────────────────────────────────────────────────────────────────────────
 
 # ── Channel defaults (channels.mod) ─────────────────────────────────────────
 # These set the starting values for all channels. Individual channels can

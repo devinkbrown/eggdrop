@@ -52,19 +52,58 @@
 /* Recognised top-level TOML sections. */
 typedef enum {
   SEC_NONE     = 0,
-  SEC_BOT,        /* [bot]      -- nick, admin, username, … */
-  SEC_SERVERS,    /* [servers]  -- list = ["host:port", …]  */
-  SEC_CHANNELS,   /* [channels] -- list = ["#chan", …]       */
-  SEC_MODULES,    /* [modules]  -- load = ["dns", …]         */
-  SEC_PATHS,      /* [paths]    -- userfile, chanfile, …     */
-  SEC_LOGGING,    /* [logging]  -- entries = ["flags ch f"]  */
-  SEC_NETWORK,    /* [network]  -- vhost4, vhost6, nat_ip, … */
-  SEC_SECURITY,   /* [security] -- owner, stealth_telnets, … */
-  SEC_SCRIPTS,    /* [scripts]  -- load = ["scripts/f.tcl"]  */
-  SEC_HELP,       /* [help]     -- load = ["userinfo.help"]  */
-  SEC_TCL,        /* [tcl]      -- commands = ["unbind …"]   */
-  SEC_OTHER,      /* unknown section — still pass through    */
+  SEC_BOT,        /* [bot]        -- nick, admin, username, …         */
+  SEC_SERVERS,    /* [servers]    -- list = ["host:port", …]          */
+  SEC_CHANNELS,   /* [channels]   -- list = ["#chan", …]              */
+  SEC_MODULES,    /* [modules]    -- load = ["dns", …]                */
+  SEC_PATHS,      /* [paths]      -- userfile, chanfile, …            */
+  SEC_LOGGING,    /* [logging]    -- entries = ["flags ch f"]         */
+  SEC_NETWORK,    /* [network]    -- vhost4, vhost6, nat_ip, …        */
+  SEC_SECURITY,   /* [security]   -- owner, stealth_telnets, …        */
+  SEC_SCRIPTS,    /* [scripts]    -- load = ["scripts/f.tcl"]         */
+  SEC_HELP,       /* [help]       -- load = ["userinfo.help"]         */
+  SEC_TCL,        /* [tcl]        -- commands = ["unbind …"]          */
+  SEC_CHANSET,    /* [[chanset]]  -- per-channel settings             */
+  SEC_OTHER,      /* unknown section — still pass through             */
 } TomlSection;
+
+/* -----------------------------------------------------------------------
+ * [[chanset]] per-channel state
+ * Each [[chanset]] block contributes one entry.  IRCX settings are
+ * accumulated and emitted as a single ircxautoowner call when the block
+ * ends (next [[chanset]], next [section], or EOF).
+ * --------------------------------------------------------------------- */
+static char chanset_channel[64];
+static char chanset_ownerkey[128];
+static int  chanset_ircx_create;
+static char chanset_ircx_modes[32];
+static int  chanset_has_ircx;
+
+static void reset_chanset_state(void)
+{
+  chanset_channel[0]    = '\0';
+  chanset_ownerkey[0]   = '\0';
+  chanset_ircx_create   = 0;
+  chanset_ircx_modes[0] = '\0';
+  chanset_has_ircx      = 0;
+}
+
+/* Emit ircxautoowner for the current block if any IRCX keys were set. */
+static void flush_chanset_ircx(void)
+{
+  char cmd[512];
+  if (!chanset_has_ircx || !chanset_channel[0])
+    return;
+  if (chanset_ircx_modes[0])
+    egg_snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
+                 chanset_channel, chanset_ownerkey,
+                 chanset_ircx_create, chanset_ircx_modes);
+  else
+    egg_snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d",
+                 chanset_channel, chanset_ownerkey, chanset_ircx_create);
+  run_tcl_cmd(cmd);
+  chanset_has_ircx = 0;
+}
 
 /* Tcl interpreter declared in tcl.c and extern'd via main.h. */
 extern Tcl_Interp *interp;
@@ -460,6 +499,7 @@ static TomlSection section_from_name(const char *name)
   if (strcmp(name, "scripts")  == 0) return SEC_SCRIPTS;
   if (strcmp(name, "help")     == 0) return SEC_HELP;
   if (strcmp(name, "tcl")      == 0) return SEC_TCL;
+  if (strcmp(name, "chanset")  == 0) return SEC_CHANSET;
   if (strcmp(name, "ircx")     == 0) return SEC_OTHER; /* IRCX/Ophion — vars set via Tcl */
   return SEC_OTHER;
 }
@@ -529,6 +569,43 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
       }
       break;
 
+    case SEC_CHANSET:
+      /* channel = "#name" — identifies which channel this block configures. */
+      if (strcmp(key, "channel") == 0) {
+        strlcpy(chanset_channel, value, sizeof chanset_channel);
+        return;
+      }
+      if (!chanset_channel[0])
+        return; /* channel key must appear before other settings */
+
+      /* IRCX / Ophion settings — accumulated and emitted as ircxautoowner. */
+      if (strcmp(key, "ownerkey") == 0 || strcmp(key, "ircx_ownerkey") == 0) {
+        strlcpy(chanset_ownerkey, value, sizeof chanset_ownerkey);
+        chanset_has_ircx = 1;
+        return;
+      }
+      if (strcmp(key, "ircx_create") == 0) {
+        chanset_ircx_create = atoi(value);
+        chanset_has_ircx = 1;
+        return;
+      }
+      if (strcmp(key, "ircx_create_modes") == 0) {
+        strlcpy(chanset_ircx_modes, value, sizeof chanset_ircx_modes);
+        chanset_has_ircx = 1;
+        return;
+      }
+
+      /* General channel setting: channel set #chan key-name value.
+       * Convert underscore to dash so key_prot → key-prot, etc. */
+      {
+        char tclkey[64], cmd[512];
+        key_to_tclvar(key, tclkey, sizeof tclkey);
+        egg_snprintf(cmd, sizeof cmd, "channel set %s %s %s",
+                     chanset_channel, tclkey, value);
+        run_tcl_cmd(cmd);
+      }
+      return;
+
     default:
       break;
   }
@@ -571,17 +648,37 @@ int readtomlconfig(const char *fname)
     if (!*p || *p == '#')
       continue;
 
-    /* Section header: [name] */
+    /* Section header: [name] or [[name]] (TOML array-of-tables) */
     if (*p == '[') {
-      char *end = strchr(p + 1, ']');
+      int is_aot = (p[1] == '[');  /* array-of-tables: [[name]] */
+      char *inner = p + 1 + (is_aot ? 1 : 0);
+      char *end   = strchr(inner, ']');
       if (!end) {
         putlog(LOG_MISC, "*", "TOML config:%d: malformed section header",
                lineno);
         continue;
       }
       *end = '\0';
-      strlcpy(sec_name, trim(p + 1), sizeof sec_name);
-      cur_sec = section_from_name(sec_name);
+      strlcpy(sec_name, trim(inner), sizeof sec_name);
+
+      /* Flush any pending [[chanset]] IRCX state before switching sections. */
+      if (cur_sec == SEC_CHANSET)
+        flush_chanset_ircx();
+
+      if (is_aot) {
+        /* Only [[chanset]] array-of-tables is handled specially. */
+        if (strcmp(sec_name, "chanset") == 0) {
+          cur_sec = SEC_CHANSET;
+          reset_chanset_state();
+        } else {
+          cur_sec = SEC_OTHER;
+        }
+      } else {
+        cur_sec = section_from_name(sec_name);
+        /* [chanset] (non-array form) — reset state for a fresh block. */
+        if (cur_sec == SEC_CHANSET)
+          reset_chanset_state();
+      }
       continue;
     }
 
@@ -662,6 +759,10 @@ int readtomlconfig(const char *fname)
   }
 
   fclose(fp);
+
+  /* Flush any [[chanset]] block that was still open at EOF. */
+  if (cur_sec == SEC_CHANSET)
+    flush_chanset_ircx();
 
   /* ---- Validate required settings ---- */
   {
@@ -1096,6 +1197,43 @@ int run_setup_wizard(const char *outfile)
   for (i = 0; i < nchan; i++)
     fprintf(fp, "%s\"%s\"", i ? ", " : "", channels[i]);
   fprintf(fp, "]\n\n");
+
+  /* [[chanset]] — one block per channel.
+   * For IRCX networks, pre-populate ownerkey and create settings.
+   * For non-IRCX, write commented-out template blocks. */
+  if (want_ircx && nchan > 0) {
+    fprintf(fp,
+"# ---------------------------------------------------------------------------\n"
+"# Per-channel settings (IRCX / Ophion)\n"
+"# ---------------------------------------------------------------------------\n");
+    for (i = 0; i < nchan; i++) {
+      fprintf(fp,
+"[[chanset]]\n"
+"channel          = \"%s\"\n",
+              channels[i]);
+      if (*ircx_ownerkey)
+        fprintf(fp, "ownerkey         = \"%s\"\n", ircx_ownerkey);
+      else
+        fprintf(fp, "# ownerkey       = \"\"  # set your OWNERKEY here\n");
+      if (ircx_want_autoowner)
+        fprintf(fp,
+"ircx_create      = true\n"
+"# ircx_create_modes = \"+nts\"  # optional modes after CREATE\n");
+      fprintf(fp, "\n");
+    }
+  } else if (nchan > 0) {
+    fprintf(fp,
+"# ---------------------------------------------------------------------------\n"
+"# Per-channel settings  (uncomment and edit as needed)\n"
+"# ---------------------------------------------------------------------------\n"
+"# [[chanset]]\n"
+"# channel  = \"%s\"\n"
+"# chanmode = \"+nts\"      # forced channel modes\n"
+"# idle_kick = 0          # kick idle users after N minutes (0 = off)\n"
+"# key_prot  = \"\"         # protect this join key\n"
+"\n",
+            channels[0]);
+  }
 
   /* [paths] */
   fprintf(fp,
