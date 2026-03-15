@@ -2331,7 +2331,7 @@ static void server_report(int idx, int details)
         strlcpy(s1, " (bad pong replies)", sizeof s1);
       else
         egg_snprintf(s1, sizeof s1, " (lag: %ds)", server_lag);
-      strcat(s, s1);
+      strlcat(s, s1, sizeof s);
     }
   }
 

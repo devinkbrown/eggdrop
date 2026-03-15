@@ -86,8 +86,7 @@ static int num_notes(char *user)
   f = fopen(notefile, "r");
   if (f == NULL)
     return 0;
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     rmspace(s);
@@ -128,8 +127,7 @@ static void notes_change(char *oldnick, char *newnick)
     return;
   }
   chmod(s, userfile_perm);      /* Use userfile permissions. */
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     rmspace(s);
@@ -177,8 +175,7 @@ static void expire_notes(void)
     return;
   }
   chmod(s, userfile_perm);      /* Use userfile permissions. */
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     rmspace(s);
@@ -408,8 +405,7 @@ static int tcl_erasenotes STDVAR
   read = 0;
   erased = 0;
   notes_parse(nl, (argv[2][0] == 0) ? "-" : argv[2]);
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     rmspace(s);
@@ -494,7 +490,7 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
     return;
   }
   notes_parse(rd, srd);
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     i = strlen(s);
     if (i > 0 && s[i - 1] == '\n')
       s[i - 1] = 0;
@@ -607,8 +603,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   }
   chmod(s, userfile_perm);      /* Use userfile permissions. */
   notes_parse(dl, sdl);
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     rmspace(s);
@@ -691,8 +686,7 @@ static int tcl_notes STDVAR
   count = 0;
   read = 0;
   notes_parse(nl, (argv[2][0] == 0) ? "-" : argv[2]);
-  /* don't check for feof after fgets, skips last line if it has no \n (ie on windows) */
-  while (!feof(f) && fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     rmspace(s);
@@ -1002,9 +996,13 @@ int add_note_ignore(struct userrec *u, char *mask)
     strlcpy(mxk->key, NOTES_IGNKEY, sizeof(mxk->key));
     xtra_set(u, ue, mxk);
   } else {                        /* ... else, we already have other entries. */
-    xk->data = user_realloc(xk->data, strlen(xk->data) + strlen(mask) + 2);
-    strcat(xk->data, " ");
-    strcat(xk->data, mask);
+    {
+      size_t old_len = strlen(xk->data);
+      size_t new_size = old_len + strlen(mask) + 2;
+      xk->data = user_realloc(xk->data, new_size);
+      strlcat(xk->data, " ", new_size);
+      strlcat(xk->data, mask, new_size);
+    }
   }
   return 1;
 }
@@ -1029,8 +1027,8 @@ int del_note_ignore(struct userrec *u, char *mask)
         size++;
       buf = user_realloc(buf, size + 1);
       if (buf[0])
-        strcat(buf, " ");
-      strcat(buf, ignores[i]);
+        strlcat(buf, " ", (size_t)(size + 1));
+      strlcat(buf, ignores[i], (size_t)(size + 1));
     } else
       foundit = 1;
   }

@@ -28,6 +28,7 @@
 #include "modules.h"
 #include "tandem.h"
 #include "dictionary.h"
+#include "compat/balloc.h"
 
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
@@ -38,6 +39,79 @@ extern time_t now;
 
 int noshare = 1;                   /* don't send out to sharebots       */
 struct userrec *userlist = NULL;   /* user records are stored here      */
+
+/* libop balloc heaps for fixed-size user record structs.
+ * Replaced nmalloc(sizeof(*x)) / nfree(x) with these wrappers everywhere
+ * these structs are allocated or freed, giving O(1) slab alloc/free and
+ * returning memory to the OS when the heaps are destroyed on shutdown. */
+static egg_bh *userrec_heap    = NULL;
+static egg_bh *chanuserrec_heap = NULL;
+static egg_bh *user_entry_heap  = NULL;
+static egg_bh *list_type_heap   = NULL;
+
+void userrec_heaps_init(void)
+{
+  userrec_heap     = egg_bh_create(sizeof(struct userrec),    0, "userrec");
+  chanuserrec_heap = egg_bh_create(sizeof(struct chanuserrec), 0, "chanuserrec");
+  user_entry_heap  = egg_bh_create(sizeof(struct user_entry),  0, "user_entry");
+  list_type_heap   = egg_bh_create(sizeof(struct list_type),   0, "list_type");
+}
+
+void userrec_heaps_destroy(void)
+{
+  if (userrec_heap)     { egg_bh_destroy(userrec_heap);     userrec_heap     = NULL; }
+  if (chanuserrec_heap) { egg_bh_destroy(chanuserrec_heap); chanuserrec_heap = NULL; }
+  if (user_entry_heap)  { egg_bh_destroy(user_entry_heap);  user_entry_heap  = NULL; }
+  if (list_type_heap)   { egg_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
+}
+
+struct userrec *alloc_userrec(void)
+{
+  struct userrec *u = egg_bh_alloc(userrec_heap);
+  memset(u, 0, sizeof *u);
+  return u;
+}
+
+void free_userrec(struct userrec *u)
+{
+  egg_bh_free(userrec_heap, u);
+}
+
+struct chanuserrec *alloc_chanuserrec(void)
+{
+  struct chanuserrec *cr = egg_bh_alloc(chanuserrec_heap);
+  memset(cr, 0, sizeof *cr);
+  return cr;
+}
+
+void free_chanuserrec(struct chanuserrec *cr)
+{
+  egg_bh_free(chanuserrec_heap, cr);
+}
+
+struct user_entry *alloc_user_entry(void)
+{
+  struct user_entry *ue = egg_bh_alloc(user_entry_heap);
+  memset(ue, 0, sizeof *ue);
+  return ue;
+}
+
+void free_user_entry(struct user_entry *ue)
+{
+  egg_bh_free(user_entry_heap, ue);
+}
+
+struct list_type *alloc_list_type(void)
+{
+  struct list_type *lt = egg_bh_alloc(list_type_heap);
+  memset(lt, 0, sizeof *lt);
+  return lt;
+}
+
+void free_list_type(struct list_type *lt)
+{
+  egg_bh_free(list_type_heap, lt);
+}
 struct userrec *lastuser = NULL;   /* last accessed user record         */
 
 /* Splay-tree index from lowercase handle → userrec *.
@@ -762,7 +836,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   int oldshare = noshare;
 
   noshare = 1;
-  u = nmalloc(sizeof *u);
+  u = alloc_userrec();
 
   /* u->next=bu; bu=u; */
   strlcpy(u->handle, handle, sizeof u->handle);
@@ -847,7 +921,7 @@ void freeuser(struct userrec *u)
     ch = ch->next;
     if (z->info != NULL)
       nfree(z->info);
-    nfree(z);
+    free_chanuserrec(z);
   }
   u->chanrec = NULL;
   for (ue = u->entries; ue; ue = ut) {
@@ -858,14 +932,14 @@ void freeuser(struct userrec *u)
       for (lt = ue->u.list; lt; lt = ltt) {
         ltt = lt->next;
         nfree(lt->extra);
-        nfree(lt);
+        free_list_type(lt);
       }
       nfree(ue->name);
-      nfree(ue);
+      free_user_entry(ue);
     } else
       ue->type->kill(ue);
   }
-  nfree(u);
+  free_userrec(u);
 }
 
 int deluser(char *handle)
@@ -1069,7 +1143,7 @@ void user_del_chan(char *dname)
 
         if (ch->info)
           nfree(ch->info);
-        nfree(ch);
+        free_chanuserrec(ch);
         break;
       }
       och = ch;

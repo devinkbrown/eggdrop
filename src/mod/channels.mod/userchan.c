@@ -769,7 +769,7 @@ static void display_ban(int idx, int number, maskrec *ban,
     snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (ban->flags & MASKREC_STICKY)
-    strcat(s, " (sticky)");
+    strlcat(s, " (sticky)", sizeof(s));
   if (!chan || ischanban(chan, ban->mask)) {
     if (number >= 0)
       dprintf(idx, "  [%3d] %s %s\n", number, ban->mask, s);
@@ -813,7 +813,7 @@ static void display_exempt(int idx, int number, maskrec *exempt,
     snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (exempt->flags & MASKREC_STICKY)
-    strcat(s, " (sticky)");
+    strlcat(s, " (sticky)", sizeof(s));
   if (!chan || ischanexempt(chan, exempt->mask)) {
     if (number >= 0)
       dprintf(idx, "  [%3d] %s %s\n", number, exempt->mask, s);
@@ -857,7 +857,7 @@ static void display_invite(int idx, int number, maskrec *invite,
     snprintf(s, sizeof(s), "(expires %s)", s1);
   }
   if (invite->flags & MASKREC_STICKY)
-    strcat(s, " (sticky)");
+    strlcat(s, " (sticky)", sizeof(s));
   if (!chan || ischaninvite(chan, invite->mask)) {
     if (number >= 0)
       dprintf(idx, "  [%3d] %s %s\n", number, invite->mask, s);
@@ -961,7 +961,7 @@ static void tell_bans(int idx, int show_inact, char *match)
             min = (now - b->timer) / 60;
             sec = (now - b->timer) - (min * 60);
             snprintf(s, sizeof(s), " (active %02d:%02d)", min, sec);
-            strcat(fill, s);
+            strlcat(fill, s, sizeof(fill));
           }
           if ((!match[0]) || (match_addr(match, b->mask)))
             dprintf(idx, "* [%3d] %s\n", k, fill);
@@ -1051,7 +1051,7 @@ static void tell_exempts(int idx, int show_inact, char *match)
             min = (now - e->timer) / 60;
             sec = (now - e->timer) - (min * 60);
             snprintf(s, sizeof(s), " (active %02d:%02d)", min, sec);
-            strcat(fill, s);
+            strlcat(fill, s, sizeof(fill));
           }
           if ((!match[0]) || (match_addr(match, e->mask)))
             dprintf(idx, "* [%3d] %s\n", k, fill);
@@ -1140,7 +1140,7 @@ static void tell_invites(int idx, int show_inact, char *match)
             min = (now - i->timer) / 60;
             sec = (now - i->timer) - (min * 60);
             snprintf(s, sizeof(s), " (active %02d:%02d)", min, sec);
-            strcat(fill, s);
+            strlcat(fill, s, sizeof(fill));
           }
           if ((!match[0]) || (match_addr(match, i->mask)))
             dprintf(idx, "* [%3d] %s\n", k, fill);

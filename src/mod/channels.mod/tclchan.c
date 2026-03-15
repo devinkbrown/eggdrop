@@ -829,7 +829,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
   EGG_CONST char *args[2];
   struct udef_struct *ul;
 
-  get_mode_protect(chan, s);
+  get_mode_protect(chan, s, sizeof s);
   Tcl_AppendElement(irp, s);
   simple_sprintf(s, "%d", chan->idle_kick);
   Tcl_AppendElement(irp, s);
@@ -1017,7 +1017,7 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
   struct udef_struct *ul;
 
   /* String values first */
-  get_mode_protect(chan, s);
+  get_mode_protect(chan, s, sizeof s);
   APPEND_KEYVAL("chanmode", s);
   APPEND_KEYVAL("need-op", chan->need_op);
   APPEND_KEYVAL("need-invite", chan->need_invite);
@@ -1137,7 +1137,7 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
   struct udef_struct *ul;
 
   if (!strcmp(setting, "chanmode"))
-    get_mode_protect(chan, s);
+    get_mode_protect(chan, s, sizeof s);
   else if (!strcmp(setting, "need-op"))
     strlcpy(s, chan->need_op, sizeof s);
   else if (!strcmp(setting, "need-invite"))

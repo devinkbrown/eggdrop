@@ -248,7 +248,7 @@ static void set_mode_protect(struct chanset_t *chan, char *set)
     chan->mode_pls_prot &= ~CHANPRIV;
 }
 
-static void get_mode_protect(struct chanset_t *chan, char *s)
+static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
 {
   char *p = s, s1[122];
   int i, tst;
@@ -314,8 +314,8 @@ static void get_mode_protect(struct chanset_t *chan, char *s)
   *p = 0;
   if (s1[0]) {
     s1[strlen(s1) - 1] = 0;
-    strcat(s, " ");
-    strcat(s, s1);
+    strlcat(s, " ", sz);
+    strlcat(s, s1, sz);
   }
 }
 
@@ -509,7 +509,7 @@ static void write_channels(void)
           botnetnick, ver, s1);
   for (chan = chanset; chan; chan = chan->next) {
     convert_element(chan->dname, name);
-    get_mode_protect(chan, w);
+    get_mode_protect(chan, w, sizeof w);
     convert_element(w, w2);
     convert_element(chan->need_op, need1);
     convert_element(chan->need_invite, need2);
@@ -660,7 +660,7 @@ static cmd_t my_chon[] = {
 static void channels_report(int idx, int details)
 {
   int i;
-  char s[1024], s1[100], s2[100];
+  char s[1024], s1[100], s2[256];
   struct chanset_t *chan;
   struct flag_record fr = { FR_CHAN | FR_GLOBAL, 0, 0, 0, 0, 0 };
 
@@ -679,20 +679,20 @@ static void channels_report(int idx, int details)
     snprintf(s, sizeof(s), "    %-20s: ", chan->dname);
 
     if (channel_inactive(chan))
-      strcat(s, "(inactive)");
+      strlcat(s, "(inactive)", sizeof s);
     else if (channel_pending(chan))
-      strcat(s, "(pending)");
+      strlcat(s, "(pending)", sizeof s);
     else if (!channel_active(chan))
-      strcat(s, "(not on channel)");
+      strlcat(s, "(not on channel)", sizeof s);
     else {
 
       s1[0] = 0;
       snprintf(s1, sizeof(s1), "%3d member%s", chan->channel.members,
               (chan->channel.members == 1) ? "" : "s");
-      strcat(s, s1);
+      strlcat(s, s1, sizeof s);
 
       s2[0] = 0;
-      get_mode_protect(chan, s2);
+      get_mode_protect(chan, s2, sizeof s2);
 
       if (s2[0]) {
         int len = strlen(s);

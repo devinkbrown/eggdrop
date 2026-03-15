@@ -190,6 +190,20 @@ if have_tls
   cdata.set('HAVE_OPENSSL', 1)
   cdata.set('TLS', 1)
   cdata.set('HAVE_TLS', 1)
+  # Detect legacy OpenSSL low-level MD5 API (deprecated in OpenSSL 3.0).
+  # When available, md5.h includes <openssl/md5.h> instead of the bundled
+  # implementation, and modules.c exports the real OpenSSL symbols.
+  if cc.has_function('MD5_Init', dependencies: tls_dep,
+                     prefix: '#include <openssl/md5.h>')
+    cdata.set('HAVE_OPENSSL_MD5', 1)
+  endif
+  # Detect modern EVP MD5 API (OpenSSL >= 1.1.0).
+  # When available, tclmisc.c and dcc.c use EVP_DigestInit_ex instead of
+  # the deprecated MD5_CTX API, routing through OpenSSL on all versions.
+  if cc.has_function('EVP_md5', dependencies: tls_dep,
+                     prefix: '#include <openssl/evp.h>')
+    cdata.set('HAVE_EVP_MD5', 1)
+  endif
 endif
 
 # -------------------------------------------------------------------------

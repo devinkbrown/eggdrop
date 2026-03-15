@@ -101,7 +101,7 @@ static void check_expired_invites(void);
 static void write_channels(void);
 static void read_channels(int, int);
 static void clear_channel(struct chanset_t *, int);
-static void get_mode_protect(struct chanset_t *chan, char *s);
+static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz);
 static void set_mode_protect(struct chanset_t *chan, char *set);
 static int ismasked(masklist *m, char *user);
 static int ismodeline(masklist *m, char *user);

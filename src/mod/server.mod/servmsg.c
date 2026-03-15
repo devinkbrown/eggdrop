@@ -381,12 +381,12 @@ static int got001(char *from, char *msg)
       if (x->realname)
         nfree(x->realname);
       x->realname = nmalloc(strlen(from) + 1);
-      strcpy(x->realname, from);
+      strlcpy(x->realname, from, strlen(from) + 1);
     }
     if (realservername)
       nfree(realservername);
     realservername = nmalloc(strlen(from) + 1);
-    strcpy(realservername, from);
+    strlcpy(realservername, from, strlen(from) + 1);
   } else
     putlog(LOG_MISC, "*", "No server list when receiving 001!");
 
