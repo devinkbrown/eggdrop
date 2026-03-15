@@ -27,6 +27,7 @@
 #include "../channels.mod/channels.h"
 #include <errno.h>
 #include "server.h"
+#include "../../dictionary.h"
 
 char *encode_msgtags(Tcl_Obj *msgtagdict);
 static char *encode_msgtag(char *key, char *value);
@@ -494,6 +495,22 @@ static void nuke_server(char *reason)
   }
 }
 
+/* egg_dictionary index for O(1) capability lookups by name.
+ * Maintained in parallel with the 'cap' linked list; the list is kept
+ * because external modules may iterate it directly via server_funcs[43]. */
+static egg_dictionary *cap_dict = NULL;
+
+/* Inline helper: resolve a nick!user@host 'from' string to a userrec,
+ * honouring the IRCv3 'account' tag and any matching channel member record.
+ * Callers must have already extracted 'nick' from 'from' via splitnick(). */
+static inline struct userrec *lookup_msg_user(char *nick, char *from)
+{
+  memberlist *m = find_member_from_nick(nick);
+  return lookup_user_record(m,
+      m ? m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL),
+      from);
+}
+
 static char ctcp_reply[1024] = "";
 
 static int lastmsgs[FLOOD_GLOBAL_MAX];
@@ -630,10 +647,7 @@ static int gotmsg(char *from, char *msg)
               putlog(LOG_PUBLIC, to, "CTCP %s: %s from %s (%s) to %s",
                      code, ctcp, nick, uhost, to);
           } else {
-            {
-              memberlist *_m = find_member_from_nick(nick);
-              u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
-            }
+            u = lookup_msg_user(nick, from);
             if (!ignoring || trigger_on_ignore) {
               if (!check_tcl_ctcp(nick, uhost, u, to, code, ctcp) && !ignoring) {
                 if ((lowercase_ctcp && !strcasecmp(code, "DCC")) ||
@@ -696,10 +710,7 @@ static int gotmsg(char *from, char *msg)
     }
 
     detect_flood(nick, uhost, from, FLOOD_PRIVMSG);
-    {
-      memberlist *_m = find_member_from_nick(nick);
-      u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
-    }
+    u = lookup_msg_user(nick, from);
     code = newsplit(&msg);
     rmspace(msg);
 
@@ -766,10 +777,7 @@ static int gotnotice(char *from, char *msg)
                    "CTCP reply %s: %s from %s (%s) to %s", code, ctcp,
                    nick, uhost, to);
         } else {
-          {
-            memberlist *_m = find_member_from_nick(nick);
-            u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
-          }
+          u = lookup_msg_user(nick, from);
           if (!ignoring || trigger_on_ignore) {
             check_tcl_ctcr(nick, uhost, u, to, code, ctcp);
             if (!ignoring)
@@ -805,10 +813,7 @@ static int gotnotice(char *from, char *msg)
     }
 
     detect_flood(nick, uhost, from, FLOOD_NOTICE);
-    {
-      memberlist *_m = find_member_from_nick(nick);
-      u = lookup_user_record(_m, _m ? _m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL), from);
-    }
+    u = lookup_msg_user(nick, from);
 
     if (!ignoring || trigger_on_ignore)
       if (check_tcl_notc(nick, uhost, u, botname, msg) == 2)
@@ -1126,7 +1131,12 @@ static void disconnect_server(int idx)
     check_tcl_event("disconnect-server");
   }
   while (cap != NULL) {
-    del_capability(cap->name);
+    del_capability(cap->name);  /* also removes from cap_dict */
+  }
+  /* cap_dict is now empty; destroy the tree structure itself */
+  if (cap_dict) {
+    egg_dictionary_destroy(cap_dict, NULL, NULL);
+    cap_dict = NULL;
   }
   server_online = 0;
   if (realservername)
@@ -1487,17 +1497,22 @@ static int got421(char *from, char *msg) {
   return 1;
 }
 
-/* Helper function to quickly find a capability record */
+/* Helper function to quickly find a capability record.
+ * Uses cap_dict (egg_dictionary) for O(1) average lookup when populated;
+ * falls back to O(n) linked-list scan during the brief window before the
+ * first CAP LS reply has been processed (cap_dict not yet created). */
 struct capability *find_capability(char *capname) {
-  struct capability *current = cap;
+  if (cap_dict)
+    return egg_dictionary_retrieve(cap_dict, capname);
 
+  /* Fallback: linear scan before dict is initialised */
+  struct capability *current = cap;
   while (current != NULL) {
-    if (!strcasecmp(capname, current->name)) {
+    if (!strcasecmp(capname, current->name))
       return current;
-    }
     current = current->next;
   }
-  return 0;
+  return NULL;
 }
 
 /* Set capability to be requested by Eggdrop */
@@ -1537,6 +1552,8 @@ static int del_capability(char *name) {
       } else {
         cap = curr->next;
       }
+      if (cap_dict)
+        egg_dictionary_delete(cap_dict, name);
       free_capability(curr);
       return 0;
     } else {
@@ -1592,6 +1609,10 @@ static int add_capabilities(char *msg) {
     memset(newcap, 0, sizeof *newcap);
     strlcpy(newcap->name, capptr, sizeof newcap->name);
     *capdstptr = newcap;
+    /* Keep cap_dict in sync for O(1) find_capability() lookups */
+    if (!cap_dict)
+      cap_dict = egg_dictionary_create("capabilities", egg_dict_strcasecmp);
+    egg_dictionary_add(cap_dict, newcap->name, newcap);
 
     if (valptr) {
       nextvaldstptr = &newcap->value;
@@ -1953,7 +1974,7 @@ static int got732(char *from, char *msg)
   if (!monitor732) {
     while (current != NULL) {
       next = current->next;
-      nfree(current);
+      egg_bh_free(monitor_heap, current);
       current = next;
     }
     monitor = NULL;
