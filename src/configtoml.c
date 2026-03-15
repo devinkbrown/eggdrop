@@ -1179,10 +1179,9 @@ int run_setup_wizard(const char *outfile)
 "# Report issues    : https://github.com/eggheads/eggdrop/issues\n"
 "\n", outfile);
 
-  /* [modules] */
+  /* ── [modules] ─────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[modules]\n"
-"# Modules to load at startup.  Comment out lines you don't need.\n"
 "load = [\n"
 "  \"pbkdf2\",    # Generation-2 userfile encryption (recommended)\n"
 "  \"blowfish\",  # Legacy userfile encryption support\n"
@@ -1190,6 +1189,7 @@ int run_setup_wizard(const char *outfile)
 "  \"server\",    # Core IRC server support\n"
 "  \"ctcp\",      # CTCP reply handling\n"
 "  \"irc\",       # Basic IRC functionality\n"
+"  \"dns\",       # Async DNS resolver\n"
 "  \"console\",   # Console setting persistence\n"
 "  \"uptime\",    # Uptime reporting\n");
   if (want_notes)
@@ -1200,9 +1200,13 @@ int run_setup_wizard(const char *outfile)
     fprintf(fp, "  \"transfer\",  # DCC file transfer support\n");
   if (want_filesys)
     fprintf(fp, "  \"filesys\",   # In-bot file system\n");
-  fprintf(fp, "]\n\n");
+  fprintf(fp,
+"  # \"share\",     # Userfile sharing between botnet links\n"
+"  # \"compress\",  # Compress shared userfiles (requires zlib)\n"
+"  # \"ident\",     # Built-in ident server\n"
+"]\n\n");
 
-  /* [bot] */
+  /* ── [bot] ──────────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[bot]\n"
 "nick     = \"%s\"\n"
@@ -1212,13 +1216,14 @@ int run_setup_wizard(const char *outfile)
 "admin    = \"%s\"\n"
 "network  = \"%s\"\n"
 "owner    = \"%s\"\n"
+"notify_newusers = \"$owner\"\n"
+"default_flags   = \"hp\"\n"
 "\n", nick, altnick, realname, username, admin, network, owner);
 
-  /* [servers] */
+  /* ── [servers] ──────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[servers]\n"
-"# Format: \"host:port\" for plain, \"host:+port\" for SSL,\n"
-"#         \"host:+port:password\" to include a server password.\n"
+"# \"host:port\" plain  |  \"host:+port\" SSL  |  \"host:+port:password\"\n"
 "list = [\n");
   if (*server_pass)
     fprintf(fp, "  \"%s:%s%d:%s\",\n",
@@ -1228,97 +1233,168 @@ int run_setup_wizard(const char *outfile)
             server, use_ssl ? "+" : "", port);
   fprintf(fp, "]\n\n");
 
-  /* [channels] */
+  /* ── [channels] ─────────────────────────────────────────────────────────── */
   fprintf(fp, "[channels]\nlist = [");
   for (i = 0; i < nchan; i++)
     fprintf(fp, "%s\"%s\"", i ? ", " : "", channels[i]);
-  fprintf(fp, "]\n\n");
+  fprintf(fp, "]\n\n"
+"# Channel defaults — applied to every channel.\n"
+"default_chanmode         = \"nt\"\n"
+"default_ban_time         = 120\n"
+"default_exempt_time      = 60\n"
+"default_invite_time      = 60\n"
+"default_ban_type         = 3\n"
+"default_idle_kick        = 0\n"
+"default_stopnethack_mode = 0\n"
+"default_revenge_mode     = 0\n"
+"default_flood_chan        = \"15:60\"\n"
+"default_flood_deop        = \"3:10\"\n"
+"default_flood_kick        = \"3:10\"\n"
+"default_flood_join        = \"5:60\"\n"
+"default_flood_ctcp        = \"3:60\"\n"
+"default_flood_nick        = \"5:60\"\n"
+"default_aop_delay         = \"5:30\"\n"
+"\n");
 
-  /* [[chanset]] — one block per channel.
-   * For IRCX networks, pre-populate ownerkey and create settings.
-   * For non-IRCX, write commented-out template blocks. */
+  /* ── [[chanset]] ────────────────────────────────────────────────────────── */
   if (want_ircx && nchan > 0) {
-    fprintf(fp,
-"# ---------------------------------------------------------------------------\n"
-"# Per-channel settings (IRCX / Ophion)\n"
-"# ---------------------------------------------------------------------------\n");
     for (i = 0; i < nchan; i++) {
       fprintf(fp,
 "[[chanset]]\n"
-"channel          = \"%s\"\n",
+"channel     = \"%s\"\n",
               channels[i]);
       if (*ircx_ownerkey)
-        fprintf(fp, "ownerkey         = \"%s\"\n", ircx_ownerkey);
+        fprintf(fp, "ownerkey    = \"%s\"\n", ircx_ownerkey);
       else
-        fprintf(fp, "# ownerkey       = \"\"  # set your OWNERKEY here\n");
+        fprintf(fp, "# ownerkey  = \"\"  # OWNERKEY for +q on join\n");
       if (ircx_want_autoowner)
         fprintf(fp,
-"ircx_create      = true\n"
-"# ircx_create_modes = \"+nts\"  # optional modes after CREATE\n");
+"ircx_create = true\n"
+"# ircx_create_modes = \"+nts\"\n");
       fprintf(fp, "\n");
     }
   } else if (nchan > 0) {
     fprintf(fp,
-"# ---------------------------------------------------------------------------\n"
-"# Per-channel settings  (uncomment and edit as needed)\n"
-"# ---------------------------------------------------------------------------\n"
+"# Per-channel overrides — one [[chanset]] block per channel.\n"
 "# [[chanset]]\n"
-"# channel  = \"%s\"\n"
-"# chanmode = \"+nts\"      # forced channel modes\n"
-"# idle_kick = 0          # kick idle users after N minutes (0 = off)\n"
-"# key_prot  = \"\"         # protect this join key\n"
+"# channel   = \"%s\"\n"
+"# chanmode  = \"+nts\"\n"
+"# cycle     = false\n"
+"# idle_kick = 0\n"
 "\n",
             channels[0]);
   }
 
-  /* [paths] */
+  /* ── [paths] ────────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[paths]\n"
-"userfile  = \"%s\"\n"
-"chanfile  = \"%s\"\n"
-"help_path = \"help/\"\n"
+"userfile      = \"%s\"\n"
+"chanfile      = \"%s\"\n"
+"help_path     = \"help/\"\n"
+"text_path     = \"text/\"\n"
+"motd          = \"text/motd\"\n"
+"telnet_banner = \"text/banner\"\n"
 #ifdef EGG_MODDIR
-"mod_path  = \"" EGG_MODDIR "/\"\n"
+"mod_path      = \"" EGG_MODDIR "/\"\n"
 #else
-"mod_path  = \"modules/\"\n"
+"mod_path      = \"modules/\"\n"
 #endif
 "\n", userfile, chanfile);
 
-  /* [logging] */
+  /* ── [logging] ──────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[logging]\n"
 "# Flags: m=messages o=commands c=channel b=bots j=joins s=server k=kicks\n"
 "entries = [\n"
 "  \"mco * %s\",\n"
 "]\n"
+"max_logs          = 20\n"
+"max_logsize       = 0\n"
+"log_time          = 1\n"
+"timestamp_format  = \"[%%H:%%M:%%S]\"\n"
+"keep_all_logs     = 0\n"
+"switch_logfiles_at = 300\n"
+"quiet_save        = 0\n"
 "\n", logfile);
 
-  /* [irc] */
+  /* ── [irc] ──────────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[irc]\n"
-"# Network type affects protocol behaviour.\n"
-"# Values: EFnet IRCnet Undernet DALnet Libera QuakeNet Rizon Ophion\n"
-"net_type = \"%s\"\n"
+"net_type        = \"%s\"\n"
+"ctcp_mode       = 0\n"
+"learn_users     = 0\n"
+"allow_hello     = 1\n"
+"allow_addhost   = 1\n"
+"keep_nick       = 1\n"
+"server_timeout  = 60\n"
+"server_cycle_wait = 60\n"
+"msg_rate        = 2\n"
+"answer_ctcp     = 3\n"
+"flood_msg       = \"5:60\"\n"
+"flood_ctcp      = \"3:60\"\n"
+"bounce_bans     = 0\n"
+"bounce_exempts  = 0\n"
+"bounce_invites  = 0\n"
+"bounce_modes    = 0\n"
+"prevent_mixing  = 1\n"
+"mode_buf_length = 200\n"
+"opchars         = \"@\"\n"
+"# init_server   = \"\"  # raw commands sent after registration\n"
+"# connect_server = \"\" # raw commands sent before registration\n"
 "\n", net_type_str);
 
-  /* [network] */
+  /* ── [network] ──────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[network]\n"
-"# Uncomment to bind to a specific address on multi-homed hosts.\n"
-"# vhost4 = \"0.0.0.0\"\n"
-"# vhost6 = \"0::0\"\n"
-"# nat_ip = \"\"  # set to external IP if behind NAT\n"
-"default_port = %d\n"
+"default_port    = %d\n"
+"connect_timeout = 15\n"
+"prefer_ipv6     = 0\n"
+"# vhost4 = \"\"  # bind outgoing/listening to this IPv4 address\n"
+"# vhost6 = \"\"  # bind outgoing/listening to this IPv6 address\n"
+"# nat_ip = \"\"  # external IP if behind NAT\n"
+"# listen_addr = \"\"         # address for DCC/telnet listeners\n"
+"# reserved_portrange = \"\"  # e.g. \"2010:2020\" for DCC port range\n"
 "\n", use_ssl ? 6697 : 6667);
 
-  /* [security] */
+  /* ── [security] ─────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[security]\n"
-"stealth_telnets = 0\n"
-"require_p       = 0\n"
+"must_be_owner        = 1\n"
+"require_p            = 1\n"
+"stealth_telnets      = 0\n"
+"open_telnets         = 0\n"
+"protect_telnet       = 0\n"
+"dcc_flood_thr        = 3\n"
+"telnet_flood         = \"16:60\"\n"
+"paranoid_telnet_flood = 1\n"
+"cidr_support         = 0\n"
 "\n");
 
-  /* [sasl] — only written when the user enabled it */
+  /* ── [behaviour] ────────────────────────────────────────────────────────── */
+  fprintf(fp,
+"[behaviour]\n"
+"max_socks        = 100\n"
+"allow_dk_cmds    = 1\n"
+"dupwait_timeout  = 5\n"
+"check_stoned     = 1\n"
+"serverror_quit   = 1\n"
+"max_queue_msg    = 300\n"
+"trigger_on_ignore = 0\n"
+"exclusive_binds  = 0\n"
+"double_mode      = 1\n"
+"double_server    = 1\n"
+"double_help      = 1\n"
+"optimize_kicks   = 1\n"
+"stack_limit      = 4\n"
+"hourly_updates   = 0\n"
+"ignore_time      = 15\n"
+"remote_boots     = 2\n"
+"share_unlinks    = 1\n"
+"wait_split       = 600\n"
+"wait_info        = 180\n"
+"\n");
+
+  /* ── [sasl] — only when user enabled SASL ──────────────────────────────── */
   if (want_sasl) {
     fprintf(fp,
 "[sasl]\n"
@@ -1328,30 +1404,111 @@ int run_setup_wizard(const char *outfile)
             sasl_mech_val, sasl_user);
     if (*sasl_pass)
       fprintf(fp, "sasl_password  = \"%s\"\n", sasl_pass);
-    fprintf(fp, "\n");
+    fprintf(fp,
+"sasl_continue  = 1\n"
+"sasl_timeout   = 15\n"
+"\n");
   }
 
-  /* [ircx] — only written when user chose Ophion network */
+  /* ── [ctcp] ─────────────────────────────────────────────────────────────── */
+  fprintf(fp,
+"[ctcp]\n"
+"# Override CTCP replies — leave commented to use the built-in version string.\n"
+"# ctcp_version  = \"Eggdrop (Linux)\"\n"
+"# ctcp_finger   = \"Eggdrop (Linux)\"\n"
+"# ctcp_userinfo = \"Eggdrop (Linux)\"\n"
+"\n");
+
+  /* ── [ircx] — only when user chose Ophion ─────────────────────────────── */
   if (want_ircx) {
     fprintf(fp,
 "[ircx]\n"
-"# Ophion/IRCX protocol support.\n"
-"# The bot negotiates IRCX mode after login, enabling:\n"
-"#   +q owner mode, PROP channel properties, ACCESS lists, CREATE command.\n"
 "ircx_auto_negotiate = 1\n");
     if (*ircx_ownerkey)
-      fprintf(fp, "ircx_ownerkey = \"%s\"\n\n", ircx_ownerkey);
+      fprintf(fp, "ircx_ownerkey = \"%s\"\n", ircx_ownerkey);
     else
-      fprintf(fp, "# ircx_ownerkey = \"\"  # set to your OWNERKEY if required\n\n");
+      fprintf(fp, "# ircx_ownerkey = \"\"  # global OWNERKEY (grants +q on join)\n");
+    fprintf(fp, "\n");
   }
 
-  /* [tcl] */
+  /* ── [share] ────────────────────────────────────────────────────────────── */
   fprintf(fp,
-"# ---------------------------------------------------------------------------\n"
-"# TCL\n"
-"# Raw Tcl evaluated after all settings are applied.\n"
-"# ---------------------------------------------------------------------------\n"
-"\n"
+"[share]\n"
+"# Userfile sharing with linked bots (requires share.mod).\n"
+"allow_resync   = 0\n"
+"resync_time    = 900\n"
+"private_global = 0\n"
+"private_user   = 0\n"
+"override_bots  = 0\n"
+"# private_globals = \"\"  # space-separated flags to keep local\n"
+"\n");
+
+  /* ── [dns] ──────────────────────────────────────────────────────────────── */
+  fprintf(fp,
+"[dns]\n"
+"dns_maxsends   = 4\n"
+"dns_retrydelay = 3\n"
+"dns_cache      = 86400\n"
+"dns_negcache   = 600\n"
+"# dns_servers  = \"\"  # space-separated IPs; empty = use /etc/resolv.conf\n"
+"\n");
+
+  /* ── [notes] — only when user wants notes ──────────────────────────────── */
+  if (want_notes) {
+    fprintf(fp,
+"[notes]\n"
+"max_notes     = 50\n"
+"note_life     = 60\n"
+"allow_fwd     = 0\n"
+"notify_users  = 0\n"
+"notify_onjoin = 1\n"
+"\n");
+  }
+
+  /* ── [transfer] — only when user wants transfer ────────────────────────── */
+  if (want_transfer) {
+    fprintf(fp,
+"[transfer]\n"
+"max_dloads       = 3\n"
+"dcc_block        = 0\n"
+"xfer_timeout     = 30\n"
+"sharefail_unlink = 0\n"
+"\n");
+  }
+
+  /* ── [filesys] — only when user wants filesys ──────────────────────────── */
+  if (want_filesys) {
+    fprintf(fp,
+"[filesys]\n"
+"files_path     = \"filesys\"\n"
+"incoming_path  = \"filesys/incoming\"\n"
+"upload_to_pwd  = 0\n"
+"max_file_users = 20\n"
+"max_filesize   = 1024\n"
+"\n");
+  }
+
+  /* ── [console] ──────────────────────────────────────────────────────────── */
+  fprintf(fp,
+"[console]\n"
+"console          = \"mkcoblxs\"\n"
+"console_autosave = 1\n"
+"force_channel    = 0\n"
+"info_party       = 0\n"
+"\n");
+
+  /* ── [crypto] ───────────────────────────────────────────────────────────── */
+  fprintf(fp,
+"[crypto]\n"
+"pbkdf2_re_encode  = 1\n"
+"blowfish_use_mode = \"cbc\"\n"
+"# pbkdf2_method  = \"SHA256\"\n"
+"# pbkdf2_rounds  = 16000\n"
+"# compress_level = 9\n"
+"\n");
+
+  /* ── [tcl] ──────────────────────────────────────────────────────────────── */
+  fprintf(fp,
 "[tcl]\n"
 "commands = [\n"
 "  # Disable the 'simul' partyline command (security best practice).\n"
@@ -1359,31 +1516,20 @@ int run_setup_wizard(const char *outfile)
 "]\n"
 "\n");
 
-  /* IRCX auto-owner Tcl code block.
-   * We register channels with ircxautoowner directly in the code block so
-   * the list is populated before any server connections are made.
-   * ircx_do_autoowner() runs when got800 (RPL_IRCX) fires and joins each
-   * channel with the OWNERKEY so the server grants +q immediately on join.
-   * If ircxautoowner is called while IRCX is already active (e.g. late bind
-   * or manual call), the immediate-trigger path in tclserv.c handles it. */
+  /* IRCX auto-owner block (when Ophion + autoowner enabled) */
   if (want_ircx && ircx_want_autoowner && nchan > 0) {
     fprintf(fp,
-"# IRCX: register channels for auto-owner (+q) on every server connect.\n"
-"# The bot joins each channel with the OWNERKEY; the server grants +q.\n"
-"# ircxautoowner <channel> [ownerkey] [create-if-empty 0|1]\n"
+"# IRCX: register channels for auto-owner on every server connect.\n"
 "code = \"\"\"\n");
     for (i = 0; i < nchan; i++)
       fprintf(fp, "ircxautoowner %s \"%s\" 1\n",
               channels[i], ircx_ownerkey);
-    fprintf(fp,
-"\"\"\"\n"
-"\n");
+    fprintf(fp, "\"\"\"\n\n");
   } else {
     fprintf(fp,
-"# Multi-line Tcl can also be written as a code block:\n"
 "# code = \"\"\"\n"
 "# proc my_greeting {nick host hand chan} {\n"
-"#   putserv \"PRIVMSG $chan :Welcome, $nick!\"\n"
+"#   putserv \"PRIVMSG $chan :Welcome to $chan, $nick!\"\n"
 "# }\n"
 "# bind join - * my_greeting\n"
 "# \"\"\"\n"
