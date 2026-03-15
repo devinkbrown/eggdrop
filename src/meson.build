@@ -71,6 +71,7 @@ core_sources = files(
   'mem.c',
   'misc.c',
   'misc_file.c',
+  'script.c',
   'modules.c',
   'net.c',
   'rfc1459.c',

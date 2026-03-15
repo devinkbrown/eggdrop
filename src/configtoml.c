@@ -39,6 +39,9 @@
 
 #include "main.h"
 #include "configtoml.h"
+#ifndef HAVE_TCL
+#  include "script.h"
+#endif
 
 #include <ctype.h>
 #include <errno.h>
@@ -428,10 +431,16 @@ static void cb_logfile(const char *entry, void *ud)
 
 static void cb_source(const char *path, void *ud)
 {
-  char cmd[512];
   (void)ud;
-  egg_snprintf(cmd, sizeof cmd, "source %s", path);
-  run_tcl_cmd(cmd);
+#ifdef HAVE_TCL
+  {
+    char cmd[512];
+    egg_snprintf(cmd, sizeof cmd, "source %s", path);
+    run_tcl_cmd(cmd);
+  }
+#else
+  script_load(path);
+#endif
 }
 
 static void cb_loadhelp(const char *file, void *ud)

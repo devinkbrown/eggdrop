@@ -21,10 +21,14 @@
  */
 #define PY_SSIZE_T_CLEAN
 
+#ifdef HAVE_TCL
 typedef struct {
   PyObject_HEAD
   char tclcmdname[128];
 } TclFunc;
+
+static PyTypeObject TclFuncType;
+#endif /* HAVE_TCL */
 
 typedef struct {
   PyObject_HEAD
@@ -35,12 +39,20 @@ typedef struct {
   PyObject *callback;
 } PythonBind;
 
-static PyTypeObject TclFuncType, PythonBindType;
+static PyTypeObject PythonBindType;
 static int eval_idx = -1;
 
 static PyObject *EggdropError;      //create static Python Exception object
 
+#ifndef HAVE_TCL
+/* Dict mapping tclcmdname → PythonBind object for no-Tcl dispatch.
+ * python_script_call() looks up entries here when check_tcl_bind() fires. */
+static PyObject *python_callbacks;  /* {str: PythonBind} */
+#endif
+
+#ifdef HAVE_TCL
 static Tcl_Obj *py_to_tcl_obj(PyObject *o); // generic conversion function
+#endif
 
 static PyObject *py_displayhook(PyObject *self, PyObject *o) {
   PyObject *pstr;
@@ -179,6 +191,7 @@ static PyObject *py_findircuser(PyObject *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
+#ifdef HAVE_TCL
 static int tcl_call_python(ClientData cd, Tcl_Interp *irp, int objc, Tcl_Obj *const objv[])
 {
   PyObject *args = PyTuple_New(objc > 1 ? objc - 1: 0);
@@ -195,7 +208,58 @@ static int tcl_call_python(ClientData cd, Tcl_Interp *irp, int objc, Tcl_Obj *co
   }
   return TCL_OK;
 }
+#else /* !HAVE_TCL */
 
+/* Called by script_call() when check_tcl_bind() fires a Python bind entry.
+ * argv[0..argc-1] are the string arguments for the bind type. */
+static int python_script_call(const char *name, int argc, const char **argv)
+{
+  PyObject *pybind, *pyargs, *result;
+  int i;
+
+  if (!python_callbacks)
+    return 0;
+  pybind = PyDict_GetItemString(python_callbacks, name); /* borrowed */
+  if (!pybind)
+    return 0;
+
+  pyargs = PyTuple_New(argc);
+  for (i = 0; i < argc; i++)
+    PyTuple_SET_ITEM(pyargs, i, PyUnicode_FromString(argv[i] ? argv[i] : ""));
+
+  result = PyObject_Call(((PythonBind *)pybind)->callback, pyargs, NULL);
+  Py_DECREF(pyargs);
+  if (!result) {
+    PyErr_Print();
+    return 0;
+  }
+  Py_DECREF(result);
+  return 0;
+}
+
+/* Called by script_load() to source .py files */
+static int python_script_load(const char *fname)
+{
+  FILE *fp;
+  int ret;
+
+  fp = fopen(fname, "r");
+  if (!fp) {
+    putlog(LOG_MISC, "*", "python: cannot open script: %s", fname);
+    return -1;
+  }
+  ret = PyRun_SimpleFile(fp, fname);
+  fclose(fp);
+  if (ret != 0) {
+    putlog(LOG_MISC, "*", "python: error loading script: %s", fname);
+    return -1;
+  }
+  putlog(LOG_MISC, "*", "Loaded Python script: %s", fname);
+  return 0;
+}
+#endif /* HAVE_TCL */
+
+#ifdef HAVE_TCL
 static PyObject *py_parse_tcl_list(PyObject *self, PyObject *args) {
   Tcl_Size max;
   const char *str;
@@ -254,6 +318,7 @@ static PyObject *py_parse_tcl_dict(PyObject *self, PyObject *args) {
   Tcl_DictObjDone(&search);
   return result;
 }
+#endif /* HAVE_TCL */
 
 static PyObject *py_unbind(PyObject *self, PyObject *args) {
   PythonBind *bind;
@@ -265,10 +330,22 @@ static PyObject *py_unbind(PyObject *self, PyObject *args) {
 
   bind = (PythonBind *)self;
   unbind_bind_entry(bind->bindtable, bind->flags, bind->mask, bind->tclcmdname);
-  // cleanup in python_bind_destroyed callback when Tcl command is destroyed
+#ifdef HAVE_TCL
+  /* In Tcl builds cleanup happens in python_bind_destroyed when the Tcl
+   * command is deleted. */
+#else
+  /* In no-Tcl builds clean up the callback dict entry and release refs */
+  if (python_callbacks)
+    PyDict_DelItemString(python_callbacks, bind->tclcmdname);
+  Py_XDECREF(bind->callback);
+  bind->callback = NULL;
+  if (bind->mask)  { nfree(bind->mask);  bind->mask  = NULL; }
+  if (bind->flags) { nfree(bind->flags); bind->flags = NULL; }
+#endif
   Py_RETURN_NONE;
 }
 
+#ifdef HAVE_TCL
 void python_bind_destroyed(ClientData cd) {
   PythonBind *bind = cd;
 
@@ -277,6 +354,7 @@ void python_bind_destroyed(ClientData cd) {
   nfree(bind->flags);
   Py_DECREF((PyObject *)bind);
 }
+#endif /* HAVE_TCL */
 
 static PyObject *py_bind(PyObject *self, PyObject *args) {
   PyObject *callback;
@@ -312,13 +390,25 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   hash = PyObject_Hash((PyObject *)bind);
   snprintf(bind->tclcmdname, sizeof bind->tclcmdname, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
 
+#ifdef HAVE_TCL
   Tcl_CreateObjCommand(tclinterp, bind->tclcmdname, tcl_call_python, bind, python_bind_destroyed);
+#else
+  /* No-Tcl: store the PythonBind in our callbacks dict so python_script_call
+   * can find it when check_tcl_bind fires on this func_name. */
+  if (!python_callbacks)
+    python_callbacks = PyDict_New();
+  Py_INCREF((PyObject *)bind);   /* dict holds a reference */
+  PyDict_SetItemString(python_callbacks, bind->tclcmdname, (PyObject *)bind);
+  Py_DECREF((PyObject *)bind);   /* release the extra ref from SetItem */
+#endif
+
   bind_bind_entry(tl, flags, mask, bind->tclcmdname);
 
   Py_INCREF((PyObject *)bind);
   return (PyObject *)bind;
 }
 
+#ifdef HAVE_TCL
 static Tcl_Obj *py_list_to_tcl_obj(PyObject *o) {
   int max = PyList_GET_SIZE(o);
   Tcl_Obj *result = Tcl_NewListObj(0, NULL);
@@ -413,7 +503,6 @@ static PyObject *python_call_tcl(PyObject *self, PyObject *args, PyObject *kwarg
   return PyUnicode_DecodeUTF8(result, strlen(result), NULL);
 }
 
-
 static PyObject *py_dir(PyObject *self, PyObject *args) {
   PyObject *py_list, *py_s;
   size_t i;
@@ -463,21 +552,176 @@ static PyObject *py_findtclfunc(PyObject *self, PyObject *args) {
   strlcpy(result->tclcmdname, cmdname, sizeof result->tclcmdname);
   return (PyObject *)result;
 }
+#endif /* HAVE_TCL */
+
+/* ---- Core IRC output functions ----------------------------------------- */
+
+/* putserv(text) — queue text to the server (normal queue) */
+static PyObject *py_putserv(PyObject *self, PyObject *args)
+{
+  char *text, s[MSGMAX], *p;
+
+  if (!PyArg_ParseTuple(args, "s", &text))
+    return NULL;
+  strlcpy(s, text, sizeof s);
+  if ((p = strchr(s, '\n'))) *p = 0;
+  if ((p = strchr(s, '\r'))) *p = 0;
+  dprintf(DP_SERVER, "%s\n", s);
+  Py_RETURN_NONE;
+}
+
+/* putquick(text) — queue text to the server (quick/mode queue) */
+static PyObject *py_putquick(PyObject *self, PyObject *args)
+{
+  char *text, s[MSGMAX], *p;
+
+  if (!PyArg_ParseTuple(args, "s", &text))
+    return NULL;
+  strlcpy(s, text, sizeof s);
+  if ((p = strchr(s, '\n'))) *p = 0;
+  if ((p = strchr(s, '\r'))) *p = 0;
+  dprintf(DP_MODE, "%s\n", s);
+  Py_RETURN_NONE;
+}
+
+/* putnow(text) — send text to server immediately (bypass queues) */
+static PyObject *py_putnow(PyObject *self, PyObject *args)
+{
+  char *text, s[MSGMAX], *p;
+
+  if (!PyArg_ParseTuple(args, "s", &text))
+    return NULL;
+  strlcpy(s, text, sizeof s);
+  if ((p = strchr(s, '\n'))) *p = 0;
+  if ((p = strchr(s, '\r'))) *p = 0;
+  /* For putnow, use DP_MODE_NEXT which bypasses the normal queue */
+  dprintf(DP_MODE_NEXT, "%s\n", s);
+  Py_RETURN_NONE;
+}
+
+/* putdcc(idx, text) — send text to a DCC party (telnet/party) */
+static PyObject *py_putdcc(PyObject *self, PyObject *args)
+{
+  int idx;
+  char *text;
+
+  if (!PyArg_ParseTuple(args, "is", &idx, &text))
+    return NULL;
+  dprintf(idx, "%s\n", text);
+  Py_RETURN_NONE;
+}
+
+/* putlog(text, [loglevel, [channel]]) — write to eggdrop log
+ * loglevel defaults to LOG_MISC; channel defaults to "*" */
+static PyObject *py_putlog(PyObject *self, PyObject *args)
+{
+  char *text, *chan = "*";
+  int lev = LOG_MISC;
+
+  if (!PyArg_ParseTuple(args, "s|is", &text, &lev, &chan))
+    return NULL;
+  putlog(lev, chan, "%s", text);
+  Py_RETURN_NONE;
+}
+
+/* isonchan(nick, chan) — return True if nick is on channel */
+static PyObject *py_isonchan(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (ch && ismember(ch, nick))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* getchanhost(nick, chan) — return "user@host" of nick on channel, or None */
+static PyObject *py_getchanhost(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_NONE;
+  m = ismember(ch, nick);
+  if (!m)
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(m->userhost);
+}
+
+/* chanlist(chan) — return list of nick dicts for all members of channel */
+static PyObject *py_chanlist(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+  PyObject *list;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  list = PyList_New(0);
+  for (m = ch->channel.member; m && m->nick[0]; m = m->next)
+    PyList_Append(list, make_ircuser_dict(m));
+  return list;
+}
+
+/* botname() — return bot's current IRC nick */
+static PyObject *py_botname(PyObject *self, PyObject *args)
+{
+  return PyUnicode_FromString(botname);
+}
+
+/* channels() — return list of channel name strings the bot is on */
+static PyObject *py_channels(PyObject *self, PyObject *args)
+{
+  struct chanset_t *ch;
+  PyObject *list = PyList_New(0);
+
+  for (ch = chanset; ch; ch = ch->next)
+    PyList_Append(list, PyUnicode_FromString(ch->dname));
+  return list;
+}
 
 static PyMethodDef MyPyMethods[] = {
     {"bind", py_bind, METH_VARARGS, "register an eggdrop python bind"},
     {"findircuser", py_findircuser, METH_VARARGS, "find an IRC user by nickname and optional channel"},
+    {"putserv",  py_putserv,  METH_VARARGS, "queue a raw IRC line to the server (normal queue)"},
+    {"putquick", py_putquick, METH_VARARGS, "queue a raw IRC line to the server (quick queue)"},
+    {"putnow",   py_putnow,   METH_VARARGS, "send a raw IRC line to the server immediately"},
+    {"putdcc",   py_putdcc,   METH_VARARGS, "send text to a DCC party by index"},
+    {"putlog",   py_putlog,   METH_VARARGS, "write to the eggdrop log (text[, loglevel[, channel]])"},
+    {"isonchan", py_isonchan, METH_VARARGS, "return True if nick is on channel"},
+    {"getchanhost", py_getchanhost, METH_VARARGS, "return user@host of nick on channel, or None"},
+    {"chanlist", py_chanlist, METH_VARARGS, "return list of member dicts for a channel"},
+    {"botname",  py_botname,  METH_NOARGS,  "return bot's current IRC nickname"},
+    {"channels", py_channels, METH_NOARGS,  "return list of channels the bot is on"},
+#ifdef HAVE_TCL
     {"parse_tcl_list", py_parse_tcl_list, METH_VARARGS, "convert a Tcl list string to a Python list"},
     {"parse_tcl_dict", py_parse_tcl_dict, METH_VARARGS, "convert a Tcl dict string to a Python dict"},
+#endif
     {"__displayhook__", py_displayhook, METH_O, "display hook for python expressions"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
+#ifdef HAVE_TCL
 static PyMethodDef EggTclMethods[] = {
     {"__dir__", py_dir, METH_VARARGS, ""},
     {"__getattr__", py_findtclfunc, METH_VARARGS, "fallback to call Tcl functions transparently"},
     {NULL, NULL, 0, NULL}
 };
+#endif /* HAVE_TCL */
 
 static cmd_t mydcc[] = {
   /* command  flags  function     tcl-name */
@@ -494,6 +738,7 @@ static struct PyModuleDef eggdrop = {
     MyPyMethods
 };
 
+#ifdef HAVE_TCL
 static struct PyModuleDef eggdrop_tcl = { PyModuleDef_HEAD_INIT, "eggdrop.tcl", NULL, -1, EggTclMethods };
 
 static PyTypeObject TclFuncType = {
@@ -506,6 +751,7 @@ static PyTypeObject TclFuncType = {
     .tp_new = PyType_GenericNew,
     .tp_call = python_call_tcl,
 };
+#endif /* HAVE_TCL */
 
 static PyMethodDef PythonBindMethods[] = {
     {"unbind", py_unbind, METH_VARARGS, "deregister an eggdrop python bind"},
@@ -524,7 +770,7 @@ static PyTypeObject PythonBindType = {
 };
 
 PyMODINIT_FUNC PyInit_eggdrop(void) {
-  PyObject *pymodobj, *eggtclmodobj, *pymoddict;
+  PyObject *pymodobj;
 
   pymodobj = PyModule_Create(&eggdrop);
   if (pymodobj == NULL)
@@ -538,16 +784,23 @@ PyMODINIT_FUNC PyInit_eggdrop(void) {
     Py_DECREF(pymodobj);
     return NULL;
   }
-  eggtclmodobj = PyModule_Create(&eggdrop_tcl);
-  PyModule_AddObject(pymodobj, "tcl", eggtclmodobj);
 
-  pymoddict = PyModule_GetDict(pymodobj);
-  PyDict_SetItemString(pymoddict, "tcl", eggtclmodobj);
+#ifdef HAVE_TCL
+  {
+    PyObject *eggtclmodobj, *pymoddict;
+    eggtclmodobj = PyModule_Create(&eggdrop_tcl);
+    PyModule_AddObject(pymodobj, "tcl", eggtclmodobj);
 
-  pymoddict = PyImport_GetModuleDict();
-  PyDict_SetItemString(pymoddict, "eggdrop.tcl", eggtclmodobj);
+    pymoddict = PyModule_GetDict(pymodobj);
+    PyDict_SetItemString(pymoddict, "tcl", eggtclmodobj);
 
-  PyType_Ready(&TclFuncType);
+    pymoddict = PyImport_GetModuleDict();
+    PyDict_SetItemString(pymoddict, "eggdrop.tcl", eggtclmodobj);
+
+    PyType_Ready(&TclFuncType);
+  }
+#endif /* HAVE_TCL */
+
   PyType_Ready(&PythonBindType);
 
   return pymodobj;

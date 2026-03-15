@@ -62,5 +62,59 @@ typedef struct { void *p1; void *p2; void *p3; } Tcl_DictSearch;
 #  define TCL_TRACE_WRITES     0x20
 #  define TCL_TRACE_UNSETS     0x40
 #  define TCL_TRACE_DESTROYED  0x80
+
+/* -----------------------------------------------------------------------
+ * Tcl API function stubs for no-Tcl builds.
+ *
+ * Tcl_SetVar / Tcl_SetVar2 forward to egg_setvar() so the bind-dispatch
+ * variable store is populated; all other Tcl calls are safe no-ops.
+ * egg_setvar / egg_getvar are implemented in src/script.c.
+ * ----------------------------------------------------------------------- */
+#  include <string.h>   /* strcpy, strlen */
+void        egg_setvar(const char *name, const char *value);
+const char *egg_getvar(const char *name);
+
+#  define Tcl_SetVar(irp,name,val,fl)      egg_setvar(name, val)
+#  define Tcl_SetVar2(irp,n,k,val,fl)      egg_setvar(n, val)
+#  define Tcl_GetVar(irp,name,fl)          egg_getvar(name)
+#  define Tcl_GetVar2(irp,n,k,fl)          egg_getvar(n)
+#  define Tcl_UnsetVar(irp,name,fl)        ((void)0)
+#  define Tcl_UnsetVar2(irp,n,k,fl)        ((void)0)
+#  define Tcl_AppendResult(irp,...)        ((void)0)
+#  define Tcl_SetResult(irp,str,fl)        ((void)0)
+#  define Tcl_ResetResult(irp)             ((void)0)
+#  define Tcl_GetStringResult(irp)         ((const char *)"")
+#  define Tcl_VarEval(...)                 TCL_ERROR
+#  define Tcl_Eval(irp,s)                  TCL_ERROR
+#  define Tcl_EvalFile(irp,f)              TCL_ERROR
+#  define Tcl_NewStringObj(s,l)            ((Tcl_Obj *)NULL)
+#  define Tcl_NewListObj(c,v)              ((Tcl_Obj *)NULL)
+#  define Tcl_NewDictObj()                 ((Tcl_Obj *)NULL)
+#  define Tcl_NewObj()                     ((Tcl_Obj *)NULL)
+#  define Tcl_GetString(o)                 ((char *)"")
+#  define Tcl_GetStringFromObj(o,l)        ((const char *)"")
+#  define Tcl_IncrRefCount(o)              ((void)0)
+#  define Tcl_DecrRefCount(o)              ((void)0)
+#  define Tcl_DictObjPut(irp,d,k,v)       TCL_ERROR
+#  define Tcl_DictObjFirst(irp,...)        TCL_ERROR
+#  define Tcl_DictObjNext(s,k,v,d)        ((void)0)
+#  define Tcl_DictObjDone(s)               ((void)0)
+#  define Tcl_ListObjAppendElement(...)    TCL_ERROR
+#  define Tcl_ListObjLength(...)           TCL_ERROR
+#  define Tcl_ListObjGetElements(...)      TCL_ERROR
+#  define Tcl_ListObjIndex(...)            TCL_ERROR
+#  define Tcl_GetObjResult(irp)            ((Tcl_Obj *)NULL)
+#  define Tcl_FindCommand(irp,n,ns,fl)     ((void *)NULL)
+#  define Tcl_CreateObjCommand(...)        ((void *)NULL)
+#  define Tcl_DeleteCommand(irp,n)         ((void)0)
+#  define Tcl_ScanElement(s,fl)            ((int)strlen(s))
+#  define Tcl_ConvertElement(s,d,fl)       ((void)strcpy(d, s))
+#  define Tcl_DStringInit(ds)              ((ds)->length = 0, (ds)->string = (ds)->staticSpace, (ds)->staticSpace[0] = '\0')
+#  define Tcl_DStringFree(ds)              ((void)0)
+#  define Tcl_DStringAppend(ds,s,l)        ((void)0)
+#  define Tcl_DStringAppendElement(ds,s)   ((void)0)
+#  define Tcl_DStringValue(ds)             ((ds)->string ? (ds)->string : "")
+#  define Tcl_DStringLength(ds)            ((ds)->length)
+#  define Tcl_BackgroundError(irp)         ((void)0)
 #endif /* HAVE_TCL */
 #endif /* _LUSH_H */

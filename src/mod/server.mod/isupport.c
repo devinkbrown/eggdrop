@@ -436,6 +436,8 @@ void isupport_init(void) {
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_isupport, NULL);
   add_tcl_objcommands(my_tcl_objcmds);
+#else
+  H_isupport = find_bind_table("isupport");
 #endif
 }
 

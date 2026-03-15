@@ -1352,6 +1352,7 @@ static char *irc_close(void)
 
   for (chan = chanset; chan; chan = chan->next)
     clear_channel(chan, CHAN_RESETALL);
+#ifdef HAVE_TCL
   del_bind_table(H_topc);
   del_bind_table(H_splt);
   del_bind_table(H_sign);
@@ -1368,6 +1369,7 @@ static char *irc_close(void)
   del_bind_table(H_ircaway);
   del_bind_table(H_account);
   del_bind_table(H_chghost);
+#endif /* HAVE_TCL */
   rem_tcl_strings(mystrings);
   rem_tcl_ints(myints);
   rem_builtins(H_dcc, irc_dcc);
@@ -1518,6 +1520,23 @@ char *irc_start(Function *global_funcs)
   H_ircaway = add_bind_table("ircaway", HT_STACKABLE, channels_5char);
   H_account = add_bind_table("account", HT_STACKABLE, channels_5char);
   H_chghost = add_bind_table("chghost", HT_STACKABLE, channels_5char);
+#else /* !HAVE_TCL — look up pre-created tables from init_bind() */
+  H_topc    = find_bind_table("topc");
+  H_splt    = find_bind_table("splt");
+  H_sign    = find_bind_table("sign");
+  H_rejn    = find_bind_table("rejn");
+  H_part    = find_bind_table("part");
+  H_nick    = find_bind_table("nick");
+  H_mode    = find_bind_table("mode");
+  H_kick    = find_bind_table("kick");
+  H_invt    = find_bind_table("invt");
+  H_join    = find_bind_table("join");
+  H_pubm    = find_bind_table("pubm");
+  H_pub     = find_bind_table("pub");
+  H_need    = find_bind_table("need");
+  H_ircaway = find_bind_table("ircaway");
+  H_account = find_bind_table("account");
+  H_chghost = find_bind_table("chghost");
 #endif
   do_nettype();
   return NULL;

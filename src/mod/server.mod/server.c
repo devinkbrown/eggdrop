@@ -2439,6 +2439,7 @@ static char *server_close(void)
     monitor_heap = NULL;
   }
   /* Restore original commands. */
+#ifdef HAVE_TCL
   del_bind_table(H_wall);
   del_bind_table(H_raw);
   del_bind_table(H_rawt);
@@ -2451,6 +2452,7 @@ static char *server_close(void)
   del_bind_table(H_out);
   del_bind_table(H_monitor);
   del_bind_table(H_stdreply);
+#endif /* HAVE_TCL */
   rem_tcl_coups(my_tcl_coups);
   rem_tcl_strings(my_tcl_strings);
   rem_tcl_ints(my_tcl_ints);
@@ -2681,6 +2683,19 @@ char *server_start(Function *global_funcs)
   H_out = add_bind_table("out", HT_STACKABLE, server_out);
   H_monitor = add_bind_table("monitor", HT_STACKABLE, monitor_2char);
   H_stdreply = add_bind_table("stdreply", HT_STACKABLE, server_stdreply);
+#else /* !HAVE_TCL — look up pre-created tables from init_bind() */
+  H_wall     = find_bind_table("wall");
+  H_raw      = find_bind_table("raw");
+  H_rawt     = find_bind_table("rawt");
+  H_notc     = find_bind_table("notc");
+  H_msgm     = find_bind_table("msgm");
+  H_msg      = find_bind_table("msg");
+  H_flud     = find_bind_table("flud");
+  H_ctcr     = find_bind_table("ctcr");
+  H_ctcp     = find_bind_table("ctcp");
+  H_out      = find_bind_table("out");
+  H_monitor  = find_bind_table("monitor");
+  H_stdreply = find_bind_table("stdreply");
 #endif /* HAVE_TCL */
   isupport_init();
   add_builtins(H_raw, my_raw_binds);

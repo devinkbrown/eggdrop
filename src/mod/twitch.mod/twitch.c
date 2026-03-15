@@ -879,6 +879,7 @@ static char *twitch_close(void)
 #endif
   // rem_tcl_ints(my_tcl_ints);
   rem_tcl_strings(my_tcl_strings);
+#ifdef HAVE_TCL
   del_bind_table(H_ccht);
   del_bind_table(H_cmsg);
   del_bind_table(H_htgt);
@@ -887,6 +888,7 @@ static char *twitch_close(void)
   del_bind_table(H_rmst);
   del_bind_table(H_usst);
   del_bind_table(H_usrntc);
+#endif /* HAVE_TCL */
   module_undepend(MODULE_NAME);
   return NULL;
 }
@@ -949,14 +951,23 @@ char *twitch_start(Function *global_funcs)
   }
 
 #ifdef HAVE_TCL
-  H_ccht = add_bind_table("ccht", HT_STACKABLE, twitch_2char);
-  H_cmsg = add_bind_table("cmsg", HT_STACKABLE, twitch_3char);
-  H_htgt = add_bind_table("htgt", HT_STACKABLE, twitch_2char);
-  H_wspr = add_bind_table("wspr", HT_STACKABLE, twitch_3char);
-  H_wspm = add_bind_table("wspm", HT_STACKABLE, twitch_3char);
-  H_rmst = add_bind_table("rmst", HT_STACKABLE, twitch_3char);
-  H_usst = add_bind_table("usst", HT_STACKABLE, twitch_3char);
+  H_ccht   = add_bind_table("ccht",   HT_STACKABLE, twitch_2char);
+  H_cmsg   = add_bind_table("cmsg",   HT_STACKABLE, twitch_3char);
+  H_htgt   = add_bind_table("htgt",   HT_STACKABLE, twitch_2char);
+  H_wspr   = add_bind_table("wspr",   HT_STACKABLE, twitch_3char);
+  H_wspm   = add_bind_table("wspm",   HT_STACKABLE, twitch_3char);
+  H_rmst   = add_bind_table("rmst",   HT_STACKABLE, twitch_3char);
+  H_usst   = add_bind_table("usst",   HT_STACKABLE, twitch_3char);
   H_usrntc = add_bind_table("usrntc", HT_STACKABLE, twitch_3char);
+#else
+  H_ccht   = find_bind_table("ccht");
+  H_cmsg   = find_bind_table("cmsg");
+  H_htgt   = find_bind_table("htgt");
+  H_wspr   = find_bind_table("wspr");
+  H_wspm   = find_bind_table("wspm");
+  H_rmst   = find_bind_table("rmst");
+  H_usst   = find_bind_table("usst");
+  H_usrntc = find_bind_table("usrntc");
 #endif
 
 #ifdef HAVE_TCL
