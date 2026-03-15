@@ -159,7 +159,7 @@ static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
       if (dcc[idx].u.dns->host)
         nfree(dcc[idx].u.dns->host);
       dcc[idx].u.dns->host = get_data_ptr(strlen(hostn) + 1);
-      strlcpy(dcc[idx].u.dns->host, hostn, sizeof(dcc[idx].u.dns->host));
+      strcpy(dcc[idx].u.dns->host, hostn);
       if (ok)
         dcc[idx].u.dns->dns_success(idx);
       else

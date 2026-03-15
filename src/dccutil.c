@@ -531,7 +531,7 @@ void set_away(int idx, char *s)
   if (dcc[idx].u.chat->away != NULL)
     nfree(dcc[idx].u.chat->away);
   dcc[idx].u.chat->away = nmalloc(strlen(s) + 1);
-  strlcpy(dcc[idx].u.chat->away, s, sizeof(dcc[idx].u.chat->away));
+  strcpy(dcc[idx].u.chat->away, s);
   if (dcc[idx].u.chat->channel >= 0) {
     chanout_but(-1, dcc[idx].u.chat->channel,
                 "*** %s is now away: %s\n", dcc[idx].nick, s);

@@ -1273,7 +1273,7 @@ static void share_ufsend(int idx, char *par)
     } else {
       strlcpy(dcc[i].nick, "*users", sizeof(dcc[i].nick));
       dcc[i].u.xfer->filename = nmalloc(strlen(s) + 1);
-      strlcpy(dcc[i].u.xfer->filename, s, sizeof(dcc[i].u.xfer->filename));
+      strcpy(dcc[i].u.xfer->filename, s);
       dcc[i].u.xfer->origname = dcc[i].u.xfer->filename;
       dcc[i].u.xfer->length = atoi(par);
       dcc[i].u.xfer->f = f;

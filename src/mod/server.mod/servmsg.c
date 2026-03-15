@@ -2308,9 +2308,9 @@ static void connect_server(void)
     dcc[servidx].timeval = now;
     dcc[servidx].sock = -1;
     dcc[servidx].u.dns->host = get_data_ptr(strlen(dcc[servidx].host) + 1);
-    strlcpy(dcc[servidx].u.dns->host, dcc[servidx].host, sizeof(dcc[servidx].u.dns->host));
+    strcpy(dcc[servidx].u.dns->host, dcc[servidx].host);
     dcc[servidx].u.dns->cbuf = get_data_ptr(strlen(pass) + 1);
-    strlcpy(dcc[servidx].u.dns->cbuf, pass, sizeof(dcc[servidx].u.dns->cbuf));
+    strcpy(dcc[servidx].u.dns->cbuf, pass);
     dcc[servidx].u.dns->dns_success = server_resolve_success;
     dcc[servidx].u.dns->dns_failure = server_resolve_failure;
     dcc[servidx].u.dns->dns_type = RES_IPBYHOST;
