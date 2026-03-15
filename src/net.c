@@ -160,6 +160,7 @@ static inline void egg_setnonblock(int sock) {
 static struct io_uring egg_ring;
 static int egg_ring_inited = 0;    /* 0=uninit, 1=active, -1=disabled */
 static int egg_ring_sqpoll = 0;    /* 1 = SQPOLL thread active         */
+extern int backgrd;                /* needed by uring_recv_sock() below */
 /* Per-fd: is there an active SQE outstanding? */
 #  define URING_MAP_SIZE 65536
 static uint8_t uring_polled[URING_MAP_SIZE]; /* 1 = SQE submitted */
