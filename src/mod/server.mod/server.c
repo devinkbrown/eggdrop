@@ -1062,10 +1062,10 @@ static int add_server(const char *name, const char *port, const char *pass)
     serverlist = x;
 
   x->name = nmalloc(strlen(name) + 1);
-  strlcpy(x->name, name, sizeof(x->name));
+  strcpy(x->name, name);
   if (pass[0]) {
     x->pass = nmalloc(strlen(pass) + 1);
-    strlcpy(x->pass, pass, sizeof(x->pass));
+    strcpy(x->pass, pass);
   } else
     x->pass = NULL;
   if (port[0])
