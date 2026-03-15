@@ -243,6 +243,29 @@ static void uring_recv_sock(sock_list *sl, int slist_idx)
   if (sl->flags & SOCK_CONNECT)
     use_recv = 0;
 
+  /* The foreground terminal console socket is registered as STDOUT (fd=1)
+   * but user input arrives on STDIN (fd=0).  STDOUT is intentionally left
+   * blocking (setsock skips egg_setnonblock when sock==STDOUT && !backgrd),
+   * so issuing a RECV SQE on STDOUT would either consume data meant for the
+   * tty or — worse — cause the dispatch loop to call read(STDIN,...) while
+   * STDIN is also blocking, freezing the main thread until the user types.
+   * Mirror the select-fallback's preparefdset() logic: monitor STDIN via
+   * a one-shot POLL_ADD instead.  The CQE user-data encodes slist_idx so
+   * the completion maps back to this STDOUT slist entry and FD_SET(STDOUT)
+   * is set, satisfying the dispatch condition at line ~1971. */
+  if (sock == STDOUT && !backgrd) {
+    sqe = io_uring_get_sqe(&egg_ring);
+    if (!sqe) {
+      io_uring_submit(&egg_ring);
+      sqe = io_uring_get_sqe(&egg_ring);
+      if (!sqe) return;
+    }
+    io_uring_prep_poll_add(sqe, STDIN, POLLIN);
+    io_uring_sqe_set_data64(sqe, URING_UD_POLL(slist_idx));
+    uring_polled[sock] = 1;  /* track by slist sock (STDOUT), not STDIN */
+    return;
+  }
+
   sqe = io_uring_get_sqe(&egg_ring);
   if (!sqe) {
     /* Ring full: flush pending SQEs (updates ktail for SQPOLL) to free slots */
