@@ -460,6 +460,7 @@ static TomlSection section_from_name(const char *name)
   if (strcmp(name, "scripts")  == 0) return SEC_SCRIPTS;
   if (strcmp(name, "help")     == 0) return SEC_HELP;
   if (strcmp(name, "tcl")      == 0) return SEC_TCL;
+  if (strcmp(name, "ircx")     == 0) return SEC_OTHER; /* IRCX/Ophion — vars set via Tcl */
   return SEC_OTHER;
 }
 

@@ -400,6 +400,16 @@ static int got001(char *from, char *msg)
     do_tcl("init-server", initserver); /* Call Tcl init-server */
   check_tcl_event("init-server");
 
+  /* On Ophion/IRCX networks, negotiate IRCX mode right after login.
+   * The ISUPPORT hook will also trigger this if the server advertises IRCX,
+   * but we send it here proactively for Ophion net-type to ensure it fires
+   * before channel JOINs so OWNERKEY-based auto-owner works correctly.
+   */
+  if (net_type_int == NETT_OPHION && ircx_auto_negotiate) {
+    dprintf(DP_MODE, "IRCX\n");
+    putlog(LOG_MISC, "*", "IRCX: Negotiating IRCX mode with Ophion server");
+  }
+
   if (!x)
     return 0;
 
@@ -1674,6 +1684,17 @@ static int gotcap(char *from, char *msg) {
       } else if (!strcmp(current->name, "setname")) {
         if (!current->enabled)
           add_req(current->name);
+      } else if (!strcmp(current->name, "ophion/prop-notify")) {
+        /* Ophion IRCX: auto-request property change notifications.
+         * This allows the bot to receive PROP commands for channel
+         * property changes (topic, memberkey, ownerkey, etc.)
+         */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "ophion/multi-prefix")) {
+        /* Ophion IRCX: extended prefix visibility (+qaohv) */
+        if (!current->enabled)
+          add_req(current->name);
       }
       /* Add any custom capes the user listed */
       strlcpy(cape, cap_request, sizeof cape);
@@ -1984,6 +2005,129 @@ static int server_isupport(char *key, char *isset_str, char *value)
   return 0;
 }
 
+/* =========================================================================
+ * IRCX / Ophion protocol handlers
+ * Reference: https://github.com/devinkbrown/ophion
+ * ========================================================================= */
+
+/* Got 800: RPL_IRCX — server confirms IRCX mode enabled.
+ * Format: :server 800 botnick :IRCX version network
+ */
+static int got800(char *from, char *msg)
+{
+  char *tok;
+  newsplit(&msg); /* skip botnick */
+  fixcolon(msg);
+  tok = newsplit(&msg);
+  /* Optional: capture IRCX version string */
+  if (*msg) {
+    /* The second token is often the network name on Ophion */
+    strlcpy(ircx_network, msg, sizeof(ircx_network));
+  }
+  ircx_enabled = 1;
+  ircx_owner_support = 1;
+  ircx_prop_support = 1;
+  putlog(LOG_MISC, "*", "IRCX: Mode enabled on %s (network: %s)",
+         from, ircx_network[0] ? ircx_network : "unknown");
+
+  /* Trigger auto-owner joins now that IRCX is confirmed */
+  ircx_do_autoowner();
+  return 0;
+}
+
+/* Got 801: RPL_PROPS — property value reply.
+ * Format: :server 801 botnick target propname :value
+ */
+static int got801(char *from, char *msg)
+{
+  char *target, *propname;
+  newsplit(&msg); /* skip botnick */
+  target = newsplit(&msg);
+  propname = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, target, "IRCX PROP %s on %s = %s", propname, target, msg);
+  check_tcl_event("ircx-prop");
+  return 0;
+}
+
+/* Got 802: RPL_ENDOFPROPS — end of PROP LIST reply. */
+static int got802(char *from, char *msg)
+{
+  return 0; /* nothing to do; consumed */
+}
+
+/* Got 803: RPL_ACCESSLIST — one entry from ACCESS LIST reply.
+ * Format: :server 803 botnick channel level mask :setter
+ */
+static int got803(char *from, char *msg)
+{
+  char *channel, *level, *mask;
+  newsplit(&msg); /* skip botnick */
+  channel  = newsplit(&msg);
+  level    = newsplit(&msg);
+  mask     = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, channel, "IRCX ACCESS: %s is %s on %s (set by %s)",
+         mask, level, channel, msg[0] ? msg : "unknown");
+  return 0;
+}
+
+/* Got 804: RPL_ENDOFACCESS — end of ACCESS LIST reply. */
+static int got804(char *from, char *msg)
+{
+  return 0;
+}
+
+/* Got PROP command from server (property change notification).
+ * Format: :nick!user@host PROP target propname :value
+ */
+static int gotprop(char *from, char *msg)
+{
+  char *target, *propname;
+  target   = newsplit(&msg);
+  propname = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, target, "IRCX: %s set PROP %s on %s = %s",
+         from, propname, target, msg);
+  /* Fire Tcl bind so scripts can react to property changes */
+  Tcl_SetVar(interp, "_ircx_prop_from",   from,     0);
+  Tcl_SetVar(interp, "_ircx_prop_target", target,   0);
+  Tcl_SetVar(interp, "_ircx_prop_name",   propname, 0);
+  Tcl_SetVar(interp, "_ircx_prop_value",  msg,      0);
+  check_tcl_event("ircx-prop-change");
+  return 0;
+}
+
+/* Got ACCESS command from server (access list change notification).
+ * Format: :nick!user@host ACCESS channel ADD|DEL level mask
+ */
+static int gotaccess(char *from, char *msg)
+{
+  char *channel, *op, *level, *mask;
+  channel = newsplit(&msg);
+  op      = newsplit(&msg);
+  level   = newsplit(&msg);
+  mask    = newsplit(&msg);
+  fixcolon(mask);
+  putlog(LOG_MISC, channel, "IRCX: %s %s access %s %s on %s",
+         from, op, level, mask, channel);
+  return 0;
+}
+
+/* Handle IRCX ISUPPORT token: when server sends ISUPPORT with IRCX token,
+ * automatically negotiate IRCX mode if ircx_auto_negotiate is set.
+ */
+static int server_isupport_ircx(char *key, char *isset_str, char *value)
+{
+  if (!strcmp(key, "IRCX") && !strcmp(isset_str, "1") && ircx_auto_negotiate) {
+    putlog(LOG_MISC, "*", "IRCX: Server advertises IRCX support, negotiating...");
+    ircx_owner_support = 1;
+    ircx_prop_support = 1;
+    dprintf(DP_MODE, "IRCX\n");
+  }
+  return 0;
+}
+
 static cmd_t my_raw_binds[] = {
   {"PRIVMSG",      "",   (IntFunc) gotmsg,          NULL},
   {"NOTICE",       "",   (IntFunc) gotnotice,       NULL},
@@ -2015,6 +2159,14 @@ static cmd_t my_raw_binds[] = {
   {"733",          "",   (IntFunc) got733,          NULL},
   {"734",          "",   (IntFunc) got734,          NULL},
   {"900",          "",   (IntFunc) got900,          NULL},
+  /* IRCX/Ophion extended protocol handlers */
+  {"800",          "",   (IntFunc) got800,          NULL},
+  {"801",          "",   (IntFunc) got801,          NULL},
+  {"802",          "",   (IntFunc) got802,          NULL},
+  {"803",          "",   (IntFunc) got803,          NULL},
+  {"804",          "",   (IntFunc) got804,          NULL},
+  {"PROP",         "",   (IntFunc) gotprop,         NULL},
+  {"ACCESS",       "",   (IntFunc) gotaccess,       NULL},
   {"NICK",         "",   (IntFunc) gotnick,         NULL},
   {"ERROR",        "",   (IntFunc) goterror,        NULL},
 /* ircu2.10.10 has a bug when a client is throttled ERROR is sent wrong */
@@ -2031,8 +2183,9 @@ static cmd_t my_rawt_binds[] = {
 };
 
 static cmd_t my_isupport_binds[] = {
-  {"*",      "",   (IntFunc) server_isupport, "server:isupport"},
-  {NULL,   NULL,   NULL,                                   NULL}
+  {"*",      "",   (IntFunc) server_isupport,       "server:isupport"},
+  {"IRCX",   "",   (IntFunc) server_isupport_ircx,  "server:isupport-ircx"},
+  {NULL,   NULL,   NULL,                                            NULL}
 };
 
 static void server_resolve_success(int);

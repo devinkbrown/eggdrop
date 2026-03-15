@@ -52,6 +52,7 @@ static int check_tcl_chghost(char *, char *, char *, struct userrec *, char *, c
 static int me_op(struct chanset_t *);
 static int me_halfop(struct chanset_t *);
 static int me_voice(struct chanset_t *);
+static int me_owner(struct chanset_t *);  /* IRCX/Ophion +q owner mode */
 static int any_ops(struct chanset_t *);
 static int hand_on_chan(struct chanset_t *, struct userrec *);
 static char *getchanmode(struct chanset_t *);

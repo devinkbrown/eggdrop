@@ -648,6 +648,167 @@ static int tcl_server STDVAR {
   return TCL_ERROR;
 }
 
+/* =========================================================================
+ * IRCX / Ophion Tcl commands
+ *
+ * ircxprop <target> <propname> [value]
+ *   Get or set an IRCX property. With no value, sends PROP to read.
+ *   With a value, sends PROP to write.
+ *   Example: ircxprop #lobby TOPIC "Welcome!"
+ *            ircxprop #lobby OWNERKEY "s3cr3t"
+ *            ircxprop #lobby MEMBERKEY ""     ;# removes key (+k mode)
+ *
+ * ircxaccess <channel> <list|add|del> [level] [mask]
+ *   Manage channel access lists.
+ *   Example: ircxaccess #lobby add OWNER *!*@admin.example.com
+ *            ircxaccess #lobby add HOST *!*@ops.example.com
+ *            ircxaccess #lobby del *!*@ops.example.com
+ *            ircxaccess #lobby list
+ *
+ * ircxcreate <channel> [modes]
+ *   Create a channel (IRCX CREATE command). Bot becomes owner (+q).
+ *   Example: ircxcreate #lobby +nt
+ *
+ * ircxautoowner <channel> [ownerkey] [create 0|1] [modes]
+ *   Add a channel to the IRCX auto-owner list. On server connect, the
+ *   bot will JOIN with the ownerkey to request owner (+q), or CREATE
+ *   the channel if create=1.
+ *   Example: ircxautoowner #lobby mykey 1 +nt
+ *            ircxautoowner #lobby "" 0    ;# join without key, no create
+ *
+ * ircxnegotiate
+ *   Manually send the IRCX command to enable IRCX mode.
+ * ========================================================================= */
+
+static int tcl_ircxprop STDVAR
+{
+  BADARGS(3, 4, " target propname ?value?");
+
+  if (!serv) {
+    Tcl_AppendResult(irp, "not connected to server", NULL);
+    return TCL_ERROR;
+  }
+  if (!ircx_enabled && !ircx_prop_support) {
+    Tcl_AppendResult(irp, "IRCX not enabled on this server", NULL);
+    return TCL_ERROR;
+  }
+  ircx_prop_send(argv[1], argv[2], argc == 4 ? argv[3] : NULL);
+  return TCL_OK;
+}
+
+static int tcl_ircxaccess STDVAR
+{
+  BADARGS(3, 5, " channel list|add|del ?level? ?mask?");
+
+  if (!serv) {
+    Tcl_AppendResult(irp, "not connected to server", NULL);
+    return TCL_ERROR;
+  }
+  if (!ircx_enabled) {
+    Tcl_AppendResult(irp, "IRCX not enabled on this server", NULL);
+    return TCL_ERROR;
+  }
+  if (!strcasecmp(argv[2], "list")) {
+    ircx_access_list_send(argv[1]);
+  } else if (!strcasecmp(argv[2], "add")) {
+    if (argc < 5) {
+      Tcl_AppendResult(irp, "wrong # args: ircxaccess channel add level mask", NULL);
+      return TCL_ERROR;
+    }
+    ircx_access_add(argv[1], argv[4], argv[3]);
+  } else if (!strcasecmp(argv[2], "del")) {
+    if (argc < 4) {
+      Tcl_AppendResult(irp, "wrong # args: ircxaccess channel del mask", NULL);
+      return TCL_ERROR;
+    }
+    ircx_access_del(argv[1], argv[3]);
+  } else {
+    Tcl_AppendResult(irp, "unknown subcommand '", argv[2],
+                     "': should be list, add, or del", NULL);
+    return TCL_ERROR;
+  }
+  return TCL_OK;
+}
+
+static int tcl_ircxcreate STDVAR
+{
+  BADARGS(2, 3, " channel ?modes?");
+
+  if (!serv) {
+    Tcl_AppendResult(irp, "not connected to server", NULL);
+    return TCL_ERROR;
+  }
+  if (!ircx_enabled) {
+    Tcl_AppendResult(irp, "IRCX not enabled on this server", NULL);
+    return TCL_ERROR;
+  }
+  ircx_chan_create(argv[1], argc == 3 ? argv[2] : NULL);
+  return TCL_OK;
+}
+
+static int tcl_ircxautoowner STDVAR
+{
+  ircx_autoowner_t *ao, *prev = NULL, *existing = NULL;
+
+  BADARGS(2, 5, " channel ?ownerkey? ?create 0|1? ?modes?");
+
+  /* Find existing entry */
+  for (ao = ircx_autoowner_list; ao; prev = ao, ao = ao->next) {
+    if (!rfc_casecmp(ao->channel, argv[1])) {
+      existing = ao;
+      break;
+    }
+  }
+
+  if (argc == 2) {
+    /* No args beyond channel: remove the entry if it exists */
+    if (existing) {
+      if (prev)
+        prev->next = existing->next;
+      else
+        ircx_autoowner_list = existing->next;
+      nfree(existing);
+      Tcl_AppendResult(irp, "removed", NULL);
+    } else {
+      Tcl_AppendResult(irp, "not found", NULL);
+    }
+    return TCL_OK;
+  }
+
+  if (!existing) {
+    existing = (ircx_autoowner_t *) nmalloc(sizeof(ircx_autoowner_t));
+    memset(existing, 0, sizeof(ircx_autoowner_t));
+    existing->next = ircx_autoowner_list;
+    ircx_autoowner_list = existing;
+  }
+  strlcpy(existing->channel, argv[1], sizeof(existing->channel));
+  if (argc >= 3)
+    strlcpy(existing->ownerkey, argv[2], sizeof(existing->ownerkey));
+  if (argc >= 4)
+    existing->create_if_missing = atoi(argv[3]);
+  if (argc >= 5)
+    strlcpy(existing->create_modes, argv[4], sizeof(existing->create_modes));
+
+  putlog(LOG_MISC, existing->channel,
+         "IRCX: Auto-owner configured for %s (ownerkey=%s, create=%d)",
+         existing->channel,
+         existing->ownerkey[0] ? "***" : "(none)",
+         existing->create_if_missing);
+  return TCL_OK;
+}
+
+static int tcl_ircxnegotiate STDVAR
+{
+  BADARGS(1, 1, "");
+
+  if (!serv) {
+    Tcl_AppendResult(irp, "not connected to server", NULL);
+    return TCL_ERROR;
+  }
+  ircx_send_negotiate();
+  return TCL_OK;
+}
+
 static tcl_cmds my_tcl_cmds[] = {
   {"jump",          tcl_jump},
   {"cap",           tcl_cap},
@@ -663,5 +824,11 @@ static tcl_cmds my_tcl_cmds[] = {
   {"getaccount",    tcl_getaccount},
   {"isidentified",  tcl_isidentified},
   {"monitor",       tcl_monitor},
+  /* IRCX / Ophion commands */
+  {"ircxprop",      tcl_ircxprop},
+  {"ircxaccess",    tcl_ircxaccess},
+  {"ircxcreate",    tcl_ircxcreate},
+  {"ircxautoowner", tcl_ircxautoowner},
+  {"ircxnegotiate", tcl_ircxnegotiate},
   {NULL,         NULL}
 };

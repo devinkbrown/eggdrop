@@ -106,6 +106,22 @@ static int max_monitor = 0;     /* Maximum # of monitored nicks, from server */
 static int monitor732 = 0;      /* Monitor */
 static struct monitor_list *monitor = NULL;
 
+/* =========================================================================
+ * IRCX / Ophion network state (https://github.com/devinkbrown/ophion)
+ * ========================================================================= */
+static int ircx_enabled = 0;           /* IRCX mode active on current server */
+static int ircx_auto_negotiate = 1;    /* Auto-send IRCX cmd on Ophion nets   */
+static int ircx_owner_support = 0;     /* Server supports +q owner mode       */
+static int ircx_prop_support = 0;      /* Server supports PROP command        */
+static char ircx_network[64] = "";     /* Reported IRCX network name          */
+static char ircx_default_ownerkey[128] = ""; /* Global default OWNERKEY       */
+
+/* IRCX access list (per-channel HOST/OWNER/VOICE/GRANT/DENY entries) */
+static ircx_access_t *ircx_access_list = NULL;
+
+/* IRCX auto-owner channel list */
+static ircx_autoowner_t *ircx_autoowner_list = NULL;
+
 
 static p_tcl_bind_list H_wall, H_raw, H_notc, H_msgm, H_msg, H_flud, H_ctcr,
                        H_ctcp, H_out, H_rawt, H_monitor, H_stdreply;
@@ -127,6 +143,16 @@ static char *realservername;
 static int add_server(const char *, const char *, const char *);
 static int del_server(const char *, const char *);
 static void free_server(struct server_list *);
+
+/* Forward declarations for IRCX/Ophion helper functions (defined after
+ * tclserv.c is included, so we must declare them here first). */
+static void ircx_send_negotiate(void);
+static void ircx_prop_send(char *, char *, char *);
+static void ircx_access_list_send(char *);
+static void ircx_access_add(char *, char *, char *);
+static void ircx_access_del(char *, char *);
+static void ircx_chan_create(char *, char *);
+static void ircx_do_autoowner(void);
 
 static int away_notify = 0;
 static int invite_notify = 0;
@@ -1638,7 +1664,120 @@ static void do_nettype(void)
     check_mode_r = 0;
     nick_len = 30;
     break;
+  case NETT_OPHION:
+    /* Ophion/IRCX network — modern IRCv3 server with IRCX extensions.
+     * Supports: +q owner mode, PROP command, ACCESS lists, CREATE,
+     * persistent channels (%#channel), and auto-owner via OWNERKEY.
+     * Reference: https://github.com/devinkbrown/ophion
+     */
+    check_mode_r = 0;
+    nick_len = 32;
+    use_fastdeq = 2;
+    simple_sprintf(stackablecmds, "PRIVMSG NOTICE TOPIC PART WHOIS");
+    simple_sprintf(stackable2cmds, "WHOIS");
+    ircx_owner_support = 1;   /* Ophion supports +q (owner) mode     */
+    ircx_prop_support = 1;    /* Ophion supports PROP command        */
+    if (ircx_auto_negotiate)
+      ircx_enabled = 0;       /* Will be set after server sends 800  */
+    break;
   }
+}
+
+/* =========================================================================
+ * IRCX helper functions — Ophion/IRCX protocol integration
+ * ========================================================================= */
+
+/* Send the IRCX command to enable IRCX mode on the current server.
+ * Called automatically on Ophion net-type after login, or manually via Tcl.
+ */
+static void ircx_send_negotiate(void)
+{
+  if (serv < 0) return;
+  dprintf(DP_MODE, "IRCX\n");
+  putlog(LOG_MISC, "*", "IRCX: Sending IRCX negotiation command");
+}
+
+/* Send a PROP command to get/set a property on a channel or user. */
+static void ircx_prop_send(char *target, char *prop, char *value)
+{
+  if (serv < 0 || !target || !prop) return;
+  if (value && value[0])
+    dprintf(DP_SERVER, "PROP %s %s :%s\n", target, prop, value);
+  else
+    dprintf(DP_SERVER, "PROP %s %s\n", target, prop);
+}
+
+/* Send ACCESS LIST command to retrieve access list for a channel. */
+static void ircx_access_list_send(char *channel)
+{
+  if (serv < 0 || !channel) return;
+  dprintf(DP_SERVER, "ACCESS %s LIST\n", channel);
+}
+
+/* Send ACCESS ADD command to add an entry to a channel's access list. */
+static void ircx_access_add(char *channel, char *mask, char *level)
+{
+  if (serv < 0 || !channel || !mask || !level) return;
+  dprintf(DP_SERVER, "ACCESS %s ADD %s %s\n", channel, level, mask);
+  putlog(LOG_MISC, channel, "IRCX ACCESS: Added %s as %s on %s", mask, level, channel);
+}
+
+/* Send ACCESS DEL command to remove an entry from a channel's access list. */
+static void ircx_access_del(char *channel, char *mask)
+{
+  if (serv < 0 || !channel || !mask) return;
+  dprintf(DP_SERVER, "ACCESS %s DEL %s\n", channel, mask);
+  putlog(LOG_MISC, channel, "IRCX ACCESS: Removed %s from %s", mask, channel);
+}
+
+/* Send CREATE command to create a channel and gain owner (+q). */
+static void ircx_chan_create(char *channel, char *modes)
+{
+  if (serv < 0 || !channel) return;
+  if (modes && modes[0])
+    dprintf(DP_SERVER, "CREATE %s %s\n", channel, modes);
+  else
+    dprintf(DP_SERVER, "CREATE %s\n", channel);
+  putlog(LOG_MISC, channel, "IRCX: Sent CREATE %s", channel);
+}
+
+/* Check autoowner list and join/create channels with owner key. */
+static void ircx_do_autoowner(void)
+{
+  ircx_autoowner_t *ao;
+
+  if (!ircx_enabled) return;
+  for (ao = ircx_autoowner_list; ao; ao = ao->next) {
+    if (ao->ownerkey[0]) {
+      /* Send OWNERKEY as part of JOIN so server grants +q */
+      dprintf(DP_SERVER, "JOIN %s %s\n", ao->channel, ao->ownerkey);
+      putlog(LOG_MISC, ao->channel, "IRCX: Joining %s with OWNERKEY for auto-owner", ao->channel);
+    } else if (ao->create_if_missing) {
+      ircx_chan_create(ao->channel, ao->create_modes[0] ? ao->create_modes : NULL);
+    }
+  }
+}
+
+/* Free the IRCX access list. */
+static void ircx_free_access_list(void)
+{
+  ircx_access_t *a, *next;
+  for (a = ircx_access_list; a; a = next) {
+    next = a->next;
+    nfree(a);
+  }
+  ircx_access_list = NULL;
+}
+
+/* Free the IRCX autoowner list. */
+static void ircx_free_autoowner_list(void)
+{
+  ircx_autoowner_t *ao, *next;
+  for (ao = ircx_autoowner_list; ao; ao = next) {
+    next = ao->next;
+    nfree(ao);
+  }
+  ircx_autoowner_list = NULL;
 }
 
 static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
@@ -1665,6 +1804,8 @@ static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
     net_type_int = NETT_UNDERNET;
   else if (!strcasecmp(net_type, "Twitch"))
     net_type_int = NETT_TWITCH;
+  else if (!strcasecmp(net_type, "Ophion") || !strcasecmp(net_type, "IRCX"))
+    net_type_int = NETT_OPHION;
   else if (!strcasecmp(net_type, "Other"))
     net_type_int = NETT_OTHER;
   else if (!strcasecmp(net_type, "0")) { /* For backwards compatibility */
@@ -1692,7 +1833,7 @@ static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
     warn = 1;
   } else {
     fatal("ERROR: NET-TYPE NOT SET.\n Must be one of DALNet, EFnet, freenode, "
-          "Libera, IRCnet, Quakenet, Rizon, Undernet, Other.", 0);
+          "Libera, IRCnet, Quakenet, Rizon, Undernet, Ophion, Other.", 0);
   }
   if (warn) {
     putlog(LOG_MISC, "*",
@@ -1739,6 +1880,8 @@ static tcl_strings my_tcl_strings[] = {
   {"stackable2-commands", stackable2cmds, 510,                  0},
   {"cap-request",         cap_request,    CAPMAX - 9,           0},
   {"net-type",            net_type,       8,                    0},
+  {"ircx-network",        ircx_network,   63,                   0},
+  {"ircx-ownerkey",       ircx_default_ownerkey, 127,           0},
   {NULL,                  NULL,           0,                    0}
 };
 
@@ -1782,8 +1925,12 @@ static tcl_ints my_tcl_ints[] = {
   {"message-tags",      &message_tags,              0},
   {"extended-join",     &extended_join,             0},
   {"account-notify",    &account_notify,            0},
-  {"account-tag",       &account_tag,               0},
-  {NULL,                NULL,                       0}
+  {"account-tag",          &account_tag,               0},
+  {"ircx-enabled",         &ircx_enabled,              0},
+  {"ircx-auto-negotiate",  &ircx_auto_negotiate,       0},
+  {"ircx-owner-support",   &ircx_owner_support,        0},
+  {"ircx-prop-support",    &ircx_prop_support,         0},
+  {NULL,                   NULL,                       0}
 };
 
 

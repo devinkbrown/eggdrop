@@ -1086,9 +1086,17 @@ static int got352or4(struct chanset_t *chan, char *user, char *host,
     strlcpy(botuserhost, m->userhost, sizeof(botuserhost));   /* Yes, save my own userhost */
   }
   m->flags |= WHO_SYNCED;
+  /* IRCX/Ophion: ~ prefix means channel owner (+q).  Must be checked
+   * before the standard opchars so that owners are not mis-flagged
+   * only as CHANOP when they hold the higher CHANOWNER status.
+   */
+  if (strchr(flags, '~') != NULL)
+    m->flags |= (CHANOWNER | CHANOP | WASOP);
+  else
+    m->flags &= ~CHANOWNER;
   if (strpbrk(flags, opchars) != NULL)
     m->flags |= (CHANOP | WASOP);
-  else
+  else if (!(m->flags & CHANOWNER))
     m->flags &= ~(CHANOP | WASOP);
   if (strchr(flags, '%') != NULL)
     m->flags |= (CHANHALFOP | WASHALFOP);
@@ -1106,7 +1114,7 @@ static int got352or4(struct chanset_t *chan, char *user, char *host,
     m->flags |= IRCBOT;
   else
     m->flags &= ~IRCBOT;
-  if (!(m->flags & (CHANVOICE | CHANOP | CHANHALFOP)))
+  if (!(m->flags & (CHANVOICE | CHANOP | CHANHALFOP | CHANOWNER)))
     m->flags |= STOPWHO;
   if (match_my_nick(nick) && any_ops(chan) && !me_op(chan)) {
     check_tcl_need(chan->dname, "op");
@@ -2109,6 +2117,15 @@ static int gotjoin(char *from, char *channame)
           reset_chan_info(chan, (CHAN_RESETALL & ~CHAN_RESETTOPIC &
             (chan->channel.members == 1 ? ~CHAN_RESETWHO : CHAN_RESETALL)), /* do not remove myself again */
             1);
+
+          /* IRCX/Ophion: on Ophion net-type, after joining a channel,
+           * fire the ircx-join Tcl event so scripts can request owner.
+           * Scripts use [ircxprop <chan> OWNERKEY <key>] to authenticate.
+           */
+          if (net_type_int == NETT_OPHION) {
+            Tcl_SetVar(interp, "_ircx_chan", chan->dname, TCL_GLOBAL_ONLY);
+            check_tcl_event("ircx-join");
+          }
 
         } else {
           struct chanuserrec *cr;

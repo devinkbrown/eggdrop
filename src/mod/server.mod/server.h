@@ -154,7 +154,75 @@ enum {
   NETT_RIZON,        /* Rizon                             */
   NETT_UNDERNET,     /* UnderNet                          */
   NETT_TWITCH,       /* Twitch! *shudder*                 */
+  NETT_OPHION,       /* Ophion/IRCX extended network      */
   NETT_OTHER         /* Others                            */
 };
+
+/* =========================================================================
+ * IRCX (Internet Relay Chat eXtended) Protocol Support
+ * Compatible with Ophion IRC server (https://github.com/devinkbrown/ophion)
+ * ========================================================================= */
+
+/* IRCX server reply numerics */
+#define RPL_IRCX          800   /* Server supports IRCX                    */
+#define RPL_PROPS         801   /* Property listing reply                  */
+#define RPL_ENDOFPROPS    802   /* End of property list                    */
+#define RPL_ACCESSLIST    803   /* Access list entry                       */
+#define RPL_ENDOFACCESS   804   /* End of access list                      */
+#define ERR_NOTIRCX       901   /* Client not in IRCX mode                 */
+#define ERR_ALREADYIRCX   902   /* Already in IRCX mode                    */
+#define ERR_UNKNOWNPROP   903   /* Unknown property name                   */
+#define ERR_PROPDENIED    904   /* Property access denied                  */
+#define ERR_PROPFULL      905   /* Property list full                      */
+#define ERR_NOACCESS      906   /* Insufficient access level               */
+
+/* IRCX access levels (matching ophion m_ircx_access.c hierarchy) */
+#define IRCX_ACCESS_DENY    "DENY"    /* Denies channel access              */
+#define IRCX_ACCESS_GRANT   "GRANT"   /* Grants access (overrides ban)      */
+#define IRCX_ACCESS_QUIET   "QUIET"   /* Suppress messages from user        */
+#define IRCX_ACCESS_VOICE   "VOICE"   /* Auto-voice on join (+v)            */
+#define IRCX_ACCESS_HOST    "HOST"    /* Channel host / operator (+o)       */
+#define IRCX_ACCESS_OWNER   "OWNER"   /* Channel owner (+q)                 */
+
+/* IRCX mode characters for owner/admin (ophion extensions) */
+#define IRCX_MODE_OWNER   'q'         /* Owner mode  (+q)                   */
+#define IRCX_MODE_ADMIN   'a'         /* Admin mode  (+a) on some servers   */
+
+/* Built-in IRCX channel property names (ophion m_ircx_prop_channel_builtins) */
+#define IRCX_PROP_OID         "OID"         /* Unique channel ID (read-only)  */
+#define IRCX_PROP_NAME        "NAME"        /* Channel name (read-only)       */
+#define IRCX_PROP_CREATION    "CREATION"    /* Creation timestamp (read-only) */
+#define IRCX_PROP_TOPIC       "TOPIC"       /* Channel topic                  */
+#define IRCX_PROP_MEMBERCOUNT "MEMBERCOUNT" /* Member count (read-only)       */
+#define IRCX_PROP_MEMBERKEY   "MEMBERKEY"   /* Channel join key (+k mode)     */
+#define IRCX_PROP_MEMBERLIMIT "MEMBERLIMIT" /* Member limit (+l mode)         */
+#define IRCX_PROP_OWNERKEY    "OWNERKEY"    /* Key granting owner (+q) on join*/
+#define IRCX_PROP_OPKEY       "OPKEY"       /* Key granting op (+o) on join   */
+#define IRCX_PROP_PICS        "PICS"        /* Content rating string          */
+#define IRCX_PROP_LAG         "LAG"         /* Per-channel message delay (s)  */
+#define IRCX_PROP_CLIENT      "CLIENT"      /* Client metadata (ops only)     */
+
+/* IRCX channel prefix for persistent/registered channels */
+#define IRCX_CHAN_PERSISTENT '%'
+
+/* IRCX access list entry - stored per channel.
+ * Uses fixed-size arrays to remain includable from all modules. */
+typedef struct ircx_access_entry {
+  struct ircx_access_entry *next;
+  char channel[201];                /* Channel this entry applies to (CHANNELLEN+1) */
+  char mask[512];                   /* Nick!user@host mask or account name  */
+  char level[16];                   /* OWNER / HOST / VOICE / GRANT / DENY  */
+  char setter[33];                  /* Handle that set this entry (HANDLEN+1) */
+  time_t set_time;                  /* Unix timestamp when set              */
+} ircx_access_t;
+
+/* IRCX auto-owner entry - channels where bot requests owner on join */
+typedef struct ircx_autoowner_entry {
+  struct ircx_autoowner_entry *next;
+  char channel[201];                /* Channel name (with prefix, CHANNELLEN+1) */
+  char ownerkey[128];               /* OWNERKEY value sent on join          */
+  int  create_if_missing;           /* Use IRCX CREATE if channel is empty  */
+  char create_modes[32];            /* Modes applied after CREATE           */
+} ircx_autoowner_t;
 
 #endif /* _EGG_MOD_SERVER_SERVER_H */
