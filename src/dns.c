@@ -631,6 +631,7 @@ void core_dns_ipbyhost(char *host)
   dtn->next = dns_thread_head->next;
   dns_thread_head->next = dtn;
   strlcpy(dtn->host, host, sizeof dtn->host);
+  putlog(LOG_MISC, "*", "dns: spawning resolver thread for '%s'", host);
   if (pthread_create(&(dtn->thread_id), &attr, thread_dns_ipbyhost, (void *) dtn)) {
     putlog(LOG_MISC, "*", "core_dns_ipbyhost(): pthread_create(): error = %s", strerror(errno));
     call_ipbyhost(host, &addr, 0);
