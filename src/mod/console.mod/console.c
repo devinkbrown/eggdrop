@@ -178,8 +178,7 @@ static int console_tcl_set(Tcl_Interp *irp, struct userrec *u,
   if (l > 80)
     l = 80;
   i->channel = user_malloc(l + 1);
-  strncpy(i->channel, argv[3], l);
-  i->channel[l] = 0;
+  strlcpy(i->channel, argv[3], l + 1);
   if (argc > 4) {
     i->conflags = logmodes(argv[4]);
     if (argc > 5) {

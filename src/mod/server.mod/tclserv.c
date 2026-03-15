@@ -236,9 +236,10 @@ static int tcl_tagmsg STDVAR {
     Tcl_AppendResult(irp, "message-tags not enabled, cannot send tag", NULL);
     return TCL_ERROR;
   }
+  char *saveptr = NULL;
   strlcpy(tagdict, argv[1], sizeof tag);
   strlcpy(target, argv[2], sizeof target);
-  p = strtok(tagdict, " ");
+  p = strtok_r(tagdict, " ", &saveptr);
   while (p != NULL) {
     if ((i % 2) != 0) {
       taglen += egg_snprintf(tag + taglen, CLITAGMAX - 9 - taglen, "%s", p);
@@ -250,7 +251,7 @@ static int tcl_tagmsg STDVAR {
       }
     }
     i++;
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &saveptr);
   }
   p = strchr(target, '\n');
   if (p != NULL)

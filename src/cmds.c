@@ -194,13 +194,13 @@ static void tell_who(struct userrec *u, int idx, int chan)
       }
       if (atr & USER_MASTER) {
         if (dcc[i].u.chat->channel < 0)
-          strcat(s, "(-OFF-) ");
+          strlcat(s, "(-OFF-) ", sizeof s);
         else if (!dcc[i].u.chat->channel)
-          strcat(s, "(party) ");
+          strlcat(s, "(party) ", sizeof s);
         else
           egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), "(%5d) ", dcc[i].u.chat->channel);
       }
-      strcat(s, dcc[i].host);
+      strlcat(s, dcc[i].host, sizeof s);
       if (atr & USER_MASTER) {
         if (dcc[i].u.chat->con_flags)
           egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (con:%s)",
@@ -255,8 +255,8 @@ static void cmd_botinfo(struct userrec *u, int idx, char *par)
     /* Days */
     snprintf(s2, sizeof(s2), "%d day", days);
     if (days >= 2)
-      strcat(s2, "s");
-    strcat(s2, ", ");
+      strlcat(s2, "s", sizeof s2);
+    strlcat(s2, ", ", sizeof s2);
     now2 -= days * 86400;
   }
   hr = (time_t) ((int) now2 / 3600);
@@ -272,11 +272,11 @@ static void cmd_botinfo(struct userrec *u, int idx, char *par)
       if (!channel_secret(chan)) {
         if ((strlen(s) + strlen(chan->dname) + strlen(network)
              + strlen(botnetnick) + strlen(ver) + 1) >= 490) {
-          strcat(s, "++  ");
+          strlcat(s, "++  ", sizeof s);
           break;                /* yeesh! */
         }
-        strcat(s, chan->dname);
-        strcat(s, ", ");
+        strlcat(s, chan->dname, sizeof s);
+        strlcat(s, ", ", sizeof s);
       }
     }
 
@@ -820,12 +820,14 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
   handle = newsplit(&par);
   addr = newsplit(&par);
   port2 = newsplit(&par);
-  port = strtok(port2, "/");
-  relay = strtok(NULL, "/");
-
-  if (strtok(NULL, "/")) {
-    dprintf(idx, "You've supplied more than 2 ports, make up your mind.\n");
-    return;
+  {
+    char *saveptr = NULL;
+    port  = strtok_r(port2, "/", &saveptr);
+    relay = strtok_r(NULL,  "/", &saveptr);
+    if (strtok_r(NULL, "/", &saveptr)) {
+      dprintf(idx, "You've supplied more than 2 ports, make up your mind.\n");
+      return;
+    }
   }
 
   host = newsplit(&par);
@@ -1180,12 +1182,14 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
   }
   addr = newsplit(&par);
   port2 = newsplit(&par);
-  port = strtok(port2, "/");
-  relay = strtok(NULL, "/");
-
-  if (strtok(NULL, "/")) {
-    dprintf(idx, "You've supplied more than 2 ports, make up your mind.\n");
-    return;
+  {
+    char *saveptr = NULL;
+    port  = strtok_r(port2, "/", &saveptr);
+    relay = strtok_r(NULL,  "/", &saveptr);
+    if (strtok_r(NULL, "/", &saveptr)) {
+      dprintf(idx, "You've supplied more than 2 ports, make up your mind.\n");
+      return;
+    }
   }
 
   if (addr[0]) {
@@ -2120,9 +2124,10 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
         return;
       }
     } else if (arg && !strpbrk(chg, "&|")) {
-      tmpchg = nmalloc(strlen(chg) + 2);
-      strlcpy(tmpchg, "|", sizeof(tmpchg));
-      strcat(tmpchg, chg);
+      size_t tmpchg_sz = strlen(chg) + 2;
+      tmpchg = nmalloc(tmpchg_sz);
+      strlcpy(tmpchg, "|", tmpchg_sz);
+      strlcat(tmpchg, chg, tmpchg_sz);
       chg = tmpchg;
     }
   }
@@ -2315,9 +2320,10 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
         return;
       }
     } else if (arg && !strpbrk(chg, "&|")) {
-      tmpchg = nmalloc(strlen(chg) + 2);
-      strlcpy(tmpchg, "|", sizeof(tmpchg));
-      strcat(tmpchg, chg);
+      size_t tmpchg_sz = strlen(chg) + 2;
+      tmpchg = nmalloc(tmpchg_sz);
+      strlcpy(tmpchg, "|", tmpchg_sz);
+      strlcat(tmpchg, chg, tmpchg_sz);
       chg = tmpchg;
     }
   }

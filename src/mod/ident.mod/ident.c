@@ -142,18 +142,19 @@ static void ident_oidentd(void)
         while (fgets(line, 255, fd)) {
           /* If it is not an Eggdrop entry, don't mess with it */
           if (!strstr(line, "### eggdrop_")) {
-            strncat(data, line, ((filesize + 256) - strlen(data)));
+            strlcat(data, line, (size_t)(filesize + 256));
           } else {
             /* If it is Eggdrop but not me, check for expiration and remove */
             if (!strstr(line, identstr)) {
+              char *saveptr = NULL;
               strlcpy(buf, line, sizeof buf);
-              strtok(buf, "!");
-              prevtime = atoi(strtok(NULL, "!"));
+              strtok_r(buf, "!", &saveptr);
+              prevtime = atoi(strtok_r(NULL, "!", &saveptr));
               if ((now - prevtime) > 300) {
                 putlog(LOG_DEBUG, "*", "IDENT: Removing expired oident.conf "
                     "entry: \"%s\"", buf);
               } else {
-                strncat(data, line, ((filesize + 256) - strlen(data)));
+                strlcat(data, line, (size_t)(filesize + 256));
               }
             }
           }

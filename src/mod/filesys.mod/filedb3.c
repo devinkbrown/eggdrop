@@ -951,9 +951,9 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         s2[0] = 0;
         if (showall) {
           if (fdbe->stat & FILE_SHARE)
-            strcat(s2, " (shr)");
+            strlcat(s2, " (shr)", sizeof s2);
           if (fdbe->stat & FILE_HIDDEN)
-            strcat(s2, " (hid)");
+            strlcat(s2, " (hid)", sizeof s2);
         }
         strftime(t, 10, "%d%b%Y", localtime(&fdbe->uploaded));
         if (fdbe->size < 1024)

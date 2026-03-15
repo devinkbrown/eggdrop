@@ -1569,9 +1569,9 @@ static int del_capability(char *name) {
  * msg is in format "multi-prefix sasl server-time"
  */
 static int del_capabilities(char *msg) {
-  char *capptr;
+  char *capptr, *saveptr = NULL;
 
-  for (capptr = strtok(msg, " "); capptr; capptr = strtok(NULL, " ")) {
+  for (capptr = strtok_r(msg, " ", &saveptr); capptr; capptr = strtok_r(NULL, " ", &saveptr)) {
     del_capability(capptr);
   }
   return 0;
@@ -1719,13 +1719,16 @@ static int gotcap(char *from, char *msg) {
           add_req(current->name);
       }
       /* Add any custom capes the user listed */
-      strlcpy(cape, cap_request, sizeof cape);
-      if ( (p = strtok(cape, " ")) ) {
-        while (p != NULL) {
-          if (!strcmp(current->name, p) && (!current->enabled)) {
-            add_req(p);
+      {
+        char *saveptr = NULL;
+        strlcpy(cape, cap_request, sizeof cape);
+        if ((p = strtok_r(cape, " ", &saveptr))) {
+          while (p != NULL) {
+            if (!strcmp(current->name, p) && (!current->enabled)) {
+              add_req(p);
+            }
+            p = strtok_r(NULL, " ", &saveptr);
           }
-          p = strtok(NULL, " ");
         }
       }
       current=current->next;
@@ -1766,20 +1769,24 @@ static int gotcap(char *from, char *msg) {
     } else {
       multistatus = 0;
     }
-    splitstr = strtok(msg, " ");
-    while (splitstr != NULL) {
-      current = find_capability(msg);
-      if (!current) {
-        putlog(LOG_DEBUG, "*", "CAP: %s tried to tell me we negotiated %s, \
-                but I have no record of it. Skipping...", from, msg);
-        splitstr = strtok(NULL, " ");
-        continue;
+    {
+      char *saveptr = NULL;
+      splitstr = strtok_r(msg, " ", &saveptr);
+      while (splitstr != NULL) {
+        current = find_capability(msg);
+        if (!current) {
+          putlog(LOG_DEBUG, "*", "CAP: %s tried to tell me we negotiated %s, \
+                  but I have no record of it. Skipping...", from, msg);
+          splitstr = strtok_r(NULL, " ", &saveptr);
+          continue;
+        }
+        current->enabled = 1;
+        splitstr = strtok_r(NULL, " ", &saveptr);
       }
-      current->enabled = 1;
-      splitstr = strtok(NULL, " ");
     }
   } else if (!strcmp(cmd, "ACK")) {
-    splitstr = strtok(msg, " ");
+    char *saveptr = NULL;
+    splitstr = strtok_r(msg, " ", &saveptr);
     while (splitstr != NULL) {
       current = cap;
       while (current != NULL) {
@@ -1801,7 +1808,7 @@ static int gotcap(char *from, char *msg) {
         current = current->next;
       }
       remove = 0;
-      splitstr = strtok(NULL, " ");
+      splitstr = strtok_r(NULL, " ", &saveptr);
     }
     current = find_capability("sasl");
     /* Let SASL code send END if SASL is enabled, to avoid race condition */
@@ -1842,7 +1849,8 @@ static int got730or1(char *from, char *msg, int code)
   newsplit(&msg);               /* Get rid of nick */
   fixcolon(msg);                /* Get rid of :    */
 
-  for (tok = strtok(msg, ","); tok; tok = strtok(NULL, " ")) {
+  char *saveptr = NULL;
+  for (tok = strtok_r(msg, ",", &saveptr); tok; tok = strtok_r(NULL, " ", &saveptr)) {
     if (strchr(tok, '!')) {
       nick = splitnick(&tok);
     } else {
@@ -1983,7 +1991,8 @@ static int got732(char *from, char *msg)
   newsplit(&msg);               /* Get rid of nick */
   fixcolon(msg);                /* Get rid of :    */
 
-  for (tok = strtok(msg, ","); tok && *tok; tok = strtok(NULL, ",")) {
+  char *saveptr = NULL;
+  for (tok = strtok_r(msg, ",", &saveptr); tok && *tok; tok = strtok_r(NULL, ",", &saveptr)) {
     /* returned target could be in nick!u@host format */
     if (strchr(tok, '!')) {
       nick = splitnick(&tok);

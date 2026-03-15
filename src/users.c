@@ -797,12 +797,10 @@ int readuserfile(char *file, struct userrec **ret)
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
             strlcpy(s1, lasthand, sizeof(s1));
-            strcat(s1, " ");
+            strlcat(s1, " ", sizeof(s1));
             if (strstr(ignored, s1) == NULL) {
-              strncat(ignored, lasthand,
-                      sizeof(ignored) - 1 - strlen(ignored));
-              strncat(ignored, " ",
-                      sizeof(ignored) - 1 - strlen(ignored));
+              strlcat(ignored, lasthand, sizeof ignored);
+              strlcat(ignored, " ", sizeof ignored);
             }
             lasthand[0] = 0;
           } else {
@@ -825,12 +823,10 @@ int readuserfile(char *file, struct userrec **ret)
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
             strlcpy(s1, lasthand, sizeof(s1));
-            strcat(s1, " ");
+            strlcat(s1, " ", sizeof(s1));
             if (strstr(ignored, s1) == NULL) {
-              strncat(ignored, lasthand,
-                      sizeof(ignored) - 1 - strlen(ignored));
-              strncat(ignored, " ",
-                      sizeof(ignored) - 1 - strlen(ignored));
+              strlcat(ignored, lasthand, sizeof ignored);
+              strlcat(ignored, " ", sizeof ignored);
             }
             lasthand[0] = 0;
           } else {
@@ -855,12 +851,10 @@ int readuserfile(char *file, struct userrec **ret)
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
             strlcpy(s1, lasthand, sizeof(s1));
-            strcat(s1, " ");
+            strlcat(s1, " ", sizeof(s1));
             if (strstr(ignored, s1) == NULL) {
-              strncat(ignored, lasthand,
-                      sizeof(ignored) - 1 - strlen(ignored));
-              strncat(ignored, " ",
-                      sizeof(ignored) - 1 - strlen(ignored));
+              strlcat(ignored, lasthand, sizeof ignored);
+              strlcat(ignored, " ", sizeof ignored);
             }
             lasthand[0] = 0;
           } else {

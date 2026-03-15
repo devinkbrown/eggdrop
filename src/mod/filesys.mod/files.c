@@ -813,9 +813,10 @@ static void cmd_desc(int idx, char *par)
     return;
   }
   /* Fix up desc */
-  desc = nmalloc(strlen(par) + 2);
-  strlcpy(desc, par, sizeof(desc));
-  strcat(desc, "|");
+  size_t desc_sz = strlen(par) + 2;
+  desc = nmalloc(desc_sz);
+  strlcpy(desc, par, desc_sz);
+  strlcat(desc, "|", desc_sz);
   /* Replace | with linefeeds, limit 5 lines */
   lin = 0;
   q = desc;

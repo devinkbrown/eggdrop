@@ -326,7 +326,7 @@ void maskaddr(const char *s, char *nw, int type)
   if (!u || (type % 10) < 5)
     *nw++ = '*';
   else {
-    strncpy(nw, s, u - s);
+    memcpy(nw, s, u - s);
     nw += u - s;
   }
   *nw++ = '!';
@@ -341,7 +341,7 @@ void maskaddr(const char *s, char *nw, int type)
       if (strchr("~+-^=", *u))
         u++; /* trim leading crap */
     }
-    strncpy(nw, u, h - u);
+    memcpy(nw, u, h - u);
     nw += h - u;
   }
   *nw++ = '@';
@@ -363,7 +363,7 @@ void maskaddr(const char *s, char *nw, int type)
   if (p && d > 2) {
     if ((u = strrchr(p, '.')))
       p = u;
-    strncpy(nw, h, ++p - h);
+    memcpy(nw, h, ++p - h);
     nw += p - h;
     strlcpy(nw, "*", sizeof(nw));
   } else if (!p && !num && type >= 10) {
@@ -387,7 +387,7 @@ void maskaddr(const char *s, char *nw, int type)
     *nw = 0;
   } else if (d > 2 && (p = strrchr(h, '.'))) {
     if (num) { /* IPv4 */
-      strncpy(nw, h, p - h);
+      memcpy(nw, h, p - h);
       nw += p - h;
       strlcpy(nw, ".*", sizeof(nw));
       return;
@@ -492,12 +492,12 @@ void daysdur(time_t now, time_t then, char *out)
     snprintf(out, 41, "for %d day%s", days, (days == 1) ? "" : "s");
     return;
   }
-  strlcpy(out, "for ", sizeof(out));
+  strlcpy(out, "for ", 41);
   now -= then;
   hrs = (int) (now / 3600);
   mins = (int) ((now - (hrs * 3600)) / 60);
   snprintf(s, sizeof(s), "%02d:%02d", hrs, mins);
-  strcat(out, s);
+  strlcat(out, s, 41);
 }
 
 
@@ -568,7 +568,7 @@ void putlog (int type, char *chname, const char *format, ...)
     memcpy(s, stamp, tsl);
     out = s;
   }
-  strcat(out, "\n");
+  strlcat(out, "\n", LOGLINELEN - (size_t)(out - s));
   if (!use_stderr) {
     for (i = 0; i < max_logs; i++) {
       if ((logs[i].filename != NULL) && (logs[i].mask & type) &&
@@ -704,35 +704,35 @@ static char *colstr = NULL;
 
 /* Add string to colstr
  */
-static void subst_addcol(char *s, char *newcol)
+static void subst_addcol(char *s, size_t sz, char *newcol)
 {
   char *p, *q;
   int i, colwidth;
 
   if ((newcol[0]) && (newcol[0] != '\377'))
     colsofar++;
-  colstr = nrealloc(colstr, strlen(colstr) + strlen(newcol) +
-                    (colstr[0] ? 2 : 1));
+  size_t colstr_sz = strlen(colstr) + strlen(newcol) + (colstr[0] ? 2 : 1);
+  colstr = nrealloc(colstr, colstr_sz);
   if ((newcol[0]) && (newcol[0] != '\377')) {
     if (colstr[0])
-      strcat(colstr, "\377");
-    strcat(colstr, newcol);
+      strlcat(colstr, "\377", colstr_sz);
+    strlcat(colstr, newcol, colstr_sz);
   }
   if ((colsofar == cols) || ((newcol[0] == '\377') && (colstr[0]))) {
     colsofar = 0;
-    strlcpy(s, "     ", sizeof(s));
+    strlcpy(s, "     ", sz);
     colwidth = (subwidth - 5) / cols;
     q = colstr;
     p = strchr(colstr, '\377');
     while (p != NULL) {
       *p = 0;
-      strcat(s, q);
+      strlcat(s, q, sz);
       for (i = strlen(q); i < colwidth; i++)
-        strcat(s, " ");
+        strlcat(s, " ", sz);
       q = p + 1;
       p = strchr(q, '\377');
     }
-    strcat(s, q);
+    strlcat(s, q, sz);
     nfree(colstr);
     colstr = nmalloc(1);
     colstr[0] = 0;
@@ -810,7 +810,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
      * if so return
      */
     if ((writeidx + (current - readidx)) >= (s + HELP_BUF_LEN)) {
-      strncpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
+      memcpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
       s[HELP_BUF_LEN] = 0;
       return;
     }
@@ -909,7 +909,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       if (!blind)
         for (chan = chanset; chan; chan = chan->next) {
           if ((strlen(chan->dname) + writeidx + 2) >= (s + HELP_BUF_LEN)) {
-            strncpy(writeidx, chan->dname, (s + HELP_BUF_LEN) - writeidx);
+            memcpy(writeidx, chan->dname, (s + HELP_BUF_LEN) - writeidx);
             s[HELP_BUF_LEN] = 0;
             return;
           }
@@ -955,7 +955,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
             subwidth = 70;
             if (cols) {
               sub[0] = 0;
-              subst_addcol(sub, "\377");
+              subst_addcol(sub, sizeof sub, "\377");
               nfree(colstr);
               colstr = NULL;
               cols = 0;
@@ -989,7 +989,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     }
     if (towrite && !blind) {
       if ((writeidx + strlen(towrite)) >= (s + HELP_BUF_LEN)) {
-        strncpy(writeidx, towrite, (s + HELP_BUF_LEN) - writeidx);
+        memcpy(writeidx, towrite, (s + HELP_BUF_LEN) - writeidx);
         s[HELP_BUF_LEN] = 0;
         return;
       }
@@ -1006,7 +1006,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
   if (!blind) {
     i = strlen(readidx);
     if (i && ((writeidx + i) >= (s + HELP_BUF_LEN))) {
-      strncpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
+      memcpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
       s[HELP_BUF_LEN] = 0;
       return;
     }
@@ -1026,7 +1026,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
   if (cols) {
     strlcpy(xx, s, sizeof xx);
     s[0] = 0;
-    subst_addcol(s, xx);
+    subst_addcol(s, sizeof s, xx);
   }
 }
 

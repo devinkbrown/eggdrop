@@ -192,8 +192,8 @@ void tell_verbose_uptime(int idx)
     /* days */
     snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
-      strcat(s, "s");
-    strcat(s, ", ");
+      strlcat(s, "s", sizeof s);
+    strlcat(s, ", ", sizeof s);
     now2 -= (((int) (now2 / 86400)) * 86400);
   }
   hr = (time_t) ((int) now2 / 3600);
@@ -232,8 +232,8 @@ void tell_verbose_status(int idx)
     /* days */
     snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
-      strcat(s, "s");
-    strcat(s, ", ");
+      strlcat(s, "s", sizeof s);
+    strlcat(s, ", ", sizeof s);
     now2 -= (((int) (now2 / 86400)) * 86400);
   }
   hr = (time_t) ((int) now2 / 3600);
@@ -469,7 +469,7 @@ void chanprog(void)
 
   if (helpdir[0])
     if (helpdir[strlen(helpdir) - 1] != '/')
-      strcat(helpdir, "/");
+      strlcat(helpdir, "/", 121);
 
   reaffirm_owners();
   check_tcl_event("userfile-loaded");
@@ -681,8 +681,9 @@ int isowner(char *name) {
   char *sep = ", \t\n\v\f\r";
   char *word;
 
+  char *saveptr = NULL;
   strlcpy(s, owner, sizeof(s));
-  for (word = strtok(s, sep); word; word = strtok(NULL, sep)) {
+  for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(NULL, sep, &saveptr)) {
     if (!strcasecmp(name, word)) {
       return 1;
     }
@@ -710,7 +711,7 @@ void add_hq_user(void)
                               USER_VOICE | USER_XFER | USER_HIGHLITE;
     /* Add to permowner list if there's place */
     if (strlen(owner) + sizeof EGG_BG_HANDLE < sizeof owner)
-      strcat(owner, " " EGG_BG_HANDLE);
+      strlcat(owner, " " EGG_BG_HANDLE, sizeof owner);
 
     /* Update laston info, gets cleared at rehash/reload */
     touch_laston(dcc[term_z].user, "partyline", now);

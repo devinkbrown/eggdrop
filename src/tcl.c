@@ -298,7 +298,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
         strlcpy(st->str, s, abs(st->max) + 1);
       if ((st->flags) && (s[0])) {
         if (st->str[strlen(st->str) - 1] != '/')
-          strcat(st->str, "/");
+          strlcat(st->str, "/", (size_t)abs(st->max) + 1);
       }
     }
     return NULL;

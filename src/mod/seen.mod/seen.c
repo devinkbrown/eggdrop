@@ -540,8 +540,7 @@ static char *getxtra(char *hand, char *field)
         if (xk->key && !strcasecmp(xk->key, field)) {
           if (xk->data[0] == '{' && xk->data[strlen(xk->data) - 1] == '}' &&
               strlen(xk->data) > 2) {
-            strncpy(fixit, &xk->data[1], strlen(xk->data) - 2);
-            fixit[strlen(xk->data) - 2] = 0;
+            strlcpy(fixit, &xk->data[1], strlen(xk->data) - 1);
             return fixit;
           } else {
             return xk->data;
