@@ -233,6 +233,15 @@ static void uring_recv_sock(sock_list *sl, int slist_idx)
   if (sl->handler.sock.recv_buf)
     use_recv = 1;
 #endif
+  /* For connecting sockets, TCP connect() completion is signalled by
+   * POLLOUT (write-readiness), not POLLIN.  A RECV SQE only wakes on
+   * POLLIN (or when the kernel has data), so it never fires on connect
+   * completion.  Force POLL_ADD (which includes POLLOUT in the branch
+   * below) so that both connect completion and early inbound data are
+   * detected.  After SOCK_CONNECT is cleared on the "connect!" path the
+   * re-arm switches back to RECV for non-TLS sockets as normal. */
+  if (sl->flags & SOCK_CONNECT)
+    use_recv = 0;
 
   sqe = io_uring_get_sqe(&egg_ring);
   if (!sqe) {
