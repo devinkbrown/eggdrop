@@ -1773,10 +1773,10 @@ static int gotcap(char *from, char *msg) {
       char *saveptr = NULL;
       splitstr = strtok_r(msg, " ", &saveptr);
       while (splitstr != NULL) {
-        current = find_capability(msg);
+        current = find_capability(splitstr);
         if (!current) {
           putlog(LOG_DEBUG, "*", "CAP: %s tried to tell me we negotiated %s, \
-                  but I have no record of it. Skipping...", from, msg);
+                  but I have no record of it. Skipping...", from, splitstr);
           splitstr = strtok_r(NULL, " ", &saveptr);
           continue;
         }
