@@ -193,6 +193,7 @@ memberlist *find_member_from_nick(char *);
  * Using libop's egg_bh slab allocator: O(1) alloc/free, memory returned to
  * the OS on heap destroy, zero-initialised on alloc. */
 void userrec_heaps_init(void);
+void user_account_dict_invalidate(void);
 void userrec_heaps_destroy(void);
 struct userrec    *alloc_userrec(void);
 void               free_userrec(struct userrec *);
