@@ -76,12 +76,15 @@ static int convert_old_files(char *path, char *newfiledb)
         if (in_file && fdbe) {
           rmspace(s);
           if (fdbe->desc) {
-            fdbe->desc = nrealloc(fdbe->desc,
-                                  strlen(fdbe->desc) + strlen(s) + 2);
-            strcat(fdbe->desc, "\n");
-          } else
-            fdbe->desc = nmalloc(strlen(s) + 2);
-          strcat(fdbe->desc, s);
+            size_t desc_sz = strlen(fdbe->desc) + strlen(s) + 2;
+            fdbe->desc = nrealloc(fdbe->desc, desc_sz);
+            strlcat(fdbe->desc, "\n", desc_sz);
+            strlcat(fdbe->desc, s, desc_sz);
+          } else {
+            size_t desc_sz = strlen(s) + 1;
+            fdbe->desc = nmalloc(desc_sz);
+            strlcpy(fdbe->desc, s, desc_sz);
+          }
         }
       } else {
         if (fdbe) {

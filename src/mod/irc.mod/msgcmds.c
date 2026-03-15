@@ -814,8 +814,8 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
     /* days */
     snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
-      strcat(s, "s");
-    strcat(s, ", ");
+      strlcat(s, "s", sizeof s);
+    strlcat(s, ", ", sizeof s);
     now2 -= (((int) (now2 / 86400)) * 86400);
   }
   hr = (time_t) ((int) now2 / 3600);

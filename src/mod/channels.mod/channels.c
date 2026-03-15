@@ -702,11 +702,11 @@ static void channels_report(int idx, int details)
       s2[0] = 0;
 
       if (channel_greet(chan))
-        strcat(s2, "greet, ");
+        strlcat(s2, "greet, ", sizeof s2);
       if (channel_autoop(chan))
-        strcat(s2, "auto-op, ");
+        strlcat(s2, "auto-op, ", sizeof s2);
       if (channel_bitch(chan))
-        strcat(s2, "bitch, ");
+        strlcat(s2, "bitch, ", sizeof s2);
 
       if (s2[0]) {
         int len = strlen(s);

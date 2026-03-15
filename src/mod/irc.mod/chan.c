@@ -445,8 +445,8 @@ static void kick_all(struct chanset_t *chan, char *hostmask, char *comment,
       }
       m->flags |= SENTKICK;     /* Mark as pending kick */
       if (kicknick[0])
-        strcat(kicknick, ",");
-      strcat(kicknick, m->nick);
+        strlcat(kicknick, ",", sizeof kicknick);
+      strlcat(kicknick, m->nick, sizeof kicknick);
       k += 1;
       l = strlen(chan->name) + strlen(kicknick) + strlen(comment) + 5;
       if ((kick_method != 0 && k == kick_method) || (l > 480)) {

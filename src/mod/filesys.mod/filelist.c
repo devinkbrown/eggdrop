@@ -57,7 +57,7 @@ static void filelist_add(filelist_t *flist, char *filename)
   flist->tot++;
   flist->elements = nrealloc(flist->elements, flist->tot * sizeof(filelist_t));
   FILELIST_LE(flist).fn = nmalloc(strlen(filename) + 1);
-  strcpy(FILELIST_LE(flist).fn, filename);
+  strlcpy(FILELIST_LE(flist).fn, filename, strlen(filename) + 1);
   FILELIST_LE(flist).output = NULL;
 }
 
@@ -66,13 +66,14 @@ static void filelist_add(filelist_t *flist, char *filename)
 static void filelist_addout(filelist_t *flist, char *desc)
 {
   if (FILELIST_LE(flist).output) {
-    FILELIST_LE(flist).output = nrealloc(FILELIST_LE(flist).output,
-                                strlen(FILELIST_LE(flist).output) +
-                                strlen(desc) + 1);
-    strcat(FILELIST_LE(flist).output, desc);
+    size_t old_len = strlen(FILELIST_LE(flist).output);
+    size_t new_sz  = old_len + strlen(desc) + 1;
+    FILELIST_LE(flist).output = nrealloc(FILELIST_LE(flist).output, new_sz);
+    strlcat(FILELIST_LE(flist).output, desc, new_sz);
   } else {
-    FILELIST_LE(flist).output = nmalloc(strlen(desc) + 1);
-    strcpy(FILELIST_LE(flist).output, desc);
+    size_t desc_sz = strlen(desc) + 1;
+    FILELIST_LE(flist).output = nmalloc(desc_sz);
+    strlcpy(FILELIST_LE(flist).output, desc, desc_sz);
   }
 }
 
