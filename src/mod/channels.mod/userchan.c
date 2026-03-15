@@ -543,7 +543,7 @@ static int u_addban(struct chanset_t *chan, char *ban, char *from, char *note,
   fix_broken_mask(host, ban, sizeof host);
 
   if ((me = module_find("server", 0, 0)) && me->funcs) {
-    simple_sprintf(s, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
+    snprintf(s, sizeof s, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
                    (char *) me->funcs[SERVER_BOTUSERHOST]);
     if (match_addr(host, s)) {
       putlog(LOG_MISC, "*", "%s", IRC_IBANNEDME);
@@ -1341,7 +1341,7 @@ static void channels_writeuserfile(void)
   FILE *f;
   int ret = 0;
 
-  simple_sprintf(s, "%s~new", userfile);
+  snprintf(s, sizeof s, "%s~new", userfile);
   f = fopen(s, "a");
   if (f) {
     ret = write_bans(f, -1);

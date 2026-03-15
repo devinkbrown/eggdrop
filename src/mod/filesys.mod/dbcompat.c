@@ -235,7 +235,7 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
            filedb);
     /* Create backup name */
     tempdb = nmalloc(strlen(filedb) + 5);
-    simple_sprintf(tempdb, "%s-tmp", filedb);
+    snprintf(tempdb, strlen(filedb) + 5, "%s-tmp", filedb);
 
     /* Step 1: Copy old content to backup while original is still locked */
     if (fcopyfile(*fdb_s, tempdb) != 0) {

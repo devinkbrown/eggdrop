@@ -641,11 +641,12 @@ static int botaddr_pack(struct userrec *u, struct user_entry *e)
     else
       *q++ = *p;
 #ifdef TLS
-  l = simple_sprintf(q, ":%s%u/%s%u", (bi->ssl & TLS_BOT) ? "+" : "",
-                     bi->telnet_port, (bi->ssl & TLS_RELAY) ? "+" : "",
-                     bi->relay_port);
+  l = snprintf(q, sizeof(work) - (q - work), ":%s%u/%s%u",
+               (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
+               (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
 #else
-  l = simple_sprintf(q, ":%u/%u", bi->telnet_port, bi->relay_port);
+  l = snprintf(q, sizeof(work) - (q - work), ":%u/%u",
+               bi->telnet_port, bi->relay_port);
 #endif
   e->u.list = user_malloc(sizeof(struct list_type));
   e->u.list->next = NULL;

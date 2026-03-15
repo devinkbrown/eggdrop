@@ -748,18 +748,22 @@ static FILE *filedb_open(char *path, int sort)
   if (count >= 2)
     putlog(LOG_MISC, "*", "(@) warning: %d open filedb's", count);
   npath = nmalloc(strlen(dccdir) + strlen(path) + 1);
-  simple_sprintf(npath, "%s%s", dccdir, path);
+  snprintf(npath, strlen(dccdir) + strlen(path) + 1, "%s%s", dccdir, path);
   /* Use alternate filename if requested */
   if (filedb_path[0]) {
     char *s2;
+    size_t slen;
 
     s2 = make_point_path(path);
-    s = nmalloc(strlen(filedb_path) + strlen(s2) + 8);
-    simple_sprintf(s, "%sfiledb.%s", filedb_path, s2);
+    slen = strlen(filedb_path) + strlen(s2) + 8;
+    s = nmalloc(slen);
+    snprintf(s, slen, "%sfiledb.%s", filedb_path, s2);
     my_free(s2);
   } else {
-    s = nmalloc(strlen(npath) + 10);
-    simple_sprintf(s, "%s/.filedb", npath);
+    size_t slen = strlen(npath) + 10;
+
+    s = nmalloc(slen);
+    snprintf(s, slen, "%s/.filedb", npath);
   }
   fdb = fopen(s, "r+b");
   if (!fdb) {
@@ -1084,7 +1088,8 @@ static void remote_filereq(int idx, char *from, char *file)
     }
   }
   s1 = nmalloc(strlen(botnetnick) + strlen(dir) + strlen(what) + 3);
-  simple_sprintf(s1, "%s:%s/%s", botnetnick, dir, what);
+  snprintf(s1, strlen(botnetnick) + strlen(dir) + strlen(what) + 3,
+           "%s:%s/%s", botnetnick, dir, what);
   if (reject) {
     botnet_send_filereject(idx, s1, from, reject);
     my_free(s1);

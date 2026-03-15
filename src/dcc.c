@@ -1197,7 +1197,7 @@ static void display_dcc_chat(int idx, char *buf)
   buf[i++] = dcc[idx].status & STAT_TELNET ? 'T' : 't';
   buf[i++] = dcc[idx].status & STAT_ECHO ? 'E' : 'e';
   buf[i++] = dcc[idx].status & STAT_PAGE ? 'P' : 'p';
-  simple_sprintf(buf + i, "/%d", dcc[idx].u.chat->channel);
+  snprintf(buf + i, LOGLINELEN - i, "/%d", dcc[idx].u.chat->channel);
 }
 
 struct dcc_table DCC_CHAT = {
@@ -1939,12 +1939,12 @@ static void dcc_telnet_new(int idx, char *buf, int x)
         p++;
         r = strchr(p, '.');
         if (!r)
-          simple_sprintf(work, "-telnet!%s@%s", dcc[idx].host, p);
+          snprintf(work, sizeof work, "-telnet!%s@%s", dcc[idx].host, p);
         else
-          simple_sprintf(work, "-telnet!%s@*%s", dcc[idx].host, r);
+          snprintf(work, sizeof work, "-telnet!%s@*%s", dcc[idx].host, r);
         *q = '@';
       } else
-        simple_sprintf(work, "-telnet!*@*%s", dcc[idx].host);
+        snprintf(work, sizeof work, "-telnet!*@*%s", dcc[idx].host);
       userlist = adduser(userlist, buf, work, "-",
                          sanity_check(USER_PARTY | default_flags));
     }

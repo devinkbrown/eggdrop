@@ -76,7 +76,7 @@ static int console_pack(struct userrec *u, struct user_entry *e)
 
   ci = (struct console_info *) e->u.extra;
 
-  l = simple_sprintf(work, "%s %s %s %d %d %d",
+  l = snprintf(work, sizeof work, "%s %s %s %d %d %d",
                      ci->channel, masktype(ci->conflags),
                      stripmasktype(ci->stripflags), ci->echoflags,
                      ci->page, ci->conchan);
@@ -135,7 +135,7 @@ static int console_set(struct userrec *u, struct user_entry *e, void *buf)
 
 static void console_tcl_format(char *work, struct console_info *i)
 {
-  simple_sprintf(work, "%s %s %s %d %d %d",
+  snprintf(work, 1024, "%s %s %s %d %d %d",
                  i->channel, masktype(i->conflags),
                  stripmasktype(i->stripflags), i->echoflags,
                  i->page, i->conchan);
@@ -292,7 +292,7 @@ static int console_chon(char *handle, int idx)
 
           chanout_but(-1, dcc[idx].u.chat->channel,
                       "*** [%s] %s\n", dcc[idx].nick, p);
-          simple_sprintf(x, "[%s] %s", dcc[idx].nick, p);
+          snprintf(x, sizeof x, "[%s] %s", dcc[idx].nick, p);
           botnet_send_chan(-1, botnetnick, NULL, dcc[idx].u.chat->channel, x);
         }
       }

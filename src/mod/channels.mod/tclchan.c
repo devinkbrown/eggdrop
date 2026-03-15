@@ -831,38 +831,38 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
 
   get_mode_protect(chan, s, sizeof s);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->idle_kick);
+  snprintf(s, sizeof s, "%d", chan->idle_kick);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->stopnethack_mode);
+  snprintf(s, sizeof s, "%d", chan->stopnethack_mode);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->revenge_mode);
+  snprintf(s, sizeof s, "%d", chan->revenge_mode);
   Tcl_AppendElement(irp, s);
   Tcl_AppendElement(irp, chan->need_op);
   Tcl_AppendElement(irp, chan->need_invite);
   Tcl_AppendElement(irp, chan->need_key);
   Tcl_AppendElement(irp, chan->need_unban);
   Tcl_AppendElement(irp, chan->need_limit);
-  simple_sprintf(s, "%d:%d", chan->flood_pub_thr, chan->flood_pub_time);
+  snprintf(s, sizeof s, "%d:%d", chan->flood_pub_thr, chan->flood_pub_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d:%d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
+  snprintf(s, sizeof s, "%d:%d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d:%d", chan->flood_join_thr, chan->flood_join_time);
+  snprintf(s, sizeof s, "%d:%d", chan->flood_join_thr, chan->flood_join_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d:%d", chan->flood_kick_thr, chan->flood_kick_time);
+  snprintf(s, sizeof s, "%d:%d", chan->flood_kick_thr, chan->flood_kick_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d:%d", chan->flood_deop_thr, chan->flood_deop_time);
+  snprintf(s, sizeof s, "%d:%d", chan->flood_deop_thr, chan->flood_deop_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d:%d", chan->flood_nick_thr, chan->flood_nick_time);
+  snprintf(s, sizeof s, "%d:%d", chan->flood_nick_thr, chan->flood_nick_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d:%d", chan->aop_min, chan->aop_max);
+  snprintf(s, sizeof s, "%d:%d", chan->aop_min, chan->aop_max);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->ban_type);
+  snprintf(s, sizeof s, "%d", chan->ban_type);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->ban_time);
+  snprintf(s, sizeof s, "%d", chan->ban_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->exempt_time);
+  snprintf(s, sizeof s, "%d", chan->exempt_time);
   Tcl_AppendElement(irp, s);
-  simple_sprintf(s, "%d", chan->invite_time);
+  snprintf(s, sizeof s, "%d", chan->invite_time);
   Tcl_AppendElement(irp, s);
   if (chan->status & CHAN_ENFORCEBANS)
     Tcl_AppendElement(irp, "+enforcebans");
@@ -995,7 +995,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
         p = "{}";
 
       buf = nmalloc(strlen(ul->name) + strlen(p) + 2);
-      simple_sprintf(buf, "%s %s", ul->name, p);
+      snprintf(buf, strlen(ul->name) + strlen(p) + 2, "%s %s", ul->name, p);
       Tcl_AppendElement(irp, buf);
       nfree(buf);
     } else
@@ -1026,33 +1026,33 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
   APPEND_KEYVAL("need-limit", chan->need_limit);
 
   /* Integers now */
-  simple_sprintf(s, "%d", chan->idle_kick);
+  snprintf(s, sizeof s, "%d", chan->idle_kick);
   APPEND_KEYVAL("idle-kick", s);
-  simple_sprintf(s, "%d", chan->stopnethack_mode);
+  snprintf(s, sizeof s, "%d", chan->stopnethack_mode);
   APPEND_KEYVAL("stopnethack-mode", s);
-  simple_sprintf(s, "%d", chan->revenge_mode);
+  snprintf(s, sizeof s, "%d", chan->revenge_mode);
   APPEND_KEYVAL("revenge-mode", s);
-  simple_sprintf(s, "%d", chan->ban_type);
+  snprintf(s, sizeof s, "%d", chan->ban_type);
   APPEND_KEYVAL("ban-type", s);
-  simple_sprintf(s, "%d", chan->ban_time);
+  snprintf(s, sizeof s, "%d", chan->ban_time);
   APPEND_KEYVAL("ban-time", s);
-  simple_sprintf(s, "%d", chan->exempt_time);
+  snprintf(s, sizeof s, "%d", chan->exempt_time);
   APPEND_KEYVAL("exempt-time", s);
-  simple_sprintf(s, "%d", chan->invite_time);
+  snprintf(s, sizeof s, "%d", chan->invite_time);
   APPEND_KEYVAL("invite-time", s);
-  simple_sprintf(s, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
+  snprintf(s, sizeof s, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
   APPEND_KEYVAL("flood-chan", s);
-  simple_sprintf(s, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
+  snprintf(s, sizeof s, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
   APPEND_KEYVAL("flood-ctcp", s);
-  simple_sprintf(s, "%d %d", chan->flood_join_thr, chan->flood_join_time);
+  snprintf(s, sizeof s, "%d %d", chan->flood_join_thr, chan->flood_join_time);
   APPEND_KEYVAL("flood-join", s);
-  simple_sprintf(s, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
+  snprintf(s, sizeof s, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
   APPEND_KEYVAL("flood-kick", s);
-  simple_sprintf(s, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
+  snprintf(s, sizeof s, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
   APPEND_KEYVAL("flood-deop", s);
-  simple_sprintf(s, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
+  snprintf(s, sizeof s, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
   APPEND_KEYVAL("flood-nick", s);
-  simple_sprintf(s, "%d %d", chan->aop_min, chan->aop_max);
+  snprintf(s, sizeof s, "%d %d", chan->aop_min, chan->aop_max);
   APPEND_KEYVAL("aop-delay", s);
 
   /* Last, but not least - flags */
@@ -1149,33 +1149,33 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
   else if (!strcmp(setting, "need-limit"))
     strlcpy(s, chan->need_limit, sizeof s);
   else if (!strcmp(setting, "idle-kick"))
-    simple_sprintf(s, "%d", chan->idle_kick);
+    snprintf(s, sizeof s, "%d", chan->idle_kick);
   else if (!strcmp(setting, "stopnethack-mode") || !strcmp(setting, "stop-net-hack"))
-    simple_sprintf(s, "%d", chan->stopnethack_mode);
+    snprintf(s, sizeof s, "%d", chan->stopnethack_mode);
   else if (!strcmp(setting, "revenge-mode"))
-    simple_sprintf(s, "%d", chan->revenge_mode);
+    snprintf(s, sizeof s, "%d", chan->revenge_mode);
   else if (!strcmp(setting, "ban-type"))
-    simple_sprintf(s, "%d", chan->ban_type);
+    snprintf(s, sizeof s, "%d", chan->ban_type);
   else if (!strcmp(setting, "ban-time"))
-    simple_sprintf(s, "%d", chan->ban_time);
+    snprintf(s, sizeof s, "%d", chan->ban_time);
   else if (!strcmp(setting, "exempt-time"))
-    simple_sprintf(s, "%d", chan->exempt_time);
+    snprintf(s, sizeof s, "%d", chan->exempt_time);
   else if (!strcmp(setting, "invite-time"))
-    simple_sprintf(s, "%d", chan->invite_time);
+    snprintf(s, sizeof s, "%d", chan->invite_time);
   else if (!strcmp(setting, "flood-chan"))
-    simple_sprintf(s, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
+    snprintf(s, sizeof s, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
   else if (!strcmp(setting, "flood-ctcp"))
-    simple_sprintf(s, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
+    snprintf(s, sizeof s, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
   else if (!strcmp(setting, "flood-join"))
-    simple_sprintf(s, "%d %d", chan->flood_join_thr, chan->flood_join_time);
+    snprintf(s, sizeof s, "%d %d", chan->flood_join_thr, chan->flood_join_time);
   else if (!strcmp(setting, "flood-kick"))
-    simple_sprintf(s, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
+    snprintf(s, sizeof s, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
   else if (!strcmp(setting, "flood-deop"))
-    simple_sprintf(s, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
+    snprintf(s, sizeof s, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
   else if (!strcmp(setting, "flood-nick"))
-    simple_sprintf(s, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
+    snprintf(s, sizeof s, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
   else if (!strcmp(setting, "aop-delay"))
-    simple_sprintf(s, "%d %d", chan->aop_min, chan->aop_max);
+    snprintf(s, sizeof s, "%d %d", chan->aop_min, chan->aop_max);
   else if CHKFLAG_POS(CHAN_ENFORCEBANS, "enforcebans", chan->status)
   else if CHKFLAG_POS(CHAN_DYNAMICBANS, "dynamicbans", chan->status)
   else if CHKFLAG_NEG(CHAN_NOUSERBANS, "userbans", chan->status)
