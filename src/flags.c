@@ -1379,10 +1379,10 @@ static int botfl_pack(struct userrec *u, struct user_entry *e)
   struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
 
   fr.bot = e->u.ulong;
-  e->u.list = user_malloc(sizeof(struct list_type));
+  e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(build_flags(x, &fr, NULL) + 1);
-  strlcpy(e->u.list->extra, x, sizeof(e->u.list->extra));
+  strcpy(e->u.list->extra, x);
   return 1;
 }
 

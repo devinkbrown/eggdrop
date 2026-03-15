@@ -52,7 +52,7 @@ static int fstat_unpack(struct userrec *u, struct user_entry *e)
 static int fstat_pack(struct userrec *u, struct user_entry *e)
 {
   struct filesys_stats *fs;
-  struct list_type *l = user_malloc(sizeof(struct list_type));
+  struct list_type *l = alloc_list_type();
 
   fs = e->u.extra;
   l->extra = user_malloc(41);

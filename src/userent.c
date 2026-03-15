@@ -63,7 +63,7 @@ void list_type_kill(struct list_type *t)
     u = t->next;
     if (t->extra)
       nfree(t->extra);
-    nfree(t);
+    free_list_type(t);
     t = u;
   }
 }
@@ -94,7 +94,7 @@ int def_pack(struct userrec *u, struct user_entry *e)
   char *tmp;
 
   tmp = e->u.string;
-  e->u.list = user_malloc(sizeof(struct list_type));
+  e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = tmp;
   return 1;
@@ -427,10 +427,10 @@ static int laston_pack(struct userrec *u, struct user_entry *e)
 
   li = (struct laston_info *) e->u.extra;
   l = snprintf(work, sizeof(work), "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
-  e->u.list = user_malloc(sizeof(struct list_type));
+  e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
-  strlcpy(e->u.list->extra, work, sizeof(e->u.list->extra));
+  strlcpy(e->u.list->extra, work, l + 1);
   nfree(li->lastonplace);
   nfree(li);
   return 1;
@@ -648,10 +648,10 @@ static int botaddr_pack(struct userrec *u, struct user_entry *e)
   l = snprintf(q, sizeof(work) - (q - work), ":%u/%u",
                bi->telnet_port, bi->relay_port);
 #endif
-  e->u.list = user_malloc(sizeof(struct list_type));
+  e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
-  strlcpy(e->u.list->extra, work, sizeof(e->u.list->extra));
+  strlcpy(e->u.list->extra, work, l + 1);
   nfree(bi->address);
   nfree(bi);
   return 1;
@@ -1017,7 +1017,7 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
   curr = e->u.extra;
   e->u.list = NULL;
   while (curr) {
-    t = user_malloc(sizeof(struct list_type));
+    t = alloc_list_type();
     t->extra = user_malloc(strlen(curr->key) + strlen(curr->data) + 4);
     snprintf(t->extra, strlen(curr->key) + strlen(curr->data) + 4, "%s %s", curr->key, curr->data);
     list_insert((&e->u.list), t);
@@ -1296,11 +1296,11 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
         *t = (*t)->next;
         if (u->extra)
           nfree(u->extra);
-        nfree(u);
+        free_list_type(u);
       } else
         t = &((*t)->next);
     }
-    *t = user_malloc(sizeof(struct list_type));
+    *t = alloc_list_type();
 
     (*t)->next = NULL;
     {
@@ -1493,11 +1493,11 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
         *t = (*t)->next;
         if (u->extra)
           nfree(u->extra);
-        nfree(u);
+        free_list_type(u);
       } else
         t = &((*t)->next);
     }
-    *t = user_malloc(sizeof(struct list_type));
+    *t = alloc_list_type();
 
     (*t)->next = NULL;
     {

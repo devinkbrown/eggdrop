@@ -1836,10 +1836,10 @@ static struct userrec *dup_userlist(int t)
           for (lt = ue->u.list; lt; lt = lt->next) {
             struct list_type *list;
 
-            list = user_malloc(sizeof(struct list_type));
+            list = alloc_list_type();
             list->next = NULL;
             list->extra = user_malloc(strlen(lt->extra) + 1);
-            strlcpy(list->extra, lt->extra, sizeof(list->extra));
+            strcpy(list->extra, lt->extra);
             egg_list_append((&nue->u.list), list);
           }
         } else {

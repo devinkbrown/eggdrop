@@ -1774,8 +1774,19 @@ static void ircx_do_autoowner(void)
       /* Send OWNERKEY as part of JOIN so server grants +q */
       dprintf(DP_SERVER, "JOIN %s %s\n", ao->channel, ao->ownerkey);
       putlog(LOG_MISC, ao->channel, "IRCX: Joining %s with OWNERKEY for auto-owner", ao->channel);
-    } else if (ao->create_if_missing) {
-      ircx_chan_create(ao->channel, ao->create_modes[0] ? ao->create_modes : NULL);
+    } else {
+      /* No ownerkey: JOIN normally (or with any configured key_prot).
+       * Only use CREATE if explicitly configured AND the bot is not already
+       * in the channel. */
+      struct chanset_t *ch = findchan_by_dname(ao->channel);
+      if (ch && channel_active(ch))
+        continue;  /* already joined, nothing to do */
+      if (ch && ch->key_prot[0])
+        dprintf(DP_SERVER, "JOIN %s %s\n", ao->channel, ch->key_prot);
+      else if (ao->create_if_missing)
+        ircx_chan_create(ao->channel, ao->create_modes[0] ? ao->create_modes : NULL);
+      else
+        dprintf(DP_SERVER, "JOIN %s\n", ao->channel);
     }
   }
 }

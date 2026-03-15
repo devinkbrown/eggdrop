@@ -789,6 +789,15 @@ static int tcl_ircxautoowner STDVAR
     existing->create_if_missing = atoi(argv[3]);
   if (argc >= 5)
     strlcpy(existing->create_modes, argv[4], sizeof(existing->create_modes));
+  /* Mirror settings into chanset so they are saved in the channel file */
+  {
+    struct chanset_t *ch = findchan_by_dname(existing->channel);
+    if (ch) {
+      strlcpy(ch->ircx_ownerkey, existing->ownerkey, sizeof(ch->ircx_ownerkey));
+      ch->ircx_create = existing->create_if_missing;
+      strlcpy(ch->ircx_create_modes, existing->create_modes, sizeof(ch->ircx_create_modes));
+    }
+  }
 
   putlog(LOG_MISC, existing->channel,
          "IRCX: Auto-owner configured for %s (ownerkey=%s, create=%d)",

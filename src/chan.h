@@ -224,6 +224,10 @@ struct chanset_t {
   time_t floodtime[FLOOD_CHAN_MAX];
   int floodnum[FLOOD_CHAN_MAX];
   char deopd[NICKLEN];   /* last user deopped                 */
+  /* IRCX-specific per-channel settings */
+  char ircx_ownerkey[128]; /* OWNERKEY for JOIN to get +q       */
+  int  ircx_create;        /* use CREATE if channel is missing  */
+  char ircx_create_modes[32]; /* modes applied after CREATE     */
 };
 
 #define CHAN_ENFORCEBANS    0x0001     /* +enforcebans    */
