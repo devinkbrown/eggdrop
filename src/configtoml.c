@@ -1184,20 +1184,23 @@ int run_setup_wizard(const char *outfile)
 "]\n"
 "\n");
 
-  /* IRCX auto-owner Tcl code block */
+  /* IRCX auto-owner Tcl code block.
+   * We register channels with ircxautoowner directly in the code block so
+   * the list is populated before any server connections are made.
+   * ircx_do_autoowner() runs when got800 (RPL_IRCX) fires and joins each
+   * channel with the OWNERKEY so the server grants +q immediately on join.
+   * If ircxautoowner is called while IRCX is already active (e.g. late bind
+   * or manual call), the immediate-trigger path in tclserv.c handles it. */
   if (want_ircx && ircx_want_autoowner && nchan > 0) {
     fprintf(fp,
-"# IRCX: request +q (owner) on your channels after server connect.\n"
-"# ircxautoowner <channel> [ownerkey] [create-if-empty 0|1] [modes]\n"
-"code = \"\"\"\n"
-"bind evnt - init-server {\n"
-"  after 2000 {\n");
+"# IRCX: register channels for auto-owner (+q) on every server connect.\n"
+"# The bot joins each channel with the OWNERKEY; the server grants +q.\n"
+"# ircxautoowner <channel> [ownerkey] [create-if-empty 0|1]\n"
+"code = \"\"\"\n");
     for (i = 0; i < nchan; i++)
-      fprintf(fp, "    ircxautoowner %s \"%s\" 1\n",
+      fprintf(fp, "ircxautoowner %s \"%s\" 1\n",
               channels[i], ircx_ownerkey);
     fprintf(fp,
-"  }\n"
-"}\n"
 "\"\"\"\n"
 "\n");
   } else {

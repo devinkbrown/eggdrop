@@ -109,7 +109,8 @@ static struct monitor_list *monitor = NULL;
 /* =========================================================================
  * IRCX / Ophion network state (https://github.com/devinkbrown/ophion)
  * ========================================================================= */
-static int ircx_enabled = 0;           /* IRCX mode active on current server */
+static int ircx_enabled = 0;           /* IRCX mode active on current server  */
+static int ircx_negotiating = 0;       /* IRCX cmd sent, awaiting 800 reply   */
 static int ircx_auto_negotiate = 1;    /* Auto-send IRCX cmd on Ophion nets   */
 static int ircx_owner_support = 0;     /* Server supports +q owner mode       */
 static int ircx_prop_support = 0;      /* Server supports PROP command        */
@@ -1693,8 +1694,14 @@ static void do_nettype(void)
 static void ircx_send_negotiate(void)
 {
   if (serv < 0) return;
+  if (ircx_negotiating || ircx_enabled) {
+    putlog(LOG_DEBUG, "*", "IRCX: Skipping duplicate negotiate (negotiating=%d enabled=%d)",
+           ircx_negotiating, ircx_enabled);
+    return;
+  }
+  ircx_negotiating = 1;
   dprintf(DP_MODE, "IRCX\n");
-  putlog(LOG_MISC, "*", "IRCX: Sending IRCX negotiation command");
+  putlog(LOG_MISC, "*", "IRCX: Sent IRCX negotiation command, awaiting 800 RPL_IRCX");
 }
 
 /* Send a PROP command to get/set a property on a channel or user. */

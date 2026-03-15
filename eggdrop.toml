@@ -643,15 +643,12 @@ ircx_ownerkey = ""
 # 2. Add your server in [servers]:
 #      list = ["irc.example.net:6667"]
 #
-# 3. Configure auto-owner in [tcl]:
+# 3. Register channels for auto-owner in [tcl]:
 #      code = """
-#      # Runs after every server connect; requests +q on join.
-#      bind evnt - init-server {
-#        after 2000 {
-#          ircxautoowner #lobby myownerkey 1 +nt
-#          ircxautoowner #ops   adminkey   0
-#        }
-#      }
+#      # Registers channels at startup; bot joins with OWNERKEY when
+#      # IRCX is confirmed (800 RPL_IRCX), getting +q automatically.
+#      ircxautoowner #lobby myownerkey 1
+#      ircxautoowner #ops   adminkey   0
 #      """
 #
 # 4. Optionally set up access lists:
