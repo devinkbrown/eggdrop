@@ -550,7 +550,7 @@ static void check_lonely_channel(struct chanset_t *chan)
   int i = 0;
 
   if (channel_pending(chan) || !channel_active(chan) || me_op(chan) ||
-      channel_inactive(chan) || (chan->channel.mode & CHANANON))
+      me_owner(chan) || channel_inactive(chan) || (chan->channel.mode & CHANANON))
     return;
   /* Count non-split channel members */
   for (m = chan->channel.member; m && m->nick[0]; m = m->next)
