@@ -348,6 +348,11 @@ notefile = "LamestBot.notes"
 # External IP for NAT setups (home routers, etc.).
 # nat_ip = "127.0.0.1"
 
+# Address to listen on for DCC and telnet connections.
+# On multi-homed hosts set this to the interface the bot should accept on.
+# Defaults to all interfaces ("") which is correct in most cases.
+# listen_addr = ""
+
 # Prefer IPv6 connections when available.
 prefer_ipv6 = 0
 
@@ -511,8 +516,10 @@ share_greet = 0
 # Use "Ophion" to enable full IRCX/Ophion protocol support (see [ircx] below).
 net_type = "EFnet"
 
-# Maximum nick length (0 = server default).
-# nick_len = 9
+# Maximum nick length. 0 = auto-detect via ISUPPORT NICKLEN (recommended).
+# Override only if your network doesn't send ISUPPORT or you need a hard cap.
+# Default varies by net_type: EFnet=9, IRCnet=15, Undernet/Rizon/Ophion=30.
+# nick_len = 0
 
 # CTCP reply mode. 0 = normal, 1 = ignore all, 2 = reply to ctcp in channel.
 ctcp_mode = 0
@@ -575,9 +582,6 @@ account_notify = 1
 # Request EXTENDED-JOIN CAP (includes account name in JOIN messages).
 extended_join = 1
 
-# Maximum nick length. 0 = use network default (set via ISUPPORT NICKLEN).
-# nick_len = 9
-
 # ── Message flood limits ─────────────────────────────────────────────────────
 # Max private messages before flood protection triggers (count:seconds).
 flood_msg = "5:60"
@@ -595,6 +599,61 @@ away_notify   = 0     # away-notify: receive AWAY notices for tracked users
 invite_notify = 0     # invite-notify: receive INVITE notifications in channel
 message_tags  = 0     # message-tags: enable IRCv3 message tags
 account_tag   = 0     # account-tag: include account in tagged messages
+
+# ── Advanced IRC mode / kick settings ───────────────────────────────────────
+# Number of channel modes to include in each MODE command (default: 3).
+# Most networks allow 3–6; set by net_type automatically.
+# modes_per_line = 3
+
+# Kick method: 0=single KICK, 1=multi-user KICK (default: 1).
+# kick_method = 1
+
+# Include +l and +k when computing current channel modes (default: 1).
+# Disable only if your network has unusual mode-tracking behaviour.
+# include_lk = 1
+
+# Require RFC-compliant mode-change tracking (default: 1, 0 for Undernet).
+# rfc_compliant = 1
+
+# Use ircu-style short 354 responses to /WHO (Undernet / ircu networks).
+# use_354 = 0
+
+# Track channel invites by key (+I modes with key argument).
+# invite_key = 1
+
+# Maximum bans/exempts/invites/modes per channel.
+# Normally set automatically by net_type — override only when needed.
+# max_bans    = 30
+# max_exempts = 20
+# max_invites = 20
+# max_modes   = 30
+
+# Check for IRCnet +r (registered-only) channel mode.
+# check_mode_r = 0
+
+# Use server-side message penalty accounting to throttle output.
+# Recommended for IRCnet (set automatically when net_type = "IRCnet").
+# use_penalties = 0
+
+# Fast dequeue algorithm: 0=off, 2=faster, 3=fastest (for Undernet/ircu).
+# Set automatically by net_type — override if you know your network.
+# use_fastdeq = 0
+
+# ── Server connect hooks ──────────────────────────────────────────────────────
+# Raw IRC commands sent immediately after the bot registers on the server.
+# Example: "UMODE2 +x" to set an invisible hostmask.
+# init_server = ""
+
+# Raw IRC commands sent before the bot begins the connection/registration.
+# Rarely needed; used for bnc/proxy authentication protocols.
+# connect_server = ""
+
+# Stackable server commands (space-separated).  Commands in this list can
+# be merged into fewer lines to reduce server queue usage.
+# stackable_commands = ""
+
+# Secondary stackable commands list.
+# stackable2_commands = ""
 
 # ── Proxy / firewall ─────────────────────────────────────────────────────────
 # SOCKS4/5 or Sun passthru proxy.  Prefix with '!' for Sun telnet passthru.
@@ -635,6 +694,17 @@ sasl_continue = 1
 
 # Seconds before SASL handshake times out.
 sasl_timeout = 15
+
+# ────────────────────────────────────────────────────────────────────────────
+# CTCP REPLIES (ctcp.mod)
+# Override the default CTCP VERSION / FINGER / USERINFO responses.
+# Leave commented to use the built-in eggdrop version string.
+# ────────────────────────────────────────────────────────────────────────────
+
+[ctcp]
+# ctcp_version  = "Eggdrop v1.9 (Linux)"
+# ctcp_finger   = "Eggdrop v1.9 (Linux)"
+# ctcp_userinfo = "Eggdrop v1.9 (Linux)"
 
 # ────────────────────────────────────────────────────────────────────────────
 # IRCX / OPHION NETWORK SUPPORT
@@ -769,6 +839,36 @@ dcc_block = 0
 # Seconds before an idle DCC transfer times out.
 xfer_timeout = 30
 
+# Unlink (delete) partially-received files when a share transfer fails.
+sharefail_unlink = 0
+
+# ────────────────────────────────────────────────────────────────────────────
+# USERFILE SHARING (share.mod)
+# Controls how the bot shares its user database with linked bots.
+# Requires share.mod to be loaded and a botnet link established.
+# ────────────────────────────────────────────────────────────────────────────
+
+[share]
+# Allow other bots to request a full userfile resync from this bot.
+allow_resync = 0
+
+# Seconds to wait before sending a requested resync (rate-limiting).
+resync_time = 900
+
+# Do not share global user flags with linked bots.
+# When enabled, the bot keeps its own global flags and does not propagate them.
+private_global = 0
+
+# Do not share user records with linked bots at all.
+private_user = 0
+
+# Override local bot records with incoming ones from linked bots.
+override_bots = 0
+
+# Space-separated list of global flag letters to keep private (not shared).
+# Example: "b n" keeps +b (bot) and +n (owner) flags local only.
+# private_globals = ""
+
 # ────────────────────────────────────────────────────────────────────────────
 # FILE SERVER (filesys.mod)
 # ────────────────────────────────────────────────────────────────────────────
@@ -812,6 +912,29 @@ notify_users = 0
 notify_onjoin = 1
 
 # ────────────────────────────────────────────────────────────────────────────
+# DNS MODULE (dns.mod)
+# Eggdrop has a built-in async DNS resolver (dns.mod).  These settings tune
+# its behaviour.  They have no effect if dns.mod is not loaded.
+# ────────────────────────────────────────────────────────────────────────────
+
+[dns]
+# Maximum number of DNS queries to send per polling pass.
+dns_maxsends = 4
+
+# Seconds to wait before retrying a failed DNS query.
+dns_retrydelay = 3
+
+# Seconds to cache successful DNS results (default: 86400 = 24 h).
+dns_cache = 86400
+
+# Seconds to cache negative (NXDOMAIN) results (default: 600 = 10 min).
+dns_negcache = 600
+
+# Space-separated list of DNS server IPs to use instead of /etc/resolv.conf.
+# Leave empty to use the system resolver.
+# dns_servers = "1.1.1.1 8.8.8.8"
+
+# ────────────────────────────────────────────────────────────────────────────
 # CONSOLE MODULE (console.mod)
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -840,8 +963,16 @@ info_party = 0
 # PBKDF2 iteration count.
 # pbkdf2_rounds = 16000
 
+# Automatically re-encode legacy passwords to PBKDF2 when a user logs in.
+# Set to 0 to keep passwords in their original format.
+pbkdf2_re_encode = 1
+
 # Blowfish encryption mode: cbc or ecb.
 blowfish_use_mode = "cbc"
+
+# Compression level for compress.mod userfile sharing (1=fast … 9=best, default 9).
+# Only used when compress.mod is loaded and share_compressed = 1.
+# compress_level = 9
 
 # ────────────────────────────────────────────────────────────────────────────
 # IDENT MODULE (ident.mod)
