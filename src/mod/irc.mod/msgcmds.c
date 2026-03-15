@@ -29,6 +29,8 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
   int atr = 0;
   struct chanset_t *chan;
 
+  if (!allow_hello)
+    return 0;
   if (!learn_users && !make_userfile)
     return 0;
 
@@ -214,6 +216,8 @@ static int msg_addhost(char *nick, char *host, struct userrec *u, char *par)
 {
   char *pass;
 
+  if (!allow_addhost)
+    return 0;
   if (match_my_nick(nick) || !u || (u->flags & USER_BOT))
     return 1;
 

@@ -453,15 +453,46 @@ void chanprog(void)
 
   if (!readuserfile(userfile, &userlist)) {
     if (!make_userfile) {
-      char tmp[256];
+      if (owner[0]) {
+        /* Auto-create the userfile from the owner= list so -m is not needed. */
+        char *p, *q, s[sizeof owner];
 
-      snprintf(tmp, sizeof tmp, MISC_NOUSERFILE, configfile);
-      fatal(tmp, 0);
+        printf("\nNo user file found — creating '%s' from owner list.\n",
+               userfile);
+        q = owner;
+        p = strchr(q, ',');
+        while (p) {
+          strlcpy(s, q, (size_t)(p - q) + 1);
+          rmspace(s);
+          if (s[0] && !get_user_by_handle(userlist, s)) {
+            userlist = adduser(userlist, s, "-", "-",
+                               sanity_check(USER_MASTER | USER_OWNER));
+            printf("  Created owner: %s\n", s);
+          }
+          q = p + 1;
+          p = strchr(q, ',');
+        }
+        strlcpy(s, q, sizeof s);
+        rmspace(s);
+        if (s[0] && !get_user_by_handle(userlist, s)) {
+          userlist = adduser(userlist, s, "-", "-",
+                             sanity_check(USER_MASTER | USER_OWNER));
+          printf("  Created owner: %s\n", s);
+        }
+        write_userfile(-1);
+        printf("User file created.  Connect to the bot via DCC to set your password.\n\n");
+      } else {
+        char tmp[256];
+
+        snprintf(tmp, sizeof tmp, MISC_NOUSERFILE, configfile);
+        fatal(tmp, 0);
+      }
+    } else {
+      printf("\n\n%s\n", MISC_NOUSERFILE2);
+      if (module_find("server", 0, 0))
+        printf(MISC_USERFCREATE1, origbotname);
+      printf("%s\n\n", MISC_USERFCREATE2);
     }
-    printf("\n\n%s\n", MISC_NOUSERFILE2);
-    if (module_find("server", 0, 0))
-      printf(MISC_USERFCREATE1, origbotname);
-    printf("%s\n\n", MISC_USERFCREATE2);
   } else if (make_userfile) {
     make_userfile = 0;
     printf("%s\n", MISC_USERFEXISTS);

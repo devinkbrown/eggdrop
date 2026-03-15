@@ -2,8 +2,7 @@
 # This is the modern alternative to eggdrop-basic.conf.
 #
 # Run the bot with:
-#   eggdrop mybot.toml          (reads TOML automatically)
-#   eggdrop -m mybot.toml       (first run: creates user file)
+#   eggdrop mybot.toml          (reads TOML automatically; user file created on first run)
 #
 # No chmod needed — the bot reads this file directly; it is NOT
 # executed as a script.
@@ -65,7 +64,9 @@ admin    = "Lamer <email: lamer@lamest.lame.org>"
 # IRC network name (informational only; shared with other bots).
 network  = "I.didn't.edit.my.config.file.net"
 
-# Comma-separated list of bot owner handles (must exist in the user file).
+# Comma-separated list of bot owner handles.
+# On first run, if no user file exists, the bot creates it automatically with
+# these handles as owners — no -m flag needed.
 # Uncomment and edit this — it is required!
 # owner = "MyNick, MyOtherNick"
 
@@ -96,6 +97,47 @@ list = [
 
 [channels]
 list = ["#egghelp"]
+
+# ---------------------------------------------------------------------------
+# Per-channel settings  [[chanset]]
+# ---------------------------------------------------------------------------
+# One [[chanset]] block per channel.  channel = "#name" is required first.
+#
+# Boolean flags (true/false):
+#   autoop autohalfop autovoice bitch cycle dontkickops
+#   dynamicbans dynamicexempts dynamicinvites enforcebans greet inactive
+#   nodesynch protectfriends protecthalfops protectops revenge revengebot
+#   secret seen shared static statuslog userbans userexempts userinvites
+#
+# Valued options:
+#   chanmode = "+modes"         enforce channel modes (include +k key for key)
+#   idle_kick = N               kick idle users after N minutes (0 = off)
+#   stopnethack_mode = 0-6      netsplit protection (0 = off)
+#   revenge_mode = 0-3          punishment level (0=deop … 3=ban)
+#   ban_type = N                ban mask type (default 3)
+#   ban_time / exempt_time / invite_time = N   (minutes, 0 = never expire)
+#   flood_chan / flood_ctcp / flood_join / flood_kick / flood_deop / flood_nick
+#               = "N:S"         flood threshold (N events per S seconds)
+#   aop_delay = "N:M"           random auto-op delay (seconds)
+#   need_op / need_invite / need_key / need_unban / need_limit = "tcl script"
+#
+# IRCX / Ophion only:
+#   ownerkey = "key"            OWNERKEY for +q on join
+#   ircx_create = true          CREATE channel if it does not exist
+#   ircx_create_modes = "+mds"  modes applied after CREATE
+#
+# [[chanset]]
+# channel          = "#egghelp"
+# chanmode         = "+nts"
+# cycle            = false
+# idle_kick        = 30
+# flood_chan        = "20:60"
+#
+# [[chanset]]
+# channel          = "#ophion-channel"
+# ownerkey         = "s3cr3t"
+# ircx_create      = true
+# ircx_create_modes = "+nts"
 
 # ---------------------------------------------------------------------------
 # File paths
