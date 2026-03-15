@@ -267,7 +267,7 @@ void botnet_send_chat(int idx, char *botnick, char *data)
   int i;
 
   if (tands > 0) {
-    i = simple_sprintf(OBUF, "ct %s %s\n", botnick, data);
+    i = snprintf(OBUF, sizeof OBUF, "ct %s %s\n", botnick, data);
     send_tand_but(idx, OBUF, -i);
 #ifndef NO_OLD_BOTNET
     tandout_but(idx, "chat %s %s\n", botnick, data);
@@ -310,17 +310,17 @@ void botnet_send_priv (int idx, char *from, char *to, char *tobot, const char *f
   if (tobot) {
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
-      l = simple_sprintf(OBUF, "priv %s %s@%s %s\n", from, to, tobot, tbuf);
+      l = snprintf(OBUF, sizeof OBUF, "priv %s %s@%s %s\n", from, to, tobot, tbuf);
     else
 #endif
-      l = simple_sprintf(OBUF, "p %s %s@%s %s\n", from, to, tobot, tbuf);
+      l = snprintf(OBUF, sizeof OBUF, "p %s %s@%s %s\n", from, to, tobot, tbuf);
   } else {
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
-      l = simple_sprintf(OBUF, "priv %s %s %s\n", from, to, tbuf);
+      l = snprintf(OBUF, sizeof OBUF, "priv %s %s %s\n", from, to, tbuf);
     else
 #endif
-      l = simple_sprintf(OBUF, "p %s %s %s\n", from, to, tbuf);
+      l = snprintf(OBUF, sizeof OBUF, "p %s %s %s\n", from, to, tbuf);
   }
   dprint(idx, OBUF, l);
 }
@@ -331,7 +331,7 @@ void botnet_send_who(int idx, char *from, char *to, int chan)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "who %s %s %d\n", from, to, chan);
+    l = snprintf(OBUF, sizeof OBUF, "who %s %s %d\n", from, to, chan);
   else
 #endif
     l = simple_sprintf(OBUF, "w %s %s %D\n", from, to, chan);
@@ -340,7 +340,7 @@ void botnet_send_who(int idx, char *from, char *to, int chan)
 
 void botnet_send_infoq(int idx, char *par)
 {
-  int i = simple_sprintf(OBUF, "i? %s\n", par);
+  int i = snprintf(OBUF, sizeof OBUF, "i? %s\n", par);
 
   send_tand_but(idx, OBUF, i);
 #ifndef NO_OLD_BOTNET
@@ -354,10 +354,10 @@ void botnet_send_unlink(int idx, char *who, char *via, char *bot, char *reason)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "unlink %s %s %s %s\n", who, via, bot, reason);
+    l = snprintf(OBUF, sizeof OBUF, "unlink %s %s %s %s\n", who, via, bot, reason);
   else
 #endif
-    l = simple_sprintf(OBUF, "ul %s %s %s %s\n", who, via, bot, reason);
+    l = snprintf(OBUF, sizeof OBUF, "ul %s %s %s %s\n", who, via, bot, reason);
   dprint(idx, OBUF, l);
 }
 
@@ -366,10 +366,10 @@ void botnet_send_link(int idx, char *who, char *via, char *bot)
   int l;
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "link %s %s %s\n", who, via, bot);
+    l = snprintf(OBUF, sizeof OBUF, "link %s %s %s\n", who, via, bot);
   else
 #endif
-    l = simple_sprintf(OBUF, "l %s %s %s\n", who, via, bot);
+    l = snprintf(OBUF, sizeof OBUF, "l %s %s %s\n", who, via, bot);
   dprint(idx, OBUF, l);
 }
 
@@ -378,7 +378,7 @@ void botnet_send_unlinked(int idx, char *bot, char *args)
   int l;
 
   if (tands > 0) {
-    l = simple_sprintf(OBUF, "un %s %s\n", bot, args ? args : "");
+    l = snprintf(OBUF, sizeof OBUF, "un %s %s\n", bot, args ? args : "");
     send_tand_but(idx, OBUF, l);
 #ifndef NO_OLD_BOTNET
     if ((idx >= 0) && (b_numver(idx) >= NEAT_BOTNET) && args && args[0])
@@ -411,10 +411,10 @@ void botnet_send_traced(int idx, char *bot, char *buf)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "traced %s %s\n", bot, buf);
+    l = snprintf(OBUF, sizeof OBUF, "traced %s %s\n", bot, buf);
   else
 #endif
-    l = simple_sprintf(OBUF, "td %s %s\n", bot, buf);
+    l = snprintf(OBUF, sizeof OBUF, "td %s %s\n", bot, buf);
   dprint(idx, OBUF, l);
 }
 
@@ -424,10 +424,10 @@ void botnet_send_trace(int idx, char *to, char *from, char *buf)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "trace %s %s %s:%s\n", to, from, buf, botnetnick);
+    l = snprintf(OBUF, sizeof OBUF, "trace %s %s %s:%s\n", to, from, buf, botnetnick);
   else
 #endif
-    l = simple_sprintf(OBUF, "t %s %s %s:%s\n", to, from, buf, botnetnick);
+    l = snprintf(OBUF, sizeof OBUF, "t %s %s %s:%s\n", to, from, buf, botnetnick);
   dprint(idx, OBUF, l);
 }
 
@@ -452,21 +452,21 @@ void botnet_send_reject(int idx, char *fromp, char *frombot, char *top,
 
   if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
     if (tobot) {
-      simple_sprintf(to, "%s@%s", top, tobot);
+      snprintf(to, sizeof to, "%s@%s", top, tobot);
       top = to;
     }
     if (frombot) {
-      simple_sprintf(from, "%s@%s", fromp, frombot);
+      snprintf(from, sizeof from, "%s@%s", fromp, frombot);
       fromp = from;
     }
     if (!reason)
       reason = "";
 #ifndef NO_OLD_BOTNET
     if (b_numver(idx) < NEAT_BOTNET)
-      l = simple_sprintf(OBUF, "reject %s %s %s\n", fromp, top, reason);
+      l = snprintf(OBUF, sizeof OBUF, "reject %s %s %s\n", fromp, top, reason);
     else
 #endif
-      l = simple_sprintf(OBUF, "r %s %s %s\n", fromp, top, reason);
+      l = snprintf(OBUF, sizeof OBUF, "r %s %s %s\n", fromp, top, reason);
     dprint(idx, OBUF, l);
   }
 }
@@ -477,10 +477,10 @@ void botnet_send_zapf(int idx, char *a, char *b, char *c)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "zapf %s %s %s\n", a, b, c);
+    l = snprintf(OBUF, sizeof OBUF, "zapf %s %s %s\n", a, b, c);
   else
 #endif
-    l = simple_sprintf(OBUF, "z %s %s %s\n", a, b, c);
+    l = snprintf(OBUF, sizeof OBUF, "z %s %s %s\n", a, b, c);
   dprint(idx, OBUF, l);
 }
 
@@ -489,7 +489,7 @@ void botnet_send_zapf_broad(int idx, char *a, char *b, char *c)
   int l;
 
   if (tands > 0) {
-    l = simple_sprintf(OBUF, "zb %s %s%s%s\n", a, b ? b : "", b ? " " : "", c);
+    l = snprintf(OBUF, sizeof OBUF, "zb %s %s%s%s\n", a, b ? b : "", b ? " " : "", c);
     send_tand_but(idx, OBUF, l);
 #ifndef NO_OLD_BOTNET
     tandout_but(idx, "zapf-broad %s\n", OBUF + 3);
@@ -503,10 +503,10 @@ void botnet_send_motd(int idx, char *from, char *to)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "motd %s %s\n", from, to);
+    l = snprintf(OBUF, sizeof OBUF, "motd %s %s\n", from, to);
   else
 #endif
-    l = simple_sprintf(OBUF, "m %s %s\n", from, to);
+    l = snprintf(OBUF, sizeof OBUF, "m %s %s\n", from, to);
   dprint(idx, OBUF, l);
 }
 
@@ -516,10 +516,10 @@ void botnet_send_filereject(int idx, char *path, char *from, char *reason)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "filereject %s %s %s\n", path, from, reason);
+    l = snprintf(OBUF, sizeof OBUF, "filereject %s %s %s\n", path, from, reason);
   else
 #endif
-    l = simple_sprintf(OBUF, "f! %s %s %s\n", path, from, reason);
+    l = snprintf(OBUF, sizeof OBUF, "f! %s %s %s\n", path, from, reason);
   dprint(idx, OBUF, l);
 }
 
@@ -529,10 +529,10 @@ void botnet_send_filesend(int idx, char *path, char *from, char *data)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "filesend %s %s %s\n", path, from, data);
+    l = snprintf(OBUF, sizeof OBUF, "filesend %s %s %s\n", path, from, data);
   else
 #endif
-    l = simple_sprintf(OBUF, "fs %s %s %s\n", path, from, data);
+    l = snprintf(OBUF, sizeof OBUF, "fs %s %s %s\n", path, from, data);
   dprint(idx, OBUF, l);
 }
 
@@ -542,10 +542,10 @@ void botnet_send_filereq(int idx, char *from, char *bot, char *path)
 
 #ifndef NO_OLD_BOTNET
   if (b_numver(idx) < NEAT_BOTNET)
-    l = simple_sprintf(OBUF, "filereq %s %s:%s\n", from, bot, path);
+    l = snprintf(OBUF, sizeof OBUF, "filereq %s %s:%s\n", from, bot, path);
   else
 #endif
-    l = simple_sprintf(OBUF, "fr %s %s:%s\n", from, bot, path);
+    l = snprintf(OBUF, sizeof OBUF, "fr %s %s:%s\n", from, bot, path);
   dprint(idx, OBUF, l);
 }
 
@@ -893,7 +893,7 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
           p = newsplit(&msg);
 
           if (*p == '<')
-            l += simple_sprintf(work + l, "via %s, ", p + 1);
+            l += snprintf(work + l, sizeof work - l, "via %s, ", p + 1);
           else if (*from == '@')
             fr = p + 1;
         }

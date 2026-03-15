@@ -284,7 +284,7 @@ static int tcl_assoc STDVAR
     if (chan == -1)
       Tcl_AppendResult(irp, "", NULL);
     else {
-      simple_sprintf(name, "%d", chan);
+      snprintf(name, sizeof name, "%d", chan);
       Tcl_AppendResult(irp, name, NULL);
     }
     return TCL_OK;

@@ -42,7 +42,7 @@ static int ctcp_FINGER(char *nick, char *uhost, char *handle,
                        char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && ctcp_finger[0])
-    simple_sprintf(ctcp_reply, "%s\001FINGER %s\001", ctcp_reply, ctcp_finger);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001FINGER %s\001", ctcp_finger);
   return 1;
 }
 
@@ -50,7 +50,7 @@ static int ctcp_ECHOERR(char *nick, char *uhost, char *handle,
                         char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && strlen(text) <= 80)
-    simple_sprintf(ctcp_reply, "%s\001%s %s\001", ctcp_reply, keyword, text);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001%s %s\001", keyword, text);
   return 1;
 }
 
@@ -61,7 +61,7 @@ static int ctcp_PING(char *nick, char *uhost, char *handle,
   int atr = u ? u->flags : 0;
 
   if ((ctcp_mode != 1 || (atr & USER_OP)) && strlen(text) <= 80)
-    simple_sprintf(ctcp_reply, "%s\001%s %s\001", ctcp_reply, keyword, text);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001%s %s\001", keyword, text);
   return 1;
 }
 
@@ -69,8 +69,7 @@ static int ctcp_VERSION(char *nick, char *uhost, char *handle,
                         char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && ctcp_version[0])
-    simple_sprintf(ctcp_reply, "%s\001VERSION %s\001", ctcp_reply,
-                   ctcp_version);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001VERSION %s\001", ctcp_version);
   return 1;
 }
 
@@ -78,8 +77,7 @@ static int ctcp_USERINFO(char *nick, char *uhost, char *handle,
                          char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && ctcp_userinfo[0])
-    simple_sprintf(ctcp_reply, "%s\001USERINFO %s\001", ctcp_reply,
-                   ctcp_userinfo);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001USERINFO %s\001", ctcp_userinfo);
   return 1;
 }
 
@@ -117,11 +115,10 @@ static int ctcp_CLIENTINFO(char *nick, char *uhosr, char *handle,
   else if (!strcasecmp(msg, "echo"))
     p = CLIENTINFO_ECHO;
   if (p == NULL) {
-    simple_sprintf(ctcp_reply,
-                   "%s\001ERRMSG CLIENTINFO: %s is not a valid function\001",
-                   ctcp_reply, msg);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply),
+             "\001ERRMSG CLIENTINFO: %s is not a valid function\001", msg);
   } else
-    simple_sprintf(ctcp_reply, "%s\001CLIENTINFO %s\001", ctcp_reply, p);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001CLIENTINFO %s\001", p);
   return 1;
 }
 
@@ -134,7 +131,7 @@ static int ctcp_TIME(char *nick, char *uhost, char *handle, char *object,
     return 1;
   ctime_r(&now, s);
   s[24] = 0;
-  simple_sprintf(ctcp_reply, "%s\001TIME %s\001", ctcp_reply, s);
+  snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001TIME %s\001", s);
   return 1;
 }
 
@@ -152,8 +149,7 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
   if ((atr & (USER_PARTY | USER_XFER)) || ((atr & USER_OP) && !require_p)) {
 
     if (u_pass_match(u, "-")) {
-      simple_sprintf(ctcp_reply, "%s\001ERROR no password set\001",
-                     ctcp_reply);
+      snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001ERROR no password set\001");
       return 1;
     }
 
@@ -201,10 +197,10 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
       }
     }
 #ifdef TLS
-    simple_sprintf(ctcp_reply, "%s\001ERROR no %stelnet port\001", ctcp_reply,
-                   (ssl ? "SSL enabled " : ""));
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply),
+             "\001ERROR no %stelnet port\001", (ssl ? "SSL enabled " : ""));
 #else
-    simple_sprintf(ctcp_reply, "%s\001ERROR no telnet port\001", ctcp_reply);
+    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001ERROR no telnet port\001");
 #endif
   }
   return 1;

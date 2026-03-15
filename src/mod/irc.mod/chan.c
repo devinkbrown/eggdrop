@@ -344,7 +344,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, char *from,
       if (use_exempts && (u_match_mask(global_exempts, from) ||
           u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, from)))
         return 1;
-      simple_sprintf(h, "*!*@%s", p);
+      snprintf(h, sizeof h, "*!*@%s", p);
       if (!isbanned(chan, h) && (me_op(chan) || me_halfop(chan))) {
         check_exemptlist(chan, from);
         do_mask(chan, chan->channel.ban, h, 'b');
@@ -555,7 +555,7 @@ static void enforce_bans(struct chanset_t *chan)
   if (HALFOP_CANTDOMODE('b'))
     return;
 
-  simple_sprintf(me, "%s!%s", botname, botuserhost);
+  snprintf(me, sizeof me, "%s!%s", botname, botuserhost);
   /* Go through all bans, kicking the users.
    * Skip extended bans ($a:, $z:, $r:, etc.) — server-side matching only. */
   for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
@@ -1082,8 +1082,8 @@ static int got352or4(struct chanset_t *chan, char *user, char *host,
   }
   strlcpy(m->nick, nick, sizeof m->nick);        /* Store the nick in list */
   /* Store the userhost */
-  simple_sprintf(m->userhost, "%s@%s", user, host);
-  simple_sprintf(userhost, "%s!%s", nick, m->userhost);
+  snprintf(m->userhost, sizeof m->userhost, "%s@%s", user, host);
+  snprintf(userhost, sizeof userhost, "%s!%s", nick, m->userhost);
   /* Combine n!u@h */
   if (match_my_nick(nick)) {    /* Is it me? */
     if (!m->joined)
@@ -2392,7 +2392,7 @@ static int gotkick(char *from, char *origmsg)
     if (m) {
       struct userrec *u2;
 
-      simple_sprintf(s1, "%s!%s", m->nick, m->userhost);
+      snprintf(s1, sizeof s1, "%s!%s", m->nick, m->userhost);
       u2 = get_user_from_member(m);
       set_handle_laston(chan->dname, u2, now);
       maybe_revenge(chan, from, s1, REVENGE_KICK);
