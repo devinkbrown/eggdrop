@@ -48,6 +48,8 @@ static int bounce_exempts = 0;
 static int bounce_invites = 0;
 static int bounce_modes = 0;
 static int learn_users = 0;
+static int allow_hello = 1;     /* respond to /msg hello (learn_users/make_userfile) */
+static int allow_addhost = 1;   /* respond to /msg addhost <pass> <hostmask> */
 static int wait_info = 15;
 static int invite_key = 1;
 static int no_chanrec_info = 0;
@@ -1026,6 +1028,8 @@ static tcl_strings mystrings[] = {
 
 static tcl_ints myints[] = {
   {"learn-users",     &learn_users,     0}, /* arthur2 */
+  {"allow-hello",     &allow_hello,     0},
+  {"allow-addhost",   &allow_addhost,   0},
   {"wait-split",      &wait_split,      0},
   {"wait-info",       &wait_info,       0},
   {"bounce-bans",     &bounce_bans,     0},

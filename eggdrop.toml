@@ -440,6 +440,14 @@ bounce_modes   = 0
 # Learn new users from the IRC userbase.
 learn_users = 0
 
+# Allow /msg hello to add new users (requires learn_users=1 or -m startup).
+# Set to 0 to disable the hello MSG command entirely.
+allow_hello = 1
+
+# Allow /msg addhost <pass> <hostmask> to add a host to a user record.
+# Set to 0 to disable the addhost MSG command entirely.
+allow_addhost = 1
+
 # Buffer length for mode strings.
 mode_buf_length = 200
 
@@ -794,9 +802,9 @@ commands = [
   # "unbind dcc n tcl *dcc:tcl",
   # "unbind dcc n set *dcc:set",
 
-  # Uncomment to disable the 'ident' and 'addhost' MSG commands:
+  # Uncomment to disable the 'ident' MSG command:
   # "unbind msg - ident *msg:ident",
-  # "unbind msg - addhost *msg:addhost",
+  # Note: hello and addhost are controlled by allow_hello / allow_addhost above.
 
   # Override default channel flags for every newly-added channel.
   # Equivalent to the old "set default-chanset { ... }" Tcl block.
