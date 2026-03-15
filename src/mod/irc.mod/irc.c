@@ -366,6 +366,18 @@ static int me_op(struct chanset_t *chan)
     return 0;
 }
 
+/* Check if I am an IRCX owner (+q). Returns boolean 1 or 0.
+ */
+static int me_owner(struct chanset_t *chan)
+{
+  memberlist *mx = NULL;
+
+  mx = ismember(chan, botname);
+  if (!mx)
+    return 0;
+  return (chan_hasowner(mx)) ? 1 : 0;
+}
+
 /* Check if I am a halfop. Returns boolean 1 or 0.
  */
 static int me_halfop(struct chanset_t *chan)

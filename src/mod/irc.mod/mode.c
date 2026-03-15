@@ -34,6 +34,7 @@ static int reversing = 0;
 #define EXEMPT  0x20
 #define INVITE  0x40
 #define CHHOP   0x80
+#define CHOWN   0x100  /* IRCX/Ophion +q owner mode */
 
 static struct flag_record user = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 static struct flag_record victim = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
@@ -756,6 +757,93 @@ static void got_dehalfop(struct chanset_t *chan, char *nick, char *from,
   }
 }
 
+/* =========================================================================
+ * IRCX/Ophion +q owner mode handlers
+ * Reference: https://github.com/devinkbrown/ophion m_ircx_access.c
+ * ========================================================================= */
+
+/* Handle +q (owner mode granted) on IRCX/Ophion networks. */
+static void got_owner(struct chanset_t *chan, char *nick, char *from,
+                      char *who, struct userrec *opu, struct flag_record *opper)
+{
+  memberlist *m;
+  char ch[sizeof chan->name];
+  char s[UHOSTLEN];
+  struct userrec *u;
+
+  m = ismember(chan, who);
+  if (!m) {
+    if (channel_pending(chan))
+      return;
+    putlog(LOG_MISC, chan->dname, CHAN_BADCHANMODE, chan->dname, who);
+    chan->status |= CHAN_PEND;
+    refresh_who_chan(chan->name);
+    return;
+  }
+
+  strlcpy(ch, chan->name, sizeof(ch));
+  u = get_user_from_member(m);
+  get_user_flagrec(u, &victim, chan->dname);
+
+  m->flags |= CHANOWNER;
+  m->flags &= ~SENTOWNER;
+
+  check_tcl_mode(nick, from, opu, chan->dname, "+q", who);
+  if (!(chan = modebind_refresh(ch, from, opper, s, &victim)) ||
+      !(m = ismember(chan, who)))
+    return;
+
+  /* Log the owner grant */
+  simple_sprintf(s, "%s!%s", m->nick, m->userhost);
+  if (match_my_nick(who))
+    putlog(LOG_MISC, chan->dname, "IRCX: I am now channel owner (+q) on %s",
+           chan->dname);
+  else
+    putlog(LOG_MODES, chan->dname, "IRCX: %s granted owner (+q) on %s by %s",
+           who, chan->dname, nick[0] ? nick : "server");
+
+  /* If channel is in bitch mode and the new owner doesn't have owner/master
+   * flag in the bot's user list, remove the +q. */
+  if (chan->channel.mode & 0 /* placeholder - bitch for owners not standard */)
+    ; /* future: could enforce owner policy here */
+}
+
+/* Handle -q (owner mode removed) on IRCX/Ophion networks. */
+static void got_deowner(struct chanset_t *chan, char *nick, char *from,
+                        char *who, struct userrec *opu)
+{
+  memberlist *m;
+  char ch[sizeof chan->name];
+  char s[UHOSTLEN];
+
+  m = ismember(chan, who);
+  if (!m) {
+    if (channel_pending(chan))
+      return;
+    putlog(LOG_MISC, chan->dname, CHAN_BADCHANMODE, chan->dname, who);
+    chan->status |= CHAN_PEND;
+    refresh_who_chan(chan->name);
+    return;
+  }
+
+  strlcpy(ch, chan->name, sizeof(ch));
+  simple_sprintf(s, "%s!%s", m->nick, m->userhost);
+
+  m->flags &= ~(CHANOWNER | SENTDEOWNER);
+
+  check_tcl_mode(nick, from, opu, chan->dname, "-q", who);
+  if (!(chan = modebind_refresh(ch, from, &user, s, &victim)) ||
+      !(m = ismember(chan, who)))
+    return;
+
+  if (match_my_nick(who))
+    putlog(LOG_MISC, chan->dname, "IRCX: I lost channel owner (-q) on %s",
+           chan->dname);
+  else
+    putlog(LOG_MODES, chan->dname, "IRCX: %s lost owner (-q) on %s",
+           who, chan->dname);
+}
+
 static void got_ban(struct chanset_t *chan, char *nick, char *from, char *who,
                     char *ch, struct userrec *u)
 {
@@ -1151,6 +1239,19 @@ static int gotmode(char *from, char *origmsg)
             reversing = 1;
           break;
         case 'q':
+          /* On IRCX/Ophion networks +q is the owner mode (takes a nick param).
+           * On ircd 2.9 / other nets, +q is CHANQUIET (no param).
+           * We detect Ophion by net_type_int and handle +q as an op-like mode.
+           */
+          if (net_type_int == NETT_OPHION) {
+            op = newsplit(&msg);
+            fixcolon(op);
+            if (ms2[0] == '+')
+              got_owner(chan, nick, from, op, u, &user);
+            else
+              got_deowner(chan, nick, from, op, u);
+            break;
+          }
           todo = CHANQUIET;
           if (!nick[0] && bounce_modes)
             reversing = 1;

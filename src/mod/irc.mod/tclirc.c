@@ -1189,6 +1189,64 @@ static int tcl_putkick STDVAR
   return TCL_OK;
 }
 
+/* =========================================================================
+ * IRCX / Ophion IRC-related Tcl commands
+ * ========================================================================= */
+
+/* botisowner <channel>
+ * Returns 1 if the bot is channel owner (+q) on <channel>, 0 otherwise.
+ */
+static int tcl_botisowner STDVAR
+{
+  struct chanset_t *chan, *thechan = NULL;
+
+  BADARGS(1, 2, " ?channel?");
+
+  if (argc > 1) {
+    chan = findchan_by_dname(argv[1]);
+    thechan = chan;
+    if (!thechan) {
+      Tcl_AppendResult(irp, "illegal channel: ", argv[1], NULL);
+      return TCL_ERROR;
+    }
+    if (me_owner(thechan))
+      Tcl_AppendResult(irp, "1", NULL);
+    else
+      Tcl_AppendResult(irp, "0", NULL);
+  } else {
+    for (chan = chanset; chan; chan = chan->next)
+      if (me_owner(chan)) {
+        Tcl_AppendResult(irp, "1", NULL);
+        return TCL_OK;
+      }
+    Tcl_AppendResult(irp, "0", NULL);
+  }
+  return TCL_OK;
+}
+
+/* isowner <nick> <channel>
+ * Returns 1 if <nick> has channel owner (+q) on <channel>, 0 otherwise.
+ */
+static int tcl_isowner STDVAR
+{
+  struct chanset_t *chan;
+  memberlist *m;
+
+  BADARGS(3, 3, " nick channel");
+
+  chan = findchan_by_dname(argv[2]);
+  if (!chan) {
+    Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+    return TCL_ERROR;
+  }
+  m = ismember(chan, argv[1]);
+  if (m && chan_hasowner(m))
+    Tcl_AppendResult(irp, "1", NULL);
+  else
+    Tcl_AppendResult(irp, "0", NULL);
+  return TCL_OK;
+}
+
 static tcl_cmds tclchan_cmds[] = {
   {"chanlist",       tcl_chanlist},
   {"botisop",        tcl_botisop},
@@ -1235,5 +1293,8 @@ static tcl_cmds tclchan_cmds[] = {
   {"channame2dname", tcl_channame2dname},
   {"chandname2name", tcl_chandname2name},
   {"accounttracking",tcl_accounttracking},
+  /* IRCX / Ophion owner mode commands */
+  {"botisowner",     tcl_botisowner},
+  {"isowner",        tcl_isowner},
   {NULL,             NULL}
 };

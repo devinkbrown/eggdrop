@@ -75,10 +75,15 @@ typedef struct memstruct {
 #define WHO_SYNCED   0x20000 /* who reply received for this member           */
 #define IRCAWAY      0x40000 /* is marked as away on IRC server              */
 #define IRCBOT       0x80000 /* is marked as a bot, per 005/IRCv3 standard   */
+/* IRCX / Ophion extended flags */
+#define CHANOWNER    0x100000 /* channel +q (IRCX owner mode)                */
+#define SENTOWNER    0x200000 /* a mode +q was already sent for this user    */
+#define SENTDEOWNER  0x400000 /* a mode -q was already sent for this user    */
 
 #define chan_hasvoice(x)     (x->flags & CHANVOICE)
 #define chan_hasop(x)        (x->flags & CHANOP)
 #define chan_hashalfop(x)    (x->flags & CHANHALFOP)
+#define chan_hasowner(x)     (x->flags & CHANOWNER)  /* IRCX +q owner      */
 #define chan_fakeop(x)       (x->flags & FAKEOP)
 #define chan_fakehalfop(x)   (x->flags & FAKEHALFOP)
 #define chan_sentop(x)       (x->flags & SENTOP)
