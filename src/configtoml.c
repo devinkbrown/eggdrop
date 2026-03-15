@@ -809,10 +809,15 @@ int run_setup_wizard(const char *outfile)
   char admin[128], network[64], owner[64];
   /* Server */
   char server[256], server_pass[128], port_buf[16];
-  int  net_idx, net_type_val, use_ssl, port;
+  int  net_idx, use_ssl, port;
+  const char *net_type_str;           /* string value for net-type Tcl var */
   /* SASL */
   int  want_sasl, sasl_mech_val;
   char sasl_user[64], sasl_pass[128];
+  /* IRCX / Ophion */
+  int  want_ircx;
+  char ircx_ownerkey[128];
+  int  ircx_want_autoowner;
   /* Channels */
   char channels[8][64];
   int  nchan;
@@ -826,18 +831,21 @@ int run_setup_wizard(const char *outfile)
   FILE *fp;
 
   static const char * const net_labels[] = {
-    "Libera.Chat",  "EFnet",    "IRCnet",
-    "Undernet",     "DALnet",   "QuakeNet",
-    "Rizon",        "Other / custom",
+    "Libera.Chat",   "EFnet",     "IRCnet",
+    "Undernet",      "DALnet",    "QuakeNet",
+    "Rizon",         "Ophion (IRCX)", "Other / custom",
     NULL
   };
   static const char * const net_defaults[] = {
-    "irc.libera.chat",  "irc.efnet.org",   "irc.ircnet.net",
-    "irc.undernet.org", "irc.dal.net",     "irc.quakenet.org",
-    "irc.rizon.net",    "irc.example.net"
+    "irc.libera.chat",   "irc.efnet.org",    "irc.ircnet.net",
+    "irc.undernet.org",  "irc.dal.net",      "irc.quakenet.org",
+    "irc.rizon.net",     "irc.example.net",  "irc.example.net"
   };
-  /* net_type Tcl var: 0=EFnet 1=IRCnet 2=Undernet 3=DALnet 4=Libera */
-  static const int net_type_map[] = { 4, 0, 1, 2, 3, 0, 0, 0 };
+  /* net-type string values for the Tcl variable */
+  static const char * const net_type_map[] = {
+    "Libera", "EFnet", "IRCnet", "Undernet", "DALnet",
+    "QuakeNet", "Rizon", "Ophion", "EFnet"   /* Other defaults to EFnet */
+  };
 
   static const char * const sasl_labels[] = {
     "PLAIN  (username + password)",
@@ -883,10 +891,11 @@ int run_setup_wizard(const char *outfile)
 
   printf("  Network:\n");
   net_idx      = prompt_menu("Choose network", net_labels, 0);
-  net_type_val = net_type_map[net_idx];
+  net_type_str = net_type_map[net_idx];
+  want_ircx    = (net_idx == 7); /* "Ophion (IRCX)" is index 7 */
 
   /* Use short network name for [bot] network = ... */
-  if (net_idx < 7)
+  if (net_idx < 8)
     strlcpy(network, net_labels[net_idx], sizeof network);
   else
     prompt("Network name (display only)", "MyNetwork", network, sizeof network);
@@ -925,6 +934,18 @@ int run_setup_wizard(const char *outfile)
       if (sasl_mech_val != 2) /* not EXTERNAL — needs a password */
         prompt_required("SASL password", sasl_pass, sizeof sasl_pass);
     }
+  }
+
+  /* ── IRCX / Ophion options (only when Ophion network selected) ─────── */
+  ircx_ownerkey[0]   = '\0';
+  ircx_want_autoowner = 0;
+  if (want_ircx) {
+    printf("\n  ┌─ IRCX / Ophion settings\n");
+    printf("  │  The bot sends IRCX after login to enable owner (+q) mode,\n");
+    printf("  │  channel properties (PROP), and access lists (ACCESS).\n");
+    prompt("  │  Global OWNERKEY (grants +q on join, leave empty if none)",
+           "", ircx_ownerkey, sizeof ircx_ownerkey);
+    ircx_want_autoowner = prompt_yn("  Auto-request owner (+q) on your channels?", 1);
   }
 
   /* ── Step 3/5: Channels ─────────────────────────────── */
@@ -987,6 +1008,8 @@ int run_setup_wizard(const char *outfile)
   printf("  Nick       : %s / %s\n",     nick, altnick);
   printf("  Owner      : %s\n",           owner);
   printf("  Network    : %s  (%s)\n",     network, server);
+  printf("  Net type   : %s%s\n",         net_type_str,
+         want_ircx ? " — IRCX/Ophion mode enabled" : "");
   printf("  Connection : %s port %d%s\n",
          use_ssl ? "SSL/TLS" : "plain", port,
          want_sasl ? " + SASL" : "");
@@ -1099,9 +1122,9 @@ int run_setup_wizard(const char *outfile)
   fprintf(fp,
 "[irc]\n"
 "# Network type affects protocol behaviour.\n"
-"# 0=EFnet  1=IRCnet  2=Undernet  3=DALnet  4=Libera.Chat / generic\n"
-"net_type = %d\n"
-"\n", net_type_val);
+"# Values: EFnet IRCnet Undernet DALnet Libera QuakeNet Rizon Ophion\n"
+"net_type = \"%s\"\n"
+"\n", net_type_str);
 
   /* [network] */
   fprintf(fp,
@@ -1133,6 +1156,20 @@ int run_setup_wizard(const char *outfile)
     fprintf(fp, "\n");
   }
 
+  /* [ircx] — only written when user chose Ophion network */
+  if (want_ircx) {
+    fprintf(fp,
+"[ircx]\n"
+"# Ophion/IRCX protocol support.\n"
+"# The bot negotiates IRCX mode after login, enabling:\n"
+"#   +q owner mode, PROP channel properties, ACCESS lists, CREATE command.\n"
+"ircx_auto_negotiate = 1\n");
+    if (*ircx_ownerkey)
+      fprintf(fp, "ircx_ownerkey = \"%s\"\n\n", ircx_ownerkey);
+    else
+      fprintf(fp, "# ircx_ownerkey = \"\"  # set to your OWNERKEY if required\n\n");
+  }
+
   /* [tcl] */
   fprintf(fp,
 "# ---------------------------------------------------------------------------\n"
@@ -1145,7 +1182,26 @@ int run_setup_wizard(const char *outfile)
 "  # Disable the 'simul' partyline command (security best practice).\n"
 "  \"unbind dcc n simul *dcc:simul\",\n"
 "]\n"
-"\n"
+"\n");
+
+  /* IRCX auto-owner Tcl code block */
+  if (want_ircx && ircx_want_autoowner && nchan > 0) {
+    fprintf(fp,
+"# IRCX: request +q (owner) on your channels after server connect.\n"
+"# ircxautoowner <channel> [ownerkey] [create-if-empty 0|1] [modes]\n"
+"code = \"\"\"\n"
+"bind evnt - init-server {\n"
+"  after 2000 {\n");
+    for (i = 0; i < nchan; i++)
+      fprintf(fp, "    ircxautoowner %s \"%s\" 1\n",
+              channels[i], ircx_ownerkey);
+    fprintf(fp,
+"  }\n"
+"}\n"
+"\"\"\"\n"
+"\n");
+  } else {
+    fprintf(fp,
 "# Multi-line Tcl can also be written as a code block:\n"
 "# code = \"\"\"\n"
 "# proc my_greeting {nick host hand chan} {\n"
@@ -1154,6 +1210,7 @@ int run_setup_wizard(const char *outfile)
 "# bind join - * my_greeting\n"
 "# \"\"\"\n"
 "\n");
+  }
 
   fclose(fp);
 

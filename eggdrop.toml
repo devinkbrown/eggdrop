@@ -421,7 +421,8 @@ share_greet = 0
 
 [irc]
 # IRC network type. Affects mode/ban handling.
-# EFnet, IRCnet, Undernet, DALnet, Libera, QuakeNet, etc.
+# Values: EFnet IRCnet Undernet DALnet Libera QuakeNet Rizon Twitch Ophion
+# Use "Ophion" to enable full IRCX/Ophion protocol support (see [ircx] below).
 net_type = "EFnet"
 
 # Maximum nick length (0 = server default).
@@ -585,9 +586,10 @@ sasl_timeout = 15
 #
 #   ircxcreate <channel> [modes]
 #     Create a channel — bot becomes owner (+q) automatically.
+#     On Ophion, use +P to make the channel persistent (survives when empty).
 #     Examples:
 #       ircxcreate #newchannel +nt
-#       ircxcreate %#persistent +mnt    ;# persistent/registered channel
+#       ircxcreate #lobby +ntP          ;# +P = persistent channel
 #
 #   ircxautoowner <channel> [ownerkey] [create 0|1] [modes]
 #     Configure a channel for auto-owner on every server connect.
@@ -595,7 +597,7 @@ sasl_timeout = 15
 #     If create=1 and the channel is empty, the bot will CREATE it.
 #     Examples:
 #       ircxautoowner #lobby mykey 0
-#       ircxautoowner %#main s3cr3t 1 +nt
+#       ircxautoowner #main s3cr3t 1 +nt
 #       ircxautoowner #ops "" 0         ;# no ownerkey, skip create
 #
 #   ircxnegotiate
@@ -622,33 +624,44 @@ sasl_timeout = 15
 # ────────────────────────────────────────────────────────────────────────────
 
 [ircx]
-# Enable automatic IRCX mode negotiation when net-type is Ophion.
-# The bot sends "IRCX" to the server immediately after login.
-# Requires net_type = "Ophion" in [irc] to activate Ophion behaviour.
+# Automatically send the IRCX command after login when net-type = "Ophion".
+# This puts the bot into IRCX mode (confirmed by 800 RPL_IRCX).
+# Set to 0 and call ircxnegotiate manually if you need deferred negotiation.
 ircx_auto_negotiate = 1
 
-# Global default OWNERKEY.  Used as a fallback when ircxautoowner does
-# not specify a channel-specific key.  Leave empty to disable.
-# ircx_ownerkey = "my-global-secret-key"
+# Global OWNERKEY used by ircxautoowner when no channel-specific key is set.
+# An OWNERKEY is a shared secret — providing it on JOIN grants +q (owner).
+# Leave empty if your channels do not use an OWNERKEY.
+# ircx_ownerkey = "my-secret-key"
 ircx_ownerkey = ""
 
-# ── Example: Ophion server connection ────────────────────────────────────────
-# To connect to an Ophion/IRCX server, update [servers] and [irc] like this:
+# ── Quick-start: connecting to an Ophion server ──────────────────────────────
 #
-# [irc]
-# net_type = "Ophion"
+# 1. Set net-type to Ophion in [irc]:
+#      net_type = "Ophion"
 #
-# [servers]
-# servers = ["irc.myophion.net:6667"]
+# 2. Add your server in [servers]:
+#      list = ["irc.example.net:6667"]
 #
-# Then in your Tcl scripts (or init-server):
-#   # Auto-own #lobby using the ownerkey "s3cr3t":
-#   ircxautoowner #lobby s3cr3t 1 +nt
+# 3. Configure auto-owner in [tcl]:
+#      code = """
+#      # Runs after every server connect; requests +q on join.
+#      bind evnt - init-server {
+#        after 2000 {
+#          ircxautoowner #lobby myownerkey 1 +nt
+#          ircxautoowner #ops   adminkey   0
+#        }
+#      }
+#      """
 #
-#   # Add trusted ops to access list:
-#   bind evnt - init-server {
-#     ircxaccess #lobby add HOST *!*@admin.example.com
-#   }
+# 4. Optionally set up access lists:
+#      code = """
+#      bind evnt - init-server {
+#        ircxaccess #lobby add HOST  *!*@trusted.example.com
+#        ircxaccess #lobby add VOICE *!*@friends.example.com
+#        ircxaccess #lobby add DENY  *!*@banned.example.com
+#      }
+#      """
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ────────────────────────────────────────────────────────────────────────────
