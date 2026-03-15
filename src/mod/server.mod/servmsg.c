@@ -2056,6 +2056,12 @@ static int got800(char *from, char *msg)
   /* Optional: remaining text is the network name on Ophion */
   if (*msg)
     strlcpy(ircx_network, msg, sizeof(ircx_network));
+  /* Fall back to ISUPPORT NETWORK= if 800 reply didn't carry a name */
+  if (!ircx_network[0]) {
+    const char *net = isupport_get("NETWORK", strlen("NETWORK"));
+    if (net)
+      strlcpy(ircx_network, net, sizeof(ircx_network));
+  }
 
   ircx_negotiating = 0;
   ircx_enabled     = 1;
