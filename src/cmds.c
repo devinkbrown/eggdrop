@@ -264,7 +264,7 @@ static void cmd_botinfo(struct userrec *u, int idx, char *par)
   min = (time_t) ((int) now2 / 60);
   snprintf(s2 + strlen(s2), sizeof(s2) - strlen(s2), "%02d:%02d", (int) hr, (int) min);
   putlog(LOG_CMDS, "*", "#%s# botinfo", dcc[idx].nick);
-  snprintf(s, sizeof s, "%d:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+  snprintf(s, sizeof s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
   botnet_send_infoq(-1, s);
   s[0] = 0;
   if (module_find("server", 0, 0)) {
@@ -367,7 +367,7 @@ static void cmd_motd(struct userrec *u, int idx, char *par)
       else {
         char x[40];
 
-        snprintf(x, sizeof x, "%s%d:%s@%s",
+        snprintf(x, sizeof x, "%s%ld:%s@%s",
                        (u->flags & USER_HIGHLITE) ?
                        ((dcc[idx].status & STAT_TELNET) ? "#" : "!") : "",
                        dcc[idx].sock, dcc[idx].nick, botnetnick);
@@ -524,7 +524,7 @@ static void cmd_who(struct userrec *u, int idx, char *par)
       else {
         char s[40];
 
-        snprintf(s, sizeof s, "%d:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+        snprintf(s, sizeof s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
         botnet_send_who(i, s, par, dcc[idx].u.chat->channel);
       }
     }
@@ -1454,7 +1454,7 @@ static void cmd_link(struct userrec *u, int idx, char *par)
       dprintf(idx, "No such bot online.\n");
       return;
     }
-    snprintf(x, sizeof x, "%d:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+    snprintf(x, sizeof x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
     botnet_send_link(i, x, s, par);
   }
 }
@@ -1483,7 +1483,7 @@ static void cmd_unlink(struct userrec *u, int idx, char *par)
   else {
     char x[40];
 
-    snprintf(x, sizeof x, "%d:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+    snprintf(x, sizeof x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
     botnet_send_unlink(i, x, lastbot(bot), bot, par);
   }
 }
@@ -1531,7 +1531,7 @@ static void cmd_trace(struct userrec *u, int idx, char *par)
     return;
   }
   putlog(LOG_CMDS, "*", "#%s# trace %s", dcc[idx].nick, par);
-  snprintf(x, sizeof x, "%d:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+  snprintf(x, sizeof x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
   snprintf(y, sizeof y, ":%" PRId64, (int64_t) now);
   botnet_send_trace(i, x, par, y);
 }

@@ -499,7 +499,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
             malloc_strcpy(whoto, dcc[idx].nick);
           s = nmalloc(strlen(whoto) + strlen(botnetnick) + 13);
           snprintf(s, strlen(whoto) + strlen(botnetnick) + 13,
-                   "%d:%s@%s", dcc[idx].sock, whoto, botnetnick);
+                   "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
           botnet_send_filereq(i, s, bot, fdbe->sharelink);
           dprintf(idx, FILES_REQUESTED, fdbe->sharelink, bot);
           /* Increase got count now (or never) */
@@ -1486,7 +1486,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
       }
       s = nmalloc(strlen(whoto) + strlen(botnetnick) + 13);
       snprintf(s, strlen(whoto) + strlen(botnetnick) + 13,
-               "%d:%s@%s", dcc[idx].sock, whoto, botnetnick);
+               "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
       botnet_send_filereq(i, s, bot, fdbe->sharelink);
       dprintf(idx, FILES_REQUESTED, fdbe->sharelink, bot);
       /* Increase got count now (or never) */
