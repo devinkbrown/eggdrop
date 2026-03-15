@@ -125,29 +125,80 @@ list = ["#egghelp"]
 #
 # One [[chanset]] block per channel.  The channel must appear in [channels]
 # list above (or be added at runtime) before these settings take effect.
+# channel = "#name" is always required and must be the first key.
 #
-# Supported keys:
-#   channel          = "#name"   — which channel this block applies to (required)
-#   key_prot         = "key"     — enforce this join key (+k mode)
-#   chanmode         = "+modes"  — force these channel modes
-#   idle_kick        = N         — kick idle users after N minutes (0 = off)
-#   flood_pub        = "N:S"     — pub flood threshold  (N lines in S seconds)
+# ── Boolean flags (true = enable, false = disable) ──────────────────────────
+#   autoop          — op users with +o flag on join (insecure; prefer protectops)
+#   autohalfop      — halfop users with +l flag on join
+#   autovoice       — voice users with +v flag on join
+#   bitch           — only users with the +o flag may hold op
+#   cycle           — cycle (part/rejoin) when the channel loses all ops
+#   dontkickops     — never kick ops; prevents fighting with other bots
+#   dynamicbans     — activate bans only when needed (reduces ban list)
+#   dynamicexempts  — activate exempts only when needed
+#   dynamicinvites  — activate invites only when needed
+#   enforcebans     — kick users who match a ban when the ban is set
+#   greet           — announce a user's info line when they join
+#   inactive        — do not join this channel (preserves settings)
+#   nodesynch       — allow non-ops to set modes (prevents fighting services)
+#   protectfriends  — re-op users with the +f flag if deopped
+#   protecthalfops  — re-halfop users with +l flag if dehalfopped
+#   protectops      — re-op users with the +o flag if deopped
+#   revenge         — punish users who deop/kick/ban the bot or valid ops
+#   revengebot      — like revenge, but only triggered by other bots
+#   secret          — hide this channel from botnet listings
+#   seen            — respond to !seen queries in the channel
+#   shared          — share channel user data with linked bots
+#   static          — channel cannot be removed dynamically
+#   statuslog       — log channel status line every 5 minutes
+#   userbans        — allow users to set bans directly (disable to restrict)
+#   userexempts     — allow users to set exempts directly
+#   userinvites     — allow users to set invites directly
+#
+# ── Valued options ──────────────────────────────────────────────────────────
+#   chanmode         = "+modes"   — enforce these channel modes
+#                                   include +k key to protect a join key,
+#                                   +l N to enforce a user limit
+#   idle_kick        = N          — kick idle users after N minutes (0 = off)
+#   stopnethack_mode = 0-6        — netsplit protection strictness (0 = off)
+#   revenge_mode     = 0-3        — how aggressively to punish bad actors
+#                                   0=deop, 1=deop+flag, 2=+kick, 3=+ban
+#   ban_type         = 0-39       — mask type for auto-bans (default: 3)
+#   ban_time         = N          — temporary ban lifetime in minutes (0 = never)
+#   exempt_time      = N          — temporary exempt lifetime in minutes
+#   invite_time      = N          — temporary invite lifetime in minutes
+#   flood_chan        = "N:S"     — pub-message flood: N lines per S seconds
+#   flood_ctcp       = "N:S"     — CTCP flood threshold
 #   flood_join       = "N:S"     — join flood threshold
+#   flood_kick       = "N:S"     — kick flood threshold
+#   flood_deop       = "N:S"     — deop flood threshold
 #   flood_nick       = "N:S"     — nick-change flood threshold
-#   aop_delay        = "min:max" — delay before auto-opping (seconds)
-#   stopnethack_mode = 0-4       — strictness of netsplit protection
-#   revenge_mode     = 0-3       — auto-punish deop/kick
-#   # IRCX / Ophion only:
-#   ownerkey         = "key"     — OWNERKEY for +q on join
-#   ircx_create      = true      — CREATE the channel if it does not exist
-#   ircx_create_modes = "+modes" — modes set immediately after CREATE
+#   aop_delay        = "N:M"     — random delay (N–M seconds) before auto-op
+#   need_op          = "script"  — Tcl to run when the bot needs ops
+#   need_invite      = "script"  — Tcl to run when the bot needs an invite
+#   need_key         = "script"  — Tcl to run when the bot needs the channel key
+#   need_unban       = "script"  — Tcl to run when the bot is banned
+#   need_limit       = "script"  — Tcl to run when the channel is at limit
 #
-# Example:
+# ── IRCX / Ophion only ──────────────────────────────────────────────────────
+#   ownerkey          = "key"    — OWNERKEY credential for +q on join
+#   ircx_create       = true     — CREATE the channel if it does not exist
+#   ircx_create_modes = "+modes" — modes applied immediately after CREATE
+#
+# ── Examples ────────────────────────────────────────────────────────────────
 # [[chanset]]
 # channel          = "#egghelp"
 # chanmode         = "+nts"
+# cycle            = false        # do not cycle when ops are lost
 # idle_kick        = 30
-# flood_pub        = "20:60"
+# flood_chan        = "20:60"
+# revenge_mode     = 1
+#
+# [[chanset]]
+# channel          = "#private"
+# chanmode         = "+insk s3cr3t"  # +i +n +s +k with key "s3cr3t"
+# bitch            = true
+# protectops       = true
 #
 # [[chanset]]
 # channel          = "#ophion-channel"

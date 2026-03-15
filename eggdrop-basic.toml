@@ -101,14 +101,37 @@ list = ["#egghelp"]
 # ---------------------------------------------------------------------------
 # Per-channel settings  [[chanset]]
 # ---------------------------------------------------------------------------
-# One [[chanset]] block per channel.  channel = "#name" is required.
-# Common keys: key_prot, chanmode, idle_kick, flood_pub, flood_join,
-#              aop_delay, stopnethack_mode, revenge_mode.
-# IRCX keys:   ownerkey, ircx_create, ircx_create_modes.
+# One [[chanset]] block per channel.  channel = "#name" is required first.
+#
+# Boolean flags (true/false):
+#   autoop autohalfop autovoice bitch cycle dontkickops
+#   dynamicbans dynamicexempts dynamicinvites enforcebans greet inactive
+#   nodesynch protectfriends protecthalfops protectops revenge revengebot
+#   secret seen shared static statuslog userbans userexempts userinvites
+#
+# Valued options:
+#   chanmode = "+modes"         enforce channel modes (include +k key for key)
+#   idle_kick = N               kick idle users after N minutes (0 = off)
+#   stopnethack_mode = 0-6      netsplit protection (0 = off)
+#   revenge_mode = 0-3          punishment level (0=deop … 3=ban)
+#   ban_type = N                ban mask type (default 3)
+#   ban_time / exempt_time / invite_time = N   (minutes, 0 = never expire)
+#   flood_chan / flood_ctcp / flood_join / flood_kick / flood_deop / flood_nick
+#               = "N:S"         flood threshold (N events per S seconds)
+#   aop_delay = "N:M"           random auto-op delay (seconds)
+#   need_op / need_invite / need_key / need_unban / need_limit = "tcl script"
+#
+# IRCX / Ophion only:
+#   ownerkey = "key"            OWNERKEY for +q on join
+#   ircx_create = true          CREATE channel if it does not exist
+#   ircx_create_modes = "+mds"  modes applied after CREATE
 #
 # [[chanset]]
-# channel  = "#egghelp"
-# chanmode = "+nts"
+# channel          = "#egghelp"
+# chanmode         = "+nts"
+# cycle            = false
+# idle_kick        = 30
+# flood_chan        = "20:60"
 #
 # [[chanset]]
 # channel          = "#ophion-channel"

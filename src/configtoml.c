@@ -505,6 +505,33 @@ static TomlSection section_from_name(const char *name)
 }
 
 /* -----------------------------------------------------------------------
+ * Channel flag lookup
+ * Names taken verbatim from tclchan.c tcl_channel_get/modify.
+ * These are boolean: true/1 → +flag, false/0 → -flag.
+ * Everything else is a valued option: "channel set #chan opt val".
+ * --------------------------------------------------------------------- */
+static int is_chan_flag(const char *key)
+{
+  static const char * const flags[] = {
+    "autoop",        "autohalfop",    "autovoice",
+    "bitch",         "cycle",         "dontkickops",
+    "dynamicbans",   "dynamicexempts","dynamicinvites",
+    "enforcebans",   "greet",         "inactive",
+    "nodesynch",     "protectfriends","protecthalfops",
+    "protectops",    "revenge",       "revengebot",
+    "secret",        "seen",          "shared",
+    "static",        "statuslog",     "userbans",
+    "userexempts",   "userinvites",
+    NULL
+  };
+  const char * const *f;
+  for (f = flags; *f; f++)
+    if (strcmp(key, *f) == 0)
+      return 1;
+  return 0;
+}
+
+/* -----------------------------------------------------------------------
  * Key-value dispatch
  * --------------------------------------------------------------------- */
 
@@ -595,13 +622,22 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         return;
       }
 
-      /* General channel setting: channel set #chan key-name value.
-       * Convert underscore to dash so key_prot → key-prot, etc. */
+      /* Remaining keys: either a boolean flag or a valued option.
+       * Boolean flags use +/- prefix with no value argument.
+       * Valued options use "channel set #chan option-name value". */
       {
         char tclkey[64], cmd[512];
         key_to_tclvar(key, tclkey, sizeof tclkey);
-        egg_snprintf(cmd, sizeof cmd, "channel set %s %s %s",
-                     chanset_channel, tclkey, value);
+        if (is_chan_flag(tclkey)) {
+          /* true/1 → +flag, false/0 → -flag */
+          egg_snprintf(cmd, sizeof cmd, "channel set %s %s%s",
+                       chanset_channel,
+                       (strcmp(value, "0") == 0) ? "-" : "+",
+                       tclkey);
+        } else {
+          egg_snprintf(cmd, sizeof cmd, "channel set %s %s %s",
+                       chanset_channel, tclkey, value);
+        }
         run_tcl_cmd(cmd);
       }
       return;
