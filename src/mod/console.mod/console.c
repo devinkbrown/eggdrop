@@ -81,10 +81,10 @@ static int console_pack(struct userrec *u, struct user_entry *e)
                      stripmasktype(ci->stripflags), ci->echoflags,
                      ci->page, ci->conchan);
 
-  e->u.list = user_malloc(sizeof(struct list_type));
+  e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
-  strlcpy(e->u.list->extra, work, sizeof(e->u.list->extra));
+  strlcpy(e->u.list->extra, work, l + 1);
 
   nfree(ci->channel);
   nfree(ci);

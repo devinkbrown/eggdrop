@@ -583,6 +583,14 @@ static void write_channels(void)
           debug1("UDEF-ERROR: unknown type %d", ul->type);
       }
     }
+    /* Save IRCX per-channel settings if configured */
+    if (chan->ircx_ownerkey[0] || chan->ircx_create) {
+      char ircx_key[130], ircx_modes[36];
+      convert_element(chan->ircx_ownerkey[0] ? chan->ircx_ownerkey : "", ircx_key);
+      convert_element(chan->ircx_create_modes, ircx_modes);
+      fprintf(f, "ircxautoowner %s %s %d %s\n",
+              name, ircx_key, chan->ircx_create, ircx_modes);
+    }
     if (fflush(f)) {
       putlog(LOG_MISC, "*", "ERROR writing channel file.");
       fclose(f);

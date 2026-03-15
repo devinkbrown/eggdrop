@@ -184,10 +184,48 @@ static void cmd_clearqueue(struct userrec *u, int idx, char *par)
   putlog(LOG_CMDS, "*", "#%s# clearqueue %s", dcc[idx].nick, par);
 }
 
+/* .create <channel> [ownerkey] [modes]
+ * Send IRCX CREATE to create a channel and gain +q (owner).
+ * ownerkey: the OWNERKEY credential (optional, default none)
+ * modes: initial channel modes to set after creation (optional)
+ */
+static void cmd_create(struct userrec *u, int idx, char *par)
+{
+  char *channel, *ownerkey, *modes;
+
+  if (!par[0]) {
+    dprintf(idx, "Usage: create <channel> [ownerkey] [modes]\n");
+    return;
+  }
+  if (!ircx_enabled) {
+    dprintf(idx, "IRCX is not enabled on the current server.\n");
+    return;
+  }
+  channel  = newsplit(&par);
+  ownerkey = newsplit(&par);
+  modes    = par;  /* remainder is modes */
+
+  putlog(LOG_CMDS, "*", "#%s# create %s", dcc[idx].nick, channel);
+  if (modes[0])
+    dprintf(DP_SERVER, "CREATE %s %s\n", channel, modes);
+  else
+    dprintf(DP_SERVER, "CREATE %s\n", channel);
+
+  /* If an ownerkey was supplied, update the ircxautoowner entry for this
+   * channel so that future reconnects use it. */
+  if (ownerkey[0]) {
+    struct chanset_t *ch = findchan_by_dname(channel);
+    if (ch)
+      strlcpy(ch->ircx_ownerkey, ownerkey, sizeof(ch->ircx_ownerkey));
+  }
+  dprintf(idx, "Sent CREATE %s\n", channel);
+}
+
 static cmd_t C_dcc_serv[] = {
   {"dump",       "m",  (IntFunc) cmd_dump,       NULL},
   {"jump",       "m",  (IntFunc) cmd_jump,       NULL},
   {"servers",    "o",  (IntFunc) cmd_servers,    NULL},
   {"clearqueue", "m",  (IntFunc) cmd_clearqueue, NULL},
+  {"create",     "m",  (IntFunc) cmd_create,     NULL},
   {NULL,         NULL, NULL,                      NULL}
 };
