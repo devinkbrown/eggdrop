@@ -2275,7 +2275,7 @@ static void connect_server(void)
     if (connectserver[0])       /* drummer */
       do_tcl("connect-server", connectserver);
     check_tcl_event("connect-server");
-    next_server(&curserv, botserver, &botserverport, pass);
+    next_server(&curserv, botserver, sizeof botserver, &botserverport, pass, sizeof pass);
 
 #ifdef IPV6
     if (inet_pton(AF_INET6, botserver, buf)) {

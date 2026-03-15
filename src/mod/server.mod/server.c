@@ -133,7 +133,7 @@ static p_tcl_bind_list H_wall, H_raw, H_notc, H_msgm, H_msg, H_flud, H_ctcr,
                        H_ctcp, H_out, H_rawt, H_monitor, H_stdreply;
 
 static void empty_msgq(void);
-static void next_server(int *, char *, unsigned int *, char *);
+static void next_server(int *, char *, size_t, unsigned int *, char *, size_t);
 static void disconnect_server(int);
 static char *get_altbotnick(void);
 static int calc_penalty(char *);
@@ -1179,7 +1179,7 @@ static void clearq(struct server_list *xx)
  *
  * -> if (*ptr == -1) then jump to that particular server
  */
-static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
+static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port, char *pass, size_t passlen)
 {
   struct server_list *x = serverlist;
   int i = 0;
@@ -1196,7 +1196,7 @@ static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
           return;
         } else if (x->realname && !strcasecmp(x->realname, serv)) {
           *ptr = i;
-          strlcpy(serv, x->realname, UHOSTLEN);
+          strlcpy(serv, x->realname, servlen);
 #ifdef TLS
           use_ssl = x->ssl;
 #endif
@@ -1211,11 +1211,11 @@ static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
     x->next = 0;
     x->realname = 0;
     x->name = nmalloc(strlen(serv) + 1);
-    strlcpy(x->name, serv, sizeof(x->name));
+    strcpy(x->name, serv);
     x->port = *port ? *port : default_port;
     if (pass && pass[0]) {
       x->pass = nmalloc(strlen(pass) + 1);
-      strlcpy(x->pass, pass, sizeof(x->pass));
+      strcpy(x->pass, pass);
     } else
       x->pass = NULL;
 #ifdef TLS
@@ -1245,10 +1245,10 @@ static void next_server(int *ptr, char *serv, unsigned int *port, char *pass)
 #ifdef TLS
   use_ssl = x->ssl;
 #endif
-  strlcpy(serv, x->name, sizeof(serv));
+  strlcpy(serv, x->name, servlen);
   *port = x->port ? x->port : default_port;
   if (x->pass)
-    strlcpy(pass, x->pass, sizeof(pass));
+    strlcpy(pass, x->pass, passlen);
   else
     pass[0] = 0;
 }
@@ -2016,7 +2016,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
 
         curserv = -1;
         if (serverlist)
-          next_server(&curserv, dcc[servidx].host, &dcc[servidx].port, "");
+          next_server(&curserv, dcc[servidx].host, UHOSTLEN, &dcc[servidx].port, "", 1);
       }
       Tcl_Free((char *) list);
     }
