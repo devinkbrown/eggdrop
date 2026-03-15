@@ -249,10 +249,24 @@ static void uring_recv_sock(sock_list *sl, int slist_idx)
     /* For connecting sockets, include POLLOUT so that non-blocking
      * connect() completion (which signals write-readiness, not
      * read-readiness) wakes us up.  Mirrors epoll EPOLLOUT and
-     * kqueue EVFILT_WRITE handling for SOCK_CONNECT sockets. */
+     * kqueue EVFILT_WRITE handling for SOCK_CONNECT sockets.
+     *
+     * Exception: when a TLS handshake is in progress and SSL is waiting
+     * for a server response (SSL_want == SSL_READING), the TCP socket is
+     * already connected and is always writable.  Including POLLOUT in
+     * that state causes POLL_ADD to fire immediately every iteration,
+     * spinning the CPU until the server sends its next handshake message.
+     * Omit POLLOUT when SSL only needs to read; it will be re-added on
+     * the next re-arm if SSL transitions back to SSL_WRITING. */
     int poll_mask = POLLIN | POLLHUP | POLLERR;
-    if (sl->flags & SOCK_CONNECT)
-      poll_mask |= POLLOUT;
+    if (sl->flags & SOCK_CONNECT) {
+#ifdef TLS
+      /* Add POLLOUT only if there is no SSL context yet (plain TCP connect
+       * completion) or SSL currently needs to write (WANT_WRITE state). */
+      if (!sl->ssl || SSL_want(sl->ssl) == SSL_WRITING)
+#endif
+        poll_mask |= POLLOUT;
+    }
     io_uring_prep_poll_add(sqe, sock, poll_mask);
     io_uring_sqe_set_data64(sqe, URING_UD_POLL(slist_idx));
   }
@@ -812,15 +826,23 @@ int allocsock(int sock, int options)
       /* Register with the async I/O backend */
       if (!(options & (SOCK_UNUSED | SOCK_NONSOCK | SOCK_VIRTUAL))) {
 #ifdef EGG_IO_URING
-        /* Initialise recv_buf before registering so uring_recv_sock()
-         * can immediately decide whether to submit RECV vs POLL_ADD. */
+        /* Allocate recv_buf now so uring_recv_sock() can decide RECV vs
+         * POLL_ADD.  Do NOT call uring_recv_sock() here: ssl and SOCK_CONNECT
+         * are set on this slot AFTER allocsock() returns (in ssl_handshake()
+         * and open_telnet_raw() respectively).  Submitting a RECV SQE before
+         * those are set means the RECV fires as ssl=0/SOCK_CONNECT=0, and for
+         * outgoing TLS connections the fast-poll RECV will consume TLS
+         * handshake data from the kernel socket buffer before SSL_read() can
+         * access it via its socket-fd BIO, causing a permanent SSL handshake
+         * stall.  The re-arm loop in sockread() calls uring_recv_sock() with
+         * the correct state on the next iteration. */
         td->socklist[i].handler.sock.recv_buf = NULL;
         td->socklist[i].handler.sock.recv_len = -1;
         uring_ensure_init();
         if (egg_ring_inited == 1) {
           td->socklist[i].handler.sock.recv_buf = (char *)nmalloc(READMAX + 2);
           td->socklist[i].handler.sock.recv_len = -1;
-          uring_recv_sock(&td->socklist[i], i);
+          /* uring_recv_sock() deferred to sockread() re-arm loop */
         } else
 #endif
 #ifdef EGG_EPOLL
@@ -1830,14 +1852,11 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       }
 #endif
       /* When io_uring/epoll/kqueue reports no events (x==0) but a TLS
-       * handshake is in progress, do NOT return idle.  The initial
-       * POLL_ADD for a connecting socket is submitted before SOCK_CONNECT
-       * is set (at getsock time), so it only watches POLLIN.  TCP connect
-       * completion fires POLLOUT, which is not in that initial mask, so
-       * the backend stays quiet.  We must still reach the dispatch loop
-       * below so that the (slist[i].ssl && !SSL_is_init_finished(...))
-       * branch can call SSL_read(), which drives SSL_connect() and sends
-       * the ClientHello once the TCP layer allows it. */
+       * handshake is in progress, do NOT return idle.  The POLL_ADD for a
+       * TLS connecting socket uses POLLIN-only once SSL transitions to
+       * WANT_READ (ClientHello sent, waiting for ServerHello); there is no
+       * CQE until the server responds.  Allow the dispatch loop to run so
+       * that SSL_read() can make incremental progress on the handshake. */
 #ifdef TLS
       {
         int tls_pending = 0;
@@ -1847,13 +1866,14 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
               if (!SSL_is_init_finished(slist[i].ssl)) {
                 tls_pending = 1;
               } else if (slist[i].flags & SOCK_CONNECT) {
-                /* TLS handshake completed but the connect has not yet been
-                 * reported to the upper layer (SOCK_CONNECT still set).  The
-                 * outstanding io_uring poll was submitted before SOCK_CONNECT
-                 * was set so it only watches POLLIN; the server won't send
-                 * data until we send NICK/USER, so POLLIN never fires.
-                 * Force-mark the socket readable so the dispatch loop below
-                 * can take the "connect!" path and clear SOCK_CONNECT. */
+                /* TLS handshake completed but "connect!" not yet signalled
+                 * (SOCK_CONNECT still set).  The bot has already sent
+                 * NICK/USER via DP_MODE but the server's 001 welcome may
+                 * not have arrived yet.  POLL_ADD watches POLLIN only (no
+                 * POLLOUT since SSL_want == SSL_READING after handshake), so
+                 * this branch fires at most once per blocktime timeout.
+                 * Force-mark the socket readable so the dispatch loop can
+                 * take the "connect!" path and clear SOCK_CONNECT. */
                 FD_SET(slist[i].sock, &fdr);
                 if (slist[i].sock > maxfd_r)
                   maxfd_r = slist[i].sock;
