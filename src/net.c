@@ -1619,11 +1619,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
              maxfd_w >= 0 ? &fdw : NULL,
              maxfd_e >= 0 ? &fde : NULL,
              &zt);
-#ifdef EGG_TDNS
-      for (dtn = dns_thread_head->next; dtn; dtn = dtn->next)
-        if (FD_ISSET(dtn->fildes[0], &fdr))
-          putlog(LOG_MISC, "*", "net: TDNS pre-wait select detected DNS result for '%s'", dtn->host);
-#endif
     }
 
     /* --- Main socket wait via epoll or io_uring --- */
@@ -1699,10 +1694,8 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           if (select(tdns_maxfd + 1, &tdns_fdr, NULL, NULL, &zt) > 0) {
             /* OR the ready bits into fdr so the TDNS handler below sees them */
             for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-              if (FD_ISSET(dtn->fildes[0], &tdns_fdr)) {
-                putlog(LOG_MISC, "*", "net: TDNS post-wait re-poll detected DNS result for '%s'", dtn->host);
+              if (FD_ISSET(dtn->fildes[0], &tdns_fdr))
                 FD_SET(dtn->fildes[0], &fdr);
-              }
             }
           }
         }
@@ -2147,7 +2140,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       debug2("%s: hostname %s", dtn->strerror, dtn->host);
     fd = dtn->fildes[0];
     if (FD_ISSET(fd, &fdr)) {
-      putlog(LOG_MISC, "*", "net: TDNS handler processing result for '%s' (ok=%d)", dtn->host, !*dtn->strerror);
       if (dtn->type == DTN_TYPE_HOSTBYIP)
         call_hostbyip(&dtn->addr, dtn->host, !*dtn->strerror);
       else
