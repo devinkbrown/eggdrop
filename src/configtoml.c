@@ -1447,18 +1447,19 @@ int run_setup_wizard(const char *outfile)
          "╚══════════════════════════════════════════════╝\n");
   printf("  Nick       : %s / %s\n",     nick, altnick);
   printf("  Owner      : %s\n",           owner);
-  printf("  Network    : %s  (%s)\n",     network, server);
-  printf("  Net type   : %s%s\n",         net_type_str,
-         want_ircx ? " — IRCX/Ophion mode enabled" : "");
-  printf("  Connection : %s port %d%s\n",
-         use_ssl ? "SSL/TLS" : "plain", port,
+  printf("  Server     : %s%s:%d%s\n",
+         use_ssl ? "SSL " : "", server, port,
          want_sasl ? " + SASL" : "");
+  printf("  Network    : %s  (%s%s)\n",   network, net_type_str,
+         want_ircx ? ", IRCX/Ophion" : "");
   printf("  Channels   :");
   for (i = 0; i < nchan; i++)
     printf(" %s", channels[i]);
   printf("\n");
   printf("  User file  : %s\n",           userfile);
-  printf("  Output     : %s\n\n",         outfile);
+  printf("  Chan file  : %s\n",           chanfile);
+  printf("  Log file   : %s\n",           logfile);
+  printf("  Config     : %s\n\n",         outfile);
 
   if (!prompt_yn("Write this configuration to disk?", 1))
     return 1;
@@ -1519,9 +1520,9 @@ int run_setup_wizard(const char *outfile)
 "admin    = \"%s\"\n"
 "network  = \"%s\"\n"
 "owner    = \"%s\"\n"
-"notify_newusers = \"$owner\"\n"
+"notify_newusers = \"%s\"\n"
 "default_flags   = \"hp\"\n"
-"\n", nick, altnick, realname, username, admin, network, owner);
+"\n", nick, altnick, realname, username, admin, network, owner, owner);
 
   /* ── [servers] ──────────────────────────────────────────────────────────── */
   fprintf(fp,
@@ -1602,6 +1603,7 @@ int run_setup_wizard(const char *outfile)
 #else
 "mod_path      = \"modules/\"\n"
 #endif
+"# lang_dir    = \"\"  # override language file directory (useful for non-default installs)\n"
 "\n", userfile, chanfile);
 
   /* ── [logging] ──────────────────────────────────────────────────────────── */
@@ -1813,6 +1815,8 @@ int run_setup_wizard(const char *outfile)
   /* ── [tcl] ──────────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[tcl]\n"
+"# Tcl commands run after the config is loaded.  Requires a Tcl-enabled build;\n"
+"# this section is silently ignored in no-Tcl builds.\n"
 "commands = [\n"
 "  # Disable the 'simul' partyline command (security best practice).\n"
 "  \"unbind dcc n simul *dcc:simul\",\n"
