@@ -759,7 +759,10 @@ void botnet_send_nkch_part(int butidx, int useridx, char *oldnick)
 int add_note(char *to, char *from, char *msg, int idx, int echo)
 {
   #define FROMLEN 40
-  int status, i, iaway, sock;
+  int i, iaway, sock;
+#ifdef HAVE_TCL
+  int status;
+#endif
   char *p, botf[FROMLEN + 1 + HANDLEN + 1], ss[81], ssf[20 + 1 + sizeof botf];
   struct userrec *u;
 
@@ -859,7 +862,9 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
     return NOTE_REJECT;
   }
 
+#ifdef HAVE_TCL
   status = NOTE_STORED;
+#endif
   iaway = 0;
 
   /* Online right now? */
@@ -881,7 +886,9 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
 
           if (!iaway)
             iaway = i;
+#ifdef HAVE_TCL
           status = NOTE_AWAY;
+#endif
         }
       }
 

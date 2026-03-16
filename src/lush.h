@@ -96,7 +96,7 @@ const char *egg_getvar(const char *name);
 #  define Tcl_IncrRefCount(o)              ((void)0)
 #  define Tcl_DecrRefCount(o)              ((void)0)
 #  define Tcl_DictObjPut(irp,d,k,v)       TCL_ERROR
-#  define Tcl_DictObjFirst(irp,...)        TCL_ERROR
+#  define Tcl_DictObjFirst(irp,d,s,k,v,done) (*(done) = 1, TCL_ERROR)
 #  define Tcl_DictObjNext(s,k,v,d)        ((void)0)
 #  define Tcl_DictObjDone(s)               ((void)0)
 #  define Tcl_ListObjAppendElement(...)    TCL_ERROR
@@ -116,5 +116,14 @@ const char *egg_getvar(const char *name);
 #  define Tcl_DStringValue(ds)             ((ds)->string ? (ds)->string : "")
 #  define Tcl_DStringLength(ds)            ((ds)->length)
 #  define Tcl_BackgroundError(irp)         ((void)0)
+#  define Tcl_DictObjGet(irp,d,k,vp)     (*(vp) = NULL, TCL_OK)
+#  define Tcl_TraceVar(irp,n,fl,fn,cd)   TCL_OK
+#  define Tcl_UntraceVar(irp,n,fl,fn,cd) ((void)0)
+#  define Tcl_ExprLong(irp,s,lp)         (*(lp) = 0, TCL_OK)
+#  define Tcl_SplitList(irp,s,lc,lv)     (*(lc) = 0, *(lv) = NULL, TCL_OK)
+#  define Tcl_Free(p)                     ((void)(p))
+#  define Tcl_CreateInterp()              ((Tcl_Interp *)NULL)
+#  define Tcl_DeleteInterp(irp)           ((void)0)
+#  define Tcl_AppendElement(irp,s)        ((void)0)
 #endif /* HAVE_TCL */
 #endif /* _LUSH_H */
