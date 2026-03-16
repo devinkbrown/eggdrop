@@ -1,9 +1,9 @@
 Using the Python Module
 
 Eggdrop includes a Python module that allows scripts to be written in
-Python instead of (or in addition to) Tcl.  In the devinkbrown fork,
-Tcl is an optional build dependency: you can build without Tcl and use
-Python as the sole scripting engine.
+Python instead of (or in addition to) Tcl.  In this build, Tcl is an
+optional build dependency: you can build without Tcl and use Python as
+the sole scripting engine.
 
 SYSTEM REQUIREMENTS
 
@@ -108,30 +108,36 @@ EGGTOOLS.PY — MODERN PYTHON SCRIPTING LIBRARY
 scripts/eggtools.py is a modern Python utility library for Eggdrop script
 authors.  It replaces the legacy alltools.tcl and provides:
 
-  - Decorator-based bind registration
+  - Decorator-based bind registration (@on_pub, @on_join, @on_msg, etc.)
   - Type-annotated wrappers for the full eggdrop C API
   - Member dataclass for channel member introspection
-  - Timer helper (every()) using the cron bind
-  - IRCX and IRCv3 helpers
-  - alltools.tcl-compatible aliases
+  - Timer helpers: timer(), utimer(), reptimer(), killtimer()
+  - MONITOR helpers: monitor_add(), monitor_del(), monitor_list()
+  - IRCX and IRCv3 helpers (ircxwhisper, chathistory, markread)
+  - Twitch wrappers: twitchmods(), twitchvips(), ismod(), isvip()
+  - Bot management: die(), restart(), rehash()
+  - User entry: getinfo/setinfo, getcomment/setcomment, gethosts
+  - Channel settings: chanset()
+  - alltools.tcl-compatible string aliases
 
 Quick example:
 
     import eggtools
 
-    @eggtools.on_pub("!hello", "*")
+    @eggtools.on_pub("*", "!hello")
     def greet(nick, host, handle, channel, text):
         eggtools.privmsg(channel, f"Hello, {nick}!")
 
-    @eggtools.on_join("*", "-|-")
+    @eggtools.on_join()
     def announce(nick, host, handle, channel):
         if not eggtools.isbotnick(nick):
             eggtools.privmsg(channel, f"Welcome, {nick}!")
 
-    # Call something every 5 minutes
-    @eggtools.every(300)
-    def heartbeat():
-        eggtools.putlog("Still alive!")
+    # Fire once after 5 minutes
+    eggtools.timer(lambda: eggtools.putlog("5 min up!"), 5)
+
+    # Fire every 60 seconds
+    eggtools.reptimer(lambda: eggtools.privmsg("#chan", "tick!"), 60)
 
 EGGDROP PYTHON COMMANDS (eggdrop module)
 
@@ -163,8 +169,8 @@ tagmsg(tag, target) — send an IRCv3 TAGMSG
 IRCv3 / CAPABILITY COMMANDS
 
 cap(action, arg) — send CAP commands:
-    cap("req", "extended-join")   → CAP REQ :extended-join
-    cap("raw", "LS")              → CAP LS
+    cap("req", "extended-join")   -> CAP REQ :extended-join
+    cap("raw", "LS")              -> CAP LS
 
 CHANNEL QUERY FUNCTIONS
 
@@ -174,6 +180,12 @@ isonchan(nick, channel)      — True if nick is on channel
 getchanhost(nick, channel)   — "user@host" of nick, or None
 chanlist(channel)            — list of member dicts for channel
 findircuser(nick[, channel]) — member dict for nick, or None
+chanset(channel)             — dict of channel config settings
+chanbans(channel)            — list of ban dicts (mask, who, time)
+chanexempts(channel)         — list of exempt dicts
+chaninvites(channel)         — list of invite dicts
+getchanidle(nick, channel)   — idle minutes for nick, or -1
+getchan_topic(channel)       — topic string, or None
 
 CHANNEL MEMBER STATUS
 
@@ -184,7 +196,14 @@ isaway(nick, channel)        — True if nick is marked away
 botisop(channel)             — True if bot has op
 botishalfop(channel)         — True if bot has half-op
 botisvoice(channel)          — True if bot has voice
+botonchan([channel])         — True if bot is on channel
+wasop(nick, channel)         — True if nick was op before netsplit
+washalfop(nick, channel)     — True if nick was halfop before netsplit
+isircbot(nick[, channel])    — True if nick is a bot (IRCv3/005)
 getaccount(nick, channel)    — IRC account name, or None
+isidentified(nick, channel)  — True if nick is identified to services
+account2nicks(acct[, chan])  — list nicks with given IRC account
+hand2nicks(handle[, chan])   — list nicks for a handle
 
 HANDLE / NICK RESOLUTION
 
@@ -198,6 +217,52 @@ countusers()                 — number of users in the userlist
 validuser(handle)            — True if handle exists
 finduser(host)               — handle matching nick!user@host, or None
 userlist()                   — list of all user handles
+adduser(handle[, mask])      — add a user; returns True on success
+deluser(handle)              — delete a user; returns True on success
+addhost(handle, mask)        — add a hostmask to a user
+delhost(handle, mask)        — remove a hostmask from a user
+chattr(handle[, changes[, chan]]) — get/modify user flags
+matchattr(handle, flags[, chan])  — True if user has flags
+passwdok(handle, password)   — True if password matches
+chhandle(old, new)           — rename a user
+save()                       — write userfile to disk
+
+USER ENTRY FIELDS
+
+getinfo(handle)              — INFO line, or None
+setinfo(handle, info)        — set INFO line ("" to clear)
+getcomment(handle)           — COMMENT field, or None
+setcomment(handle, comment)  — set COMMENT field ("" to clear)
+gethosts(handle)             — list of hostmask strings
+getaccount_str(handle)       — IRC account from userdb, or None
+
+IGNORE LIST
+
+isignore(mask)               — True if mask matches an ignore
+newignore(mask, who, comment[, lifetime]) — add ignore (minutes)
+killignore(mask)             — remove ignore; returns True if found
+ignorelist()                 — list of ignore dicts
+
+DCC MANAGEMENT
+
+hand2idx(handle)             — DCC socket for handle, or -1
+idx2hand(sock)               — nick for DCC socket, or None
+killdcc(sock[, reason])      — disconnect a DCC connection
+dcclist([type])              — list of DCC connection dicts
+dccused()                    — number of active DCC connections
+
+BOT NETWORKING
+
+putbot(botnick, msg)         — zapf message to linked bot
+putallbots(msg)              — broadcast zapf to all bots
+islinked(botnick)            — True if bot is linked
+bots()                       — list of all linked bot names
+
+BOT MANAGEMENT
+
+die([reason])                — shut down the bot
+restart()                    — save userfile and restart
+rehash()                     — save userfile and rehash config
 
 MISCELLANEOUS UTILITIES
 
@@ -205,6 +270,8 @@ rand(n)                      — random integer in [0, n)
 unixtime()                   — current Unix timestamp
 duration(seconds)            — human-readable time string
 maskhost(nick, userhost)     — create a standard IRC hostmask
+stripcodes(flags, text)      — strip IRC formatting codes
+matchstr(pattern, string)    — True if string matches IRC glob
 
 IRCX / OPHION COMMANDS
 
@@ -212,6 +279,13 @@ ircxprop(target, prop[, value]) — get/set an IRCX channel property
 ircxaccess(channel, action[, level[, mask]]) — manage IRCX access list
 ircxcreate(channel[, modes])    — send IRCX CREATE command
 ircxnegotiate()                 — send IRCX negotiate command
+
+TWITCH COMMANDS (requires twitch module)
+
+twitchmods(channel)          — space-separated mod list, or error
+twitchvips(channel)          — space-separated VIP list, or error
+ismod(nick[, channel])       — True if nick is a mod
+isvip(nick[, channel])       — True if nick is a VIP
 
 TCL BRIDGE (HAVE_TCL builds only)
 
@@ -223,45 +297,9 @@ individual functions or the whole module:
 
     from eggdrop.tcl import putserv, putlog
 
-Arguments are auto-converted: None → "", list/tuple → Tcl list,
-dict → Tcl dict, everything else → str().
+Arguments are auto-converted: None -> "", list/tuple -> Tcl list,
+dict -> Tcl dict, everything else -> str().
 Return values are strings; use parse_tcl_list / parse_tcl_dict to
 convert list/dict returns.
-
-WRITING AN EGGDROP PYTHON SCRIPT
-
-Some example scripts, complete with documentation, are included with the
-Python module that ships with Eggdrop (src/mod/python.mod/scripts).
-These scripts are included to help demonstrate script formatting and
-usage. The scripts are:
-
-bestfriend.py
-
-    This example script demonstrates how to use the parse_tcl_list()
-    python command to convert a list returned by a Tcl command into a
-    list that is usable by Python.
-
-greet.py
-
-    This is a very basic script that demonstrates how a Python script
-    with binds can be run by Eggdrop.
-
-imdb.py
-
-    This script shows how to use an existing third-party module to
-    extend a Python script, in this case retrieving information from
-    imdb.com.
-
-listtls.py
-
-    This script demonstrates how to use parse_tcl_list() and
-    parse_tcl_dict() to convert a list of dicts provided by Tcl into
-    something that is usable by Python.
-
-urltitle.py
-
-    This script shows how to use an existing third-party module to
-    extend a Python script, in this case using an http parser to collect
-    title information from a provided web page.
 
 Copyright (C) 2000 - 2025 Eggheads Development Team

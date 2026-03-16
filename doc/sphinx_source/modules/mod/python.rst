@@ -1,4 +1,4 @@
-Last revised: November 03, 2023
+Last revised: 2025
 
 .. _python:
 
@@ -6,12 +6,20 @@ Last revised: November 03, 2023
 Python Module
 =============
 
-This module adds a Python interpreter to Eggdrop, allowing you to run Python scripts.
+This module embeds a Python 3 interpreter into Eggdrop, allowing scripts
+written in Python to run alongside (or instead of) Tcl scripts.
 
 -------------------
 System Requirements
 -------------------
-This module requires Python version 3.8 or higher in order to run. Similar to Tcl requirements, Eggdrop requires both python and python development libraries to be installed on the host machine. On Debian/Ubuntu machines, this means the packages ``python``, ``python-dev`` AND ``python-is-python3`` to be installed. The python-is-python3 updates symlinks on the host system that allow Eggdrop to find it.
+
+Python 3.8 or higher is required, including the development headers.  On
+Debian/Ubuntu systems install::
+
+  sudo apt-get install python3 python3-dev python3-is-python3
+
+The module requires the Global Interpreter Lock (GIL).  Free-threaded
+(GIL-disabled) builds of Python 3.13+ are not supported.
 
 --------------
 Loading Python
@@ -21,9 +29,12 @@ Put this line into your Eggdrop configuration file to load the python module::
 
   loadmodule python
 
-To load a python script from your config file, place the .py file in the scripts/ folder and add the following line to your config::
+To load a python script from your config file, place the .py file in the
+scripts/ folder and add::
 
   pysource scripts/myscript.py
+
+The python module cannot be unloaded once loaded.
 
 ------------------
 Partyline Commands
@@ -33,25 +44,53 @@ Partyline Commands
 python <expression>
 ^^^^^^^^^^^^^^^^^^^
 
-You can run a python command from the partyline with the .python command, such as::
+Evaluate a Python expression or statement from the partyline::
 
-  .python 1 + 1
-  Python: 2
-  .python from eggdrop.tcl import putmsg; putmsg('#chan', 'Hello world!')
-  Python: None
+  .python eggdrop.botname()
+  Python: 'MyBot'
+  .python eggdrop.putserv("PRIVMSG #chan :hello!")
 
 ^^^^^^^^^^^^^
 .binds python
 ^^^^^^^^^^^^^
 
-The python module extends the core ``.binds`` partyline command by adding a ``python`` mask. This command will list all binds for python scripts.
+The python module extends the core ``.binds`` partyline command by adding a
+``python`` mask.  This command will list all binds registered by Python scripts.
 
-------------
-Tcl Commands
-------------
+------------------
+Script commands
+------------------
 
 ^^^^^^^^^^^^^^^^^^^^^^^
 pysource <path/to/file>
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``pysource`` command is analogous to the Tcl ``source`` command, except that it loads a Python script into Eggdrop instead of a Tcl script.
+Load a Python script into Eggdrop.  Analogous to the Tcl ``source`` command.
+The path is relative to the Eggdrop home directory.
+
+This command is available as a config-file directive and also as a TCL command
+(when Tcl is enabled).
+
+---------------------
+Python eggdrop module
+---------------------
+
+Python scripts access Eggdrop functionality through the built-in ``eggdrop``
+C extension module.  For a complete reference of all available functions see
+:doc:`/using/python`.
+
+The companion library ``scripts/eggtools.py`` provides high-level Pythonic
+wrappers, type annotations, and decorator-based bind registration.
+
+Example::
+
+  import eggdrop
+  import eggtools
+
+  @eggtools.on_pub("*", "!hello")
+  def cmd_hello(nick, host, handle, channel, text):
+      eggtools.privmsg(channel, f"Hello, {nick}!")
+
+For a step-by-step tutorial see :doc:`/tutorials/pythonscript`.
+
+Copyright (C) 2020 - 2025 Eggheads Development Team

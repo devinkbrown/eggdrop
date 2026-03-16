@@ -2,156 +2,461 @@
 Using the Python Module
 =======================
 
-In Eggdrop 1.10.0, Eggdrop was shipped with a Python module that, similar to the existing core Tcl capability, allows Eggdrop to run python scripts.
+Eggdrop includes a Python module that allows scripts written in Python 3 to run
+inside the bot alongside (or instead of) Tcl scripts.  The Python interpreter is
+embedded directly — no external process is spawned.
 
 -------------------
 System Requirements
 -------------------
-Similar to Tcl requirements, Eggdrop requires both python and python development libraries to be installed on the host machine. On Debian/Ubuntu machines, this requires the packages python-dev AND python-is-python3 to be installed. The python-is-python3 updates symlinks on the host system that allow Eggdrop to find it.
 
-The minimum supported Python version is 3.8 and we do require the Global Interpreter Lock for thread safety, even if you use latest Python.
+Python 3.8 or newer is required, including the development headers.  On
+Debian/Ubuntu systems install::
+
+  sudo apt-get install python3 python3-dev python3-is-python3
+
+The ``python3-is-python3`` package updates the ``python3`` symlink so the
+build system can locate the interpreter automatically.
+
+The Global Interpreter Lock (GIL) is required and must not be disabled even on
+Python 3.13+ free-threaded builds.
 
 --------------
 Loading Python
 --------------
 
-Put this line into your Eggdrop configuration file to load the python module::
+Add the following line to your Eggdrop configuration file::
 
   loadmodule python
 
-To load a python script from your config file, place the .py file in the scripts/ folder and add the following line to your config::
+To load a Python script place the ``.py`` file in the ``scripts/`` folder and
+add::
 
   pysource scripts/myscript.py
 
-If you need to install dependencies we recommend using virtual environments, see https://docs.python.org/3/library/venv.html for more details.
+If you need to install third-party packages we recommend Python virtual
+environments.  See https://docs.python.org/3/library/venv.html for details.
 
-To create the virtual environment in a hidden directory called .venv (only necessary once)::
+Create a virtual environment once::
 
   cd eggdrop && python3 -m venv .venv
 
-To install a python package in the above .venv directory (in this example, the requests package)::
+Install a package into it (example: the ``requests`` library)::
 
   cd eggdrop && source .venv/bin/activate && pip install requests
 
-Starting eggdrop with activated venv (must be run every time for proper functionality)::
+Start Eggdrop with the activated venv (required each session)::
 
   cd eggdrop && source .venv/bin/activate && ./eggdrop
-
-You always need to start Eggdrop with the activated venv to set the necessary environment variables.
 
 ------------------------
 Reloading Python Scripts
 ------------------------
 
-Unfortunately, reloading python scripts with rehash like Tcl scripts is currently unsupported. Scripts can unbind their existing binds and re-bind them on being loaded again (see the bind section). For now, you should restart your bot when the Python scripts change.
+Unlike Tcl, Python scripts cannot be fully reloaded by ``.rehash`` because the
+Python interpreter does not cleanly unload modules.  You should restart the bot
+when scripts change.
 
-You can (should?) also write scripts that manually unload their binds upon a reshash, example code looks like this::
+Scripts that register binds should clean up existing binds before registering
+new ones so that a ``.rehash`` does not create duplicates::
 
-  # Create a list to track the join binds
-  if 'JOIN_BINDS' in globals():
-    for joinbind in JOIN_BINDS:
-      joinbind.unbind()
-    del JOIN_BINDS
+  if 'MY_BINDS' in globals():
+    for b in MY_BINDS:
+      b.unbind()
+    del MY_BINDS
 
-  JOIN_BINDS = list()
-
-  <...>
-
-  # Create the binds in the script like this
-  JOIN_BINDS.append(bind("join", "*", "*", joinGreetUser))
-  JOIN_BINDS.append(bind("join", "o", "*", joinGreetOp))
+  MY_BINDS = []
+  MY_BINDS.append(eggdrop.bind("join", "*", "*", my_handler))
 
 ------------------------
 Multithreading and async
 ------------------------
 
-``pysource`` loads a Python script in the main Eggdrop thread but is free to use both async Python and threads.
+``pysource`` loads scripts in the main Eggdrop thread.  Scripts may freely use
+``asyncio`` and Python threads, but all calls into the ``eggdrop`` C module must
+be made from the main thread (the GIL handles serialisation).
 
 -----------------------
 Eggdrop Python Commands
 -----------------------
 
-The Python module is built to use the existing core Tcl commands integrated into Eggdrop via the ``eggdrop.tcl`` module. To call an existing Tcl command from Python, you can either load the entire catalog by running ``import eggdrop.tcl``, or be more specific by ``from eggdrop.tcl import putserv, putlog, chanlist``, etc.
+Python scripts access Eggdrop functionality through the built-in ``eggdrop``
+module, which exposes a native Python API.  Import it as::
 
-Arguments to the Tcl functions are automatically converted as follows:
+  import eggdrop
 
-* ``None`` is converted to an empty Tcl object (the empty string, ``""``)
-* ``List`` and ``Tuple`` is converted to a ``Tcl list``
-* ``Dict`` is converted to a ``Tcl dictionary``
-* Everything else is converted to a string using the str() method
+or import individual functions::
 
-Return values from Tcl functions must be manually converted:
+  from eggdrop import bind, putserv, putlog, chanlist
 
-* ``""`` the empty string is automatically converted to None
-* everything else is returned as string
-* ``Tcl list`` as string can be converted to a Python ``List`` using ``parse_tcl_list``
-* ``Tcl dictionary`` as string can be converted to a Python ``Dict`` using ``parse_tcl_list``
+All functions are documented below grouped by category.  A high-level wrapper
+library ``eggtools.py`` is shipped in the ``scripts/`` folder and provides
+Pythonic helpers, type hints, and convenience wrappers around every function in
+this section.
 
-^^^^^^^^^^^^^^^^
-bind <arguments>
-^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+Bind management
+^^^^^^^^^^^^^^^
 
-An important difference to note is that Eggdrop Python has its own ``bind`` command implemented. You will generally want to create binds using the Python ``bind`` command and not import bind from eggdrop.tcl because a Python bind will call a Python function, whereas using the Tcl bind will call a Tcl function (not one from the script you are writing).
+``bind(type, flags, mask, callback)``
+  Register *callback* (a Python callable) as a bind of *type* triggered by
+  *mask* for users matching *flags*.  Returns a ``PythonBind`` object with an
+  ``unbind()`` method.  Example::
 
-The python version of the bind command is used to create a bind that triggers a python function. The python bind takes the same arguments as the Tcl binds, but here each argument is passed individually. For example, a bind that would look like ``bind pub * !foo myproc`` in Tcl is written as ``bind("pub", "*", "!foo", myproc)``. For more information on Eggsrop bind argument syntax please see :ref:`bind_types`. The eggdrop.tcl.bind command should not be used as it will attempt to call a Tcl proc.
+    def greet(nick, host, handle, channel, **kw):
+        eggdrop.putserv(f"PRIVMSG {channel} :Hello {nick}!")
 
-The ``bind`` command returns a PythonBind object that has an ``unbind`` method::
+    b = eggdrop.bind("join", "*", "*", greet)
+    # later: b.unbind()
 
-  x = bind("pub", "*", "!foo", myproc)
-  x.unbind()
+^^^^^^^^^^^^^^^^^^^^^^^^^
+Server / network commands
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-^^^^^^^^^^^^^^^^^^^^^^^
-parse_tcl_list <string>
-^^^^^^^^^^^^^^^^^^^^^^^
+``putserv(text)``
+  Queue a raw IRC line using the normal (low-priority) server queue.
 
-When a python script calls a Tcl command that returns a list via the eggdrop.tcl module, the return value will be a Tcl-formatted list- also simply known as a string. The ``parse_tcl_list`` command will convert the Tcl-formatted list into a Python list, which can then freely be used within the Python script.
+``putquick(text)``
+  Queue a raw IRC line using the high-priority (quick) queue.
 
-^^^^^^^^^^^^^^^^^^^^^^^
-parse_tcl_dict <string>
-^^^^^^^^^^^^^^^^^^^^^^^
+``putnow(text)``
+  Send a raw IRC line to the server immediately, bypassing all queues.
 
-When a python script calls a Tcl command that returns a dict via the eggdrop.tcl module, the return value will be a Tcl-formatted dict- also simply known as a string. The ``parse_tcl_dict`` command will convert the Tcl-formatted dict into a Python list, which can then freely be used within the Python script.
+``puthelp(text)``
+  Queue a raw IRC line on the help/notice queue.
+
+``tagmsg(tag, target)``
+  Send an IRCv3 TAGMSG with *tag* to *target*.
+
+``cap(subcmd, cap)``
+  Send an IRCv3 CAP command.  ``subcmd`` is ``'req'`` (request a capability)
+  or ``'raw'`` (send a raw CAP line with *cap* as the rest of the string).
+
+``botname()``
+  Return the bot's current IRC nickname as a string.
+
+^^^^^^^^^^^^^^^^^^
+Channel operations
+^^^^^^^^^^^^^^^^^^
+
+``isonchan(nick, channel)``
+  Return ``True`` if *nick* is currently on *channel*.
+
+``getchanhost(nick, channel)``
+  Return the ``user@host`` string of *nick* on *channel*, or ``None``.
+
+``chanlist(channel[, flags])``
+  Return a list of member dicts for *channel*.  Each dict has keys
+  ``nick``, ``userhost``, ``account``, ``joined``, ``flags``, ``last``.
+  If *flags* is given only members matching those flags are returned.
+
+``channels()``
+  Return a list of channel names the bot is currently on.
+
+``isop(nick, channel)``
+  Return ``True`` if *nick* has op (+o) on *channel*.
+
+``ishalfop(nick, channel)``
+  Return ``True`` if *nick* has half-op (+h) on *channel*.
+
+``isvoice(nick, channel)``
+  Return ``True`` if *nick* has voice (+v) on *channel*.
+
+``isaway(nick, channel)``
+  Return ``True`` if *nick* is marked away on *channel*.
+
+``botisop(channel)``
+  Return ``True`` if the bot has op on *channel*.
+
+``botishalfop(channel)``
+  Return ``True`` if the bot has half-op on *channel*.
+
+``botisvoice(channel)``
+  Return ``True`` if the bot has voice on *channel*.
+
+``botonchan([channel])``
+  Return ``True`` if the bot is on *channel*, or on any channel if omitted.
+
+``getaccount(nick, channel)``
+  Return the IRCv3 account name of *nick* on *channel*, or ``None``.
+
+``isidentified(nick, channel)``
+  Return ``True`` if *nick* is logged in to IRC services.
+
+``wasop(nick, channel)``
+  Return ``True`` if *nick* was an op before the most recent netsplit.
+
+``washalfop(nick, channel)``
+  Return ``True`` if *nick* was a half-op before the most recent netsplit.
+
+``isircbot(nick[, channel])``
+  Return ``True`` if *nick* is marked as a bot (IRCv3/005 ISBOT).
+
+``isbotnick(nick)``
+  Return ``True`` if *nick* matches the bot's own nickname.
+
+``getchanidle(nick, channel)``
+  Return the number of minutes *nick* has been idle on *channel*, or ``-1``.
+
+``getchan_topic(channel)``
+  Return the current topic string for *channel*, or ``None``.
+
+``chanbans(channel)``
+  Return a list of ban dicts for *channel*.  Each dict has keys
+  ``mask``, ``who``, ``time``.
+
+``chanexempts(channel)``
+  Return a list of exempt dicts for *channel* (same format as bans).
+
+``chaninvites(channel)``
+  Return a list of invite dicts for *channel* (same format as bans).
+
+``chanset(channel)``
+  Return a dict of channel configuration settings including flood thresholds,
+  mask expiry times, auto-op range, status booleans, and raw mode bitmask.
+
+``account2nicks(account[, channel])``
+  Return a list of nicks that are authenticated with the given IRC *account*.
+
+``hand2nicks(handle[, channel])``
+  Return a list of nicks currently on IRC for the given eggdrop *handle*.
+
+^^^^^^^^^^^^^^^^^^^^^
+Handle / nick lookups
+^^^^^^^^^^^^^^^^^^^^^
+
+``nick2hand(nick, channel)``
+  Return the eggdrop handle for *nick* on *channel*, or ``None``.
+
+``hand2nick(handle, channel)``
+  Return the current nick of *handle* on *channel*, or ``None``.
+
+^^^^^^^^^^^^^^^^^
+User database
+^^^^^^^^^^^^^^^^^
+
+``countusers()``
+  Return the total number of users in the userlist.
+
+``validuser(handle)``
+  Return ``True`` if *handle* exists in the userlist.
+
+``finduser(mask)``
+  Return the handle matching ``nick!user@host`` *mask*, or ``None``.
+
+``userlist()``
+  Return a list of all user handles.
+
+``adduser(handle[, hostmask])``
+  Add a new user.  Returns ``True`` on success.
+
+``deluser(handle)``
+  Remove a user.  Returns ``True`` on success.
+
+``addhost(handle, mask)``
+  Add a hostmask to a user's record.
+
+``delhost(handle, mask)``
+  Remove a hostmask from a user's record.
+
+``chattr(handle[, changes[, channel]])``
+  Get or modify user flags.  Pass *changes* (e.g. ``'+o-v'``) to modify.
+  Returns the current flag string.
+
+``matchattr(handle, flags[, channel])``
+  Return ``True`` if *handle* has all flags in *flags*.
+
+``passwdok(handle, password)``
+  Return ``True`` if *password* matches the stored hash for *handle*.
+
+``chhandle(oldhandle, newhandle)``
+  Rename a user.  Returns ``True`` on success.
+
+``save()``
+  Write the userlist to disk immediately.
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+User entry fields
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``getinfo(handle)``
+  Return the INFO line for *handle*, or ``None``.
+
+``setinfo(handle, info)``
+  Set the INFO line for *handle*.  Pass ``""`` to clear it.
+
+``getcomment(handle)``
+  Return the COMMENT field for *handle*, or ``None``.
+
+``setcomment(handle, comment)``
+  Set the COMMENT field for *handle*.  Pass ``""`` to clear it.
+
+``gethosts(handle)``
+  Return a list of hostmask strings recorded for *handle*.
+
+``getaccount_str(handle)``
+  Return the IRC account name stored in the user database for *handle*, or
+  ``None``.
+
+^^^^^^^^^^^^^
+Ignore list
+^^^^^^^^^^^^^
+
+``isignore(mask)``
+  Return ``True`` if *mask* matches an active ignore entry.
+
+``newignore(mask, creator, comment[, lifetime])``
+  Add an ignore entry.  *lifetime* is in minutes (0 = permanent).
+
+``killignore(mask)``
+  Remove an ignore entry.  Returns ``True`` if found.
+
+``ignorelist()``
+  Return a list of ignore dicts (keys: ``mask``, ``who``, ``comment``,
+  ``expire``, ``time``).
+
+^^^^^^^^^^
+DCC
+^^^^^^^^^^
+
+``hand2idx(handle)``
+  Return the socket number for *handle*'s active DCC chat, or ``-1``.
+
+``idx2hand(sock)``
+  Return the nick for DCC socket *sock*, or ``None``.
+
+``killdcc(sock[, reason])``
+  Disconnect a DCC connection.
+
+``dcclist([type])``
+  Return a list of DCC connection dicts.  If *type* is given (``'chat'``,
+  ``'bot'``, ``'simul'``) only connections of that type are returned.
+
+``dccused()``
+  Return the number of currently active DCC connections.
+
+``putdcc(sock, text)``
+  Send *text* to a DCC party by socket number.
+
+^^^^^^^^^^^^^^^^^^^
+Bot networking
+^^^^^^^^^^^^^^^^^^^
+
+``putbot(botnick, msg)``
+  Send a zapf message to the directly linked bot *botnick*.
+
+``putallbots(msg)``
+  Broadcast a zapf message to all linked bots.
+
+``islinked(botnick)``
+  Return ``True`` if *botnick* is currently linked.
+
+``bots()``
+  Return a list of all linked bot names.
+
+^^^^^^^^^^^^^^^^^^
+Bot management
+^^^^^^^^^^^^^^^^^^
+
+``die([reason])``
+  Shut down the bot with an optional reason string.
+
+``restart()``
+  Write the userfile and restart the bot process.
+
+``rehash()``
+  Write the userfile and reload the configuration file without restarting.
+
+^^^^^^^^^^^^^^^^^^^^^^^^^
+Text / string utilities
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``stripcodes(flags, text)``
+  Strip IRC formatting codes from *text*.  *flags* is a string of characters
+  selecting what to strip: ``c`` color, ``b`` bold, ``r`` reverse,
+  ``u`` underline, ``a`` ANSI, ``g`` bells, ``i`` italics, ``*`` all.
+
+``matchstr(pattern, string)``
+  Return ``True`` if *string* matches IRC glob *pattern* (``?`` and ``*``).
+
+``maskhost(nick, userhost)``
+  Create an IRC hostmask from *nick* and ``user@host`` string.
+
+``rand(n)``
+  Return a random integer in ``[0, n)``.
+
+``unixtime()``
+  Return the current Unix timestamp as an integer.
+
+``duration(seconds)``
+  Convert *seconds* to a human-readable string (e.g. ``"2 days, 3 hours"``).
+
+``putlog(text[, loglevel[, channel]])``
+  Write *text* to the eggdrop log.  Default loglevel is ``LOG_MISC``.
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+IRCX / Ophion / IRCv3 extended commands
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``ircxprop(target, prop[, value])``
+  Get or set an IRCX property (sends a ``PROP`` command).
+
+``ircxaccess(channel, list|add|del[, level][, mask])``
+  Manage an IRCX channel access list.
+
+``ircxcreate(channel[, modes])``
+  Create an IRCX channel.
+
+``ircxnegotiate()``
+  Send the IRCX negotiate command to enable IRCX mode on the current server.
+
+--------------------
+eggtools.py wrappers
+--------------------
+
+The file ``scripts/eggtools.py`` ships with Eggdrop and provides high-level,
+Pythonic wrappers around every ``eggdrop`` module function listed above.  It
+adds:
+
+* Full type annotations
+* ``@on_pub``, ``@on_join``, ``@on_msg``, ``@on_rawt``, ``@on_monitor`` and
+  many other decorator factories for registering binds
+* ``privmsg()``, ``notice()``, ``action()`` helpers
+* ``ctcp()``, ``ctcreply()`` helpers
+* ``op()``, ``deop()``, ``voice()``, ``devoice()``, ``kick()``, ``ban()``
+  channel management helpers
+* ``timer()``, ``utimer()``, ``reptimer()``, ``killtimer()`` — a pure-Python
+  timer system with 1-minute granularity
+* ``monitor_add()``, ``monitor_del()``, ``monitor_list()`` — MONITOR helpers
+* Twitch wrappers: ``twitchmods()``, ``twitchvips()``, ``ismod()``, ``isvip()``
+* String utilities compatible with ``alltools.tcl`` names
+
+Example using ``eggtools``::
+
+  import eggtools
+
+  @eggtools.on_pub("*", "!hello")
+  def cmd_hello(nick, host, handle, channel, text):
+      eggtools.privmsg(channel, f"Hello, {nick}!")
+
+  @eggtools.on_join()
+  def on_join(nick, host, handle, channel):
+      eggtools.privmsg(channel, f"Welcome, {nick}!")
+
+  # Schedule a one-shot reminder in 5 minutes
+  eggtools.timer(lambda: eggtools.privmsg("#mychan", "5 minutes are up!"), 5)
 
 --------------------------------
 Writing an Eggdrop Python script
 --------------------------------
 
-Some example scripts, complete with documentation, are included with the Python module that ships with Eggdrop (src/mod/python.mod/scripts). These scripts are included to help demonstrate script formatting and usage. The scripts are: 
+For a step-by-step tutorial see :doc:`/tutorials/pythonscript`.
 
+.. _bind_types:
 
-.. glossary::
-
-    bestfriend.py
-      This example script demonstrates how to use the parse_tcl_list() python command to convert a list returned by a Tcl command into a list that is usable by Python.
-
-    greet.py
-      This is a very basic script that demonstrates how a Python script with binds can be run by Eggdrop.
-
-    imdb.py
-      This script shows how to use an existing third-party module to extend a Python script, in this case retrieving information from imdb.com.
-
-    listtls.py
-      This script demonstrates how to use parse-tcl_list() and parse_tcl_dict() to convert a list of dicts provided by Tcl into something that is usable by Python.
-
-    urltitle.py
-      This script shows how to use an existing third-party module to extend a Python script, in this case using an http parser to collect title information from a provided web page.
-    
-
-^^^^^^^^^^^^^^
-Header section
-^^^^^^^^^^^^^^
-
-Python is able to call any Tcl command by importing the ``eggdrop`` module. For example, to use the ``putlog`` command in a python script, you would import it as::
-
-  from eggdrop.tcl import putlog
-
-and then call it using::
-
-  putlog("This is a logged message")
-
-
-An important difference to note is that Eggdrop Python has its own ``bind`` command implemented. You will generally want to create binds using the Python ``bind`` command and not import bind from eggdrop.tcl because a Python bind will call a Python function, whereas using the Tcl bind will call a Tcl function (not one from the script you are writing).
+For a full description of bind types and their callback signatures see the
+eggdrop TCL commands reference at :doc:`/using/tcl-commands` (the bind types
+and signatures are identical for Python).
 
 
 Copyright (C) 2000 - 2025 Eggheads Development Team
-
