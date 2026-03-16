@@ -592,6 +592,7 @@ static void filedb_mergeempty(FILE *fdb)
 /* Returns the filedb entry matching the filename 'fn' in
  * directory 'dir'.
  */
+#ifdef HAVE_TCL
 static filedb_entry *filedb_getentry(char *dir, char *fn)
 {
   FILE *fdb;
@@ -605,6 +606,7 @@ static filedb_entry *filedb_getentry(char *dir, char *fn)
   }
   return fdbe;
 }
+#endif /* HAVE_TCL */
 
 /* Initialises a new filedb by writing the db header, etc.
  */
@@ -1113,6 +1115,7 @@ static void remote_filereq(int idx, char *from, char *file)
  *    Tcl functions
  */
 
+#ifdef HAVE_TCL
 static void filedb_getdesc(char *dir, char *fn, char **desc)
 {
   filedb_entry *fdbe = NULL;
@@ -1314,3 +1317,4 @@ static void filedb_change(char *dir, char *fn, int what)
   }
   filedb_close(fdb);
 }
+#endif /* HAVE_TCL */

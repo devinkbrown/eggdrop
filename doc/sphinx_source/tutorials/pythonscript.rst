@@ -2,84 +2,194 @@
 Writing an Eggdrop Python Script
 ================================
 
-So you want to write an Eggdrop python script, but you don't really know where
-to begin. This file will give you a very basic idea about what Eggdrop python
-scripting is like, using a *very* simple script that may help you get
-started with your own scripts.
+This guide walks through writing a Python script for Eggdrop.  It assumes you
+have already installed and configured Eggdrop and have the Python module loaded
+(``loadmodule python`` in your config file).
 
-This guide assumes you know a bit about Eggdrops and, because it reimplements those commands, Tcl. You should have
-already installed Eggdrop. The bot should not be on any important or busy
-channels (development bots can be annoying if your script has bugs). If you
-plan on doing a lot of development, enable the .python commands, and
-make sure nobody else has access to your bot.
+------
+Basics
+------
 
-First, read through the script below. Very few commands are listed here intentionally,
-but as you want to develop more advanced scripts, you will definitely want to
-get familiar with the `Eggdrop custom Tcl commands <https://docs.eggheads.org/using/tcl-commands.html>`_, as Python reimplements them.
+Python scripts access Eggdrop through the built-in ``eggdrop`` module.  The
+higher-level ``eggtools`` library (``scripts/eggtools.py``) provides convenient
+wrappers and decorator-style bind registration.
 
-If you have the .python command enabled, you can load a script by typing
-'.pysource script/file.tcl' to load it. Otherwise, add it to your config
-file like normal (examples to do so are at the bottom of the config file) and
-'.rehash' or '.restart' your bot.
+A minimal script that greets users as they join::
 
-Let's look at a very basic example script that greets users as they join a channel::
+  import eggtools
 
-  from eggdrop import bind
-  from eggdrop.tcl import putmsg
+  @eggtools.on_join()
+  def greet(nick, host, handle, channel):
+      eggtools.privmsg(channel, f"Hello {nick}, welcome to {channel}!")
 
-  def joinGreetUser(nick, host, handle, channel, **kwargs):
-    putmsg(channel, f"Hello {nick}, welcome to {channel}")
+Save it as e.g. ``scripts/greet.py`` and add ``pysource scripts/greet.py`` to
+your config file.
 
-  def joinGreetOp(nick, host, handle, channel, **kwargs):
-    putmsg(channel, f"{nick} is an operator on this channel!")
+------------------
+Using bind directly
+------------------
 
-  if 'GREET_BINDS' in globals():
-    for greetbind in GREET_BINDS:
-      greetbind.unbind()
-    del GREET_BINDS
+If you need fine-grained control you can call ``eggdrop.bind`` directly::
 
-  GREET_BINDS = list()
-  GREET_BINDS.append(bind("join", "*", "*", joinGreetUser))
-  GREET_BINDS.append(bind("join", "o", "*", joinGreetOp))
+  import eggdrop
 
-  print('Loaded greet.py')
+  def greet(nick, host, handle, channel, **kw):
+      eggdrop.putserv(f"PRIVMSG {channel} :Hello {nick}!")
 
-Whew! There's a lot going on here. You'll generally see scripts broken into a few key parts- the header, the config section, and the code section. Ok, let's go over this piece by piece. Any line prefixed by a # means it is comment, and thus ignored. You can type whatever you want, and it won't matter. When writing scripts (especially if you want to give them to other people, it is good to use comments in the code to show what you're doing.
+  b = eggdrop.bind("join", "*", "*", greet)
 
-Because developers are lazy and don't want to manually reimplement every single Tcl command in Python code, Python includes a Tcl module that calls Tcl command via Python::
+``bind`` returns a ``PythonBind`` object.  Call ``b.unbind()`` to remove the bind.
 
-  from eggdrop import bind
-  from eggdrop.tcl import putmsg
+-------------------------------
+Handling re-source / rehash
+-------------------------------
 
-You can load the entire Tcl library by running ``import eggdrop.tcl``, or (the better solution to save memory) is to only load the commands you need via something like ``from eggdrop.tcl import putmsg``. The one exception to be aware of here is the bind command- you always want to load the custom python implementation of that so that it called a python bind, not a Tcl proc. Do this via ``from eggdrop import bind``.
+If the script is re-sourced (e.g. after ``.rehash``) existing binds must be
+removed before new ones are registered, otherwise they accumulate::
 
-Next, let's create some functions that the main script will call::
+  import eggtools
 
-  def joinGreetUser(nick, host, handle, channel, **kwargs):
-    putmsg(channel, f"Hello {nick}, welcome to {channel}")
+  if 'MY_BINDS' in globals():
+    for b in MY_BINDS:
+      b.unbind()
+    del MY_BINDS
 
-  def joinGreetOp(nick, host, handle, channel, **kwargs):
-    putmsg(channel, f"{nick} is an operator on this channel!")
+  MY_BINDS = []
 
-Above, we create a function called joinGreetUser and a function called joinGreetOp. This function calls the putmsg Tcl. Note that the arguments here are slightly different than Tcl, requiring a comma instead of a space between the arguments.
+  @eggtools.on_pub("*", "!hello")
+  def cmd_hello(nick, host, handle, channel, text):
+      eggtools.privmsg(channel, f"Hi, {nick}!")
+      MY_BINDS.append(eggdrop.bind.__self__)  # track if using low-level bind
 
-We include the next code segment due to a limitation of Eggdrop's Python module. Currently, if Eggdrop is rehashed, previously existing binds will be duplicated instead of being overwritten. This is example code checks for previously-existing binds after the script reloaded and deletes them::
+The ``eggtools`` decorator factories already return the ``PythonBind`` object;
+collect them from the decorated function's ``__bind__`` attribute when needed.
 
-  if 'GREET_BINDS' in globals():
-    for greetbind in GREET_BINDS:
-      greetbind.unbind()
-    del GREET_BINDS
+-----------------
+Sending IRC lines
+-----------------
 
-As part of the above code, we need to track the binds. To do that, the GREET_BINDS list is created, and then we add the binds to it::
+Use the ``putserv`` / ``putquick`` / ``putnow`` functions for raw IRC lines::
 
-  GREET_BINDS = list()
-  GREET_BINDS.append(bind("join", "*", "*", joinGreetUser))
-  # Again, arguments are separated with a comma. This bind requires the 'o' flag to be triggered.
-  GREET_BINDS.append(bind("join", "o", "*", joinGreetOp))
+  eggdrop.putserv("PRIVMSG #chan :Hello world!")
+  eggdrop.putquick("PONG :server")
 
-Note that you must call binds at the end of a script (not the top, like we do in Tcl), because the functions must be defined before being called. And again, we create the binds using comma-separated arguments, not spaces like Tcl. ``GREET_BINDS`` is created as a JOIN bind that is triggered when a user with an operator flag joins. When it is triggered, it called the function joinGreetOp that we defined at the beginning of the script.
+Or use the helpers in ``eggtools``::
 
-And lastly, our lovely ``print('Loaded greet.py')`` line. This is a normal python command, nothing special about it- it will only print to standard output (ie, if you're running in a terminal). If you want to print to something like the partyline, you'd want to import and then use ``putlog("Loaded greet.py``. 
+  eggtools.privmsg("#chan", "Hello world!")
+  eggtools.notice("nick", "This is a notice")
+  eggtools.action("#chan", "waves")
+
+------------------
+Timers (scheduled)
+------------------
+
+``eggtools`` provides a pure-Python timer system::
+
+  import eggtools
+
+  def announce():
+      eggtools.privmsg("#chan", "Announcement!")
+
+  # fire once after 10 minutes
+  tid = eggtools.timer(announce, 10)
+
+  # fire once after 30 seconds (±60 s granularity)
+  utid = eggtools.utimer(announce, 30)
+
+  # repeating every 60 seconds
+  rtid = eggtools.reptimer(announce, 60)
+
+  # cancel
+  eggtools.killtimer(tid)
+
+  # list pending timers
+  print(eggtools.timers())
+
+-------------------
+User database access
+-------------------
+
+::
+
+  # Check flags
+  flags = eggdrop.chattr("SomeHandle")      # returns flag string
+  eggdrop.chattr("SomeHandle", "+o")        # grant global op flag
+
+  # User info fields
+  eggdrop.setinfo("SomeHandle", "A friendly bot user")
+  info = eggdrop.getinfo("SomeHandle")
+
+  # Host list
+  hosts = eggdrop.gethosts("SomeHandle")
+
+-------------------
+Channel information
+-------------------
+
+::
+
+  # List channel members
+  for m in eggdrop.chanlist("#chan"):
+      print(m['nick'], m['userhost'], m['flags'])
+
+  # Channel settings
+  settings = eggdrop.chanset("#chan")
+  print(settings['bitch'], settings['flood_pub_thr'])
+
+  # Bans / exempts / invites
+  for ban in eggdrop.chanbans("#chan"):
+      print(ban['mask'], ban['who'])
+
+-------------------------------
+IRCv3 / Ophion extended events
+-------------------------------
+
+Use ``@eggtools.on_rawt`` to receive server messages with their IRCv3 tag dict,
+or ``@eggtools.on_monitor`` for MONITOR presence notifications::
+
+  @eggtools.on_rawt(mask="PRIVMSG")
+  def tagged_privmsg(from_mask, keyword, text, tags):
+      msgid = tags.get("msgid", "")
+      print(f"[{msgid}] {from_mask}: {text}")
+
+  @eggtools.on_monitor()
+  def monitor_event(nick, status):
+      # status is "online" or "offline"
+      print(f"{nick} is now {status}")
+
+  # Add/remove nicks from MONITOR
+  eggtools.monitor_add("friend1", "friend2")
+  eggtools.monitor_del("friend1")
+
+-------------------------------------------
+Twitch support (requires twitch module)
+-------------------------------------------
+
+::
+
+  # Who are the mods?
+  mods = eggtools.twitchmods("#channelname")
+  print(mods)   # "mod1 mod2 mod3"
+
+  # Is this nick a moderator?
+  if eggtools.ismod("somenick", "#channelname"):
+      eggtools.privmsg("#channelname", "Hello, mod!")
+
+  # Is this nick a VIP?
+  if eggtools.isvip("somenick"):
+      eggtools.privmsg("#channelname", "Hello, VIP!")
+
+---------
+Debugging
+---------
+
+From the partyline you can run Python expressions directly::
+
+  .python eggdrop.botname()
+  .python eggdrop.chanlist("#chan")
+  .python eggtools.timers()
+
+Use ``eggdrop.putlog(msg)`` to write to the bot's log file.
 
 
 Copyright (C) 2003 - 2025 Eggheads Development Team

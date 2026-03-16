@@ -1,8 +1,21 @@
 
-Eggdrop Changes (Last Updated 2026-03-15):
+Eggdrop Changes (Last Updated 2026-03-16):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-03-16 * build: no-Tcl build is now fully warning-free.
+               All Tcl-only functions and declarations are guarded with
+               #ifdef HAVE_TCL across server.mod (server.c, servmsg.c),
+               channels.mod (channels.c, cmdschan.c), filesys.mod
+               (filedb3.c/h, filesys.h), irc.mod, twitch.mod, sasl.c,
+               isupport.c, and console.mod.  lush.h stub macros corrected:
+               Tcl_DictObjFirst, Tcl_TraceVar, and BADARGS are now proper
+               no-op stubs.  Building with -Dtcl=disabled now produces zero
+               -Wunused-function, -Wimplicit-function-declaration, and
+               statement-with-no-effect diagnostics on GCC 15.
+               Python (python.mod) registers as the sole script engine via
+               script_register() automatically when Tcl is absent.
 
   2026-03-15 * build: make Tcl an optional dependency.  Build with
                -Dtcl=disabled to produce a Tcl-free binary that uses

@@ -1,4 +1,4 @@
-Last revised: April 20, 2020
+Last revised: 2025
 
 .. _twitch:
 
@@ -6,54 +6,96 @@ Last revised: April 20, 2020
 Twitch Module
 =============
 
-This module *attempts* to provide connectivity with the Twitch gaming platform. While Twitch provides an IRC gateway to connect with it's streaming service, it does not claim to (and certainly does not) follow the IRC RFC in any meaningful way. The intent of this module is not to provide the full spectrum of management functions typically associated with Eggdrop; instead it focuses around the following key functions:
+This module provides connectivity with the Twitch gaming platform via its IRC
+gateway.  Because Twitch's IRC gateway is a non-standard overlay (not RFC
+compliant), many traditional Eggdrop features are unavailable.  The module
+focuses on:
 
-* Logging of general and Twitch-specific events (raids, blocks, bit donations)
-* Tracking userstate and roomstate values
-* Adding Tcl event binds for a number of Twitch events
+* Logging general and Twitch-specific events (raids, bits, host, etc.)
+* Tracking userstate and roomstate values per channel
+* Providing bind types for Twitch-specific IRC events
+* Exposing moderator and VIP lists to scripts
 
-This module requires: irc.mod
+This module requires: ``server.mod``
 
 Put this line into your Eggdrop configuration file to load the twitch module::
 
   loadmodule twitch
 
-and set `net-type "Twitch"` in your config file.
+and set ``net-type "Twitch"`` in your config file.
 
 -----------
 Limitations
 -----------
 
-There are a few things you should know about how Twitch provides service through the IRC gateway that affects how well Eggdrop can function:
-* Twitch does not broadcast JOINs or PARTs for channels over 1,000 users. This renders tracking users on a channel unreliable.
-* Twitch does not broadcast MODE changes for moderator status. This (mostly) renders tracking the status of users infeasible. (See Tcl below section for workaround)
-* Twitch stores bans on its servers (and does not accept MODE +b), making the Eggdrop ban list (and exempts/invites) mostly useless
-* Twitch does not allow clients to issue MODE +o/-o commands, preventing Eggdrop from op'ing users through the traditional method
-
-... but the good news is, we have extended much of the Twitch functionality to Tcl!
-
--------
-Tcl API 
--------
-
-That last section was a little bit of a downer, but don't worry, we added a TON of functionality to the Tcl API. This module adds binds for the following Twitch events:
-
-* CLEARCHAT
-* CLEARMSG
-* HOSTTARGET
-* WHISPER
-* ROOMSTATE
-* USERSTATE
-* USERNOTICE
+* Twitch does not broadcast JOINs or PARTs for channels over 1,000 users,
+  making user tracking unreliable.
+* Twitch does not broadcast MODE changes for moderator status; use the
+  ``twitchmods`` / ``ismod`` commands described below instead.
+* Twitch stores bans on its own servers and does not accept ``MODE +b``.
+* Twitch does not allow clients to issue ``MODE +o/-o`` commands.
 
 ------------------
 Partyline commands
 ------------------
 
-This module adds the following commands to the partyline:
-* userstate - Lists current userstate on a channel
-* roomsstate - Lists current roomstate for a channel
-* twcmd - Issues a traditional Twitch web interface command to the Twitch server (/ban, /block, /host, etc)
+* ``userstate`` — list current userstate for a channel
+* ``roomstate`` — list current roomstate for a channel
+* ``twcmd`` — issue a Twitch web-interface command (``/ban``, ``/host``, etc.)
 
-  Copyright (C) 2020 - 2025 Eggheads Development Team
+-------
+Tcl API
+-------
 
+This module adds bind types for the following Twitch events (when Tcl is
+enabled):
+
+* ``ccht`` — CLEARCHAT
+* ``cmsg`` — CLEARMSG
+* ``htgt`` — HOSTTARGET
+* ``wspr`` — WHISPER (incoming)
+* ``wspm`` — WHISPER (outgoing)
+* ``rmst`` — ROOMSTATE
+* ``usst`` — USERSTATE
+* ``usrntc`` — USERNOTICE
+
+Additional Tcl commands (Tcl builds only): ``twcmd``, ``userstate``,
+``roomstate``, ``twitchmods``, ``twitchvips``, ``ismod``, ``isvip``.
+
+----------
+Python API
+----------
+
+When the python module is also loaded, the following functions are available
+via the built-in ``eggdrop`` module (or through ``eggtools`` wrappers):
+
+``eggdrop.twitchmods(channel)``
+  Return a space-separated string of moderator nicks for *channel*.
+  Raises ``EggdropError`` if the channel is not found.
+
+``eggdrop.twitchvips(channel)``
+  Return a space-separated string of VIP nicks for *channel*.
+  Raises ``EggdropError`` if the channel is not found.
+
+``eggdrop.ismod(nick[, channel])``
+  Return ``True`` if *nick* is a moderator.  If *channel* is omitted all
+  Twitch channels are searched.  Raises ``EggdropError`` if *channel* is given
+  but not found.
+
+``eggdrop.isvip(nick[, channel])``
+  Return ``True`` if *nick* is a VIP.  Same channel semantics as ``ismod``.
+
+``eggtools`` wrappers (from ``scripts/eggtools.py``)::
+
+  import eggtools
+
+  mods = eggtools.twitchmods("#channel")
+  vips = eggtools.twitchvips("#channel")
+
+  if eggtools.ismod("somenick", "#channel"):
+      eggtools.privmsg("#channel", "Hi mod!")
+
+  if eggtools.isvip("somenick"):
+      eggtools.privmsg("#channel", "Hi VIP!")
+
+Copyright (C) 2020 - 2025 Eggheads Development Team

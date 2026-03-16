@@ -146,17 +146,21 @@ static int deq_kick(int);
 static void msgq_clear(struct msgq_head *qh);
 static int stack_limit;
 static char *realservername;
+#ifdef HAVE_TCL
 static int add_server(const char *, const char *, const char *);
 static int del_server(const char *, const char *);
+#endif
 static void free_server(struct server_list *);
 
 /* Forward declarations for IRCX/Ophion helper functions (defined after
  * tclserv.c is included, so we must declare them here first). */
 static void ircx_send_negotiate(void);
+#ifdef HAVE_TCL
 static void ircx_prop_send(char *, char *, char *);
 static void ircx_access_list_send(char *);
 static void ircx_access_add(char *, char *, char *);
 static void ircx_access_del(char *, char *);
+#endif
 static void ircx_chan_create(char *, char *);
 static void ircx_do_autoowner(void);
 
@@ -1020,6 +1024,7 @@ static void queue_server(int which, char *msg, int len)
    add_server as of v1.9.0. It can be removed if the 'old' server method is
    removed from Eggdrop.
 */
+#ifdef HAVE_TCL
 static void old_add_server(const char *ss) {
   char name[256] = "";
   char port[7] = "";
@@ -1029,10 +1034,12 @@ static void old_add_server(const char *ss) {
     return;
   add_server(name, port, pass);
 }
+#endif /* HAVE_TCL */
 
 /* Add a new server to the server_list.
  * Don't return '3' from here, that is used by del_server() for tcl_server()
  */
+#ifdef HAVE_TCL
 static int add_server(const char *name, const char *port, const char *pass)
 {
   struct server_list *x, *z;
@@ -1076,7 +1083,9 @@ static int add_server(const char *name, const char *port, const char *pass)
 #endif
   return 0;
 }
+#endif /* HAVE_TCL */
 
+#ifdef HAVE_TCL
 /* Remove a server from the server list.
  * Checks based on IP and then the port, if one is provided. If no port is
  * provided, remove only the first matching host.
@@ -1143,6 +1152,7 @@ static int del_server(const char *name, const char *port)
   }
   return found ? 0 : 3;
 }
+#endif /* HAVE_TCL */
 
 /* Free a single removed server from server link list */
 static void free_server(struct server_list *z) {
@@ -1286,6 +1296,7 @@ static int monitor_add(char * nick, int send) {
   return 0;
 }
 
+#ifdef HAVE_TCL
 /* Remove nickname from monitor list */
 static int monitor_del (char *nick) {
   struct monitor_list *current = monitor;
@@ -1367,6 +1378,7 @@ static void monitor_clear(void)
     current = next;
   }
 }
+#endif /* HAVE_TCL */
 
 #ifdef HAVE_TCL
 static int server_6char STDVAR
@@ -1482,6 +1494,7 @@ static int monitor_2char STDVAR
 }
 #endif /* HAVE_TCL */
 
+#ifdef HAVE_TCL
 /* Read/write normal string variable.
  */
 static char *nick_change(ClientData cdata, Tcl_Interp *irp,
@@ -1509,6 +1522,7 @@ static char *nick_change(ClientData cdata, Tcl_Interp *irp,
   }
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 /* Replace all '?'s in s with a random number.
  */
@@ -1537,6 +1551,7 @@ static char *get_altbotnick(void)
     return altnick;
 }
 
+#ifdef HAVE_TCL
 static char *altnick_change(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
@@ -1615,6 +1630,7 @@ static char *traced_botname(ClientData cdata, Tcl_Interp *irp,
     return "read-only variable";
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 static void do_nettype(void)
 {
@@ -1722,6 +1738,7 @@ static void ircx_send_negotiate(void)
   putlog(LOG_MISC, "*", "IRCX: Sent IRCX command, awaiting 800 RPL_IRCX");
 }
 
+#ifdef HAVE_TCL
 /* Send a PROP command to get/set a property on a channel or user. */
 static void ircx_prop_send(char *target, char *prop, char *value)
 {
@@ -1754,6 +1771,7 @@ static void ircx_access_del(char *channel, char *mask)
   dprintf(DP_SERVER, "ACCESS %s DEL %s\n", channel, mask);
   putlog(LOG_MISC, channel, "IRCX ACCESS: Removed %s from %s", mask, channel);
 }
+#endif /* HAVE_TCL */
 
 /* Send CREATE command to create a channel and gain owner (+q). */
 static void ircx_chan_create(char *channel, char *modes)
@@ -1816,6 +1834,7 @@ static void ircx_free_autoowner_list(void)
   ircx_autoowner_list = NULL;
 }
 
+#ifdef HAVE_TCL
 static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
@@ -1905,6 +1924,7 @@ static char *traced_nicklen(ClientData cdata, Tcl_Interp *irp,
   }
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 static tcl_strings my_tcl_strings[] = {
   {"botnick",             NULL,           0,          STR_PROTECT},
@@ -1977,7 +1997,7 @@ static tcl_ints my_tcl_ints[] = {
 
 /* Read or write the server list.
  */
-
+#ifdef HAVE_TCL
 static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
@@ -2047,6 +2067,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
 #define tcl_untraceserver(name, ptr)                                    \
   Tcl_UntraceVar(interp, name, TCL_TRACE_READS | TCL_TRACE_WRITES |     \
                  TCL_TRACE_UNSETS, tcl_eggserver, (ClientData) ptr)
+#endif /* HAVE_TCL */
 
 
 /*
@@ -2577,7 +2598,6 @@ static Function server_table[] = {
 
 char *server_start(Function *global_funcs)
 {
-  EGG_CONST char *s;
 
   global = global_funcs;
 
@@ -2648,11 +2668,14 @@ char *server_start(Function *global_funcs)
 
 #ifdef HAVE_TCL
   /* Fool bot in reading the values. */
-  tcl_eggserver(NULL, interp, "servers", NULL, 0);
-  tcl_traceserver("servers", NULL);
-  s = Tcl_GetVar(interp, "nick", TCL_GLOBAL_ONLY);
-  if (s)
-    strlcpy(origbotname, s, NICKLEN);
+  {
+    EGG_CONST char *s;
+    tcl_eggserver(NULL, interp, "servers", NULL, 0);
+    tcl_traceserver("servers", NULL);
+    s = Tcl_GetVar(interp, "nick", TCL_GLOBAL_ONLY);
+    if (s)
+      strlcpy(origbotname, s, NICKLEN);
+  }
   Tcl_TraceVar(interp, "nick",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                nick_change, NULL);

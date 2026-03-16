@@ -440,59 +440,6 @@ static int gothosttarget(char *from, char *msg) {
 
 static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
   twitchchan_t *tchan;
-  int done = 0, trigger_bind = 0;
-  Tcl_DictSearch s;
-  Tcl_Obj *value, *key;
-
-  if (!(tchan = findtchan_by_dname(chan))) {    /* Find channel or, if it   */
-    tchan = nmalloc(sizeof *tchan);             /* doesn't exist, create it */
-    explicit_bzero(tchan, sizeof(twitchchan_t));
-    strlcpy(tchan->dname, chan, sizeof tchan->dname);
-    egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
-  }
-
-  for (Tcl_DictObjFirst(interp, tags, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
-    char *k = Tcl_GetString(key), *v = Tcl_GetString(value);
-    long n = atol(v);
-    int changed = 0;
-
-    if (!strcmp(k, "badge-info") && tchan->userstate.badge_info != n) {
-      changed = 1;
-      tchan->userstate.badge_info = n;
-    } else if (!strcmp(k, "badges") && strcmp(tchan->userstate.badges ? tchan->userstate.badges : "", v)) {
-      changed = 1;
-      nfree(tchan->userstate.badges);
-      tchan->userstate.badges = nstrdup(v);
-    } else if (!strcmp(k, "color") && strcmp(tchan->userstate.color, v)) {
-      changed = 1;
-      strlcpy(tchan->userstate.color, v, sizeof tchan->userstate.color);
-    } else if (!strcmp(k, "display-name") && strcmp(tchan->userstate.display_name, v)) {
-      changed = 1;
-      strlcpy(tchan->userstate.display_name, v, sizeof tchan->userstate.display_name);
-    } else if (!strcmp(k, "emote-sets") && strcmp(tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "", v)) {
-      changed = 1;
-      nfree(tchan->userstate.emote_sets);
-      tchan->userstate.emote_sets = nstrdup(v);
-    } else if (!strcmp(k, "mod") && tchan->userstate.mod != n) {
-      changed = 1;
-      tchan->userstate.mod = n;
-    }
-    if (changed) {
-      putlog(LOG_SERV, "*", "* TWITCH: Userstate '%s' in room %s changed to %s", k, chan, v);
-      trigger_bind = 1;
-    }
-  }
-  if (trigger_bind) {
-    check_tcl_userstate(chan, tags);
-  }
-  return 0;
-}
-
-static int gotroomstate(char *from, char *chan, Tcl_Obj *tags) {
-  twitchchan_t *tchan;
-  int done = 0;
-  Tcl_DictSearch s;
-  Tcl_Obj *value, *key;
   int trigger_bind = 0;
 
   if (!(tchan = findtchan_by_dname(chan))) {    /* Find channel or, if it   */
@@ -502,32 +449,96 @@ static int gotroomstate(char *from, char *chan, Tcl_Obj *tags) {
     egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
   }
 
-  for (Tcl_DictObjFirst(interp, tags, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
-    char *k = Tcl_GetString(key), *v = Tcl_GetString(value);
-    long n = atol(v);
-    int changed = 0;
+#ifdef HAVE_TCL
+  {
+    int done = 0;
+    Tcl_DictSearch s;
+    Tcl_Obj *value, *key;
 
-    if (!strcmp(k, "emote-only") && tchan->emote_only != n) {
-      tchan->emote_only = n;
-      changed = 1;
-    } else if (!strcmp(k, "followers-only") && tchan->followers_only != n) {
-      tchan->followers_only = n;
-      changed = 1;
-    } else if (!strcmp(k, "r9k") && tchan->r9k != n) {
-      tchan->r9k = n;
-      changed = 1;
-    } else if (!strcmp(k, "subs-only") && tchan->subs_only != n) {
-      tchan->subs_only = n;
-      changed = 1;
-    } else if (!strcmp(k, "slow") && tchan->slow != n) {
-      tchan->slow = n;
-      changed = 1;
-    }
-    if (changed) {
-      putlog(LOG_SERV, "*", "* TWITCH: Roomstate '%s' in room %s changed to %s", k, chan, v);
-      trigger_bind = 1;
+    for (Tcl_DictObjFirst(interp, tags, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
+      char *k = Tcl_GetString(key), *v = Tcl_GetString(value);
+      long n = atol(v);
+      int changed = 0;
+
+      if (!strcmp(k, "badge-info") && tchan->userstate.badge_info != n) {
+        changed = 1;
+        tchan->userstate.badge_info = n;
+      } else if (!strcmp(k, "badges") && strcmp(tchan->userstate.badges ? tchan->userstate.badges : "", v)) {
+        changed = 1;
+        nfree(tchan->userstate.badges);
+        tchan->userstate.badges = nstrdup(v);
+      } else if (!strcmp(k, "color") && strcmp(tchan->userstate.color, v)) {
+        changed = 1;
+        strlcpy(tchan->userstate.color, v, sizeof tchan->userstate.color);
+      } else if (!strcmp(k, "display-name") && strcmp(tchan->userstate.display_name, v)) {
+        changed = 1;
+        strlcpy(tchan->userstate.display_name, v, sizeof tchan->userstate.display_name);
+      } else if (!strcmp(k, "emote-sets") && strcmp(tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "", v)) {
+        changed = 1;
+        nfree(tchan->userstate.emote_sets);
+        tchan->userstate.emote_sets = nstrdup(v);
+      } else if (!strcmp(k, "mod") && tchan->userstate.mod != n) {
+        changed = 1;
+        tchan->userstate.mod = n;
+      }
+      if (changed) {
+        putlog(LOG_SERV, "*", "* TWITCH: Userstate '%s' in room %s changed to %s", k, chan, v);
+        trigger_bind = 1;
+      }
     }
   }
+#endif /* HAVE_TCL */
+  if (trigger_bind) {
+    check_tcl_userstate(chan, tags);
+  }
+  return 0;
+}
+
+static int gotroomstate(char *from, char *chan, Tcl_Obj *tags) {
+  twitchchan_t *tchan;
+  int trigger_bind = 0;
+
+  if (!(tchan = findtchan_by_dname(chan))) {    /* Find channel or, if it   */
+    tchan = nmalloc(sizeof *tchan);             /* doesn't exist, create it */
+    explicit_bzero(tchan, sizeof(twitchchan_t));
+    strlcpy(tchan->dname, chan, sizeof tchan->dname);
+    egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
+  }
+
+#ifdef HAVE_TCL
+  {
+    int done = 0;
+    Tcl_DictSearch s;
+    Tcl_Obj *value, *key;
+
+    for (Tcl_DictObjFirst(interp, tags, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
+      char *k = Tcl_GetString(key), *v = Tcl_GetString(value);
+      long n = atol(v);
+      int changed = 0;
+
+      if (!strcmp(k, "emote-only") && tchan->emote_only != n) {
+        tchan->emote_only = n;
+        changed = 1;
+      } else if (!strcmp(k, "followers-only") && tchan->followers_only != n) {
+        tchan->followers_only = n;
+        changed = 1;
+      } else if (!strcmp(k, "r9k") && tchan->r9k != n) {
+        tchan->r9k = n;
+        changed = 1;
+      } else if (!strcmp(k, "subs-only") && tchan->subs_only != n) {
+        tchan->subs_only = n;
+        changed = 1;
+      } else if (!strcmp(k, "slow") && tchan->slow != n) {
+        tchan->slow = n;
+        changed = 1;
+      }
+      if (changed) {
+        putlog(LOG_SERV, "*", "* TWITCH: Roomstate '%s' in room %s changed to %s", k, chan, v);
+        trigger_bind = 1;
+      }
+    }
+  }
+#endif /* HAVE_TCL */
   if (trigger_bind) {
     check_tcl_roomstate(chan, tags);
   }
@@ -893,26 +904,93 @@ static char *twitch_close(void)
   return NULL;
 }
 
+/* Non-TCL exports for Python module access (twitch_table indices 12-15) */
+
+/* twitch_getmods(chan) — return mods string for channel, or NULL if not found */
+static char *twitch_getmods(char *chan)
+{
+  twitchchan_t *tchan = findtchan_by_dname(chan);
+  if (!tchan)
+    return NULL;
+  return tchan->mods ? tchan->mods : "";
+}
+
+/* twitch_getvips(chan) — return vips string for channel, or NULL if not found */
+static char *twitch_getvips(char *chan)
+{
+  twitchchan_t *tchan = findtchan_by_dname(chan);
+  if (!tchan)
+    return NULL;
+  return tchan->vips ? tchan->vips : "";
+}
+
+/* twitch_ismod(nick, chan) — 1=mod, 0=not mod, -1=channel not found.
+ * If chan is NULL, searches all channels. */
+static int twitch_ismod(char *nick, char *chan)
+{
+  twitchchan_t *tchan, *thechan = NULL;
+
+  if (chan) {
+    thechan = findtchan_by_dname(chan);
+    if (!thechan)
+      return -1;
+    tchan = thechan;
+  } else {
+    tchan = twitchchan;
+  }
+  while (tchan && (thechan == NULL || thechan == tchan)) {
+    if (tchan->mods && strstr(tchan->mods, nick))
+      return 1;
+    tchan = tchan->next;
+  }
+  return 0;
+}
+
+/* twitch_isvip(nick, chan) — 1=vip, 0=not vip, -1=channel not found.
+ * If chan is NULL, searches all channels. */
+static int twitch_isvip(char *nick, char *chan)
+{
+  twitchchan_t *tchan, *thechan = NULL;
+
+  if (chan) {
+    thechan = findtchan_by_dname(chan);
+    if (!thechan)
+      return -1;
+    tchan = thechan;
+  } else {
+    tchan = twitchchan;
+  }
+  while (tchan && (thechan == NULL || thechan == tchan)) {
+    if (tchan->vips && strstr(tchan->vips, nick))
+      return 1;
+    tchan = tchan->next;
+  }
+  return 0;
+}
+
 EXPORT_SCOPE char *twitch_start(Function *global_funcs);
 
 static Function twitch_table[] = {
-  (Function) twitch_start,
-  (Function) twitch_close,
-  (Function) twitch_expmem,
-  (Function) twitch_report,
-  (Function) & H_ccht,
-  (Function) & H_cmsg,
-  (Function) & H_htgt,
-  (Function) & H_wspr,
-  (Function) & H_wspm,
-  (Function) & H_rmst,
-  (Function) & H_usst,
-  (Function) & H_usrntc
+  (Function) twitch_start,     /*  0 */
+  (Function) twitch_close,     /*  1 */
+  (Function) twitch_expmem,    /*  2 */
+  (Function) twitch_report,    /*  3 */
+  (Function) & H_ccht,         /*  4 */
+  (Function) & H_cmsg,         /*  5 */
+  (Function) & H_htgt,         /*  6 */
+  (Function) & H_wspr,         /*  7 */
+  (Function) & H_wspm,         /*  8 */
+  (Function) & H_rmst,         /*  9 */
+  (Function) & H_usst,         /* 10 */
+  (Function) & H_usrntc,       /* 11 */
+  (Function) twitch_getmods,   /* 12 */
+  (Function) twitch_getvips,   /* 13 */
+  (Function) twitch_ismod,     /* 14 */
+  (Function) twitch_isvip      /* 15 */
 };
 
 char *twitch_start(Function *global_funcs)
 {
-  const char *value;
 
   /* Assign the core function table. After this point you use all normal
    * functions defined in src/mod/modules.h
@@ -972,11 +1050,14 @@ char *twitch_start(Function *global_funcs)
 
 #ifdef HAVE_TCL
   /* Override config setting with these values; they are required for Twitch */
-  Tcl_SetVar(interp, "cap-request",
-        "twitch.tv/commands twitch.tv/membership twitch.tv/tags", 0);
-  /* keep-nick causes ISONs to be sent, which are not supported */
-  if ((value = Tcl_GetVar2(interp, "keep-nick", NULL, TCL_GLOBAL_ONLY)) && strcmp(value, "0")) {
-    putlog(LOG_MISC, "*", "Twitch: keep-nick is forced to be 0 when twitch.mod is loaded");
+  {
+    const char *value;
+    Tcl_SetVar(interp, "cap-request",
+          "twitch.tv/commands twitch.tv/membership twitch.tv/tags", 0);
+    /* keep-nick causes ISONs to be sent, which are not supported */
+    if ((value = Tcl_GetVar2(interp, "keep-nick", NULL, TCL_GLOBAL_ONLY)) && strcmp(value, "0")) {
+      putlog(LOG_MISC, "*", "Twitch: keep-nick is forced to be 0 when twitch.mod is loaded");
+    }
   }
   Tcl_SetVar2(interp, "keep-nick", NULL, "0", TCL_GLOBAL_ONLY);
   Tcl_TraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);

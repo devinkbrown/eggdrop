@@ -1131,6 +1131,1055 @@ static PyObject *py_ircxnegotiate(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* ---- Bot management -------------------------------------------------- */
+
+/* die([reason]) — shut down the bot with optional quit message */
+static PyObject *py_die(PyObject *self, PyObject *args)
+{
+  char *reason = NULL, s[1024];
+
+  if (!PyArg_ParseTuple(args, "|s", &reason))
+    return NULL;
+  if (reason && reason[0]) {
+    egg_snprintf(s, sizeof s, "BOT SHUTDOWN (%s)", reason);
+    strlcpy(quit_msg, reason, 1024);
+  } else {
+    strlcpy(s, "BOT SHUTDOWN (No reason)", sizeof s);
+    quit_msg[0] = 0;
+  }
+  kill_bot(s, quit_msg[0] ? quit_msg : "EXIT");
+  Py_RETURN_NONE;
+}
+
+/* restart() — save userfile and restart the bot process */
+static PyObject *py_restart(PyObject *self, PyObject *args)
+{
+  if (make_userfile) {
+    putlog(LOG_MISC, "*", "No need for a new user file, skipping.");
+    make_userfile = 0;
+  }
+  write_userfile(-1);
+  putlog(LOG_MISC, "*", "Restarting.");
+  do_restart = -1;
+  Py_RETURN_NONE;
+}
+
+/* rehash() — save userfile and reload configuration (no full restart) */
+static PyObject *py_rehash(PyObject *self, PyObject *args)
+{
+  if (make_userfile) {
+    putlog(LOG_MISC, "*", "No need for a new user file, skipping.");
+    make_userfile = 0;
+  }
+  write_userfile(-1);
+  putlog(LOG_MISC, "*", "Rehashing.");
+  do_restart = -2;
+  Py_RETURN_NONE;
+}
+
+/* ---- User entry access (getuser / setuser) ---------------------------- */
+
+/* getinfo(handle) — return the INFO string for handle, or None */
+static PyObject *py_getinfo(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  char *info;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u)
+    Py_RETURN_NONE;
+  info = (char *)get_user(&USERENTRY_INFO, u);
+  if (!info || !info[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(info);
+}
+
+/* setinfo(handle, info) — set the INFO string for handle */
+static PyObject *py_setinfo(PyObject *self, PyObject *args)
+{
+  char *handle, *info;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &info))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  set_user(&USERENTRY_INFO, u, info[0] ? info : NULL);
+  Py_RETURN_NONE;
+}
+
+/* getcomment(handle) — return the COMMENT string for handle, or None */
+static PyObject *py_getcomment(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  char *comment;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u)
+    Py_RETURN_NONE;
+  comment = (char *)get_user(&USERENTRY_COMMENT, u);
+  if (!comment || !comment[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(comment);
+}
+
+/* setcomment(handle, comment) — set the COMMENT string for handle */
+static PyObject *py_setcomment(PyObject *self, PyObject *args)
+{
+  char *handle, *comment;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &comment))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  set_user(&USERENTRY_COMMENT, u, comment[0] ? comment : NULL);
+  Py_RETURN_NONE;
+}
+
+/* gethosts(handle) — return list of hostmask strings for handle */
+static PyObject *py_gethosts(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  struct user_entry *e;
+  struct list_type *x;
+  PyObject *list, *s;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  list = PyList_New(0);
+  if (!u)
+    return list;
+  e = find_user_entry(&USERENTRY_HOSTS, u);
+  if (!e)
+    return list;
+  for (x = e->u.list; x; x = x->next) {
+    s = PyUnicode_FromString(x->extra);
+    PyList_Append(list, s);
+    Py_DECREF(s);
+  }
+  return list;
+}
+
+/* getaccount_str(handle) — return IRC account name from USERENTRY_ACCOUNT, or None */
+static PyObject *py_getaccount_str(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  char *acc;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u)
+    Py_RETURN_NONE;
+  acc = (char *)get_user(&USERENTRY_ACCOUNT, u);
+  if (!acc || !acc[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(acc);
+}
+
+/* ---- Channel setting queries ------------------------------------------ */
+
+/* chanset(channel) — return dict of channel configuration settings */
+static PyObject *py_chanset(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  PyObject *d;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  d = PyDict_New();
+  /* Flood control */
+  PyDict_SetItemString(d, "flood_pub_thr",   PyLong_FromLong(ch->flood_pub_thr));
+  PyDict_SetItemString(d, "flood_pub_time",  PyLong_FromLong(ch->flood_pub_time));
+  PyDict_SetItemString(d, "flood_join_thr",  PyLong_FromLong(ch->flood_join_thr));
+  PyDict_SetItemString(d, "flood_join_time", PyLong_FromLong(ch->flood_join_time));
+  PyDict_SetItemString(d, "flood_kick_thr",  PyLong_FromLong(ch->flood_kick_thr));
+  PyDict_SetItemString(d, "flood_kick_time", PyLong_FromLong(ch->flood_kick_time));
+  PyDict_SetItemString(d, "flood_deop_thr",  PyLong_FromLong(ch->flood_deop_thr));
+  PyDict_SetItemString(d, "flood_deop_time", PyLong_FromLong(ch->flood_deop_time));
+  PyDict_SetItemString(d, "flood_ctcp_thr",  PyLong_FromLong(ch->flood_ctcp_thr));
+  PyDict_SetItemString(d, "flood_ctcp_time", PyLong_FromLong(ch->flood_ctcp_time));
+  PyDict_SetItemString(d, "flood_nick_thr",  PyLong_FromLong(ch->flood_nick_thr));
+  PyDict_SetItemString(d, "flood_nick_time", PyLong_FromLong(ch->flood_nick_time));
+  /* Mask expiry times (in minutes) */
+  PyDict_SetItemString(d, "ban_time",        PyLong_FromLong(ch->ban_time));
+  PyDict_SetItemString(d, "invite_time",     PyLong_FromLong(ch->invite_time));
+  PyDict_SetItemString(d, "exempt_time",     PyLong_FromLong(ch->exempt_time));
+  /* Auto-op range */
+  PyDict_SetItemString(d, "aop_min",         PyLong_FromLong(ch->aop_min));
+  PyDict_SetItemString(d, "aop_max",         PyLong_FromLong(ch->aop_max));
+  /* Misc settings */
+  PyDict_SetItemString(d, "idle_kick",       PyLong_FromLong(ch->idle_kick));
+  PyDict_SetItemString(d, "stopnethack_mode",PyLong_FromLong(ch->stopnethack_mode));
+  PyDict_SetItemString(d, "revenge_mode",    PyLong_FromLong(ch->revenge_mode));
+  PyDict_SetItemString(d, "ban_type",        PyLong_FromLong(ch->ban_type));
+  /* Status flags (raw bitmask + individual booleans) */
+  PyDict_SetItemString(d, "status",          PyLong_FromLong(ch->status));
+  PyDict_SetItemString(d, "enforcebans",     PyBool_FromLong(ch->status & CHAN_ENFORCEBANS));
+  PyDict_SetItemString(d, "dynamicbans",     PyBool_FromLong(ch->status & CHAN_DYNAMICBANS));
+  PyDict_SetItemString(d, "userbans",        PyBool_FromLong(!(ch->status & CHAN_NOUSERBANS)));
+  PyDict_SetItemString(d, "autoop",          PyBool_FromLong(ch->status & CHAN_OPONJOIN));
+  PyDict_SetItemString(d, "bitch",           PyBool_FromLong(ch->status & CHAN_BITCH));
+  PyDict_SetItemString(d, "greet",           PyBool_FromLong(ch->status & CHAN_GREET));
+  PyDict_SetItemString(d, "protectops",      PyBool_FromLong(ch->status & CHAN_PROTECTOPS));
+  PyDict_SetItemString(d, "revenge",         PyBool_FromLong(ch->status & CHAN_REVENGE));
+  PyDict_SetItemString(d, "secret",          PyBool_FromLong(ch->status & CHAN_SECRET));
+  PyDict_SetItemString(d, "autovoice",       PyBool_FromLong(ch->status & CHAN_AUTOVOICE));
+  PyDict_SetItemString(d, "cycle",           PyBool_FromLong(ch->status & CHAN_CYCLE));
+  PyDict_SetItemString(d, "dontkickops",     PyBool_FromLong(ch->status & CHAN_DONTKICKOPS));
+  PyDict_SetItemString(d, "inactive",        PyBool_FromLong(ch->status & CHAN_INACTIVE));
+  PyDict_SetItemString(d, "protectfriends",  PyBool_FromLong(ch->status & CHAN_PROTECTFRIENDS));
+  PyDict_SetItemString(d, "shared",          PyBool_FromLong(ch->status & CHAN_SHARED));
+  PyDict_SetItemString(d, "seen",            PyBool_FromLong(ch->status & CHAN_SEEN));
+  PyDict_SetItemString(d, "revengebot",      PyBool_FromLong(ch->status & CHAN_REVENGEBOT));
+  PyDict_SetItemString(d, "autohalfop",      PyBool_FromLong(ch->status & CHAN_AUTOHALFOP));
+  PyDict_SetItemString(d, "protecthalfops",  PyBool_FromLong(ch->status & CHAN_PROTECTHALFOPS));
+  /* IRC mode string (from channel.mode bitmask - returned as raw int) */
+  PyDict_SetItemString(d, "mode",            PyLong_FromLong((long)ch->channel.mode));
+  PyDict_SetItemString(d, "maxmembers",      PyLong_FromLong((long)ch->channel.maxmembers));
+  PyDict_SetItemString(d, "members",         PyLong_FromLong((long)ch->channel.members));
+  return d;
+}
+
+/* ---- Twitch extensions ----------------------------------------------- */
+
+/* twitchmods(channel) — space-separated list of moderator nicks */
+static PyObject *py_twitchmods(PyObject *self, PyObject *args)
+{
+  char *chan;
+  module_entry *me;
+  char *(*fn)(char *);
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *))me->funcs[12];
+  result = fn(chan);
+  if (!result) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyUnicode_FromString(result);
+}
+
+/* twitchvips(channel) — space-separated list of VIP nicks */
+static PyObject *py_twitchvips(PyObject *self, PyObject *args)
+{
+  char *chan;
+  module_entry *me;
+  char *(*fn)(char *);
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *))me->funcs[13];
+  result = fn(chan);
+  if (!result) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyUnicode_FromString(result);
+}
+
+/* ismod(nick[, channel]) — True if nick is a Twitch moderator */
+static PyObject *py_ismod(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  module_entry *me;
+  int (*fn)(char *, char *);
+  int result;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (int (*)(char *, char *))me->funcs[14];
+  result = fn(nick, chan);
+  if (result < 0) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyBool_FromLong(result);
+}
+
+/* isvip(nick[, channel]) — True if nick is a Twitch VIP */
+static PyObject *py_isvip(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  module_entry *me;
+  int (*fn)(char *, char *);
+  int result;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (int (*)(char *, char *))me->funcs[15];
+  result = fn(nick, chan);
+  if (result < 0) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyBool_FromLong(result);
+}
+
+/* ---- User management ------------------------------------------------- */
+
+/* adduser(handle[, hostmask]) — add a new user to the userlist.
+ * Returns True on success, False if handle already exists or is invalid. */
+static PyObject *py_adduser(PyObject *self, PyObject *args)
+{
+  char *handle, *host = NULL;
+  unsigned char *p;
+  char hbuf[HANDLEN + 1];
+
+  if (!PyArg_ParseTuple(args, "s|s", &handle, &host))
+    return NULL;
+  strlcpy(hbuf, handle, sizeof hbuf);
+  for (p = (unsigned char *)hbuf; *p; p++)
+    if (*p <= 32 || *p == '@')
+      *p = '?';
+  if (hbuf[0] == '*' || strchr(BADHANDCHARS, hbuf[0]) ||
+      get_user_by_handle(userlist, hbuf))
+    Py_RETURN_FALSE;
+  userlist = adduser(userlist, hbuf, host ? host : "none", "-", default_flags);
+  Py_RETURN_TRUE;
+}
+
+/* deluser(handle) — remove a user from the userlist. Returns True if removed. */
+static PyObject *py_deluser(PyObject *self, PyObject *args)
+{
+  char *handle;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  if (handle[0] == '*')
+    Py_RETURN_FALSE;
+  return PyBool_FromLong(deluser(handle));
+}
+
+/* addhost(handle, hostmask) — add a hostmask to an existing user */
+static PyObject *py_addhost(PyObject *self, PyObject *args)
+{
+  char *handle, *mask;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &mask))
+    return NULL;
+  if (!get_user_by_handle(userlist, handle)) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  addhost_by_handle(handle, mask);
+  Py_RETURN_NONE;
+}
+
+/* delhost(handle, hostmask) — remove a hostmask from a user. Returns True if removed. */
+static PyObject *py_delhost(PyObject *self, PyObject *args)
+{
+  char *handle, *mask;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &mask))
+    return NULL;
+  if (!get_user_by_handle(userlist, handle)) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  return PyBool_FromLong(delhost_by_handle(handle, mask));
+}
+
+/* chattr(handle[, changes[, channel]]) — get/set user flags.
+ * With no changes: returns current flag string.
+ * With changes like "+o-v": applies flag changes and returns new flags. */
+static PyObject *py_chattr(PyObject *self, PyObject *args)
+{
+  char *handle, *chg = NULL, *chan = NULL;
+  struct flag_record pls = {0}, mns = {0}, user = {0};
+  struct userrec *u;
+  char work[100];
+
+  if (!PyArg_ParseTuple(args, "s|ss", &handle, &chg, &chan))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u || handle[0] == '*') {
+    Py_RETURN_NONE;
+  }
+  if (chan) {
+    user.match = FR_GLOBAL | FR_CHAN;
+    if (!findchan_by_dname(chan)) {
+      PyErr_SetString(EggdropError, "no such channel");
+      return NULL;
+    }
+  } else {
+    user.match = FR_GLOBAL;
+  }
+  get_user_flagrec(u, &user, chan);
+  if (chg) {
+    pls.match = user.match;
+    break_down_flags(chg, &pls, &mns);
+    pls.global &= ~USER_BOT;
+    mns.global &= ~USER_BOT;
+    user.global  = (user.global  | pls.global)       & ~mns.global;
+    user.udef_global = (user.udef_global | pls.udef_global) & ~mns.udef_global;
+    if (chan) {
+      user.chan  = (user.chan  | pls.chan)             & ~mns.chan;
+      user.udef_chan = (user.udef_chan | pls.udef_chan)& ~mns.udef_chan;
+    }
+    set_user_flagrec(u, &user, chan);
+  }
+  build_flags(work, &user, NULL);
+  return PyUnicode_FromString(work);
+}
+
+/* matchattr(handle, flags[, channel]) — True if user matches flag string */
+static PyObject *py_matchattr(PyObject *self, PyObject *args)
+{
+  char *handle, *flags, *chan = NULL;
+  struct flag_record plus = {0}, minus = {0}, user = {0};
+  struct userrec *u;
+  int ok = 0, nom = 0;
+
+  if (!PyArg_ParseTuple(args, "ss|s", &handle, &flags, &chan))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (u) {
+    user.match = FR_GLOBAL | (chan ? FR_CHAN : 0) | FR_BOT;
+    get_user_flagrec(u, &user, chan);
+    plus.match = user.match;
+    break_down_flags(flags, &plus, &minus);
+    minus.match = plus.match ^ (FR_AND | FR_OR);
+    if (!minus.global && !minus.udef_global && !minus.chan &&
+        !minus.udef_chan && !minus.bot) {
+      nom = 1;
+      if (!plus.global && !plus.udef_global && !plus.chan &&
+          !plus.udef_chan && !plus.bot)
+        Py_RETURN_TRUE;   /* empty flags matches anyone */
+    }
+    if (flagrec_eq(&plus, &user)) {
+      if (nom || !flagrec_eq(&minus, &user))
+        ok = 1;
+    }
+  }
+  return PyBool_FromLong(ok);
+}
+
+/* passwdok(handle, password) — True if password matches for handle */
+static PyObject *py_passwdok(PyObject *self, PyObject *args)
+{
+  char *handle, *passwd;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &passwd))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (u && u_pass_match(u, passwd))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* chhandle(oldhandle, newhandle) — rename a user. Returns True on success. */
+static PyObject *py_chhandle(PyObject *self, PyObject *args)
+{
+  char *oldh, *newh;
+  char newbuf[HANDLEN + 1];
+  struct userrec *u;
+  int i;
+
+  if (!PyArg_ParseTuple(args, "ss", &oldh, &newh))
+    return NULL;
+  u = get_user_by_handle(userlist, oldh);
+  if (!u)
+    Py_RETURN_FALSE;
+  strlcpy(newbuf, newh, sizeof newbuf);
+  for (i = 0; newbuf[i]; i++)
+    if (((unsigned char)newbuf[i] <= 32) || (newbuf[i] == '@'))
+      newbuf[i] = '?';
+  if (strchr(BADHANDCHARS, newbuf[0]) || !newbuf[0] ||
+      newbuf[0] == '*' || get_user_by_handle(userlist, newbuf))
+    Py_RETURN_FALSE;
+  return PyBool_FromLong(change_handle(u, newbuf));
+}
+
+/* save() — write the userfile to disk */
+static PyObject *py_save(PyObject *self, PyObject *args)
+{
+  write_userfile(-1);
+  Py_RETURN_NONE;
+}
+
+/* ---- Ignore list ------------------------------------------------------ */
+
+/* isignore(mask) — True if mask matches an active ignore entry */
+static PyObject *py_isignore(PyObject *self, PyObject *args)
+{
+  char *mask;
+
+  if (!PyArg_ParseTuple(args, "s", &mask))
+    return NULL;
+  return PyBool_FromLong(match_ignore(mask));
+}
+
+/* newignore(mask, creator, comment[, lifetime_seconds])
+ * Add an ignore entry.  Omitting lifetime uses the default ignore_time. */
+static PyObject *py_newignore(PyObject *self, PyObject *args)
+{
+  char *mask, *creator, *comment;
+  long lifetime = -1;
+  time_t expire_time;
+
+  if (!PyArg_ParseTuple(args, "sss|l", &mask, &creator, &comment, &lifetime))
+    return NULL;
+  if (lifetime < 0)
+    expire_time = (ignore_time > 0) ? (now + 60L * ignore_time) : 0;
+  else if (lifetime == 0)
+    expire_time = 0;   /* permanent */
+  else
+    expire_time = now + lifetime;
+  addignore(mask, creator, comment, expire_time);
+  Py_RETURN_NONE;
+}
+
+/* killignore(mask) — remove an ignore entry. Returns True if removed. */
+static PyObject *py_killignore(PyObject *self, PyObject *args)
+{
+  char *mask;
+
+  if (!PyArg_ParseTuple(args, "s", &mask))
+    return NULL;
+  return PyBool_FromLong(delignore(mask));
+}
+
+/* ignorelist() — return list of dicts with keys mask, creator, comment, expire, added */
+static PyObject *py_ignorelist(PyObject *self, PyObject *args)
+{
+  struct igrec *ig;
+  PyObject *list, *d;
+
+  list = PyList_New(0);
+  for (ig = global_ign; ig; ig = ig->next) {
+    d = PyDict_New();
+    PyDict_SetItemString(d, "mask",    PyUnicode_FromString(ig->igmask ? ig->igmask : ""));
+    PyDict_SetItemString(d, "creator", PyUnicode_FromString(ig->user   ? ig->user   : ""));
+    PyDict_SetItemString(d, "comment", PyUnicode_FromString(ig->msg    ? ig->msg    : ""));
+    PyDict_SetItemString(d, "expire",  PyLong_FromLong((long)ig->expire));
+    PyDict_SetItemString(d, "added",   PyLong_FromLong((long)ig->added));
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* ---- DCC management --------------------------------------------------- */
+
+/* hand2idx(handle) — return socket (idx) of first DCC chat for handle, or -1 */
+static PyObject *py_hand2idx(PyObject *self, PyObject *args)
+{
+  char *handle;
+  int i;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  for (i = 0; i < dcc_total; i++)
+    if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
+        !strcasecmp(handle, dcc[i].nick))
+      return PyLong_FromLong(dcc[i].sock);
+  return PyLong_FromLong(-1L);
+}
+
+/* idx2hand(sock) — return nick/handle for a DCC socket, or None */
+static PyObject *py_idx2hand(PyObject *self, PyObject *args)
+{
+  long sock;
+  int i;
+
+  if (!PyArg_ParseTuple(args, "l", &sock))
+    return NULL;
+  for (i = 0; i < dcc_total; i++)
+    if (dcc[i].sock == sock)
+      return PyUnicode_FromString(dcc[i].nick);
+  Py_RETURN_NONE;
+}
+
+/* killdcc(sock[, reason]) — disconnect a DCC connection */
+static PyObject *py_killdcc(PyObject *self, PyObject *args)
+{
+  long sock;
+  char *reason = NULL;
+  int i;
+
+  if (!PyArg_ParseTuple(args, "l|s", &sock, &reason))
+    return NULL;
+  for (i = 0; i < dcc_total; i++) {
+    if (dcc[i].sock == sock) {
+      if (dcc[i].type->flags & DCT_CHAT) {
+        dprintf(i, "Lost connection: %s\n", reason ? reason : "");
+      }
+      killsock(sock);
+      lostdcc(i);
+      Py_RETURN_NONE;
+    }
+  }
+  PyErr_SetString(EggdropError, "invalid socket");
+  return NULL;
+}
+
+/* dcclist([type]) — return list of dicts describing DCC connections */
+static PyObject *py_dcclist(PyObject *self, PyObject *args)
+{
+  char *typefilter = NULL;
+  int i;
+  PyObject *list, *d;
+
+  if (!PyArg_ParseTuple(args, "|s", &typefilter))
+    return NULL;
+  list = PyList_New(0);
+  for (i = 0; i < dcc_total; i++) {
+    if (!dcc[i].type)
+      continue;
+    if (typefilter && strcasecmp(dcc[i].type->name, typefilter))
+      continue;
+    d = PyDict_New();
+    PyDict_SetItemString(d, "idx",    PyLong_FromLong(dcc[i].sock));
+    PyDict_SetItemString(d, "nick",   PyUnicode_FromString(dcc[i].nick));
+    PyDict_SetItemString(d, "host",   PyUnicode_FromString(dcc[i].host));
+    PyDict_SetItemString(d, "type",   PyUnicode_FromString(dcc[i].type->name));
+    PyDict_SetItemString(d, "time",   PyLong_FromLong((long)dcc[i].timeval));
+    PyDict_SetItemString(d, "port",   PyLong_FromLong((long)dcc[i].port));
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* dccused() — return number of active DCC connections */
+static PyObject *py_dccused(PyObject *self, PyObject *args)
+{
+  return PyLong_FromLong((long)dcc_total);
+}
+
+/* ---- Channel extended queries ----------------------------------------- */
+
+/* chanmasks_list(masklist) — helper to build Python list from masklist */
+static PyObject *py_chanmasks_list(masklist *m)
+{
+  PyObject *list = PyList_New(0);
+  PyObject *d;
+
+  for (; m && m->mask && m->mask[0]; m = m->next) {
+    d = PyDict_New();
+    PyDict_SetItemString(d, "mask",  PyUnicode_FromString(m->mask));
+    PyDict_SetItemString(d, "who",   PyUnicode_FromString(m->who ? m->who : ""));
+    PyDict_SetItemString(d, "timer", PyLong_FromLong((long)(now - m->timer)));
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* chanbans(channel) — return list of ban dicts {mask, who, timer} */
+static PyObject *py_chanbans(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return py_chanmasks_list(ch->channel.ban);
+}
+
+/* chanexempts(channel) — return list of exempt dicts {mask, who, timer} */
+static PyObject *py_chanexempts(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return py_chanmasks_list(ch->channel.exempt);
+}
+
+/* chaninvites(channel) — return list of invite dicts {mask, who, timer} */
+static PyObject *py_chaninvites(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return py_chanmasks_list(ch->channel.invite);
+}
+
+/* getchanidle(nick, channel) — return idle minutes for nick on channel, or -1 */
+static PyObject *py_getchanidle(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    return PyLong_FromLong(-1L);
+  m = ismember(ch, nick);
+  if (!m)
+    return PyLong_FromLong(-1L);
+  return PyLong_FromLong((long)((now - m->last) / 60));
+}
+
+/* getchan_topic(channel) — return channel topic string, or None */
+static PyObject *py_getchan_topic(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  if (!ch->channel.topic)
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(ch->channel.topic);
+}
+
+/* botonchan([channel]) — True if the bot is on channel (or any channel if omitted) */
+static PyObject *py_botonchan(PyObject *self, PyObject *args)
+{
+  char *chan = NULL;
+  struct chanset_t *ch, *thechan = NULL;
+
+  if (!PyArg_ParseTuple(args, "|s", &chan))
+    return NULL;
+  if (chan) {
+    thechan = findchan_by_dname(chan);
+    if (!thechan)
+      Py_RETURN_FALSE;
+    ch = thechan;
+  } else {
+    ch = chanset;
+  }
+  while (ch && (!thechan || thechan == ch)) {
+    if (ismember(ch, botname))
+      Py_RETURN_TRUE;
+    ch = ch->next;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* wasop(nick, channel) — True if nick was an op before a netsplit */
+static PyObject *py_wasop(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && chan_wasop(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* washalfop(nick, channel) — True if nick was a halfop before a netsplit */
+static PyObject *py_washalfop(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && chan_washalfop(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* isircbot(nick[, channel]) — True if nick is marked as a bot (IRCv3/005) */
+static PyObject *py_isircbot(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  struct chanset_t *ch, *thechan = NULL;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  if (chan) {
+    thechan = findchan_by_dname(chan);
+    if (!thechan)
+      Py_RETURN_FALSE;
+    ch = thechan;
+  } else {
+    ch = chanset;
+  }
+  while (ch && (!thechan || thechan == ch)) {
+    m = ismember(ch, nick);
+    if (m && chan_ircbot(m))
+      Py_RETURN_TRUE;
+    ch = ch->next;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* account2nicks(account[, channel]) — return list of nicks with given IRC account */
+static PyObject *py_account2nicks(PyObject *self, PyObject *args)
+{
+  char *account, *chan = NULL;
+  struct chanset_t *ch, *thechan = NULL;
+  memberlist *m;
+  PyObject *list, *nick_str;
+  int found, i;
+  Py_ssize_t n;
+
+  if (!PyArg_ParseTuple(args, "s|s", &account, &chan))
+    return NULL;
+  if (chan) {
+    thechan = findchan_by_dname(chan);
+    if (!thechan) {
+      PyErr_SetString(EggdropError, "channel not found");
+      return NULL;
+    }
+    ch = thechan;
+  } else {
+    ch = chanset;
+  }
+  list = PyList_New(0);
+  while (ch && (!thechan || thechan == ch)) {
+    for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
+      if (!rfc_casecmp(m->account, account)) {
+        /* Deduplicate */
+        found = 0;
+        n = PyList_Size(list);
+        for (i = 0; i < n; i++) {
+          const char *s = PyUnicode_AsUTF8(PyList_GET_ITEM(list, i));
+          if (s && !rfc_casecmp(m->nick, s)) { found = 1; break; }
+        }
+        if (!found) {
+          nick_str = PyUnicode_FromString(m->nick);
+          PyList_Append(list, nick_str);
+          Py_DECREF(nick_str);
+        }
+      }
+    }
+    ch = ch->next;
+  }
+  return list;
+}
+
+/* hand2nicks(handle[, channel]) — return list of nicks for a given handle */
+static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
+{
+  char *handle, *chan = NULL;
+  struct chanset_t *ch, *thechan = NULL;
+  memberlist *m;
+  struct userrec *u;
+  PyObject *list, *nick_str;
+  int found, i;
+  Py_ssize_t n;
+
+  if (!PyArg_ParseTuple(args, "s|s", &handle, &chan))
+    return NULL;
+  if (chan) {
+    thechan = findchan_by_dname(chan);
+    if (!thechan) {
+      PyErr_SetString(EggdropError, "channel not found");
+      return NULL;
+    }
+    ch = thechan;
+  } else {
+    ch = chanset;
+  }
+  list = PyList_New(0);
+  while (ch && (!thechan || thechan == ch)) {
+    for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
+      u = get_user_from_member(m);
+      if (u && !strcasecmp(u->handle, handle)) {
+        found = 0;
+        n = PyList_Size(list);
+        for (i = 0; i < n; i++) {
+          const char *s = PyUnicode_AsUTF8(PyList_GET_ITEM(list, i));
+          if (s && !rfc_casecmp(m->nick, s)) { found = 1; break; }
+        }
+        if (!found) {
+          nick_str = PyUnicode_FromString(m->nick);
+          PyList_Append(list, nick_str);
+          Py_DECREF(nick_str);
+        }
+      }
+    }
+    ch = ch->next;
+  }
+  return list;
+}
+
+/* ---- Bot networking --------------------------------------------------- */
+
+/* putbot(botnick, message) — send a zapf message to a linked bot */
+static PyObject *py_putbot(PyObject *self, PyObject *args)
+{
+  char *botnick, *msg, msgbuf[401];
+  int i;
+
+  if (!PyArg_ParseTuple(args, "ss", &botnick, &msg))
+    return NULL;
+  i = nextbot(botnick);
+  if (i < 0) {
+    PyErr_SetString(EggdropError, "bot is not on the botnet");
+    return NULL;
+  }
+  strlcpy(msgbuf, msg, sizeof msgbuf);
+  botnet_send_zapf(i, botnetnick, botnick, msgbuf);
+  Py_RETURN_NONE;
+}
+
+/* putallbots(message) — broadcast a zapf message to all linked bots */
+static PyObject *py_putallbots(PyObject *self, PyObject *args)
+{
+  char *msg, msgbuf[401];
+
+  if (!PyArg_ParseTuple(args, "s", &msg))
+    return NULL;
+  strlcpy(msgbuf, msg, sizeof msgbuf);
+  botnet_send_zapf_broad(-1, botnetnick, NULL, msgbuf);
+  Py_RETURN_NONE;
+}
+
+/* islinked(botnick) — True if named bot is linked to this bot */
+static PyObject *py_islinked(PyObject *self, PyObject *args)
+{
+  char *botnick;
+
+  if (!PyArg_ParseTuple(args, "s", &botnick))
+    return NULL;
+  return PyBool_FromLong(nextbot(botnick) >= 0);
+}
+
+/* bots() — return list of all linked bot names */
+static PyObject *py_bots(PyObject *self, PyObject *args)
+{
+  tand_t *bot;
+  PyObject *list = PyList_New(0);
+  PyObject *s;
+
+  for (bot = tandbot; bot; bot = bot->next) {
+    s = PyUnicode_FromString(bot->bot);
+    PyList_Append(list, s);
+    Py_DECREF(s);
+  }
+  return list;
+}
+
+/* ---- String / text utilities ------------------------------------------ */
+
+/* stripcodes(flags, text) — strip IRC formatting codes from text.
+ * flags is a string like "cb" meaning strip color and bold.
+ *   c=color  b=bold  r=reverse  u=underline  a=ansi  g=bell  o=ordinary
+ *   i=italics  *=all
+ * Returns cleaned text. */
+static PyObject *py_stripcodes(PyObject *self, PyObject *args)
+{
+  char *flagstr, *text, *buf;
+  int flags = 0;
+  PyObject *result;
+  const char *p;
+
+  if (!PyArg_ParseTuple(args, "ss", &flagstr, &text))
+    return NULL;
+  for (p = flagstr; *p; p++)
+    switch (*p) {
+    case 'c': flags |= STRIP_COLOR;     break;
+    case 'b': flags |= STRIP_BOLD;      break;
+    case 'r': flags |= STRIP_REVERSE;   break;
+    case 'u': flags |= STRIP_UNDERLINE; break;
+    case 'a': flags |= STRIP_ANSI;      break;
+    case 'g': flags |= STRIP_BELLS;     break;
+    case 'o': flags |= STRIP_ORDINARY;  break;
+    case 'i': flags |= STRIP_ITALICS;   break;
+    case '*': flags |= STRIP_ALL;       break;
+    default:
+      PyErr_Format(PyExc_ValueError, "invalid strip flag: '%c'", *p);
+      return NULL;
+    }
+  buf = nmalloc(strlen(text) + 1);
+  strlcpy(buf, text, strlen(text) + 1);
+  strip_mirc_codes(flags, buf);
+  result = PyUnicode_FromString(buf);
+  nfree(buf);
+  return result;
+}
+
+/* matchstr(pattern, string) — IRC glob match (?, *). Returns True if match. */
+static PyObject *py_matchstr(PyObject *self, PyObject *args)
+{
+  char *pattern, *string;
+
+  if (!PyArg_ParseTuple(args, "ss", &pattern, &string))
+    return NULL;
+  return PyBool_FromLong(wild_match_per(pattern, string));
+}
+
 /* ---- Server / network helpers ---------------------------------------- */
 
 /* puthelp(text) — queue a raw IRC line to the help/notice queue */
@@ -1214,6 +2263,47 @@ static PyMethodDef MyPyMethods[] = {
     {"unixtime",    py_unixtime,    METH_NOARGS,  "return current Unix timestamp as integer"},
     {"duration",    py_duration,    METH_VARARGS, "convert seconds to human-readable string"},
     {"maskhost",    py_maskhost,    METH_VARARGS, "create IRC hostmask from nick and user@host"},
+    /* User management */
+    {"adduser",     py_adduser,     METH_VARARGS, "add a user to the userlist: adduser(handle[, hostmask])"},
+    {"deluser",     py_deluser,     METH_VARARGS, "remove a user from the userlist: deluser(handle)"},
+    {"addhost",     py_addhost,     METH_VARARGS, "add a hostmask to a user: addhost(handle, mask)"},
+    {"delhost",     py_delhost,     METH_VARARGS, "remove a hostmask from a user: delhost(handle, mask)"},
+    {"chattr",      py_chattr,      METH_VARARGS, "get/set user flags: chattr(handle[, changes[, channel]])"},
+    {"matchattr",   py_matchattr,   METH_VARARGS, "test user flags: matchattr(handle, flags[, channel])"},
+    {"passwdok",    py_passwdok,    METH_VARARGS, "test password: passwdok(handle, password)"},
+    {"chhandle",    py_chhandle,    METH_VARARGS, "rename a user: chhandle(oldhandle, newhandle)"},
+    {"save",        py_save,        METH_NOARGS,  "write the userfile to disk"},
+    /* Ignore list */
+    {"isignore",    py_isignore,    METH_VARARGS, "True if mask matches an ignore entry"},
+    {"newignore",   py_newignore,   METH_VARARGS, "add an ignore: newignore(mask, creator, comment[, lifetime])"},
+    {"killignore",  py_killignore,  METH_VARARGS, "remove an ignore entry: killignore(mask)"},
+    {"ignorelist",  py_ignorelist,  METH_NOARGS,  "return list of ignore dicts"},
+    /* DCC management */
+    {"hand2idx",    py_hand2idx,    METH_VARARGS, "return socket for handle's DCC chat, or -1"},
+    {"idx2hand",    py_idx2hand,    METH_VARARGS, "return nick for a DCC socket, or None"},
+    {"killdcc",     py_killdcc,     METH_VARARGS, "disconnect a DCC connection: killdcc(sock[, reason])"},
+    {"dcclist",     py_dcclist,     METH_VARARGS, "return list of DCC connection dicts: dcclist([type])"},
+    {"dccused",     py_dccused,     METH_NOARGS,  "return number of active DCC connections"},
+    /* Channel extended queries */
+    {"chanbans",        py_chanbans,        METH_VARARGS, "return list of ban dicts for channel"},
+    {"chanexempts",     py_chanexempts,     METH_VARARGS, "return list of exempt dicts for channel"},
+    {"chaninvites",     py_chaninvites,     METH_VARARGS, "return list of invite dicts for channel"},
+    {"getchanidle",     py_getchanidle,     METH_VARARGS, "return idle minutes for nick on channel, or -1"},
+    {"getchan_topic",   py_getchan_topic,   METH_VARARGS, "return topic string for channel, or None"},
+    {"botonchan",       py_botonchan,       METH_VARARGS, "True if bot is on channel (or any channel if omitted)"},
+    {"wasop",           py_wasop,           METH_VARARGS, "True if nick was op before netsplit"},
+    {"washalfop",       py_washalfop,       METH_VARARGS, "True if nick was halfop before netsplit"},
+    {"isircbot",        py_isircbot,        METH_VARARGS, "True if nick is marked as a bot (IRCv3/005)"},
+    {"account2nicks",   py_account2nicks,   METH_VARARGS, "list nicks with given IRC account: account2nicks(acct[, chan])"},
+    {"hand2nicks",      py_hand2nicks,      METH_VARARGS, "list nicks for a handle: hand2nicks(handle[, chan])"},
+    /* Bot networking */
+    {"putbot",      py_putbot,      METH_VARARGS, "send zapf message to linked bot: putbot(botnick, msg)"},
+    {"putallbots",  py_putallbots,  METH_VARARGS, "broadcast zapf message to all bots: putallbots(msg)"},
+    {"islinked",    py_islinked,    METH_VARARGS, "True if named bot is currently linked"},
+    {"bots",        py_bots,        METH_NOARGS,  "return list of all linked bot names"},
+    /* Text / string utilities */
+    {"stripcodes",  py_stripcodes,  METH_VARARGS, "strip IRC formatting: stripcodes(flags, text)"},
+    {"matchstr",    py_matchstr,    METH_VARARGS, "IRC glob match: matchstr(pattern, string)"},
     /* IRCX — Microsoft IRC extensions / Ophion */
     {"ircxprop",      py_ircxprop,      METH_VARARGS, "get/set an IRCX property (PROP target prop [value])"},
     {"ircxaccess",    py_ircxaccess,    METH_VARARGS, "manage IRCX access list (channel, list|add|del, [level], [mask])"},
@@ -1227,6 +2317,24 @@ static PyMethodDef MyPyMethods[] = {
     {"parse_tcl_list", py_parse_tcl_list, METH_VARARGS, "convert a Tcl list string to a Python list"},
     {"parse_tcl_dict", py_parse_tcl_dict, METH_VARARGS, "convert a Tcl dict string to a Python dict"},
 #endif
+    /* Bot management */
+    {"die",         py_die,         METH_VARARGS, "shut down the bot: die([reason])"},
+    {"restart",     py_restart,     METH_NOARGS,  "save userfile and restart bot"},
+    {"rehash",      py_rehash,      METH_NOARGS,  "save userfile and rehash config"},
+    /* User entry access */
+    {"getinfo",        py_getinfo,        METH_VARARGS, "get INFO string for handle, or None"},
+    {"setinfo",        py_setinfo,        METH_VARARGS, "set INFO string: setinfo(handle, info)"},
+    {"getcomment",     py_getcomment,     METH_VARARGS, "get COMMENT string for handle, or None"},
+    {"setcomment",     py_setcomment,     METH_VARARGS, "set COMMENT string: setcomment(handle, comment)"},
+    {"gethosts",       py_gethosts,       METH_VARARGS, "return list of hostmasks for handle"},
+    {"getaccount_str", py_getaccount_str, METH_VARARGS, "return IRC account for handle from userdb, or None"},
+    /* Channel settings */
+    {"chanset",     py_chanset,     METH_VARARGS, "return dict of channel configuration settings"},
+    /* Twitch extensions */
+    {"twitchmods",  py_twitchmods,  METH_VARARGS, "return mod list for Twitch channel"},
+    {"twitchvips",  py_twitchvips,  METH_VARARGS, "return VIP list for Twitch channel"},
+    {"ismod",       py_ismod,       METH_VARARGS, "True if nick is a Twitch mod: ismod(nick[, chan])"},
+    {"isvip",       py_isvip,       METH_VARARGS, "True if nick is a Twitch VIP: isvip(nick[, chan])"},
     {"__displayhook__", py_displayhook, METH_O, "display hook for python expressions"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };

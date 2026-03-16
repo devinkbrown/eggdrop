@@ -771,6 +771,7 @@ static int gotauthenticate(char *from, char *msg)
   return 0;
 }
 
+#ifdef HAVE_TCL
 static char *traced_sasl_mechanism(ClientData cdata, Tcl_Interp *irp,
                                    EGG_CONST char *name1,
                                    EGG_CONST char *name2, int flags)
@@ -803,6 +804,7 @@ static char *traced_sasl_mechanism(ClientData cdata, Tcl_Interp *irp,
 #endif /* TLS */
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 static cmd_t sasl_raw[] = {
   {"901",          "",   (IntFunc) got901,          NULL},
@@ -838,14 +840,18 @@ static void sasl_close(void)
   rem_builtins(H_raw, sasl_raw);
   rem_tcl_ints(sasl_tcl_ints);
   rem_tcl_strings(sasl_tcl_strings);
+#ifdef HAVE_TCL
   Tcl_UntraceVar(interp, "sasl-mechanism", TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_sasl_mechanism, NULL);
+#endif /* HAVE_TCL */
 }
 
 static void sasl_start(void)
 {
+#ifdef HAVE_TCL
   Tcl_TraceVar(interp, "sasl-mechanism", TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_sasl_mechanism, NULL);
+#endif /* HAVE_TCL */
   add_builtins(H_raw, sasl_raw);
   add_tcl_ints(sasl_tcl_ints);
   add_tcl_strings(sasl_tcl_strings);

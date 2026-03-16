@@ -29,8 +29,10 @@
 #include "server.h"
 #include "../../dictionary.h"
 
+#ifdef HAVE_TCL
 char *encode_msgtags(Tcl_Obj *msgtagdict);
 static char *encode_msgtag(char *key, char *value);
+#endif /* HAVE_TCL */
 static int del_capabilities(char *);
 static int del_capability(char *name);
 static time_t last_ctcp = (time_t) 0L;
@@ -39,9 +41,11 @@ static char altnick_char = 0;
 struct capability *cap;
 struct capability *find_capability(char *capname);
 static int monitor_add(char * nick, int send);
+#ifdef HAVE_TCL
 static int monitor_del (char *nick);
 static int monitor_show(Tcl_Obj *mlist, int mode, char *nick);
 static void monitor_clear(void);
+#endif /* HAVE_TCL */
 int account_notify = 1, extended_join = 1, account_tag = 0;
 
 /* Account name from the IRCv3 'account' message tag for the message
@@ -217,6 +221,7 @@ static int check_tcl_raw(char *from, char *code, char *msg)
 }
 
 /* tagstr is the string value of a Tcl dictionary (flat key/value list) */
+#ifdef HAVE_TCL
 static int check_tcl_rawt(char *from, char *code, char *msg, char *tagdict)
 {
   int x;
@@ -229,6 +234,7 @@ static int check_tcl_rawt(char *from, char *code, char *msg, char *tagdict)
                     MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
   return (x == BIND_EXEC_LOG);
 }
+#endif /* HAVE_TCL */
 
 static int check_tcl_ctcpr(char *nick, char *uhost, struct userrec *u,
                            char *dest, char *keyword, char *args,
@@ -1208,6 +1214,7 @@ static struct dcc_table SERVER_SOCKET = {
   NULL
 };
 
+#ifdef HAVE_TCL
 static char *encode_msgtag_value(char *value)
 {
   static char buf[TOTALTAGMAX+1];
@@ -1253,7 +1260,9 @@ static int msgtag_key_valid(const char *key)
   }
   return 1;
 }
+#endif /* HAVE_TCL */
 
+#ifdef HAVE_TCL
 static char *encode_msgtag(char *key, char *value)
 {
   static char buf[TOTALTAGMAX+1];
@@ -1266,7 +1275,9 @@ static char *encode_msgtag(char *key, char *value)
   snprintf(buf, sizeof buf, "%s%s", key, encode_msgtag_value(value));
   return buf;
 }
+#endif /* HAVE_TCL */
 
+#ifdef HAVE_TCL
 static char *decode_msgtag_value(char *value, char **endptr)
 {
   static char valuebuf[TOTALTAGMAX+1];
@@ -1301,20 +1312,25 @@ static char *decode_msgtag_value(char *value, char **endptr)
   *decoded = '\0';
   return valuebuf;
 }
+#endif /* HAVE_TCL */
 
 static void server_activity(int idx, char *tagmsg, int len)
 {
   char *from, *code, *msgptr;
   char rawmsg[RECVLINEMAX+7];
   int ret;
+#ifdef HAVE_TCL
   Tcl_Obj *tagdict = Tcl_NewDictObj();
+#endif
 
   /* Sanitize incoming IRC messages: replace invalid UTF-8 bytes with '?'.
    * Modern IRC servers and clients use UTF-8; malformed sequences could cause
    * issues in Tcl's string handling (which is internally UTF-8). */
   utf8_sanitize(tagmsg);
 
+#ifdef HAVE_TCL
   Tcl_IncrRefCount(tagdict);
+#endif
   if (trying_server) {
     strlcpy(dcc[idx].nick, "(server)", sizeof(dcc[idx].nick));
     putlog(LOG_SERV, "*", "Connected to %s", dcc[idx].host);
@@ -1326,6 +1342,7 @@ static void server_activity(int idx, char *tagmsg, int len)
   msgptr = tagmsg;
   strlcpy(rawmsg, tagmsg, TOTALTAGMAX+1);
   if (*tagmsg == '@') {
+#ifdef HAVE_TCL
     char *key, *value, *lastendptr = tagmsg;
 
     do {
@@ -1341,6 +1358,14 @@ static void server_activity(int idx, char *tagmsg, int len)
     } while (*lastendptr && *lastendptr != ' ');
 
     msgptr = lastendptr + (*lastendptr != '\0');
+#else
+    /* Skip tags prefix without parsing; advance msgptr to the actual message */
+    msgptr = strchr(tagmsg, ' ');
+    if (msgptr)
+      msgptr++;
+    else
+      msgptr = tagmsg + strlen(tagmsg);
+#endif
   }
   from = "";
   if (*msgptr == ':') {
@@ -1352,6 +1377,7 @@ static void server_activity(int idx, char *tagmsg, int len)
       !match_ignore(from))) {
     putlog(LOG_RAW, "*", "[@] %s", rawmsg);
   }
+#ifdef HAVE_TCL
   /* Extract IRCv3 'account' tag so handlers can use it for user lookup. */
   {
     Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
@@ -1373,6 +1399,11 @@ static void server_activity(int idx, char *tagmsg, int len)
   }
   current_msgtag_account[0] = '\0';
   Tcl_DecrRefCount(tagdict);
+#else
+  current_msgtag_account[0] = '\0';
+  check_tcl_raw(from, code, msgptr);
+  (void)ret;
+#endif
 }
 
 static int gotping(char *from, char *msg)
@@ -1779,6 +1810,19 @@ static int gotcap(char *from, char *msg) {
           add_req(current->name);
       } else if (!strcmp(current->name, "ophion/multi-prefix")) {
         /* Ophion IRCX: extended prefix visibility (+qaohv) */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "server-time")) {
+        /* IRCv3 server-time: adds time= ISO 8601 tag to every inbound message */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/multiline") ||
+                 !strcmp(current->name, "multiline")) {
+        /* IRCv3 draft/multiline: BATCH-wrapped multi-line messages */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/read-marker")) {
+        /* IRCv3 draft/read-marker: MARKREAD last-read sync across sessions */
         if (!current->enabled)
           add_req(current->name);
       }
@@ -2202,6 +2246,38 @@ static int gotprop(char *from, char *msg)
   return 0;
 }
 
+/* WHISPER — Ophion IRCX channel-scoped private message.
+ * Format: :nick!user@host WHISPER #channel target :message
+ * Both parties must be members of #channel.  The bot reacts to this
+ * exactly like a PRIVMSG but notes the channel scope in the log. */
+static int gotwhisper(char *from, char *msg)
+{
+  char *nick, *channel, *target;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  channel = newsplit(&msg);
+  target  = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_SERV, channel, "WHISPER from %s(%s) to %s on %s: %s",
+         nick, from, target, channel, msg);
+
+  /* Route to the msg bind if the bot is the target, otherwise log only */
+  if (match_my_nick(target)) {
+    struct userrec *u;
+    char hostbuf[UHOSTLEN + NICKLEN + 2];
+
+    egg_snprintf(hostbuf, sizeof hostbuf, "%s!%s", nick, from);
+    u = get_user_by_host(hostbuf);
+    check_tcl_msg("whisper", nick, from, u, msg);
+  }
+  return 0;
+}
+
 /* Got ACCESS command from server (access list change notification).
  * Format: :nick!user@host ACCESS channel ADD|DEL level mask
  */
@@ -2273,6 +2349,7 @@ static cmd_t my_raw_binds[] = {
    * numerics (RPL_LOGGEDOUT, ERR_NICKLOCKED) — sasl.c handles those. */
   {"PROP",         "",   (IntFunc) gotprop,         NULL},
   {"ACCESS",       "",   (IntFunc) gotaccess,       NULL},
+  {"WHISPER",      "",   (IntFunc) gotwhisper,      NULL},
   {"NICK",         "",   (IntFunc) gotnick,         NULL},
   {"ERROR",        "",   (IntFunc) goterror,        NULL},
 /* ircu2.10.10 has a bug when a client is throttled ERROR is sent wrong */

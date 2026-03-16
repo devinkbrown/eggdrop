@@ -1,5 +1,5 @@
 News
-Last revised: March 15, 2026
+Last revised: March 16, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -17,6 +17,24 @@ Last revised: March 15, 2026
      _________________________________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+ Build system / portability changes:
+    - Tcl is now fully optional with zero compiler warnings in no-Tcl
+      builds.  All Tcl-only functions and declarations throughout the
+      codebase are now guarded with #ifdef HAVE_TCL so that
+      `meson setup builddir/ -Dtcl=disabled && ninja -C builddir/`
+      produces a clean build with no -Wunused-function,
+      -Wimplicit-function-declaration, or statement-with-no-effect
+      diagnostics.  Affected modules: server.mod (server.c, servmsg.c),
+      channels.mod (channels.c, cmdschan.c), filesys.mod (filedb3.c/h,
+      filesys.h), irc.mod, twitch.mod, sasl, isupport, console.mod.
+    - lush.h stub macros corrected: Tcl_DictObjFirst no longer produces
+      a "right-hand side of comma expression has no effect" warning;
+      Tcl_TraceVar and BADARGS are now proper no-op stubs.
+    - Python (python.mod) is now the sole scripting engine when Tcl is
+      disabled.  It registers itself automatically via script_register()
+      at startup, handling all [scripts] entries from the TOML config
+      without requiring any user configuration changes.
 
  Bug fixes:
     - Fixed three io_uring SQPOLL bugs that prevented IRC registration

@@ -100,14 +100,20 @@ static int write_invites(FILE *f, int idx);
 static void check_expired_invites(void);
 static void write_channels(void);
 static void read_channels(int, int);
+#ifdef HAVE_TCL
 static void clear_channel(struct chanset_t *, int);
+#endif /* HAVE_TCL */
 static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz);
+#ifdef HAVE_TCL
 static void set_mode_protect(struct chanset_t *chan, char *set);
+#endif /* HAVE_TCL */
 static int ismasked(masklist *m, char *user);
 static int ismodeline(masklist *m, char *user);
+#ifdef HAVE_TCL
 static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                               int items, char **item);
 static int tcl_channel_add(Tcl_Interp *irp, char *, char *);
+#endif /* HAVE_TCL */
 static char *convert_element(char *src, char *dst);
 static int expmem_udef(struct udef_struct *);
 static int expmem_udef_chans (int, struct udef_chans *);
@@ -115,11 +121,15 @@ static void free_udef(struct udef_struct *);
 static void free_udef_chans(struct udef_chans *, int);
 static intptr_t getudef(struct udef_chans *, char *);
 static void initudef(int type, char *, int);
+#ifdef HAVE_TCL
 static void setudef(struct udef_struct *, char *, intptr_t);
+#endif /* HAVE_TCL */
 static void remove_channel(struct chanset_t *);
 static intptr_t ngetudef(char *, char *);
 static int expired_mask(struct chanset_t *chan, char *who);
+#ifdef HAVE_TCL
 static int check_tcl_chanset(const char *, const char *, const char *);
+#endif /* HAVE_TCL */
 
 
 #else

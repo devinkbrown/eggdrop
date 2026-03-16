@@ -147,6 +147,56 @@ static void *channel_malloc(int size, char *file, int line)
 #include "userchan.c"
 #include "udefchan.c"
 
+#ifndef HAVE_TCL
+/* clear_channel is defined in tclchan.c for TCL builds.
+ * Provide an equivalent for no-TCL builds; inlines masklist clearing since
+ * clear_masklist() is also defined only inside the HAVE_TCL section of tclchan.c.
+ */
+static void clear_channel_masklist(masklist *m)
+{
+  masklist *temp;
+  for (; m; m = temp) {
+    temp = m->next;
+    nfree(m->mask);
+    nfree(m);
+  }
+}
+
+static void clear_channel(struct chanset_t *chan, int reset)
+{
+  int flags = reset ? reset : CHAN_RESETALL;
+  memberlist *m, *m1;
+
+  if (flags & CHAN_RESETWHO) {
+    for (m = chan->channel.member; m; m = m1) {
+      m1 = m->next;
+      if (reset)
+        m->flags &= ~WHO_SYNCED;
+      else
+        channel_free_member(m);
+    }
+  }
+  if (flags & CHAN_RESETBANS) {
+    clear_channel_masklist(chan->channel.ban);
+    chan->channel.ban = NULL;
+  }
+  if (flags & CHAN_RESETEXEMPTS) {
+    clear_channel_masklist(chan->channel.exempt);
+    chan->channel.exempt = NULL;
+  }
+  if (flags & CHAN_RESETINVITED) {
+    clear_channel_masklist(chan->channel.invite);
+    chan->channel.invite = NULL;
+  }
+  if ((flags & CHAN_RESETTOPIC) && chan->channel.topic) {
+    nfree(chan->channel.topic);
+    chan->channel.topic = NULL;
+  }
+  /* skip init_channel (Tcl-only) — caller handles reinitialization if needed */
+}
+#endif /* !HAVE_TCL */
+
+#ifdef HAVE_TCL
 static void set_mode_protect(struct chanset_t *chan, char *set)
 {
   int i, pos = 1;
@@ -249,6 +299,7 @@ static void set_mode_protect(struct chanset_t *chan, char *set)
   if (chan->mode_pls_prot & CHANSEC && !allow_ps)
     chan->mode_pls_prot &= ~CHANPRIV;
 }
+#endif /* HAVE_TCL */
 
 static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
 {
@@ -334,19 +385,17 @@ static int builtin_chanset STDVAR
 }
 #endif /* HAVE_TCL */
 
+#ifdef HAVE_TCL
 int check_tcl_chanset(const char *chan, const char *setting, const char *value)
 {
-#ifdef HAVE_TCL
   Tcl_SetVar(interp, "_chanset1", (char *) chan, 0);
   Tcl_SetVar(interp, "_chanset2", (char *) setting, 0);
   Tcl_SetVar(interp, "_chanset3", (char *) value, 0);
 
   return BIND_EXEC_LOG == check_tcl_bind(H_chanset, setting, 0, " $_chanset1 $_chanset2 $_chanset3",
                      MATCH_MASK | BIND_STACKABLE | BIND_STACKRET | BIND_WANTRET);
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
+#endif /* HAVE_TCL */
 
 /* Returns true if this is one of the channel masks
  */
@@ -1046,8 +1095,13 @@ static Function channels_table[] = {
   (Function) u_delinvite,
   /* 36 - 39 */
   (Function) u_addinvite,
+#ifdef HAVE_TCL
   (Function) tcl_channel_add,
   (Function) tcl_channel_modify,
+#else
+  (Function) NULL,              /* [37] tcl_channel_add - TCL only */
+  (Function) NULL,              /* [38] tcl_channel_modify - TCL only */
+#endif
   (Function) write_exempts,
   /* 40 - 43 */
   (Function) write_invites,

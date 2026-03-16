@@ -336,6 +336,7 @@ devent_type DNS_TCLEVENT_IPBYHOST = {
   dns_tcl_iporhostres
 };
 
+#ifdef HAVE_TCL
 static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
 {
   devent_t *de;
@@ -399,6 +400,7 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   /* Send request. */
   dns_hostbyip(ip);
 }
+#endif /* HAVE_TCL */
 
 
 /*

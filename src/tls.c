@@ -707,7 +707,9 @@ static char *ssl_printtime(ASN1_UTCTIME *t)
  * As usual, we use a memory BIO.
  *
  * You need to nfree() the returned pointer.
+ * Only called from the HAVE_TCL tls info command.
  */
+#ifdef HAVE_TCL
 static char *ssl_printnum(ASN1_INTEGER *i)
 {
   long len;
@@ -734,6 +736,7 @@ static char *ssl_printnum(ASN1_INTEGER *i)
   BIO_free(bio);
   return buf;
 }
+#endif /* HAVE_TCL */
 
 /* Show the user all relevant information about a certificate: subject,
  * issuer, validity dates and fingerprints.

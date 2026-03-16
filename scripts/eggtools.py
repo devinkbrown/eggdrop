@@ -428,6 +428,53 @@ def ircxnegotiate() -> None:
     eggdrop.ircxnegotiate()
 
 
+def ircxwhisper(channel: str, target: str, text: str) -> None:
+    """Send an Ophion IRCX WHISPER (channel-scoped private message).
+
+    Both the bot and target must be members of channel.
+    """
+    putserv(f"WHISPER {channel} {target} :{text}")
+
+
+# ---------------------------------------------------------------------------
+# IRCv3 / Ophion message history helpers
+# ---------------------------------------------------------------------------
+
+def chathistory(channel: str, subcommand: str = "LATEST", limit: int = 50,
+                anchor: str = "") -> None:
+    """Request chat history replay from Ophion (requires draft/chathistory cap).
+
+    subcommand : LATEST | BEFORE | AFTER | AROUND | BETWEEN | TARGETS
+    limit      : max messages to return (server may cap this)
+    anchor     : optional msgid or timestamp for BEFORE/AFTER/AROUND
+
+    Replayed messages arrive as a BATCH of PRIVMSGs/NOTICEs and are
+    dispatched normally through the existing pub/msg/notc binds.
+
+    Example — fetch last 100 messages on join::
+
+        @eggtools.on_join()
+        def fetch_history(nick, mask, handle, channel):
+            if eggtools.isbotnick(nick):
+                eggtools.chathistory(channel, 'LATEST', 100)
+    """
+    if anchor:
+        putserv(f"CHATHISTORY {subcommand} {channel} {anchor} {limit}")
+    else:
+        putserv(f"CHATHISTORY {subcommand} {channel} * {limit}")
+
+
+def markread(channel: str, msgid: str = "") -> None:
+    """Send a MARKREAD command to sync the last-read position (draft/read-marker).
+
+    Omit msgid to query the current position; supply a msgid to update it.
+    """
+    if msgid:
+        putserv(f"MARKREAD {channel} {msgid}")
+    else:
+        putserv(f"MARKREAD {channel}")
+
+
 # ---------------------------------------------------------------------------
 # Bind decorators — Pythonic event registration
 # ---------------------------------------------------------------------------
@@ -457,10 +504,22 @@ on_notc   = _make_bind_decorator("notc")   # notices
 on_ctcp   = _make_bind_decorator("ctcp")   # CTCP requests
 on_ctcr   = _make_bind_decorator("ctcr")   # CTCP replies
 on_raw    = _make_bind_decorator("raw")    # raw server lines
+on_rawt   = _make_bind_decorator("rawt")   # raw server lines with tag dict (IRCv3)
 on_time   = _make_bind_decorator("time")   # minutely time events
 on_cron   = _make_bind_decorator("cron")   # cron-style events
 on_dcc    = _make_bind_decorator("dcc")    # DCC/telnet commands
 on_evnt   = _make_bind_decorator("evnt")   # internal eggdrop events
+on_monitor = _make_bind_decorator("monitor")  # MONITOR online/offline events
+
+# Ophion / IRCv3 extended events (all use raw binds)
+# Usage: @eggtools.on_whisper()  ← fires when bot receives a WHISPER
+on_whisper = _make_bind_decorator("raw")   # Ophion WHISPER — use mask="WHISPER"
+# Usage: @eggtools.on_prop()     ← fires on IRCX property change (PROP command)
+on_prop    = _make_bind_decorator("raw")   # Ophion PROP   — use mask="PROP"
+# Usage: @eggtools.on_setname()  ← fires when a user changes their realname
+on_setname = _make_bind_decorator("raw")   # IRCv3 SETNAME — use mask="SETNAME"
+# Usage: @eggtools.on_chghost()  ← fires on CHGHOST (shared via irc.mod)
+on_chghost = _make_bind_decorator("raw")   # IRCv3 CHGHOST — use mask="CHGHOST"
 
 
 # ---------------------------------------------------------------------------
@@ -537,3 +596,494 @@ def hostmatch(pattern: str, host: str) -> bool:
     """Return True if host matches an IRC glob pattern (?, *)."""
     regex = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
     return bool(re.fullmatch(regex, host, re.IGNORECASE))
+
+
+# ---------------------------------------------------------------------------
+# User management
+# ---------------------------------------------------------------------------
+
+def adduser(handle: str, hostmask: str = "") -> bool:
+    """Add a new user to the userlist.  Returns True on success."""
+    if hostmask:
+        return bool(eggdrop.adduser(handle, hostmask))
+    return bool(eggdrop.adduser(handle))
+
+
+def deluser(handle: str) -> bool:
+    """Remove a user from the userlist.  Returns True if removed."""
+    return bool(eggdrop.deluser(handle))
+
+
+def addhost(handle: str, mask: str) -> None:
+    """Add a hostmask to an existing user."""
+    eggdrop.addhost(handle, mask)
+
+
+def delhost(handle: str, mask: str) -> bool:
+    """Remove a hostmask from a user.  Returns True if the mask was removed."""
+    return bool(eggdrop.delhost(handle, mask))
+
+
+def chattr(handle: str, changes: str = "", channel: Optional[str] = None) -> Optional[str]:
+    """Get or set user flags.
+
+    With no changes: returns the current flag string.
+    With changes like '+o-v': applies them and returns the new flag string.
+    Supply channel to operate on per-channel flags.
+    Returns None if the user does not exist.
+    """
+    if channel:
+        return eggdrop.chattr(handle, changes, channel)
+    if changes:
+        return eggdrop.chattr(handle, changes)
+    return eggdrop.chattr(handle)
+
+
+def matchattr(handle: str, flags: str, channel: Optional[str] = None) -> bool:
+    """Return True if user's flags match the flag expression."""
+    if channel:
+        return bool(eggdrop.matchattr(handle, flags, channel))
+    return bool(eggdrop.matchattr(handle, flags))
+
+
+def passwdok(handle: str, password: str) -> bool:
+    """Return True if password is correct for handle."""
+    return bool(eggdrop.passwdok(handle, password))
+
+
+def chhandle(oldhandle: str, newhandle: str) -> bool:
+    """Rename a user.  Returns True on success."""
+    return bool(eggdrop.chhandle(oldhandle, newhandle))
+
+
+def save() -> None:
+    """Write the userfile to disk immediately."""
+    eggdrop.save()
+
+
+# ---------------------------------------------------------------------------
+# Ignore list
+# ---------------------------------------------------------------------------
+
+def isignore(mask: str) -> bool:
+    """Return True if mask matches an active ignore entry."""
+    return bool(eggdrop.isignore(mask))
+
+
+def newignore(mask: str, creator: str, comment: str,
+              lifetime: Optional[int] = None) -> None:
+    """Add an ignore entry.
+
+    lifetime is in seconds from now.  Omit (or None) to use the bot's
+    default ignore_time setting.  Pass 0 for a permanent ignore.
+    """
+    if lifetime is not None:
+        eggdrop.newignore(mask, creator, comment, lifetime)
+    else:
+        eggdrop.newignore(mask, creator, comment)
+
+
+def killignore(mask: str) -> bool:
+    """Remove an ignore entry.  Returns True if the entry was found."""
+    return bool(eggdrop.killignore(mask))
+
+
+def ignorelist() -> list:
+    """Return a list of dicts describing all ignore entries.
+
+    Each dict has keys: mask, creator, comment, expire, added.
+    expire/added are Unix timestamps (0 = permanent).
+    """
+    return eggdrop.ignorelist()
+
+
+# ---------------------------------------------------------------------------
+# DCC management
+# ---------------------------------------------------------------------------
+
+def hand2idx(handle: str) -> int:
+    """Return the socket (idx) for handle's DCC chat, or -1 if not connected."""
+    return eggdrop.hand2idx(handle)
+
+
+def idx2hand(sock: int) -> Optional[str]:
+    """Return the nick/handle for a DCC socket, or None if not found."""
+    return eggdrop.idx2hand(sock)
+
+
+def killdcc(sock: int, reason: str = "") -> None:
+    """Disconnect a DCC connection by socket number."""
+    if reason:
+        eggdrop.killdcc(sock, reason)
+    else:
+        eggdrop.killdcc(sock)
+
+
+def dcclist(type_filter: str = "") -> list:
+    """Return a list of dicts describing active DCC connections.
+
+    Each dict has keys: idx, nick, host, type, time, port.
+    Optionally filter by type string (e.g. 'chat', 'bot').
+    """
+    if type_filter:
+        return eggdrop.dcclist(type_filter)
+    return eggdrop.dcclist()
+
+
+def dccused() -> int:
+    """Return the number of active DCC connections."""
+    return eggdrop.dccused()
+
+
+# ---------------------------------------------------------------------------
+# Channel extended queries
+# ---------------------------------------------------------------------------
+
+def chanbans(channel: str) -> list:
+    """Return a list of ban dicts {mask, who, timer} for channel."""
+    return eggdrop.chanbans(channel)
+
+
+def chanexempts(channel: str) -> list:
+    """Return a list of exempt dicts {mask, who, timer} for channel."""
+    return eggdrop.chanexempts(channel)
+
+
+def chaninvites(channel: str) -> list:
+    """Return a list of invite dicts {mask, who, timer} for channel."""
+    return eggdrop.chaninvites(channel)
+
+
+def getchanidle(nick: str, channel: str) -> int:
+    """Return idle time in minutes for nick on channel, or -1 if not found."""
+    return eggdrop.getchanidle(nick, channel)
+
+
+def topic(channel: str) -> Optional[str]:
+    """Return the current topic of channel, or None if unknown."""
+    return eggdrop.getchan_topic(channel)
+
+
+def botonchan(channel: Optional[str] = None) -> bool:
+    """Return True if the bot is on channel (or any channel if omitted)."""
+    if channel:
+        return bool(eggdrop.botonchan(channel))
+    return bool(eggdrop.botonchan())
+
+
+def wasop(nick: str, channel: str) -> bool:
+    """Return True if nick was a channel operator before a netsplit."""
+    return bool(eggdrop.wasop(nick, channel))
+
+
+def washalfop(nick: str, channel: str) -> bool:
+    """Return True if nick was a half-operator before a netsplit."""
+    return bool(eggdrop.washalfop(nick, channel))
+
+
+def isircbot(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if nick is identified as a bot (IRCv3/005 ISBOT)."""
+    if channel:
+        return bool(eggdrop.isircbot(nick, channel))
+    return bool(eggdrop.isircbot(nick))
+
+
+def account2nicks(account: str, channel: Optional[str] = None) -> List[str]:
+    """Return a list of nicks that are logged in with the given IRC account."""
+    if channel:
+        return eggdrop.account2nicks(account, channel)
+    return eggdrop.account2nicks(account)
+
+
+def hand2nicks(handle: str, channel: Optional[str] = None) -> List[str]:
+    """Return a list of nicks currently on IRC for the given eggdrop handle."""
+    if channel:
+        return eggdrop.hand2nicks(handle, channel)
+    return eggdrop.hand2nicks(handle)
+
+
+# ---------------------------------------------------------------------------
+# Bot networking
+# ---------------------------------------------------------------------------
+
+def putbot(botnick: str, message: str) -> None:
+    """Send a zapf message to a directly linked bot."""
+    eggdrop.putbot(botnick, message)
+
+
+def putallbots(message: str) -> None:
+    """Broadcast a zapf message to all linked bots."""
+    eggdrop.putallbots(message)
+
+
+def islinked(botnick: str) -> bool:
+    """Return True if the named bot is currently linked to this bot."""
+    return bool(eggdrop.islinked(botnick))
+
+
+def bots() -> List[str]:
+    """Return a list of all linked bot names in the botnet."""
+    return eggdrop.bots()
+
+
+# ---------------------------------------------------------------------------
+# Text / string utilities
+# ---------------------------------------------------------------------------
+
+def stripcodes(flags: str, text: str) -> str:
+    """Strip IRC formatting codes from text.
+
+    flags is a string of characters selecting what to strip:
+      c = color codes    b = bold       r = reverse    u = underline
+      a = ANSI codes     g = bells      o = ordinary   i = italics
+      * = all of the above
+
+    Example::
+
+        clean = eggtools.stripcodes('cb', raw_message)
+    """
+    return eggdrop.stripcodes(flags, text)
+
+
+def matchstr(pattern: str, string: str) -> bool:
+    """Return True if string matches an IRC glob pattern (? and * wildcards)."""
+    return bool(eggdrop.matchstr(pattern, string))
+
+
+# ---------------------------------------------------------------------------
+# Bot management
+# ---------------------------------------------------------------------------
+
+def die(reason: str = "") -> None:
+    """Shut down the bot with an optional quit/shutdown reason."""
+    if reason:
+        eggdrop.die(reason)
+    else:
+        eggdrop.die()
+
+
+def restart() -> None:
+    """Write the userfile to disk and restart the bot process."""
+    eggdrop.restart()
+
+
+def rehash() -> None:
+    """Write the userfile to disk and reload the configuration file."""
+    eggdrop.rehash()
+
+
+# ---------------------------------------------------------------------------
+# User entry access (info / comment / hosts / account)
+# ---------------------------------------------------------------------------
+
+def getinfo(handle: str) -> Optional[str]:
+    """Return the INFO line for *handle*, or None if not set."""
+    return eggdrop.getinfo(handle)
+
+
+def setinfo(handle: str, info: str) -> None:
+    """Set the INFO line for *handle*.  Pass an empty string to clear it."""
+    eggdrop.setinfo(handle, info)
+
+
+def getcomment(handle: str) -> Optional[str]:
+    """Return the COMMENT field for *handle*, or None if not set."""
+    return eggdrop.getcomment(handle)
+
+
+def setcomment(handle: str, comment: str) -> None:
+    """Set the COMMENT field for *handle*.  Pass an empty string to clear it."""
+    eggdrop.setcomment(handle, comment)
+
+
+def gethosts(handle: str) -> List[str]:
+    """Return a list of hostmask strings recorded for *handle*."""
+    return eggdrop.gethosts(handle)
+
+
+def getaccount(handle: str) -> Optional[str]:
+    """Return the IRC account name stored in the userdb for *handle*, or None."""
+    return eggdrop.getaccount_str(handle)
+
+
+# ---------------------------------------------------------------------------
+# Channel settings query
+# ---------------------------------------------------------------------------
+
+def chanset(channel: str) -> dict:
+    """Return a dict of configuration settings for *channel*.
+
+    Keys include flood thresholds (flood_pub_thr, flood_pub_time, …),
+    mask expiry times (ban_time, invite_time, exempt_time), auto-op range
+    (aop_min, aop_max), misc settings (idle_kick, stopnethack_mode,
+    revenge_mode, ban_type), the raw status bitmask, individual boolean flags
+    (enforcebans, bitch, greet, protectops, …), and channel info (mode,
+    maxmembers, members).
+    """
+    return eggdrop.chanset(channel)
+
+
+# ---------------------------------------------------------------------------
+# Twitch extensions (requires twitch module)
+# ---------------------------------------------------------------------------
+
+def twitchmods(channel: str) -> str:
+    """Return a space-separated string of moderator nicks for *channel*.
+
+    Raises EggdropError if the twitch module is not loaded or the channel
+    is not found.
+    """
+    return eggdrop.twitchmods(channel)
+
+
+def twitchvips(channel: str) -> str:
+    """Return a space-separated string of VIP nicks for *channel*.
+
+    Raises EggdropError if the twitch module is not loaded or the channel
+    is not found.
+    """
+    return eggdrop.twitchvips(channel)
+
+
+def ismod(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if *nick* is a moderator on *channel* (or any channel).
+
+    If *channel* is omitted all Twitch channels are checked.  Raises
+    EggdropError if the twitch module is not loaded or the channel is not
+    found.
+    """
+    if channel:
+        return bool(eggdrop.ismod(nick, channel))
+    return bool(eggdrop.ismod(nick))
+
+
+def isvip(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if *nick* is a VIP on *channel* (or any channel).
+
+    If *channel* is omitted all Twitch channels are checked.  Raises
+    EggdropError if the twitch module is not loaded or the channel is not
+    found.
+    """
+    if channel:
+        return bool(eggdrop.isvip(nick, channel))
+    return bool(eggdrop.isvip(nick))
+
+
+# ---------------------------------------------------------------------------
+# MONITOR helpers (IRCv3 — requires server support)
+# ---------------------------------------------------------------------------
+
+def monitor_add(*nicks: str) -> None:
+    """Add one or more nicks to the IRC MONITOR watch list.
+
+    The bot sends ``MONITOR + nick1,nick2,...`` to the server.  Receive
+    events via ``@eggtools.on_monitor()`` callbacks.
+    """
+    if nicks:
+        eggdrop.putserv("MONITOR + " + ",".join(nicks))
+
+
+def monitor_del(*nicks: str) -> None:
+    """Remove one or more nicks from the IRC MONITOR watch list."""
+    if nicks:
+        eggdrop.putserv("MONITOR - " + ",".join(nicks))
+
+
+def monitor_list() -> None:
+    """Request the server send the current MONITOR list (triggers raw 732/733)."""
+    eggdrop.putserv("MONITOR L")
+
+
+def monitor_clear() -> None:
+    """Clear all entries from the bot's MONITOR list on the server."""
+    eggdrop.putserv("MONITOR C")
+
+
+# ---------------------------------------------------------------------------
+# Timer system (pure Python — 1-minute granularity via the 'time' bind)
+# ---------------------------------------------------------------------------
+# timers are stored as {id: (deadline, callback, args, repeat_seconds)}
+# repeat_seconds == 0 means one-shot; > 0 means repeating utimer.
+
+import time as _time
+
+_timers: dict = {}
+_timer_seq: int = 0
+
+
+def _timer_next_id() -> int:
+    global _timer_seq
+    _timer_seq += 1
+    return _timer_seq
+
+
+@on_time()
+def _timer_tick(*_args) -> None:
+    """Internal: fires every minute to dispatch expired timers."""
+    now = _time.time()
+    expired = [tid for tid, (deadline, _cb, _a, _rep) in _timers.items()
+               if now >= deadline]
+    for tid in expired:
+        deadline, cb, a, rep = _timers.pop(tid)
+        try:
+            cb(*a)
+        except Exception as exc:
+            eggdrop.putlog(f"eggtools timer error: {exc}")
+        if rep > 0:
+            # Reschedule repeating utimer
+            new_id = _timer_next_id()
+            _timers[new_id] = (_time.time() + rep, cb, a, rep)
+
+
+def timer(callback: Callable, minutes: int, *args) -> int:
+    """Schedule *callback* to run after *minutes* minutes (≥ 1).
+
+    Returns a timer ID that can be passed to killtimer().
+    """
+    tid = _timer_next_id()
+    _timers[tid] = (_time.time() + max(1, minutes) * 60, callback, args, 0)
+    return tid
+
+
+def utimer(callback: Callable, seconds: int, *args) -> int:
+    """Schedule *callback* to run after *seconds* seconds.
+
+    Note: granularity is ±60 s because the underlying tick fires once per
+    minute.  Returns a timer ID for killutimer().
+    """
+    tid = _timer_next_id()
+    _timers[tid] = (_time.time() + max(1, seconds), callback, args, 0)
+    return tid
+
+
+def reptimer(callback: Callable, seconds: int, *args) -> int:
+    """Schedule *callback* to repeat every *seconds* seconds.
+
+    Returns a timer ID for killtimer()/killutimer().
+    """
+    tid = _timer_next_id()
+    _timers[tid] = (_time.time() + max(1, seconds), callback, args, max(1, seconds))
+    return tid
+
+
+def killtimer(tid: int) -> bool:
+    """Cancel a pending timer created with timer().  Returns True if found."""
+    return _timers.pop(tid, None) is not None
+
+
+def killutimer(tid: int) -> bool:
+    """Cancel a pending timer created with utimer().  Returns True if found."""
+    return _timers.pop(tid, None) is not None
+
+
+def timers() -> List[tuple]:
+    """Return a list of (id, seconds_remaining, callback_name) for pending timers."""
+    now = _time.time()
+    return [(tid, max(0, int(deadline - now)),
+             getattr(cb, "__name__", repr(cb)))
+            for tid, (deadline, cb, _a, _rep) in sorted(_timers.items())]
+
+
+def utimers() -> List[tuple]:
+    """Alias for timers() — eggdrop's utimers() and timers() share one list here."""
+    return timers()

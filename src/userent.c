@@ -755,9 +755,9 @@ static int botaddr_set(struct userrec *u, struct user_entry *e, void *buf)
   return 1;
 }
 
+#ifdef HAVE_TCL
 static int botaddr_tcl_dstring(Tcl_DString *ds, struct user_entry *e)
 {
-#ifdef HAVE_TCL
   struct bot_addr *bi = (struct bot_addr *)e->u.extra;
 
   Tcl_DStringAppendElement(ds, bi->address);
@@ -775,10 +775,8 @@ static int botaddr_tcl_dstring(Tcl_DString *ds, struct user_entry *e)
 #endif
   Tcl_DStringAppend(ds, int_to_base10(bi->relay_port), -1);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
+#endif /* HAVE_TCL */
 
 static int botaddr_tcl_get(Tcl_Interp * interp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
@@ -1182,9 +1180,9 @@ int xtra_kill(struct user_entry *e)
   return 1;
 }
 
+#ifdef HAVE_TCL
 static int xtra_tcl_dstring(Tcl_DString *ds, int sublist, struct user_entry *e)
 {
-#ifdef HAVE_TCL
   struct xtra_key *x;
 
   for (x = e->u.extra; x; x = x->next) {
@@ -1196,10 +1194,8 @@ static int xtra_tcl_dstring(Tcl_DString *ds, int sublist, struct user_entry *e)
       Tcl_DStringEndSublist(ds);
   }
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
+#endif /* HAVE_TCL */
 
 static int xtra_tcl_get(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
