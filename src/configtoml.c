@@ -44,6 +44,8 @@
 #  include "modules.h"
 #endif
 
+extern char moddir[121]; /* defined in modules.c */
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -872,11 +874,19 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
  * Public API
  * --------------------------------------------------------------------- */
 
-/* Lightweight pre-scan: extract [paths] lang_dir before init_language(1) so
- * language files can be found on the first attempt.  Reads only the [paths]
- * section and stops as soon as it finds lang_dir (or another section starts).
+/* prescan_paths: single-pass pre-scan of [paths] for settings that must be
+ * applied before the main config parse begins.
+ *
+ *   lang_dir  — must be set before init_language(1) so language files are
+ *               found on the very first add_lang_section("core") call.
+ *   mod_path  — must be set before [modules] are loaded; if [modules] comes
+ *               before [paths] in the config file the compiled-in EGG_MODDIR
+ *               would otherwise be used and module loads would fail.
+ *
+ * Both values are written directly to their C variables rather than going
+ * through the Tcl/notcl variable machinery (which isn't set up yet).
  */
-void prescan_lang_dir(const char *fname)
+void prescan_paths(const char *fname)
 {
   FILE *fp = fopen(fname, "r");
   char line[TOML_LINE_MAX];
@@ -891,7 +901,6 @@ void prescan_lang_dir(const char *fname)
     if (!*p || *p == '#')
       continue;
     if (*p == '[') {
-      /* Section header */
       int is_aot = (p[1] == '[');
       char *inner = p + 1 + (is_aot ? 1 : 0);
       char *end = strchr(inner, ']');
@@ -910,12 +919,21 @@ void prescan_lang_dir(const char *fname)
       *eq = '\0';
       char *k = trim(p);
       char *v = trim(eq + 1);
-      if (strcmp(k, "lang_dir") != 0)
-        continue;
       if (parse_value(v, value, sizeof value) < 0)
         continue;
-      set_lang_dir(value);
-      break;
+      if (strcmp(k, "lang_dir") == 0) {
+        set_lang_dir(value);
+      } else if (strcmp(k, "mod_path") == 0 && *value) {
+        /* Apply directly to moddir; append trailing '/' if missing. */
+        strlcpy(moddir, value, sizeof moddir);
+        {
+          size_t n = strlen(moddir);
+          if (n && moddir[n - 1] != '/' && n + 1 < sizeof moddir) {
+            moddir[n]     = '/';
+            moddir[n + 1] = '\0';
+          }
+        }
+      }
     }
   }
   fclose(fp);

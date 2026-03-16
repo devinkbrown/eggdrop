@@ -1083,9 +1083,10 @@ int main(int arg_c, char **arg_v)
   init_mem();
   if (argc > 1)
     do_arg();
-  /* Pre-scan the config for [paths] lang_dir so language files can be found
-   * on the very first init_language(1) call below. */
-  prescan_lang_dir(configfile);
+  /* Pre-scan the config for [paths] settings (lang_dir, mod_path) so language
+   * files and modules can be found on the first attempt regardless of section
+   * ordering in the config file. */
+  prescan_paths(configfile);
   init_tcl0(argc, argv);
   init_language(1);
 
