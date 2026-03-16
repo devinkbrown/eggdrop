@@ -188,6 +188,8 @@ void dcc_dnsipbyhost(char *);
 char *get_language(int);
 int cmd_loadlanguage(struct userrec *, int, char *);
 void add_lang_section(char *);
+void set_lang_dir(const char *);
+void init_language(int);
 int del_lang_section(char *);
 int exist_lang_section(char *);
 
