@@ -53,13 +53,13 @@ extern struct hook_entry {
   Function func;
 } *hook_list[REAL_HOOKS];
 
-#define call_hook(x) do {                                       \
-        struct hook_entry *p, *pn;                              \
-                                                                \
-        for (p = hook_list[x]; p; p = pn) {                     \
-                pn = p->next;                                   \
-                ((void (*)(void)) p->func)();                   \
-        }                                                       \
+#define call_hook(x) do {                                               \
+        struct hook_entry *_chook_p, *_chook_pn;                        \
+                                                                        \
+        for (_chook_p = hook_list[x]; _chook_p; _chook_p = _chook_pn) {\
+                _chook_pn = _chook_p->next;                             \
+                ((void (*)(void)) _chook_p->func)();                    \
+        }                                                               \
 } while (0)
 
 #endif

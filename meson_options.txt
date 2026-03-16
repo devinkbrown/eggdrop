@@ -14,7 +14,10 @@ option('python', type: 'feature', value: 'auto',
   description: 'Build Python scripting module (requires Python >= 3.8)')
 
 option('egg-debug', type: 'boolean', value: false,
-  description: 'Enable eggdrop debug build (-g, extra logging)')
+  description: 'Enable eggdrop debug build (-g, extra logging, ASAN+UBSAN)')
+
+option('hardening', type: 'boolean', value: true,
+  description: 'Enable security hardening flags (stack-protector, RELRO, FORTIFY, etc.)')
 
 option('handlen', type: 'integer', value: 32, min: 9, max: 32,
   description: 'Maximum handle/nick length (9-32)')

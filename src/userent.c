@@ -1356,13 +1356,13 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
     t = &(e->u.list);
     while (*t) {
       if (cmp_usermasks(host, (*t)->extra)) {
-        struct list_type *u;
+        struct list_type *lt;
 
-        u = *t;
+        lt = *t;
         *t = (*t)->next;
-        if (u->extra)
-          nfree(u->extra);
-        free_list_type(u);
+        if (lt->extra)
+          nfree(lt->extra);
+        free_list_type(lt);
       } else
         t = &((*t)->next);
     }
@@ -1569,13 +1569,13 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
     t = &(e->u.list);
     while (*t) {
       if (!strcasecmp(acct, (*t)->extra)) {
-        struct list_type *u;
+        struct list_type *lt;
 
-        u = *t;
+        lt = *t;
         *t = (*t)->next;
-        if (u->extra)
-          nfree(u->extra);
-        free_list_type(u);
+        if (lt->extra)
+          nfree(lt->extra);
+        free_list_type(lt);
       } else
         t = &((*t)->next);
     }

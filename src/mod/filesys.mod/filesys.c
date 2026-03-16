@@ -191,8 +191,7 @@ static void dcc_files_pass(int idx, char *buf, int x)
       killsock(dcc[idx].sock);
       lostdcc(idx);
     } else {
-      struct userrec *u = get_user_by_handle(userlist, dcc[idx].nick);
-
+      u = get_user_by_handle(userlist, dcc[idx].nick);
       touch_laston(u, "filearea", now);
     }
     return;
@@ -336,8 +335,6 @@ static int cmd_files(struct userrec *u, int idx, char *par)
       dcc[idx].type = &DCC_FILES;
       dcc[idx].status |= STAT_CHAT;
       if (!welcome_to_files(idx)) {
-        struct chat_info *ci = dcc[idx].u.file->chat;
-
         my_free(dcc[idx].u.file);
         dcc[idx].u.chat = ci;
         dcc[idx].type = &DCC_CHAT;

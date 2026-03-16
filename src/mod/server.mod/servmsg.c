@@ -942,7 +942,7 @@ static void got303(char *from, char *msg)
  */
 static int got432(char *from, char *msg)
 {
-  char *erroneous, nick[nick_len + 1];
+  char *erroneous, nick[NICKMAX + 1];
 
   newsplit(&msg);
   erroneous = newsplit(&msg);

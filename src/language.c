@@ -662,12 +662,12 @@ static int cmd_languagestatus(struct userrec *u, int idx, char *par)
   dprintf(idx, "   %d used, %d unused, maxdepth %d, avg %f\n",
           used, empty, maxdepth, (float) ltexts / 64.0);
   if (lp) {
-    int c = 0;
+    int comma = 0;
 
     dprintf(idx, "   Supported languages:");
     for (; lp; lp = lp->next) {
-      dprintf(idx, "%s %s", c ? "," : "", lp->lang);
-      c = 1;
+      dprintf(idx, "%s %s", comma ? "," : "", lp->lang);
+      comma = 1;
     }
     dprintf(idx, "\n");
   }

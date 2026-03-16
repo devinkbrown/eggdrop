@@ -190,9 +190,9 @@ static inline void op_get_random(void *buf, size_t len) {
   {
     int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
     if (fd >= 0) {
-      ssize_t got = read(fd, buf, len);
+      ssize_t nread = read(fd, buf, len);
       close(fd);
-      if (got == (ssize_t)len)
+      if (nread == (ssize_t)len)
         return;
     }
   }

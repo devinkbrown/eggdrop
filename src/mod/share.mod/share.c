@@ -1977,16 +1977,16 @@ static void finish_share(int idx)
       }
       noshare = 1;
       for (cr = u2->chanrec; cr; cr = cr_next) {
-        struct chanset_t *chan = findchan_by_dname(cr->channel);
+        struct chanset_t *rchan = findchan_by_dname(cr->channel);
 
         cr_next = cr->next;
-        if (chan) {
+        if (rchan) {
           int not_shared = 0;
 
-          if (!channel_shared(chan))
+          if (!channel_shared(rchan))
             not_shared = 1;
           else {
-            get_user_flagrec(dcc[j].user, &fr, chan->dname);
+            get_user_flagrec(dcc[j].user, &fr, rchan->dname);
             if (!bot_chan(fr) && !bot_global(fr))
               not_shared = 1;
           }
