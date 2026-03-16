@@ -893,21 +893,89 @@ static char *twitch_close(void)
   return NULL;
 }
 
+/* Non-TCL exports for Python module access (twitch_table indices 12-15) */
+
+/* twitch_getmods(chan) — return mods string for channel, or NULL if not found */
+static char *twitch_getmods(char *chan)
+{
+  twitchchan_t *tchan = findtchan_by_dname(chan);
+  if (!tchan)
+    return NULL;
+  return tchan->mods ? tchan->mods : "";
+}
+
+/* twitch_getvips(chan) — return vips string for channel, or NULL if not found */
+static char *twitch_getvips(char *chan)
+{
+  twitchchan_t *tchan = findtchan_by_dname(chan);
+  if (!tchan)
+    return NULL;
+  return tchan->vips ? tchan->vips : "";
+}
+
+/* twitch_ismod(nick, chan) — 1=mod, 0=not mod, -1=channel not found.
+ * If chan is NULL, searches all channels. */
+static int twitch_ismod(char *nick, char *chan)
+{
+  twitchchan_t *tchan, *thechan = NULL;
+
+  if (chan) {
+    thechan = findtchan_by_dname(chan);
+    if (!thechan)
+      return -1;
+    tchan = thechan;
+  } else {
+    tchan = twitchchan;
+  }
+  while (tchan && (thechan == NULL || thechan == tchan)) {
+    if (tchan->mods && strstr(tchan->mods, nick))
+      return 1;
+    tchan = tchan->next;
+  }
+  return 0;
+}
+
+/* twitch_isvip(nick, chan) — 1=vip, 0=not vip, -1=channel not found.
+ * If chan is NULL, searches all channels. */
+static int twitch_isvip(char *nick, char *chan)
+{
+  twitchchan_t *tchan, *thechan = NULL;
+
+  if (chan) {
+    thechan = findtchan_by_dname(chan);
+    if (!thechan)
+      return -1;
+    tchan = thechan;
+  } else {
+    tchan = twitchchan;
+  }
+  while (tchan && (thechan == NULL || thechan == tchan)) {
+    if (tchan->vips && strstr(tchan->vips, nick))
+      return 1;
+    tchan = tchan->next;
+  }
+  return 0;
+}
+
 EXPORT_SCOPE char *twitch_start(Function *global_funcs);
 
 static Function twitch_table[] = {
-  (Function) twitch_start,
-  (Function) twitch_close,
-  (Function) twitch_expmem,
-  (Function) twitch_report,
-  (Function) & H_ccht,
-  (Function) & H_cmsg,
-  (Function) & H_htgt,
-  (Function) & H_wspr,
-  (Function) & H_wspm,
-  (Function) & H_rmst,
-  (Function) & H_usst,
-  (Function) & H_usrntc
+  (Function) twitch_start,     /*  0 */
+  (Function) twitch_close,     /*  1 */
+  (Function) twitch_expmem,    /*  2 */
+  (Function) twitch_report,    /*  3 */
+  (Function) & H_ccht,         /*  4 */
+  (Function) & H_cmsg,         /*  5 */
+  (Function) & H_htgt,         /*  6 */
+  (Function) & H_wspr,         /*  7 */
+  (Function) & H_wspm,         /*  8 */
+  (Function) & H_rmst,         /*  9 */
+  (Function) & H_usst,         /* 10 */
+  (Function) & H_usrntc,       /* 11 */
+  (Function) twitch_getmods,   /* 12 */
+  (Function) twitch_getvips,   /* 13 */
+  (Function) twitch_ismod,     /* 14 */
+  (Function) twitch_isvip      /* 15 */
 };
 
 char *twitch_start(Function *global_funcs)

@@ -848,3 +848,242 @@ def stripcodes(flags: str, text: str) -> str:
 def matchstr(pattern: str, string: str) -> bool:
     """Return True if string matches an IRC glob pattern (? and * wildcards)."""
     return bool(eggdrop.matchstr(pattern, string))
+
+
+# ---------------------------------------------------------------------------
+# Bot management
+# ---------------------------------------------------------------------------
+
+def die(reason: str = "") -> None:
+    """Shut down the bot with an optional quit/shutdown reason."""
+    if reason:
+        eggdrop.die(reason)
+    else:
+        eggdrop.die()
+
+
+def restart() -> None:
+    """Write the userfile to disk and restart the bot process."""
+    eggdrop.restart()
+
+
+def rehash() -> None:
+    """Write the userfile to disk and reload the configuration file."""
+    eggdrop.rehash()
+
+
+# ---------------------------------------------------------------------------
+# User entry access (info / comment / hosts / account)
+# ---------------------------------------------------------------------------
+
+def getinfo(handle: str) -> Optional[str]:
+    """Return the INFO line for *handle*, or None if not set."""
+    return eggdrop.getinfo(handle)
+
+
+def setinfo(handle: str, info: str) -> None:
+    """Set the INFO line for *handle*.  Pass an empty string to clear it."""
+    eggdrop.setinfo(handle, info)
+
+
+def getcomment(handle: str) -> Optional[str]:
+    """Return the COMMENT field for *handle*, or None if not set."""
+    return eggdrop.getcomment(handle)
+
+
+def setcomment(handle: str, comment: str) -> None:
+    """Set the COMMENT field for *handle*.  Pass an empty string to clear it."""
+    eggdrop.setcomment(handle, comment)
+
+
+def gethosts(handle: str) -> List[str]:
+    """Return a list of hostmask strings recorded for *handle*."""
+    return eggdrop.gethosts(handle)
+
+
+def getaccount(handle: str) -> Optional[str]:
+    """Return the IRC account name stored in the userdb for *handle*, or None."""
+    return eggdrop.getaccount_str(handle)
+
+
+# ---------------------------------------------------------------------------
+# Channel settings query
+# ---------------------------------------------------------------------------
+
+def chanset(channel: str) -> dict:
+    """Return a dict of configuration settings for *channel*.
+
+    Keys include flood thresholds (flood_pub_thr, flood_pub_time, …),
+    mask expiry times (ban_time, invite_time, exempt_time), auto-op range
+    (aop_min, aop_max), misc settings (idle_kick, stopnethack_mode,
+    revenge_mode, ban_type), the raw status bitmask, individual boolean flags
+    (enforcebans, bitch, greet, protectops, …), and channel info (mode,
+    maxmembers, members).
+    """
+    return eggdrop.chanset(channel)
+
+
+# ---------------------------------------------------------------------------
+# Twitch extensions (requires twitch module)
+# ---------------------------------------------------------------------------
+
+def twitchmods(channel: str) -> str:
+    """Return a space-separated string of moderator nicks for *channel*.
+
+    Raises EggdropError if the twitch module is not loaded or the channel
+    is not found.
+    """
+    return eggdrop.twitchmods(channel)
+
+
+def twitchvips(channel: str) -> str:
+    """Return a space-separated string of VIP nicks for *channel*.
+
+    Raises EggdropError if the twitch module is not loaded or the channel
+    is not found.
+    """
+    return eggdrop.twitchvips(channel)
+
+
+def ismod(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if *nick* is a moderator on *channel* (or any channel).
+
+    If *channel* is omitted all Twitch channels are checked.  Raises
+    EggdropError if the twitch module is not loaded or the channel is not
+    found.
+    """
+    if channel:
+        return bool(eggdrop.ismod(nick, channel))
+    return bool(eggdrop.ismod(nick))
+
+
+def isvip(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if *nick* is a VIP on *channel* (or any channel).
+
+    If *channel* is omitted all Twitch channels are checked.  Raises
+    EggdropError if the twitch module is not loaded or the channel is not
+    found.
+    """
+    if channel:
+        return bool(eggdrop.isvip(nick, channel))
+    return bool(eggdrop.isvip(nick))
+
+
+# ---------------------------------------------------------------------------
+# MONITOR helpers (IRCv3 — requires server support)
+# ---------------------------------------------------------------------------
+
+def monitor_add(*nicks: str) -> None:
+    """Add one or more nicks to the IRC MONITOR watch list.
+
+    The bot sends ``MONITOR + nick1,nick2,...`` to the server.  Receive
+    events via ``@eggtools.on_monitor()`` callbacks.
+    """
+    if nicks:
+        eggdrop.putserv("MONITOR + " + ",".join(nicks))
+
+
+def monitor_del(*nicks: str) -> None:
+    """Remove one or more nicks from the IRC MONITOR watch list."""
+    if nicks:
+        eggdrop.putserv("MONITOR - " + ",".join(nicks))
+
+
+def monitor_list() -> None:
+    """Request the server send the current MONITOR list (triggers raw 732/733)."""
+    eggdrop.putserv("MONITOR L")
+
+
+def monitor_clear() -> None:
+    """Clear all entries from the bot's MONITOR list on the server."""
+    eggdrop.putserv("MONITOR C")
+
+
+# ---------------------------------------------------------------------------
+# Timer system (pure Python — 1-minute granularity via the 'time' bind)
+# ---------------------------------------------------------------------------
+# timers are stored as {id: (deadline, callback, args, repeat_seconds)}
+# repeat_seconds == 0 means one-shot; > 0 means repeating utimer.
+
+import time as _time
+
+_timers: dict = {}
+_timer_seq: int = 0
+
+
+def _timer_next_id() -> int:
+    global _timer_seq
+    _timer_seq += 1
+    return _timer_seq
+
+
+@on_time()
+def _timer_tick(*_args) -> None:
+    """Internal: fires every minute to dispatch expired timers."""
+    now = _time.time()
+    expired = [tid for tid, (deadline, _cb, _a, _rep) in _timers.items()
+               if now >= deadline]
+    for tid in expired:
+        deadline, cb, a, rep = _timers.pop(tid)
+        try:
+            cb(*a)
+        except Exception as exc:
+            eggdrop.putlog(f"eggtools timer error: {exc}")
+        if rep > 0:
+            # Reschedule repeating utimer
+            new_id = _timer_next_id()
+            _timers[new_id] = (_time.time() + rep, cb, a, rep)
+
+
+def timer(callback: Callable, minutes: int, *args) -> int:
+    """Schedule *callback* to run after *minutes* minutes (≥ 1).
+
+    Returns a timer ID that can be passed to killtimer().
+    """
+    tid = _timer_next_id()
+    _timers[tid] = (_time.time() + max(1, minutes) * 60, callback, args, 0)
+    return tid
+
+
+def utimer(callback: Callable, seconds: int, *args) -> int:
+    """Schedule *callback* to run after *seconds* seconds.
+
+    Note: granularity is ±60 s because the underlying tick fires once per
+    minute.  Returns a timer ID for killutimer().
+    """
+    tid = _timer_next_id()
+    _timers[tid] = (_time.time() + max(1, seconds), callback, args, 0)
+    return tid
+
+
+def reptimer(callback: Callable, seconds: int, *args) -> int:
+    """Schedule *callback* to repeat every *seconds* seconds.
+
+    Returns a timer ID for killtimer()/killutimer().
+    """
+    tid = _timer_next_id()
+    _timers[tid] = (_time.time() + max(1, seconds), callback, args, max(1, seconds))
+    return tid
+
+
+def killtimer(tid: int) -> bool:
+    """Cancel a pending timer created with timer().  Returns True if found."""
+    return _timers.pop(tid, None) is not None
+
+
+def killutimer(tid: int) -> bool:
+    """Cancel a pending timer created with utimer().  Returns True if found."""
+    return _timers.pop(tid, None) is not None
+
+
+def timers() -> List[tuple]:
+    """Return a list of (id, seconds_remaining, callback_name) for pending timers."""
+    now = _time.time()
+    return [(tid, max(0, int(deadline - now)),
+             getattr(cb, "__name__", repr(cb)))
+            for tid, (deadline, cb, _a, _rep) in sorted(_timers.items())]
+
+
+def utimers() -> List[tuple]:
+    """Alias for timers() — eggdrop's utimers() and timers() share one list here."""
+    return timers()

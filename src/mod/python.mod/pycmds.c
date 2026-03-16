@@ -1131,6 +1131,336 @@ static PyObject *py_ircxnegotiate(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* ---- Bot management -------------------------------------------------- */
+
+/* die([reason]) — shut down the bot with optional quit message */
+static PyObject *py_die(PyObject *self, PyObject *args)
+{
+  char *reason = NULL, s[1024];
+
+  if (!PyArg_ParseTuple(args, "|s", &reason))
+    return NULL;
+  if (reason && reason[0]) {
+    egg_snprintf(s, sizeof s, "BOT SHUTDOWN (%s)", reason);
+    strlcpy(quit_msg, reason, 1024);
+  } else {
+    strlcpy(s, "BOT SHUTDOWN (No reason)", sizeof s);
+    quit_msg[0] = 0;
+  }
+  kill_bot(s, quit_msg[0] ? quit_msg : "EXIT");
+  Py_RETURN_NONE;
+}
+
+/* restart() — save userfile and restart the bot process */
+static PyObject *py_restart(PyObject *self, PyObject *args)
+{
+  if (make_userfile) {
+    putlog(LOG_MISC, "*", "No need for a new user file, skipping.");
+    make_userfile = 0;
+  }
+  write_userfile(-1);
+  putlog(LOG_MISC, "*", "Restarting.");
+  do_restart = -1;
+  Py_RETURN_NONE;
+}
+
+/* rehash() — save userfile and reload configuration (no full restart) */
+static PyObject *py_rehash(PyObject *self, PyObject *args)
+{
+  if (make_userfile) {
+    putlog(LOG_MISC, "*", "No need for a new user file, skipping.");
+    make_userfile = 0;
+  }
+  write_userfile(-1);
+  putlog(LOG_MISC, "*", "Rehashing.");
+  do_restart = -2;
+  Py_RETURN_NONE;
+}
+
+/* ---- User entry access (getuser / setuser) ---------------------------- */
+
+/* getinfo(handle) — return the INFO string for handle, or None */
+static PyObject *py_getinfo(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  char *info;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u)
+    Py_RETURN_NONE;
+  info = (char *)get_user(&USERENTRY_INFO, u);
+  if (!info || !info[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(info);
+}
+
+/* setinfo(handle, info) — set the INFO string for handle */
+static PyObject *py_setinfo(PyObject *self, PyObject *args)
+{
+  char *handle, *info;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &info))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  set_user(&USERENTRY_INFO, u, info[0] ? info : NULL);
+  Py_RETURN_NONE;
+}
+
+/* getcomment(handle) — return the COMMENT string for handle, or None */
+static PyObject *py_getcomment(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  char *comment;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u)
+    Py_RETURN_NONE;
+  comment = (char *)get_user(&USERENTRY_COMMENT, u);
+  if (!comment || !comment[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(comment);
+}
+
+/* setcomment(handle, comment) — set the COMMENT string for handle */
+static PyObject *py_setcomment(PyObject *self, PyObject *args)
+{
+  char *handle, *comment;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &comment))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  set_user(&USERENTRY_COMMENT, u, comment[0] ? comment : NULL);
+  Py_RETURN_NONE;
+}
+
+/* gethosts(handle) — return list of hostmask strings for handle */
+static PyObject *py_gethosts(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  struct user_entry *e;
+  struct list_type *x;
+  PyObject *list, *s;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  list = PyList_New(0);
+  if (!u)
+    return list;
+  e = find_user_entry(&USERENTRY_HOSTS, u);
+  if (!e)
+    return list;
+  for (x = e->u.list; x; x = x->next) {
+    s = PyUnicode_FromString(x->extra);
+    PyList_Append(list, s);
+    Py_DECREF(s);
+  }
+  return list;
+}
+
+/* getaccount_str(handle) — return IRC account name from USERENTRY_ACCOUNT, or None */
+static PyObject *py_getaccount_str(PyObject *self, PyObject *args)
+{
+  char *handle;
+  struct userrec *u;
+  char *acc;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u)
+    Py_RETURN_NONE;
+  acc = (char *)get_user(&USERENTRY_ACCOUNT, u);
+  if (!acc || !acc[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(acc);
+}
+
+/* ---- Channel setting queries ------------------------------------------ */
+
+/* chanset(channel) — return dict of channel configuration settings */
+static PyObject *py_chanset(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  PyObject *d;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  d = PyDict_New();
+  /* Flood control */
+  PyDict_SetItemString(d, "flood_pub_thr",   PyLong_FromLong(ch->flood_pub_thr));
+  PyDict_SetItemString(d, "flood_pub_time",  PyLong_FromLong(ch->flood_pub_time));
+  PyDict_SetItemString(d, "flood_join_thr",  PyLong_FromLong(ch->flood_join_thr));
+  PyDict_SetItemString(d, "flood_join_time", PyLong_FromLong(ch->flood_join_time));
+  PyDict_SetItemString(d, "flood_kick_thr",  PyLong_FromLong(ch->flood_kick_thr));
+  PyDict_SetItemString(d, "flood_kick_time", PyLong_FromLong(ch->flood_kick_time));
+  PyDict_SetItemString(d, "flood_deop_thr",  PyLong_FromLong(ch->flood_deop_thr));
+  PyDict_SetItemString(d, "flood_deop_time", PyLong_FromLong(ch->flood_deop_time));
+  PyDict_SetItemString(d, "flood_ctcp_thr",  PyLong_FromLong(ch->flood_ctcp_thr));
+  PyDict_SetItemString(d, "flood_ctcp_time", PyLong_FromLong(ch->flood_ctcp_time));
+  PyDict_SetItemString(d, "flood_nick_thr",  PyLong_FromLong(ch->flood_nick_thr));
+  PyDict_SetItemString(d, "flood_nick_time", PyLong_FromLong(ch->flood_nick_time));
+  /* Mask expiry times (in minutes) */
+  PyDict_SetItemString(d, "ban_time",        PyLong_FromLong(ch->ban_time));
+  PyDict_SetItemString(d, "invite_time",     PyLong_FromLong(ch->invite_time));
+  PyDict_SetItemString(d, "exempt_time",     PyLong_FromLong(ch->exempt_time));
+  /* Auto-op range */
+  PyDict_SetItemString(d, "aop_min",         PyLong_FromLong(ch->aop_min));
+  PyDict_SetItemString(d, "aop_max",         PyLong_FromLong(ch->aop_max));
+  /* Misc settings */
+  PyDict_SetItemString(d, "idle_kick",       PyLong_FromLong(ch->idle_kick));
+  PyDict_SetItemString(d, "stopnethack_mode",PyLong_FromLong(ch->stopnethack_mode));
+  PyDict_SetItemString(d, "revenge_mode",    PyLong_FromLong(ch->revenge_mode));
+  PyDict_SetItemString(d, "ban_type",        PyLong_FromLong(ch->ban_type));
+  /* Status flags (raw bitmask + individual booleans) */
+  PyDict_SetItemString(d, "status",          PyLong_FromLong(ch->status));
+  PyDict_SetItemString(d, "enforcebans",     PyBool_FromLong(ch->status & CHAN_ENFORCEBANS));
+  PyDict_SetItemString(d, "dynamicbans",     PyBool_FromLong(ch->status & CHAN_DYNAMICBANS));
+  PyDict_SetItemString(d, "userbans",        PyBool_FromLong(!(ch->status & CHAN_NOUSERBANS)));
+  PyDict_SetItemString(d, "autoop",          PyBool_FromLong(ch->status & CHAN_OPONJOIN));
+  PyDict_SetItemString(d, "bitch",           PyBool_FromLong(ch->status & CHAN_BITCH));
+  PyDict_SetItemString(d, "greet",           PyBool_FromLong(ch->status & CHAN_GREET));
+  PyDict_SetItemString(d, "protectops",      PyBool_FromLong(ch->status & CHAN_PROTECTOPS));
+  PyDict_SetItemString(d, "revenge",         PyBool_FromLong(ch->status & CHAN_REVENGE));
+  PyDict_SetItemString(d, "secret",          PyBool_FromLong(ch->status & CHAN_SECRET));
+  PyDict_SetItemString(d, "autovoice",       PyBool_FromLong(ch->status & CHAN_AUTOVOICE));
+  PyDict_SetItemString(d, "cycle",           PyBool_FromLong(ch->status & CHAN_CYCLE));
+  PyDict_SetItemString(d, "dontkickops",     PyBool_FromLong(ch->status & CHAN_DONTKICKOPS));
+  PyDict_SetItemString(d, "inactive",        PyBool_FromLong(ch->status & CHAN_INACTIVE));
+  PyDict_SetItemString(d, "protectfriends",  PyBool_FromLong(ch->status & CHAN_PROTECTFRIENDS));
+  PyDict_SetItemString(d, "shared",          PyBool_FromLong(ch->status & CHAN_SHARED));
+  PyDict_SetItemString(d, "seen",            PyBool_FromLong(ch->status & CHAN_SEEN));
+  PyDict_SetItemString(d, "revengebot",      PyBool_FromLong(ch->status & CHAN_REVENGEBOT));
+  PyDict_SetItemString(d, "autohalfop",      PyBool_FromLong(ch->status & CHAN_AUTOHALFOP));
+  PyDict_SetItemString(d, "protecthalfops",  PyBool_FromLong(ch->status & CHAN_PROTECTHALFOPS));
+  /* IRC mode string (from channel.mode bitmask - returned as raw int) */
+  PyDict_SetItemString(d, "mode",            PyLong_FromLong((long)ch->channel.mode));
+  PyDict_SetItemString(d, "maxmembers",      PyLong_FromLong((long)ch->channel.maxmembers));
+  PyDict_SetItemString(d, "members",         PyLong_FromLong((long)ch->channel.members));
+  return d;
+}
+
+/* ---- Twitch extensions ----------------------------------------------- */
+
+/* twitchmods(channel) — space-separated list of moderator nicks */
+static PyObject *py_twitchmods(PyObject *self, PyObject *args)
+{
+  char *chan;
+  module_entry *me;
+  char *(*fn)(char *);
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *))me->funcs[12];
+  result = fn(chan);
+  if (!result) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyUnicode_FromString(result);
+}
+
+/* twitchvips(channel) — space-separated list of VIP nicks */
+static PyObject *py_twitchvips(PyObject *self, PyObject *args)
+{
+  char *chan;
+  module_entry *me;
+  char *(*fn)(char *);
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *))me->funcs[13];
+  result = fn(chan);
+  if (!result) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyUnicode_FromString(result);
+}
+
+/* ismod(nick[, channel]) — True if nick is a Twitch moderator */
+static PyObject *py_ismod(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  module_entry *me;
+  int (*fn)(char *, char *);
+  int result;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (int (*)(char *, char *))me->funcs[14];
+  result = fn(nick, chan);
+  if (result < 0) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyBool_FromLong(result);
+}
+
+/* isvip(nick[, channel]) — True if nick is a Twitch VIP */
+static PyObject *py_isvip(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  module_entry *me;
+  int (*fn)(char *, char *);
+  int result;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  me = module_find("twitch", 0, 1);
+  if (!me) {
+    PyErr_SetString(EggdropError, "twitch module not loaded");
+    return NULL;
+  }
+  fn = (int (*)(char *, char *))me->funcs[15];
+  result = fn(nick, chan);
+  if (result < 0) {
+    PyErr_SetString(EggdropError, "channel not found");
+    return NULL;
+  }
+  return PyBool_FromLong(result);
+}
+
 /* ---- User management ------------------------------------------------- */
 
 /* adduser(handle[, hostmask]) — add a new user to the userlist.
@@ -1987,6 +2317,24 @@ static PyMethodDef MyPyMethods[] = {
     {"parse_tcl_list", py_parse_tcl_list, METH_VARARGS, "convert a Tcl list string to a Python list"},
     {"parse_tcl_dict", py_parse_tcl_dict, METH_VARARGS, "convert a Tcl dict string to a Python dict"},
 #endif
+    /* Bot management */
+    {"die",         py_die,         METH_VARARGS, "shut down the bot: die([reason])"},
+    {"restart",     py_restart,     METH_NOARGS,  "save userfile and restart bot"},
+    {"rehash",      py_rehash,      METH_NOARGS,  "save userfile and rehash config"},
+    /* User entry access */
+    {"getinfo",        py_getinfo,        METH_VARARGS, "get INFO string for handle, or None"},
+    {"setinfo",        py_setinfo,        METH_VARARGS, "set INFO string: setinfo(handle, info)"},
+    {"getcomment",     py_getcomment,     METH_VARARGS, "get COMMENT string for handle, or None"},
+    {"setcomment",     py_setcomment,     METH_VARARGS, "set COMMENT string: setcomment(handle, comment)"},
+    {"gethosts",       py_gethosts,       METH_VARARGS, "return list of hostmasks for handle"},
+    {"getaccount_str", py_getaccount_str, METH_VARARGS, "return IRC account for handle from userdb, or None"},
+    /* Channel settings */
+    {"chanset",     py_chanset,     METH_VARARGS, "return dict of channel configuration settings"},
+    /* Twitch extensions */
+    {"twitchmods",  py_twitchmods,  METH_VARARGS, "return mod list for Twitch channel"},
+    {"twitchvips",  py_twitchvips,  METH_VARARGS, "return VIP list for Twitch channel"},
+    {"ismod",       py_ismod,       METH_VARARGS, "True if nick is a Twitch mod: ismod(nick[, chan])"},
+    {"isvip",       py_isvip,       METH_VARARGS, "True if nick is a Twitch VIP: isvip(nick[, chan])"},
     {"__displayhook__", py_displayhook, METH_O, "display hook for python expressions"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
