@@ -1118,7 +1118,7 @@ char *channels_start(Function *global_funcs)
          "-revenge "
          "-secret "
          "-autovoice "
-         "+cycle "
+         "-cycle "
          "+dontkickops "
          "-inactive "
          "-protectfriends "

@@ -1046,7 +1046,7 @@ static void scan_help_file(struct help_ref *current, char *filename, int type)
           list = nmalloc(sizeof *list);
 
           list->name = nmalloc(p - q + 1);
-          strlcpy(list->name, q, sizeof(list->name));
+          strlcpy(list->name, q, (size_t)(p - q + 1));
           list->next = current->first;
           list->type = type;
           current->first = list;
@@ -1074,7 +1074,7 @@ void add_help_reference(char *file)
   current = nmalloc(sizeof *current);
 
   current->name = nmalloc(strlen(file) + 1);
-  strlcpy(current->name, file, sizeof(current->name));
+  strlcpy(current->name, file, strlen(file) + 1);
   current->next = help_list;
   current->first = NULL;
   help_list = current;
