@@ -1412,6 +1412,7 @@ static cmd_t myfiles[] = {
  *    Tcl stub functions
  */
 
+#ifdef HAVE_TCL
 static int files_reget(int idx, char *fn, char *nick, int resend)
 {
   int i = 0;
@@ -1528,3 +1529,4 @@ static void files_setpwd(int idx, char *where)
            dcc[idx].u.file->dir);
   my_free(s);
 }
+#endif /* HAVE_TCL */

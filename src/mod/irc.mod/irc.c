@@ -67,7 +67,9 @@ static int include_lk = 1;      /* For correct calculation in real_add_mode. */
 
 static char opchars[8];         /* the chars in a /who reply meaning op */
 
+#ifdef HAVE_TCL
 static Tcl_Obj *tcl_account;
+#endif /* HAVE_TCL */
 
 #include "chan.c"
 #include "mode.c"
@@ -1318,6 +1320,7 @@ static void do_nettype(void)
   add_hook(HOOK_RFC_CASECMP, (Function) (intptr_t) rfc_compliant);
 }
 
+#ifdef HAVE_TCL
 static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
@@ -1337,6 +1340,7 @@ static char *traced_rfccompliant(ClientData cdata, Tcl_Interp *irp,
   add_hook(HOOK_RFC_CASECMP, (Function) (intptr_t) rfc_compliant);
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 static int irc_expmem(void)
 {

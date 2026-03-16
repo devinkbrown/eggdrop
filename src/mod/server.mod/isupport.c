@@ -59,6 +59,9 @@ static tcl_cmds my_tcl_objcmds[] = {
   {"isupport", tcl_isupport},
   {NULL,       NULL        }
 };
+#else /* !HAVE_TCL */
+static int check_tcl_isupport(struct isupport *data, const char *key,
+                               const char *value) { return 0; }
 #endif /* HAVE_TCL */
 
 /*** Utility functions ***/

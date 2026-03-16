@@ -133,6 +133,7 @@ static int console_set(struct userrec *u, struct user_entry *e, void *buf)
   return 1;
 }
 
+#ifdef HAVE_TCL
 static void console_tcl_format(char *work, struct console_info *i)
 {
   snprintf(work, 1024, "%s %s %s %d %d %d",
@@ -140,8 +141,6 @@ static void console_tcl_format(char *work, struct console_info *i)
                  stripmasktype(i->stripflags), i->echoflags,
                  i->page, i->conchan);
 }
-
-#ifdef HAVE_TCL
 static int console_tcl_get(Tcl_Interp *irp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
 {

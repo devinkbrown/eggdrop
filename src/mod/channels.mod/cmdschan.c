@@ -1233,10 +1233,14 @@ static void cmd_pls_chan(struct userrec *u, int idx, char *par)
   }
   Tcl_Free((char *) argv);
 
+#ifdef HAVE_TCL
   if (tcl_channel_add(0, chname, par) == TCL_ERROR)
     dprintf(idx, "Invalid channel or channel options.\n");
   else
     putlog(LOG_CMDS, "*", "#%s# +chan %s", dcc[idx].nick, chname);
+#else
+  dprintf(idx, "Adding channels requires Tcl support.\n");
+#endif
 }
 
 static void cmd_mns_chan(struct userrec *u, int idx, char *par)
@@ -1470,8 +1474,11 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
 
 static void cmd_chanset(struct userrec *u, int idx, char *par)
 {
-  char *chname = NULL, answers[1024], *parcpy;
+  char *chname = NULL, answers[1024];
   char *list[2], value[2], *bak, *buf;
+#ifdef HAVE_TCL
+  char *parcpy;
+#endif
   struct chanset_t *chan = NULL;
   int len, all = 0;
 
@@ -1531,7 +1538,11 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
               nfree(buf);
               return;
             }
+#ifdef HAVE_TCL
           if (tcl_channel_modify(0, chan, 1, list) == TCL_OK) {
+#else
+          if (0) { /* tcl_channel_modify not available without Tcl */
+#endif
             strlcpy(value, list[0], 2);
             len = strlen(answers);
             egg_snprintf(answers + len, (sizeof answers) - len, 
@@ -1546,6 +1557,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
          * line is args. Woops nearly made a nasty little hole here :) we'll
          * just ignore any non global +n's trying to set the need-commands.
          */
+#ifdef HAVE_TCL
         if (strncmp(list[0], "need-", 5) || (u->flags & USER_OWNER)) {
           Tcl_Interp *irp = NULL;
           if (!strncmp(list[0], "need-", 5) && !(isowner(dcc[idx].nick)) &&
@@ -1571,6 +1583,9 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
           Tcl_DeleteInterp(irp);
           nfree(parcpy);
         }
+#else
+        dprintf(idx, "Setting channel option %s requires Tcl support.\n", list[0]);
+#endif /* HAVE_TCL */
         break;
       }
       if (!all && answers[0]) {

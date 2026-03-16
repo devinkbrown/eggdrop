@@ -175,6 +175,8 @@ static int _filedb_movefile(FILE *, long, filedb_entry *, char *, int);
 static int _filedb_addfile(FILE *, filedb_entry *, char *, int);
 static filedb_entry *_filedb_getfile(FILE *, long, int, char *, int);
 static filedb_entry *_filedb_matchfile(FILE *, long, char *, char *, int);
+#ifdef HAVE_TCL
 static filedb_entry *filedb_getentry(char *, char *);
+#endif /* HAVE_TCL */
 
 #endif /* _EGG_MOD_FILESYS_FILEDB3_H */
