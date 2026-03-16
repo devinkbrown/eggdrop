@@ -439,10 +439,90 @@ if opt_native
   endif
 endif
 
-# Debug flags
+# ---------------------------------------------------------------------------
+# Security hardening flags
+# ---------------------------------------------------------------------------
+
+# -fstack-protector-strong: insert stack canaries for functions with arrays,
+# pointers to locals, or address-taken frames.  Catches stack overflows at
+# runtime; '-strong' is more selective (less overhead) than '-all'.
+# (GCC >= 4.9, Clang >= 3.4)
+if cc.has_argument('-fstack-protector-strong')
+  add_project_arguments('-fstack-protector-strong', language: 'c')
+endif
+
+# -fstack-clash-protection: touch each stack page sequentially so the kernel
+# guard page cannot be skipped by a large alloca.
+# (GCC >= 8, Clang >= 11)
+if cc.has_argument('-fstack-clash-protection')
+  add_project_arguments('-fstack-clash-protection', language: 'c')
+endif
+
+# -fcf-protection=full: Intel Control-Flow Enforcement Technology — inserts
+# ENDBR instructions and enables indirect-branch / return tracking (IBT +
+# shadow stack).  Only meaningful on x86/x86_64.
+# (GCC >= 8, Clang >= 7)
+if host_machine.cpu_family() in ['x86', 'x86_64']
+  if cc.has_argument('-fcf-protection=full')
+    add_project_arguments('-fcf-protection=full', language: 'c')
+  endif
+endif
+
+# _FORTIFY_SOURCE=2: glibc runtime buffer-overflow detection in common library
+# functions (memcpy, strcpy, sprintf, …).  Requires at least -O1; skip on
+# plain or unoptimised debug builds where -O0 is implied.
+# Undefine first in case the compiler/distro already defines a lower level.
+_bt = get_option('buildtype')
+if _bt != 'plain' and _bt != 'debug'
+  add_project_arguments('-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=2', language: 'c')
+endif
+
+# -Wformat=2 -Wformat-security: warn on format-string mismatches and
+# non-literal format arguments, catching printf/scanf-family bugs early.
+foreach _wf : ['-Wformat=2', '-Wformat-security']
+  if cc.has_argument(_wf)
+    add_project_arguments(_wf, language: 'c')
+  endif
+endforeach
+
+# Full RELRO: ask the dynamic linker to map all relocations before dropping
+# privileges, then remap the GOT read-only.  Prevents GOT-overwrite exploits.
+# -z relro marks the section; -z now forces eager binding (required for full).
+# Negligible startup overhead on modern kernels.
+if not is_native_windows
+  foreach _rl : ['-Wl,-z,relro', '-Wl,-z,now']
+    if cc.has_link_argument(_rl)
+      add_project_link_arguments(_rl, language: 'c')
+    endif
+  endforeach
+endif
+
+# ---------------------------------------------------------------------------
+# Debug / sanitizer flags
+# ---------------------------------------------------------------------------
 if opt_debug
   cdata.set('DEBUG', 1)
   add_project_arguments('-g', '-DDEBUG', language: 'c')
+  # AddressSanitizer + UndefinedBehaviourSanitizer: catch memory errors and
+  # UB at runtime.  -fno-omit-frame-pointer gives readable stack traces.
+  # Both compiler and linker flags are required.
+  _san_flags = []
+  foreach _s : ['-fsanitize=address', '-fsanitize=undefined']
+    if cc.has_argument(_s)
+      _san_flags += [_s]
+    endif
+  endforeach
+  if _san_flags.length() > 0
+    _san_flags += ['-fno-omit-frame-pointer']
+    add_project_arguments(_san_flags, language: 'c')
+    add_project_link_arguments(_san_flags, language: 'c')
+    message('egg-debug: ASAN + UBSAN enabled (' + ' '.join(_san_flags) + ')')
+  endif
+else
+  # Release/optimised builds: omitting the frame pointer frees a register.
+  if cc.has_argument('-fomit-frame-pointer')
+    add_project_arguments('-fomit-frame-pointer', language: 'c')
+  endif
 endif
 
 # -------------------------------------------------------------------------
@@ -477,16 +557,20 @@ else
   _io_backend = 'select'
 endif
 summary({
-  'Prefix':         get_option('prefix'),
-  'IPv6':           opt_ipv6,
-  'TLS/OpenSSL':    have_tls,
-  'Threaded DNS':   have_tdns,
-  'Python module':  have_python,
+  'Prefix':          get_option('prefix'),
+  'IPv6':            opt_ipv6,
+  'TLS/OpenSSL':     have_tls,
+  'Threaded DNS':    have_tdns,
+  'Python module':   have_python,
   'Compress module': have_zlib,
-  'Static modules': opt_static,
-  'Native CPU opt': _native_summary,
-  'LTO':            get_option('b_lto'),
-  'Executable':     opt_exec,
-  'HANDLEN':        opt_handlen,
-  'I/O backend':    _io_backend,
+  'Static modules':  opt_static,
+  'Native CPU opt':  _native_summary,
+  'LTO':             get_option('b_lto'),
+  'Build type':      get_option('buildtype'),
+  'Hardening':       'stack-protector-strong, stack-clash, FORTIFY_SOURCE=2, Full RELRO'
+                     + (host_machine.cpu_family() in ['x86', 'x86_64'] ? ', CET/cf-protection' : ''),
+  'Sanitizers':      opt_debug ? 'ASAN + UBSAN (egg-debug=true)' : 'off',
+  'Executable':      opt_exec,
+  'HANDLEN':         opt_handlen,
+  'I/O backend':     _io_backend,
 }, section: 'Eggdrop configuration')
