@@ -1978,18 +1978,18 @@ static void dcc_telnet_pw(int idx, char *new, int x)
   putlog(LOG_MISC, "*", DCC_NEWUSER, dcc[idx].nick, dcc[idx].host,
          dcc[idx].port);
   if (notify_new[0]) {
-    char notebuf[NICKLEN+UHOSTMAX+32], nb1[NICKLEN+UHOSTMAX+32], nb2[NICKLEN+UHOSTMAX+32];
+    char notebuf[NICKLEN+UHOSTMAX+32], notify_list[NICKLEN+UHOSTMAX+32], recipient[NICKLEN+UHOSTMAX+32];
 
     snprintf(notebuf, sizeof(notebuf), "Introduced to %s, %s", dcc[idx].nick, dcc[idx].host);
-    strlcpy(nb1, notify_new, sizeof(nb1));
-    splitc(nb2, nb1, ',');
-    while (nb2[0]) {
-      rmspace(nb2);
-      add_note(nb2, botnetnick, notebuf, -1, 0);
-      splitc(nb2, nb1, ',');
+    strlcpy(notify_list, notify_new, sizeof(notify_list));
+    splitc(recipient, notify_list, ',');
+    while (recipient[0]) {
+      rmspace(recipient);
+      add_note(recipient, botnetnick, notebuf, -1, 0);
+      splitc(recipient, notify_list, ',');
     }
-    rmspace(nb1);
-    add_note(nb1, botnetnick, notebuf, -1, 0);
+    rmspace(notify_list);
+    add_note(notify_list, botnetnick, notebuf, -1, 0);
   }
   dprintf(idx, "\nRemember that!  You'll need it next time you log in.\n"
                "You now have an account on %s...\n\n\n", botnetnick);

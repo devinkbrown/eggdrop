@@ -54,11 +54,11 @@ extern struct hook_entry {
 } *hook_list[REAL_HOOKS];
 
 #define call_hook(x) do {                                               \
-        struct hook_entry *_chook_p, *_chook_pn;                        \
+        struct hook_entry *chook_p, *chook_pn;                          \
                                                                         \
-        for (_chook_p = hook_list[x]; _chook_p; _chook_p = _chook_pn) {\
-                _chook_pn = _chook_p->next;                             \
-                ((void (*)(void)) _chook_p->func)();                    \
+        for (chook_p = hook_list[x]; chook_p; chook_p = chook_pn) {    \
+                chook_pn = chook_p->next;                               \
+                ((void (*)(void)) chook_p->func)();                     \
         }                                                               \
 } while (0)
 
