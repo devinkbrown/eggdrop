@@ -44,6 +44,8 @@
 #  include "modules.h"
 #endif
 
+extern char moddir[121]; /* defined in modules.c */
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -872,11 +874,19 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
  * Public API
  * --------------------------------------------------------------------- */
 
-/* Lightweight pre-scan: extract [paths] lang_dir before init_language(1) so
- * language files can be found on the first attempt.  Reads only the [paths]
- * section and stops as soon as it finds lang_dir (or another section starts).
+/* prescan_paths: single-pass pre-scan of [paths] for settings that must be
+ * applied before the main config parse begins.
+ *
+ *   lang_dir  — must be set before init_language(1) so language files are
+ *               found on the very first add_lang_section("core") call.
+ *   mod_path  — must be set before [modules] are loaded; if [modules] comes
+ *               before [paths] in the config file the compiled-in EGG_MODDIR
+ *               would otherwise be used and module loads would fail.
+ *
+ * Both values are written directly to their C variables rather than going
+ * through the Tcl/notcl variable machinery (which isn't set up yet).
  */
-void prescan_lang_dir(const char *fname)
+void prescan_paths(const char *fname)
 {
   FILE *fp = fopen(fname, "r");
   char line[TOML_LINE_MAX];
@@ -891,7 +901,6 @@ void prescan_lang_dir(const char *fname)
     if (!*p || *p == '#')
       continue;
     if (*p == '[') {
-      /* Section header */
       int is_aot = (p[1] == '[');
       char *inner = p + 1 + (is_aot ? 1 : 0);
       char *end = strchr(inner, ']');
@@ -910,12 +919,21 @@ void prescan_lang_dir(const char *fname)
       *eq = '\0';
       char *k = trim(p);
       char *v = trim(eq + 1);
-      if (strcmp(k, "lang_dir") != 0)
-        continue;
       if (parse_value(v, value, sizeof value) < 0)
         continue;
-      set_lang_dir(value);
-      break;
+      if (strcmp(k, "lang_dir") == 0) {
+        set_lang_dir(value);
+      } else if (strcmp(k, "mod_path") == 0 && *value) {
+        /* Apply directly to moddir; append trailing '/' if missing. */
+        strlcpy(moddir, value, sizeof moddir);
+        {
+          size_t n = strlen(moddir);
+          if (n && moddir[n - 1] != '/' && n + 1 < sizeof moddir) {
+            moddir[n]     = '/';
+            moddir[n + 1] = '\0';
+          }
+        }
+      }
     }
   }
   fclose(fp);
@@ -1447,18 +1465,19 @@ int run_setup_wizard(const char *outfile)
          "╚══════════════════════════════════════════════╝\n");
   printf("  Nick       : %s / %s\n",     nick, altnick);
   printf("  Owner      : %s\n",           owner);
-  printf("  Network    : %s  (%s)\n",     network, server);
-  printf("  Net type   : %s%s\n",         net_type_str,
-         want_ircx ? " — IRCX/Ophion mode enabled" : "");
-  printf("  Connection : %s port %d%s\n",
-         use_ssl ? "SSL/TLS" : "plain", port,
+  printf("  Server     : %s%s:%d%s\n",
+         use_ssl ? "SSL " : "", server, port,
          want_sasl ? " + SASL" : "");
+  printf("  Network    : %s  (%s%s)\n",   network, net_type_str,
+         want_ircx ? ", IRCX/Ophion" : "");
   printf("  Channels   :");
   for (i = 0; i < nchan; i++)
     printf(" %s", channels[i]);
   printf("\n");
   printf("  User file  : %s\n",           userfile);
-  printf("  Output     : %s\n\n",         outfile);
+  printf("  Chan file  : %s\n",           chanfile);
+  printf("  Log file   : %s\n",           logfile);
+  printf("  Config     : %s\n\n",         outfile);
 
   if (!prompt_yn("Write this configuration to disk?", 1))
     return 1;
@@ -1519,9 +1538,9 @@ int run_setup_wizard(const char *outfile)
 "admin    = \"%s\"\n"
 "network  = \"%s\"\n"
 "owner    = \"%s\"\n"
-"notify_newusers = \"$owner\"\n"
+"notify_newusers = \"%s\"\n"
 "default_flags   = \"hp\"\n"
-"\n", nick, altnick, realname, username, admin, network, owner);
+"\n", nick, altnick, realname, username, admin, network, owner, owner);
 
   /* ── [servers] ──────────────────────────────────────────────────────────── */
   fprintf(fp,
@@ -1602,6 +1621,7 @@ int run_setup_wizard(const char *outfile)
 #else
 "mod_path      = \"modules/\"\n"
 #endif
+"# lang_dir    = \"\"  # override language file directory (useful for non-default installs)\n"
 "\n", userfile, chanfile);
 
   /* ── [logging] ──────────────────────────────────────────────────────────── */
@@ -1813,6 +1833,8 @@ int run_setup_wizard(const char *outfile)
   /* ── [tcl] ──────────────────────────────────────────────────────────────── */
   fprintf(fp,
 "[tcl]\n"
+"# Tcl commands run after the config is loaded.  Requires a Tcl-enabled build;\n"
+"# this section is silently ignored in no-Tcl builds.\n"
 "commands = [\n"
 "  # Disable the 'simul' partyline command (security best practice).\n"
 "  \"unbind dcc n simul *dcc:simul\",\n"

@@ -22,11 +22,12 @@
 int readtomlconfig(const char *fname);
 
 /*
- * prescan_lang_dir() -- quick pre-scan of the config file to extract
- * [paths] lang_dir before init_language(1) is called, so language files
- * can be found on the first attempt rather than after readtomlconfig().
+ * prescan_paths() -- quick pre-scan of the config file to extract
+ * [paths] settings (lang_dir, mod_path) before init_language(1) is called
+ * and before modules are loaded, so files and modules are found on the
+ * first attempt regardless of section ordering in the config file.
  */
-void prescan_lang_dir(const char *fname);
+void prescan_paths(const char *fname);
 
 /*
  * run_setup_wizard() -- interactive first-time configuration wizard.
