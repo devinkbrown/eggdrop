@@ -234,6 +234,24 @@ module_cargs = core_cargs + ['-DMAKING_MODS'] + _fvis
 
 module_inc = [top_inc, src_inc, include_directories('mod')]
 
+# Minimal system deps for modules.  Modules resolve eggdrop, compat, md5,
+# and tcl symbols at dlopen() time from the already-loaded main binary
+# (export_dynamic: true); they must not re-link those static archives.
+mod_system_deps = []
+foreach _d : [dl_dep, nsl_dep, m_dep, ws2_dep, mswsock_dep]
+  if _d.found()
+    mod_system_deps += _d
+  endif
+endforeach
+if have_tdns
+  mod_system_deps += thread_dep
+endif
+# Modules need the Tcl include path (for lush.h) but must not re-link
+# libtcl — that symbol is exported by the main binary at runtime.
+if have_tcl
+  mod_system_deps += tcl_dep.partial_dependency(includes: true, compile_args: true)
+endif
+
 # -------------------------------------------------------------------------
 # libeggres — standalone static library built from res.c
 #
@@ -295,7 +313,7 @@ else
 
   # Build each enabled module
   foreach m : enabled_module_defs
-    mod_deps = eggdrop_deps + m['deps']
+    mod_deps = mod_system_deps + m['deps']
     # Per-module conditional dependencies
     if m['name'] == 'dns' and resolv_dep.found()
       mod_deps += resolv_dep
@@ -313,6 +331,9 @@ else
       name_suffix: mod_ext,
       install: true,
       install_dir: modules_dir,
+      # Modules are unity builds (one TU each) — LTO adds link-time
+      # code-gen overhead with no cross-TU inlining benefit.
+      override_options: ['b_lto=false'],
     )
   endforeach
 endif

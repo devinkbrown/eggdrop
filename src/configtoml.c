@@ -1281,6 +1281,8 @@ int run_setup_wizard(const char *outfile)
   int  nchan;
   /* Files */
   char userfile[64], chanfile[64], logfile[128];
+  /* Listen ports */
+  int  listen_port, botnet_port;
   /* Modules */
   int  want_notes, want_transfer, want_filesys, want_seen;
   /* Working buffer */
@@ -1324,7 +1326,7 @@ int run_setup_wizard(const char *outfile)
          "╚══════════════════════════════════════════════╝\n");
 
   /* ── Step 1/5: Bot identity ─────────────────────────── */
-  step_header(1, 5, "Bot identity");
+  step_header(1, 6, "Bot identity");
   prompt_required("Bot nick (no spaces)", nick, sizeof nick);
 
   /* Smart defaults derived from nick */
@@ -1345,7 +1347,7 @@ int run_setup_wizard(const char *outfile)
   prompt_required("Bot owner handle (your IRC nick)", owner, sizeof owner);
 
   /* ── Step 2/5: IRC server ───────────────────────────── */
-  step_header(2, 5, "IRC server");
+  step_header(2, 6, "IRC server");
 
   printf("  Network:\n");
   net_idx      = prompt_menu("Choose network", net_labels, 0);
@@ -1407,7 +1409,7 @@ int run_setup_wizard(const char *outfile)
   }
 
   /* ── Step 3/5: Channels ─────────────────────────────── */
-  step_header(3, 5, "Channels");
+  step_header(3, 6, "Channels");
   printf("  Enter channels to join.  First is required; empty line to stop.\n");
 
   nchan = 0;
@@ -1440,8 +1442,8 @@ int run_setup_wizard(const char *outfile)
       break;
   }
 
-  /* ── Step 4/5: Files ────────────────────────────────── */
-  step_header(4, 5, "Files");
+  /* ── Step 4/6: Files ────────────────────────────────── */
+  step_header(4, 6, "Files");
 
   /* Defaults derived from nick */
   snprintf(tmp, sizeof tmp, "%s.user", nick);
@@ -1451,8 +1453,26 @@ int run_setup_wizard(const char *outfile)
   snprintf(tmp, sizeof tmp, "%s.log",  nick);
   prompt("Log file",  tmp, logfile,  sizeof logfile);
 
-  /* ── Step 5/5: Optional modules ─────────────────────── */
-  step_header(5, 5, "Optional modules");
+  /* ── Step 5/6: Listen ports ──────────────────────────── */
+  step_header(5, 6, "Listen ports");
+  printf("  Eggdrop needs a TCP port to accept DCC chat and telnet\n"
+         "  connections, and a separate port for botnet links.\n"
+         "  Enter 0 to disable a port.\n\n");
+
+  prompt("DCC / telnet port (for users connecting to the bot)", "3333",
+         tmp, sizeof tmp);
+  listen_port = atoi(tmp);
+  if (listen_port < 0 || listen_port > 65535)
+    listen_port = 3333;
+
+  prompt("Botnet port (for linking with other Eggdrop bots, 0 = none)", "0",
+         tmp, sizeof tmp);
+  botnet_port = atoi(tmp);
+  if (botnet_port < 0 || botnet_port > 65535)
+    botnet_port = 0;
+
+  /* ── Step 6/6: Optional modules ─────────────────────── */
+  step_header(6, 6, "Optional modules");
   want_notes    = prompt_yn("Enable notes    (user-to-user messaging)?", 1);
   want_seen     = prompt_yn("Enable seen     (track last-seen times)?",  0);
   want_transfer = prompt_yn("Enable transfer (DCC file transfers)?",     0);
@@ -1477,6 +1497,10 @@ int run_setup_wizard(const char *outfile)
   printf("  User file  : %s\n",           userfile);
   printf("  Chan file  : %s\n",           chanfile);
   printf("  Log file   : %s\n",           logfile);
+  if (listen_port > 0)
+    printf("  DCC port   : %d\n",         listen_port);
+  if (botnet_port > 0)
+    printf("  Botnet port: %d\n",         botnet_port);
   printf("  Config     : %s\n\n",         outfile);
 
   if (!prompt_yn("Write this configuration to disk?", 1))
@@ -1837,21 +1861,21 @@ int run_setup_wizard(const char *outfile)
 "# this section is silently ignored in no-Tcl builds.\n"
 "commands = [\n"
 "  # Disable the 'simul' partyline command (security best practice).\n"
-"  \"unbind dcc n simul *dcc:simul\",\n"
+"  \"unbind dcc n simul *dcc:simul\",\n");
+  if (listen_port > 0)
+    fprintf(fp,
+"  # Open DCC/telnet port for users (DCC chat, .tcl console, etc.).\n"
+"  \"listen %d users\",\n", listen_port);
+  if (botnet_port > 0)
+    fprintf(fp,
+"  # Open botnet port for linking with other Eggdrop bots.\n"
+"  \"listen %d bots\",\n", botnet_port);
+  fprintf(fp,
 "]\n"
 "\n");
 
-  /* IRCX auto-owner block (when Ophion + autoowner enabled) */
-  if (want_ircx && ircx_want_autoowner && nchan > 0) {
-    fprintf(fp,
-"# IRCX: register channels for auto-owner on every server connect.\n"
-"code = \"\"\"\n");
-    for (i = 0; i < nchan; i++)
-      fprintf(fp, "ircxautoowner %s \"%s\" 1\n",
-              channels[i], ircx_ownerkey);
-    fprintf(fp, "\"\"\"\n\n");
-  } else {
-    fprintf(fp,
+  /* Example code block — commented out by default. */
+  fprintf(fp,
 "# code = \"\"\"\n"
 "# proc my_greeting {nick host hand chan} {\n"
 "#   putserv \"PRIVMSG $chan :Welcome to $chan, $nick!\"\n"
@@ -1859,7 +1883,6 @@ int run_setup_wizard(const char *outfile)
 "# bind join - * my_greeting\n"
 "# \"\"\"\n"
 "\n");
-  }
 
   fclose(fp);
 

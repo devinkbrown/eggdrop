@@ -5,7 +5,7 @@ project('eggdrop', 'c',
     'c_std=gnu99',
     'warning_level=1',           # -Wall; level 2 adds -Wextra (6k+ cast-fn-type hits)
     'b_pie=true',                # Position-Independent Executable — enables full ASLR
-    'buildtype=debugoptimized',  # -O2 + -g; use --buildtype=release for -O3 production
+    'buildtype=release',         # -O3 + strip; use --buildtype=debugoptimized for -O2 + -g
     'b_lto=true',                # cross-file inlining + dead code elimination
     'b_lto_threads=0',           # 0 = use all available CPU threads for LTO linking
     'b_ndebug=if-release',       # strip assert() in release builds
