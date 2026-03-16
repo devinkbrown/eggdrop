@@ -1781,6 +1781,19 @@ static int gotcap(char *from, char *msg) {
         /* Ophion IRCX: extended prefix visibility (+qaohv) */
         if (!current->enabled)
           add_req(current->name);
+      } else if (!strcmp(current->name, "server-time")) {
+        /* IRCv3 server-time: adds time= ISO 8601 tag to every inbound message */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/multiline") ||
+                 !strcmp(current->name, "multiline")) {
+        /* IRCv3 draft/multiline: BATCH-wrapped multi-line messages */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/read-marker")) {
+        /* IRCv3 draft/read-marker: MARKREAD last-read sync across sessions */
+        if (!current->enabled)
+          add_req(current->name);
       }
       /* Add any custom capes the user listed */
       {
@@ -2202,6 +2215,38 @@ static int gotprop(char *from, char *msg)
   return 0;
 }
 
+/* WHISPER — Ophion IRCX channel-scoped private message.
+ * Format: :nick!user@host WHISPER #channel target :message
+ * Both parties must be members of #channel.  The bot reacts to this
+ * exactly like a PRIVMSG but notes the channel scope in the log. */
+static int gotwhisper(char *from, char *msg)
+{
+  char *nick, *channel, *target;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  channel = newsplit(&msg);
+  target  = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_SERV, channel, "WHISPER from %s(%s) to %s on %s: %s",
+         nick, from, target, channel, msg);
+
+  /* Route to the msg bind if the bot is the target, otherwise log only */
+  if (match_my_nick(target)) {
+    struct userrec *u;
+    char hostbuf[UHOSTLEN + NICKLEN + 2];
+
+    egg_snprintf(hostbuf, sizeof hostbuf, "%s!%s", nick, from);
+    u = get_user_by_host(hostbuf);
+    check_tcl_msg("whisper", nick, from, u, msg);
+  }
+  return 0;
+}
+
 /* Got ACCESS command from server (access list change notification).
  * Format: :nick!user@host ACCESS channel ADD|DEL level mask
  */
@@ -2273,6 +2318,7 @@ static cmd_t my_raw_binds[] = {
    * numerics (RPL_LOGGEDOUT, ERR_NICKLOCKED) — sasl.c handles those. */
   {"PROP",         "",   (IntFunc) gotprop,         NULL},
   {"ACCESS",       "",   (IntFunc) gotaccess,       NULL},
+  {"WHISPER",      "",   (IntFunc) gotwhisper,      NULL},
   {"NICK",         "",   (IntFunc) gotnick,         NULL},
   {"ERROR",        "",   (IntFunc) goterror,        NULL},
 /* ircu2.10.10 has a bug when a client is throttled ERROR is sent wrong */

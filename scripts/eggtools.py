@@ -428,6 +428,53 @@ def ircxnegotiate() -> None:
     eggdrop.ircxnegotiate()
 
 
+def ircxwhisper(channel: str, target: str, text: str) -> None:
+    """Send an Ophion IRCX WHISPER (channel-scoped private message).
+
+    Both the bot and target must be members of channel.
+    """
+    putserv(f"WHISPER {channel} {target} :{text}")
+
+
+# ---------------------------------------------------------------------------
+# IRCv3 / Ophion message history helpers
+# ---------------------------------------------------------------------------
+
+def chathistory(channel: str, subcommand: str = "LATEST", limit: int = 50,
+                anchor: str = "") -> None:
+    """Request chat history replay from Ophion (requires draft/chathistory cap).
+
+    subcommand : LATEST | BEFORE | AFTER | AROUND | BETWEEN | TARGETS
+    limit      : max messages to return (server may cap this)
+    anchor     : optional msgid or timestamp for BEFORE/AFTER/AROUND
+
+    Replayed messages arrive as a BATCH of PRIVMSGs/NOTICEs and are
+    dispatched normally through the existing pub/msg/notc binds.
+
+    Example — fetch last 100 messages on join::
+
+        @eggtools.on_join()
+        def fetch_history(nick, mask, handle, channel):
+            if eggtools.isbotnick(nick):
+                eggtools.chathistory(channel, 'LATEST', 100)
+    """
+    if anchor:
+        putserv(f"CHATHISTORY {subcommand} {channel} {anchor} {limit}")
+    else:
+        putserv(f"CHATHISTORY {subcommand} {channel} * {limit}")
+
+
+def markread(channel: str, msgid: str = "") -> None:
+    """Send a MARKREAD command to sync the last-read position (draft/read-marker).
+
+    Omit msgid to query the current position; supply a msgid to update it.
+    """
+    if msgid:
+        putserv(f"MARKREAD {channel} {msgid}")
+    else:
+        putserv(f"MARKREAD {channel}")
+
+
 # ---------------------------------------------------------------------------
 # Bind decorators — Pythonic event registration
 # ---------------------------------------------------------------------------
@@ -457,10 +504,22 @@ on_notc   = _make_bind_decorator("notc")   # notices
 on_ctcp   = _make_bind_decorator("ctcp")   # CTCP requests
 on_ctcr   = _make_bind_decorator("ctcr")   # CTCP replies
 on_raw    = _make_bind_decorator("raw")    # raw server lines
+on_rawt   = _make_bind_decorator("rawt")   # raw server lines with tag dict (IRCv3)
 on_time   = _make_bind_decorator("time")   # minutely time events
 on_cron   = _make_bind_decorator("cron")   # cron-style events
 on_dcc    = _make_bind_decorator("dcc")    # DCC/telnet commands
 on_evnt   = _make_bind_decorator("evnt")   # internal eggdrop events
+on_monitor = _make_bind_decorator("monitor")  # MONITOR online/offline events
+
+# Ophion / IRCv3 extended events (all use raw binds)
+# Usage: @eggtools.on_whisper()  ← fires when bot receives a WHISPER
+on_whisper = _make_bind_decorator("raw")   # Ophion WHISPER — use mask="WHISPER"
+# Usage: @eggtools.on_prop()     ← fires on IRCX property change (PROP command)
+on_prop    = _make_bind_decorator("raw")   # Ophion PROP   — use mask="PROP"
+# Usage: @eggtools.on_setname()  ← fires when a user changes their realname
+on_setname = _make_bind_decorator("raw")   # IRCv3 SETNAME — use mask="SETNAME"
+# Usage: @eggtools.on_chghost()  ← fires on CHGHOST (shared via irc.mod)
+on_chghost = _make_bind_decorator("raw")   # IRCv3 CHGHOST — use mask="CHGHOST"
 
 
 # ---------------------------------------------------------------------------
