@@ -107,6 +107,11 @@ FORK NOTICE
       the correct buffer length instead of sizeof(char *). The nstrdup
       macro redefinition and the Python 3.14 _POSIX_C_SOURCE conflict
       are also resolved. The tree builds clean with GCC 15.
+    - No-Tcl build is now fully warning-free: all Tcl-only functions
+      and declarations are guarded with #ifdef HAVE_TCL throughout
+      server.mod, channels.mod, filesys.mod, irc.mod, twitch.mod, and
+      support files. lush.h stub macros are corrected. Building with
+      -Dtcl=disabled produces zero warnings on GCC 15.
     - Build optimizations: LTO enabled by default; -fno-strict-aliasing
       applied globally (eggdrop uses void*/char* casts); -Wl,--as-needed
       on ELF platforms; module .so files built with -fvisibility=hidden
