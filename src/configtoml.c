@@ -114,6 +114,7 @@ static void flush_chanset_ircx(void)
 
 /* Tcl interpreter declared in tcl.c and extern'd via main.h. */
 extern Tcl_Interp *interp;
+extern char origbotname[], owner[];
 
 /* -----------------------------------------------------------------------
  * String helpers
@@ -734,6 +735,17 @@ static int is_chan_flag(const char *key)
 static void process_kv(TomlSection sec, const char *key, const char *value)
 {
   switch (sec) {
+    case SEC_BOT:
+      /* In no-TCL builds the "nick" variable is not registered in any
+       * notcl table (it's managed by a Tcl trace in server.mod at runtime),
+       * so we must write origbotname directly here. */
+      if (strcmp(key, "nick") == 0) {
+        strlcpy(origbotname, value, NICKLEN);
+        set_tcl_var(key, value);
+        return;
+      }
+      break;
+
     case SEC_MODULES:
       if (strcmp(key, "load") == 0 && *value == '[') {
         parse_string_array(value, cb_loadmodule, NULL);
@@ -1002,8 +1014,10 @@ int readtomlconfig(const char *fname)
     const char *nick_val  = Tcl_GetVar(interp, "nick",  TCL_GLOBAL_ONLY);
     const char *owner_val = Tcl_GetVar(interp, "owner", TCL_GLOBAL_ONLY);
 #else
-    const char *nick_val  = NULL;
-    const char *owner_val = NULL;
+    /* In no-TCL builds Tcl_GetVar is unavailable; read the C buffers that
+     * notcl_setvar/process_kv write into directly. */
+    const char *nick_val  = origbotname[0] ? origbotname : NULL;
+    const char *owner_val = owner[0]       ? owner       : NULL;
 #endif
 
     if (!nick_val || !*nick_val) {

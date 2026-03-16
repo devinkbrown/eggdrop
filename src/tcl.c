@@ -1310,6 +1310,10 @@ void init_tcl0(int argc, char **argv) {}
  */
 void init_tcl1(int argc, char **argv)
 {
+  /* In TCL builds tickle_InitNotifier() calls init_threaddata(1) the first
+   * time Tcl creates its event loop.  In no-TCL builds there is no notifier,
+   * so we must call it explicitly to allocate the dcc/socklist arrays. */
+  init_threaddata(1);
   add_tcl_coups(def_tcl_coups);
   add_tcl_strings(def_tcl_strings);
   add_tcl_ints(def_tcl_ints);
