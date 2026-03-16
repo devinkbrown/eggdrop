@@ -537,3 +537,255 @@ def hostmatch(pattern: str, host: str) -> bool:
     """Return True if host matches an IRC glob pattern (?, *)."""
     regex = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
     return bool(re.fullmatch(regex, host, re.IGNORECASE))
+
+
+# ---------------------------------------------------------------------------
+# User management
+# ---------------------------------------------------------------------------
+
+def adduser(handle: str, hostmask: str = "") -> bool:
+    """Add a new user to the userlist.  Returns True on success."""
+    if hostmask:
+        return bool(eggdrop.adduser(handle, hostmask))
+    return bool(eggdrop.adduser(handle))
+
+
+def deluser(handle: str) -> bool:
+    """Remove a user from the userlist.  Returns True if removed."""
+    return bool(eggdrop.deluser(handle))
+
+
+def addhost(handle: str, mask: str) -> None:
+    """Add a hostmask to an existing user."""
+    eggdrop.addhost(handle, mask)
+
+
+def delhost(handle: str, mask: str) -> bool:
+    """Remove a hostmask from a user.  Returns True if the mask was removed."""
+    return bool(eggdrop.delhost(handle, mask))
+
+
+def chattr(handle: str, changes: str = "", channel: Optional[str] = None) -> Optional[str]:
+    """Get or set user flags.
+
+    With no changes: returns the current flag string.
+    With changes like '+o-v': applies them and returns the new flag string.
+    Supply channel to operate on per-channel flags.
+    Returns None if the user does not exist.
+    """
+    if channel:
+        return eggdrop.chattr(handle, changes, channel)
+    if changes:
+        return eggdrop.chattr(handle, changes)
+    return eggdrop.chattr(handle)
+
+
+def matchattr(handle: str, flags: str, channel: Optional[str] = None) -> bool:
+    """Return True if user's flags match the flag expression."""
+    if channel:
+        return bool(eggdrop.matchattr(handle, flags, channel))
+    return bool(eggdrop.matchattr(handle, flags))
+
+
+def passwdok(handle: str, password: str) -> bool:
+    """Return True if password is correct for handle."""
+    return bool(eggdrop.passwdok(handle, password))
+
+
+def chhandle(oldhandle: str, newhandle: str) -> bool:
+    """Rename a user.  Returns True on success."""
+    return bool(eggdrop.chhandle(oldhandle, newhandle))
+
+
+def save() -> None:
+    """Write the userfile to disk immediately."""
+    eggdrop.save()
+
+
+# ---------------------------------------------------------------------------
+# Ignore list
+# ---------------------------------------------------------------------------
+
+def isignore(mask: str) -> bool:
+    """Return True if mask matches an active ignore entry."""
+    return bool(eggdrop.isignore(mask))
+
+
+def newignore(mask: str, creator: str, comment: str,
+              lifetime: Optional[int] = None) -> None:
+    """Add an ignore entry.
+
+    lifetime is in seconds from now.  Omit (or None) to use the bot's
+    default ignore_time setting.  Pass 0 for a permanent ignore.
+    """
+    if lifetime is not None:
+        eggdrop.newignore(mask, creator, comment, lifetime)
+    else:
+        eggdrop.newignore(mask, creator, comment)
+
+
+def killignore(mask: str) -> bool:
+    """Remove an ignore entry.  Returns True if the entry was found."""
+    return bool(eggdrop.killignore(mask))
+
+
+def ignorelist() -> list:
+    """Return a list of dicts describing all ignore entries.
+
+    Each dict has keys: mask, creator, comment, expire, added.
+    expire/added are Unix timestamps (0 = permanent).
+    """
+    return eggdrop.ignorelist()
+
+
+# ---------------------------------------------------------------------------
+# DCC management
+# ---------------------------------------------------------------------------
+
+def hand2idx(handle: str) -> int:
+    """Return the socket (idx) for handle's DCC chat, or -1 if not connected."""
+    return eggdrop.hand2idx(handle)
+
+
+def idx2hand(sock: int) -> Optional[str]:
+    """Return the nick/handle for a DCC socket, or None if not found."""
+    return eggdrop.idx2hand(sock)
+
+
+def killdcc(sock: int, reason: str = "") -> None:
+    """Disconnect a DCC connection by socket number."""
+    if reason:
+        eggdrop.killdcc(sock, reason)
+    else:
+        eggdrop.killdcc(sock)
+
+
+def dcclist(type_filter: str = "") -> list:
+    """Return a list of dicts describing active DCC connections.
+
+    Each dict has keys: idx, nick, host, type, time, port.
+    Optionally filter by type string (e.g. 'chat', 'bot').
+    """
+    if type_filter:
+        return eggdrop.dcclist(type_filter)
+    return eggdrop.dcclist()
+
+
+def dccused() -> int:
+    """Return the number of active DCC connections."""
+    return eggdrop.dccused()
+
+
+# ---------------------------------------------------------------------------
+# Channel extended queries
+# ---------------------------------------------------------------------------
+
+def chanbans(channel: str) -> list:
+    """Return a list of ban dicts {mask, who, timer} for channel."""
+    return eggdrop.chanbans(channel)
+
+
+def chanexempts(channel: str) -> list:
+    """Return a list of exempt dicts {mask, who, timer} for channel."""
+    return eggdrop.chanexempts(channel)
+
+
+def chaninvites(channel: str) -> list:
+    """Return a list of invite dicts {mask, who, timer} for channel."""
+    return eggdrop.chaninvites(channel)
+
+
+def getchanidle(nick: str, channel: str) -> int:
+    """Return idle time in minutes for nick on channel, or -1 if not found."""
+    return eggdrop.getchanidle(nick, channel)
+
+
+def topic(channel: str) -> Optional[str]:
+    """Return the current topic of channel, or None if unknown."""
+    return eggdrop.getchan_topic(channel)
+
+
+def botonchan(channel: Optional[str] = None) -> bool:
+    """Return True if the bot is on channel (or any channel if omitted)."""
+    if channel:
+        return bool(eggdrop.botonchan(channel))
+    return bool(eggdrop.botonchan())
+
+
+def wasop(nick: str, channel: str) -> bool:
+    """Return True if nick was a channel operator before a netsplit."""
+    return bool(eggdrop.wasop(nick, channel))
+
+
+def washalfop(nick: str, channel: str) -> bool:
+    """Return True if nick was a half-operator before a netsplit."""
+    return bool(eggdrop.washalfop(nick, channel))
+
+
+def isircbot(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if nick is identified as a bot (IRCv3/005 ISBOT)."""
+    if channel:
+        return bool(eggdrop.isircbot(nick, channel))
+    return bool(eggdrop.isircbot(nick))
+
+
+def account2nicks(account: str, channel: Optional[str] = None) -> List[str]:
+    """Return a list of nicks that are logged in with the given IRC account."""
+    if channel:
+        return eggdrop.account2nicks(account, channel)
+    return eggdrop.account2nicks(account)
+
+
+def hand2nicks(handle: str, channel: Optional[str] = None) -> List[str]:
+    """Return a list of nicks currently on IRC for the given eggdrop handle."""
+    if channel:
+        return eggdrop.hand2nicks(handle, channel)
+    return eggdrop.hand2nicks(handle)
+
+
+# ---------------------------------------------------------------------------
+# Bot networking
+# ---------------------------------------------------------------------------
+
+def putbot(botnick: str, message: str) -> None:
+    """Send a zapf message to a directly linked bot."""
+    eggdrop.putbot(botnick, message)
+
+
+def putallbots(message: str) -> None:
+    """Broadcast a zapf message to all linked bots."""
+    eggdrop.putallbots(message)
+
+
+def islinked(botnick: str) -> bool:
+    """Return True if the named bot is currently linked to this bot."""
+    return bool(eggdrop.islinked(botnick))
+
+
+def bots() -> List[str]:
+    """Return a list of all linked bot names in the botnet."""
+    return eggdrop.bots()
+
+
+# ---------------------------------------------------------------------------
+# Text / string utilities
+# ---------------------------------------------------------------------------
+
+def stripcodes(flags: str, text: str) -> str:
+    """Strip IRC formatting codes from text.
+
+    flags is a string of characters selecting what to strip:
+      c = color codes    b = bold       r = reverse    u = underline
+      a = ANSI codes     g = bells      o = ordinary   i = italics
+      * = all of the above
+
+    Example::
+
+        clean = eggtools.stripcodes('cb', raw_message)
+    """
+    return eggdrop.stripcodes(flags, text)
+
+
+def matchstr(pattern: str, string: str) -> bool:
+    """Return True if string matches an IRC glob pattern (? and * wildcards)."""
+    return bool(eggdrop.matchstr(pattern, string))
