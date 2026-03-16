@@ -1713,19 +1713,19 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           fd = slist[si].sock;
           uring_unpoll_sock(fd); /* one-shot: cleared here, re-armed next round */
           if (URING_UD_IS_RECV(ud)) {
-            int res = cqes[k]->res;
-            if (res >= 0) {
+            int cqe_res = cqes[k]->res;
+            if (cqe_res >= 0) {
               /* Kernel delivered data (or EOF) directly into recv_buf */
-              slist[si].handler.sock.recv_len = res;
+              slist[si].handler.sock.recv_len = cqe_res;
               FD_SET(fd, &fdr);
               if (fd > maxfd_r) maxfd_r = fd;
-            } else if (res != -EAGAIN && res != -EWOULDBLOCK) {
+            } else if (cqe_res != -EAGAIN) {
               /* Error or unsupported op: fall through to normal read() path
                * which will surface the error naturally. */
               FD_SET(fd, &fdr);
               if (fd > maxfd_r) maxfd_r = fd;
             }
-            /* -EAGAIN/-EWOULDBLOCK: socket not ready; resubmit next round */
+            /* -EAGAIN (== -EWOULDBLOCK on Linux): not ready; resubmit next round */
           } else {
             /* POLL_ADD: just mark the fd readable */
             FD_SET(fd, &fdr);
