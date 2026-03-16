@@ -836,7 +836,7 @@ static void bot_traced(int idx, char *par)
   }
   if (!strcasecmp(p, botnetnick)) {
     time_t t = 0;
-    char *pp = par, *ss = TBUF;
+    char *trace_ptr = par, *ss = TBUF;
 
     splitc(ss, to, ':');
     if (ss[0])
@@ -845,11 +845,11 @@ static void bot_traced(int idx, char *par)
       sock = -1;
     if (par[0] == ':') {
       t = atoi(par + 1);
-      pp = strchr(par + 1, ':');
-      if (pp)
-        pp++;
+      trace_ptr = strchr(par + 1, ':');
+      if (trace_ptr)
+        trace_ptr++;
       else
-        pp = par + 1;
+        trace_ptr = par + 1;
     }
     for (i = 0; i < dcc_total; i++)
       if ((dcc[i].type->flags & DCT_CHAT) &&
@@ -859,16 +859,16 @@ static void bot_traced(int idx, char *par)
           int j = 0;
 
           {
-            c = pp;
+            c = trace_ptr;
 
             for (; *c != '\0'; c++)
               if (*c == ':')
                 j++;
           }
           dprintf(i, "%s -> %s (%" PRId64 " secs, %d hop%s)\n", BOT_TRACERESULT,
-                  pp, (int64_t) (now - t), j, (j != 1) ? "s" : "");
+                  trace_ptr, (int64_t) (now - t), j, (j != 1) ? "s" : "");
         } else
-          dprintf(i, "%s -> %s\n", BOT_TRACERESULT, pp);
+          dprintf(i, "%s -> %s\n", BOT_TRACERESULT, trace_ptr);
       }
   } else {
     i = nextbot(p);
