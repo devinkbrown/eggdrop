@@ -493,7 +493,8 @@ void chanprog(void)
           printf("  Created owner: %s\n", s);
         }
         write_userfile(-1);
-        printf("User file created.  Connect to the bot via DCC to set your password.\n\n");
+        make_userfile = 1;
+        printf("User file created.  Say '%s hello' on IRC or connect via DCC to set your password.\n\n", origbotname);
       } else {
         char tmp[256];
 
