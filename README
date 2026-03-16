@@ -107,11 +107,13 @@ FORK NOTICE
       the correct buffer length instead of sizeof(char *). The nstrdup
       macro redefinition and the Python 3.14 _POSIX_C_SOURCE conflict
       are also resolved. The tree builds clean with GCC 15.
-    - No-Tcl build is now fully warning-free: all Tcl-only functions
-      and declarations are guarded with #ifdef HAVE_TCL throughout
-      server.mod, channels.mod, filesys.mod, irc.mod, twitch.mod, and
-      support files. lush.h stub macros are corrected. Building with
-      -Dtcl=disabled produces zero warnings on GCC 15.
+    - Tcl is now a fully optional dependency.  A no-Tcl build is
+      complete: all TOML config keys ([bot], [network], [security],
+      [paths], [servers], [channels]) reach their C variables via a
+      variable registry; server persistence works via old_add_server
+      exposed in server_table[55]; channel file reading uses a native
+      parser.  Building with -Dtcl=disabled produces a fully functional
+      bot with zero warnings on GCC 15.
     - Build optimizations: LTO enabled by default; -fno-strict-aliasing
       applied globally (eggdrop uses void*/char* casts); -Wl,--as-needed
       on ELF platforms; module .so files built with -fvisibility=hidden
@@ -145,9 +147,10 @@ WHAT IS EGGDROP?
   events, providing information, hosting games, etc.
 
   One of the features that makes Eggdrop stand out from other bots is
-  module and Tcl and Python scripting support. With scripts and modules
-  you can make the bot perform almost any task you want. They can do
-  anything: from preventing floods to greeting users and banning
+  its module and scripting support. Scripts can be written in Python
+  (recommended for new installs) or Tcl (optional, for legacy scripts).
+  With scripts and modules you can make the bot perform almost any task
+  you want — from preventing floods to greeting users and banning
   advertisers from channels.
 
   You can also link multiple Eggdrop bots together to form a botnet.
@@ -224,20 +227,31 @@ SYSTEM PRE-REQUISITES
   This fork builds with Meson + Ninja. You will need both installed in
   addition to the library dependencies below.
 
-  Tcl must be installed on your system. Many systems have Tcl installed
-  by default (check by running "tclsh"; a '%' prompt means it is
-  present). Eggdrop also requires the Tcl development header files,
-  usually packaged as 'tcl-dev' or 'tcl-devel'. Source is available at
-  https://www.tcl.tk/software/tcltk/download.html.
+  TCL (OPTIONAL)
 
-  Tcl is optional in this fork.  To build without Tcl and use Python
-  as the sole scripting engine:
+  Tcl is an optional dependency in this fork.  The bot is fully
+  functional without it: all TOML configuration keys reach their
+  underlying C variables, servers and channels are persisted and loaded
+  correctly, and Python scripts run via python.mod as the sole scripting
+  engine.
+
+  To build without Tcl:
 
       meson setup builddir/ -Dtcl=disabled
       ninja -C builddir/
 
-  With Tcl disabled, python.mod is automatically used for all scripts
-  listed in the [scripts] TOML section.  See PYTHON SCRIPTING below.
+  To build with Tcl (enables .conf scripts, Tcl binds, .tcl partyline
+  command, and inline [tcl] code blocks in eggdrop.toml):
+
+      meson setup builddir/
+      ninja -C builddir/
+
+  When Tcl is enabled, many systems already have it installed (check by
+  running "tclsh"; a '%' prompt means it is present).  The development
+  headers are usually packaged as 'tcl-dev' or 'tcl-devel'.  Source is
+  available at https://www.tcl.tk/software/tcltk/download.html.
+
+  At least one of Tcl or Python must be present for scripting support.
 
   OpenSSL (and its development headers) is required to enable SSL/TLS
   protection of network data. Headers are usually packaged as
@@ -271,9 +285,10 @@ MINIMUM REQUIREMENTS
   I/O: IOCP (Windows native)      Windows SDK         Windows 7+
   -----------------------------------------------------------------------
 
-  Note: Tcl is now optional.  Python 3.8+ is sufficient to run scripts
-  when Tcl is not installed.  At least one of Tcl or Python must be
-  present in the build for scripting support.
+  Note: Tcl is optional.  A no-Tcl build with Python is fully functional
+  for both core bot operation and scripting.  At least one of Tcl or
+  Python should be present for scripting support; neither is required
+  for the bot itself to connect, manage channels, and use its user database.
 
 CONFIGURATION
 

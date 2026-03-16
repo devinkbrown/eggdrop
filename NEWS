@@ -18,23 +18,40 @@ Last revised: March 16, 2026
 
 devinkbrown fork (based on v1.10.1):
 
+ Tcl is now fully optional — no-Tcl builds are complete:
+    - A no-Tcl build is now fully functional for core bot operation, not
+      merely compile-clean.  All TOML configuration keys ([bot], [network],
+      [security], [paths], [servers], [channels]) now reach their
+      underlying C variables in no-Tcl builds via a new variable registry
+      (notcl_setvar / notcl_getvar).  Previously these settings were
+      silently discarded.
+    - The variable registry works by moving def_tcl_strings/ints/coups
+      (the name→C-buffer mapping tables) above the #ifdef HAVE_TCL block
+      so they are compiled in both configurations.  In Tcl builds the
+      tables continue to drive Tcl trace callbacks as before; in no-Tcl
+      builds init_tcl1() registers them so set_tcl_var() can resolve any
+      setting name to its C storage.
+    - Server persistence in no-Tcl builds: add_server() and
+      old_add_server() are pure C with no Tcl API calls and are no longer
+      guarded by #ifdef HAVE_TCL.  old_add_server() is now exported via
+      server_table[55] (server_add_str macro) so configtoml.c can call it
+      directly when processing [servers] list entries.
+    - Python (python.mod) is now the sole scripting engine when Tcl is
+      disabled.  It registers itself automatically via script_register()
+      at startup, handling all [scripts] entries from the TOML config
+      without requiring any user configuration changes.
+
  Build system / portability changes:
-    - Tcl is now fully optional with zero compiler warnings in no-Tcl
-      builds.  All Tcl-only functions and declarations throughout the
-      codebase are now guarded with #ifdef HAVE_TCL so that
-      `meson setup builddir/ -Dtcl=disabled && ninja -C builddir/`
-      produces a clean build with no -Wunused-function,
-      -Wimplicit-function-declaration, or statement-with-no-effect
-      diagnostics.  Affected modules: server.mod (server.c, servmsg.c),
+    - Tcl is optional at compile time.  Build without Tcl:
+        meson setup builddir/ -Dtcl=disabled && ninja -C builddir/
+      Zero warnings on GCC 15.  All Tcl-only functions and declarations
+      throughout the codebase are guarded with #ifdef HAVE_TCL.
+      Affected modules: server.mod (server.c, servmsg.c),
       channels.mod (channels.c, cmdschan.c), filesys.mod (filedb3.c/h,
       filesys.h), irc.mod, twitch.mod, sasl, isupport, console.mod.
     - lush.h stub macros corrected: Tcl_DictObjFirst no longer produces
       a "right-hand side of comma expression has no effect" warning;
       Tcl_TraceVar and BADARGS are now proper no-op stubs.
-    - Python (python.mod) is now the sole scripting engine when Tcl is
-      disabled.  It registers itself automatically via script_register()
-      at startup, handling all [scripts] entries from the TOML config
-      without requiring any user configuration changes.
 
  Bug fixes:
     - Fixed three io_uring SQPOLL bugs that prevented IRC registration
