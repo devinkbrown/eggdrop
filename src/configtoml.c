@@ -227,10 +227,12 @@ static void key_to_tclvar(const char *key, char *out, size_t outlen)
 
 static void set_tcl_var(const char *key, const char *value)
 {
-#ifdef HAVE_TCL
   char tclvar[256];
   key_to_tclvar(key, tclvar, sizeof tclvar);
+#ifdef HAVE_TCL
   Tcl_SetVar(interp, tclvar, value, TCL_GLOBAL_ONLY);
+#else
+  notcl_setvar(tclvar, value);
 #endif
 }
 
@@ -354,8 +356,59 @@ static void run_tcl_cmd(const char *cmd)
       }
     }
   }
-  /* All other commands (server add, logfile, etc.) are handled elsewhere
-   * or require Tcl and are silently skipped in no-TCL builds. */
+  /* "server add HOST [PORT [PASS]]" */
+  if (!strncmp(cmd, "server add ", 11)) {
+    module_entry *me = module_find("server", 0, 0);
+    if (!me) {
+      putlog(LOG_MISC, "*",
+             "TOML config: server module not loaded, cannot run: %s", cmd);
+      return;
+    }
+    {
+      void (*srv_add)(const char *) =
+        (void (*)(const char *)) me->funcs[55];
+      /* Rebuild "HOST:PORT:PASS" from "server add HOST [PORT [PASS]]" */
+      const char *p = cmd + 11;
+      char host[256], port[16], pass[128], entry[512];
+      host[0] = port[0] = pass[0] = '\0';
+      while (*p == ' ') p++;
+      {
+        const char *sp = strchr(p, ' ');
+        if (sp) {
+          size_t hlen = sp - p;
+          if (hlen >= sizeof host) return;
+          memcpy(host, p, hlen);
+          host[hlen] = '\0';
+          p = sp + 1;
+          while (*p == ' ') p++;
+          sp = strchr(p, ' ');
+          if (sp) {
+            size_t plen = sp - p;
+            if (plen >= sizeof port) plen = sizeof port - 1;
+            memcpy(port, p, plen);
+            port[plen] = '\0';
+            p = sp + 1;
+            while (*p == ' ') p++;
+            strlcpy(pass, p, sizeof pass);
+          } else {
+            strlcpy(port, p, sizeof port);
+          }
+        } else {
+          strlcpy(host, p, sizeof host);
+        }
+      }
+      if (pass[0])
+        egg_snprintf(entry, sizeof entry, "%s:%s:%s", host, port, pass);
+      else if (port[0])
+        egg_snprintf(entry, sizeof entry, "%s:%s", host, port);
+      else
+        strlcpy(entry, host, sizeof entry);
+      if (srv_add)
+        srv_add(entry);
+    }
+    return;
+  }
+  /* All other commands require Tcl and are silently skipped in no-TCL builds. */
 #endif
 }
 

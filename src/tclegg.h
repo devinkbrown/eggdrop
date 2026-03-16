@@ -201,6 +201,12 @@ int fork_before_tcl(void);
  */
 time_t get_expire_time(Tcl_Interp *, const char *);
 
+#ifndef HAVE_TCL
+/* Variable registry helpers available only in no-TCL builds. */
+void notcl_setvar(const char *name, const char *value);
+const char *notcl_getvar(const char *name, char *buf, size_t bufsz);
+#endif
+
 #ifdef HAVE_TCL
 /* Locale → Tcl encoding mapping table; only used by tcl.c during
  * interpreter initialisation when Tcl is present.
