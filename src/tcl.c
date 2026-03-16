@@ -116,6 +116,115 @@ int expmem_tcl(void)
   return strtot;
 }
 
+/* Variable mapping tables — shared between Tcl and no-TCL builds so
+ * that notcl_setvar/notcl_getvar can find all registered C variables.
+ * (In Tcl builds these are also used by init_traces() to install trace
+ * callbacks; in no-TCL builds they are registered via init_tcl1().)
+ */
+static tcl_strings def_tcl_strings[] = {
+  {"botnet-nick",     botnetnick,     HANDLEN,                 0},
+  {"userfile",        userfile,       120,           STR_PROTECT},
+  {"motd",            motdfile,       120,           STR_PROTECT},
+  {"admin",           admin,          120,                     0},
+  {"help-path",       helpdir,        120, STR_DIR | STR_PROTECT},
+  {"text-path",       textdir,        120, STR_DIR | STR_PROTECT},
+#ifdef TLS
+  {"ssl-capath",      tls_capath,     120, STR_DIR | STR_PROTECT},
+  {"ssl-cafile",      tls_cafile,     120,           STR_PROTECT},
+  {"ssl-protocols",   tls_protocols,  60,            STR_PROTECT},
+  {"ssl-dhparam",     tls_dhparam,    120,           STR_PROTECT},
+  {"ssl-ciphers",     tls_ciphers,    2048,           STR_PROTECT},
+  {"ssl-privatekey",  tls_keyfile,    120,           STR_PROTECT},
+  {"ssl-certificate", tls_certfile,   120,           STR_PROTECT},
+#endif
+#ifndef STATIC
+  {"mod-path",        moddir,         120, STR_DIR | STR_PROTECT},
+#endif
+  {"notify-newusers", notify_new,     120,                     0},
+  {"owner",           owner,          120,           STR_PROTECT},
+  {"vhost4",          vhost,          120,                     0},
+#ifdef IPV6
+  {"vhost6",          vhost6,         120,                     0},
+#endif
+  {"listen-addr",     listen_ip,      120,                     0},
+  {"network",         network,        40,                      0},
+  {"whois-fields",    whois_fields,   1024,                    0},
+  {"nat-ip",          nat_ip,         INET_ADDRSTRLEN - 1,     0},
+  {"username",        botuser,        USERLEN,                 0},
+  {"version",         egg_version,    0,                       0},
+  {"firewall",        firewall,       120,                     0},
+  {"config",          configfile,     0,                       0},
+  {"telnet-banner",   bannerfile,     120,           STR_PROTECT},
+  {"logfile-suffix",  logfile_suffix, 20,                      0},
+  {"timestamp-format",log_ts,         32,                      0},
+  {"pidfile",         pid_file,       120,           STR_PROTECT},
+  {"configureargs",   EGG_AC_ARGS,    0,             STR_PROTECT},
+  {"stealth-prompt",  stealth_prompt, 80,                      0},
+  {"language",        language,       64,            STR_PROTECT},
+  {NULL,              NULL,           0,                       0}
+};
+
+static tcl_ints def_tcl_ints[] = {
+  {"ignore-time",           &ignore_time,          0},
+  {"handlen",               &handlen,              2},
+#ifdef TLS
+  {"ssl-chain-depth",       &tls_maxdepth,         0},
+  {"ssl-verify-dcc",        &tls_vfydcc,           0},
+  {"ssl-verify-clients",    &tls_vfyclients,       0},
+  {"ssl-verify-bots",       &tls_vfybots,          0},
+  {"ssl-cert-auth",         &tls_auth,             0},
+#endif
+  {"dcc-flood-thr",         &dcc_flood_thr,        0},
+  {"hourly-updates",        &notify_users_at,      0},
+  {"switch-logfiles-at",    &switch_logfiles_at,   0},
+  {"connect-timeout",       &connect_timeout,      0},
+  {"reserved-port",         &reserved_port_min,    0},
+  {"require-p",             &require_p,            0},
+  {"keep-all-logs",         &keep_all_logs,        0},
+  {"open-telnets",          &allow_new_telnets,    0},
+  {"stealth-telnets",       &stealth_telnets,      0},
+  {"use-telnet-banner",     &use_telnet_banner,    0},
+  {"uptime",                (int *) &online_since, 2},
+  {"console",               &conmask,              0},
+  {"default-flags",         &default_flags,        0},
+  {"numversion",            &egg_numver,           2},
+  {"remote-boots",          &remote_boots,         1},
+  {"max-socks",             &max_socks,            0},
+  {"max-logs",              &max_logs,             0},
+  {"max-logsize",           &max_logsize,          0},
+  {"raw-log",               &raw_log,              1},
+  {"protect-telnet",        &protect_telnet,       0},
+  {"dcc-sanitycheck",       &dcc_sanitycheck,      0},
+  {"ident-timeout",         &identtimeout,         0},
+  {"share-unlinks",         &share_unlinks,        0},
+  {"log-time",              &shtime,               0},
+  {"allow-dk-cmds",         &allow_dk_cmds,        0},
+  {"resolve-timeout",       &resolve_timeout,      0},
+  {"must-be-owner",         &must_be_owner,        1},
+  {"paranoid-telnet-flood", &par_telnet_flood,     0},
+  {"use-exempts",           &use_exempts,          0},
+  {"use-invites",           &use_invites,          0},
+  {"quiet-save",            &quiet_save,           0},
+  {"force-expire",          &force_expire,         0},
+  {"dupwait-timeout",       &dupwait_timeout,      0},
+  {"userfile-perm",         &userfile_perm,        0},
+  {"quiet-reject",          &quiet_reject,         0},
+  {"cidr-support",          &cidr_support,         0},
+  {"remove-pass",           &remove_pass,          0},
+#ifdef IPV6
+  {"prefer-ipv6",           &pref_af,              0},
+#endif
+  {"show-uname",            &show_uname,           0},
+  {"share-greet",           &share_greet,          0},
+  {NULL,                    NULL,                  0}
+};
+
+static tcl_coups def_tcl_coups[] = {
+  {"telnet-flood",       &flood_telnet_thr,  &flood_telnet_time},
+  {"reserved-portrange", &reserved_port_min, &reserved_port_max},
+  {NULL,                 NULL,                             NULL}
+};
+
 #ifdef HAVE_TCL  /* ---- All Tcl-API-dependent code below ---- */
 
 static void botnet_change(char *new)
@@ -426,110 +535,6 @@ int tcl_resultint(void)
     result = 0;
   return result;
 }
-
-static tcl_strings def_tcl_strings[] = {
-  {"botnet-nick",     botnetnick,     HANDLEN,                 0},
-  {"userfile",        userfile,       120,           STR_PROTECT},
-  {"motd",            motdfile,       120,           STR_PROTECT},
-  {"admin",           admin,          120,                     0},
-  {"help-path",       helpdir,        120, STR_DIR | STR_PROTECT},
-  {"text-path",       textdir,        120, STR_DIR | STR_PROTECT},
-#ifdef TLS
-  {"ssl-capath",      tls_capath,     120, STR_DIR | STR_PROTECT},
-  {"ssl-cafile",      tls_cafile,     120,           STR_PROTECT},
-  {"ssl-protocols",   tls_protocols,  60,            STR_PROTECT},
-  {"ssl-dhparam",     tls_dhparam,    120,           STR_PROTECT},
-  {"ssl-ciphers",     tls_ciphers,    2048,           STR_PROTECT},
-  {"ssl-privatekey",  tls_keyfile,    120,           STR_PROTECT},
-  {"ssl-certificate", tls_certfile,   120,           STR_PROTECT},
-#endif
-#ifndef STATIC
-  {"mod-path",        moddir,         120, STR_DIR | STR_PROTECT},
-#endif
-  {"notify-newusers", notify_new,     120,                     0},
-  {"owner",           owner,          120,           STR_PROTECT},
-  {"vhost4",          vhost,          120,                     0},
-#ifdef IPV6
-  {"vhost6",          vhost6,         120,                     0},
-#endif
-  {"listen-addr",     listen_ip,      120,                     0},
-  {"network",         network,        40,                      0},
-  {"whois-fields",    whois_fields,   1024,                    0},
-  {"nat-ip",          nat_ip,         INET_ADDRSTRLEN - 1,     0},
-  {"username",        botuser,        USERLEN,                 0},
-  {"version",         egg_version,    0,                       0},
-  {"firewall",        firewall,       120,                     0},
-  {"config",          configfile,     0,                       0},
-  {"telnet-banner",   bannerfile,     120,           STR_PROTECT},
-  {"logfile-suffix",  logfile_suffix, 20,                      0},
-  {"timestamp-format",log_ts,         32,                      0},
-  {"pidfile",         pid_file,       120,           STR_PROTECT},
-  {"configureargs",   EGG_AC_ARGS,    0,             STR_PROTECT},
-  {"stealth-prompt",  stealth_prompt, 80,                      0},
-  {"language",        language,       64,            STR_PROTECT},
-  {NULL,              NULL,           0,                       0}
-};
-
-static tcl_ints def_tcl_ints[] = {
-  {"ignore-time",           &ignore_time,          0},
-  {"handlen",               &handlen,              2},
-#ifdef TLS
-  {"ssl-chain-depth",       &tls_maxdepth,         0},
-  {"ssl-verify-dcc",        &tls_vfydcc,           0},
-  {"ssl-verify-clients",    &tls_vfyclients,       0},
-  {"ssl-verify-bots",       &tls_vfybots,          0},
-  {"ssl-cert-auth",         &tls_auth,             0},
-#endif
-  {"dcc-flood-thr",         &dcc_flood_thr,        0},
-  {"hourly-updates",        &notify_users_at,      0},
-  {"switch-logfiles-at",    &switch_logfiles_at,   0},
-  {"connect-timeout",       &connect_timeout,      0},
-  {"reserved-port",         &reserved_port_min,    0},
-  {"require-p",             &require_p,            0},
-  {"keep-all-logs",         &keep_all_logs,        0},
-  {"open-telnets",          &allow_new_telnets,    0},
-  {"stealth-telnets",       &stealth_telnets,      0},
-  {"use-telnet-banner",     &use_telnet_banner,    0},
-  {"uptime",                (int *) &online_since, 2},
-  {"console",               &conmask,              0},
-  {"default-flags",         &default_flags,        0},
-  {"numversion",            &egg_numver,           2},
-  {"remote-boots",          &remote_boots,         1},
-  {"max-socks",             &max_socks,            0},
-  {"max-logs",              &max_logs,             0},
-  {"max-logsize",           &max_logsize,          0},
-  {"raw-log",               &raw_log,              1},
-  {"protect-telnet",        &protect_telnet,       0},
-  {"dcc-sanitycheck",       &dcc_sanitycheck,      0},
-  {"ident-timeout",         &identtimeout,         0},
-  {"share-unlinks",         &share_unlinks,        0},
-  {"log-time",              &shtime,               0},
-  {"allow-dk-cmds",         &allow_dk_cmds,        0},
-  {"resolve-timeout",       &resolve_timeout,      0},
-  {"must-be-owner",         &must_be_owner,        1},
-  {"paranoid-telnet-flood", &par_telnet_flood,     0},
-  {"use-exempts",           &use_exempts,          0},
-  {"use-invites",           &use_invites,          0},
-  {"quiet-save",            &quiet_save,           0},
-  {"force-expire",          &force_expire,         0},
-  {"dupwait-timeout",       &dupwait_timeout,      0},
-  {"userfile-perm",         &userfile_perm,        0},
-  {"quiet-reject",          &quiet_reject,         0},
-  {"cidr-support",          &cidr_support,         0},
-  {"remove-pass",           &remove_pass,          0},
-#ifdef IPV6
-  {"prefer-ipv6",           &pref_af,              0},
-#endif
-  {"show-uname",            &show_uname,           0},
-  {"share-greet",           &share_greet,          0},
-  {NULL,                    NULL,                  0}
-};
-
-static tcl_coups def_tcl_coups[] = {
-  {"telnet-flood",       &flood_telnet_thr,  &flood_telnet_time},
-  {"reserved-portrange", &reserved_port_min, &reserved_port_max},
-  {NULL,                 NULL,                             NULL}
-};
 
 /* Set up Tcl variables that will hook into eggdrop internal vars via
  * trace callbacks.
@@ -1299,7 +1304,17 @@ time_t get_expire_time(Tcl_Interp * irp, const char *s) {
 /* expmem_tcl() is defined above the #ifdef block and always compiled.       */
 
 void init_tcl0(int argc, char **argv) {}
-void init_tcl1(int argc, char **argv) {}
+
+/* Register the core variable tables so notcl_setvar/notcl_getvar work.
+ * This is the no-TCL equivalent of init_traces().
+ */
+void init_tcl1(int argc, char **argv)
+{
+  add_tcl_coups(def_tcl_coups);
+  add_tcl_strings(def_tcl_strings);
+  add_tcl_ints(def_tcl_ints);
+}
+
 void kill_tcl(void) {}
 
 void do_tcl(char *whatzit, char *script) {}
@@ -1314,14 +1329,142 @@ void add_tcl_objcommands(tcl_cmds *list) {}
 void add_cd_tcl_cmds(cd_tcl_cmd *list) {}
 void rem_tcl_commands(tcl_cmds *list) {}
 
-void add_tcl_strings(tcl_strings *list) {}
-void rem_tcl_strings(tcl_strings *list) {}
+/* --- no-TCL variable registry ---
+ * Stores pointers to all tcl_strings/ints/coups tables registered via
+ * add_tcl_strings/ints/coups so that notcl_setvar/notcl_getvar can walk
+ * them and read/write the underlying C variables.
+ */
+#define NOTCL_MAXLISTS 32
+static tcl_strings *notcl_str_lists[NOTCL_MAXLISTS];
+static tcl_ints    *notcl_int_lists[NOTCL_MAXLISTS];
+static tcl_coups   *notcl_coup_lists[NOTCL_MAXLISTS];
+static int notcl_nstr = 0, notcl_nint = 0, notcl_ncoup = 0;
 
-void add_tcl_ints(tcl_ints *list) {}
-void rem_tcl_ints(tcl_ints *list) {}
+void add_tcl_strings(tcl_strings *list)
+{
+  if (notcl_nstr < NOTCL_MAXLISTS)
+    notcl_str_lists[notcl_nstr++] = list;
+}
 
-void add_tcl_coups(tcl_coups *list) {}
-void rem_tcl_coups(tcl_coups *list) {}
+void rem_tcl_strings(tcl_strings *list)
+{
+  int i;
+  for (i = 0; i < notcl_nstr; i++)
+    if (notcl_str_lists[i] == list) {
+      notcl_str_lists[i] = notcl_str_lists[--notcl_nstr];
+      break;
+    }
+}
+
+void add_tcl_ints(tcl_ints *list)
+{
+  if (notcl_nint < NOTCL_MAXLISTS)
+    notcl_int_lists[notcl_nint++] = list;
+}
+
+void rem_tcl_ints(tcl_ints *list)
+{
+  int i;
+  for (i = 0; i < notcl_nint; i++)
+    if (notcl_int_lists[i] == list) {
+      notcl_int_lists[i] = notcl_int_lists[--notcl_nint];
+      break;
+    }
+}
+
+void add_tcl_coups(tcl_coups *list)
+{
+  if (notcl_ncoup < NOTCL_MAXLISTS)
+    notcl_coup_lists[notcl_ncoup++] = list;
+}
+
+void rem_tcl_coups(tcl_coups *list)
+{
+  int i;
+  for (i = 0; i < notcl_ncoup; i++)
+    if (notcl_coup_lists[i] == list) {
+      notcl_coup_lists[i] = notcl_coup_lists[--notcl_ncoup];
+      break;
+    }
+}
+
+/* notcl_setvar: write a value into the C variable bound to 'name'.
+ * Handles strings, ints, and coups ("N:M" for coupled int pairs).
+ */
+void notcl_setvar(const char *name, const char *value)
+{
+  int i;
+  /* Strings */
+  for (i = 0; i < notcl_nstr; i++) {
+    tcl_strings *e;
+    for (e = notcl_str_lists[i]; e->name; e++) {
+      if (!strcmp(e->name, name)) {
+        if (e->length > 0 && e->buf)
+          strlcpy(e->buf, value, e->length + 1);
+        return;
+      }
+    }
+  }
+  /* Ints */
+  for (i = 0; i < notcl_nint; i++) {
+    tcl_ints *e;
+    for (e = notcl_int_lists[i]; e->name; e++) {
+      if (!strcmp(e->name, name)) {
+        if (e->readonly < 2 && e->val)
+          *e->val = atoi(value);
+        return;
+      }
+    }
+  }
+  /* Coups ("N:M") */
+  for (i = 0; i < notcl_ncoup; i++) {
+    tcl_coups *e;
+    for (e = notcl_coup_lists[i]; e->name; e++) {
+      if (!strcmp(e->name, name)) {
+        int lv = 0, rv = 0;
+        sscanf(value, "%d:%d", &lv, &rv);
+        if (e->lptr) *e->lptr = lv;
+        if (e->rptr) *e->rptr = rv;
+        return;
+      }
+    }
+  }
+}
+
+/* notcl_getvar: read the current value of a registered variable into buf.
+ * Returns buf on success, NULL if not found.
+ */
+const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
+{
+  int i;
+  /* Strings */
+  for (i = 0; i < notcl_nstr; i++) {
+    tcl_strings *e;
+    for (e = notcl_str_lists[i]; e->name; e++) {
+      if (!strcmp(e->name, name)) {
+        if (e->buf) {
+          strlcpy(buf, e->buf, bufsz);
+          return buf;
+        }
+        return NULL;
+      }
+    }
+  }
+  /* Ints */
+  for (i = 0; i < notcl_nint; i++) {
+    tcl_ints *e;
+    for (e = notcl_int_lists[i]; e->name; e++) {
+      if (!strcmp(e->name, name)) {
+        if (e->val) {
+          snprintf(buf, bufsz, "%d", *e->val);
+          return buf;
+        }
+        return NULL;
+      }
+    }
+  }
+  return NULL;
+}
 
 const char *tcl_resultstring(void) { return ""; }
 int tcl_resultint(void) { return 0; }

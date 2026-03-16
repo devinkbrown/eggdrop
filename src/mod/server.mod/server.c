@@ -146,8 +146,9 @@ static int deq_kick(int);
 static void msgq_clear(struct msgq_head *qh);
 static int stack_limit;
 static char *realservername;
-#ifdef HAVE_TCL
 static int add_server(const char *, const char *, const char *);
+static void old_add_server(const char *);
+#ifdef HAVE_TCL
 static int del_server(const char *, const char *);
 #endif
 static void free_server(struct server_list *);
@@ -1024,22 +1025,9 @@ static void queue_server(int which, char *msg, int len)
    add_server as of v1.9.0. It can be removed if the 'old' server method is
    removed from Eggdrop.
 */
-#ifdef HAVE_TCL
-static void old_add_server(const char *ss) {
-  char name[256] = "";
-  char port[7] = "";
-  char pass[121] = "";
-  if (!sscanf(ss, "[%255[0-9.A-F:a-f]]:%6[+0-9]:%120[^\r\n]", name, port, pass) &&
-      !sscanf(ss, "%255[^:]:%6[+0-9]:%120[^\r\n]", name, port, pass))
-    return;
-  add_server(name, port, pass);
-}
-#endif /* HAVE_TCL */
-
 /* Add a new server to the server_list.
  * Don't return '3' from here, that is used by del_server() for tcl_server()
  */
-#ifdef HAVE_TCL
 static int add_server(const char *name, const char *port, const char *pass)
 {
   struct server_list *x, *z;
@@ -1083,7 +1071,20 @@ static int add_server(const char *name, const char *port, const char *pass)
 #endif
   return 0;
 }
-#endif /* HAVE_TCL */
+
+/* This is used to split the 'old' server lists prior to sending to the new
+   add_server as of v1.9.0. It can be removed if the 'old' server method is
+   removed from Eggdrop.
+*/
+static void old_add_server(const char *ss) {
+  char name[256] = "";
+  char port[7] = "";
+  char pass[121] = "";
+  if (!sscanf(ss, "[%255[0-9.A-F:a-f]]:%6[+0-9]:%120[^\r\n]", name, port, pass) &&
+      !sscanf(ss, "%255[^:]:%6[+0-9]:%120[^\r\n]", name, port, pass))
+    return;
+  add_server(name, port, pass);
+}
 
 #ifdef HAVE_TCL
 /* Remove a server from the server list.
@@ -2590,10 +2591,11 @@ static Function server_table[] = {
   (Function) NULL,               /* was check_tcl_account, now irc.mod  */
   (Function) & find_capability,
   (Function) encode_msgtags,
-  /* 52 - 55 */
+  /* 52 - 56 */
   (Function) & H_monitor,
   (Function) isupport_get_prefixchars,
   (Function) & H_stdreply,        /* p_tcl_bind_list                      */
+  (Function) old_add_server,      /* void (const char *)                  */
 };
 
 char *server_start(Function *global_funcs)
