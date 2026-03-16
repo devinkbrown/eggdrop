@@ -373,7 +373,7 @@ static char *dns_close(void)
   return NULL;
 }
 
-EXPORT_SCOPE char *dns_start(Function *global_funcs);
+char *dns_start(Function *global_funcs);
 
 static Function dns_table[] = {
   /* 0 - 3 */
@@ -384,6 +384,8 @@ static Function dns_table[] = {
   /* 4 - 7 */
 };
 #endif /* EGG_TDNS */
+
+EXPORT_SCOPE char *dns_start(Function *global_funcs);
 
 char *dns_start(Function *global_funcs)
 {
