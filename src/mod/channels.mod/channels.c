@@ -629,7 +629,12 @@ static void read_channels(int create, int reload)
       chan->status |= CHAN_FLAGGED;
 
   chan_hack = 1;
-  if (!readtclprog(chanfile) && create) {
+#ifdef HAVE_TCL
+  if (!readtclprog(chanfile) && create)
+#else
+  if (!read_chanfile_native(chanfile) && create)
+#endif
+  {
     FILE *f;
 
     /* Assume file isnt there & therefore make it */

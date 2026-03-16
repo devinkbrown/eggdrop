@@ -703,3 +703,116 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
     remove_channel(chan);
   return ret;
 }
+
+/* -----------------------------------------------------------------------
+ * read_chanfile_native — parse the channel file without a Tcl interpreter.
+ *
+ * The channel file written by write_channels() contains lines of the form:
+ *
+ *   channel add NAME { chanmode {} idle-kick 0 ... +greet ... }
+ *   channel set NAME +udef-flag-foo
+ *   channel set NAME udef-int-bar 42
+ *   ircxautoowner NAME KEY CREATE MODES
+ *
+ * This function reads the file line-by-line and calls tcl_channel_add() /
+ * tcl_channel_modify() directly, bypassing the Tcl interpreter entirely.
+ *
+ * Returns 1 if the file was opened successfully, 0 on failure (mirrors the
+ * readtclprog() contract so read_channels() can use it as a drop-in).
+ *
+ * Only compiled in no-Tcl builds; Tcl builds use readtclprog() as usual.
+ * ----------------------------------------------------------------------- */
+#ifndef HAVE_TCL
+static int read_chanfile_native(const char *fname)
+{
+  FILE *f;
+  char line[4096];
+
+  f = fopen(fname, "r");
+  if (!f)
+    return 0;
+
+  while (fgets(line, sizeof line, f)) {
+    char *p = line;
+    char *nl;
+
+    /* Skip leading whitespace */
+    while (*p == ' ' || *p == '\t') p++;
+
+    /* Skip comments and blank lines */
+    if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0')
+      continue;
+
+    /* Strip trailing newline / carriage return */
+    nl = p + strlen(p);
+    while (nl > p && (nl[-1] == '\n' || nl[-1] == '\r' || nl[-1] == ' '))
+      *--nl = '\0';
+
+    if (!strncmp(p, "channel add ", 12)) {
+      /* ---- channel add NAME [{ OPTS }] ---- */
+      char name[256], opts[2048];
+      char *start, *end;
+
+      p += 12;
+      while (*p == ' ') p++;
+
+      /* Extract channel name (up to first space) */
+      start = p;
+      while (*p && *p != ' ' && *p != '\t') p++;
+      {
+        size_t nlen = p - start;
+        if (nlen >= sizeof name) continue;
+        memcpy(name, start, nlen);
+        name[nlen] = '\0';
+      }
+
+      /* Skip whitespace, then strip outer braces from options block */
+      while (*p == ' ' || *p == '\t') p++;
+      if (*p == '{') {
+        p++;
+        end = strrchr(p, '}');
+        if (end) *end = '\0';
+        while (*p == ' ') p++;
+      }
+      strlcpy(opts, p, sizeof opts);
+
+      tcl_channel_add(NULL, name, opts);
+
+    } else if (!strncmp(p, "channel set ", 12)) {
+      /* ---- channel set NAME OP [VAL ...] ---- */
+      struct chanset_t *chan;
+      char name[256];
+      char *start;
+      char **item;
+      int items;
+
+      p += 12;
+      while (*p == ' ') p++;
+
+      start = p;
+      while (*p && *p != ' ' && *p != '\t') p++;
+      {
+        size_t nlen = p - start;
+        if (nlen >= sizeof name) continue;
+        memcpy(name, start, nlen);
+        name[nlen] = '\0';
+      }
+
+      while (*p == ' ' || *p == '\t') p++;
+      if (!*p) continue;
+
+      chan = findchan_by_dname(name);
+      if (!chan) continue;
+
+      if (egg_split_list(p, &items, &item) == TCL_OK) {
+        tcl_channel_modify(NULL, chan, items, item);
+        egg_free_list(items, item);
+      }
+    }
+    /* ircxautoowner and other lines are skipped (IRCX-specific / unknown) */
+  }
+
+  fclose(f);
+  return 1;
+}
+#endif /* !HAVE_TCL */

@@ -41,6 +41,7 @@
 #include "configtoml.h"
 #ifndef HAVE_TCL
 #  include "script.h"
+#  include "modules.h"
 #endif
 
 #include <ctype.h>
@@ -239,6 +240,122 @@ static void run_tcl_cmd(const char *cmd)
   if (Tcl_Eval(interp, cmd) != TCL_OK)
     putlog(LOG_MISC, "*", "TOML config: Tcl error running '%s': %s",
            cmd, Tcl_GetStringResult(interp));
+#else
+  /* No-TCL: dispatch known channel commands natively via the channels module
+   * function table.  All other commands are silently ignored (they require
+   * Tcl scripting and cannot work without it).
+   *
+   * "channel add NAME"           — create a new channel (no extra options)
+   * "channel add NAME OPTS"      — create channel with options string
+   * "channel set NAME OP [VAL]"  — set one or more options on an existing channel
+   */
+  if (!strncmp(cmd, "channel add ", 12) ||
+      !strncmp(cmd, "channel set ", 12)) {
+    module_entry *me = module_find("channels", 0, 0);
+    if (!me) {
+      putlog(LOG_MISC, "*",
+             "TOML config: channels module not loaded, cannot run: %s", cmd);
+      return;
+    }
+    if (!strncmp(cmd, "channel add ", 12)) {
+      /* Extract NAME and optional OPTS from "channel add NAME [OPTS]" */
+      int (*chan_add)(Tcl_Interp *, char *, char *) =
+        (int (*)(Tcl_Interp *, char *, char *)) me->funcs[37];
+      char name[256], opts[1024];
+      const char *p = cmd + 12;
+      const char *space;
+
+      while (*p == ' ') p++;
+      space = strchr(p, ' ');
+      if (space) {
+        size_t nlen = space - p;
+        if (nlen >= sizeof name) return;
+        memcpy(name, p, nlen);
+        name[nlen] = '\0';
+        p = space + 1;
+        while (*p == ' ') p++;
+        strlcpy(opts, p, sizeof opts);
+      } else {
+        strlcpy(name, p, sizeof name);
+        opts[0] = '\0';
+      }
+      if (chan_add)
+        chan_add(NULL, name, opts);
+    } else {
+      /* "channel set NAME OP [VAL]" */
+      int (*chan_mod)(Tcl_Interp *, struct chanset_t *, int, char **) =
+        (int (*)(Tcl_Interp *, struct chanset_t *, int, char **)) me->funcs[38];
+      const char *p = cmd + 12;
+      const char *space;
+      char name[256];
+
+      while (*p == ' ') p++;
+      space = strchr(p, ' ');
+      if (!space || !chan_mod)
+        return;
+      {
+        size_t nlen = space - p;
+        struct chanset_t *chan;
+        char **item;
+        int items, i;
+
+        if (nlen >= sizeof name) return;
+        memcpy(name, p, nlen);
+        name[nlen] = '\0';
+        p = space + 1;
+        while (*p == ' ') p++;
+        if (!*p) return;
+
+        chan = findchan_by_dname(name);
+        if (!chan) return;
+
+        /* Tokenise remaining args the same way egg_split_list does. */
+        items = 0;
+        {
+          const char *q = p;
+          while (*q) {
+            while (*q == ' ' || *q == '\t') q++;
+            if (!*q) break;
+            if (*q == '{') { while (*q && *q != '}') q++; if (*q) q++; }
+            else           { while (*q && *q != ' ' && *q != '\t') q++; }
+            items++;
+          }
+        }
+        if (!items) return;
+        item = nmalloc(items * sizeof(char *));
+        {
+          const char *q = p;
+          int j = 0;
+          while (*q && j < items) {
+            int len;
+            const char *start;
+            while (*q == ' ' || *q == '\t') q++;
+            if (*q == '{') {
+              q++;
+              start = q;
+              while (*q && *q != '}') q++;
+              len = q - start;
+              if (*q) q++;
+            } else {
+              start = q;
+              while (*q && *q != ' ' && *q != '\t') q++;
+              len = q - start;
+            }
+            item[j] = nmalloc(len + 1);
+            memcpy(item[j], start, len);
+            item[j][len] = '\0';
+            j++;
+          }
+        }
+        chan_mod(NULL, chan, items, item);
+        for (i = 0; i < items; i++)
+          nfree(item[i]);
+        nfree(item);
+      }
+    }
+  }
+  /* All other commands (server add, logfile, etc.) are handled elsewhere
+   * or require Tcl and are silently skipped in no-TCL builds. */
 #endif
 }
 
@@ -357,10 +474,20 @@ static int toml_server_count = 0;
 
 static void cb_loadmodule(const char *name, void *ud)
 {
-  char cmd[256];
   (void)ud;
-  egg_snprintf(cmd, sizeof cmd, "loadmodule %s", name);
-  run_tcl_cmd(cmd);
+#ifdef HAVE_TCL
+  {
+    char cmd[256];
+    egg_snprintf(cmd, sizeof cmd, "loadmodule %s", name);
+    run_tcl_cmd(cmd);
+  }
+#else
+  {
+    const char *err = module_load((char *) name);
+    if (err && strcmp(err, "Already loaded."))
+      putlog(LOG_MISC, "*", "TOML config: loadmodule %s: %s", name, err);
+  }
+#endif
 }
 
 /*
