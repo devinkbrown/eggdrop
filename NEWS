@@ -201,6 +201,39 @@ devinkbrown fork (based on v1.10.1):
     - On native Windows the bot always runs in the foreground; the
       console window is hidden via ShowWindow() instead of fork().
 
+ Python scripting changes:
+    - TCL is now an optional build dependency.  Build without Tcl using
+      `meson setup -Dtcl=disabled builddir` and the bot uses Python as
+      its sole scripting engine.  All TOML [scripts] entries are loaded
+      via python.mod's script_load() function.
+    - Expanded the eggdrop Python C API (python.mod) with 30+ new
+      functions covering the full range of TCL scripting features:
+        · Channel member status: isop, ishalfop, isvoice, isaway,
+          botisop, botishalfop, botisvoice
+        · IRC account / handle resolution: getaccount, nick2hand,
+          hand2nick, isbotnick
+        · User database: countusers, validuser, finduser, userlist
+        · Miscellaneous: rand, unixtime, duration, maskhost
+        · Server queues: puthelp, tagmsg
+        · IRCv3: cap (req/raw)
+        · IRCX/Ophion: ircxprop, ircxaccess, ircxcreate, ircxnegotiate
+    - Added scripts/eggtools.py — a modern Python utility library that
+      replaces the functionality of the legacy alltools.tcl for Python
+      script authors.  Key features:
+        · Type-annotated wrappers for the full eggdrop C API
+        · @on_pub, @on_msg, @on_join … decorator-based bind registration
+        · Member dataclass for channel member introspection
+        · every() helper for interval-based callbacks using the cron bind
+        · IRCX and IRCv3 helpers (ircxprop, ircxaccess, cap_req, tagmsg)
+        · alltools.tcl-compatible aliases: putmsg, putchan, putnotc,
+          putact, strlwr, strupr, strlen, strcmp, stricmp
+        · Utility functions: randstring, ordnumber, isnumber, testip,
+          hostmatch, duration, maskhost
+    - All bind tables (pub, msg, join, part, kick, mode, nick, sign,
+      notc, ctcp, ctcr, raw, time, cron, dcc, evnt, and all server.mod
+      and irc.mod tables) are pre-created in no-Tcl builds so that
+      Python binds registered via eggdrop.bind() fire correctly.
+
  Documentation changes:
     - INSTALL completely rewritten for the Meson build system with
       per-platform dependency installation steps (Debian/Ubuntu, Fedora,

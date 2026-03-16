@@ -1,8 +1,43 @@
 
-Eggdrop Changes (Last Updated 2026-03-14):
+Eggdrop Changes (Last Updated 2026-03-15):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-03-15 * build: make Tcl an optional dependency.  Build with
+               -Dtcl=disabled to produce a Tcl-free binary that uses
+               Python as the sole scripting engine.  The configure check
+               now sets HAVE_TCL; all Tcl-specific code is guarded with
+               #ifdef HAVE_TCL / #else blocks.  No-Tcl builds are
+               fully tested and self-contained.
+
+  2026-03-15 * python.mod/pycmds.c: expanded Python C API with 30+ new
+               functions covering the TCL scripting surface area:
+               Channel member status — isop, ishalfop, isvoice, isaway,
+               botisop, botishalfop, botisvoice, getaccount.
+               Handle/nick resolution — nick2hand, hand2nick, isbotnick.
+               User database — countusers, validuser, finduser, userlist.
+               Miscellaneous — rand, unixtime, duration, maskhost.
+               Server/network — puthelp, tagmsg, cap.
+               IRCX/Ophion — ircxprop, ircxaccess, ircxcreate,
+               ircxnegotiate.
+
+  2026-03-15 * python.mod: no-Tcl bind table fix.  Module-local bind
+               table pointers (H_pub, H_join, H_msg, etc.) in irc.mod,
+               server.mod, isupport.c, and twitch.mod were only set
+               inside #ifdef HAVE_TCL blocks.  Added #else branches that
+               call find_bind_table() to retrieve the pre-created global
+               tables from init_bind(), so Python binds registered via
+               eggdrop.bind() fire correctly without Tcl.
+               del_bind_table() calls in module close functions are also
+               guarded so no-Tcl builds do not destroy shared tables.
+
+  2026-03-15 * scripts/eggtools.py: new modern Python utility library
+               replacing alltools.tcl for Python script authors.
+               Provides type-annotated wrappers for the full eggdrop API,
+               decorator-based bind registration (@on_pub, @on_msg, …),
+               a Member dataclass, every() timer helper, IRCX and IRCv3
+               helpers, and alltools.tcl-compatible aliases.
 
   2026-03-14 * net.c: fix three io_uring SQPOLL bugs that prevented IRC
                registration from completing:

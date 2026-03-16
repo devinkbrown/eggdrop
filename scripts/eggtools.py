@@ -242,6 +242,183 @@ def finduser(nick: str, channel: Optional[str] = None) -> Optional[Member]:
 
 
 # ---------------------------------------------------------------------------
+# Channel member status
+# ---------------------------------------------------------------------------
+
+def isop(nick: str, channel: str) -> bool:
+    """Return True if nick has channel operator (@) status."""
+    return bool(eggdrop.isop(nick, channel))
+
+
+def ishalfop(nick: str, channel: str) -> bool:
+    """Return True if nick has half-operator (%) status."""
+    return bool(eggdrop.ishalfop(nick, channel))
+
+
+def isvoice(nick: str, channel: str) -> bool:
+    """Return True if nick has voice (+) status."""
+    return bool(eggdrop.isvoice(nick, channel))
+
+
+def isaway(nick: str, channel: str) -> bool:
+    """Return True if nick is marked as away on channel."""
+    return bool(eggdrop.isaway(nick, channel))
+
+
+def botisop(channel: str) -> bool:
+    """Return True if the bot has op status on channel."""
+    return bool(eggdrop.botisop(channel))
+
+
+def botishalfop(channel: str) -> bool:
+    """Return True if the bot has half-op status on channel."""
+    return bool(eggdrop.botishalfop(channel))
+
+
+def botisvoice(channel: str) -> bool:
+    """Return True if the bot has voice status on channel."""
+    return bool(eggdrop.botisvoice(channel))
+
+
+def getaccount(nick: str, channel: str) -> Optional[str]:
+    """Return the IRC account name of nick on channel, or None if unknown."""
+    return eggdrop.getaccount(nick, channel)
+
+
+# ---------------------------------------------------------------------------
+# Handle / nick resolution
+# ---------------------------------------------------------------------------
+
+def nick2hand(nick: str, channel: str) -> Optional[str]:
+    """Return the eggdrop handle for nick on channel, or None if unknown."""
+    return eggdrop.nick2hand(nick, channel)
+
+
+def hand2nick(handle: str, channel: str) -> Optional[str]:
+    """Return the nick of the user with handle on channel, or None."""
+    return eggdrop.hand2nick(handle, channel)
+
+
+def isbotnick(nick: str) -> bool:
+    """Return True if nick matches the bot's current nickname."""
+    return bool(eggdrop.isbotnick(nick))
+
+
+# ---------------------------------------------------------------------------
+# User database
+# ---------------------------------------------------------------------------
+
+def countusers() -> int:
+    """Return the number of users in the userlist."""
+    return eggdrop.countusers()
+
+
+def validuser(handle: str) -> bool:
+    """Return True if handle exists in the userlist."""
+    return bool(eggdrop.validuser(handle))
+
+
+def findhandle(host: str) -> Optional[str]:
+    """Return the handle matching 'nick!user@host', or None."""
+    return eggdrop.finduser(host)
+
+
+def userlist() -> List[str]:
+    """Return a list of all user handles in the userlist."""
+    return eggdrop.userlist()
+
+
+# ---------------------------------------------------------------------------
+# Miscellaneous / timing
+# ---------------------------------------------------------------------------
+
+def rand(n: int) -> int:
+    """Return a random integer in [0, n)."""
+    return eggdrop.rand(n)
+
+
+def unixtime() -> int:
+    """Return the current Unix timestamp as an integer."""
+    return eggdrop.unixtime()
+
+
+def duration(seconds: int) -> str:
+    """Convert seconds to a human-readable string (e.g. '2 hours 5 minutes')."""
+    return eggdrop.duration(seconds)
+
+
+def maskhost(nick: str, userhost: str) -> str:
+    """Create a standard IRC hostmask from nick and user@host."""
+    return eggdrop.maskhost(nick, userhost)
+
+
+def every(interval_seconds: int, fn: Callable, *args) -> None:
+    """Register fn to be called approximately every interval_seconds seconds.
+
+    Uses the 'cron' bind internally.  The function is called with no
+    arguments by default; pass positional args to be forwarded.
+
+    Example::
+
+        @eggtools.every(300)
+        def hello():
+            eggtools.privmsg('#mychan', 'Still alive!')
+    """
+    import math
+    minutes = max(1, int(math.ceil(interval_seconds / 60)))
+    mask = f"*/{minutes} * * * *"
+
+    @functools.wraps(fn)
+    def _wrapper(*_cron_args):
+        fn(*args)
+
+    eggdrop.bind("cron", "-|-", mask, _wrapper)
+
+
+# ---------------------------------------------------------------------------
+# IRCv3 helpers
+# ---------------------------------------------------------------------------
+
+def cap_req(capability: str) -> None:
+    """Send a CAP REQ to request an IRCv3 capability."""
+    eggdrop.cap("req", capability)
+
+
+def tagmsg(tag: str, target: str) -> None:
+    """Send an IRCv3 TAGMSG with the given tag string to target."""
+    eggdrop.tagmsg(tag, target)
+
+
+# ---------------------------------------------------------------------------
+# IRCX helpers (Microsoft IRC extensions / Ophion)
+# ---------------------------------------------------------------------------
+
+def ircxprop(target: str, propname: str, value: str = "") -> None:
+    """Get or set an IRCX property.  Omit value to read the current setting."""
+    eggdrop.ircxprop(target, propname, value)
+
+
+def ircxaccess(channel: str, action: str, level: str = "", mask: str = "") -> None:
+    """Manage the IRCX access list for channel.
+
+    action='list'                     — retrieve access list
+    action='add', level=LEVEL, mask   — grant level to mask
+    action='del', mask                — remove mask from access list
+    """
+    eggdrop.ircxaccess(channel, action, level, mask)
+
+
+def ircxcreate(channel: str, modes: str = "") -> None:
+    """Send an IRCX CREATE command to create channel (bot becomes owner)."""
+    eggdrop.ircxcreate(channel, modes)
+
+
+def ircxnegotiate() -> None:
+    """Manually send the IRCX command to enable IRCX mode on the server."""
+    eggdrop.ircxnegotiate()
+
+
+# ---------------------------------------------------------------------------
 # Bind decorators — Pythonic event registration
 # ---------------------------------------------------------------------------
 

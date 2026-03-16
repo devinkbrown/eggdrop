@@ -2,7 +2,8 @@ Using the Python Module
 
 In Eggdrop 1.10.0, Eggdrop was shipped with a Python module that,
 similar to the existing core Tcl capability, allows Eggdrop to run
-python scripts.
+Python scripts.  Starting with the devinkbrown fork, Tcl is optional:
+you can build without Tcl and use Python as the sole scripting engine.
 
 SYSTEM REQUIREMENTS
 
@@ -15,6 +16,19 @@ symlinks on the host system that allow Eggdrop to find it.
 The minimum supported Python version is 3.8 and we do require the Global
 Interpreter Lock for thread safety, even if you use latest Python.
 
+BUILDING WITHOUT TCL
+
+To build Eggdrop without Tcl and use Python as the only scripting engine:
+
+    meson setup builddir/ -Dtcl=disabled
+    ninja -C builddir/
+
+In this mode all [scripts] entries in your TOML config are loaded via
+python.mod automatically.  All standard bind tables (pub, msg, join,
+part, kick, mode, nick, sign, notc, ctcp, raw, time, cron, dcc, evnt,
+and the server.mod / irc.mod tables) are pre-created so Python binds
+fire correctly without Tcl.
+
 LOADING PYTHON
 
 Put this line into your Eggdrop configuration file to load the python
@@ -22,8 +36,12 @@ module:
 
     loadmodule python
 
-To load a python script from your config file, place the .py file in the
-scripts/ folder and add the following line to your config:
+To load a Python script from your TOML config file:
+
+    [scripts]
+    load = ["scripts/myscript.py"]
+
+If you are using the legacy Tcl config format, you can also use:
 
     pysource scripts/myscript.py
 
@@ -57,7 +75,7 @@ re-bind them on being loaded again (see the bind section). For now, you
 should restart your bot when the Python scripts change.
 
 You can (should?) also write scripts that manually unload their binds
-upon a reshash, example code looks like this:
+upon a rehash, example code looks like this:
 
     # Create a list to track the join binds
     if 'JOIN_BINDS' in globals():
@@ -78,66 +96,130 @@ MULTITHREADING AND ASYNC
 pysource loads a Python script in the main Eggdrop thread but is free to
 use both async Python and threads.
 
-EGGDROP PYTHON COMMANDS
+EGGTOOLS.PY — MODERN PYTHON SCRIPTING LIBRARY
 
-The Python module is built to use the existing core Tcl commands
-integrated into Eggdrop via the eggdrop.tcl module. To call an existing
-Tcl command from Python, you can either load the entire catalog by
-running import eggdrop.tcl, or be more specific by
-from eggdrop.tcl import putserv, putlog, chanlist, etc.
+scripts/eggtools.py is a modern Python utility library for Eggdrop script
+authors.  It replaces the legacy alltools.tcl and provides:
 
-Arguments to the Tcl functions are automatically converted as follows:
+  - Decorator-based bind registration
+  - Type-annotated wrappers for the full eggdrop C API
+  - Member dataclass for channel member introspection
+  - Timer helper (every()) using the cron bind
+  - IRCX and IRCv3 helpers
+  - alltools.tcl-compatible aliases
 
--   None is converted to an empty Tcl object (the empty string, "")
--   List and Tuple is converted to a Tcl list
--   Dict is converted to a Tcl dictionary
--   Everything else is converted to a string using the str() method
+Quick example:
 
-Return values from Tcl functions must be manually converted:
+    import eggtools
 
--   "" the empty string is automatically converted to None
--   everything else is returned as string
--   Tcl list as string can be converted to a Python List using
-    parse_tcl_list
--   Tcl dictionary as string can be converted to a Python Dict using
-    parse_tcl_list
+    @eggtools.on_pub("!hello", "*")
+    def greet(nick, host, handle, channel, text):
+        eggtools.privmsg(channel, f"Hello, {nick}!")
 
-bind <arguments>
+    @eggtools.on_join("*", "-|-")
+    def announce(nick, host, handle, channel):
+        if not eggtools.isbotnick(nick):
+            eggtools.privmsg(channel, f"Welcome, {nick}!")
 
-An important difference to note is that Eggdrop Python has its own bind
-command implemented. You will generally want to create binds using the
-Python bind command and not import bind from eggdrop.tcl because a
-Python bind will call a Python function, whereas using the Tcl bind will
-call a Tcl function (not one from the script you are writing).
+    # Call something every 5 minutes
+    @eggtools.every(300)
+    def heartbeat():
+        eggtools.putlog("Still alive!")
 
-The python version of the bind command is used to create a bind that
-triggers a python function. The python bind takes the same arguments as
-the Tcl binds, but here each argument is passed individually. For
-example, a bind that would look like bind pub * !foo myproc in Tcl is
-written as bind("pub", "*", "!foo", myproc). For more information on
-Eggsrop bind argument syntax please see bind_types. The eggdrop.tcl.bind
-command should not be used as it will attempt to call a Tcl proc.
+EGGDROP PYTHON COMMANDS (eggdrop module)
 
-The bind command returns a PythonBind object that has an unbind method:
+The eggdrop module exposes the following functions directly.
+For a higher-level interface, use eggtools.py instead.
 
-    x = bind("pub", "*", "!foo", myproc)
-    x.unbind()
+BIND FUNCTIONS
 
-parse_tcl_list <string>
+bind(type, flags, mask, callback)
 
-When a python script calls a Tcl command that returns a list via the
-eggdrop.tcl module, the return value will be a Tcl-formatted list- also
-simply known as a string. The parse_tcl_list command will convert the
-Tcl-formatted list into a Python list, which can then freely be used
-within the Python script.
+    Register a Python function as an eggdrop bind.  Returns a
+    PythonBind object with an unbind() method.
 
-parse_tcl_dict <string>
+    Example:
+        def on_join(nick, host, handle, channel):
+            eggdrop.putserv(f"PRIVMSG {channel} :Welcome, {nick}!")
+        eggdrop.bind("join", "-|-", "*", on_join)
 
-When a python script calls a Tcl command that returns a dict via the
-eggdrop.tcl module, the return value will be a Tcl-formatted dict- also
-simply known as a string. The parse_tcl_dict command will convert the
-Tcl-formatted dict into a Python list, which can then freely be used
-within the Python script.
+IRC OUTPUT FUNCTIONS
+
+putserv(text)    — queue a raw IRC line (normal server queue)
+putquick(text)   — queue a raw IRC line (quick/mode queue)
+putnow(text)     — send a raw IRC line immediately, bypassing queues
+putdcc(idx, text) — send text to a DCC party-line connection by index
+puthelp(text)    — queue a raw IRC line to the help/notice queue
+putlog(text[, level[, channel]]) — write to the eggdrop log
+tagmsg(tag, target) — send an IRCv3 TAGMSG
+
+IRCv3 / CAPABILITY COMMANDS
+
+cap(action, arg) — send CAP commands:
+    cap("req", "extended-join")   → CAP REQ :extended-join
+    cap("raw", "LS")              → CAP LS
+
+CHANNEL QUERY FUNCTIONS
+
+channels()                   — list of channel names the bot is in
+botname()                    — bot's current IRC nickname
+isonchan(nick, channel)      — True if nick is on channel
+getchanhost(nick, channel)   — "user@host" of nick, or None
+chanlist(channel)            — list of member dicts for channel
+findircuser(nick[, channel]) — member dict for nick, or None
+
+CHANNEL MEMBER STATUS
+
+isop(nick, channel)          — True if nick has op (@)
+ishalfop(nick, channel)      — True if nick has half-op (%)
+isvoice(nick, channel)       — True if nick has voice (+)
+isaway(nick, channel)        — True if nick is marked away
+botisop(channel)             — True if bot has op
+botishalfop(channel)         — True if bot has half-op
+botisvoice(channel)          — True if bot has voice
+getaccount(nick, channel)    — IRC account name, or None
+
+HANDLE / NICK RESOLUTION
+
+nick2hand(nick, channel)     — eggdrop handle for nick, or None
+hand2nick(handle, channel)   — nick of user with handle, or None
+isbotnick(nick)              — True if nick is the bot's nick
+
+USER DATABASE
+
+countusers()                 — number of users in the userlist
+validuser(handle)            — True if handle exists
+finduser(host)               — handle matching nick!user@host, or None
+userlist()                   — list of all user handles
+
+MISCELLANEOUS UTILITIES
+
+rand(n)                      — random integer in [0, n)
+unixtime()                   — current Unix timestamp
+duration(seconds)            — human-readable time string
+maskhost(nick, userhost)     — create a standard IRC hostmask
+
+IRCX / OPHION COMMANDS
+
+ircxprop(target, prop[, value]) — get/set an IRCX channel property
+ircxaccess(channel, action[, level[, mask]]) — manage IRCX access list
+ircxcreate(channel[, modes])    — send IRCX CREATE command
+ircxnegotiate()                 — send IRCX negotiate command
+
+TCL BRIDGE (HAVE_TCL builds only)
+
+parse_tcl_list(string)  — convert a Tcl list string to a Python list
+parse_tcl_dict(string)  — convert a Tcl dict string to a Python dict
+
+eggdrop.tcl module — exposes all Tcl functions to Python.  Import
+individual functions or the whole module:
+
+    from eggdrop.tcl import putserv, putlog
+
+Arguments are auto-converted: None → "", list/tuple → Tcl list,
+dict → Tcl dict, everything else → str().
+Return values are strings; use parse_tcl_list / parse_tcl_dict to
+convert list/dict returns.
 
 WRITING AN EGGDROP PYTHON SCRIPT
 
@@ -165,7 +247,7 @@ imdb.py
 
 listtls.py
 
-    This script demonstrates how to use parse-tcl_list() and
+    This script demonstrates how to use parse_tcl_list() and
     parse_tcl_dict() to convert a list of dicts provided by Tcl into
     something that is usable by Python.
 
@@ -174,23 +256,5 @@ urltitle.py
     This script shows how to use an existing third-party module to
     extend a Python script, in this case using an http parser to collect
     title information from a provided web page.
-
-Header section
-
-Python is able to call any Tcl command by importing the eggdrop module.
-For example, to use the putlog command in a python script, you would
-import it as:
-
-    from eggdrop.tcl import putlog
-
-and then call it using:
-
-    putlog("This is a logged message")
-
-An important difference to note is that Eggdrop Python has its own bind
-command implemented. You will generally want to create binds using the
-Python bind command and not import bind from eggdrop.tcl because a
-Python bind will call a Python function, whereas using the Tcl bind will
-call a Tcl function (not one from the script you are writing).
 
 Copyright (C) 2000 - 2025 Eggheads Development Team

@@ -694,6 +694,463 @@ static PyObject *py_channels(PyObject *self, PyObject *args)
   return list;
 }
 
+/* ---- Channel member status queries ------------------------------------ */
+
+/* isop(nick, chan) — True if nick has channel operator status */
+static PyObject *py_isop(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && chan_hasop(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* ishalfop(nick, chan) — True if nick has channel half-operator status */
+static PyObject *py_ishalfop(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && chan_hashalfop(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* isvoice(nick, chan) — True if nick has channel voice status */
+static PyObject *py_isvoice(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && chan_hasvoice(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* isaway(nick, chan) — True if nick is marked away on IRC */
+static PyObject *py_isaway(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && (m->flags & IRCAWAY))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* botisop(chan) — True if the bot has operator status on chan */
+static PyObject *py_botisop(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, botname);
+  if (m && chan_hasop(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* botishalfop(chan) — True if the bot has half-operator status on chan */
+static PyObject *py_botishalfop(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, botname);
+  if (m && chan_hashalfop(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* botisvoice(chan) — True if the bot has voice status on chan */
+static PyObject *py_botisvoice(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, botname);
+  if (m && chan_hasvoice(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* getaccount(nick, chan) — return IRC account name of nick, or None */
+static PyObject *py_getaccount(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_NONE;
+  m = ismember(ch, nick);
+  if (!m || !m->account[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(m->account);
+}
+
+/* nick2hand(nick, chan) — return eggdrop handle for nick on chan, or None */
+static PyObject *py_nick2hand(PyObject *self, PyObject *args)
+{
+  char *nick, *chan, hostbuf[UHOSTLEN + NICKLEN + 2];
+  struct chanset_t *ch;
+  memberlist *m;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_NONE;
+  m = ismember(ch, nick);
+  if (!m)
+    Py_RETURN_NONE;
+  egg_snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
+  u = get_user_by_host(hostbuf);
+  if (!u)
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(u->handle);
+}
+
+/* hand2nick(handle, chan) — return nick of user with handle on chan, or None */
+static PyObject *py_hand2nick(PyObject *self, PyObject *args)
+{
+  char *handle, *chan, hostbuf[UHOSTLEN + NICKLEN + 2];
+  struct chanset_t *ch;
+  memberlist *m;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_NONE;
+  for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
+    egg_snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
+    u = get_user_by_host(hostbuf);
+    if (u && !strcasecmp(u->handle, handle))
+      return PyUnicode_FromString(m->nick);
+  }
+  Py_RETURN_NONE;
+}
+
+/* isbotnick(nick) — True if nick matches the bot's current nickname */
+static PyObject *py_isbotnick(PyObject *self, PyObject *args)
+{
+  char *nick;
+
+  if (!PyArg_ParseTuple(args, "s", &nick))
+    return NULL;
+  if (!strcasecmp(nick, botname))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* ---- User database queries -------------------------------------------- */
+
+/* countusers() — return number of users in the userlist */
+static PyObject *py_countusers(PyObject *self, PyObject *args)
+{
+  return PyLong_FromLong(count_users(userlist));
+}
+
+/* validuser(handle) — True if handle exists in the userlist */
+static PyObject *py_validuser(PyObject *self, PyObject *args)
+{
+  char *handle;
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  if (get_user_by_handle(userlist, handle))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* finduser(host) — return handle of user matching 'nick!user@host', or None */
+static PyObject *py_finduser(PyObject *self, PyObject *args)
+{
+  char *host;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "s", &host))
+    return NULL;
+  u = get_user_by_host((char *)host);
+  if (!u)
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(u->handle);
+}
+
+/* userlist() — return list of all user handles in the userlist */
+static PyObject *py_userlist(PyObject *self, PyObject *args)
+{
+  struct userrec *u;
+  PyObject *list = PyList_New(0);
+
+  for (u = userlist; u; u = u->next)
+    PyList_Append(list, PyUnicode_FromString(u->handle));
+  return list;
+}
+
+/* ---- Miscellaneous utilities ------------------------------------------ */
+
+/* rand(n) — return a random integer in [0, n) */
+static PyObject *py_rand(PyObject *self, PyObject *args)
+{
+  long n;
+
+  if (!PyArg_ParseTuple(args, "l", &n))
+    return NULL;
+  if (n <= 0) {
+    PyErr_SetString(PyExc_ValueError, "rand() argument must be positive");
+    return NULL;
+  }
+  return PyLong_FromLong((long)(random() % n));
+}
+
+/* unixtime() — return current Unix timestamp as an integer */
+static PyObject *py_unixtime(PyObject *self, PyObject *args)
+{
+  return PyLong_FromLong((long)time(NULL));
+}
+
+/* isbotnick already defined above */
+
+/* duration(seconds) — convert seconds to human-readable string */
+static PyObject *py_duration(PyObject *self, PyObject *args)
+{
+  char s[80];
+  unsigned long sec, tmp;
+  long n;
+
+  if (!PyArg_ParseTuple(args, "l", &n))
+    return NULL;
+  if (n <= 0)
+    return PyUnicode_FromString("0 seconds");
+  sec = (unsigned long) n;
+  s[0] = 0;
+  if (sec >= 31536000) {
+    tmp = sec / 31536000; sec -= tmp * 31536000;
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu year%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 604800) {
+    tmp = sec / 604800; sec -= tmp * 604800;
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu week%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 86400) {
+    tmp = sec / 86400; sec -= tmp * 86400;
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu day%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 3600) {
+    tmp = sec / 3600; sec -= tmp * 3600;
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu hour%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 60) {
+    tmp = sec / 60; sec -= tmp * 60;
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu minute%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec > 0)
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu second%s", sec, sec == 1 ? "" : "s");
+  else if (s[0] && s[strlen(s) - 1] == ' ')
+    s[strlen(s) - 1] = 0;   /* strip trailing space */
+  return PyUnicode_FromString(s);
+}
+
+/* maskhost(nick, userhost) — create a standard IRC hostmask from nick!user@host */
+static PyObject *py_maskhost(PyObject *self, PyObject *args)
+{
+  char *userhost, *nick, buf[UHOSTLEN + 16], *at, *dot;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &userhost))
+    return NULL;
+  at = strchr(userhost, '@');
+  if (!at) {
+    /* If only host given, build !*@*.domain */
+    dot = strchr(userhost, '.');
+    if (dot)
+      snprintf(buf, sizeof buf, "*!*@*%s", dot);
+    else
+      snprintf(buf, sizeof buf, "*!*@%s", userhost);
+  } else {
+    /* userhost is user@host */
+    dot = strchr(at + 1, '.');
+    if (dot)
+      snprintf(buf, sizeof buf, "*!*@*%s", dot);
+    else
+      snprintf(buf, sizeof buf, "*!*@%s", at + 1);
+  }
+  (void)nick;  /* nick not used in default mask, kept for compat */
+  return PyUnicode_FromString(buf);
+}
+
+/* ---- IRCX commands (Microsoft IRC extensions / Ophion) --------------- */
+
+/* ircxprop(target, propname[, value])
+ * Get or set an IRCX property on a channel or user.
+ * Without value: sends PROP target propname (server returns current value).
+ * With value:    sends PROP target propname :value (sets the property). */
+static PyObject *py_ircxprop(PyObject *self, PyObject *args)
+{
+  char *target, *prop, *value = NULL;
+
+  if (!PyArg_ParseTuple(args, "ss|s", &target, &prop, &value))
+    return NULL;
+  if (value && value[0])
+    dprintf(DP_SERVER, "PROP %s %s :%s\n", target, prop, value);
+  else
+    dprintf(DP_SERVER, "PROP %s %s\n", target, prop);
+  Py_RETURN_NONE;
+}
+
+/* ircxaccess(channel, action[, level[, mask]])
+ * Manage the IRCX access list for a channel.
+ * action='list'            — retrieve access list (ACCESS channel LIST)
+ * action='add', level, mask — add entry (ACCESS channel ADD level mask)
+ * action='del', mask        — remove entry (ACCESS channel DEL mask) */
+static PyObject *py_ircxaccess(PyObject *self, PyObject *args)
+{
+  char *channel, *action, *level = NULL, *mask = NULL;
+
+  if (!PyArg_ParseTuple(args, "ss|ss", &channel, &action, &level, &mask))
+    return NULL;
+  if (!strcasecmp(action, "list")) {
+    dprintf(DP_SERVER, "ACCESS %s LIST\n", channel);
+  } else if (!strcasecmp(action, "add")) {
+    if (!level || !mask) {
+      PyErr_SetString(PyExc_TypeError, "ircxaccess 'add' requires level and mask");
+      return NULL;
+    }
+    dprintf(DP_SERVER, "ACCESS %s ADD %s %s\n", channel, level, mask);
+  } else if (!strcasecmp(action, "del")) {
+    if (!mask) {
+      PyErr_SetString(PyExc_TypeError, "ircxaccess 'del' requires mask");
+      return NULL;
+    }
+    dprintf(DP_SERVER, "ACCESS %s DEL %s\n", channel, mask);
+  } else {
+    PyErr_SetString(PyExc_ValueError, "ircxaccess: action must be 'list', 'add', or 'del'");
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+/* ircxcreate(channel[, modes]) — send IRCX CREATE to create a channel */
+static PyObject *py_ircxcreate(PyObject *self, PyObject *args)
+{
+  char *channel, *modes = NULL;
+
+  if (!PyArg_ParseTuple(args, "s|s", &channel, &modes))
+    return NULL;
+  if (modes && modes[0])
+    dprintf(DP_SERVER, "CREATE %s %s\n", channel, modes);
+  else
+    dprintf(DP_SERVER, "CREATE %s\n", channel);
+  Py_RETURN_NONE;
+}
+
+/* ircxnegotiate() — send the IRCX negotiate command to enable IRCX mode */
+static PyObject *py_ircxnegotiate(PyObject *self, PyObject *args)
+{
+  dprintf(DP_MODE, "IRCX\n");
+  Py_RETURN_NONE;
+}
+
+/* ---- Server / network helpers ---------------------------------------- */
+
+/* puthelp(text) — queue a raw IRC line to the help/notice queue */
+static PyObject *py_puthelp(PyObject *self, PyObject *args)
+{
+  char *s;
+
+  if (!PyArg_ParseTuple(args, "s", &s))
+    return NULL;
+  dprintf(DP_HELP, "%s\n", s);
+  Py_RETURN_NONE;
+}
+
+/* tagmsg(tag, target) — send an IRCv3 TAGMSG with message-tag(s) */
+static PyObject *py_tagmsg(PyObject *self, PyObject *args)
+{
+  char *tag, *target;
+
+  if (!PyArg_ParseTuple(args, "ss", &tag, &target))
+    return NULL;
+  dprintf(DP_SERVER, "@%s TAGMSG %s\n", tag, target);
+  Py_RETURN_NONE;
+}
+
+/* cap(action, arg) — send IRCv3 CAP commands
+ * action='req', capability — send CAP REQ :capability
+ * action='raw', subcmd    — send a raw CAP subcmd */
+static PyObject *py_cap(PyObject *self, PyObject *args)
+{
+  char *action, *arg;
+
+  if (!PyArg_ParseTuple(args, "ss", &action, &arg))
+    return NULL;
+
+  if (!strcasecmp(action, "req")) {
+    dprintf(DP_SERVER, "CAP REQ :%s\n", arg);
+    Py_RETURN_NONE;
+  }
+  if (!strcasecmp(action, "raw")) {
+    dprintf(DP_SERVER, "CAP %s\n", arg);
+    Py_RETURN_NONE;
+  }
+  PyErr_SetString(PyExc_ValueError, "cap: action must be 'req' or 'raw'");
+  return NULL;
+}
+
 static PyMethodDef MyPyMethods[] = {
     {"bind", py_bind, METH_VARARGS, "register an eggdrop python bind"},
     {"findircuser", py_findircuser, METH_VARARGS, "find an IRC user by nickname and optional channel"},
@@ -707,6 +1164,38 @@ static PyMethodDef MyPyMethods[] = {
     {"chanlist", py_chanlist, METH_VARARGS, "return list of member dicts for a channel"},
     {"botname",  py_botname,  METH_NOARGS,  "return bot's current IRC nickname"},
     {"channels", py_channels, METH_NOARGS,  "return list of channels the bot is on"},
+    /* Channel member status */
+    {"isop",        py_isop,        METH_VARARGS, "return True if nick has op on channel"},
+    {"ishalfop",    py_ishalfop,    METH_VARARGS, "return True if nick has halfop on channel"},
+    {"isvoice",     py_isvoice,     METH_VARARGS, "return True if nick has voice on channel"},
+    {"isaway",      py_isaway,      METH_VARARGS, "return True if nick is marked away on channel"},
+    {"botisop",     py_botisop,     METH_VARARGS, "return True if bot has op on channel"},
+    {"botishalfop", py_botishalfop, METH_VARARGS, "return True if bot has halfop on channel"},
+    {"botisvoice",  py_botisvoice,  METH_VARARGS, "return True if bot has voice on channel"},
+    {"getaccount",  py_getaccount,  METH_VARARGS, "return IRC account name of nick on channel, or None"},
+    /* Handle/nick resolution */
+    {"nick2hand",   py_nick2hand,   METH_VARARGS, "return eggdrop handle for nick on channel, or None"},
+    {"hand2nick",   py_hand2nick,   METH_VARARGS, "return nick of handle on channel, or None"},
+    {"isbotnick",   py_isbotnick,   METH_VARARGS, "return True if nick matches the bot's nickname"},
+    /* User database */
+    {"countusers",  py_countusers,  METH_NOARGS,  "return number of users in the userlist"},
+    {"validuser",   py_validuser,   METH_VARARGS, "return True if handle exists in userlist"},
+    {"finduser",    py_finduser,    METH_VARARGS, "return handle matching nick!user@host, or None"},
+    {"userlist",    py_userlist,    METH_NOARGS,  "return list of all user handles"},
+    /* Miscellaneous */
+    {"rand",        py_rand,        METH_VARARGS, "return random integer in [0, n)"},
+    {"unixtime",    py_unixtime,    METH_NOARGS,  "return current Unix timestamp as integer"},
+    {"duration",    py_duration,    METH_VARARGS, "convert seconds to human-readable string"},
+    {"maskhost",    py_maskhost,    METH_VARARGS, "create IRC hostmask from nick and user@host"},
+    /* IRCX — Microsoft IRC extensions / Ophion */
+    {"ircxprop",      py_ircxprop,      METH_VARARGS, "get/set an IRCX property (PROP target prop [value])"},
+    {"ircxaccess",    py_ircxaccess,    METH_VARARGS, "manage IRCX access list (channel, list|add|del, [level], [mask])"},
+    {"ircxcreate",    py_ircxcreate,    METH_VARARGS, "create an IRCX channel (CREATE channel [modes])"},
+    {"ircxnegotiate", py_ircxnegotiate, METH_NOARGS,  "send IRCX negotiate command to enable IRCX mode"},
+    /* Server / network helpers */
+    {"puthelp",  py_puthelp,  METH_VARARGS, "queue a raw IRC line to the help/notice queue"},
+    {"tagmsg",   py_tagmsg,   METH_VARARGS, "send an IRCv3 TAGMSG (tag, target)"},
+    {"cap",      py_cap,      METH_VARARGS, "send IRCv3 CAP command: cap('req', cap) or cap('raw', subcmd)"},
 #ifdef HAVE_TCL
     {"parse_tcl_list", py_parse_tcl_list, METH_VARARGS, "convert a Tcl list string to a Python list"},
     {"parse_tcl_dict", py_parse_tcl_dict, METH_VARARGS, "convert a Tcl dict string to a Python dict"},
