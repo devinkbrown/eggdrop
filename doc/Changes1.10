@@ -4,6 +4,24 @@ __________________________________________
 
 devinkbrown fork (based on v1.10.1):
 
+  2026-03-16 * configtoml: fix [paths] chanfile (and other module-registered
+               variables) being silently dropped when [paths] appears before
+               [modules] in the config file.  All [paths] key-value pairs are
+               now buffered during parsing and replayed after the full parse
+               loop completes (when all modules are loaded), so variables
+               registered by channels.mod and other modules are always
+               populated regardless of section order.
+
+  2026-03-16 * configtoml/language: add [paths] lang_dir support.  Setting
+               lang_dir = "/path/to/language" overrides the language file
+               search path at runtime.  set_lang_dir() retries any sections
+               whose files were not found under the previous path.  A new
+               prescan_lang_dir() pre-scan reads lang_dir from the config
+               before init_language(1) so language files are found on the
+               very first attempt — eliminating spurious "LANG: No lang files
+               found for section core" messages in dev and non-default-prefix
+               installations.
+
   2026-03-16 * build: no-Tcl build is now fully warning-free.
                All Tcl-only functions and declarations are guarded with
                #ifdef HAVE_TCL across server.mod (server.c, servmsg.c),

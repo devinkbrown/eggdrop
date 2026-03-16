@@ -54,6 +54,16 @@ devinkbrown fork (based on v1.10.1):
       Tcl_TraceVar and BADARGS are now proper no-op stubs.
 
  Bug fixes:
+    - Fixed [paths] section ordering: module-registered variables (e.g.
+      chanfile from channels.mod) were silently dropped when [paths]
+      appeared before [modules] in the config.  All [paths] entries are
+      now buffered and replayed after all modules load, so section order
+      no longer matters.
+    - Added [paths] lang_dir support: set lang_dir = "/path/to/language"
+      to override the language file search path.  A pre-scan applies
+      lang_dir before init_language(1), eliminating spurious "LANG: No
+      lang files found for section core" messages in non-default-prefix
+      and dev-build environments.
     - Fixed three io_uring SQPOLL bugs that prevented IRC registration
       from completing when the SQPOLL kernel thread was active:
       (1) io_uring_submit() was skipped for SQPOLL rings, so SQEs were
