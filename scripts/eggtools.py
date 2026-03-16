@@ -285,6 +285,16 @@ def getaccount(nick: str, channel: str) -> Optional[str]:
     return eggdrop.getaccount(nick, channel)
 
 
+def isidentified(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if nick is logged in to services (account known and set).
+
+    Checks all channels if channel is omitted.
+    """
+    if channel:
+        return bool(eggdrop.isidentified(nick, channel))
+    return bool(eggdrop.isidentified(nick))
+
+
 # ---------------------------------------------------------------------------
 # Handle / nick resolution
 # ---------------------------------------------------------------------------

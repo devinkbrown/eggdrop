@@ -596,6 +596,12 @@ away_notify   = 0     # away-notify: receive AWAY notices for tracked users
 invite_notify = 0     # invite-notify: receive INVITE notifications in channel
 message_tags  = 0     # message-tags: enable IRCv3 message tags
 account_tag   = 0     # account-tag: include account in tagged messages
+echo_message  = 0     # echo-message: receive own sent PRIVMSGs back from server
+
+# Note: batch, labeled-response, msgid, standard-replies, chghost, setname,
+# multi-prefix, userhost-in-names, and Ophion caps (ophion/prop-notify,
+# ophion/multi-prefix, draft/chathistory) are always auto-requested when
+# advertised by the server.
 
 # ── Advanced IRC mode / kick settings ───────────────────────────────────────
 # Number of channel modes to include in each MODE command (default: 3).

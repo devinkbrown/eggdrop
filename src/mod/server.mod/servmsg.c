@@ -1445,6 +1445,41 @@ static int gotsetname(char *from, char *msg)
   return 0;
 }
 
+/* BATCH — IRCv3 batch grouping (RFC-style start/end framing).
+ * Format: BATCH +<refid> <type> [params...]
+ *         BATCH -<refid>
+ *
+ * Eggdrop does not need to buffer batches internally; the individual
+ * messages within a batch (PRIVMSG, NOTICE, etc.) are dispatched
+ * normally by the existing server message handlers.  This handler just
+ * logs the open/close at debug level so it is visible in logs when
+ * needed for troubleshooting (e.g. CHATHISTORY batches from Ophion). */
+static int gotbatch(char *from, char *msg)
+{
+  char *refid = newsplit(&msg);
+
+  if (!refid || !refid[0])
+    return 0;
+  if (refid[0] == '+') {
+    /* Batch open — log type for debugging */
+    char *type = newsplit(&msg);
+    putlog(LOG_DEBUG, "*", "BATCH: open %s type=%s", refid + 1,
+           type && type[0] ? type : "(unknown)");
+  } else if (refid[0] == '-') {
+    putlog(LOG_DEBUG, "*", "BATCH: close %s", refid + 1);
+  }
+  return 0;
+}
+
+/* CHATHISTORY — Ophion scrollback request reply (outside a batch).
+ * In practice Ophion wraps CHATHISTORY replies in BATCH; this handler
+ * is a no-op safety net so the command is not left unrecognised. */
+static int gotchathistory(char *from, char *msg)
+{
+  (void)from; (void)msg;
+  return 0;
+}
+
 /* Got 900: RPL_LOGGEDIN, users account name is set (whether by SASL or otherwise) */
 static int got900(char *from, char *msg)
 {
@@ -1698,6 +1733,9 @@ static int gotcap(char *from, char *msg) {
       } else if (!strcmp(current->name, "message-tags")) {
         if ((message_tags) && (!current->enabled))
           add_req(current->name);
+      } else if (!strcmp(current->name, "echo-message")) {
+        if ((echo_message) && (!current->enabled))
+          add_req(current->name);
       } else if (!strcmp(current->name, "multi-prefix")) {
         if (!current->enabled)
           add_req(current->name);
@@ -1708,6 +1746,28 @@ static int gotcap(char *from, char *msg) {
         if (!current->enabled)
           add_req(current->name);
       } else if (!strcmp(current->name, "setname")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "batch")) {
+        /* IRCv3 batch: needed for labeled-response and chathistory */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "labeled-response")) {
+        /* IRCv3 labeled-response: tag outgoing messages for echo-message
+         * correlation and CHATHISTORY matching */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "msgid")) {
+        /* IRCv3 msgid: unique message IDs for deduplication */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "standard-replies")) {
+        /* IRCv3 standard-replies: structured error responses */
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/chathistory") ||
+                 !strcmp(current->name, "chathistory")) {
+        /* Ophion CHATHISTORY: retrieve scrollback on join */
         if (!current->enabled)
           add_req(current->name);
       } else if (!strcmp(current->name, "ophion/prop-notify")) {
@@ -2220,6 +2280,8 @@ static cmd_t my_raw_binds[] = {
   {"KICK",         "",   (IntFunc) gotkick,         NULL},
   {"CAP",          "",   (IntFunc) gotcap,          NULL},
   {"SETNAME",      "",   (IntFunc) gotsetname,      NULL},
+  {"BATCH",        "",   (IntFunc) gotbatch,        NULL},
+  {"CHATHISTORY",  "",   (IntFunc) gotchathistory,  NULL},
   {NULL,           NULL, NULL,                      NULL}
 };
 

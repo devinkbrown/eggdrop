@@ -163,6 +163,7 @@ static void ircx_do_autoowner(void);
 static int away_notify = 0;
 static int invite_notify = 0;
 static int message_tags = 0;
+static int echo_message = 0;      /* IRCv3 echo-message: receive own sent msgs */
 
 static char cap_request[CAPMAX - 9];
 
@@ -1958,6 +1959,7 @@ static tcl_ints my_tcl_ints[] = {
   {"away-notify",       &away_notify,               0},
   {"invite-notify",     &invite_notify,             0},
   {"message-tags",      &message_tags,              0},
+  {"echo-message",      &echo_message,              0},
   {"extended-join",     &extended_join,             0},
   {"account-notify",    &account_notify,            0},
   {"account-tag",          &account_tag,               0},

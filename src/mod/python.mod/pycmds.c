@@ -1033,6 +1033,32 @@ static PyObject *py_maskhost(PyObject *self, PyObject *args)
   return PyUnicode_FromString(buf);
 }
 
+/* isidentified(nick[, channel]) — True if nick is logged in to services
+ * (account field is set and not "*"). Searches all channels if channel
+ * is omitted. */
+static PyObject *py_isidentified(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  struct chanset_t *ch, *the_chan = NULL;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  if (chan) {
+    the_chan = findchan_by_dname(chan);
+    if (!the_chan)
+      Py_RETURN_FALSE;
+  }
+  for (ch = chanset; ch; ch = ch->next) {
+    if (the_chan && ch != the_chan)
+      continue;
+    m = ismember(ch, nick);
+    if (m && strcmp(m->account, "*") && strcmp(m->account, ""))
+      Py_RETURN_TRUE;
+  }
+  Py_RETURN_FALSE;
+}
+
 /* ---- IRCX commands (Microsoft IRC extensions / Ophion) --------------- */
 
 /* ircxprop(target, propname[, value])
@@ -1173,6 +1199,7 @@ static PyMethodDef MyPyMethods[] = {
     {"botishalfop", py_botishalfop, METH_VARARGS, "return True if bot has halfop on channel"},
     {"botisvoice",  py_botisvoice,  METH_VARARGS, "return True if bot has voice on channel"},
     {"getaccount",  py_getaccount,  METH_VARARGS, "return IRC account name of nick on channel, or None"},
+    {"isidentified", py_isidentified, METH_VARARGS, "return True if nick is logged in to services"},
     /* Handle/nick resolution */
     {"nick2hand",   py_nick2hand,   METH_VARARGS, "return eggdrop handle for nick on channel, or None"},
     {"hand2nick",   py_hand2nick,   METH_VARARGS, "return nick of handle on channel, or None"},
