@@ -188,6 +188,8 @@ static void set_handle_chaninfo(struct userrec *bu, char *handle,
     add_chanrec_by_handle(bu, handle, chname);
     ch = get_chanrec(u, chname);
   }
+  if (!ch)
+    return;
   if (ch->info != NULL)
     nfree(ch->info);
   if (info && info[0]) {

@@ -238,6 +238,8 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
       }
       free_fdbe(&fdbe);
       malloc_strcpy(s, *real);
+      if (!s)
+        fatal("resolve_dir: malloc_strcpy returned NULL", 0);
       if (s[0] && s[strlen(s) - 1] != '/') {
           size_t s_sz = strlen(s) + 2;
           s = nrealloc(s, s_sz);
@@ -495,6 +497,8 @@ static void cmd_reget_get(int idx, char *par, int resend)
         else {
           i = nextbot(bot);
           malloc_strcpy(whoto, par);
+          if (!whoto)
+            fatal("cmd_reget_get: malloc_strcpy returned NULL", 0);
           if (!whoto[0])
             malloc_strcpy(whoto, dcc[idx].nick);
           s = nmalloc(strlen(whoto) + strlen(botnetnick) + 13);
