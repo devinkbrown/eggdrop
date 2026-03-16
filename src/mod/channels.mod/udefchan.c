@@ -72,7 +72,6 @@ static intptr_t ngetudef(char *name, char *chan)
   return 0;
 }
 
-#ifdef HAVE_TCL
 static void setudef(struct udef_struct *us, char *name, intptr_t value)
 {
   struct udef_chans *ul, *ul_last = NULL;
@@ -93,7 +92,6 @@ static void setudef(struct udef_struct *us, char *name, intptr_t value)
   else
     us->values = ul;
 }
-#endif /* HAVE_TCL */
 
 static void initudef(int type, char *name, int defined)
 {
