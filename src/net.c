@@ -1964,9 +1964,9 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     maxfd_r = preparefdset(&fdr, slist, slistmax, tclonly, TCL_READABLE);
 #ifdef EGG_TDNS
     for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-      int fd = dtn->fildes[0];
-      FD_SET(fd, &fdr);
-      if (fd > maxfd_r) maxfd_r = fd;
+      int dns_fd = dtn->fildes[0];
+      FD_SET(dns_fd, &fdr);
+      if (dns_fd > maxfd_r) maxfd_r = dns_fd;
     }
 #endif
     maxfd_w = preparefdset(&fdw, slist, slistmax, 1, TCL_WRITABLE);

@@ -1703,18 +1703,18 @@ void check_botnet_pings(void)
     }
   for (i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_BOT) && (dcc[i].status & STAT_LEAF)) {
-      tand_t *bot, *via = findbot(dcc[i].nick);
+      tand_t *leaf_bot, *leaf_via = findbot(dcc[i].nick);
 
-      for (bot = tandbot; bot; bot = bot->next) {
-        if ((via == bot->via) && (bot != via)) {
+      for (leaf_bot = tandbot; leaf_bot; leaf_bot = leaf_bot->next) {
+        if ((leaf_via == leaf_bot->via) && (leaf_bot != leaf_via)) {
           /* Not leaflike behavior */
           if (dcc[i].status & STAT_WARNED) {
             char s[1024];
 
             dprintf(i, "bye %s\n", BOT_BOTNOTLEAFLIKE);
-            bot = findbot(dcc[i].nick);
-            bots = bots_in_subtree(bot);
-            users = users_in_subtree(bot);
+            leaf_bot = findbot(dcc[i].nick);
+            bots = bots_in_subtree(leaf_bot);
+            users = users_in_subtree(leaf_bot);
             snprintf(s, sizeof s, "%s %s (%s) (lost %d bot%s and %d user%s)",
                      BOT_DISCONNECTED, dcc[i].nick, BOT_BOTNOTLEAFLIKE,
                      bots, (bots != 1) ? "s" : "", users, (users != 1) ?
@@ -1724,7 +1724,7 @@ void check_botnet_pings(void)
             killsock(dcc[i].sock);
             lostdcc(i);
           } else {
-            botnet_send_reject(i, botnetnick, NULL, bot->bot, NULL, NULL);
+            botnet_send_reject(i, botnetnick, NULL, leaf_bot->bot, NULL, NULL);
             dcc[i].status |= STAT_WARNED;
           }
         } else

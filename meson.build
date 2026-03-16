@@ -480,13 +480,14 @@ if _bt != 'plain' and _bt != 'debug'
   add_project_arguments('-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=2', language: 'c')
 endif
 
-# -Wformat=2 -Wformat-security: warn on format-string mismatches and
-# non-literal format arguments, catching printf/scanf-family bugs early.
-foreach _wf : ['-Wformat=2', '-Wformat-security']
-  if cc.has_argument(_wf)
-    add_project_arguments(_wf, language: 'c')
-  endif
-endforeach
+# -Wformat-security: warn when a non-literal format string with no additional
+# arguments is passed to a printf-family function (potential injection vector).
+# Included in -Wall but listed explicitly for clarity.
+# Note: -Wformat=2 is intentionally NOT used — it adds -Wformat-nonliteral which
+# produces 238 spurious warnings from eggdrop's language-string messaging pattern.
+if cc.has_argument('-Wformat-security')
+  add_project_arguments('-Wformat-security', language: 'c')
+endif
 
 # Full RELRO: ask the dynamic linker to map all relocations before dropping
 # privileges, then remap the GOT read-only.  Prevents GOT-overwrite exploits.
@@ -541,6 +542,9 @@ foreach _w : [
   '-Wduplicated-cond',       # if (a) … else if (a) — always same branch
   '-Wlogical-op',            # logical operators where bitwise was likely intended
   '-Wvla',                   # variable-length arrays (stack size uncontrolled)
+  # Note: -Wformat=2 includes -Wformat-nonliteral which triggers 238 false positives
+  # from eggdrop's intentional pattern of passing language-file strings as format args.
+  # -Wformat-security (included in -Wall) covers the genuine security case.
 ]
   if cc.has_argument(_w)
     add_project_arguments(_w, language: 'c')

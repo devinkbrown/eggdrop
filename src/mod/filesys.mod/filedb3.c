@@ -784,7 +784,7 @@ static FILE *filedb_open(char *path, int sort)
       my_free(npath);
       return fdb;
     } else {
-      filedb_top fdbt;
+      filedb_top new_fdbt;
 
       /* Create new database and fix it up */
       fdb = fopen(s, "w+b");
@@ -794,9 +794,9 @@ static FILE *filedb_open(char *path, int sort)
         return NULL;
       }
       lockfile(fdb);
-      fdbt.version = FILEDB_NEWEST_VER;
-      fdbt.timestamp = now;
-      filedb_writetop(fdb, &fdbt);
+      new_fdbt.version = FILEDB_NEWEST_VER;
+      new_fdbt.timestamp = now;
+      filedb_writetop(fdb, &new_fdbt);
       filedb_update(npath, fdb, sort);
       count++;
       my_free(s);

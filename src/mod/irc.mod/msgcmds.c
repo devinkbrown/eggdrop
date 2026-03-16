@@ -384,18 +384,18 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
   also[0] = 0;
   i = 0;
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-    struct userrec *u;
+    struct userrec *mu;
 
     egg_snprintf(s, sizeof s, "%s!%s", m->nick, m->userhost);
     /* Don't use s for host here, b/c if we don't have m, we won't have s */
-    u = get_user_from_member(m);
-    info = get_user(&USERENTRY_INFO, u);
-    if (u && (u->flags & USER_BOT))
+    mu = get_user_from_member(m);
+    info = get_user(&USERENTRY_INFO, mu);
+    if (mu && (mu->flags & USER_BOT))
       info = 0;
     if (info && (info[0] == '@'))
       info++;
-    else if (u) {
-      get_handle_chaninfo(u->handle, chan->dname, s);
+    else if (mu) {
+      get_handle_chaninfo(mu->handle, chan->dname, s);
       if (s[0]) {
         info = s;
         if (info[0] == '@')
@@ -408,8 +408,8 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
       if (match_my_nick(m->nick))
         dprintf(DP_HELP, "NOTICE %s :[%9s] <-- I'm the bot, of course.\n",
                 nick, m->nick);
-      else if (u && (u->flags & USER_BOT)) {
-        if (bot_flags(u) & BOT_SHARE)
+      else if (mu && (mu->flags & USER_BOT)) {
+        if (bot_flags(mu) & BOT_SHARE)
           dprintf(DP_HELP, "NOTICE %s :[%9s] <-- a twin of me\n",
                   nick, m->nick);
         else

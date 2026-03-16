@@ -927,14 +927,14 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   if ((!noshare) && (handle[0] != '*') && (!(flags & USER_UNSHARED)) &&
       (bu == userlist)) {
     struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
-    char x[100];
+    char flags_str[100];
 
     fr.global = u->flags;
 
     fr.udef_global = u->flags_udef;
-    build_flags(x, &fr, 0);
+    build_flags(flags_str, &fr, 0);
     shareout(NULL, "n %s %s %s %s\n", handle, host && host[0] ? host : "none",
-             pass, x);
+             pass, flags_str);
   }
   if (bu == NULL)
     bu = u;

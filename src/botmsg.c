@@ -893,7 +893,7 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
       }
 
       if (aok) {
-        char *p, *fr = from, work[1024];
+        char *fr = from, work[1024];
         int l = 0;
 
         while (*msg == '<' || *msg == '>') {

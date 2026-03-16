@@ -1069,19 +1069,19 @@ void autolink_cycle(char *start)
         }
         if (!cycle && (bfl & BOT_REJECT) && in_chain(u->handle)) {
           /* get rid of nasty reject bot */
-          int i;
+          int bot_idx;
 
-          i = nextbot(u->handle);
-          if ((i >= 0) && !strcasecmp(dcc[i].nick, u->handle)) {
+          bot_idx = nextbot(u->handle);
+          if ((bot_idx >= 0) && !strcasecmp(dcc[bot_idx].nick, u->handle)) {
             char *p = MISC_REJECTED;
 
             /* we're directly connected to the offending bot?! (shudder!) */
-            putlog(LOG_BOTS, "*", "%s bot %s.", p, dcc[i].nick);
-            botnet_send_unlinked(i, dcc[i].nick, p);
-            dprintf(i, "bye %s\n", BOT_REJECTING);
-            killsock(dcc[i].sock);
-            lostdcc(i);
-          } else if ((i < 0) && strcasecmp(botnetnick, u->handle)) {
+            putlog(LOG_BOTS, "*", "%s bot %s.", p, dcc[bot_idx].nick);
+            botnet_send_unlinked(bot_idx, dcc[bot_idx].nick, p);
+            dprintf(bot_idx, "bye %s\n", BOT_REJECTING);
+            killsock(dcc[bot_idx].sock);
+            lostdcc(bot_idx);
+          } else if ((bot_idx < 0) && strcasecmp(botnetnick, u->handle)) {
             /* The bot is not connected, but listed in our tandem list! */
             putlog(LOG_BOTS, "*", "(!) BUG: rejecting not connected bot %s!",
                    u->handle);
