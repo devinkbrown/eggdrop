@@ -24,6 +24,9 @@
 #include "main.h"
 #include "modules.h"
 
+/* This entire file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 extern Tcl_Interp *interp;
 extern struct userrec *userlist;
 extern int default_flags, dcc_total, ignore_time;
@@ -753,3 +756,5 @@ tcl_cmds tcluser_cmds[] = {
   {"setuser",             tcl_setuser},
   {NULL,                         NULL}
 };
+
+#endif /* HAVE_TCL */

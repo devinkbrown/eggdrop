@@ -41,16 +41,18 @@
 #include <stdint.h>
 #include "lush.h"
 
-#ifndef TCL_SIZE_MAX
-    typedef int Tcl_Size;
-# define Tcl_GetSizeIntFromObj Tcl_GetIntFromObj
-# define TCL_SIZE_MAX      INT_MAX
-# define TCL_SIZE_MODIFIER ""
-#endif
-
-#ifndef TCL_PATCH_LEVEL
-#  define TCL_PATCH_LEVEL "*unknown*"
-#endif
+#ifdef HAVE_TCL
+/* Compatibility shims for older Tcl versions that lack these symbols. */
+#  ifndef TCL_SIZE_MAX
+     typedef int Tcl_Size;
+#    define Tcl_GetSizeIntFromObj Tcl_GetIntFromObj
+#    define TCL_SIZE_MAX      INT_MAX
+#    define TCL_SIZE_MODIFIER ""
+#  endif
+#  ifndef TCL_PATCH_LEVEL
+#    define TCL_PATCH_LEVEL "*unknown*"
+#  endif
+#endif /* HAVE_TCL */
 
 #define EGG_CONST const
 

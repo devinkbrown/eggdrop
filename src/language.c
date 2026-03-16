@@ -655,6 +655,19 @@ static int cmd_languagestatus(struct userrec *u, int idx, char *par)
   return 0;
 }
 
+static cmd_t langdcc[] = {
+  {"language", "n",  cmd_loadlanguage,   NULL},
+  {"+lang",    "n",  cmd_plslang,        NULL},
+  {"-lang",    "n",  cmd_mnslang,        NULL},
+  {"+lsec",    "n",  cmd_plslsec,        NULL},
+  {"-lsec",    "n",  cmd_mnslsec,        NULL},
+  {"ldump",    "n",  cmd_languagedump,   NULL},
+  {"lstat",    "n",  cmd_languagestatus, NULL},
+  {"relang",   "n",  cmd_relang,         NULL},
+  {NULL,       NULL, NULL,               NULL}
+};
+
+#ifdef HAVE_TCL
 /* Compatibility function to allow scripts to use the old command.
  */
 static int tcl_language STDVAR
@@ -730,18 +743,6 @@ static int tcl_relang STDVAR
   return TCL_OK;
 }
 
-static cmd_t langdcc[] = {
-  {"language", "n",  cmd_loadlanguage,   NULL},
-  {"+lang",    "n",  cmd_plslang,        NULL},
-  {"-lang",    "n",  cmd_mnslang,        NULL},
-  {"+lsec",    "n",  cmd_plslsec,        NULL},
-  {"-lsec",    "n",  cmd_mnslsec,        NULL},
-  {"ldump",    "n",  cmd_languagedump,   NULL},
-  {"lstat",    "n",  cmd_languagestatus, NULL},
-  {"relang",   "n",  cmd_relang,         NULL},
-  {NULL,       NULL, NULL,               NULL}
-};
-
 static tcl_cmds langtcls[] = {
   {"language",             tcl_language},
   {"addlang",               tcl_plslang},
@@ -751,6 +752,7 @@ static tcl_cmds langtcls[] = {
   {"relang",                 tcl_relang},
   {NULL,                           NULL}
 };
+#endif /* HAVE_TCL */
 
 void init_language(int flag)
 {
@@ -767,7 +769,9 @@ void init_language(int flag)
       add_lang(deflang);
     add_lang_section("core");
   } else {
+#ifdef HAVE_TCL
     add_tcl_commands(langtcls);
+#endif
     add_builtins(H_dcc, langdcc);
   }
 }

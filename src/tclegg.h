@@ -24,7 +24,7 @@
 #ifndef _EGG_TCLEGG_H
 #define _EGG_TCLEGG_H
 
-#include "lush.h"
+#include "lush.h"   /* always: provides Tcl types or stubs */
 
 #ifndef MAKING_MODS
 #  include "proto.h"
@@ -108,7 +108,9 @@ typedef struct timer_str {
 } tcl_timer_t;
 
 
-/* Used for Tcl stub functions */
+/* Used for Tcl stub functions — only meaningful when Tcl is present */
+#ifdef HAVE_TCL
+
 #define STDVAR (ClientData cd, Tcl_Interp *irp, int argc, char *argv[])
 
 #define STDOBJVAR (ClientData cd, Tcl_Interp *irp, int objc, Tcl_Obj *const objv[])
@@ -136,12 +138,18 @@ typedef struct timer_str {
         }                                                               \
 } while (0)
 
+#endif /* HAVE_TCL */
+
 char * add_timer(tcl_timer_t **, int, int, char *, char *, unsigned long);
 int find_timer(tcl_timer_t *, char *);
 int remove_timer(tcl_timer_t **, char *);
+void do_check_timers(tcl_timer_t **);
+/* list_timers and wipe_timers take a Tcl_Interp * but compile in both
+ * configurations because lush.h provides 'typedef void Tcl_Interp' when
+ * Tcl is absent, making the parameter a plain void *.
+ */
 void list_timers(Tcl_Interp *, tcl_timer_t *);
 void wipe_timers(Tcl_Interp *, tcl_timer_t **);
-void do_check_timers(tcl_timer_t **);
 
 typedef struct _tcl_strings {
   char *name;
@@ -188,10 +196,17 @@ int tcl_resultint(void);
 int tcl_resultempty(void);
 int tcl_threaded(void);
 int fork_before_tcl(void);
+/* get_expire_time takes Tcl_Interp * but compiles in both configurations
+ * because lush.h provides a void typedef when Tcl is absent.
+ */
 time_t get_expire_time(Tcl_Interp *, const char *);
 
-/* From Tcl's tclUnixInit.c */
-/* The following table is used to map from Unix locale strings to
+#ifdef HAVE_TCL
+/* Locale → Tcl encoding mapping table; only used by tcl.c during
+ * interpreter initialisation when Tcl is present.
+ *
+ * From Tcl's tclUnixInit.c
+ * The following table is used to map from Unix locale strings to
  * encoding files.
  */
 typedef struct LocaleTable {
@@ -236,5 +251,7 @@ static const LocaleTable localeTable[] = {
 
   {NULL,                  NULL}
 };
+
+#endif /* HAVE_TCL */
 
 #endif /* _EGG_TCLEGG_H */

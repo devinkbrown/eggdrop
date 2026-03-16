@@ -39,6 +39,9 @@
 
 #include "main.h"
 #include "configtoml.h"
+#ifndef HAVE_TCL
+#  include "script.h"
+#endif
 
 #include <ctype.h>
 #include <errno.h>
@@ -78,6 +81,9 @@ static char chanset_ownerkey[128];
 static int  chanset_ircx_create;
 static char chanset_ircx_modes[32];
 static int  chanset_has_ircx;
+
+static void run_tcl_cmd(const char *cmd);   /* forward decl */
+static void set_tcl_var(const char *key, const char *value); /* forward decl */
 
 static void reset_chanset_state(void)
 {
@@ -220,16 +226,20 @@ static void key_to_tclvar(const char *key, char *out, size_t outlen)
 
 static void set_tcl_var(const char *key, const char *value)
 {
+#ifdef HAVE_TCL
   char tclvar[256];
   key_to_tclvar(key, tclvar, sizeof tclvar);
   Tcl_SetVar(interp, tclvar, value, TCL_GLOBAL_ONLY);
+#endif
 }
 
 static void run_tcl_cmd(const char *cmd)
 {
+#ifdef HAVE_TCL
   if (Tcl_Eval(interp, cmd) != TCL_OK)
     putlog(LOG_MISC, "*", "TOML config: Tcl error running '%s': %s",
            cmd, Tcl_GetStringResult(interp));
+#endif
 }
 
 /* -----------------------------------------------------------------------
@@ -421,10 +431,16 @@ static void cb_logfile(const char *entry, void *ud)
 
 static void cb_source(const char *path, void *ud)
 {
-  char cmd[512];
   (void)ud;
-  egg_snprintf(cmd, sizeof cmd, "source %s", path);
-  run_tcl_cmd(cmd);
+#ifdef HAVE_TCL
+  {
+    char cmd[512];
+    egg_snprintf(cmd, sizeof cmd, "source %s", path);
+    run_tcl_cmd(cmd);
+  }
+#else
+  script_load(path);
+#endif
 }
 
 static void cb_loadhelp(const char *file, void *ud)
@@ -802,8 +818,13 @@ int readtomlconfig(const char *fname)
 
   /* ---- Validate required settings ---- */
   {
+#ifdef HAVE_TCL
     const char *nick_val  = Tcl_GetVar(interp, "nick",  TCL_GLOBAL_ONLY);
     const char *owner_val = Tcl_GetVar(interp, "owner", TCL_GLOBAL_ONLY);
+#else
+    const char *nick_val  = NULL;
+    const char *owner_val = NULL;
+#endif
 
     if (!nick_val || !*nick_val) {
       putlog(LOG_MISC, "*",

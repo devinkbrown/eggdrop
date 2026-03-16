@@ -19,6 +19,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 static int tcl_isbotnick STDVAR
 {
   BADARGS(2, 2, " nick");
@@ -859,3 +862,5 @@ static tcl_cmds my_tcl_cmds[] = {
   {"ircxnegotiate", tcl_ircxnegotiate},
   {NULL,         NULL}
 };
+
+#endif /* HAVE_TCL */

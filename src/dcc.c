@@ -2074,6 +2074,7 @@ static int call_tcl_func(char *name, int idx, char *args)
   char s[12];
 
   snprintf(s, sizeof s, "%d", idx);
+#ifdef HAVE_TCL
   Tcl_SetVar(interp, "_n", s, 0);
   Tcl_SetVar(interp, "_a", args, 0);
   if (Tcl_VarEval(interp, name, " $_n $_a", NULL) == TCL_ERROR) {
@@ -2082,6 +2083,9 @@ static int call_tcl_func(char *name, int idx, char *args)
     return -1;
   }
   return tcl_resultint();
+#else
+  return 0;
+#endif /* HAVE_TCL */
 }
 
 static void dcc_script(int idx, char *buf, int len)

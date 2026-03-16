@@ -17,6 +17,7 @@ cc = meson.get_compiler('c')
 # -------------------------------------------------------------------------
 # Build options
 # -------------------------------------------------------------------------
+opt_tcl     = get_option('tcl')
 opt_ipv6    = get_option('ipv6')
 opt_native  = get_option('native-opt')
 opt_tls     = get_option('tls')
@@ -112,74 +113,92 @@ endforeach
 
 
 # -------------------------------------------------------------------------
-# Tcl — required
+# Tcl — optional (enabled by default; disable with -Dtcl=disabled)
 # -------------------------------------------------------------------------
 # Try pkg-config (tcl or tcl9.0), then cmake, then manual library search.
 # Homebrew on macOS installs Tcl 9.0 as a keg-only formula; PKG_CONFIG_PATH
 # must include $(brew --prefix tcl-tk)/lib/pkgconfig for pkg-config to find
 # tcl.pc there.  Both 'tcl' and 'tcl9.0' names are tried for robustness.
-tcl_dep = dependency('tcl', version: '>=8.6', required: false)
-if not tcl_dep.found()
-  tcl_dep = dependency('tcl9.0', required: false)
-endif
-if not tcl_dep.found()
-  tcl_dep = dependency('TCL', version: '>=8.6', required: false, method: 'cmake')
-endif
-if not tcl_dep.found()
-  # Manual fallback: search standard and Homebrew locations.
-  # Homebrew installs Tcl as a keg-only package; the library may be named
-  # libtcl9.0 (Tcl 9.0) or libtcl8.6 (Tcl 8.6).
-  _tcl_lib_dirs = [
-    '/usr/lib', '/usr/local/lib',
-    '/usr/lib/x86_64-linux-gnu',
-    '/usr/lib/aarch64-linux-gnu',
-    '/opt/homebrew/opt/tcl-tk/lib',
-    '/usr/local/opt/tcl-tk/lib',
-  ]
-  tcl_lib = cc.find_library('tcl9.0', dirs: _tcl_lib_dirs, required: false)
-  if not tcl_lib.found()
-    tcl_lib = cc.find_library('tcl8.6', dirs: _tcl_lib_dirs, required: false)
+#
+# When Tcl is not found (or explicitly disabled), HAVE_TCL is not defined and
+# eggdrop builds without any Tcl scripting support.  All existing Tcl scripts
+# remain compatible when Tcl is present — this only affects buildability.
+tcl_dep = dependency('', required: false)  # sentinel: not-found
+if opt_tcl.allowed()
+  tcl_dep = dependency('tcl', version: '>=8.6', required: false)
+  if not tcl_dep.found()
+    tcl_dep = dependency('tcl9.0', required: false)
   endif
-  if not tcl_lib.found()
-    tcl_lib = cc.find_library('tcl', dirs: _tcl_lib_dirs, required: true)
+  if not tcl_dep.found()
+    tcl_dep = dependency('TCL', version: '>=8.6', required: false, method: 'cmake')
   endif
-  # Find tcl.h; Homebrew Tcl 9.0 puts headers in include/tcl9.0/,
-  # Tcl 8.6 in include/tcl8.6/.
-  _tcl_inc_dirs = [
-    '/opt/homebrew/opt/tcl-tk/include/tcl9.0',
-    '/opt/homebrew/opt/tcl-tk/include/tcl8.6',
-    '/opt/homebrew/opt/tcl-tk/include',
-    '/usr/local/opt/tcl-tk/include/tcl9.0',
-    '/usr/local/opt/tcl-tk/include/tcl8.6',
-    '/usr/local/opt/tcl-tk/include',
-    '/usr/include/tcl9.0',
-    '/usr/include/tcl8.6',
-    '/usr/local/include/tcl9.0',
-    '/usr/local/include/tcl8.6',
-    '/usr/include',
-    '/usr/local/include',
-  ]
-  tcl_h = cc.find_header('tcl.h', dirs: _tcl_inc_dirs, required: true)
-  # tcl_h.found() is true here (would have errored above otherwise).
-  # We pass all candidate dirs as include paths; the compiler finds the
-  # right one.  Non-existent dirs are silently ignored by the compiler.
-  tcl_inc = include_directories(
-    '/opt/homebrew/opt/tcl-tk/include/tcl9.0',
-    '/opt/homebrew/opt/tcl-tk/include/tcl8.6',
-    '/opt/homebrew/opt/tcl-tk/include',
-    '/usr/local/opt/tcl-tk/include/tcl9.0',
-    '/usr/local/opt/tcl-tk/include/tcl8.6',
-    '/usr/local/opt/tcl-tk/include',
-    '/usr/include/tcl9.0',
-    '/usr/include/tcl8.6',
-    '/usr/local/include/tcl9.0',
-    '/usr/local/include/tcl8.6',
-  )
-  tcl_dep = declare_dependency(dependencies: tcl_lib,
-                               include_directories: tcl_inc)
+  if not tcl_dep.found()
+    # Manual fallback: search standard and Homebrew locations.
+    # Homebrew installs Tcl as a keg-only package; the library may be named
+    # libtcl9.0 (Tcl 9.0) or libtcl8.6 (Tcl 8.6).
+    _tcl_lib_dirs = [
+      '/usr/lib', '/usr/local/lib',
+      '/usr/lib/x86_64-linux-gnu',
+      '/usr/lib/aarch64-linux-gnu',
+      '/opt/homebrew/opt/tcl-tk/lib',
+      '/usr/local/opt/tcl-tk/lib',
+    ]
+    tcl_lib = cc.find_library('tcl9.0', dirs: _tcl_lib_dirs, required: false)
+    if not tcl_lib.found()
+      tcl_lib = cc.find_library('tcl8.6', dirs: _tcl_lib_dirs, required: false)
+    endif
+    if not tcl_lib.found()
+      tcl_lib = cc.find_library('tcl', dirs: _tcl_lib_dirs, required: opt_tcl)
+    endif
+    if tcl_lib.found()
+      # Find tcl.h; Homebrew Tcl 9.0 puts headers in include/tcl9.0/,
+      # Tcl 8.6 in include/tcl8.6/.
+      _tcl_inc_dirs = [
+        '/opt/homebrew/opt/tcl-tk/include/tcl9.0',
+        '/opt/homebrew/opt/tcl-tk/include/tcl8.6',
+        '/opt/homebrew/opt/tcl-tk/include',
+        '/usr/local/opt/tcl-tk/include/tcl9.0',
+        '/usr/local/opt/tcl-tk/include/tcl8.6',
+        '/usr/local/opt/tcl-tk/include',
+        '/usr/include/tcl9.0',
+        '/usr/include/tcl8.6',
+        '/usr/local/include/tcl9.0',
+        '/usr/local/include/tcl8.6',
+        '/usr/include',
+        '/usr/local/include',
+      ]
+      tcl_h = cc.find_header('tcl.h', dirs: _tcl_inc_dirs, required: opt_tcl)
+      if tcl_h.found()
+        # We pass all candidate dirs as include paths; the compiler finds the
+        # right one.  Non-existent dirs are silently ignored by the compiler.
+        tcl_inc = include_directories(
+          '/opt/homebrew/opt/tcl-tk/include/tcl9.0',
+          '/opt/homebrew/opt/tcl-tk/include/tcl8.6',
+          '/opt/homebrew/opt/tcl-tk/include',
+          '/usr/local/opt/tcl-tk/include/tcl9.0',
+          '/usr/local/opt/tcl-tk/include/tcl8.6',
+          '/usr/local/opt/tcl-tk/include',
+          '/usr/include/tcl9.0',
+          '/usr/include/tcl8.6',
+          '/usr/local/include/tcl9.0',
+          '/usr/local/include/tcl8.6',
+        )
+        tcl_dep = declare_dependency(dependencies: tcl_lib,
+                                     include_directories: tcl_inc)
+      endif
+    endif
+  endif
 endif
-# TCL_VERSION is defined by tcl.h itself; do not define it in config.h to
-# avoid a macro redefinition conflict when Tcl 9.x headers are used.
+
+have_tcl = tcl_dep.found()
+if have_tcl
+  # TCL_VERSION is defined by tcl.h itself; do not define it in config.h to
+  # avoid a macro redefinition conflict when Tcl 9.x headers are used.
+  cdata.set('HAVE_TCL', 1)
+  message('Tcl scripting: enabled')
+else
+  message('Tcl scripting: disabled (build without -DHAVE_TCL)')
+endif
 
 # -------------------------------------------------------------------------
 # TLS / OpenSSL — optional

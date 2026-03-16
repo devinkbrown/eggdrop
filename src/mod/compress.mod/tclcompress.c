@@ -25,6 +25,9 @@
 
 #define NEXT_ARG { curr_arg++; argc--; }
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 static int tcl_compress_file STDVAR
 {
   int mode_num = compress_level, result, curr_arg = 1;
@@ -114,3 +117,5 @@ static tcl_cmds my_tcl_cmds[] = {
   {"iscompressed",      tcl_iscompressed},
   {NULL,                            NULL}
 };
+
+#endif /* HAVE_TCL */

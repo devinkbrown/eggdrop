@@ -251,6 +251,7 @@ static int cmd_assoc(struct userrec *u, int idx, char *par)
   return 0;
 }
 
+#ifdef HAVE_TCL
 static int tcl_killassoc STDVAR
 {
   int chan;
@@ -307,6 +308,13 @@ static int tcl_assoc STDVAR
   Tcl_AppendResult(irp, name, NULL);
   return TCL_OK;
 }
+
+static tcl_cmds mytcl[] = {
+  {"assoc",         tcl_assoc},
+  {"killassoc", tcl_killassoc},
+  {NULL,                 NULL}
+};
+#endif /* HAVE_TCL */
 
 static void zapf_assoc(char *botnick, char *code, char *par)
 {
@@ -375,19 +383,15 @@ static cmd_t mylink[] = {
   {NULL, NULL, NULL,                     NULL}
 };
 
-static tcl_cmds mytcl[] = {
-  {"assoc",         tcl_assoc},
-  {"killassoc", tcl_killassoc},
-  {NULL,                 NULL}
-};
-
 static char *assoc_close(void)
 {
   kill_all_assoc();
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_bot, mybot);
   rem_builtins(H_link, mylink);
+#ifdef HAVE_TCL
   rem_tcl_commands(mytcl);
+#endif
   rem_help_reference("assoc.help");
   del_lang_section("assoc");
   module_undepend(MODULE_NAME);
@@ -417,7 +421,9 @@ char *assoc_start(Function *global_funcs)
   add_builtins(H_bot, mybot);
   add_builtins(H_link, mylink);
   add_lang_section("assoc");
+#ifdef HAVE_TCL
   add_tcl_commands(mytcl);
+#endif
   add_help_reference("assoc.help");
   return NULL;
 }

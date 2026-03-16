@@ -1,3 +1,6 @@
+option('tcl', type: 'feature', value: 'auto',
+  description: 'Enable Tcl scripting support (requires Tcl >= 8.6)')
+
 option('ipv6', type: 'boolean', value: true,
   description: 'Enable IPv6 support')
 

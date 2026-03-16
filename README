@@ -225,10 +225,14 @@ SYSTEM PRE-REQUISITES
   usually packaged as 'tcl-dev' or 'tcl-devel'. Source is available at
   https://www.tcl.tk/software/tcltk/download.html.
 
-  Note: Tcl is still required to build and run Eggdrop even when using
-  the new TOML config format, because Tcl is used for the scripting
-  engine and module API. The TOML format only removes the need to know
-  Tcl when writing the configuration file.
+  Tcl is optional in this fork.  To build without Tcl and use Python
+  as the sole scripting engine:
+
+      meson setup builddir/ -Dtcl=disabled
+      ninja -C builddir/
+
+  With Tcl disabled, python.mod is automatically used for all scripts
+  listed in the [scripts] TOML section.  See PYTHON SCRIPTING below.
 
   OpenSSL (and its development headers) is required to enable SSL/TLS
   protection of network data. Headers are usually packaged as
@@ -251,7 +255,7 @@ MINIMUM REQUIREMENTS
   Build system (required)         Meson               0.57.0
   Build system (required)         Ninja               Any recent
 
-  Tcl interpreter (required)      Tcl Dev Library     8.6.0
+  Tcl interpreter (optional)      Tcl Dev Library     8.6.0
 
   Secure communication            OpenSSL             1.0.0
 
@@ -261,6 +265,10 @@ MINIMUM REQUIREMENTS
 
   I/O: IOCP (Windows native)      Windows SDK         Windows 7+
   -----------------------------------------------------------------------
+
+  Note: Tcl is now optional.  Python 3.8+ is sufficient to run scripts
+  when Tcl is not installed.  At least one of Tcl or Python must be
+  present in the build for scripting support.
 
 CONFIGURATION
 
@@ -328,6 +336,58 @@ CONFIGURATION
 
   The bot auto-detects the format by file extension (.toml vs. anything
   else). The default config file name is now eggdrop.toml.
+
+PYTHON SCRIPTING
+
+  This fork provides full Python scripting support as a modern
+  alternative (or replacement) for Tcl.  Scripts can use the built-in
+  eggdrop module and the helper library scripts/eggtools.py.
+
+  BUILDING WITHOUT TCL:
+
+      meson setup builddir/ -Dtcl=disabled
+      ninja -C builddir/
+
+  LIST SCRIPTS IN YOUR TOML CONFIG:
+
+      [scripts]
+      load = ["scripts/myscript.py"]
+
+  MINIMAL EXAMPLE:
+
+      import eggtools
+
+      @eggtools.on_pub("!hello", "*")
+      def greet(nick, host, handle, channel, text):
+          eggtools.privmsg(channel, f"Hello, {nick}!")
+
+  EGGTOOLS.PY HIGHLIGHTS:
+
+      · Decorator-based bind registration: @on_pub, @on_msg, @on_join,
+        @on_part, @on_kick, @on_mode, @on_nick, @on_sign, @on_notc,
+        @on_ctcp, @on_raw, @on_time, @on_cron, @on_dcc, @on_evnt
+      · IRC output: privmsg, notice, action, kick, mode, topic, join,
+        part, ctcp, ctcp_reply, putserv, putquick, putnow, putdcc,
+        puthelp, tagmsg
+      · Channel queries: channels, isonchan, getchanhost, chanlist,
+        isop, ishalfop, isvoice, isaway, botisop, botishalfop,
+        botisvoice, getaccount, nick2hand, hand2nick
+      · User database: countusers, validuser, findhandle, userlist
+      · Utilities: rand, unixtime, duration, maskhost, hostmatch,
+        testip, randstring, ordnumber
+      · Timer helper: every(interval_seconds, fn) — cron-bind wrapper
+      · IRCv3: cap_req, tagmsg
+      · IRCX/Ophion: ircxprop, ircxaccess, ircxcreate, ircxnegotiate
+      · alltools.tcl aliases: putmsg, putchan, putnotc, putact,
+        strlwr, strupr, strlen, strcmp, stricmp
+
+  MEMBER DATACLASS:
+
+      members = eggtools.chanlist("#mychan")
+      for m in members:
+          print(m.nick, m.host, m.account)
+
+  See scripts/eggtools.py for the full API with docstrings.
 
 QUICK STARTUP
 

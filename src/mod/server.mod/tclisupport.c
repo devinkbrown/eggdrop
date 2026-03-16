@@ -21,6 +21,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 int tcl_isupport STDOBJVAR;
 static int tcl_isupport_get STDOBJVAR;
 static int tcl_isupport_isset STDOBJVAR;
@@ -202,3 +205,5 @@ int check_tcl_isupport(struct isupport *data, const char *key, const char *value
   return BIND_EXEC_LOG == check_tcl_bind(H_isupport, key, 0, " $_isupport1 $_isupport2 $_isupport3",
       MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
 }
+
+#endif /* HAVE_TCL */

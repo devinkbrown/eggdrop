@@ -21,6 +21,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 static int tcl_getdesc STDVAR
 {
   char *s = NULL;
@@ -693,3 +696,5 @@ static tcl_cmds mytcls[] = {
   {"setflags",   tcl_setflags},
   {NULL,         NULL}
 };
+
+#endif /* HAVE_TCL */

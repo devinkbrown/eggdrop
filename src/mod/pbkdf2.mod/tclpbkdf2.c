@@ -7,6 +7,9 @@
  * Copyright (C) 2017 - 2025 Eggheads Development Team
  */
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 #include <openssl/err.h>
 
 static char *pbkdf2_encrypt(const char *);
@@ -67,3 +70,5 @@ static tcl_cmds my_tcl_cmds[] = {
   {"pbkdf2",   tcl_pbkdf2},
   {NULL,       NULL}
 };
+
+#endif /* HAVE_TCL */

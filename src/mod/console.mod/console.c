@@ -141,6 +141,7 @@ static void console_tcl_format(char *work, struct console_info *i)
                  i->page, i->conchan);
 }
 
+#ifdef HAVE_TCL
 static int console_tcl_get(Tcl_Interp *irp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
 {
@@ -196,6 +197,7 @@ static int console_tcl_set(Tcl_Interp *irp, struct userrec *u,
   set_user(&USERENTRY_CONSOLE, u, i);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 static int console_expmem(struct user_entry *e)
 {
@@ -244,12 +246,21 @@ static struct user_entry_type USERENTRY_CONSOLE = {
   console_kill,
   NULL,
   console_set,
+#ifdef HAVE_TCL
   console_tcl_get,
   console_tcl_set,
+#else
+  NULL,
+  NULL,
+#endif /* HAVE_TCL */
   console_expmem,
   console_display,
   "CONSOLE",
+#ifdef HAVE_TCL
   console_tcl_append
+#else
+  NULL
+#endif /* HAVE_TCL */
 };
 
 static int console_chon(char *handle, int idx)

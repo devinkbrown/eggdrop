@@ -39,6 +39,9 @@
 #include <datetime.h>
 #include "src/mod/server.mod/server.h"
 #include "python.h"
+#ifndef HAVE_TCL
+#  include "src/script.h"
+#endif
 
 static PyObject *pirp, *pglobals;
 
@@ -242,7 +245,13 @@ char *python_start(Function *global_funcs)
 
   /* Add command table to bind list */
   add_builtins(H_dcc, mydcc);
+#ifdef HAVE_TCL
   add_tcl_commands(my_tcl_cmds);
+#else
+  /* Register as the default script engine for no-Tcl builds */
+  script_register(python_script_call, python_script_load);
+  python_callbacks = PyDict_New();
+#endif
   add_hook(HOOK_PRE_SELECT, (Function)python_gil_unlock);
   add_hook(HOOK_POST_SELECT, (Function)python_gil_lock);
   return NULL;

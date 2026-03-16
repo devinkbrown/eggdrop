@@ -19,6 +19,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 static int tcl_pysource STDVAR
 {
   FILE *fp;
@@ -127,3 +130,5 @@ static tcl_cmds my_tcl_cmds[] = {
   {"pysource",  tcl_pysource},
   {NULL,        NULL}
 };
+
+#endif /* HAVE_TCL */

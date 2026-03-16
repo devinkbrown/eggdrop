@@ -273,6 +273,7 @@ void dcc_dnshostbyip(sockname_t *ip)
 static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other)
 {
   devent_tclinfo_t *tclinfo = (devent_tclinfo_t *) other;
+#ifdef HAVE_TCL
   Tcl_DString list;
 
   Tcl_DStringInit(&list);
@@ -300,6 +301,7 @@ static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other
   }
 
   Tcl_DStringFree(&list);
+#endif /* HAVE_TCL */
 
   nfree(tclinfo->proc);
   if (tclinfo->paras)
@@ -702,6 +704,7 @@ int expmem_dns(void)
 }
 
 
+#ifdef HAVE_TCL
 /*
  *   Tcl functions
  */
@@ -744,3 +747,4 @@ tcl_cmds tcldns_cmds[] = {
   {"dnslookup", tcl_dnslookup},
   {NULL,                 NULL}
 };
+#endif /* HAVE_TCL */

@@ -99,6 +99,7 @@ static void tell_who(struct userrec *u, int idx, int chan)
             "^ = halfop)\n", BOT_PARTYMEMBS);
   else {
     snprintf(s, sizeof s, "assoc %d", chan);
+#ifdef HAVE_TCL
     if ((Tcl_Eval(interp, s) != TCL_OK) || tcl_resultempty())
       dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
@@ -107,6 +108,11 @@ static void tell_who(struct userrec *u, int idx, int chan)
       dprintf(idx, "%s '%s' (%s%d): (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, tcl_resultstring(),
               (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
+#else
+    dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
+            "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
+            "*", chan % GLOBAL_CHANS);
+#endif /* HAVE_TCL */
   }
 
   /* calculate max nicklen */
@@ -308,11 +314,13 @@ static void cmd_whom(struct userrec *u, int idx, char *par)
     int chan = -1;
 
     if ((par[0] < '0') || (par[0] > '9')) {
+#ifdef HAVE_TCL
       Tcl_SetVar(interp, "_chan", par, 0);
       if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
           !tcl_resultempty()) {
         chan = tcl_resultint();
       }
+#endif /* HAVE_TCL */
       if (chan <= 0) {
         dprintf(idx, "No such channel exists.\n");
         return;
@@ -2426,11 +2434,13 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
         if (!arg[1])
           newchan = 0;
         else {
+#ifdef HAVE_TCL
           Tcl_SetVar(interp, "_chan", arg, 0);
           if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
               !tcl_resultempty())
             newchan = tcl_resultint();
           else
+#endif /* HAVE_TCL */
             newchan = -1;
         }
         if (newchan < 0) {
@@ -2449,6 +2459,7 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
         if (!strcasecmp(arg, "on"))
           newchan = 0;
         else {
+#ifdef HAVE_TCL
           Tcl_SetVar(interp, "_chan", arg, 0);
           if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
               !tcl_resultempty()) {
@@ -2458,6 +2469,7 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
             }
           }
           else
+#endif /* HAVE_TCL */
             newchan = -1;
         }
         if (newchan < 0) {
@@ -2845,6 +2857,7 @@ static void cmd_page(struct userrec *u, int idx, char *par)
  */
 static void cmd_tcl(struct userrec *u, int idx, char *msg)
 {
+#ifdef HAVE_TCL
   struct rusage ru1, ru2;
   int r = 0;
   int code;
@@ -2876,12 +2889,16 @@ static void cmd_tcl(struct userrec *u, int idx, char *msg)
     dumplots(idx, "Tcl error: ", result);
 
   Tcl_DStringFree(&dstr);
+#else
+  dprintf(idx, "Tcl scripting support is not compiled in.\n");
+#endif /* HAVE_TCL */
 }
 
 /* Perform a 'set' command
  */
 static void cmd_set(struct userrec *u, int idx, char *msg)
 {
+#ifdef HAVE_TCL
   int code;
   char s[512], *result;
   Tcl_DString dstr;
@@ -2914,6 +2931,9 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
     dprintf(idx, "Error: %s\n", result);
 
   Tcl_DStringFree(&dstr);
+#else
+  dprintf(idx, "Tcl scripting support is not compiled in.\n");
+#endif /* HAVE_TCL */
 }
 
 static void cmd_module(struct userrec *u, int idx, char *par)

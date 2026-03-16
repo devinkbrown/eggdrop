@@ -40,11 +40,18 @@ p_tcl_bind_list bind_table_list;
  * garbage_collect_tclhash() uses this to skip the traversal when nothing
  * has changed, turning the common idle case into an O(1) check. */
 static int tclhash_dirty = 0;
+
+/* Bind-table head pointers; always present (NULL when Tcl is disabled). */
 p_tcl_bind_list H_chat, H_act, H_bcst, H_chon, H_chof, H_load, H_unld, H_link,
                 H_disc, H_dcc, H_chjn, H_chpt, H_bot, H_time, H_nkch, H_away,
                 H_note, H_filt, H_event, H_die, H_cron, H_log = NULL;
 #ifdef TLS
 p_tcl_bind_list H_tls = NULL;
+#endif
+
+#ifdef HAVE_TCL  /* ---- All Tcl-API-dependent tclhash code below ---- */
+
+#ifdef TLS
 static int builtin_idx STDVAR;
 #endif
 
@@ -1418,3 +1425,811 @@ void rem_builtins(tcl_bind_list_t *table, cmd_t *cc)
     nfree(l);
   }
 }
+
+#else /* !HAVE_TCL — full bind/dispatch system without Tcl */
+
+extern cmd_t C_dcc[];
+
+/*
+ * No-Tcl bind system.
+ *
+ * The bind table data structures (tcl_bind_list_t / tcl_bind_mask_t /
+ * tcl_cmd_t) are identical to the Tcl build; only the dispatch layer is
+ * different.  Instead of calling Tcl_VarEval the native path calls:
+ *
+ *   tc->native_fn(tc->native_cd, argv, argc)   — for C builtins
+ *   script_call(tc->func_name, argc, argv)      — for script callbacks
+ *
+ * argv[] is reconstructed from the "param" string passed to check_tcl_bind.
+ * Module bind-helper functions call Tcl_SetVar before check_tcl_bind; those
+ * calls are routed to egg_setvar() (via the macro in lush.h) so the values
+ * are available here when we parse the param string.
+ */
+
+#include "script.h"
+
+/* ---- memory helpers (mirrors the Tcl-build helpers above) --------------- */
+
+static void *n_malloc_null_notcl(int size)
+{
+  void *ptr = nmalloc(size);
+  egg_bzero(ptr, size);
+  return ptr;
+}
+#define nmalloc_null(size) n_malloc_null_notcl(size)
+
+static void tcl_cmd_delete(tcl_cmd_t *tc)
+{
+  nfree(tc->func_name);
+  nfree(tc);
+}
+
+static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
+{
+  tcl_cmd_t *tc, *tc_next;
+  for (tc = tm->first; tc; tc = tc_next) {
+    tc_next = tc->next;
+    tcl_cmd_delete(tc);
+  }
+  nfree(tm->mask);
+  nfree(tm);
+}
+
+static void tcl_bind_list_delete(tcl_bind_list_t *tl)
+{
+  tcl_bind_mask_t *tm, *tm_next;
+  for (tm = tl->first; tm; tm = tm_next) {
+    tm_next = tm->next;
+    tcl_bind_mask_delete(tm);
+  }
+  nfree(tl);
+}
+
+void garbage_collect_tclhash(void)
+{
+  tcl_bind_list_t *tl, *tl_next, *tl_prev;
+  tcl_bind_mask_t *tm, *tm_next, *tm_prev;
+  tcl_cmd_t *tc, *tc_next, *tc_prev;
+
+  if (!tclhash_dirty)
+    return;
+  tclhash_dirty = 0;
+
+  for (tl = bind_table_list, tl_prev = NULL; tl; tl = tl_next) {
+    tl_next = tl->next;
+    if (tl->flags & HT_DELETED) {
+      if (tl_prev) tl_prev->next = tl->next;
+      else         bind_table_list = tl->next;
+      tcl_bind_list_delete(tl);
+    } else {
+      for (tm = tl->first, tm_prev = NULL; tm; tm = tm_next) {
+        tm_next = tm->next;
+        if (!(tm->flags & TBM_DELETED)) {
+          for (tc = tm->first, tc_prev = NULL; tc; tc = tc_next) {
+            tc_next = tc->next;
+            if (tc->attributes & TC_DELETED) {
+              if (tc_prev) tc_prev->next = tc->next;
+              else         tm->first = tc->next;
+              tcl_cmd_delete(tc);
+            } else {
+              tc_prev = tc;
+            }
+          }
+          tm_prev = tm;
+        } else {
+          if (tm_prev) tm_prev->next = tm->next;
+          else         tl->first = tm->next;
+          tcl_bind_mask_delete(tm);
+        }
+      }
+      tl_prev = tl;
+    }
+  }
+}
+
+int expmem_tclhash(void)
+{
+  int tot = 0;
+  tcl_bind_list_t *tl;
+  tcl_bind_mask_t *tm;
+  tcl_cmd_t *tc;
+
+  for (tl = bind_table_list; tl; tl = tl->next) {
+    tot += sizeof(*tl);
+    for (tm = tl->first; tm; tm = tm->next) {
+      tot += sizeof(*tm) + strlen(tm->mask) + 1;
+      for (tc = tm->first; tc; tc = tc->next)
+        tot += sizeof(*tc) + strlen(tc->func_name) + 1;
+    }
+  }
+  return tot;
+}
+
+/* ---- DCC native trampoline ---------------------------------------------- */
+
+/* Called by check_tcl_bind for C DCC builtin entries.
+ * argv[0] = handle, argv[1] = sock-as-string, argv[2] = args */
+static int native_dcc_call(void *cd, const char **argv, int argc)
+{
+  void (*F)(struct userrec *, int, char *) = cd;
+  int idx;
+
+  if (argc < 3)
+    return 0;
+  idx = findidx(atoi(argv[1]));
+  if (idx < 0)
+    return 0;
+  F(dcc[idx].user, idx, (char *) argv[2]);
+  return 0;
+}
+
+/* ---- bind table management --------------------------------------------- */
+
+tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
+{
+  tcl_bind_list_t *tl, *tl_prev;
+  int v;
+
+  Assert(strlen(nme) <= 15);
+
+  for (tl = bind_table_list, tl_prev = NULL; tl; tl_prev = tl, tl = tl->next) {
+    if (tl->flags & HT_DELETED)
+      continue;
+    v = strcasecmp(tl->name, nme);
+    if (!v)
+      return tl;
+    if (v > 0)
+      break;
+  }
+
+  tl = nmalloc_null(sizeof *tl);
+  strlcpy(tl->name, nme, sizeof tl->name);
+  tl->flags = flg;
+  tl->func  = func;   /* native trampoline (e.g. native_dcc_call) or NULL */
+  tl->first = NULL;
+
+  if (tl_prev) {
+    tl->next      = tl_prev->next;
+    tl_prev->next = tl;
+  } else {
+    tl->next      = bind_table_list;
+    bind_table_list = tl;
+  }
+  tclhash_dirty = 1;
+  return tl;
+}
+
+void del_bind_table(tcl_bind_list_t *tl_which)
+{
+  if (!tl_which)
+    return;
+  tl_which->flags |= HT_DELETED;
+  tclhash_dirty = 1;
+}
+
+tcl_bind_list_t *find_bind_table(const char *nme)
+{
+  tcl_bind_list_t *tl;
+  for (tl = bind_table_list; tl; tl = tl->next)
+    if (!(tl->flags & HT_DELETED) && !strcasecmp(tl->name, nme))
+      return tl;
+  return NULL;
+}
+
+void kill_bind(void)
+{
+  tcl_bind_list_t *tl, *tl_next;
+  for (tl = bind_table_list; tl; tl = tl_next) {
+    tl_next = tl->next;
+    tcl_bind_list_delete(tl);
+  }
+  H_log = NULL;
+  bind_table_list = NULL;
+}
+
+/* Pre-create all standard bind tables so find_bind_table() works before
+ * modules are loaded.  Module-local H_pub etc. are set when modules call
+ * add_bind_table themselves (the duplicate check in add_bind_table returns
+ * the pre-existing entry). */
+void init_bind(void)
+{
+  bind_table_list = NULL;
+
+  /* Core tables (with native trampolines where applicable) */
+  H_dcc   = add_bind_table("dcc",   0,            (IntFunc) native_dcc_call);
+  H_filt  = add_bind_table("filt",  HT_STACKABLE, NULL);
+  H_unld  = add_bind_table("unld",  HT_STACKABLE, NULL);
+  H_load  = add_bind_table("load",  HT_STACKABLE, NULL);
+  H_link  = add_bind_table("link",  HT_STACKABLE, NULL);
+  H_disc  = add_bind_table("disc",  HT_STACKABLE, NULL);
+  H_nkch  = add_bind_table("nkch",  HT_STACKABLE, NULL);
+  H_away  = add_bind_table("away",  HT_STACKABLE, NULL);
+  H_chat  = add_bind_table("chat",  HT_STACKABLE, NULL);
+  H_act   = add_bind_table("act",   HT_STACKABLE, NULL);
+  H_bcst  = add_bind_table("bcst",  HT_STACKABLE, NULL);
+  H_chon  = add_bind_table("chon",  HT_STACKABLE, NULL);
+  H_chof  = add_bind_table("chof",  HT_STACKABLE, NULL);
+  H_bot   = add_bind_table("bot",   0,            NULL);
+  H_event = add_bind_table("evnt",  HT_STACKABLE, NULL);
+  H_log   = add_bind_table("log",   HT_STACKABLE, NULL);
+  H_die   = add_bind_table("die",   HT_STACKABLE, NULL);
+
+  /* Module bind tables — pre-created so find_bind_table() succeeds before
+   * irc.mod / server.mod are loaded and register their own H_pub etc.     */
+  add_bind_table("msg",      0,            NULL);
+  add_bind_table("msgm",     HT_STACKABLE, NULL);
+  add_bind_table("pub",      0,            NULL);
+  add_bind_table("pubm",     HT_STACKABLE, NULL);
+  add_bind_table("join",     HT_STACKABLE, NULL);
+  add_bind_table("part",     HT_STACKABLE, NULL);
+  add_bind_table("nick",     HT_STACKABLE, NULL);
+  add_bind_table("kick",     HT_STACKABLE, NULL);
+  add_bind_table("mode",     HT_STACKABLE, NULL);
+  add_bind_table("sign",     HT_STACKABLE, NULL);
+  add_bind_table("topc",     HT_STACKABLE, NULL);
+  add_bind_table("notc",     HT_STACKABLE, NULL);
+  add_bind_table("raw",      HT_STACKABLE, NULL);
+  add_bind_table("rawt",     HT_STACKABLE, NULL);
+  add_bind_table("ctcp",     HT_STACKABLE, NULL);
+  add_bind_table("ctcr",     HT_STACKABLE, NULL);
+  add_bind_table("flud",     HT_STACKABLE, NULL);
+  add_bind_table("wall",     HT_STACKABLE, NULL);
+  add_bind_table("note",     0,            NULL);
+  add_bind_table("time",     HT_STACKABLE, NULL);
+  add_bind_table("cron",     HT_STACKABLE, NULL);
+  add_bind_table("invt",     HT_STACKABLE, NULL);
+  add_bind_table("need",     HT_STACKABLE, NULL);
+  add_bind_table("splt",     HT_STACKABLE, NULL);
+  add_bind_table("rejn",     HT_STACKABLE, NULL);
+  add_bind_table("ircaway",  HT_STACKABLE, NULL);
+  add_bind_table("account",  HT_STACKABLE, NULL);
+  add_bind_table("chghost",  HT_STACKABLE, NULL);
+  add_bind_table("isupport", HT_STACKABLE, NULL);
+  add_bind_table("out",      HT_STACKABLE, NULL);
+  add_bind_table("monitor",  HT_STACKABLE, NULL);
+  add_bind_table("stdreply", HT_STACKABLE, NULL);
+  add_bind_table("rcvd",     HT_STACKABLE, NULL);
+  add_bind_table("sent",     HT_STACKABLE, NULL);
+  add_bind_table("lost",     HT_STACKABLE, NULL);
+  add_bind_table("tout",     HT_STACKABLE, NULL);
+  add_bind_table("fil",      0,            NULL);
+  add_bind_table("chanset",  HT_STACKABLE, NULL);
+  add_bind_table("ccht",     HT_STACKABLE, NULL);
+  add_bind_table("cmsg",     HT_STACKABLE, NULL);
+  add_bind_table("htgt",     HT_STACKABLE, NULL);
+  add_bind_table("wspr",     HT_STACKABLE, NULL);
+  add_bind_table("wspm",     HT_STACKABLE, NULL);
+  add_bind_table("rmst",     HT_STACKABLE, NULL);
+  add_bind_table("usst",     HT_STACKABLE, NULL);
+  add_bind_table("usrntc",   HT_STACKABLE, NULL);
+  add_bind_table("chpt",     HT_STACKABLE, NULL);
+  add_bind_table("chjn",     HT_STACKABLE, NULL);
+
+  add_builtins(H_dcc, C_dcc);
+}
+
+/* ---- entry management -------------------------------------------------- */
+
+static tcl_bind_mask_t *find_or_add_mask(tcl_bind_list_t *tl, const char *mask)
+{
+  tcl_bind_mask_t *tm;
+  for (tm = tl->first; tm; tm = tm->next)
+    if (!(tm->flags & TBM_DELETED) && !strcmp(tm->mask, mask))
+      return tm;
+  tm = nmalloc_null(sizeof *tm);
+  tm->mask  = nstrdup(mask);
+  tm->next  = tl->first;
+  tl->first = tm;
+  return tm;
+}
+
+int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
+                    const char *cmd, const char *proc)
+{
+  tcl_bind_mask_t *tm;
+  tcl_cmd_t *tc;
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+
+  if (!tl || !cmd || !proc)
+    return 0;
+  break_down_flags(flags ? flags : "", &fr, NULL);
+
+  tm = find_or_add_mask(tl, cmd);
+
+  /* Check for duplicate */
+  for (tc = tm->first; tc; tc = tc->next)
+    if (!(tc->attributes & TC_DELETED) && !strcmp(tc->func_name, proc))
+      return 1;
+
+  tc = nmalloc_null(sizeof *tc);
+  tc->flags     = fr;
+  tc->func_name = nstrdup(proc);
+  tc->next      = tm->first;
+  tm->first     = tc;
+  tclhash_dirty = 1;
+  return 1;
+}
+
+int unbind_bind_entry(tcl_bind_list_t *tl, const char *flags,
+                      const char *cmd, const char *proc)
+{
+  tcl_bind_mask_t *tm;
+  tcl_cmd_t *tc;
+
+  if (!tl || !cmd || !proc)
+    return 0;
+  for (tm = tl->first; tm; tm = tm->next) {
+    if (tm->flags & TBM_DELETED)
+      continue;
+    if (strcmp(tm->mask, cmd))
+      continue;
+    for (tc = tm->first; tc; tc = tc->next) {
+      if (!(tc->attributes & TC_DELETED) && !strcmp(tc->func_name, proc)) {
+        tc->attributes |= TC_DELETED;
+        tclhash_dirty = 1;
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
+/* ---- check_bind helpers (mirrors Tcl-build versions) ------------------- */
+
+static int check_bind_match(const char *match, char *mask, int match_type)
+{
+  switch (match_type & 0x07) {
+  case MATCH_PARTIAL: return !strncasecmp(match, mask, strlen(match));
+  case MATCH_EXACT:   return !strcasecmp(match, mask);
+  case MATCH_CASE:    return !strcmp(match, mask);
+  case MATCH_MASK:    return wild_match_per(mask, match);
+  case MATCH_MODE:    return wild_match_partial_case(mask, match);
+  case MATCH_CRON:    return cron_match(mask, match);
+  default:            return 0;
+  }
+}
+
+static int check_bind_flags(struct flag_record *flags, struct flag_record *atr,
+                             int match_type)
+{
+  if (match_type & BIND_USE_ATTR) {
+    if (match_type & BIND_HAS_BUILTINS)
+      return flagrec_ok(flags, atr);
+    else
+      return flagrec_eq(flags, atr);
+  }
+  return 1;
+}
+
+/* Build argv[] from the param string (e.g. " $_dcc1 $_dcc2 $_dcc3").
+ * Each "$_varname" token is looked up in egg_vars[].
+ * Returns the number of args placed into argv[]. */
+static int build_argv(const char *param, const char **argv, int maxargc)
+{
+  char pbuf[2048];
+  char *tok, *brkt;
+  int argc = 0;
+
+  if (!param || !*param)
+    return 0;
+  strlcpy(pbuf, param, sizeof pbuf);
+  tok = strtok_r(pbuf, " ", &brkt);
+  while (tok && argc < maxargc) {
+    if (tok[0] == '$' && tok[1] == '_')
+      argv[argc++] = egg_getvar(tok + 1);   /* skip leading '$' */
+    tok = strtok_r(NULL, " ", &brkt);
+  }
+  return argc;
+}
+
+/* ---- core dispatcher --------------------------------------------------- */
+
+int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
+                   struct flag_record *atr, const char *param, int match_type)
+{
+  const char *argv[16];
+  int argc, cnt = 0, result = 0, finish = 0, x;
+  tcl_bind_mask_t *tm;
+  tcl_cmd_t *tc, *htc = NULL;
+
+  if (!tl)
+    return BIND_NOMATCH;
+
+  /* Reconstruct argv from param string (reads egg_vars populated by
+   * Tcl_SetVar stubs before this call). */
+  argc = build_argv(param, argv, 16);
+
+  for (tm = tl->first; tm && !finish; tm = tm->next) {
+    if (tm->flags & TBM_DELETED)
+      continue;
+    if (!check_bind_match(match, tm->mask, match_type))
+      continue;
+
+    for (tc = tm->first; tc; tc = tc->next) {
+      if (tc->attributes & TC_DELETED)
+        continue;
+      if (!check_bind_flags(&tc->flags, atr, match_type))
+        continue;
+
+      cnt++;
+
+      if (!(match_type & BIND_STACKABLE)) {
+        /* Non-stackable: remember best match, dispatch once below */
+        htc   = tc;
+        (void) tm->mask;  /* mask noted, not needed for native dispatch */
+        if ((match_type & 0x07) != MATCH_PARTIAL ||
+            !strcasecmp(match, tm->mask)) {
+          cnt    = 1;
+          finish = 1;
+        }
+        break;
+      }
+
+      /* Stackable: dispatch immediately */
+      tc->hits++;
+      if (tc->native_fn) {
+        x = ((int (*)(void *, const char **, int)) tc->native_fn)
+              (tc->native_cd, argv, argc);
+      } else {
+        x = script_call(tc->func_name, argc, argv);
+      }
+
+      if ((match_type & BIND_STACKRET) && x > 0) {
+        if (!result)
+          result = BIND_EXEC_LOG;
+      }
+    }
+  }
+
+  if (!cnt)
+    return result ? result : BIND_NOMATCH;
+
+  if (result)
+    return result;
+
+  if ((match_type & 0x07) == MATCH_MASK ||
+      (match_type & 0x07) == MATCH_CASE)
+    return BIND_EXECUTED;
+
+  if (cnt > 1)
+    return BIND_AMBIGUOUS;
+
+  if (!htc)
+    return BIND_NOMATCH;
+
+  htc->hits++;
+  if (htc->native_fn) {
+    x = ((int (*)(void *, const char **, int)) htc->native_fn)
+          (htc->native_cd, argv, argc);
+    return x ? BIND_EXEC_LOG : BIND_EXECUTED;
+  }
+  x = script_call(htc->func_name, argc, argv);
+  return x ? BIND_EXEC_LOG : BIND_EXECUTED;
+}
+
+/* ---- add_builtins / rem_builtins --------------------------------------- */
+
+void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
+{
+  int i;
+  char key[256];
+  tcl_bind_mask_t *tm;
+  tcl_cmd_t *tc;
+  struct flag_record fr;
+
+  if (!tl)
+    return;
+  for (i = 0; cc[i].name; i++) {
+    egg_snprintf(key, sizeof key, "*%s:%s", tl->name,
+                 cc[i].funcname ? cc[i].funcname : cc[i].name);
+
+    egg_bzero(&fr, sizeof fr);
+    fr.match = FR_GLOBAL | FR_CHAN;
+    break_down_flags(cc[i].flags ? cc[i].flags : "", &fr, NULL);
+
+    tm = find_or_add_mask(tl, cc[i].name);
+
+    /* Skip if already registered */
+    for (tc = tm->first; tc; tc = tc->next)
+      if (!(tc->attributes & TC_DELETED) && !strcmp(tc->func_name, key))
+        goto next_cmd;
+
+    tc = nmalloc_null(sizeof *tc);
+    tc->flags     = fr;
+    tc->func_name = nstrdup(key);
+    tc->native_fn = tl->func;         /* type-specific trampoline */
+    tc->native_cd = (void *) cc[i].func;  /* actual C handler       */
+    tc->next      = tm->first;
+    tm->first     = tc;
+    tclhash_dirty = 1;
+
+  next_cmd:;
+  }
+}
+
+void rem_builtins(tcl_bind_list_t *tl, cmd_t *cc)
+{
+  int i;
+  char key[256];
+
+  if (!tl)
+    return;
+  for (i = 0; cc[i].name; i++) {
+    egg_snprintf(key, sizeof key, "*%s:%s", tl->name,
+                 cc[i].funcname ? cc[i].funcname : cc[i].name);
+    unbind_bind_entry(tl, cc[i].flags, cc[i].name, key);
+  }
+}
+
+int check_validity(char *fn, IntFunc func)
+{
+  return 1;
+}
+
+void tell_binds(int idx, char *par)
+{
+  tcl_bind_list_t *tl;
+  tcl_bind_mask_t *tm;
+  tcl_cmd_t *tc;
+
+  for (tl = bind_table_list; tl; tl = tl->next) {
+    if (tl->flags & HT_DELETED)
+      continue;
+    for (tm = tl->first; tm; tm = tm->next) {
+      if (tm->flags & TBM_DELETED)
+        continue;
+      for (tc = tm->first; tc; tc = tc->next) {
+        if (tc->attributes & TC_DELETED)
+          continue;
+        dprintf(idx, "%-10s %-10s %s\n", tl->name, tm->mask, tc->func_name);
+      }
+    }
+  }
+}
+
+/* ---- check_tcl_* implementations --------------------------------------- */
+
+int check_tcl_dcc(const char *cmd, int idx, const char *args)
+{
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  char s[11];
+  int x;
+
+  get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
+  egg_snprintf(s, sizeof s, "%ld", dcc[idx].sock);
+  egg_setvar("_dcc1", (char *) dcc[idx].nick);
+  egg_setvar("_dcc2", s);
+  egg_setvar("_dcc3", (char *) args);
+  x = check_tcl_bind(H_dcc, cmd, &fr, " $_dcc1 $_dcc2 $_dcc3",
+                     MATCH_PARTIAL | BIND_USE_ATTR | BIND_HAS_BUILTINS);
+  if (x == BIND_AMBIGUOUS) {
+    dprintf(idx, "%s", MISC_AMBIGUOUS);
+    return 0;
+  }
+  if (x == BIND_NOMATCH) {
+    dprintf(idx, "%s", MISC_NOSUCHCMD);
+    return 0;
+  }
+  if (x == BIND_EXEC_LOG)
+    putlog(LOG_CMDS, "*", "#%s# %s %s", dcc[idx].nick, cmd, args);
+  return 0;
+}
+
+void check_tcl_bot(const char *nick, const char *code, const char *param)
+{
+  egg_setvar("_bot1", (char *) nick);
+  egg_setvar("_bot2", (char *) code);
+  egg_setvar("_bot3", (char *) param);
+  check_tcl_bind(H_bot, code, 0, " $_bot1 $_bot2 $_bot3", MATCH_EXACT);
+}
+
+void check_tcl_chonof(char *hand, int sock, tcl_bind_list_t *tl)
+{
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  char s[11];
+  struct userrec *u;
+
+  u = get_user_by_handle(userlist, hand);
+  touch_laston(u, "partyline", now);
+  get_user_flagrec(u, &fr, NULL);
+  egg_setvar("_chonof1", hand);
+  egg_snprintf(s, sizeof s, "%d", sock);
+  egg_setvar("_chonof2", s);
+  check_tcl_bind(tl, hand, &fr, " $_chonof1 $_chonof2",
+                 MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_WANTRET);
+}
+
+void check_tcl_chatactbcst(const char *from, int chan, const char *text,
+                            tcl_bind_list_t *tl)
+{
+  char s[11];
+  egg_setvar("_cab1", (char *) from);
+  egg_snprintf(s, sizeof s, "%d", chan);
+  egg_setvar("_cab2", s);
+  egg_setvar("_cab3", (char *) text);
+  check_tcl_bind(tl, text, 0, " $_cab1 $_cab2 $_cab3",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_nkch(const char *ohand, const char *nhand)
+{
+  egg_setvar("_nkch1", (char *) ohand);
+  egg_setvar("_nkch2", (char *) nhand);
+  check_tcl_bind(H_nkch, ohand, 0, " $_nkch1 $_nkch2",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_link(const char *bot, const char *via)
+{
+  egg_setvar("_link1", (char *) bot);
+  egg_setvar("_link2", (char *) via);
+  check_tcl_bind(H_link, bot, 0, " $_link1 $_link2",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_disc(const char *bot)
+{
+  egg_setvar("_disc1", (char *) bot);
+  check_tcl_bind(H_disc, bot, 0, " $_disc1",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+const char *check_tcl_filt(int idx, const char *text)
+{
+  /* Filter binds may modify text; without a script return original. */
+  egg_setvar("_filt1", int_to_base10(idx));
+  egg_setvar("_filt2", (char *) text);
+  check_tcl_bind(H_filt, text, 0, " $_filt1 $_filt2",
+                 MATCH_MASK | BIND_STACKABLE);
+  return text;
+}
+
+int check_tcl_note(const char *from, const char *to, const char *text)
+{
+  egg_setvar("_note1", (char *) from);
+  egg_setvar("_note2", (char *) to);
+  egg_setvar("_note3", (char *) text);
+  return check_tcl_bind(H_note, to, 0, " $_note1 $_note2 $_note3",
+                         MATCH_EXACT | BIND_STACKABLE) != BIND_NOMATCH;
+}
+
+void check_tcl_listen(const char *cmd, int idx)
+{
+  egg_setvar("_listen1", (char *) cmd);
+  egg_setvar("_listen2", int_to_base10(idx));
+  check_tcl_bind(find_bind_table("listen"), cmd, 0,
+                 " $_listen1 $_listen2", MATCH_EXACT | BIND_STACKABLE);
+}
+
+void check_tcl_time_and_cron(struct tm *t)
+{
+  char y[5], mo[3], d[3], h[3], mi[3];
+  tcl_bind_list_t *H_time = find_bind_table("time");
+  tcl_bind_list_t *H_cron = find_bind_table("cron");
+
+  egg_snprintf(y,  sizeof y,  "%04d", t->tm_year + 1900);
+  egg_snprintf(mo, sizeof mo, "%02d", t->tm_mon + 1);
+  egg_snprintf(d,  sizeof d,  "%02d", t->tm_mday);
+  egg_snprintf(h,  sizeof h,  "%02d", t->tm_hour);
+  egg_snprintf(mi, sizeof mi, "%02d", t->tm_min);
+
+  egg_setvar("_time1", mi);
+  egg_setvar("_time2", h);
+  egg_setvar("_time3", d);
+  egg_setvar("_time4", mo);
+  egg_setvar("_time5", y);
+  check_tcl_bind(H_time, y, 0, " $_time1 $_time2 $_time3 $_time4 $_time5",
+                 MATCH_MASK | BIND_STACKABLE);
+
+  egg_setvar("_cron1", mi);
+  egg_setvar("_cron2", h);
+  egg_setvar("_cron3", d);
+  egg_setvar("_cron4", mo);
+  check_tcl_bind(H_cron, t->tm_wday == 0 ? "7" : int_to_base10(t->tm_wday),
+                 0, " $_cron1 $_cron2 $_cron3 $_cron4",
+                 MATCH_CRON | BIND_STACKABLE);
+}
+
+void check_tcl_away(const char *bot, int idx, const char *msg)
+{
+  char s[11];
+  egg_setvar("_away1", (char *) bot);
+  egg_snprintf(s, sizeof s, "%d", idx);
+  egg_setvar("_away2", s);
+  egg_setvar("_away3", (char *) (msg ? msg : ""));
+  check_tcl_bind(H_away, bot, 0, " $_away1 $_away2 $_away3",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_event(const char *event)
+{
+  egg_setvar("_event1", (char *) event);
+  check_tcl_bind(H_event, event, 0, " $_event1",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_event_arg(const char *event, const char *arg)
+{
+  egg_setvar("_event1", (char *) event);
+  egg_setvar("_event2", (char *) (arg ? arg : ""));
+  check_tcl_bind(H_event, event, 0, " $_event1 $_event2",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+int check_tcl_signal(const char *event)
+{
+  egg_setvar("_event1", (char *) event);
+  return check_tcl_bind(H_event, event, 0, " $_event1",
+                         MATCH_EXACT | BIND_STACKABLE) != BIND_NOMATCH;
+}
+
+void check_tcl_die(char *reason)
+{
+  egg_setvar("_die1", reason);
+  check_tcl_bind(H_die, reason, 0, " $_die1",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_log(int ltype, char *chan, char *msg)
+{
+  tcl_bind_list_t *H_log_tbl = find_bind_table("log");
+  char s[11];
+  egg_snprintf(s, sizeof s, "%d", ltype);
+  egg_setvar("_log1", s);
+  egg_setvar("_log2", chan ? chan : "*");
+  egg_setvar("_log3", msg ? msg : "");
+  check_tcl_bind(H_log_tbl, chan ? chan : "*", 0,
+                 " $_log1 $_log2 $_log3", MATCH_MASK | BIND_STACKABLE);
+}
+
+void check_tcl_chjn(const char *bot, const char *nick, int chan,
+                    char type, int sock, const char *host)
+{
+  tcl_bind_list_t *H_chjn = find_bind_table("chjn");
+  char s1[11], s2[11], s3[2];
+  egg_setvar("_chjn1", (char *) bot);
+  egg_setvar("_chjn2", (char *) nick);
+  egg_snprintf(s1, sizeof s1, "%d", chan);
+  egg_setvar("_chjn3", s1);
+  s3[0] = type; s3[1] = '\0';
+  egg_setvar("_chjn4", s3);
+  egg_snprintf(s2, sizeof s2, "%d", sock);
+  egg_setvar("_chjn5", s2);
+  egg_setvar("_chjn6", (char *) host);
+  check_tcl_bind(H_chjn, bot, 0,
+                 " $_chjn1 $_chjn2 $_chjn3 $_chjn4 $_chjn5 $_chjn6",
+                 MATCH_EXACT | BIND_STACKABLE);
+}
+
+void check_tcl_chpt(const char *bot, const char *hand, int sock, int chan)
+{
+  tcl_bind_list_t *H_chpt = find_bind_table("chpt");
+  char s1[11], s2[11];
+  egg_setvar("_chpt1", (char *) bot);
+  egg_setvar("_chpt2", (char *) hand);
+  egg_snprintf(s1, sizeof s1, "%d", sock);
+  egg_setvar("_chpt3", s1);
+  egg_snprintf(s2, sizeof s2, "%d", chan);
+  egg_setvar("_chpt4", s2);
+  check_tcl_bind(H_chpt, bot, 0, " $_chpt1 $_chpt2 $_chpt3 $_chpt4",
+                 MATCH_EXACT | BIND_STACKABLE);
+}
+
+void check_tcl_loadunld(const char *mod, tcl_bind_list_t *tbl)
+{
+  egg_setvar("_lu1", (char *) mod);
+  check_tcl_bind(tbl, mod, 0, " $_lu1",
+                 MATCH_MASK | BIND_STACKABLE);
+}
+
+#ifdef TLS
+int check_tcl_tls(int sock)
+{
+  tcl_bind_list_t *H_tls = find_bind_table("tls");
+  egg_setvar("_tls1", int_to_base10(sock));
+  return check_tcl_bind(H_tls, int_to_base10(sock), 0, " $_tls1",
+                         MATCH_MASK | BIND_STACKABLE) != BIND_NOMATCH;
+}
+#endif
+
+#endif /* HAVE_TCL */

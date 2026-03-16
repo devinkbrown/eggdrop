@@ -22,6 +22,9 @@
 
 /* Streamlined by answer.
  */
+/* This file requires Tcl — skip compilation when Tcl is disabled. */
+#ifdef HAVE_TCL
+
 static int tcl_chanlist STDVAR
 {
   int f;
@@ -1298,3 +1301,5 @@ static tcl_cmds tclchan_cmds[] = {
   {"isowner",        tcl_isowner},
   {NULL,             NULL}
 };
+
+#endif /* HAVE_TCL */

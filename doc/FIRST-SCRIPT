@@ -1,3 +1,10 @@
+Writing an Eggdrop Script
+
+Eggdrop supports two scripting languages: Tcl and Python.  If you built
+without Tcl (meson setup -Dtcl=disabled) or simply prefer Python, see
+the PYTHON EXAMPLE section at the bottom of this file.  The rest of this
+document covers Tcl.
+
 Writing an Eggdrop Tcl Script
 
 So you want to write an Eggdrop Tcl script, but you don't really know
@@ -230,6 +237,45 @@ If you want to try these out, join #eggdrop on Libera and check your
 answers (and remember, there are dozens of ways to do this, so a) don't
 be defensive of your choices, and b) take others' answers with a grain
 of salt!)
+
+  <br>
+
+PYTHON EXAMPLE
+==============
+
+The same greet-on-join script written in Python using eggtools.py:
+
+    # greet.py — greet users on join
+    import eggtools
+
+    GREET_PUBLIC = 0   # 0 = public, 1 = private message
+
+    @eggtools.on_join("*", "-|-")
+    def on_join(nick, host, handle, channel):
+        if eggtools.isbotnick(nick):
+            return
+        if GREET_PUBLIC:
+            eggtools.privmsg(nick, f"Welcome to {channel}, {nick}!")
+        else:
+            eggtools.privmsg(channel, f"Welcome, {nick}!")
+
+To load it, add it to your TOML config:
+
+    [scripts]
+    load = ["scripts/greet.py"]
+
+Or reload without restarting:
+
+    .python import importlib, greet; importlib.reload(greet)
+
+Key differences from Tcl:
+-   Bind registration uses Python decorators instead of 'bind join - * proc'.
+-   Variable names are plain Python (nick, host, handle, channel).
+-   eggtools.privmsg() replaces 'putserv "PRIVMSG $dest :$text"'.
+-   isbotnick() replaces checking $botnick directly.
+-   The @on_join decorator maps to eggdrop.bind("join", flags, mask, fn).
+
+For a full API reference, see scripts/eggtools.py and doc/python.doc.
 
   <br>
 

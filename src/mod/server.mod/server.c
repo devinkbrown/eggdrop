@@ -163,6 +163,7 @@ static void ircx_do_autoowner(void);
 static int away_notify = 0;
 static int invite_notify = 0;
 static int message_tags = 0;
+static int echo_message = 0;      /* IRCv3 echo-message: receive own sent msgs */
 
 static char cap_request[CAPMAX - 9];
 
@@ -1367,6 +1368,7 @@ static void monitor_clear(void)
   }
 }
 
+#ifdef HAVE_TCL
 static int server_6char STDVAR
 {
   IntFunc F = (IntFunc) cd;
@@ -1478,6 +1480,7 @@ static int monitor_2char STDVAR
   ((void (*)(char *, char *)) F)(argv[1], argv[2]);
   return TCL_OK;
 }
+#endif /* HAVE_TCL */
 
 /* Read/write normal string variable.
  */
@@ -1956,6 +1959,7 @@ static tcl_ints my_tcl_ints[] = {
   {"away-notify",       &away_notify,               0},
   {"invite-notify",     &invite_notify,             0},
   {"message-tags",      &message_tags,              0},
+  {"echo-message",      &echo_message,              0},
   {"extended-join",     &extended_join,             0},
   {"account-notify",    &account_notify,            0},
   {"account-tag",          &account_tag,               0},
@@ -2437,6 +2441,7 @@ static char *server_close(void)
     monitor_heap = NULL;
   }
   /* Restore original commands. */
+#ifdef HAVE_TCL
   del_bind_table(H_wall);
   del_bind_table(H_raw);
   del_bind_table(H_rawt);
@@ -2449,10 +2454,12 @@ static char *server_close(void)
   del_bind_table(H_out);
   del_bind_table(H_monitor);
   del_bind_table(H_stdreply);
+#endif /* HAVE_TCL */
   rem_tcl_coups(my_tcl_coups);
   rem_tcl_strings(my_tcl_strings);
   rem_tcl_ints(my_tcl_ints);
   rem_help_reference("server.help");
+#ifdef HAVE_TCL
   rem_tcl_commands(my_tcl_cmds);
   Tcl_UntraceVar(interp, "nick",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -2475,6 +2482,7 @@ static char *server_close(void)
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_nicklen, NULL);
   tcl_untraceserver("servers", NULL);
+#endif
   empty_msgq();
   del_hook(HOOK_SECONDLY, (Function) server_secondly);
   del_hook(HOOK_5MINUTELY, (Function) server_5minutely);
@@ -2638,6 +2646,7 @@ char *server_start(Function *global_funcs)
     return "This module requires Eggdrop 1.8.0 or later.";
   }
 
+#ifdef HAVE_TCL
   /* Fool bot in reading the values. */
   tcl_eggserver(NULL, interp, "servers", NULL, 0);
   tcl_traceserver("servers", NULL);
@@ -2676,6 +2685,20 @@ char *server_start(Function *global_funcs)
   H_out = add_bind_table("out", HT_STACKABLE, server_out);
   H_monitor = add_bind_table("monitor", HT_STACKABLE, monitor_2char);
   H_stdreply = add_bind_table("stdreply", HT_STACKABLE, server_stdreply);
+#else /* !HAVE_TCL — look up pre-created tables from init_bind() */
+  H_wall     = find_bind_table("wall");
+  H_raw      = find_bind_table("raw");
+  H_rawt     = find_bind_table("rawt");
+  H_notc     = find_bind_table("notc");
+  H_msgm     = find_bind_table("msgm");
+  H_msg      = find_bind_table("msg");
+  H_flud     = find_bind_table("flud");
+  H_ctcr     = find_bind_table("ctcr");
+  H_ctcp     = find_bind_table("ctcp");
+  H_out      = find_bind_table("out");
+  H_monitor  = find_bind_table("monitor");
+  H_stdreply = find_bind_table("stdreply");
+#endif /* HAVE_TCL */
   isupport_init();
   add_builtins(H_raw, my_raw_binds);
   add_builtins(H_rawt, my_rawt_binds);
@@ -2686,7 +2709,9 @@ char *server_start(Function *global_funcs)
   my_tcl_strings[0].buf = botname;
   add_tcl_strings(my_tcl_strings);
   add_tcl_ints(my_tcl_ints);
+#ifdef HAVE_TCL
   add_tcl_commands(my_tcl_cmds);
+#endif
   add_tcl_coups(my_tcl_coups);
   add_hook(HOOK_SECONDLY, (Function) server_secondly);
   add_hook(HOOK_5MINUTELY, (Function) server_5minutely);

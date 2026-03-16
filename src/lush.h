@@ -4,5 +4,117 @@
  * resolve the Tcl header path at configure time.  With the Meson build the
  * Tcl include directory is added to the compiler search path directly, so
  * we can include tcl.h by its canonical name.
+ *
+ * When Tcl is not available (HAVE_TCL not defined) this header provides
+ * minimal type stubs so the rest of the codebase compiles cleanly.  Any
+ * function that actually calls into the Tcl API must be guarded with
+ * #ifdef HAVE_TCL in its own translation unit.
  */
-#include <tcl.h>
+#ifndef _LUSH_H
+#define _LUSH_H
+
+#ifdef HAVE_TCL
+#  include <tcl.h>
+#else
+/* -----------------------------------------------------------------------
+ * Minimal Tcl type stubs for no-Tcl builds.
+ *
+ * These let declarations such as
+ *   extern Tcl_Interp *interp;
+ *   void foo(Tcl_Interp *irp, ...);
+ * compile without the real tcl.h.  Actual calls to Tcl_* functions are
+ * guarded by #ifdef HAVE_TCL in their respective translation units.
+ * ----------------------------------------------------------------------- */
+#  include <limits.h>   /* INT_MAX */
+
+typedef void           Tcl_Interp;
+typedef void          *ClientData;
+typedef void           Tcl_Obj;
+typedef int            Tcl_Size;
+/* Tcl_FileProc: callable type used in tclsock_handler / net.c */
+typedef void (Tcl_FileProc)(ClientData clientData, int mask);
+/* Tcl_DString: dynamic string (used in userent.c) */
+typedef struct {
+  char *string;
+  int length;
+  int spaceAvl;
+  char staticSpace[200];
+} Tcl_DString;
+/* Tcl_DictSearch: opaque iterator (used in servmsg.c) */
+typedef struct { void *p1; void *p2; void *p3; } Tcl_DictSearch;
+
+#  define TCL_SIZE_MAX      INT_MAX
+#  define TCL_SIZE_MODIFIER ""
+#  define TCL_PATCH_LEVEL   "*none*"
+#  define TCL_OK            0
+#  define TCL_ERROR         1
+#  define TCL_GLOBAL_ONLY   1
+#  define TCL_CONST86
+/* Tcl socket event mask bits (from tcl.h) */
+#  define TCL_READABLE      (1<<1)
+#  define TCL_WRITABLE      (1<<2)
+#  define TCL_EXCEPTION     (1<<3)
+/* Tcl result constants */
+#  define TCL_STATIC        ((void (*)(char *)) 0)
+#  define TCL_DYNAMIC       ((void (*)(char *)) 3)
+/* Tcl variable trace flags */
+#  define TCL_TRACE_READS      0x10
+#  define TCL_TRACE_WRITES     0x20
+#  define TCL_TRACE_UNSETS     0x40
+#  define TCL_TRACE_DESTROYED  0x80
+
+/* -----------------------------------------------------------------------
+ * Tcl API function stubs for no-Tcl builds.
+ *
+ * Tcl_SetVar / Tcl_SetVar2 forward to egg_setvar() so the bind-dispatch
+ * variable store is populated; all other Tcl calls are safe no-ops.
+ * egg_setvar / egg_getvar are implemented in src/script.c.
+ * ----------------------------------------------------------------------- */
+#  include <string.h>   /* strcpy, strlen */
+void        egg_setvar(const char *name, const char *value);
+const char *egg_getvar(const char *name);
+
+#  define Tcl_SetVar(irp,name,val,fl)      egg_setvar(name, val)
+#  define Tcl_SetVar2(irp,n,k,val,fl)      egg_setvar(n, val)
+#  define Tcl_GetVar(irp,name,fl)          egg_getvar(name)
+#  define Tcl_GetVar2(irp,n,k,fl)          egg_getvar(n)
+#  define Tcl_UnsetVar(irp,name,fl)        ((void)0)
+#  define Tcl_UnsetVar2(irp,n,k,fl)        ((void)0)
+#  define Tcl_AppendResult(irp,...)        ((void)0)
+#  define Tcl_SetResult(irp,str,fl)        ((void)0)
+#  define Tcl_ResetResult(irp)             ((void)0)
+#  define Tcl_GetStringResult(irp)         ((const char *)"")
+#  define Tcl_VarEval(...)                 TCL_ERROR
+#  define Tcl_Eval(irp,s)                  TCL_ERROR
+#  define Tcl_EvalFile(irp,f)              TCL_ERROR
+#  define Tcl_NewStringObj(s,l)            ((Tcl_Obj *)NULL)
+#  define Tcl_NewListObj(c,v)              ((Tcl_Obj *)NULL)
+#  define Tcl_NewDictObj()                 ((Tcl_Obj *)NULL)
+#  define Tcl_NewObj()                     ((Tcl_Obj *)NULL)
+#  define Tcl_GetString(o)                 ((char *)"")
+#  define Tcl_GetStringFromObj(o,l)        ((const char *)"")
+#  define Tcl_IncrRefCount(o)              ((void)0)
+#  define Tcl_DecrRefCount(o)              ((void)0)
+#  define Tcl_DictObjPut(irp,d,k,v)       TCL_ERROR
+#  define Tcl_DictObjFirst(irp,...)        TCL_ERROR
+#  define Tcl_DictObjNext(s,k,v,d)        ((void)0)
+#  define Tcl_DictObjDone(s)               ((void)0)
+#  define Tcl_ListObjAppendElement(...)    TCL_ERROR
+#  define Tcl_ListObjLength(...)           TCL_ERROR
+#  define Tcl_ListObjGetElements(...)      TCL_ERROR
+#  define Tcl_ListObjIndex(...)            TCL_ERROR
+#  define Tcl_GetObjResult(irp)            ((Tcl_Obj *)NULL)
+#  define Tcl_FindCommand(irp,n,ns,fl)     ((void *)NULL)
+#  define Tcl_CreateObjCommand(...)        ((void *)NULL)
+#  define Tcl_DeleteCommand(irp,n)         ((void)0)
+#  define Tcl_ScanElement(s,fl)            ((int)strlen(s))
+#  define Tcl_ConvertElement(s,d,fl)       ((void)strcpy(d, s))
+#  define Tcl_DStringInit(ds)              ((ds)->length = 0, (ds)->string = (ds)->staticSpace, (ds)->staticSpace[0] = '\0')
+#  define Tcl_DStringFree(ds)              ((void)0)
+#  define Tcl_DStringAppend(ds,s,l)        ((void)0)
+#  define Tcl_DStringAppendElement(ds,s)   ((void)0)
+#  define Tcl_DStringValue(ds)             ((ds)->string ? (ds)->string : "")
+#  define Tcl_DStringLength(ds)            ((ds)->length)
+#  define Tcl_BackgroundError(irp)         ((void)0)
+#endif /* HAVE_TCL */
+#endif /* _LUSH_H */
