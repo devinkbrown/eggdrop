@@ -1303,6 +1303,9 @@ time_t get_expire_time(Tcl_Interp * irp, const char *s) {
 /* The global interpreter pointer is declared above as 'void *interp = NULL'. */
 /* expmem_tcl() is defined above the #ifdef block and always compiled.       */
 
+/* Forward-declare misc.c helpers used by notcl_setvar's special-case logic. */
+int init_misc(void);
+
 void init_tcl0(int argc, char **argv) {}
 
 /* Register the core variable tables so notcl_setvar/notcl_getvar work.
@@ -1414,8 +1417,26 @@ void notcl_setvar(const char *name, const char *value)
     tcl_ints *e;
     for (e = notcl_int_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
-        if (e->readonly < 2 && e->val)
-          *e->val = atoi(value);
+        if (e->readonly < 2 && e->val) {
+          int l = atoi(value);
+          /* max-logs: mirror the Tcl write-trace in tcl_eggint — the logs
+           * array must be reallocated via init_misc() when the limit grows,
+           * otherwise chanprog()'s post-config loop writes past the end of
+           * the array and corrupts the heap. */
+          if (e->val == &max_logs) {
+            if (l < 5) l = 5;
+            if (l > max_logs) {
+              max_logs = l;
+              init_misc();
+            }
+          /* max-socks: only allow increasing (decreasing needs a restart). */
+          } else if (e->val == &max_socks) {
+            if (l > max_socks)
+              max_socks = l;
+          } else {
+            *e->val = l;
+          }
+        }
         return;
       }
     }
