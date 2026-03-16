@@ -335,6 +335,13 @@ CONFIGURATION
       [scripts]
       load = ["scripts/alltools.tcl"]
 
+      [paths]
+      userfile = "LamestBot.user"
+      chanfile = "LamestBot.chan"
+      # lang_dir overrides where language files are searched.  Useful when
+      # running a dev build or a non-default-prefix install:
+      # lang_dir = "/path/to/eggdrop/language"
+
       # One-liner Tcl commands run after settings are applied:
       [tcl]
       commands = ["unbind dcc n simul *dcc:simul"]
@@ -346,6 +353,9 @@ CONFIGURATION
       # }
       # bind join - * greet
       # """
+
+  Note: [paths] may appear in any order relative to [modules] — variables
+  are applied after all modules load so nothing is silently dropped.
 
   For the full reference, see eggdrop.toml (all 128+ settings, fully
   documented) or run 'eggdrop --setup' to generate a personalised copy.
