@@ -22,6 +22,13 @@
 int readtomlconfig(const char *fname);
 
 /*
+ * prescan_lang_dir() -- quick pre-scan of the config file to extract
+ * [paths] lang_dir before init_language(1) is called, so language files
+ * can be found on the first attempt rather than after readtomlconfig().
+ */
+void prescan_lang_dir(const char *fname);
+
+/*
  * run_setup_wizard() -- interactive first-time configuration wizard.
  * Prompts the user for essential settings and writes a ready-to-use
  * TOML config file to outfile.

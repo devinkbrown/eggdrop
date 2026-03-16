@@ -85,6 +85,7 @@ typedef struct lang_t {
 static lang_tab *langtab[64];
 static lang_sec *langsection = NULL;
 static lang_pri *langpriority = NULL;
+static char lang_dir_override[512] = "";  /* set via set_lang_dir() */
 
 static int del_lang(char *);
 static int add_message(int, char *);
@@ -378,14 +379,39 @@ int del_lang_section(char *section)
   return 0;
 }
 
+/* Override the language file search directory and reload any sections that
+ * previously failed to find their files.  An empty string restores the
+ * default search behaviour. */
+void set_lang_dir(const char *dir)
+{
+  strlcpy(lang_dir_override, dir ? dir : "", sizeof lang_dir_override);
+  /* Retry sections whose lang files were not found under the previous path
+   * (those have ls->lang == NULL after add_lang_section was called). */
+  {
+    lang_sec *ls;
+    char *langfile;
+    for (ls = langsection; ls && ls->section; ls = ls->next) {
+      if (ls->lang)
+        continue;   /* already loaded */
+      langfile = get_specific_langfile(BASELANG, ls);
+      if (langfile) {
+        read_lang(langfile);
+        nfree(langfile);
+      }
+    }
+  }
+}
+
 static char *get_specific_langfile(char *language, lang_sec *sec)
 {
   char *env_ldir = getenv("EGG_LANGDIR");
   char *langfile;
-  const char *dirs[2];
+  const char *dirs[3];
   int i, ndirs = 0;
 
-  if (env_ldir) {
+  if (lang_dir_override[0]) {
+    dirs[ndirs++] = lang_dir_override;
+  } else if (env_ldir) {
     dirs[ndirs++] = env_ldir;
   } else {
     dirs[ndirs++] = LANGDIR;

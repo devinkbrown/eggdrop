@@ -746,6 +746,16 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
       }
       break;
 
+    case SEC_PATHS:
+      /* lang_dir overrides where language files are searched.  Apply it
+       * immediately so that any subsequent add_lang_section() calls (from
+       * module loads) use the new path. */
+      if (strcmp(key, "lang_dir") == 0) {
+        set_lang_dir(value);
+        return;
+      }
+      break;
+
     case SEC_MODULES:
       if (strcmp(key, "load") == 0 && *value == '[') {
         parse_string_array(value, cb_loadmodule, NULL);
@@ -862,6 +872,64 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
  * Public API
  * --------------------------------------------------------------------- */
 
+/* Lightweight pre-scan: extract [paths] lang_dir before init_language(1) so
+ * language files can be found on the first attempt.  Reads only the [paths]
+ * section and stops as soon as it finds lang_dir (or another section starts).
+ */
+void prescan_lang_dir(const char *fname)
+{
+  FILE *fp = fopen(fname, "r");
+  char line[TOML_LINE_MAX];
+  char value[TOML_LINE_MAX];
+  int in_paths = 0;
+
+  if (!fp)
+    return;
+
+  while (fgets(line, sizeof line, fp)) {
+    char *p = trim(line);
+    if (!*p || *p == '#')
+      continue;
+    if (*p == '[') {
+      /* Section header */
+      int is_aot = (p[1] == '[');
+      char *inner = p + 1 + (is_aot ? 1 : 0);
+      char *end = strchr(inner, ']');
+      if (!end)
+        continue;
+      *end = '\0';
+      in_paths = (strcmp(trim(inner), "paths") == 0);
+      continue;
+    }
+    if (!in_paths)
+      continue;
+    {
+      char *eq = strchr(p, '=');
+      if (!eq)
+        continue;
+      *eq = '\0';
+      char *k = trim(p);
+      char *v = trim(eq + 1);
+      if (strcmp(k, "lang_dir") != 0)
+        continue;
+      if (parse_value(v, value, sizeof value) < 0)
+        continue;
+      set_lang_dir(value);
+      break;
+    }
+  }
+  fclose(fp);
+}
+
+/* Buffer for [paths] entries so they can be replayed after all modules load.
+ * Module-registered variables (e.g. chanfile from channels.mod) are only
+ * available after the module loads; if [paths] appears before [modules] in
+ * the config file those variables would otherwise be silently discarded.
+ * Replaying after the parse loop ensures every module-registered path is set
+ * regardless of section ordering. */
+#define PATHS_BUF_MAX 32
+typedef struct { char key[256]; char val[TOML_LINE_MAX]; } PathsEntry;
+
 int readtomlconfig(const char *fname)
 {
   FILE *fp;
@@ -876,6 +944,8 @@ int readtomlconfig(const char *fname)
   TomlSection cur_sec = SEC_NONE;
   int lineno = 0;
   int ok = 1;
+  PathsEntry paths_buf[PATHS_BUF_MAX];
+  int paths_buf_n = 0;
 
   fp = fopen(fname, "r");
   if (!fp) {
@@ -999,6 +1069,13 @@ int readtomlconfig(const char *fname)
       continue;
     }
 
+    if (cur_sec == SEC_PATHS && paths_buf_n < PATHS_BUF_MAX) {
+      strlcpy(paths_buf[paths_buf_n].key, key,
+              sizeof paths_buf[paths_buf_n].key);
+      strlcpy(paths_buf[paths_buf_n].val, value,
+              sizeof paths_buf[paths_buf_n].val);
+      paths_buf_n++;
+    }
     process_kv(cur_sec, key, value);
   }
 
@@ -1007,6 +1084,17 @@ int readtomlconfig(const char *fname)
   /* Flush any [[chanset]] block that was still open at EOF. */
   if (cur_sec == SEC_CHANSET)
     flush_chanset_ircx();
+
+  /* Replay [paths] entries now that all modules have been loaded.  If [paths]
+   * appeared before [modules] in the config file, module-registered variables
+   * (like chanfile from channels.mod) were not yet available during the first
+   * pass.  Replaying is idempotent for already-set variables and correctly
+   * populates the module tables for any that were missed. */
+  {
+    int i;
+    for (i = 0; i < paths_buf_n; i++)
+      process_kv(SEC_PATHS, paths_buf[i].key, paths_buf[i].val);
+  }
 
   /* ---- Validate required settings ---- */
   {
