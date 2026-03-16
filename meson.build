@@ -3,13 +3,14 @@ project('eggdrop', 'c',
   license: 'GPL-2.0-or-later',
   default_options: [
     'c_std=gnu99',
-    'warning_level=1',
-    'b_pie=false',
-    'buildtype=debugoptimized',  # -O2 + -g; release builds add -O3 via --buildtype=release
+    'warning_level=1',           # -Wall; level 2 adds -Wextra (6k+ cast-fn-type hits)
+    'b_pie=true',                # Position-Independent Executable — enables full ASLR
+    'buildtype=debugoptimized',  # -O2 + -g; use --buildtype=release for -O3 production
     'b_lto=true',                # cross-file inlining + dead code elimination
-    'b_ndebug=if-release',       # strip assert() in non-debug builds
+    'b_lto_threads=0',           # 0 = use all available CPU threads for LTO linking
+    'b_ndebug=if-release',       # strip assert() in release builds
   ],
-  meson_version: '>=0.57.0',
+  meson_version: '>=0.60.0',    # b_lto_threads requires 0.57; 0.60 for stable PCH API
 )
 
 cc = meson.get_compiler('c')
@@ -17,16 +18,17 @@ cc = meson.get_compiler('c')
 # -------------------------------------------------------------------------
 # Build options
 # -------------------------------------------------------------------------
-opt_tcl     = get_option('tcl')
-opt_ipv6    = get_option('ipv6')
-opt_native  = get_option('native-opt')
-opt_tls     = get_option('tls')
-opt_tdns    = get_option('tdns')
-opt_python  = get_option('python')
-opt_debug   = get_option('egg-debug')
-opt_handlen = get_option('handlen')
-opt_static  = get_option('static-modules')
-opt_exec    = get_option('eggexec')
+opt_tcl       = get_option('tcl')
+opt_ipv6      = get_option('ipv6')
+opt_native    = get_option('native-opt')
+opt_tls       = get_option('tls')
+opt_tdns      = get_option('tdns')
+opt_python    = get_option('python')
+opt_debug     = get_option('egg-debug')
+opt_handlen   = get_option('handlen')
+opt_static    = get_option('static-modules')
+opt_exec      = get_option('eggexec')
+opt_hardening = get_option('hardening')
 
 # -------------------------------------------------------------------------
 # Configuration data (generates config.h)
@@ -440,8 +442,9 @@ if opt_native
 endif
 
 # ---------------------------------------------------------------------------
-# Security hardening flags
+# Security hardening flags  (disable with -Dhardening=false)
 # ---------------------------------------------------------------------------
+if opt_hardening
 
 # -fstack-protector-strong: insert stack canaries for functions with arrays,
 # pointers to locals, or address-taken frames.  Catches stack overflows at
@@ -496,6 +499,53 @@ if not is_native_windows
     endif
   endforeach
 endif
+
+# -Wl,-z,noexecstack: explicitly mark the stack non-executable.
+# Most modern toolchains set this by default, but being explicit prevents
+# any accidental override from an assembled object file.
+if not is_native_windows
+  if cc.has_link_argument('-Wl,-z,noexecstack')
+    add_project_link_arguments('-Wl,-z,noexecstack', language: 'c')
+  endif
+endif
+
+# -fno-plt: call external functions directly through the GOT instead of via
+# PLT trampolines.  Eliminates one layer of indirection per external call and
+# shrinks the attack surface (no writable PLT entries).  Requires -z now so
+# all GOT slots are resolved at startup before the first call.
+# (GCC >= 6, Clang >= 3.8)
+if cc.has_argument('-fno-plt')
+  add_project_arguments('-fno-plt', language: 'c')
+endif
+
+# -fno-common: error on tentative definitions (multiply-defined globals).
+# Has been the GCC default since GCC 10; explicit here for older toolchains
+# and to catch latent multi-definition bugs early.
+if cc.has_argument('-fno-common')
+  add_project_arguments('-fno-common', language: 'c')
+endif
+
+endif # opt_hardening
+
+# ---------------------------------------------------------------------------
+# Targeted code-quality warnings
+# These are chosen because they catch real bugs in C code without producing
+# false positives from eggdrop's existing codebase.
+# (warning_level=2 / -Wextra is not used globally: it triggers 6000+
+# -Wcast-function-type hits from the module dispatch system by design.)
+# ---------------------------------------------------------------------------
+foreach _w : [
+  '-Wshadow=local',          # local variable shadows an outer variable
+  '-Wnull-dereference',      # provable NULL dereference paths
+  '-Wimplicit-fallthrough',  # switch case fall-through without annotation
+  '-Wduplicated-cond',       # if (a) … else if (a) — always same branch
+  '-Wlogical-op',            # logical operators where bitwise was likely intended
+  '-Wvla',                   # variable-length arrays (stack size uncontrolled)
+]
+  if cc.has_argument(_w)
+    add_project_arguments(_w, language: 'c')
+  endif
+endforeach
 
 # ---------------------------------------------------------------------------
 # Debug / sanitizer flags
@@ -566,9 +616,12 @@ summary({
   'Static modules':  opt_static,
   'Native CPU opt':  _native_summary,
   'LTO':             get_option('b_lto'),
+  'LTO threads':     get_option('b_lto_threads'),
   'Build type':      get_option('buildtype'),
-  'Hardening':       'stack-protector-strong, stack-clash, FORTIFY_SOURCE=2, Full RELRO'
-                     + (host_machine.cpu_family() in ['x86', 'x86_64'] ? ', CET/cf-protection' : ''),
+  'PIE':             get_option('b_pie'),
+  'Hardening':       opt_hardening
+                     ? 'stack-protector, stack-clash, FORTIFY=2, RELRO+NOW, no-plt, no-common'
+                     : 'disabled (-Dhardening=false)',
   'Sanitizers':      opt_debug ? 'ASAN + UBSAN (egg-debug=true)' : 'off',
   'Executable':      opt_exec,
   'HANDLEN':         opt_handlen,
