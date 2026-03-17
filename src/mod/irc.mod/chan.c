@@ -48,8 +48,10 @@ static memberlist *newmember(struct chanset_t *chan)
   memberlist *x;
 
   for (x = chan->channel.member; x && x->nick[0]; x = x->next);
-  if (!x)
+  if (!x) {
     fatal("newmember: missing sentinel in member list", 0);
+    abort();
+  }
   x->next = (memberlist *) channel_malloc_member();
   x->next->next = NULL;
   x->next->nick[0] = 0;

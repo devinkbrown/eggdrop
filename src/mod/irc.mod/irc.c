@@ -300,8 +300,10 @@ static void refresh_who_chan(char *channame)
 static void newmask(masklist *m, char *s, char *who)
 {
   for (; m && m->mask[0] && rfc_casecmp(m->mask, s); m = m->next);
-  if (!m)
+  if (!m) {
     fatal("newmask: missing sentinel in mask list", 0);
+    abort();
+  }
   if (m->mask[0])
     return;                     /* Already existent mask */
 
