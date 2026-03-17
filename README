@@ -84,6 +84,13 @@ FORK NOTICE
       channel CREATE/PROP/ACCESS commands.  New Tcl API: ircxprop,
       ircxaccess, ircxcreate, ircxautoowner.  OWNERKEY credentials
       persist to the channel file across restarts.
+    - Async DNS resolver (dns module): threaded pthreads DNS (EGG_TDNS)
+      replaced by the Ophion lightweight async resolver (res.c).  A
+      single non-blocking UDP socket handles all lookups in the main
+      event loop — no background thread.  Optional DNS-over-TLS (DoT,
+      RFC 7858) is available when TLS is built: put `dnsdot on 1.1.1.1`
+      in the [tcl] commands block of your config to route all DNS over
+      an encrypted TCP connection.
     - io_uring SQPOLL: fixed three bugs that prevented IRC registration
       on kernels using SQPOLL mode (SQPOLL tail flush, buffered recv
       data overwrite, idle-return before dispatch).
