@@ -394,6 +394,35 @@ Text / string utilities
 ``putlog(text[, loglevel[, channel]])``
   Write *text* to the eggdrop log.  Default loglevel is ``LOG_MISC``.
 
+^^^^^^^^^^^^^^^^^^^
+DNS configuration
+^^^^^^^^^^^^^^^^^^^
+
+*(Tcl builds only — requires the* ``dns`` *module and TLS support.)*
+
+``dnsdot([action[, server[, port[, "-noverify"]]]])``
+  Query or configure DNS-over-TLS (DoT, RFC 7858).
+
+  Called with no arguments, returns the current DoT status as a string:
+  ``"off"``, ``"on 1.1.1.1:853"``, or ``"connecting 1.1.1.1:853"``.
+
+  Called with ``"on"`` and a numeric IP *server*, enables DoT on port 853
+  (or the optional *port*).  Pass ``"-noverify"`` as the final argument to
+  skip certificate verification (private resolvers only).
+
+  Called with ``"off"``, reverts to plain UDP DNS.
+
+  Raises ``eggdrop.error`` on invalid arguments or when TLS is unavailable.
+
+  Examples::
+
+    eggdrop.dnsdot()                            # → "off" / "on 1.1.1.1:853"
+    eggdrop.dnsdot("on", "1.1.1.1")            # Cloudflare, default port 853
+    eggdrop.dnsdot("on", "9.9.9.9")            # Quad9
+    eggdrop.dnsdot("on", "1.1.1.1", 853)       # explicit port
+    eggdrop.dnsdot("on", "::1", 853, "-noverify")  # private resolver
+    eggdrop.dnsdot("off")                       # revert to plain UDP
+
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 IRCX / Ophion / IRCv3 extended commands
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

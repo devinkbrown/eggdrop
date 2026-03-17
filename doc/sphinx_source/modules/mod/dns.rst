@@ -45,5 +45,33 @@ There are also some variables you can set in your config file:
     Specify how long should the DNS module wait for a reply before resending
     the query. The value must be in seconds.
 
+-----------------------
+DNS-over-TLS (DoT)
+-----------------------
+
+When Eggdrop is built with TLS support (``-Dtls=enabled``), all DNS queries
+can be sent over an encrypted TLS/TCP connection to a DoT resolver (RFC 7858)
+instead of plain UDP.
+
+Configuration in the Tcl config or ``[tcl]`` commands block::
+
+  dnsdot on 1.1.1.1          # Cloudflare — fast, privacy-respecting (default port 853)
+  dnsdot on 9.9.9.9          # Quad9 — malware-blocking, privacy-focused
+  dnsdot on 1.1.1.1 853      # explicit port
+  dnsdot on ::1 853 -noverify  # allow self-signed certificate
+  dnsdot off                 # revert to plain UDP
+  dnsdot                     # query current status
+
+The ``dnsdot`` command is also available to Python scripts (Tcl builds) via
+``eggdrop.dnsdot(...)`` — see :doc:`/using/python`.
+
+DoT connections are persistent and automatically reconnected on disconnect.
+The connection is made immediately when ``dnsdot on`` is called; queries issued
+before the TLS handshake completes are queued and replayed over DoT once the
+connection is established.
+
+If TLS is not compiled in, ``dnsdot`` returns an error string rather than
+raising an exception.
+
 
 Copyright (C) 2000 - 2025 Eggheads Development Team

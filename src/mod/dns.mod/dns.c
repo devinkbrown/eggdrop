@@ -39,6 +39,12 @@ static char dns_servers[144] = "";
 
 #include "res.c"
 
+/* NAMESERVER_PORT (53) is defined in <arpa/nameser_compat.h> on Linux but
+ * not always pulled in on macOS or other BSDs.  Provide a portable fallback. */
+#ifndef NAMESERVER_PORT
+#  define NAMESERVER_PORT 53
+#endif
+
 
 /*
  *    DNS event related code
@@ -103,6 +109,7 @@ static tcl_strings dnsstrings[] = {
   {NULL,          NULL,          0,           0}
 };
 
+#ifdef HAVE_TCL
 static char *dns_change(ClientData cdata, Tcl_Interp *irp,
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
@@ -159,6 +166,7 @@ static char *dns_change(ClientData cdata, Tcl_Interp *irp,
   }
   return NULL;
 }
+#endif /* HAVE_TCL */
 
 
 /*
@@ -245,7 +253,13 @@ static int tcl_dnsdot(ClientData cd, Tcl_Interp *irp, int argc,
 
   if (argc < 2) {
 #ifdef EGG_TLS
-    Tcl_AppendResult(irp, dot_active ? "on" : "off", NULL);
+    if (dot_active || dot_sa_valid) {
+      char portbuf[8];
+      snprintf(portbuf, sizeof portbuf, "%u", dot_port_saved ? dot_port_saved : 853);
+      Tcl_AppendResult(irp, dot_active ? "on " : "connecting ", dot_host, ":", portbuf, NULL);
+    } else {
+      Tcl_AppendResult(irp, "off", NULL);
+    }
 #else
     Tcl_AppendResult(irp, "unavailable (TLS not compiled in)", NULL);
 #endif
