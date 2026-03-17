@@ -357,9 +357,13 @@ else
 endif
 
 # b64_ntop / b64_pton — BSD/glibc base64 (part of libresolv on Linux).
-# When present, set HAVE_BASE64 so our compat/base64.c is skipped.
-if cc.has_function('b64_ntop', dependencies: resolv_dep,
-    prefix: '#include <resolv.h>')
+# Only use the system version when b64_ntop is a real public symbol, not
+# a macro alias (e.g. glibc defines "#define b64_ntop __b64_ntop" in
+# resolv.h, making modules incorrectly depend on the private __b64_ntop
+# symbol). When it is a macro, fall through to our compat/base64.c.
+if cc.compiles('#include <resolv.h>\n#ifdef b64_ntop\n#error macro\n#endif',
+    name: 'b64_ntop is not a macro') and cc.has_function('b64_ntop',
+    dependencies: resolv_dep, prefix: '#include <resolv.h>')
   cdata.set('HAVE_BASE64', 1)
 endif
 

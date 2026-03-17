@@ -598,13 +598,8 @@ Function global_table[] = {
 #endif
   /* 304 - 307 */
   (Function) strlcpy,             /* was strncpyz() -- use strlcpy() instead */
-#ifndef HAVE_BASE64
   (Function) b64_ntop,
   (Function) b64_pton,
-#else
-  (Function) 0,
-  (Function) 0,
-#endif
   (Function) check_validpass,
   /* 308 - 311 */
   (Function) make_rand_str_from_chars,

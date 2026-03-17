@@ -27,7 +27,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <resolv.h> /* base64 encode b64_ntop() and base64 decode b64_pton() */
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
