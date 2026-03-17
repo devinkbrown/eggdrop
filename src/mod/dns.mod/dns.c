@@ -39,6 +39,12 @@ static char dns_servers[144] = "";
 
 #include "res.c"
 
+/* NAMESERVER_PORT (53) is defined in <arpa/nameser_compat.h> on Linux but
+ * not always pulled in on macOS or other BSDs.  Provide a portable fallback. */
+#ifndef NAMESERVER_PORT
+#  define NAMESERVER_PORT 53
+#endif
+
 
 /*
  *    DNS event related code
