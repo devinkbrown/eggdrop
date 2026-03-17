@@ -292,6 +292,20 @@ TCL BRIDGE (HAVE_TCL builds only)
 parse_tcl_list(string)  — convert a Tcl list string to a Python list
 parse_tcl_dict(string)  — convert a Tcl dict string to a Python dict
 
+DNS COMMANDS (HAVE_TCL builds only, requires dns module and TLS support)
+
+dnsdot([action[, server[, port[, "-noverify"]]]])
+  Query or configure DNS-over-TLS (DoT, RFC 7858).
+
+  eggdrop.dnsdot()                          — returns status string
+  eggdrop.dnsdot("on", "1.1.1.1")          — enable DoT to Cloudflare
+  eggdrop.dnsdot("on", "9.9.9.9", 853)     — enable DoT to Quad9, explicit port
+  eggdrop.dnsdot("on", "::1", 853, "-noverify") — skip cert check
+  eggdrop.dnsdot("off")                     — revert to plain UDP
+
+  Status return values: "off", "on <host>:<port>", "connecting <host>:<port>"
+  Raises eggdrop.error on invalid arguments or when TLS is unavailable.
+
 eggdrop.tcl module — exposes all Tcl functions to Python.  Import
 individual functions or the whole module:
 

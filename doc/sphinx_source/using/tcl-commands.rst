@@ -2559,6 +2559,39 @@ dnslookup <ip-address/hostname> <proc> [[arg1] [arg2] ... [argN]]
 
   Module: core
 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+dnsdot ?on <server> ?<port>? ?-noverify?? | off
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  Description: Configure DNS-over-TLS (DoT, RFC 7858) for the bot's async
+  resolver.  Requires Eggdrop to be built with TLS support (``-Dtls=enabled``)
+  and the ``dns`` module to be loaded.
+
+  With no arguments, returns the current DoT status as one of:
+
+  * ``off`` — DoT is not configured
+  * ``on <host>:<port>`` — DoT is active and connected
+  * ``connecting <host>:<port>`` — DoT is configured, TLS handshake pending
+
+  With ``on <server>``, enables DoT to *server* (numeric IPv4 or IPv6 address)
+  on port 853.  Optional *port* overrides the default.  ``-noverify`` disables
+  TLS certificate verification (use only for private/self-signed resolvers).
+
+  With ``off``, disables DoT and reverts to plain UDP.
+
+  Examples::
+
+    dnsdot on 1.1.1.1           ;# Cloudflare, port 853, verify cert
+    dnsdot on 9.9.9.9           ;# Quad9, port 853, verify cert
+    dnsdot on 1.1.1.1 853       ;# explicit port
+    dnsdot on ::1 853 -noverify ;# private resolver, skip cert check
+    dnsdot off                  ;# revert to plain UDP
+    dnsdot                      ;# query current status
+
+  Returns: status string (no-arg form), or empty string on success
+
+  Module: dns
+
 ^^^^^^^^^^^^
 md5 <string>
 ^^^^^^^^^^^^
