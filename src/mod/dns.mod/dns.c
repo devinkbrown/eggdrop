@@ -245,7 +245,13 @@ static int tcl_dnsdot(ClientData cd, Tcl_Interp *irp, int argc,
 
   if (argc < 2) {
 #ifdef EGG_TLS
-    Tcl_AppendResult(irp, dot_active ? "on" : "off", NULL);
+    if (dot_active || dot_sa_valid) {
+      char portbuf[8];
+      snprintf(portbuf, sizeof portbuf, "%u", dot_port_saved ? dot_port_saved : 853);
+      Tcl_AppendResult(irp, dot_active ? "on " : "connecting ", dot_host, ":", portbuf, NULL);
+    } else {
+      Tcl_AppendResult(irp, "off", NULL);
+    }
 #else
     Tcl_AppendResult(irp, "unavailable (TLS not compiled in)", NULL);
 #endif

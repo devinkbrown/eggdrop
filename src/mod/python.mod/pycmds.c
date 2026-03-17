@@ -554,6 +554,45 @@ static PyObject *py_findtclfunc(PyObject *self, PyObject *args) {
 }
 #endif /* HAVE_TCL */
 
+/* ---- DNS helpers -------------------------------------------------------- */
+
+#ifdef HAVE_TCL
+/* dnsdot(*args) — configure DNS-over-TLS (RFC 7858).
+ *
+ * eggdrop.dnsdot()                       -> "off" | "on 1.1.1.1:853" | "connecting ..."
+ * eggdrop.dnsdot("on", "1.1.1.1")        -> None
+ * eggdrop.dnsdot("on", "1.1.1.1", 853)   -> None
+ * eggdrop.dnsdot("on", "::1", 853, "-noverify") -> None
+ * eggdrop.dnsdot("off")                  -> None
+ *
+ * Raises eggdrop.error on invalid arguments or if TLS is not compiled in. */
+static PyObject *py_dnsdot(PyObject *self, PyObject *args)
+{
+  Py_ssize_t argc = PyTuple_Size(args);
+  Tcl_DString ds;
+  const char *result;
+  int retcode;
+
+  Tcl_DStringInit(&ds);
+  Tcl_DStringAppendElement(&ds, "dnsdot");
+  for (Py_ssize_t i = 0; i < argc; i++) {
+    PyObject *o = PyTuple_GetItem(args, i);
+    Tcl_DStringAppendElement(&ds, Tcl_GetString(py_to_tcl_obj(o)));
+  }
+  retcode = Tcl_Eval(tclinterp, Tcl_DStringValue(&ds));
+  Tcl_DStringFree(&ds);
+
+  if (retcode != TCL_OK) {
+    PyErr_Format(EggdropError, "%s", Tcl_GetStringResult(tclinterp));
+    return NULL;
+  }
+  result = Tcl_GetStringResult(tclinterp);
+  if (!*result)
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(result);
+}
+#endif /* HAVE_TCL */
+
 /* ---- Core IRC output functions ----------------------------------------- */
 
 /* putserv(text) — queue text to the server (normal queue) */
@@ -2316,6 +2355,9 @@ static PyMethodDef MyPyMethods[] = {
 #ifdef HAVE_TCL
     {"parse_tcl_list", py_parse_tcl_list, METH_VARARGS, "convert a Tcl list string to a Python list"},
     {"parse_tcl_dict", py_parse_tcl_dict, METH_VARARGS, "convert a Tcl dict string to a Python dict"},
+    /* DNS */
+    {"dnsdot", py_dnsdot, METH_VARARGS,
+     "configure DNS-over-TLS (RFC 7858): dnsdot([on, server[, port[, -noverify]]] | off)"},
 #endif
     /* Bot management */
     {"die",         py_die,         METH_VARARGS, "shut down the bot: die([reason])"},
