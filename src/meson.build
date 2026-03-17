@@ -40,15 +40,20 @@ compat_lib = static_library('eggcompat',
 compat_dep = declare_dependency(link_with: compat_lib)
 
 # -------------------------------------------------------------------------
-# MD5 library
+# MD5 library — only built when OpenSSL does not provide MD5
+# (avoids empty-archive ranlib warning on macOS when HAVE_OPENSSL_MD5 is set)
 # -------------------------------------------------------------------------
-md5_lib = static_library('eggmd5',
-  sources: ['md5/md5c.c'],
-  include_directories: [top_inc, src_inc],
-  c_args: ['-DHAVE_CONFIG_H'],
-  dependencies: have_tcl ? [tcl_dep] : [],
-)
-md5_dep = declare_dependency(link_with: md5_lib)
+if not cdata.has('HAVE_OPENSSL_MD5')
+  md5_lib = static_library('eggmd5',
+    sources: ['md5/md5c.c'],
+    include_directories: [top_inc, src_inc],
+    c_args: ['-DHAVE_CONFIG_H'],
+    dependencies: have_tcl ? [tcl_dep] : [],
+  )
+  md5_dep = declare_dependency(link_with: md5_lib)
+else
+  md5_dep = declare_dependency()
+endif
 
 # -------------------------------------------------------------------------
 # Core eggdrop sources
