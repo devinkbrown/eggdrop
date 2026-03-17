@@ -48,6 +48,8 @@ static memberlist *newmember(struct chanset_t *chan)
   memberlist *x;
 
   for (x = chan->channel.member; x && x->nick[0]; x = x->next);
+  if (!x)
+    fatal("newmember: missing sentinel in member list", 0);
   x->next = (memberlist *) channel_malloc_member();
   x->next->next = NULL;
   x->next->nick[0] = 0;
@@ -1070,7 +1072,7 @@ static int got324(char *from, char *msg)
 static int got352or4(struct chanset_t *chan, char *user, char *host,
                      char *nick, char *flags, char *account)
 {
-  char userhost[UHOSTLEN];
+  char userhost[NICKMAX + UHOSTLEN + 1];
   memberlist *m;
 
   m = ismember(chan, nick);     /* In my channel list copy? */
@@ -2336,7 +2338,7 @@ static int gotpart(char *from, char *msg)
  */
 static int gotkick(char *from, char *origmsg)
 {
-  char *nick, *whodid, *chname, s1[UHOSTLEN], buf[UHOSTLEN], *uhost;
+  char *nick, *whodid, *chname, s1[NICKMAX + UHOSTLEN + 1], buf[UHOSTLEN], *uhost;
   char buf2[511], *msg, *key;
   memberlist *m;
   struct chanset_t *chan;

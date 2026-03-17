@@ -458,7 +458,7 @@ void daysago(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, 41, "%d day%s ago", days, (days == 1) ? "" : "s");
+    snprintf(out, 29, "%d day%s ago", days, (days == 1) ? "" : "s");
     return;
   }
   strftime(out, 6, "%H:%M", localtime(&then));
@@ -472,7 +472,7 @@ void days(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, 41, "in %d day%s", days, (days == 1) ? "" : "s");
+    snprintf(out, 29, "in %d day%s", days, (days == 1) ? "" : "s");
     return;
   }
   strftime(out, 9, "at %H:%M", localtime(&now));

@@ -487,7 +487,7 @@ static void isupport_stringify(int idx, char *buf, size_t bufsize, size_t *len,
       return;
     }
   }
-  if (!value[0])
+  if (!value || !value[0])
     *len += snprintf(buf + *len, bufsize - *len, " %s", key);
   else
     *len += snprintf(buf + *len, bufsize - *len, " %s=%s", key, value);

@@ -227,6 +227,7 @@ void dprintf(int idx, const char *format, ...)
   dprint(idx, buf, len);
 }
 
+ATTRIBUTE_NOINLINE
 void dprint(int idx, char *buf, int len)
 {
   if (idx < 0) {

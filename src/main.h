@@ -38,6 +38,12 @@
 #  define ATTRIBUTE_FORMAT(a,b,c)
 #endif
 
+#if __has_attribute(noinline)
+#  define ATTRIBUTE_NOINLINE __attribute__((noinline))
+#else
+#  define ATTRIBUTE_NOINLINE
+#endif
+
 #include <stdint.h>
 #include "lush.h"
 
