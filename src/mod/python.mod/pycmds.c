@@ -2202,7 +2202,7 @@ static PyObject *py_stripcodes(PyObject *self, PyObject *args)
       return NULL;
     }
   buf = nmalloc(strlen(text) + 1);
-  strlcpy(buf, text, strlen(text) + 1);
+  strcpy(buf, text);
   strip_mirc_codes(flags, buf);
   result = PyUnicode_FromString(buf);
   nfree(buf);

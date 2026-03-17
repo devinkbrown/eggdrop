@@ -889,7 +889,7 @@ static void queue_server(int which, char *msg, int len)
   switch (which) {
   case DP_MODE_NEXT:
     qnext = 1;
-    /* Fallthrough */
+    __attribute__((fallthrough));
 
   case DP_MODE:
     h = &modeq;
@@ -900,7 +900,7 @@ static void queue_server(int which, char *msg, int len)
 
   case DP_SERVER_NEXT:
     qnext = 1;
-    /* Fallthrough */
+    __attribute__((fallthrough));
 
   case DP_SERVER:
     h = &mq;
@@ -911,7 +911,7 @@ static void queue_server(int which, char *msg, int len)
 
   case DP_HELP_NEXT:
     qnext = 1;
-    /* Fallthrough */
+    __attribute__((fallthrough));
 
   case DP_HELP:
     h = &hq;

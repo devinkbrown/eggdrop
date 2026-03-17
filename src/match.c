@@ -102,7 +102,7 @@ int _wild_match_per(unsigned char *m, unsigned char *n,
           }
           continue;             /* Done with '%' */
         }
-        /* FALL THROUGH */
+        __attribute__((fallthrough));
       case WILDS:
         do
           m++;                  /* Zap redundant wilds */
