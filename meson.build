@@ -22,7 +22,6 @@ opt_tcl       = get_option('tcl')
 opt_ipv6      = get_option('ipv6')
 opt_native    = get_option('native-opt')
 opt_tls       = get_option('tls')
-opt_tdns      = get_option('tdns')
 opt_python    = get_option('python')
 opt_debug     = get_option('egg-debug')
 opt_handlen   = get_option('handlen')
@@ -235,14 +234,6 @@ if opt_ipv6 and cdata.has('HAVE_STRUCT_SOCKADDR_IN6')
   cdata.set('HAVE_IPV6', 1)
 endif
 
-# -------------------------------------------------------------------------
-# Threaded DNS
-# -------------------------------------------------------------------------
-thread_dep = dependency('threads', required: false)
-have_tdns = opt_tdns and thread_dep.found()
-if have_tdns
-  cdata.set('EGG_TDNS', 1)
-endif
 
 # -------------------------------------------------------------------------
 # zlib — optional (for compress module)
@@ -618,7 +609,7 @@ summary({
   'Prefix':          get_option('prefix'),
   'IPv6':            opt_ipv6,
   'TLS/OpenSSL':     have_tls,
-  'Threaded DNS':    have_tdns,
+  'Async DNS (res.c)': true,
   'Python module':   have_python,
   'Compress module': have_zlib,
   'Static modules':  opt_static,

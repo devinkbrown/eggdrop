@@ -632,7 +632,9 @@ Function global_table[] = {
   (Function) findsock,
 /* 328 - 331 */
   (Function) & stealth_telnets,   /* int                                 */
-  (Function) mod_strdup            /* char *(str, modname, file, line)    */
+  (Function) mod_strdup,           /* char *(str, modname, file, line)    */
+/* 330 */
+  (Function) threaddata            /* struct threaddata *(*)(void)        */
 };
 
 void init_modules(void)

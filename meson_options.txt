@@ -7,9 +7,6 @@ option('ipv6', type: 'boolean', value: true,
 option('tls', type: 'feature', value: 'auto',
   description: 'Enable TLS/SSL support via OpenSSL')
 
-option('tdns', type: 'boolean', value: true,
-  description: 'Enable threaded DNS resolver')
-
 option('python', type: 'feature', value: 'auto',
   description: 'Build Python scripting module (requires Python >= 3.8)')
 
@@ -83,8 +80,3 @@ option('module-woobie',   type: 'boolean', value: true,
 option('native-opt', type: 'boolean', value: true,
   description: 'Tune binary for the current CPU with -march=native / -mcpu=native (non-portable builds only)')
 
-# -------------------------------------------------------------------------
-# DNS resolver backend options
-# -------------------------------------------------------------------------
-option('use-res-dns', type: 'boolean', value: false,
-  description: 'Use res.c (standalone async resolver) as the dns module source instead of dns.c/coredns.c')

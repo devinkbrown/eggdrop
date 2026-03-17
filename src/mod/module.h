@@ -542,6 +542,8 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define stealth_telnets (*(int *)(global[328]))
 #undef nstrdup
 #define nstrdup(x) (((char *(*)(const char *, const char *, const char *, int))global[329])((x),MODULE_NAME,__FILE__,__LINE__))
+/* 330 */
+#define threaddata ((struct threaddata *(*)(void))global[330])
 
 
 /* hostmasking */

@@ -24,13 +24,9 @@
 
 #include "src/mod/module.h"
 
-#ifndef EGG_TDNS
 #define MODULE_NAME "dns"
 
 #include "dns.h"
-
-static void dns_event_success(struct resolve *rp, int type);
-static void dns_event_failure(struct resolve *rp, int type);
 
 static Function *global = NULL;
 
@@ -47,41 +43,9 @@ static char dns_servers[144] = "";
 /*
  *    DNS event related code
  */
-static void dns_event_success(struct resolve *rp, int type)
-{
-  if (!rp)
-    return;
-
-  if (type == T_PTR) {
-    debug2("DNS resolved %s to %s", iptostr(&rp->sockname.addr.sa),
-           rp->hostn);
-    call_hostbyip(&rp->sockname, rp->hostn, 1);
-  } else if (type == T_A) {
-    debug2("DNS resolved %s to %s", rp->hostn,
-           iptostr(&rp->sockname.addr.sa));
-    call_ipbyhost(rp->hostn, &rp->sockname, 1);
-  }
-}
-
-static void dns_event_failure(struct resolve *rp, int type)
-{
-  if (!rp)
-    return;
-
-  if (type == T_PTR) {
-    static char s[UHOSTLEN];
-
-    strlcpy(s, iptostr(&rp->sockname.addr.sa), sizeof(s));
-    debug1("DNS resolve failed for %s", s);
-    call_hostbyip(&rp->sockname, s, 0);
-  } else if (type == T_A) {
-    debug1("DNS resolve failed for %s", rp->hostn);
-    call_ipbyhost(rp->hostn, &rp->sockname, 0);
-  } else
-    debug2("DNS resolve failed for unknown %s / %s",
-           iptostr(&rp->sockname.addr.sa), nonull(rp->hostn));
-  return;
-}
+/* dns_event_success / dns_event_failure: legacy callbacks no longer called
+ * directly; res.c calls call_hostbyip/call_ipbyhost at each resolution site.
+ * Kept as dead code to avoid changing the dns.c API surface. */
 
 
 /*
@@ -256,7 +220,7 @@ static int dns_check_servercount(void)
   static int oldcount = -1;
   /* dns_nscount includes IPv6 servers that myres (IPv4-only) omits.
    * Warn only when both are zero — i.e., genuinely no nameservers at all. */
-  int total = myres.nscount > 0 ? myres.nscount : dns_nscount;
+  int total = myres.nscount > 0 ? myres.nscount : irc_nscount;
   if (oldcount != total && !total) {
     putlog(LOG_MISC, "*", "WARNING: No nameservers found. Please set the dns-servers config variable.");
   }
@@ -383,15 +347,11 @@ static Function dns_table[] = {
   (Function) dns_report,
   /* 4 - 7 */
 };
-#endif /* EGG_TDNS */
 
 EXPORT_SCOPE char *dns_start(Function *global_funcs);
 
 char *dns_start(Function *global_funcs)
 {
-#ifdef EGG_TDNS
-  return "Eggdrop was compiled with threaded DNS core; this module will not run with it. Not loading...";
-#else
   int idx;
 
   global = global_funcs;
@@ -431,5 +391,4 @@ char *dns_start(Function *global_funcs)
   add_tcl_strings(dnsstrings);
   add_tcl_commands(dnscmds);
   return NULL;
-#endif /* EGG_TDNS */
 }
