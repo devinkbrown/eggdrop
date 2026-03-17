@@ -22,7 +22,6 @@ opt_tcl       = get_option('tcl')
 opt_ipv6      = get_option('ipv6')
 opt_native    = get_option('native-opt')
 opt_tls       = get_option('tls')
-opt_tdns      = get_option('tdns')
 opt_python    = get_option('python')
 opt_debug     = get_option('egg-debug')
 opt_handlen   = get_option('handlen')
@@ -235,14 +234,6 @@ if opt_ipv6 and cdata.has('HAVE_STRUCT_SOCKADDR_IN6')
   cdata.set('HAVE_IPV6', 1)
 endif
 
-# -------------------------------------------------------------------------
-# Threaded DNS
-# -------------------------------------------------------------------------
-thread_dep = dependency('threads', required: false)
-have_tdns = opt_tdns and thread_dep.found()
-if have_tdns
-  cdata.set('EGG_TDNS', 1)
-endif
 
 # -------------------------------------------------------------------------
 # zlib — optional (for compress module)
@@ -357,9 +348,13 @@ else
 endif
 
 # b64_ntop / b64_pton — BSD/glibc base64 (part of libresolv on Linux).
-# When present, set HAVE_BASE64 so our compat/base64.c is skipped.
-if cc.has_function('b64_ntop', dependencies: resolv_dep,
-    prefix: '#include <resolv.h>')
+# Only use the system version when b64_ntop is a real public symbol, not
+# a macro alias (e.g. glibc defines "#define b64_ntop __b64_ntop" in
+# resolv.h, making modules incorrectly depend on the private __b64_ntop
+# symbol). When it is a macro, fall through to our compat/base64.c.
+if cc.compiles('#include <resolv.h>\n#ifdef b64_ntop\n#error macro\n#endif',
+    name: 'b64_ntop is not a macro') and cc.has_function('b64_ntop',
+    dependencies: resolv_dep, prefix: '#include <resolv.h>')
   cdata.set('HAVE_BASE64', 1)
 endif
 
@@ -614,7 +609,7 @@ summary({
   'Prefix':          get_option('prefix'),
   'IPv6':            opt_ipv6,
   'TLS/OpenSSL':     have_tls,
-  'Threaded DNS':    have_tdns,
+  'Async DNS (res.c)': true,
   'Python module':   have_python,
   'Compress module': have_zlib,
   'Static modules':  opt_static,

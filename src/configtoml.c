@@ -1276,6 +1276,9 @@ int run_setup_wizard(const char *outfile)
   int  want_ircx;
   char ircx_ownerkey[128];
   int  ircx_want_autoowner;
+  /* DNS-over-TLS */
+  int  want_dot;
+  char dot_server[64];
   /* Channels */
   char channels[8][64];
   int  nchan;
@@ -1394,6 +1397,20 @@ int run_setup_wizard(const char *outfile)
       if (sasl_mech_val != 2) /* not EXTERNAL — needs a password */
         prompt_required("SASL password", sasl_pass, sizeof sasl_pass);
     }
+  }
+
+  /* DNS-over-TLS — offered when SSL is enabled */
+  want_dot = 0;
+  dot_server[0] = '\0';
+  if (use_ssl) {
+    printf("\n  ┌─ DNS-over-TLS (DoT, RFC 7858) — optional\n");
+    printf("  │  Routes DNS queries over an encrypted TLS connection.\n");
+    printf("  │  Recommended: 1.1.1.1 (Cloudflare — fast, privacy-respecting)\n");
+    printf("  │  Alternative: 9.9.9.9 (Quad9 — malware-blocking + privacy)\n");
+    want_dot = prompt_yn("  Enable DNS-over-TLS?", 0);
+    if (want_dot)
+      prompt("  │  DoT server IP (numeric)", "1.1.1.1",
+             dot_server, sizeof dot_server);
   }
 
   /* ── IRCX / Ophion options (only when Ophion network selected) ─────── */
@@ -1798,6 +1815,13 @@ int run_setup_wizard(const char *outfile)
 "dns_cache      = 86400\n"
 "dns_negcache   = 600\n"
 "# dns_servers  = \"\"  # space-separated IPs; empty = use /etc/resolv.conf\n"
+"#\n"
+"# DNS-over-TLS (DoT) — enable in the [tcl] commands block below.\n"
+"# Requires TLS support in the build.  Recommended: 1.1.1.1 (Cloudflare).\n"
+"#   dnsdot on 1.1.1.1        # Cloudflare — fast, privacy-respecting\n"
+"#   dnsdot on 9.9.9.9        # Quad9 — malware-blocking, privacy-focused\n"
+"#   dnsdot on 8.8.8.8        # Google\n"
+"#   dnsdot off               # revert to plain UDP\n"
 "\n");
 
   /* ── [notes] — only when user wants notes ──────────────────────────────── */
@@ -1862,6 +1886,16 @@ int run_setup_wizard(const char *outfile)
 "commands = [\n"
 "  # Disable the 'simul' partyline command (security best practice).\n"
 "  \"unbind dcc n simul *dcc:simul\",\n");
+  if (want_dot && *dot_server)
+    fprintf(fp,
+"  # DNS-over-TLS: route all DNS queries over TLS to %s (port 853).\n"
+"  # Use -noverify if you have a self-signed resolver cert.\n"
+"  \"dnsdot on %s\",\n", dot_server, dot_server);
+  else
+    fprintf(fp,
+"  # DNS-over-TLS (DoT): uncomment to route DNS over TLS to Cloudflare.\n"
+"  # Other options: 9.9.9.9 (Quad9/privacy), 8.8.8.8 (Google)\n"
+"  # \"dnsdot on 1.1.1.1\",\n");
   if (listen_port > 0)
     fprintf(fp,
 "  # Open DCC/telnet port for users (DCC chat, .tcl console, etc.).\n"

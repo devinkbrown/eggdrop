@@ -124,9 +124,6 @@ endif
 if have_tls
   eggdrop_deps += tls_dep
 endif
-if have_tdns
-  eggdrop_deps += thread_dep
-endif
 if have_uring
   eggdrop_deps += uring_dep
 endif
@@ -160,17 +157,7 @@ module_defs = [
   {'name': 'channels', 'sources': ['mod/channels.mod/channels.c'], 'deps': []},
   {'name': 'console',  'sources': ['mod/console.mod/console.c'],   'deps': []},
   {'name': 'ctcp',     'sources': ['mod/ctcp.mod/ctcp.c'],         'deps': []},
-  {
-    'name': 'dns',
-    # When use-res-dns is true, compile res.c directly as the module
-    # source (it includes eggdrop.h standalone and exposes the same
-    # compat API as coredns.c).  The default uses dns.c which #includes
-    # coredns.c in the traditional unity-build fashion.
-    'sources': get_option('use-res-dns')
-               ? ['mod/dns.mod/res.c']
-               : ['mod/dns.mod/dns.c'],
-    'deps': [],   # resolv_dep added per-module below if found
-  },
+  {'name': 'dns',     'sources': ['mod/dns.mod/dns.c'],              'deps': []},
   {'name': 'filesys',  'sources': ['mod/filesys.mod/filesys.c'],   'deps': []},
   {'name': 'ident',    'sources': ['mod/ident.mod/ident.c'],       'deps': []},
   {'name': 'irc',      'sources': ['mod/irc.mod/irc.c'],           'deps': []},
@@ -243,9 +230,6 @@ foreach _d : [dl_dep, nsl_dep, m_dep, ws2_dep, mswsock_dep]
     mod_system_deps += _d
   endif
 endforeach
-if have_tdns
-  mod_system_deps += thread_dep
-endif
 # Modules need the Tcl include path (for lush.h) but must not re-link
 # libtcl — that symbol is exported by the main binary at runtime.
 if have_tcl
@@ -318,7 +302,7 @@ else
     if m['name'] == 'dns' and resolv_dep.found()
       mod_deps += resolv_dep
     endif
-    if m['name'] in ['server', 'webui'] and have_tls
+    if m['name'] in ['dns', 'server', 'webui'] and have_tls
       mod_deps += tls_dep
     endif
 

@@ -100,6 +100,24 @@ devinkbrown fork (based on v1.10.1):
       now allocated on first update and released on module unload.
       twitch_expmem() now reports actual live usage.
 
+ DNS changes:
+    - Replaced EGG_TDNS (threaded pthreads DNS resolver) with the
+      Ophion lightweight async DNS resolver (res.c) as the sole DNS
+      engine.  All DNS lookups now go through a single non-blocking UDP
+      socket driven by the existing event loop.  The 'tdns' build option
+      has been removed; there is no longer a background DNS thread.
+    - Added DNS-over-TLS (DoT, RFC 7858) support in the dns module.
+      When TLS is built in, enable via Tcl:
+        dnsdot on 1.1.1.1           — Cloudflare port 853, verify cert
+        dnsdot on 9.9.9.9 853       — Quad9, explicit port
+        dnsdot on ::1 853 -noverify — self-signed cert, no verify
+        dnsdot off                  — revert to plain UDP
+        dnsdot                      — report current status
+      RFC 7858 framing (2-byte length prefix) is handled internally with
+      a reassembly buffer so partial TLS records are never lost.
+      Automatic reconnect retries the DoT server after a configurable
+      delay if the TLS session is lost.
+
  IRC module changes:
     - Added IRCX/Ophion protocol support.  When net_type = "Ophion" the
       bot automatically negotiates IRCX mode (RPL_IRCX 800), handles +q

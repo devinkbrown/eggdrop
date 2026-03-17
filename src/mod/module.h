@@ -508,10 +508,8 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #endif
 /* 304 - 307 */
 #define strncpyz strlcpy /* strncpyz() is deprecated, use strlcpy() instead */
-#ifndef HAVE_BASE64
-# define b64_ntop ((int (*) (uint8_t const *, size_t, char *, size_t))global[305])
-# define b64_pton ((int (*) (const char *, uint8_t *, size_t))global[306])
-#endif
+#define b64_ntop ((int (*) (uint8_t const *, size_t, char *, size_t))global[305])
+#define b64_pton ((int (*) (const char *, uint8_t *, size_t))global[306])
 #define check_validpass ((char *(*) (struct userrec *, char *))global[307])
 /* 308 - 311 */
 #define make_rand_str_from_chars ((void (*) (char *, int, char *))global[308])
@@ -544,6 +542,8 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define stealth_telnets (*(int *)(global[328]))
 #undef nstrdup
 #define nstrdup(x) (((char *(*)(const char *, const char *, const char *, int))global[329])((x),MODULE_NAME,__FILE__,__LINE__))
+/* 330 */
+#define threaddata ((struct threaddata *(*)(void))global[330])
 
 
 /* hostmasking */

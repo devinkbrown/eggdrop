@@ -60,6 +60,14 @@
 #include <sys/syscall.h>
 #include <errno.h>
 
+/* Map EGG_TLS onto the eggdrop-wide TLS flag.
+ * Must be done before any #ifdef EGG_TLS guards in this file. */
+#ifdef TLS
+# ifndef EGG_TLS
+#  define EGG_TLS 1
+# endif
+#endif
+
 /* =========================================================================
  * Eggdrop global externs needed by this file.
  *
@@ -68,8 +76,13 @@
  * When compiled standalone (e.g. libeggres or use-res-dns), we declare
  * them explicitly.  The definitions live in main.c and net.c.
  * ====================================================================== */
-extern time_t now;      /* updated every main-loop tick (main.c)         */
-extern int pref_af;     /* 0 = prefer IPv4, 1 = prefer IPv6   (net.c)   */
+/* In module context (MAKING_MODS), now/pref_af come from module.h macros;
+ * the extern declarations would conflict with those macro definitions. */
+#ifndef MAKING_MODS
+extern time_t now;         /* updated every main-loop tick (main.c)      */
+extern int pref_af;        /* 0 = prefer IPv4, 1 = prefer IPv6  (net.c) */
+extern sock_list *socklist; /* TLS-aware socket list           (net.c)   */
+#endif
 
 /* =========================================================================
  * Portability shims: replace ophion infrastructure types/functions
@@ -219,7 +232,9 @@ static inline void op_get_random(void *buf, size_t len) {
  * ====================================================================== */
 
 static int res_timer_seconds    = 0;
+#ifdef EGG_TLS
 static int dot_reconnect_seconds = -1;  /* -1 = not scheduled */
+#endif
 
 /* =========================================================================
  * DNS wire-format constants
@@ -687,12 +702,6 @@ static int            ns_failures[IRCD_MAXNS];
  *      dot_fd = -1.
  * ====================================================================== */
 
-/* Map EGG_TLS onto the eggdrop-wide TLS flag. */
-#ifdef TLS
-# ifndef EGG_TLS
-#  define EGG_TLS 1
-# endif
-#endif
 
 #define DOT_RECONNECT_DELAY 30  /* seconds between reconnect attempts */
 
@@ -1117,9 +1126,8 @@ void res_read_dns(void)
      * calls, so a short SSL_read() of the 2-byte length prefix or payload
      * simply leaves dot_rxoff < dot_rxneed and resumes next event.
      */
-    struct threaddata *td = threaddata();
     int idx = findsock(dot_fd);
-    if (idx < 0 || !td->socklist[idx].ssl) {
+    if (idx < 0 || !socklist[idx].ssl) {
       /* SSL session gone — disable DoT and schedule reconnect */
       putlog(LOG_MISC, "*",
              "DNS: DoT connection lost (no SSL session); reconnecting in %ds",
@@ -1140,11 +1148,11 @@ void res_read_dns(void)
      * Partial reads simply leave dot_rxoff < dot_rxneed and we return,
      * resuming where we left off on the next readable event. */
     for (;;) {
-      int got = SSL_read(td->socklist[idx].ssl,
+      int got = SSL_read(socklist[idx].ssl,
                          dot_rxbuf + dot_rxoff,
                          dot_rxneed - dot_rxoff);
       if (got <= 0) {
-        int err = SSL_get_error(td->socklist[idx].ssl, got);
+        int err = SSL_get_error(socklist[idx].ssl, got);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
           break; /* no more data this tick */
         /* Connection error — reset reassembly state, schedule reconnect */
