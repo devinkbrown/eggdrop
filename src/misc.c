@@ -1074,7 +1074,7 @@ void add_help_reference(char *file)
   current = nmalloc(sizeof *current);
 
   current->name = nmalloc(strlen(file) + 1);
-  strlcpy(current->name, file, strlen(file) + 1);
+  strcpy(current->name, file);
   current->next = help_list;
   current->first = NULL;
   help_list = current;

@@ -126,7 +126,7 @@ static void add_lang(char *lang)
   /* No existing entry, create a new one */
   lp = nmalloc(sizeof(lang_pri));
   lp->lang = nmalloc(strlen(lang) + 1);
-  strlcpy(lp->lang, lang, strlen(lang) + 1);
+  strcpy(lp->lang, lang);
   lp->next = NULL;
 
   /* If we have other entries, point to the beginning of the old list */
@@ -169,7 +169,7 @@ static int add_message(int lidx, char *ltext)
     if (l->idx && (l->idx == lidx)) {
       nfree(l->text);
       l->text = nmalloc(strlen(ltext) + 1);
-      strlcpy(l->text, ltext, strlen(ltext) + 1);
+      strcpy(l->text, ltext);
       return 1;
     }
     if (!l->next)
@@ -183,7 +183,7 @@ static int add_message(int lidx, char *ltext)
     l = langtab[lidx & 63] = nmalloc(sizeof(lang_tab));
   l->idx = lidx;
   l->text = nmalloc(strlen(ltext) + 1);
-  strlcpy(l->text, ltext, strlen(ltext) + 1);
+  strcpy(l->text, ltext);
   l->next = 0;
   return 0;
 }
@@ -329,7 +329,7 @@ void add_lang_section(char *section)
   /* Create new section entry */
   ls = nmalloc(sizeof(lang_sec));
   ls->section = nmalloc(strlen(section) + 1);
-  strlcpy(ls->section, section, strlen(section) + 1);
+  strcpy(ls->section, section);
   ls->lang = NULL;
   ls->next = NULL;
 
@@ -427,7 +427,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
     if (file_readable(langfile)) {
       /* Save language used for this section */
       sec->lang = nrealloc(sec->lang, strlen(language) + 1);
-      strlcpy(sec->lang, language, strlen(language) + 1);
+      strcpy(sec->lang, language);
       return langfile;
     }
     nfree(langfile);
@@ -498,7 +498,7 @@ int cmd_loadlanguage(struct userrec *u, int idx, char *par)
   if (idx != DP_LOG)
     putlog(LOG_CMDS, "*", "#%s# language %s", dcc[idx].nick, par);
   buf = nmalloc(strlen(par) + 1);
-  strlcpy(buf, par, strlen(par) + 1);
+  strcpy(buf, par);
   if (!split_lang(buf, &lang, &section)) {
     nfree(buf);
     dprintf(idx, "Invalid parameter %s.\n", par);

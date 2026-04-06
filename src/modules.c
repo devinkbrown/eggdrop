@@ -122,7 +122,7 @@ void check_static(char *name, char *(*func) ())
   struct static_list *p = nmalloc(sizeof(struct static_list));
 
   p->name = nmalloc(strlen(name) + 1);
-  strlcpy(p->name, name, strlen(name) + 1);
+  strcpy(p->name, name);
   p->func = func;
   p->next = static_modules;
   static_modules = p;
@@ -861,7 +861,7 @@ const char *module_load(char *name)
   if (p == NULL)
     return "Malloc error";
   p->name = nmalloc(strlen(name) + 1);
-  strlcpy(p->name, name, strlen(name) + 1);
+  strcpy(p->name, name);
   p->major = 0;
   p->minor = 0;
 #ifndef STATIC
@@ -968,7 +968,7 @@ static int module_rename(char *name, char *newname)
     if (!strcasecmp(name, p->name)) {
       nfree(p->name);
       p->name = nmalloc(strlen(newname) + 1);
-      strlcpy(p->name, newname, strlen(newname) + 1);
+      strcpy(p->name, newname);
       return 1;
     }
   }
