@@ -350,7 +350,7 @@ static int tcl_utimers STDVAR
 static int tcl_duration STDVAR
 {
   char s[70];
-  unsigned long sec, tmp;
+  uint64_t sec, tmp;
 
   BADARGS(2, 2, " seconds");
 
@@ -358,37 +358,37 @@ static int tcl_duration STDVAR
     Tcl_AppendResult(irp, "0 seconds", NULL);
     return TCL_OK;
   }
-  sec = atol(argv[1]);
+  sec = (uint64_t)atoll(argv[1]);
 
   s[0] = 0;
   if (sec >= 31536000) {
     tmp = (sec / 31536000);
-    snprintf(s, sizeof(s), "%lu year%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s, sizeof(s), "%" PRIu64 " year%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 31536000);
   }
   if (sec >= 604800) {
     tmp = (sec / 604800);
-    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu week%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%" PRIu64 " week%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 604800);
   }
   if (sec >= 86400) {
     tmp = (sec / 86400);
-    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu day%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%" PRIu64 " day%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 86400);
   }
   if (sec >= 3600) {
     tmp = (sec / 3600);
-    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu hour%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%" PRIu64 " hour%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 3600);
   }
   if (sec >= 60) {
     tmp = (sec / 60);
-    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu minute%s ", tmp, (tmp == 1) ? "" : "s");
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%" PRIu64 " minute%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 60);
   }
   if (sec > 0) {
-    tmp = (sec);
-    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%lu second%s", tmp, (tmp == 1) ? "" : "s");
+    tmp = sec;
+    snprintf(s + strlen(s), sizeof(s) - strlen(s), "%" PRIu64 " second%s", tmp, (tmp == 1) ? "" : "s");
   }
   if (strlen(s) > 0 && s[strlen(s) - 1] == ' ')
     s[strlen(s) - 1] = 0;
@@ -462,8 +462,8 @@ static int tcl_myip STDVAR
 static int tcl_rand STDVAR
 {
   long i;
-  unsigned long x;
-  char s[11];
+  uint64_t x;
+  char s[21];
 
   BADARGS(2, 2, " limit");
 
@@ -480,7 +480,7 @@ static int tcl_rand STDVAR
 
   x = randint(i);
 
-  egg_snprintf(s, sizeof s, "%lu", x);
+  egg_snprintf(s, sizeof s, "%" PRIu64, x);
 
   Tcl_AppendResult(irp, s, NULL);
   return TCL_OK;

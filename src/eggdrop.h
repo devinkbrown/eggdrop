@@ -215,7 +215,7 @@
  * systems lacking random(), it may just be a macro for an older rand()
  * function.
  */
-#define randint(n) (unsigned long) (random() / (RANDOM_MAX + 1.0) * n)
+#define randint(n) (uint64_t) (random() / (RANDOM_MAX + 1.0) * n)
 
 
 /* wolfSSL forward declarations — avoids pulling in wolfssl/sp_int.h which
@@ -353,7 +353,7 @@ struct dcc_t {
   char host[UHOSTLEN];
   struct dcc_table *type;
   time_t timeval;               /* This is used for timeout checking. */
-  unsigned long status;         /* A LOT of dcc types have status things; makes it more available. */
+  uint64_t status;              /* A LOT of dcc types have status things; makes it more available. */
   union {
     struct chat_info *chat;
     struct file_info *file;
@@ -694,7 +694,7 @@ typedef struct {
 struct sock_handler {
   char *inbuf;
   egg_mbuf_t *outbuf;           /* ring buffer for pending outgoing data */
-  unsigned long inbuflen;       /* Inbuf could be binary data   */
+  size_t inbuflen;              /* Inbuf could be binary data   */
 #ifdef HAVE_LIBURING
   char *recv_buf;               /* kernel-filled async recv buffer (READMAX+2 bytes) */
   int   recv_len;               /* bytes ready: -1=none, 0=EOF, >0=data available   */

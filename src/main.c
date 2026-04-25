@@ -116,29 +116,29 @@ char quit_msg[1024];                  /* Quit message                           
 unsigned char cliflags = 0;
 
 
-/* Traffic stats */
-unsigned long otraffic_irc = 0;
-unsigned long otraffic_irc_today = 0;
-unsigned long otraffic_bn = 0;
-unsigned long otraffic_bn_today = 0;
-unsigned long otraffic_dcc = 0;
-unsigned long otraffic_dcc_today = 0;
-unsigned long otraffic_filesys = 0;
-unsigned long otraffic_filesys_today = 0;
-unsigned long otraffic_trans = 0;
-unsigned long otraffic_trans_today = 0;
-unsigned long otraffic_unknown = 0;
-unsigned long otraffic_unknown_today = 0;
-unsigned long itraffic_irc = 0;
-unsigned long itraffic_irc_today = 0;
-unsigned long itraffic_bn = 0;
-unsigned long itraffic_bn_today = 0;
-unsigned long itraffic_dcc = 0;
-unsigned long itraffic_dcc_today = 0;
-unsigned long itraffic_trans = 0;
-unsigned long itraffic_trans_today = 0;
-unsigned long itraffic_unknown = 0;
-unsigned long itraffic_unknown_today = 0;
+/* Traffic stats — 64-bit to avoid overflow on high-volume bots */
+uint64_t otraffic_irc = 0;
+uint64_t otraffic_irc_today = 0;
+uint64_t otraffic_bn = 0;
+uint64_t otraffic_bn_today = 0;
+uint64_t otraffic_dcc = 0;
+uint64_t otraffic_dcc_today = 0;
+uint64_t otraffic_filesys = 0;
+uint64_t otraffic_filesys_today = 0;
+uint64_t otraffic_trans = 0;
+uint64_t otraffic_trans_today = 0;
+uint64_t otraffic_unknown = 0;
+uint64_t otraffic_unknown_today = 0;
+uint64_t itraffic_irc = 0;
+uint64_t itraffic_irc_today = 0;
+uint64_t itraffic_bn = 0;
+uint64_t itraffic_bn_today = 0;
+uint64_t itraffic_dcc = 0;
+uint64_t itraffic_dcc_today = 0;
+uint64_t itraffic_trans = 0;
+uint64_t itraffic_trans_today = 0;
+uint64_t itraffic_unknown = 0;
+uint64_t itraffic_unknown_today = 0;
 
 #ifdef DEBUG_CONTEXT
 extern char last_bind_called[];

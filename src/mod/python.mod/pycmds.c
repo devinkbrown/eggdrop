@@ -20,6 +20,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 #define PY_SSIZE_T_CLEAN
+#include <stdint.h>
+#include <inttypes.h>
 
 #ifdef HAVE_TCL
 typedef struct {
@@ -1009,37 +1011,37 @@ static PyObject *py_unixtime(PyObject *self, PyObject *args)
 static PyObject *py_duration(PyObject *self, PyObject *args)
 {
   char s[80];
-  unsigned long sec, tmp;
+  uint64_t sec, tmp;
   long n;
 
   if (!PyArg_ParseTuple(args, "l", &n))
     return NULL;
   if (n <= 0)
     return PyUnicode_FromString("0 seconds");
-  sec = (unsigned long) n;
+  sec = (uint64_t) n;
   s[0] = 0;
   if (sec >= 31536000) {
     tmp = sec / 31536000; sec -= tmp * 31536000;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu year%s ", tmp, tmp == 1 ? "" : "s");
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 604800) {
     tmp = sec / 604800; sec -= tmp * 604800;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu week%s ", tmp, tmp == 1 ? "" : "s");
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 86400) {
     tmp = sec / 86400; sec -= tmp * 86400;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu day%s ", tmp, tmp == 1 ? "" : "s");
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 3600) {
     tmp = sec / 3600; sec -= tmp * 3600;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu hour%s ", tmp, tmp == 1 ? "" : "s");
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 60) {
     tmp = sec / 60; sec -= tmp * 60;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu minute%s ", tmp, tmp == 1 ? "" : "s");
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec > 0)
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%lu second%s", sec, sec == 1 ? "" : "s");
+    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
   else if (s[0] && s[strlen(s) - 1] == ' ')
     s[strlen(s) - 1] = 0;   /* strip trailing space */
   return PyUnicode_FromString(s);

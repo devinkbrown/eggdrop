@@ -25,8 +25,6 @@
 #include "../channels.mod/channels.h"
 #include <errno.h>
 #include "server.h"
-/* op_htab replaces egg_dictionary — op_lib.h included via server.c */
-
 #ifdef HAVE_TCL
 char *encode_msgtags(Tcl_Obj *msgtagdict);
 static char *encode_msgtag(char *key, char *value);

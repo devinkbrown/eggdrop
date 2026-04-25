@@ -25,6 +25,8 @@
 
 #include "main.h"
 #include <errno.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include "tandem.h"
 
 /* Includes for botnet md5 challenge/response code <cybah> */
@@ -605,8 +607,8 @@ static int dcc_bot_check_digest(int idx, char *remote_digest)
 
   if (!password)
     return 1;
-  snprintf(digest_string, sizeof digest_string, "<%lx%lx@", (long) getpid(), /* (1) */
-           (unsigned long) dcc[idx].timeval);
+  snprintf(digest_string, sizeof digest_string, "<%lx%" PRIx64 "@", (long) getpid(), /* (1) */
+           (uint64_t) dcc[idx].timeval);
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L) && defined(HAVE_EVP_MD5)
   EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
   const EVP_MD *md = EVP_md5();
@@ -1837,7 +1839,7 @@ static void dcc_telnet_pass(int idx, int atr)
      */
     putlog(LOG_BOTS, "*", "Challenging %s...", dcc[idx].nick);
     /* Prefix with \n in case of newline-less ending stealth_prompt */
-    dprintf(idx, "\npassreq <%x%lx@%s>\n", getpid(), (unsigned long)dcc[idx].timeval, botnetnick);
+    dprintf(idx, "\npassreq <%x%" PRIx64 "@%s>\n", getpid(), (uint64_t)dcc[idx].timeval, botnetnick);
     dcc[idx].type = old;
   } else {
     /* NOTE: The MD5 digest used above to prevent cleartext passwords being

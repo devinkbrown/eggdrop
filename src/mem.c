@@ -30,6 +30,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #include "mod/modvals.h"
 
@@ -37,7 +39,7 @@
 extern module_entry *module_list;
 
 #ifdef DEBUG_MEM
-unsigned long memused = 0;
+uint64_t memused = 0;
 static int lastused = 0;
 
 struct {
@@ -130,7 +132,7 @@ void debug_mem_to_dcc(int idx)
 #  else
 #    define MAX_MEM 13
 #  endif
-  unsigned long exp[MAX_MEM], use[MAX_MEM], l;
+  uint64_t exp[MAX_MEM], use[MAX_MEM], l;
   int i, j;
   char fn[20], sofar[81];
   module_entry *me;
@@ -252,10 +254,10 @@ void debug_mem_to_dcc(int idx)
     }
 
     if (use[i] == exp[i])
-      dprintf(idx, "File '%-10s' accounted for %lu/%lu (ok)\n", fn, exp[i],
+      dprintf(idx, "File '%-10s' accounted for %" PRIu64 "/%" PRIu64 " (ok)\n", fn, exp[i],
               use[i]);
     else {
-      dprintf(idx, "File '%-10s' accounted for %lu/%lu (debug follows:)\n",
+      dprintf(idx, "File '%-10s' accounted for %" PRIu64 "/%" PRIu64 " (debug follows:)\n",
               fn, exp[i], use[i]);
       strlcpy(sofar, "   ", sizeof(sofar));
       for (j = 0; j < lastused; j++) {
@@ -287,15 +289,15 @@ void debug_mem_to_dcc(int idx)
 
   for (me = module_list; me; me = me->next) {
     Function *f = me->funcs;
-    unsigned long expt = 0;
+    uint64_t expt = 0;
 
     if ((f != NULL) && (f[MODCALL_EXPMEM] != NULL))
-      expt = f[MODCALL_EXPMEM] ();
+      expt = (uint64_t)(uintptr_t) f[MODCALL_EXPMEM] ();
     if (me->mem_work == expt)
-      dprintf(idx, "Module '%-10s' accounted for %lu/%lu (ok)\n", me->name,
+      dprintf(idx, "Module '%-10s' accounted for %" PRIu64 "/%" PRIu64 " (ok)\n", me->name,
               expt, me->mem_work);
     else {
-      dprintf(idx, "Module '%-10s' accounted for %lu/%lu (debug follows:)\n",
+      dprintf(idx, "Module '%-10s' accounted for %" PRIu64 "/%" PRIu64 " (debug follows:)\n",
               me->name, expt, me->mem_work);
       strlcpy(sofar, "   ", sizeof(sofar));
       for (j = 0; j < lastused; j++) {
@@ -353,7 +355,7 @@ void *n_malloc(int size, const char *file, int line)
     }
     size2 = memtbl_size * sizeof *memtbl;
     if (!(memtbl = realloc(memtbl, size2))) {
-      putlog(LOG_MISC, "*", "*** FAILED REALLOC mem.c (memtbl) (%lu): %s", (unsigned long)size2,
+      putlog(LOG_MISC, "*", "*** FAILED REALLOC mem.c (memtbl) (%zu): %s", size2,
              strerror(errno));
       fatal("Memory allocation failed", 0);
     }

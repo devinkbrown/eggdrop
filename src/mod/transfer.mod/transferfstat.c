@@ -262,7 +262,7 @@ static int fstat_dupuser(struct userrec *u, struct userrec *o,
   return 0;
 }
 
-static void stats_add_dnload(struct userrec *u, unsigned long bytes)
+static void stats_add_dnload(struct userrec *u, uint64_t bytes)
 {
   struct user_entry *ue;
   struct filesys_stats *fs;
@@ -279,7 +279,7 @@ static void stats_add_dnload(struct userrec *u, unsigned long bytes)
   }
 }
 
-static void stats_add_upload(struct userrec *u, unsigned long bytes)
+static void stats_add_upload(struct userrec *u, uint64_t bytes)
 {
   struct user_entry *ue;
   struct filesys_stats *fs;

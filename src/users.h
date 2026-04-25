@@ -24,6 +24,8 @@
 #ifndef _EGG_USERS_H
 #define _EGG_USERS_H
 
+#include <stdint.h>
+
 /* List functions :) , next *must* be the 1st item in the struct */
 struct list_type {
   struct list_type *next;
@@ -97,7 +99,7 @@ struct user_entry {
     char *string;
     void *extra;
     struct list_type *list;
-    unsigned long ulong;
+    uint64_t ulong;
   } u;
   char *name;
 };
@@ -147,8 +149,8 @@ struct chanuserrec {
   struct chanuserrec *next;
   char channel[CHANNELLEN + 1];
   time_t laston;
-  unsigned long flags;
-  unsigned long flags_udef;
+  uint64_t flags;
+  uint64_t flags_udef;
   char *info;
 };
 
@@ -157,8 +159,8 @@ struct chanuserrec {
 struct userrec {
   struct userrec *next;
   char handle[HANDLEN + 1];
-  unsigned long flags;
-  unsigned long flags_udef;
+  uint64_t flags;
+  uint64_t flags_udef;
   struct chanuserrec *chanrec;
   struct user_entry *entries;
 };

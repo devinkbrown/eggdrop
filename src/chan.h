@@ -25,6 +25,8 @@
 #ifndef _EGG_CHAN_H
 #define _EGG_CHAN_H
 
+#include <stdint.h>
+
 /* Valid channel prefixes. */
 #define CHANMETA "#&!+"
 
@@ -46,7 +48,7 @@ typedef struct memstruct {
   char userhost[UHOSTLEN];
   char account[NICKLEN];
   time_t joined;
-  unsigned long flags;
+  uint64_t flags;
   time_t split; /* in case they were just netsplit */
   time_t last;  /* for measuring idle time         */
   time_t delay; /* for delayed autoop              */

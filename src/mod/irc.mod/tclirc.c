@@ -25,6 +25,8 @@
 /* This file requires Tcl — skip compilation when Tcl is disabled. */
 #ifdef HAVE_TCL
 
+#include <inttypes.h>
+
 static int tcl_chanlist STDVAR
 {
   int f;
@@ -703,7 +705,7 @@ static int tcl_getchanjoin STDVAR
     Tcl_AppendResult(irp, argv[1], " is not on ", argv[2], NULL);
     return TCL_ERROR;
   }
-  snprintf(s, sizeof(s), "%lu", (unsigned long) m->joined);
+  snprintf(s, sizeof(s), "%" PRIu64, (uint64_t) m->joined);
   Tcl_AppendResult(irp, s, NULL);
   return TCL_OK;
 }

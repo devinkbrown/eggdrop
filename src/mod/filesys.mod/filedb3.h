@@ -25,6 +25,8 @@
 #ifndef _EGG_MOD_FILESYS_FILEDB3_H
 #define _EGG_MOD_FILESYS_FILEDB3_H
 
+#include <stdint.h>
+
 /* Top of each DB */
 typedef struct {
   char version;                 /* DB version                   */
@@ -60,7 +62,7 @@ typedef struct {
    *       movements often invalidate them too, so make sure you know
    *       what you're doing before using/relying on them.
    */
-  unsigned long pos;            /* Last position in the filedb  */
+  uint64_t pos;                 /* Last position in the filedb  */
   unsigned short int dyn_len;   /* Length of dynamic data in DB */
   unsigned short int buf_len;   /* Length of additional buffer  */
 

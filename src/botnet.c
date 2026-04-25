@@ -493,17 +493,17 @@ void answer_local_whom(int idx, int chan)
         if (c == '-')
           c = ' ';
         if (now - dcc[i].timeval > 300) {
-          unsigned long days, hrs, mins;
+          uint64_t days, hrs, mins;
 
           days = (now - dcc[i].timeval) / 86400;
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            snprintf(idle, sizeof(idle), " [idle %lud%luh]", days, hrs);
+            snprintf(idle, sizeof(idle), " [idle %" PRIu64 "d%" PRIu64 "h]", days, hrs);
           else if (hrs > 0)
-            snprintf(idle, sizeof(idle), " [idle %luh%lum]", hrs, mins);
+            snprintf(idle, sizeof(idle), " [idle %" PRIu64 "h%" PRIu64 "m]", hrs, mins);
           else
-            snprintf(idle, sizeof(idle), " [idle %lum]", mins);
+            snprintf(idle, sizeof(idle), " [idle %" PRIu64 "m]", mins);
         } else
           idle[0] = 0;
         total++;
@@ -523,17 +523,17 @@ void answer_local_whom(int idx, int chan)
       if (party[i].timer == 0L)
         strlcpy(idle, " [idle?]", sizeof(idle));
       else if (now - party[i].timer > 300) {
-        unsigned long days, hrs, mins;
+        uint64_t days, hrs, mins;
 
         days = (now - party[i].timer) / 86400;
         hrs = ((now - party[i].timer) - (days * 86400)) / 3600;
         mins = ((now - party[i].timer) - (hrs * 3600)) / 60;
         if (days > 0)
-          snprintf(idle, sizeof(idle), " [idle %lud%luh]", days, hrs);
+          snprintf(idle, sizeof(idle), " [idle %" PRIu64 "d%" PRIu64 "h]", days, hrs);
         else if (hrs > 0)
-          snprintf(idle, sizeof(idle), " [idle %luh%lum]", hrs, mins);
+          snprintf(idle, sizeof(idle), " [idle %" PRIu64 "h%" PRIu64 "m]", hrs, mins);
         else
-          snprintf(idle, sizeof(idle), " [idle %lum]", mins);
+          snprintf(idle, sizeof(idle), " [idle %" PRIu64 "m]", mins);
       } else
         idle[0] = 0;
       total++;

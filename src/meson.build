@@ -47,9 +47,6 @@ core_sources = files(
   'users.c',
 )
 
-# patricia.c removed — replaced by libop op_cidr_tbl
-# dictionary.c removed — replaced by libop op_htab (via compat/egg_dictionary.h)
-
 # -------------------------------------------------------------------------
 # Core compile flags
 # -------------------------------------------------------------------------

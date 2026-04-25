@@ -2,7 +2,7 @@ project('eggdrop', 'c',
   version: '1.10.1',
   license: 'GPL-2.0-or-later',
   default_options: [
-    'c_std=gnu99',
+    'c_std=gnu23',
     'warning_level=1',           # -Wall; level 2 adds -Wextra (6k+ cast-fn-type hits)
     'b_pie=true',                # Position-Independent Executable — enables full ASLR
     'buildtype=release',         # -O3 + strip; use --buildtype=debugoptimized for -O2 + -g

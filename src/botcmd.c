@@ -82,7 +82,7 @@ static int fakesock = 2300;
 
 static void fake_alert(int idx, char *item, char *extra)
 {
-  static unsigned long lastfake; /* The last time fake_alert was used */
+  static time_t lastfake; /* The last time fake_alert was used */
 
   if (now - lastfake > 10) {
 #ifndef NO_OLD_BOTNET
@@ -397,17 +397,17 @@ static void remote_tell_who(int idx, char *nick, int chan)
         k = snprintf(s, sizeof(s), "  %c%-15s %s", (geticon(i) == '-' ? ' ' : geticon(i)),
                     dcc[i].nick, dcc[i].host);
         if (now - dcc[i].timeval > 300) {
-          unsigned long days, hrs, mins;
+          uint64_t days, hrs, mins;
 
           days = (now - dcc[i].timeval) / 86400;
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            snprintf(s + k, sizeof(s) - k, " (%s %lud%luh)", MISC_IDLE, days, hrs);
+            snprintf(s + k, sizeof(s) - k, " (%s %" PRIu64 "d%" PRIu64 "h)", MISC_IDLE, days, hrs);
           else if (hrs > 0)
-            snprintf(s + k, sizeof(s) - k, " (%s %luh%lum)", MISC_IDLE, hrs, mins);
+            snprintf(s + k, sizeof(s) - k, " (%s %" PRIu64 "h%" PRIu64 "m)", MISC_IDLE, hrs, mins);
           else
-            snprintf(s + k, sizeof(s) - k, " (%s %lum)", MISC_IDLE, mins);
+            snprintf(s + k, sizeof(s) - k, " (%s %" PRIu64 "m)", MISC_IDLE, mins);
         }
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s", s);
         if (dcc[i].u.chat->away != NULL)

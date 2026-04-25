@@ -48,13 +48,13 @@ extern sock_list *socklist;
 extern party_t *party;
 extern tand_t *tandbot;
 extern time_t now;
-extern unsigned long otraffic_irc, otraffic_irc_today, itraffic_irc,
-                     itraffic_irc_today, otraffic_bn, otraffic_bn_today,
-                     itraffic_bn, itraffic_bn_today, otraffic_dcc,
-                     otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
-                     otraffic_trans, otraffic_trans_today, itraffic_trans,
-                     itraffic_trans_today, otraffic_unknown, itraffic_unknown,
-                     otraffic_unknown_today, itraffic_unknown_today;
+extern uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
+                itraffic_irc_today, otraffic_bn, otraffic_bn_today,
+                itraffic_bn, itraffic_bn_today, otraffic_dcc,
+                otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
+                otraffic_trans, otraffic_trans_today, itraffic_trans,
+                itraffic_trans_today, otraffic_unknown, itraffic_unknown,
+                otraffic_unknown_today, itraffic_unknown_today;
 static struct portmap *root = NULL;
 
 
@@ -1418,37 +1418,37 @@ static int tcl_restart STDVAR
 static int tcl_traffic STDVAR
 {
   char buf[1024];
-  unsigned long out_total_today, out_total;
-  unsigned long in_total_today, in_total;
+  uint64_t out_total_today, out_total;
+  uint64_t in_total_today, in_total;
 
   /* IRC traffic */
-  snprintf(buf, sizeof(buf), "irc %lu %lu %lu %lu", itraffic_irc_today, itraffic_irc +
-          itraffic_irc_today, otraffic_irc_today,
-          otraffic_irc + otraffic_irc_today);
+  snprintf(buf, sizeof(buf), "irc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+          itraffic_irc_today, itraffic_irc + itraffic_irc_today,
+          otraffic_irc_today, otraffic_irc + otraffic_irc_today);
   Tcl_AppendElement(irp, buf);
 
   /* Botnet traffic */
-  snprintf(buf, sizeof(buf), "botnet %lu %lu %lu %lu", itraffic_bn_today, itraffic_bn +
-          itraffic_bn_today, otraffic_bn_today,
-          otraffic_bn + otraffic_bn_today);
+  snprintf(buf, sizeof(buf), "botnet %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+          itraffic_bn_today, itraffic_bn + itraffic_bn_today,
+          otraffic_bn_today, otraffic_bn + otraffic_bn_today);
   Tcl_AppendElement(irp, buf);
 
   /* Partyline */
-  snprintf(buf, sizeof(buf), "partyline %lu %lu %lu %lu", itraffic_dcc_today, itraffic_dcc +
-          itraffic_dcc_today, otraffic_dcc_today,
-          otraffic_dcc + otraffic_dcc_today);
+  snprintf(buf, sizeof(buf), "partyline %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+          itraffic_dcc_today, itraffic_dcc + itraffic_dcc_today,
+          otraffic_dcc_today, otraffic_dcc + otraffic_dcc_today);
   Tcl_AppendElement(irp, buf);
 
   /* Transfer */
-  snprintf(buf, sizeof(buf), "transfer %lu %lu %lu %lu", itraffic_trans_today,
-          itraffic_trans + itraffic_trans_today, otraffic_trans_today,
-          otraffic_trans + otraffic_trans_today);
+  snprintf(buf, sizeof(buf), "transfer %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+          itraffic_trans_today, itraffic_trans + itraffic_trans_today,
+          otraffic_trans_today, otraffic_trans + otraffic_trans_today);
   Tcl_AppendElement(irp, buf);
 
   /* Misc traffic */
-  snprintf(buf, sizeof(buf), "misc %lu %lu %lu %lu", itraffic_unknown_today,
-          itraffic_unknown + itraffic_unknown_today, otraffic_unknown_today,
-          otraffic_unknown + otraffic_unknown_today);
+  snprintf(buf, sizeof(buf), "misc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+          itraffic_unknown_today, itraffic_unknown + itraffic_unknown_today,
+          otraffic_unknown_today, otraffic_unknown + otraffic_unknown_today);
   Tcl_AppendElement(irp, buf);
 
   /* Totals */
@@ -1462,8 +1462,8 @@ static int tcl_traffic STDVAR
                     otraffic_unknown_today;
   out_total = out_total_today + otraffic_irc + otraffic_bn + otraffic_dcc +
               otraffic_trans + otraffic_unknown;
-  snprintf(buf, sizeof(buf), "total %lu %lu %lu %lu", in_total_today, in_total,
-          out_total_today, out_total);
+  snprintf(buf, sizeof(buf), "total %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+          in_total_today, in_total, out_total_today, out_total);
   Tcl_AppendElement(irp, buf);
   return TCL_OK;
 }

@@ -42,7 +42,7 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
 {
   char *chname, *who, s[UHOSTLEN], s1[UHOSTLEN], *p, *p_expire;
   long expire_foo;
-  unsigned long expire_time = 0;
+  uint64_t expire_time = 0;
   int sticky = 0;
   struct chanset_t *chan = NULL;
   module_entry *me;
@@ -185,7 +185,7 @@ static void cmd_pls_exempt(struct userrec *u, int idx, char *par)
 {
   char *chname, *who, s[UHOSTLEN], *p, *p_expire;
   long expire_foo;
-  unsigned long expire_time = 0;
+  uint64_t expire_time = 0;
   struct chanset_t *chan = NULL;
 
   if (!use_exempts) {
@@ -308,7 +308,7 @@ static void cmd_pls_invite(struct userrec *u, int idx, char *par)
 {
   char *chname, *who, s[UHOSTLEN], *p, *p_expire;
   long expire_foo;
-  unsigned long expire_time = 0;
+  uint64_t expire_time = 0;
   struct chanset_t *chan = NULL;
 
   if (!use_invites) {

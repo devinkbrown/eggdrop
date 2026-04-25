@@ -26,6 +26,8 @@
 #include "tandem.h"
 #include "modules.h"
 #include <signal.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 extern struct chanset_t *chanset;
 extern struct dcc_t *dcc;
@@ -34,20 +36,20 @@ extern tcl_timer_t *timer, *utimer;
 extern int dcc_total, remote_boots, backgrd, make_userfile, conmask, require_p,
            must_be_owner;
 extern volatile sig_atomic_t do_restart;
-extern unsigned long otraffic_irc, otraffic_irc_today, itraffic_irc,
-                     itraffic_irc_today, otraffic_bn, otraffic_bn_today,
-                     itraffic_bn, itraffic_bn_today, otraffic_dcc,
-                     otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
-                     otraffic_trans, otraffic_trans_today, itraffic_trans,
-                     itraffic_trans_today, otraffic_unknown,
-                     otraffic_unknown_today, itraffic_unknown,
-                     itraffic_unknown_today;
+extern uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
+                itraffic_irc_today, otraffic_bn, otraffic_bn_today,
+                itraffic_bn, itraffic_bn_today, otraffic_dcc,
+                otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
+                otraffic_trans, otraffic_trans_today, itraffic_trans,
+                itraffic_trans_today, otraffic_unknown,
+                otraffic_unknown_today, itraffic_unknown,
+                itraffic_unknown_today;
 extern Tcl_Interp *interp;
 extern char botnetnick[], origbotname[], ver[], network[], owner[], quit_msg[];
 extern time_t now, online_since;
 extern module_entry *module_list;
 
-static char *btos(unsigned long);
+static char *btos(uint64_t);
 
 /* Define some characters not allowed in address/port string
  */
@@ -145,17 +147,17 @@ static void tell_who(struct userrec *u, int idx, int chan)
                     masktype(dcc[i].u.chat->con_flags));
         }
         if (now - dcc[i].timeval > 300) {
-          unsigned long days, hrs, mins;
+          uint64_t days, hrs, mins;
 
           days = (now - dcc[i].timeval) / 86400;
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %lud%luh)", days, hrs);
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %" PRIu64 "d%" PRIu64 "h)", days, hrs);
           else if (hrs > 0)
-            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %luh%lum)", hrs, mins);
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %" PRIu64 "h%" PRIu64 "m)", hrs, mins);
           else
-            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %lum)", mins);
+            egg_snprintf(&s[strlen(s)], sizeof s - strlen(s), " (idle %" PRIu64 "m)", mins);
         }
         dprintf(idx, "%s\n", s);
         if (dcc[i].u.chat->away != NULL)
@@ -2989,7 +2991,7 @@ static void cmd_pls_ignore(struct userrec *u, int idx, char *par)
 {
   char *who, s[UHOSTLEN], *p, *p_expire;
   long expire_foo;
-  unsigned long expire_time = 0;
+  uint64_t expire_time = 0;
 
   if (!par[0]) {
     dprintf(idx, "Usage: +ignore <hostmask> [%%<XyXdXhXm>] [comment]\n");
@@ -3246,7 +3248,7 @@ static void cmd_modules(struct userrec *u, int idx, char *par)
 
 static void cmd_traffic(struct userrec *u, int idx, char *par)
 {
-  unsigned long itmp, itmp2;
+  uint64_t itmp, itmp2;
 
   dprintf(idx, "Traffic since last restart\n");
   dprintf(idx, "==========================\n");
@@ -3310,7 +3312,7 @@ static void cmd_traffic(struct userrec *u, int idx, char *par)
 }
 
 static char traffictxt[20];
-static char *btos(unsigned long bytes)
+static char *btos(uint64_t bytes)
 {
   const char *unit;
   float xbytes;
@@ -3335,7 +3337,7 @@ static char *btos(unsigned long bytes)
   if (bytes > 1024)
     snprintf(traffictxt, sizeof(traffictxt), "%.2f %s", xbytes, unit);
   else
-    snprintf(traffictxt, sizeof(traffictxt), "%lu Bytes", bytes);
+    snprintf(traffictxt, sizeof(traffictxt), "%" PRIu64 " Bytes", bytes);
   return traffictxt;
 }
 

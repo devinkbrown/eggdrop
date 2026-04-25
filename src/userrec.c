@@ -29,8 +29,6 @@
 #include "main.h"
 #include "modules.h"
 #include "tandem.h"
-/* op_htab replaces egg_dictionary (was dictionary.c); op_bh replaces egg_bh (was balloc) */
-
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
 extern int default_flags, default_uflags, quiet_save, dcc_total, share_greet,

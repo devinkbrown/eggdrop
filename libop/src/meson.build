@@ -91,7 +91,7 @@ fs = import('fs')
 thread_dep = dependency('threads', required: true)
 libm_dep   = meson.get_compiler('c').find_library('m', required: false)
 
-libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu11']
+libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu23']
 if have_ssl
   libop_c_args += ['-DHAVE_WOLFSSL=1']
 endif
@@ -110,7 +110,7 @@ _libop_core_obj = static_library('_op_core',
                           : [thread_dep, libm_dep],
   c_args:               libop_c_args,
   pic:                  true,
-  override_options:     ['c_std=gnu11'],
+  override_options:     ['c_std=gnu23'],
 )
 
 # -------------------------------------------------------------------------

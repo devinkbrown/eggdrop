@@ -32,6 +32,7 @@
 #define MODULE_NAME "uptime"
 #define MAKING_UPTIME
 
+#include <stdint.h>
 #include "uptime.h"
 #include "src/mod/module.h"
 #include "../server.mod/server.h"
@@ -61,11 +62,11 @@ typedef struct PackUp {
   int regnr;
   int pid;
   int type;
-  unsigned long packets_sent;
-  unsigned long uptime;
-  unsigned long ontime;
-  unsigned long now2;
-  unsigned long sysup;
+  uint32_t packets_sent;
+  uint32_t uptime;
+  uint32_t ontime;
+  uint32_t now2;
+  uint32_t sysup;
   char string[3];
 } PackUp;
 
@@ -81,7 +82,7 @@ static int update_interval = 720; /* rand(0..12) hours: ~6 hour average. */
 static time_t next_update = 0;
 static int uptimesock;
 static int uptimecount;
-static unsigned long uptimeip;
+static uint32_t uptimeip;
 static char uptime_version[48] = "";
 
 static void check_secondly(void);
@@ -108,7 +109,7 @@ static void uptime_report(int idx, int details)
   }
 }
 
-static unsigned long get_ip(void)
+static uint32_t get_ip(void)
 {
   struct hostent *hp;
   IP ip;

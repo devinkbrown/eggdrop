@@ -454,9 +454,9 @@ static void wepoll_ensure_init(void)
 
 extern struct dcc_t *dcc;
 extern int backgrd, use_stderr, resolve_timeout, dcc_total;
-extern unsigned long otraffic_irc_today, otraffic_bn_today, otraffic_dcc_today,
-                     otraffic_filesys_today, otraffic_trans_today,
-                     otraffic_unknown_today;
+extern uint64_t otraffic_irc_today, otraffic_bn_today, otraffic_dcc_today,
+                otraffic_filesys_today, otraffic_trans_today,
+                otraffic_unknown_today;
 extern time_t online_since;
 
 char nat_ip[INET_ADDRSTRLEN] = ""; /* Public IPv4 to report for systems behind NAT */
@@ -2653,8 +2653,8 @@ void tell_netdebug(int idx)
           snprintf(s + strlen(s), sizeof(s) - strlen(s), " (inbuf: %04X)",
                   (unsigned int) strlen(socklist[i].handler.sock.inbuf));
         if (socklist[i].handler.sock.outbuf != NULL)
-          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06lX)",
-                   (unsigned long) egg_mbuf_len(socklist[i].handler.sock.outbuf));
+          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06zX)",
+                   egg_mbuf_len(socklist[i].handler.sock.outbuf));
       }
       strlcat(s, ",", sizeof s);
       dprintf(idx, "%s", s);

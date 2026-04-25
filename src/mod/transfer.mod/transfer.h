@@ -130,8 +130,8 @@ enum dccsend_types {
 #else /* MAKING_TRANSFER */
 
 static void dcc_fork_send(int, char *, int);
-static void stats_add_dnload(struct userrec *, unsigned long);
-static void stats_add_upload(struct userrec *, unsigned long);
+static void stats_add_dnload(struct userrec *, uint64_t);
+static void stats_add_upload(struct userrec *, uint64_t);
 static void dcc_get_pending(int, char *, int);
 static void queue_file(char *, char *, char *, char *);
 static int raw_dcc_resend(char *, char *, char *);
@@ -143,8 +143,8 @@ static int fstat_dupuser(struct userrec *u, struct userrec *o,
                          struct user_entry *e);
 static int fstat_tcl_set(Tcl_Interp *irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv);
-static void stats_add_dnload(struct userrec *u, unsigned long bytes);
-static void stats_add_upload(struct userrec *u, unsigned long bytes);
+static void stats_add_dnload(struct userrec *u, uint64_t bytes);
+static void stats_add_upload(struct userrec *u, uint64_t bytes);
 static int wild_match_file(char *, char *);
 static int server_transfer_setup(char *);
 
