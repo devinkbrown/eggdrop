@@ -230,13 +230,24 @@ typedef struct WOLFSSL_CTX SSL_CTX;
 #endif
 
 /*
- *    Handy aliases for memory tracking and core dumps
+ *    Handy aliases for memory tracking and core dumps.
+ *
+ *    DEBUG_MEM: route through mem.c's tracking table (n_malloc / n_free).
+ *    Release:   route through libop's OOM-safe allocators (op_malloc / op_free).
+ *               op_malloc() calls calloc(1, size) so memory is always zeroed;
+ *               op_free() is a no-op on NULL.
  */
-
-#define nmalloc(x)    n_malloc((x),__FILE__,__LINE__)
-#define nrealloc(x,y) n_realloc((x),(y),__FILE__,__LINE__)
-#define nfree(x)      n_free((x),__FILE__,__LINE__)
-#define nstrdup(x)    n_strdup((x),__FILE__,__LINE__)
+#ifdef DEBUG_MEM
+#  define nmalloc(x)    n_malloc((x),__FILE__,__LINE__)
+#  define nrealloc(x,y) n_realloc((x),(y),__FILE__,__LINE__)
+#  define nfree(x)      n_free((x),__FILE__,__LINE__)
+#  define nstrdup(x)    n_strdup((x),__FILE__,__LINE__)
+#else
+#  define nmalloc(x)    op_malloc((size_t)(x))
+#  define nrealloc(x,y) op_realloc((x),(size_t)(y))
+#  define nfree(x)      op_free((x))
+#  define nstrdup(x)    op_strdup((x))
+#endif
 
 #ifdef DEBUG_ASSERT
 #  define Assert(expr) do {                                             \
