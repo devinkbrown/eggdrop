@@ -23,12 +23,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+#define COMPILING_MEM   /* suppress malloc→dont_use_old_malloc before op_lib.h */
 #include <sys/stat.h>
+#include <op_lib.h>
 #include "main.h"
 #include "modules.h"
 #include "tandem.h"
-#include "dictionary.h"
-#include "compat/balloc.h"
+/* op_htab replaces egg_dictionary (was dictionary.c); op_bh replaces egg_bh (was balloc) */
 
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
@@ -44,90 +45,90 @@ struct userrec *userlist = NULL;   /* user records are stored here      */
  * Replaced nmalloc(sizeof(*x)) / nfree(x) with these wrappers everywhere
  * these structs are allocated or freed, giving O(1) slab alloc/free and
  * returning memory to the OS when the heaps are destroyed on shutdown. */
-static egg_bh *userrec_heap    = NULL;
-static egg_bh *chanuserrec_heap = NULL;
-static egg_bh *user_entry_heap  = NULL;
-static egg_bh *list_type_heap   = NULL;
+static op_bh *userrec_heap    = NULL;
+static op_bh *chanuserrec_heap = NULL;
+static op_bh *user_entry_heap  = NULL;
+static op_bh *list_type_heap   = NULL;
 
 void userrec_heaps_init(void)
 {
-  userrec_heap     = egg_bh_create(sizeof(struct userrec),    0, "userrec");
-  chanuserrec_heap = egg_bh_create(sizeof(struct chanuserrec), 0, "chanuserrec");
-  user_entry_heap  = egg_bh_create(sizeof(struct user_entry),  0, "user_entry");
-  list_type_heap   = egg_bh_create(sizeof(struct list_type),   0, "list_type");
+  userrec_heap     = op_bh_create(sizeof(struct userrec),    0, "userrec");
+  chanuserrec_heap = op_bh_create(sizeof(struct chanuserrec), 0, "chanuserrec");
+  user_entry_heap  = op_bh_create(sizeof(struct user_entry),  0, "user_entry");
+  list_type_heap   = op_bh_create(sizeof(struct list_type),   0, "list_type");
 }
 
 void userrec_heaps_destroy(void)
 {
-  if (userrec_heap)     { egg_bh_destroy(userrec_heap);     userrec_heap     = NULL; }
-  if (chanuserrec_heap) { egg_bh_destroy(chanuserrec_heap); chanuserrec_heap = NULL; }
-  if (user_entry_heap)  { egg_bh_destroy(user_entry_heap);  user_entry_heap  = NULL; }
-  if (list_type_heap)   { egg_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
+  if (userrec_heap)     { op_bh_destroy(userrec_heap);     userrec_heap     = NULL; }
+  if (chanuserrec_heap) { op_bh_destroy(chanuserrec_heap); chanuserrec_heap = NULL; }
+  if (user_entry_heap)  { op_bh_destroy(user_entry_heap);  user_entry_heap  = NULL; }
+  if (list_type_heap)   { op_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
 }
 
 struct userrec *alloc_userrec(void)
 {
-  struct userrec *u = egg_bh_alloc(userrec_heap);
+  struct userrec *u = op_bh_alloc(userrec_heap);
   memset(u, 0, sizeof *u);
   return u;
 }
 
 void free_userrec(struct userrec *u)
 {
-  egg_bh_free(userrec_heap, u);
+  op_bh_free(userrec_heap, u);
 }
 
 struct chanuserrec *alloc_chanuserrec(void)
 {
-  struct chanuserrec *cr = egg_bh_alloc(chanuserrec_heap);
+  struct chanuserrec *cr = op_bh_alloc(chanuserrec_heap);
   memset(cr, 0, sizeof *cr);
   return cr;
 }
 
 void free_chanuserrec(struct chanuserrec *cr)
 {
-  egg_bh_free(chanuserrec_heap, cr);
+  op_bh_free(chanuserrec_heap, cr);
 }
 
 struct user_entry *alloc_user_entry(void)
 {
-  struct user_entry *ue = egg_bh_alloc(user_entry_heap);
+  struct user_entry *ue = op_bh_alloc(user_entry_heap);
   memset(ue, 0, sizeof *ue);
   return ue;
 }
 
 void free_user_entry(struct user_entry *ue)
 {
-  egg_bh_free(user_entry_heap, ue);
+  op_bh_free(user_entry_heap, ue);
 }
 
 struct list_type *alloc_list_type(void)
 {
-  struct list_type *lt = egg_bh_alloc(list_type_heap);
+  struct list_type *lt = op_bh_alloc(list_type_heap);
   memset(lt, 0, sizeof *lt);
   return lt;
 }
 
 void free_list_type(struct list_type *lt)
 {
-  egg_bh_free(list_type_heap, lt);
+  op_bh_free(list_type_heap, lt);
 }
 struct userrec *lastuser = NULL;   /* last accessed user record         */
 
 /* Splay-tree index from lowercase handle → userrec *.
  * Maintained by adduser/deluser/change_handle/clear_userlist.
  * Rebuilt lazily on first get_user_by_handle() after a bulk load. */
-static egg_dictionary *user_handle_dict = NULL;
+static op_htab *user_handle_dict = NULL;
 
 static void user_dict_rebuild(void)
 {
   struct userrec *u;
 
   if (user_handle_dict)
-    egg_dictionary_destroy(user_handle_dict, NULL, NULL);
-  user_handle_dict = egg_dictionary_create("userhandles", egg_dict_strcasecmp);
+    op_htab_destroy(user_handle_dict, NULL, NULL);
+  user_handle_dict = op_htab_create_istr("userhandles", 64);
   for (u = userlist; u; u = u->next)
-    egg_dictionary_add(user_handle_dict, u->handle, u);
+    op_htab_set(user_handle_dict, u->handle, u, NULL);
 }
 
 /* Splay-tree index from IRC account name → userrec *.
@@ -139,7 +140,7 @@ static void user_dict_rebuild(void)
  * Maintained by addaccount_by_handle / del_host_or_account(type=1) /
  * deluser / clear_userlist.  Rebuilt lazily on the first
  * get_user_by_account() call after a bulk load (e.g. readuserfile). */
-static egg_dictionary *user_account_dict = NULL;
+static op_htab *user_account_dict = NULL;
 
 /* Invalidate (destroy) the account dict so it is lazily rebuilt on the next
  * get_user_by_account() call.  Call this whenever accounts are modified via
@@ -148,7 +149,7 @@ static egg_dictionary *user_account_dict = NULL;
 void user_account_dict_invalidate(void)
 {
   if (user_account_dict) {
-    egg_dictionary_destroy(user_account_dict, NULL, NULL);
+    op_htab_destroy(user_account_dict, NULL, NULL);
     user_account_dict = NULL;
   }
 }
@@ -159,12 +160,12 @@ static void user_account_dict_rebuild(void)
   struct list_type *q;
 
   if (user_account_dict)
-    egg_dictionary_destroy(user_account_dict, NULL, NULL);
-  user_account_dict = egg_dictionary_create("useraccounts", egg_dict_strcasecmp);
+    op_htab_destroy(user_account_dict, NULL, NULL);
+  user_account_dict = op_htab_create_istr("useraccounts", 64);
   for (u = userlist; u; u = u->next)
     for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
       if (q->extra && strcmp(q->extra, "none"))
-        egg_dictionary_add(user_account_dict, q->extra, u);
+        op_htab_set(user_account_dict, q->extra, u, NULL);
 }
 maskrec *global_bans = NULL, *global_exempts = NULL, *global_invites = NULL;
 struct igrec *global_ign = NULL;
@@ -334,7 +335,7 @@ struct userrec *get_user_by_account(char *acct)
   if (!user_account_dict && userlist)
     user_account_dict_rebuild();
   if (user_account_dict)
-    return egg_dictionary_retrieve(user_account_dict, acct);
+    return op_htab_get(user_account_dict,acct);
   /* Fallback: O(n×m) linear scan (dict unavailable). */
   for (u = userlist; u; u = u->next)
     for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
@@ -370,7 +371,7 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
     if (!user_handle_dict && userlist)
       user_dict_rebuild();
     if (user_handle_dict) {
-      ret = egg_dictionary_retrieve(user_handle_dict, handle);
+      ret = op_htab_get(user_handle_dict,handle);
       if (ret)
         lastuser = ret;
       return ret;
@@ -503,11 +504,11 @@ void clear_userlist(struct userrec *bu)
     clear_chanlist();
     lastuser = NULL;
     if (user_handle_dict) {
-      egg_dictionary_destroy(user_handle_dict, NULL, NULL);
+      op_htab_destroy(user_handle_dict, NULL, NULL);
       user_handle_dict = NULL;
     }
     if (user_account_dict) {
-      egg_dictionary_destroy(user_account_dict, NULL, NULL);
+      op_htab_destroy(user_account_dict, NULL, NULL);
       user_account_dict = NULL;
     }
 
@@ -857,8 +858,8 @@ int change_handle(struct userrec *u, char *newh)
   strlcpy(s, u->handle, sizeof s);
   strlcpy(u->handle, newh, sizeof u->handle);
   if (user_handle_dict) {
-    egg_dictionary_delete(user_handle_dict, s);
-    egg_dictionary_add(user_handle_dict, u->handle, u);
+    op_htab_del(user_handle_dict,s);
+    op_htab_set(user_handle_dict, u->handle, u, NULL);
   }
   for (i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT || dcc[i].type == &DCC_CHAT_PASS) &&
@@ -949,7 +950,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
     if (bu == userlist) {
       lastuser = u;
       if (user_handle_dict)
-        egg_dictionary_add(user_handle_dict, u->handle, u);
+        op_htab_set(user_handle_dict, u->handle, u, NULL);
     }
   }
   return bu;
@@ -1016,12 +1017,12 @@ int deluser(char *handle)
       dcc[fnd].user = 0;        /* Clear any dcc users for this entry,
                                  * null is safe-ish */
   if (user_handle_dict)
-    egg_dictionary_delete(user_handle_dict, handle);
+    op_htab_del(user_handle_dict,handle);
   if (user_account_dict) {
     struct list_type *q;
     for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
       if (q->extra && strcmp(q->extra, "none"))
-        egg_dictionary_delete(user_account_dict, q->extra);
+        op_htab_del(user_account_dict,q->extra);
   }
   clear_chanlist();
   freeuser(u);

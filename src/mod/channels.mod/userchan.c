@@ -21,13 +21,14 @@
  */
 
 /* -----------------------------------------------------------------------
- * Patricia-trie helpers for fast CIDR ban/exempt/invite matching.
+ * op_cidr_tbl helpers for fast CIDR ban/exempt/invite matching.
  *
- * Each chanset_t carries three egg_patricia_tree_t * tries (stored as
- * struct _egg_patricia_tree_t * in chan.h to avoid pulling in socket
- * headers everywhere).  Only masks whose host portion is CIDR notation
- * (e.g. *!*@192.168.0.0/24) are inserted; glob patterns fall through
- * to the existing linear scan.
+ * Each chanset_t carries three op_cidr_tbl_t * tables (see chan.h).
+ * Only masks whose host portion is CIDR notation (e.g. *!*@192.168.0.0/24)
+ * are inserted; glob patterns fall through to the existing linear scan.
+ *
+ * Uses libop's op_cidr_tbl (binary trie) and op_cidr_parse_str /
+ * op_cidr_parse_addr helpers from op_tools.h.
  * ----------------------------------------------------------------------- */
 
 /* Return the host portion of a ban mask (everything after '@'). */
@@ -56,55 +57,60 @@ static int str_is_ip(const char *s)
   return 1;
 }
 
-/* Insert a CIDR ban mask into a trie, creating the trie if needed.
- * *trie_ptr is a struct _egg_patricia_tree_t * (cast to/from egg_patricia_tree_t *). */
-static void ip_trie_add(struct _egg_patricia_tree_t **trie_ptr,
+/* Insert a CIDR ban mask into a trie, creating it if needed. */
+static void ip_trie_add(op_cidr_tbl_t **trie_ptr,
                         const char *mask, maskrec *rec)
 {
-  egg_patricia_tree_t *trie;
-  egg_patricia_node_t *node;
+  struct sockaddr_storage ss;
+  int plen;
 
   if (!mask_is_cidr(mask))
     return;
   if (!*trie_ptr)
-    *trie_ptr = (struct _egg_patricia_tree_t *)egg_new_patricia(EGG_PATRICIA_MAXBITS);
-  trie = (egg_patricia_tree_t *)*trie_ptr;
-  node = make_and_lookup(trie, mask_host(mask));
-  if (node)
-    node->data = rec;
+    *trie_ptr = op_cidr_create("bantrie");
+  if (op_cidr_parse_str(mask_host(mask), &ss, &plen) < 0)
+    return;
+  if (ss.ss_family == AF_INET)
+    op_cidr_set4(*trie_ptr,
+                 &((struct sockaddr_in *)&ss)->sin_addr, plen, rec, NULL);
+  else
+    op_cidr_set6(*trie_ptr,
+                 &((struct sockaddr_in6 *)&ss)->sin6_addr, plen, rec, NULL);
 }
 
 /* Remove a CIDR ban mask from a trie. */
-static void ip_trie_del(struct _egg_patricia_tree_t *trie_arg, const char *mask)
+static void ip_trie_del(op_cidr_tbl_t *trie, const char *mask)
 {
-  egg_patricia_tree_t *trie = (egg_patricia_tree_t *)trie_arg;
-  egg_patricia_node_t *node;
+  struct sockaddr_storage ss;
+  int plen;
 
   if (!trie || !mask_is_cidr(mask))
     return;
-  node = egg_match_exact_string(trie, mask_host(mask));
-  if (node)
-    egg_patricia_remove(trie, node);
+  if (op_cidr_parse_str(mask_host(mask), &ss, &plen) < 0)
+    return;
+  if (ss.ss_family == AF_INET)
+    op_cidr_del4(trie, &((struct sockaddr_in *)&ss)->sin_addr, plen);
+  else
+    op_cidr_del6(trie, &((struct sockaddr_in6 *)&ss)->sin6_addr, plen);
 }
 
 /* Look up a host string in a trie.  Returns the matching maskrec * or NULL. */
-static maskrec *ip_trie_match(struct _egg_patricia_tree_t *trie_arg,
-                               const char *host)
+static maskrec *ip_trie_match(op_cidr_tbl_t *trie, const char *host)
 {
-  egg_patricia_tree_t *trie = (egg_patricia_tree_t *)trie_arg;
-  egg_patricia_node_t *node;
+  struct sockaddr_storage ss;
 
   if (!trie || !str_is_ip(host))
     return NULL;
-  node = egg_match_string(trie, host);
-  return node ? (maskrec *)node->data : NULL;
+  if (op_cidr_parse_addr(host, &ss) < 0)
+    return NULL;
+  return (maskrec *)op_cidr_match_any_ss(trie, &ss);
 }
 
 /* Destroy a trie and set the pointer to NULL. */
-static void ip_trie_destroy(struct _egg_patricia_tree_t **trie_ptr)
+static void ip_trie_destroy(op_cidr_tbl_t **trie_ptr)
 {
   if (*trie_ptr) {
-    egg_destroy_patricia((egg_patricia_tree_t *)*trie_ptr, NULL);
+    op_cidr_destroy(*trie_ptr, NULL, NULL);
     *trie_ptr = NULL;
   }
 }
@@ -317,11 +323,11 @@ static int u_match_mask(maskrec *rec, char *mask)
   return 0;
 }
 
-/* u_match_mask_trie: like u_match_mask but uses a patricia trie as a fast
+/* u_match_mask_trie: like u_match_mask but uses a CIDR trie as a fast
  * path for IP-format hosts before falling through to the linear scan.
  * Call this instead of u_match_mask when you have a chanset_t available. */
 static int u_match_mask_trie(maskrec *rec,
-                              struct _egg_patricia_tree_t *ip_trie,
+                              op_cidr_tbl_t *ip_trie,
                               char *mask)
 {
   const char *host = strchr(mask, '@');

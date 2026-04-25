@@ -30,6 +30,15 @@ opt_exec      = get_option('eggexec')
 opt_hardening = get_option('hardening')
 
 # -------------------------------------------------------------------------
+# DATECODE — Unix timestamp of the most recent git commit.
+# Passed as a compile-time constant for version.c (op_build_info).
+# Falls back to 0 when git is unavailable (release tarball builds).
+# -------------------------------------------------------------------------
+_datecode_r = run_command('git', 'log', '-1', '--pretty=format:%ct', check: false)
+_datecode   = _datecode_r.returncode() == 0 ? _datecode_r.stdout().strip() : '0'
+add_project_arguments('-DDATECODE=' + _datecode + 'UL', language: 'c')
+
+# -------------------------------------------------------------------------
 # Configuration data (generates config.h)
 # -------------------------------------------------------------------------
 cdata = configuration_data()
@@ -37,6 +46,8 @@ cdata = configuration_data()
 cdata.set_quoted('PACKAGE',         'eggdrop')
 cdata.set_quoted('PACKAGE_NAME',    'Eggdrop')
 cdata.set_quoted('PACKAGE_VERSION', meson.project_version())
+cdata.set_quoted('BRANDING_NAME',    meson.project_name())
+cdata.set_quoted('BRANDING_VERSION', meson.project_version())
 cdata.set_quoted('PACKAGE_BUGREPORT', 'bugs@eggheads.org')
 cdata.set_quoted('PACKAGE_URL',     'https://www.eggheads.org')
 cdata.set('VERSION', meson.project_version())
@@ -202,27 +213,40 @@ else
 endif
 
 # -------------------------------------------------------------------------
-# TLS / OpenSSL — optional
+# TLS / wolfSSL — optional (replaces OpenSSL)
+# wolfssl is in /usr/lib with headers in /usr/include/wolfssl
 # -------------------------------------------------------------------------
-tls_dep = dependency('openssl', version: '>=1.0.0', required: opt_tls)
-have_tls = tls_dep.found()
+wolfssl_dep = dependency('', required: false)  # sentinel
+if opt_tls.allowed()
+  _wssl_lib = cc.find_library('wolfssl',
+    dirs: ['/usr/lib', '/usr/local/lib'],
+    required: false)
+  _wssl_has_hdr = cc.has_header('wolfssl/ssl.h',
+    args: ['-I/usr/include', '-I/usr/local/include'])
+  if _wssl_lib.found() and _wssl_has_hdr
+    wolfssl_dep = declare_dependency(
+      dependencies: _wssl_lib,
+      include_directories: include_directories('/usr/include'),
+    )
+  endif
+endif
+tls_dep  = wolfssl_dep   # alias used throughout src/meson.build
+have_tls = wolfssl_dep.found()
+have_ssl = have_tls       # alias used by libop subdir
+
 if have_tls
-  cdata.set('HAVE_OPENSSL', 1)
+  cdata.set('HAVE_WOLFSSL', 1)
   cdata.set('TLS', 1)
   cdata.set('HAVE_TLS', 1)
-  # Detect legacy OpenSSL low-level MD5 API (deprecated in OpenSSL 3.0).
-  # When available, md5.h includes <openssl/md5.h> instead of the bundled
-  # implementation, and modules.c exports the real OpenSSL symbols.
-  if cc.has_function('MD5_Init', dependencies: tls_dep,
-                     prefix: '#include <openssl/md5.h>')
-    cdata.set('HAVE_OPENSSL_MD5', 1)
-  endif
-  # Detect modern EVP MD5 API (OpenSSL >= 1.1.0).
-  # When available, tclmisc.c and dcc.c use EVP_DigestInit_ex instead of
-  # the deprecated MD5_CTX API, routing through OpenSSL on all versions.
-  if cc.has_function('EVP_md5', dependencies: tls_dep,
-                     prefix: '#include <openssl/evp.h>')
-    cdata.set('HAVE_EVP_MD5', 1)
+  # wolfssl provides OpenSSL-compat MD5 and EC key APIs
+  cdata.set('HAVE_OPENSSL_MD5', 1)
+  cdata.set('HAVE_EVP_MD5', 1)
+  cdata.set('HAVE_EVP_PKEY_GET1_EC_KEY', 1)
+  message('TLS: wolfSSL found — TLS enabled')
+else
+  message('TLS: wolfSSL not found — TLS disabled')
+  if opt_tls.enabled()
+    error('wolfssl required (-Dtls=enabled) but not found in /usr/lib')
   endif
 endif
 
@@ -248,6 +272,7 @@ have_zlib = zlib_dep.found()
 have_epoll = cc.has_header('sys/epoll.h')
 if have_epoll
   cdata.set('HAVE_EPOLL', 1)
+  cdata.set('HAVE_EPOLL_CTL', 1)   # libop commio alias
   message('epoll detected — using epoll back-end')
 else
   message('epoll not found — falling back to select()')
@@ -261,6 +286,7 @@ have_kqueue = cc.has_header('sys/event.h') and cc.has_function('kqueue',
     prefix: '#include <sys/types.h>\n#include <sys/event.h>\n#include <sys/time.h>')
 if have_kqueue
   cdata.set('HAVE_KQUEUE', 1)
+  cdata.set('HAVE_KEVENT', 1)      # libop commio alias
   if not have_epoll
     message('kqueue detected — using kqueue back-end')
   else
@@ -283,6 +309,11 @@ endif
 if cc.has_header_symbol('sys/socket.h', 'SOCK_CLOEXEC',
     prefix: '#define _GNU_SOURCE')
   cdata.set('HAVE_SOCK_CLOEXEC', 1)
+endif
+
+# writev — scatter-gather I/O (POSIX, virtually universal)
+if cc.has_function('writev', prefix: '#include <sys/uio.h>')
+  cdata.set('HAVE_WRITEV', 1)
 endif
 
 # -------------------------------------------------------------------------
@@ -585,6 +616,11 @@ config_h = configure_file(output: 'config.h', configuration: cdata)
 top_inc = include_directories('.')   # also covers generated config.h
 src_inc = include_directories('src')
 mod_inc = include_directories('src/mod')
+
+# -------------------------------------------------------------------------
+# libop — portable data-structure library (subset of ophion's libop)
+# -------------------------------------------------------------------------
+subdir('libop')
 
 # -------------------------------------------------------------------------
 # Recurse into src/

@@ -24,10 +24,11 @@
 #define MODULE_NAME "channels"
 #define MAKING_CHANNELS
 
+#define COMPILING_MEM   /* suppress malloc→dont_use_old_malloc in eggdrop.h */
 #include <sys/stat.h>
 #include <ctype.h>
+#include <op_lib.h>
 #include "src/mod/module.h"
-#include "../../patricia.h"
 
 static Function *global = NULL;
 
@@ -70,10 +71,8 @@ static int gfld_chan_thr, gfld_chan_time, gfld_deop_thr, gfld_deop_time,
  * These functions are defined here, before the unity-build includes below,
  * so that tclchan.c / cmdschan.c / userchan.c can call them directly.
  * ----------------------------------------------------------------------- */
-#include "../../compat/balloc.h"
-
-static egg_bh *memberlist_heap = NULL;
-static egg_bh *masklist_heap   = NULL;
+static op_bh *memberlist_heap = NULL;
+static op_bh *masklist_heap   = NULL;
 
 static void channel_bh_init(void)
 {
@@ -84,47 +83,47 @@ static void channel_bh_init(void)
    *
    * masklist: 0 (auto).  sizeof(masklist) == 32, so auto gives ~127/page —
    * already the right granularity for a ban/exempt/invite list. */
-  memberlist_heap = egg_bh_create(sizeof(memberlist), 64, "memberlist");
-  masklist_heap   = egg_bh_create(sizeof(masklist),    0, "masklist");
+  memberlist_heap = op_bh_create(sizeof(memberlist), 64, "memberlist");
+  masklist_heap   = op_bh_create(sizeof(masklist),    0, "masklist");
 }
 
 static void channel_bh_destroy(void)
 {
   if (memberlist_heap) {
-    egg_bh_destroy(memberlist_heap);
+    op_bh_destroy(memberlist_heap);
     memberlist_heap = NULL;
   }
   if (masklist_heap) {
-    egg_bh_destroy(masklist_heap);
+    op_bh_destroy(masklist_heap);
     masklist_heap = NULL;
   }
 }
 
 /* Type-specific alloc/free for memberlist nodes.
- * egg_bh_alloc already zero-fills; callers do not need egg_bzero. */
+ * op_bh_alloc already zero-fills; callers do not need memset. */
 static void *channel_malloc_member(void)
 {
-  return egg_bh_alloc(memberlist_heap);
+  return op_bh_alloc(memberlist_heap);
 }
 
 static void channel_free_member(void *ptr)
 {
   if (!ptr)
     return;
-  egg_bh_free(memberlist_heap, ptr);
+  op_bh_free(memberlist_heap, ptr);
 }
 
 /* Type-specific alloc/free for masklist nodes. */
 static void *channel_malloc_mask(void)
 {
-  return egg_bh_alloc(masklist_heap);
+  return op_bh_alloc(masklist_heap);
 }
 
 static void channel_free_mask(void *ptr)
 {
   if (!ptr)
     return;
-  egg_bh_free(masklist_heap, ptr);
+  op_bh_free(masklist_heap, ptr);
 }
 
 /* General-purpose allocator for variable-length objects (strings etc.). */
@@ -1070,7 +1069,7 @@ static Function channels_table[] = {
   (Function) channel_malloc_mask,   /* [51] alloc a masklist  node from slab   */
   (Function) channel_free_mask,     /* [52] free  a masklist  node back        */
   /* 53 */
-  (Function) u_match_mask_trie,     /* [53] like u_match_mask + patricia trie  */
+  (Function) u_match_mask_trie,     /* [53] like u_match_mask + op_cidr_tbl    */
 };
 
 char *channels_start(Function *global_funcs)

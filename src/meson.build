@@ -5,55 +5,11 @@
 fs = import('fs')
 
 # -------------------------------------------------------------------------
-# Compatibility library (replaces missing libc functions)
+# Compat and MD5 are now absorbed into libop (libop_dep).
+# compat_dep and md5_dep are kept as aliases so nothing else needs changing.
 # -------------------------------------------------------------------------
-compat_sources = files(
-  'compat/base64.c',
-  'compat/explicit_bzero.c',
-  'compat/in6.c',
-  'compat/inet_aton.c',
-  'compat/snprintf.c',
-  'compat/strlcpy.c',
-)
-
-# arc4random — only compile our copy if the system lacks it
-if not cdata.has('HAVE_ARC4RANDOM')
-  compat_sources += files('compat/arc4random.c')
-endif
-
-# balloc slab allocator (always included)
-if fs.exists(meson.current_source_dir() / 'compat/balloc.c')
-  compat_sources += files('compat/balloc.c')
-endif
-
-# mbuf message ring buffer (always included when present)
-if fs.exists(meson.current_source_dir() / 'compat/mbuf.c')
-  compat_sources += files('compat/mbuf.c')
-endif
-
-compat_lib = static_library('eggcompat',
-  sources: compat_sources,
-  include_directories: [top_inc, src_inc],
-  c_args: ['-DHAVE_CONFIG_H'],
-  dependencies: have_tcl ? [tcl_dep, tls_dep] : [tls_dep],
-)
-compat_dep = declare_dependency(link_with: compat_lib)
-
-# -------------------------------------------------------------------------
-# MD5 library — only built when OpenSSL does not provide MD5
-# (avoids empty-archive ranlib warning on macOS when HAVE_OPENSSL_MD5 is set)
-# -------------------------------------------------------------------------
-if not cdata.has('HAVE_OPENSSL_MD5')
-  md5_lib = static_library('eggmd5',
-    sources: ['md5/md5c.c'],
-    include_directories: [top_inc, src_inc],
-    c_args: ['-DHAVE_CONFIG_H'],
-    dependencies: have_tcl ? [tcl_dep] : [],
-  )
-  md5_dep = declare_dependency(link_with: md5_lib)
-else
-  md5_dep = declare_dependency()
-endif
+compat_dep = libop_dep
+md5_dep    = libop_dep
 
 # -------------------------------------------------------------------------
 # Core eggdrop sources
@@ -91,12 +47,8 @@ core_sources = files(
   'users.c',
 )
 
-# Optional new data-structure sources (from ophion import)
-foreach s : ['patricia.c', 'dictionary.c']
-  if fs.exists(meson.current_source_dir() / s)
-    core_sources += files(s)
-  endif
-endforeach
+# patricia.c removed — replaced by libop op_cidr_tbl
+# dictionary.c removed — replaced by libop op_htab (via compat/egg_dictionary.h)
 
 # -------------------------------------------------------------------------
 # Core compile flags
@@ -119,8 +71,7 @@ endif
 # All link dependencies for the main binary
 # -------------------------------------------------------------------------
 eggdrop_deps = [
-  compat_dep,
-  md5_dep,
+  libop_dep,   # includes compat and MD5 (merged into libop)
 ]
 if have_tcl
   eggdrop_deps = [tcl_dep] + eggdrop_deps
@@ -224,7 +175,7 @@ _fvis = (not is_native_windows and cc.has_argument('-fvisibility=hidden')) \
 
 module_cargs = core_cargs + ['-DMAKING_MODS'] + _fvis
 
-module_inc = [top_inc, src_inc, include_directories('mod')]
+module_inc = [top_inc, src_inc, include_directories('mod'), libop_inc]
 
 # Minimal system deps for modules.  Modules resolve eggdrop, compat, md5,
 # and tcl symbols at dlopen() time from the already-loaded main binary
@@ -241,30 +192,9 @@ if have_tcl
   mod_system_deps += tcl_dep.partial_dependency(includes: true, compile_args: true)
 endif
 
-# -------------------------------------------------------------------------
-# libeggres — standalone static library built from res.c
-#
-# res.c is a self-contained alternative DNS resolver that includes
-# eggdrop.h directly.  We compile it as a static library so it is
-# available for future linking (e.g. swapped-in via use-res-dns) without
-# being part of the normal dns module unity build.  The library is only
-# built when res.c is present in the source tree.
-# -------------------------------------------------------------------------
-if fs.exists(meson.current_source_dir() / 'mod/dns.mod/res.c')
-  # res.c is compiled WITHOUT -DMAKING_MODS so that main.h includes
-  # proto.h, giving direct declarations for n_malloc/n_free, tputs,
-  # getsock, killsock, findsock, ssl_handshake, threaddata, etc.
-  # The module.h global[] dispatch macros require MODULE_NAME and an
-  # initialised global[] vector which are only present inside a running
-  # eggdrop module — they are not available in a standalone library.
-  eggres_lib = static_library('eggres',
-    sources: files('mod/dns.mod/res.c'),
-    include_directories: [top_inc, src_inc],
-    c_args: core_cargs,
-    dependencies: have_tcl ? [tcl_dep, tls_dep] : [tls_dep],
-  )
-  eggres_dep = declare_dependency(link_with: eggres_lib)
-endif
+# libeggres removed — res.c is compiled only as part of the dns module
+# (dns.mod/dns.c #includes res.c in a unity build).  The standalone lib
+# served no purpose once the use-res-dns option always selects res.c.
 
 # -------------------------------------------------------------------------
 # Static build: compile modules as objects, link into binary
@@ -277,7 +207,7 @@ if opt_static
 
   eggdrop_exe = executable(opt_exec,
     sources: core_sources + static_mod_sources,
-    include_directories: [top_inc, src_inc, mod_inc],
+    include_directories: [top_inc, src_inc, mod_inc, libop_inc],
     c_args: core_cargs + ['-DSTATIC'],
     dependencies: eggdrop_deps,
     install: true,
@@ -290,7 +220,7 @@ else
   # Build the eggdrop binary (no module objects linked in)
   eggdrop_exe = executable(opt_exec,
     sources: core_sources,
-    include_directories: [top_inc, src_inc, mod_inc],
+    include_directories: [top_inc, src_inc, mod_inc, libop_inc],
     c_args: core_cargs,
     dependencies: eggdrop_deps,
     export_dynamic: true,   # allow modules to call back into binary

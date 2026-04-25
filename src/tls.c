@@ -24,23 +24,104 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* egg_tls.h includes wolfSSL before Tcl to avoid mp_int typedef conflict.
+ * COMPILING_MEM suppresses eggdrop.h's malloc→dont_use_old_malloc macro so
+ * that wolfssl's stdlib.h inclusion and our local malloc calls compile cleanly.
+ * We use nmalloc/nfree below via proto.h, except in the two static helpers that
+ * must use plain malloc (because OPENSSL_free → free). */
+#define COMPILING_MEM
+#ifdef HAVE_CONFIG_H
+#  include "config.h"
+#endif
+#include "egg_tls.h"
 #include "main.h"
 
 #ifdef TLS
 
-#include <openssl/err.h>
-#include <openssl/rand.h>
-#include <openssl/x509v3.h>
-#include <openssl/ssl.h>
+#include <wolfssl/openssl/ssl.h>
+#include <wolfssl/openssl/rand.h>
+#include <wolfssl/openssl/x509v3.h>
 #include "version.h"
 
-/* egg_ASN1_string_data: was a configure-time macro (config.h.in).
- * ASN1_STRING_data() was renamed ASN1_STRING_get0_data() in OpenSSL 1.1.0. */
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
-# define egg_ASN1_string_data(x) ASN1_STRING_get0_data(x)
-#else
-# define egg_ASN1_string_data(x) ASN1_STRING_data(x)
+/* wolfssl always uses ASN1_STRING_get0_data (OpenSSL 1.1+ API) */
+# define egg_ASN1_string_data(x) wolfSSL_ASN1_STRING_get0_data(x)
+
+/* wolfSSL_CTX_get0_certificate requires KEEP_OUR_CERT at compile time.
+ * If not available, stub it — callers must handle a NULL return. */
+#ifndef SSL_CTX_get0_certificate
+static X509 *SSL_CTX_get0_certificate(SSL_CTX *ctx) { (void)ctx; return NULL; }
 #endif
+
+/* wolfssl provides OPENSSL_VERSION_NUMBER via its compat layer */
+#ifndef OPENSSL_VERSION_NUMBER
+# define OPENSSL_VERSION_NUMBER 0x10101000L
+#endif
+
+/* wolfSSL does not expose OPENSSL_buf2hexstr — implement both locally using
+ * plain malloc so OPENSSL_free can be a simple free(). */
+
+/* Converts binary data to a colon-delimited hex string e.g. "AA:BB:CC". */
+static char *egg_buf2hexstr(const unsigned char *buf, long len)
+{
+  static const char hex[] = "0123456789ABCDEF";
+  char *out;
+  long i;
+  if (len <= 0)
+    return NULL;
+  out = malloc((size_t)(len * 3));
+  if (!out)
+    return NULL;
+  for (i = 0; i < len; i++) {
+    out[i * 3 + 0] = hex[(buf[i] >> 4) & 0xF];
+    out[i * 3 + 1] = hex[ buf[i]       & 0xF];
+    out[i * 3 + 2] = (i + 1 < len) ? ':' : '\0';
+  }
+  return out;
+}
+
+/* Converts a colon-delimited or plain hex string back to binary bytes. */
+static unsigned char *egg_hexstr2buf(const char *str, long *outlen)
+{
+  size_t slen, i, j;
+  unsigned char *out;
+  if (!str)
+    return NULL;
+  slen = strlen(str);
+  /* strip colons to count hex digits */
+  size_t nhex = 0;
+  for (i = 0; i < slen; i++)
+    if (str[i] != ':')
+      nhex++;
+  if (nhex % 2 != 0)
+    return NULL;
+  out = malloc(nhex / 2);
+  if (!out)
+    return NULL;
+  for (i = 0, j = 0; i < slen; ) {
+    int hi, lo;
+    while (i < slen && str[i] == ':') i++;
+    if (i >= slen) break;
+    hi = (str[i] >= '0' && str[i] <= '9') ? str[i]-'0' :
+         (str[i] >= 'A' && str[i] <= 'F') ? str[i]-'A'+10 :
+         (str[i] >= 'a' && str[i] <= 'f') ? str[i]-'a'+10 : -1;
+    i++;
+    while (i < slen && str[i] == ':') i++;
+    if (i >= slen || hi < 0) { free(out); return NULL; }
+    lo = (str[i] >= '0' && str[i] <= '9') ? str[i]-'0' :
+         (str[i] >= 'A' && str[i] <= 'F') ? str[i]-'A'+10 :
+         (str[i] >= 'a' && str[i] <= 'f') ? str[i]-'a'+10 : -1;
+    i++;
+    if (lo < 0) { free(out); return NULL; }
+    out[j++] = (unsigned char)((hi << 4) | lo);
+  }
+  if (outlen)
+    *outlen = (long)j;
+  return out;
+}
+
+#define OPENSSL_buf2hexstr(buf, len) egg_buf2hexstr((buf), (len))
+#define OPENSSL_hexstr2buf(str, plen) egg_hexstr2buf((str), (plen))
+#define OPENSSL_free(p)              free(p)
 
 extern int dcc_total, stealth_telnets, tls_vfydcc;
 extern struct dcc_t *dcc;
@@ -561,18 +642,24 @@ static int ssl_verifycn(X509 *cert, ssl_appdata *data)
     GENERAL_NAME *gn;
 
     /* Loop through the general names in altname and pick these
-       of type ip address or dns name */
-    while (!match && (gn = sk_GENERAL_NAME_pop(altname))) {
-      /* if the peer's host is an IP, we're only interested in
-         matching against iPAddress general names, otherwise
-         we'll only look for dnsName's */
-      if (ip) {
-        if (gn->type == GEN_IPADD)
-          match = !ASN1_STRING_cmp(gn->d.ip, ip);
-      } else if (gn->type == GEN_DNS) {
-        /* IA5string holds ASCII data */
-        cn = (const char *) egg_ASN1_string_data(gn->d.ia5);
-        match = ssl_hostmatch(cn, data->host);
+       of type ip address or dns name.
+       wolfSSL lacks sk_GENERAL_NAME_pop — iterate by index instead. */
+    {
+      int j, n = sk_GENERAL_NAME_num(altname);
+      for (j = 0; !match && j < n; j++) {
+        gn = sk_GENERAL_NAME_value(altname, j);
+        if (!gn) continue;
+        /* if the peer's host is an IP, we're only interested in
+           matching against iPAddress general names, otherwise
+           we'll only look for dnsName's */
+        if (ip) {
+          if (gn->type == GEN_IPADD)
+            match = !ASN1_STRING_cmp(gn->d.ip, ip);
+        } else if (gn->type == GEN_DNS) {
+          /* IA5string holds ASCII data */
+          cn = (const char *) egg_ASN1_string_data(gn->d.ia5);
+          match = ssl_hostmatch(cn, data->host);
+        }
       }
     }
     sk_GENERAL_NAME_free(altname);
@@ -933,14 +1020,17 @@ static void ssl_info(const SSL *ssl, int where, int ret)
     }
 #endif
   } else if (where & SSL_CB_ALERT) {
-    if (strcmp(SSL_alert_type_string(ret), "W") ||
-        strcmp(SSL_alert_desc_string(ret), "CN")) {
+    /* wolfSSL only provides _long variants of the alert string functions. */
+    const char *atype = SSL_alert_type_string_long(ret);
+    const char *adesc = SSL_alert_desc_string_long(ret);
+    int is_warning = atype && (strncmp(atype, "warning", 7) == 0);
+    int is_close   = adesc && (strstr(adesc, "close notify") != NULL);
+    if (!is_warning || !is_close) {
       putlog(data->loglevel, "*", "TLS: alert during %s: %s (%s).",
              (where & SSL_CB_READ) ? "read" : "write",
-             SSL_alert_type_string_long(ret),
-             SSL_alert_desc_string_long(ret));
-      if (!strcmp(SSL_alert_type_string(ret), "F") &&
-          !strcmp(SSL_alert_desc_string(ret), "RO"))
+             atype ? atype : "unknown",
+             adesc ? adesc : "unknown");
+      if (!is_warning && adesc && strstr(adesc, "record overflow"))
         putlog(LOG_MISC, "*", "TLS: Long TLSCiphertext field received, connection failed. Is this really a TLS port?");
     } else {
       /* Ignore close notify warnings */

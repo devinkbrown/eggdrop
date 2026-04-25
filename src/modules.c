@@ -64,9 +64,6 @@
 #    define DLFLAGS RTLD_NOW|RTLD_GLOBAL
 #  endif /* MOD_USE_DL */
 
-#  ifdef MOD_USE_WIN32
-#    include <windows.h>
-#  endif /* MOD_USE_WIN32 */
 #endif /* !STATIC */
 
 extern struct dcc_t *dcc;
@@ -732,9 +729,6 @@ const char *module_load(char *name)
 #  ifdef MOD_USE_DL
   void *hand;
 #  endif
-#  ifdef MOD_USE_WIN32
-  HMODULE hand;
-#  endif
 #endif /* !STATIC */
 
   if (module_find(name, 0, 0) != NULL)
@@ -837,17 +831,6 @@ const char *module_load(char *name)
   }
 #  endif /* MOD_USE_DL */
 
-#  ifdef MOD_USE_WIN32
-  hand = LoadLibraryA(workbuf);
-  if (!hand)
-    return "Can't load module.";
-  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
-  f = (Function) GetProcAddress(hand, workbuf);
-  if (f == NULL) {
-    FreeLibrary(hand);
-    return MOD_NOSTARTDEF;
-  }
-#  endif /* MOD_USE_WIN32 */
 #endif /* !STATIC */
 
 #ifdef STATIC
@@ -921,9 +904,6 @@ char *module_unload(char *name, char *user)
 #  endif
 #  ifdef MOD_USE_DL
         dlclose(p->hand);
-#  endif
-#  ifdef MOD_USE_WIN32
-        FreeLibrary((HMODULE) p->hand);
 #  endif
 #endif /* !STATIC */
       }

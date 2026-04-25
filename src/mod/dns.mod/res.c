@@ -39,6 +39,11 @@
  */
 
 #define _GNU_SOURCE 1
+/* egg_tls.h must precede main.h to avoid wolfssl/Tcl mp_int conflict. */
+#ifdef HAVE_CONFIG_H
+#  include "config.h"
+#endif
+#include "../../egg_tls.h"
 /* Include main.h (which in turn includes eggdrop.h and, when NOT
  * MAKING_MODS, proto.h as well) so that res.c compiles as a standalone
  * translation unit.  When compiled inside the dns module unity build

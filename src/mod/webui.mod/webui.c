@@ -20,6 +20,11 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* egg_tls.h must precede module.h to avoid wolfssl/Tcl mp_int conflict. */
+#ifdef HAVE_CONFIG_H
+#  include "config.h"
+#endif
+#include "../../egg_tls.h"
 #include "src/mod/module.h"
 
 #ifdef TLS
@@ -33,7 +38,7 @@
 #ifdef __APPLE__
 #  define st_mtim st_mtimespec
 #endif
-#include <openssl/sha.h>
+#include <wolfssl/openssl/sha.h>
 #include "src/version.h"
 
 #define WS_GUID   "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"

@@ -27,6 +27,9 @@
  */
 
 #include "main.h"
+#ifdef TLS
+#  include <wolfssl/version.h>  /* LIBWOLFSSL_VERSION_STRING */
+#endif
 #include <sys/utsname.h>
 #include "modules.h"
 #include "configtoml.h"
@@ -293,20 +296,8 @@ void tell_verbose_status(int idx)
 #endif /* HAVE_TCL */
 #ifdef TLS
   dprintf(idx, "TLS support is enabled.\n"
-  #if defined HAVE_EVP_PKEY_GET1_EC_KEY && defined HAVE_OPENSSL_MD5
-               "TLS library: %s (%s " OPENSSL_VERSION_TEXT ")\n",
-  #elif !defined HAVE_EVP_PKEY_GET1_EC_KEY && defined HAVE_OPENSSL_MD5
-               "TLS library: %s (%s " OPENSSL_VERSION_TEXT ")\n             (no elliptic curve support)\n",
-  #elif defined HAVE_EVP_PKEY_GET1_EC_KEY && !defined HAVE_OPENSSL_MD5
-               "TLS library: %s (%s " OPENSSL_VERSION_TEXT ")\n             (no MD5 support)\n",
-  #elif !defined HAVE_EVP_PKEY_GET1_EC_KEY && !defined HAVE_OPENSSL_MD5
-               "TLS library: %s (%s " OPENSSL_VERSION_TEXT ")\n             (no elliptic curve or MD5 support)\n",
-  #endif
-  #if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0 */
-          OpenSSL_version(OPENSSL_VERSION), MISC_HEADERVERSION);
-  #else
-          SSLeay_version(SSLEAY_VERSION), MISC_HEADERVERSION);
-  #endif
+               "TLS library: wolfSSL %s (%s)\n",
+          LIBWOLFSSL_VERSION_STRING, MISC_HEADERVERSION);
 #else
   dprintf(idx, "TLS support is not available.\n");
 #endif

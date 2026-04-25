@@ -50,8 +50,8 @@ static char const *SASL_MECHANISMS[SASL_MECHANISM_NUM] = {
 };
 
 /* scram state */
+/* wolfssl already included via egg_tls.h in server.c before module.h */
 #ifdef TLS
-#include <openssl/rand.h>
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
 const EVP_MD *digest;
 char salted_password[EVP_MAX_MD_SIZE];
@@ -328,7 +328,7 @@ static int sasl_saslprep_check(const char *password)
   return 0;
 }
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0: EVP_PKEY_X25519 */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(HAVE_WOLFSSL) /* 1.1.0: EVP_PKEY_X25519 */
 /* ECDH-X25519-CHALLENGE step 1: ECDH key agreement + HMAC-SHA256 response.
  *
  * Protocol (Atheme saslserv):
@@ -714,7 +714,7 @@ static int gotauthenticate(char *from, char *msg)
         client_msg_plain_len = sasl_scram_step_0(client_msg_plain, sizeof client_msg_plain);
         break;
 #endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0: X25519 */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(HAVE_WOLFSSL) /* 1.1.0: X25519 */
       case SASL_MECHANISM_ECDH_X25519_CHALLENGE:
         /* Step 0: identify ourselves (same format as ECDSA step 0) */
         client_msg_plain_len = sasl_ecdsa_nist256p_challenge_step_0(client_msg_plain, sizeof client_msg_plain);
@@ -739,7 +739,7 @@ static int gotauthenticate(char *from, char *msg)
       if ((client_msg_plain_len = sasl_ecdsa_nist256p_challenge_step_1(client_msg_plain, server_msg_plain, server_msg_plain_len)) < 0)
         return 0;
     }
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0: X25519 */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(HAVE_WOLFSSL) /* 1.1.0: X25519 */
     else if (sasl_mechanism == SASL_MECHANISM_ECDH_X25519_CHALLENGE) {
       if ((client_msg_plain_len = sasl_ecdh_x25519_step_1(client_msg_plain, server_msg_plain, server_msg_plain_len)) < 0)
         return 0;

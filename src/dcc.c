@@ -1376,12 +1376,6 @@ void dcc_telnet_hostresolved2(int i, int idx) {
   strlcpy(dcc[j].nick, "*", HANDLEN + 1);
   dcc[j].u.ident_sock = dcc[i].sock;
   dcc[j].timeval = now;
-#ifdef EGG_NATIVE_WIN32
-  /* On Windows the ident socket behaves like a connecting socket until
-   * the peer responds; mark it SOCK_CONNECT so the write-readiness path
-   * in dequeue_sockets() checks SO_ERROR correctly. */
-  threaddata()->socklist[findsock(dcc[j].sock)].flags = SOCK_CONNECT;
-#endif
   dprintf(j, "%d, %d\n", dcc[i].port, dcc[idx].port);
 }
 

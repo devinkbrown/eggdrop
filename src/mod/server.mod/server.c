@@ -23,16 +23,22 @@
 
 #define MODULE_NAME "server"
 #define MAKING_SERVER
+#define COMPILING_MEM   /* suppress malloc→dont_use_old_malloc before op_lib.h */
 
+/* egg_tls.h must precede module.h to avoid wolfssl/Tcl mp_int conflict. */
+#ifdef HAVE_CONFIG_H
+#  include "config.h"
+#endif
+#include <op_lib.h>
+#include "../../egg_tls.h"
 #include "src/mod/module.h"
 #include "server.h"
-#include "../../compat/balloc.h"
 
 static Function *global = NULL;
 
 /* Slab allocator for monitor_list nodes.  O(1) alloc/free, zero-init on
  * alloc (no separate memset needed), memory returned to OS on heap destroy. */
-static egg_bh *monitor_heap = NULL;
+static op_bh *monitor_heap = NULL;
 
 static int ctcp_mode;
 static int serv;                /* sock # of server currently */
@@ -1286,7 +1292,7 @@ static int monitor_add(char * nick, int send) {
   if (count >= max_monitor) {
     return 2;
   }
-  entry = egg_bh_alloc(monitor_heap); /* zero-filled by slab allocator */
+  entry = op_bh_alloc(monitor_heap); /* zero-filled by slab allocator */
   strlcpy(entry->nick, nick, NICKLEN);
   entry->next = monitor;
   monitor = entry;
@@ -1319,7 +1325,7 @@ static int monitor_del (char *nick) {
   } else {
     previous->next = current->next;
   }
-  egg_bh_free(monitor_heap, current);
+  op_bh_free(monitor_heap, current);
   dprintf(DP_SERVER, "MONITOR - %s\n", nick);
   return 0;
 }
@@ -1375,7 +1381,7 @@ static void monitor_clear(void)
   dprintf(DP_SERVER, "MONITOR C");
   while (current != NULL) {
     next = current->next;
-    egg_bh_free(monitor_heap, current);
+    op_bh_free(monitor_heap, current);
     current = next;
   }
 }
@@ -2459,7 +2465,7 @@ static char *server_close(void)
   rem_builtins(H_isupport, my_isupport_binds);
   isupport_fini();
   if (monitor_heap) {
-    egg_bh_destroy(monitor_heap);
+    op_bh_destroy(monitor_heap);
     monitor_heap = NULL;
   }
   /* Restore original commands. */
@@ -2745,7 +2751,7 @@ char *server_start(Function *global_funcs)
   add_hook(HOOK_PRE_REHASH, (Function) server_prerehash);
   add_hook(HOOK_REHASH, (Function) server_postrehash);
   add_hook(HOOK_DIE, (Function) server_die);
-  monitor_heap = egg_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
+  monitor_heap = op_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
   mq.head = hq.head = modeq.head = NULL;
   mq.last = hq.last = modeq.last = NULL;
   mq.tot = hq.tot = modeq.tot = 0;

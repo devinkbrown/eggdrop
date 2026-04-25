@@ -218,8 +218,15 @@
 #define randint(n) (unsigned long) (random() / (RANDOM_MAX + 1.0) * n)
 
 
+/* wolfSSL forward declarations — avoids pulling in wolfssl/sp_int.h which
+ * conflicts with Tcl's mp_int/mp_digit typedefs.  Files that actually call
+ * wolfSSL API functions must include <wolfssl/options.h> + <wolfssl/ssl.h>
+ * at the top of their translation unit (before including main.h/lush.h). */
 #ifdef TLS
-#  include <openssl/ssl.h>
+struct WOLFSSL;
+struct WOLFSSL_CTX;
+typedef struct WOLFSSL     SSL;
+typedef struct WOLFSSL_CTX SSL_CTX;
 #endif
 
 /*

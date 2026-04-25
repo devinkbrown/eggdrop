@@ -29,6 +29,12 @@
 #ifndef _GNU_SOURCE
 #  define _GNU_SOURCE
 #endif
+/* egg_tls.h includes wolfSSL before Tcl, redirecting mp_int to avoid the
+ * typedef clash between wolfssl/sp_int.h and tcl.h.  Must precede main.h. */
+#ifdef HAVE_CONFIG_H
+#  include "config.h"
+#endif
+#include "egg_tls.h"
 #include <fcntl.h>
 #include "main.h"
 #include "modules.h"
@@ -57,11 +63,7 @@
 #endif
 #include <setjmp.h>
 #ifndef EGG_NATIVE_WIN32
-#  include <sys/uio.h>   /* writev() — provided by compat shim on Windows */
-#endif
-
-#ifdef TLS
-#  include <openssl/err.h>
+#  include <sys/uio.h>
 #endif
 
 /* -----------------------------------------------------------------------
@@ -96,24 +98,19 @@
 #endif
 
 /* -----------------------------------------------------------------------
- * Native Windows socket compatibility shims
- * On native Windows (MinGW / MSVC) we use Winsock2; the CRT close() does
- * not close sockets, non-blocking mode uses ioctlsocket(), and error codes
- * come from WSAGetLastError().  The macros below paper over these
- * differences so the rest of net.c can use POSIX names throughout.
+ * Platform socket shims
+ * On POSIX: close()/fcntl()/writev() work natively.
+ * On Windows (64-bit): Winsock2 closesocket()/ioctlsocket()/WSASend().
  * ----------------------------------------------------------------------- */
 #ifdef EGG_NATIVE_WIN32
 #  include <winsock2.h>
 #  include <ws2tcpip.h>
 #  include <mswsock.h>
-/* close() a socket handle */
 #  define egg_closesocket(s)    closesocket(s)
-/* Set a socket non-blocking */
 static inline void egg_setnonblock(int sock) {
   u_long on = 1;
-  ioctlsocket((SOCKET)(ULONG_PTR)sock, FIONBIO, &on);
+  ioctlsocket((SOCKET)(UINT_PTR)sock, FIONBIO, &on);
 }
-/* POSIX errno codes mapped to their Winsock equivalents */
 #  ifndef EINPROGRESS
 #    define EINPROGRESS  WSAEWOULDBLOCK
 #  endif
@@ -129,8 +126,6 @@ static inline void egg_setnonblock(int sock) {
 #  ifndef ENOTCONN
 #    define ENOTCONN     WSAENOTCONN
 #  endif
-/* writev() replacement using WSASend with multiple buffers */
-#  include <stddef.h>
 struct iovec { void *iov_base; size_t iov_len; };
 static inline int egg_writev(int sock, const struct iovec *iov, int cnt) {
   WSABUF bufs[2];
@@ -140,13 +135,12 @@ static inline int egg_writev(int sock, const struct iovec *iov, int cnt) {
     bufs[i].buf = (char *)iov[i].iov_base;
     bufs[i].len = (ULONG)iov[i].iov_len;
   }
-  if (WSASend((SOCKET)(ULONG_PTR)sock, bufs, (DWORD)cnt, &sent, 0,
-              NULL, NULL) == SOCKET_ERROR)
+  if (WSASend((SOCKET)(UINT_PTR)sock, bufs, (DWORD)cnt, &sent, 0, NULL, NULL) == SOCKET_ERROR)
     return -1;
   return (int)sent;
 }
 #  define writev(s, iov, cnt) egg_writev(s, iov, cnt)
-#  define write(s, buf, len)  send((SOCKET)(ULONG_PTR)(s), (const char*)(buf), (int)(len), 0)
+#  define write(s, buf, len)  send((SOCKET)(UINT_PTR)(s), (const char*)(buf), (int)(len), 0)
 #else  /* POSIX */
 #  define egg_closesocket(s)  close(s)
 static inline void egg_setnonblock(int sock) {
@@ -416,125 +410,6 @@ static void kqueue_del_sock(int sock)
 }
 #endif /* EGG_KQUEUE */
 
-#ifdef EGG_IOCP
-/*
- * IOCP backend — Windows I/O Completion Ports
- * Adapted from libop/src/iocp.c (Ophion IRC Daemon, Copyright 2026 ophion
- * development team, GPLv2+).
- *
- * Zero-byte overlapped WSARecv/WSASend: posting a zero-byte recv arms a
- * readiness notification — the IOCP fires a completion as soon as the
- * socket becomes readable/writable, without transferring any data.  The
- * real recv() / SSL_read() then runs in the normal dispatch path.
- *
- * Stale-completion detection: each iocp_pending_t records the slist slot
- * index and the socket fd at the time of posting.  When a completion
- * arrives we verify both values still match; if the slot was recycled or
- * the socket closed in the meantime we discard the event safely.
- */
-
-/* Maximum completions drained per sockread() call */
-#define IOCP_BATCH_MAX 64
-/*
- * Upper bound on tracked slist slots.  IRC bots rarely need more than a
- * few hundred simultaneous connections; 2048 gives comfortable headroom.
- */
-#define IOCP_SLOT_MAX  2048
-
-typedef enum { IOCP_OP_READ, IOCP_OP_WRITE } iocp_op_t;
-
-/*
- * OVERLAPPED *must* be the first member so that the OVERLAPPED pointer
- * returned by GetQueuedCompletionStatus can be cast directly to
- * iocp_pending_t * without UB.
- */
-typedef struct iocp_pending {
-  OVERLAPPED ov;    /* MUST be first — cast target                  */
-  int        si;    /* slist slot index at time of arming           */
-  int        sock;  /* socket fd at time of arming (stale detection)*/
-  iocp_op_t  op;
-} iocp_pending_t;
-
-static HANDLE egg_hcp = NULL;                    /* single completion port */
-static uint8_t iocp_read_armed[IOCP_SLOT_MAX];  /* 1 = read OVERLAPPED pending */
-
-static void iocp_ensure_init(void)
-{
-  if (!egg_hcp) {
-    egg_hcp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
-    if (!egg_hcp)
-      fatal("IOCP: CreateIoCompletionPort failed", 0);
-    memset(iocp_read_armed, 0, sizeof iocp_read_armed);
-    putlog(LOG_MISC, "*", "IOCP: I/O completion port initialised");
-  }
-}
-
-/* Associate a socket with the completion port immediately after creation. */
-static void iocp_add_sock(int sock, int si)
-{
-  iocp_ensure_init();
-  /* key = si so GetQueuedCompletionStatus returns it directly */
-  CreateIoCompletionPort((HANDLE)(ULONG_PTR)sock, egg_hcp,
-                         (ULONG_PTR)(intptr_t)si, 0);
-  /* ERROR_INVALID_PARAMETER means the handle is already associated — ignore */
-}
-
-/*
- * Closing the SOCKET cancels all pending overlapped operations.
- * GetQueuedCompletionStatus will return those as failed completions with
- * ERROR_OPERATION_ABORTED; the stale-detection check discards them safely.
- */
-static void iocp_del_sock(int si)
-{
-  if ((unsigned)si < IOCP_SLOT_MAX)
-    iocp_read_armed[si] = 0;
-}
-
-/* Post a zero-byte overlapped WSARecv to arm a read-readiness notification. */
-static void iocp_arm_read(int sock, int si)
-{
-  iocp_pending_t *pend;
-  WSABUF buf = { 0, NULL };
-  DWORD  flags = 0;
-  int    rc;
-
-  if ((unsigned)si >= IOCP_SLOT_MAX || iocp_read_armed[si])
-    return;
-
-  pend = (iocp_pending_t *)nmalloc(sizeof *pend);
-  memset(&pend->ov, 0, sizeof pend->ov);
-  pend->si   = si;
-  pend->sock = sock;
-  pend->op   = IOCP_OP_READ;
-
-  rc = WSARecv((SOCKET)(ULONG_PTR)sock, &buf, 1, NULL, &flags,
-               &pend->ov, NULL);
-  if (rc == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
-    nfree(pend);
-    return;
-  }
-  iocp_read_armed[si] = 1;
-}
-
-/* Post a zero-byte overlapped WSASend to arm a write-readiness notification. */
-static void iocp_arm_write(int sock, int si)
-{
-  iocp_pending_t *pend;
-  WSABUF buf = { 0, NULL };
-  int    rc;
-
-  pend = (iocp_pending_t *)nmalloc(sizeof *pend);
-  memset(&pend->ov, 0, sizeof pend->ov);
-  pend->si   = si;
-  pend->sock = sock;
-  pend->op   = IOCP_OP_WRITE;
-
-  rc = WSASend((SOCKET)(ULONG_PTR)sock, &buf, 1, NULL, 0,
-               &pend->ov, NULL);
-  if (rc == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
-    nfree(pend);
-}
-#endif /* EGG_IOCP */
 
 /*
  * Write-readiness epoll fd — used exclusively by dequeue_sockets().
@@ -1014,10 +889,7 @@ void setsock(int sock, int options)
   /* Yay async i/o ! */
   if ((sock != STDOUT) || backgrd) {
     egg_setnonblock(sock);
-#ifndef EGG_NATIVE_WIN32
-    /* Prevent fd leaking into child processes (bg scripts, exec hooks) */
     fcntl(sock, F_SETFD, fcntl(sock, F_GETFD) | FD_CLOEXEC);
-#endif
   }
 }
 
@@ -2043,8 +1915,9 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
               long err2 = ERR_get_error();
               debug3("net: sockread(): SSL_read() error = %s (%i) (%li)",
                      ERR_error_string(err2, 0), err, err2);
-              if ((err == SSL_ERROR_SSL) &&
-                  (ERR_GET_REASON(err2) == SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE))
+              /* wolfSSL does not define SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE;
+               * check for a generic cert-absent condition via ERR_get_error(). */
+              if (err == SSL_ERROR_SSL)
                 putlog(LOG_MISC, "*", "NET: SSL read failed. Peer did not return a certificate, which is mandatory due to ssl-verify settings.");
             }
             x = -1;
@@ -2670,24 +2543,6 @@ void dequeue_sockets(void)
   for (i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
         (socklist[i].handler.sock.outbuf != NULL) && (FD_ISSET(socklist[i].sock, &wfds))) {
-#ifdef EGG_NATIVE_WIN32
-      /* On Windows, a non-blocking connect() failure surfaces as
-       * write-readiness rather than an error condition.
-       * Read SO_ERROR to detect connection refused before attempting to
-       * drain the outbuf. */
-      if (socklist[i].flags & SOCK_CONNECT) {
-        int res = 0;
-        socklen_t res_len = sizeof(res);
-        getsockopt(socklist[i].sock, SOL_SOCKET, SO_ERROR, (char *)&res, &res_len);
-        if (res == ECONNREFUSED) {
-          int idx = findanyidx(socklist[i].sock);
-          putlog(LOG_MISC, "*", "Connection refused: %s:%i", dcc[idx].host,
-                 dcc[idx].port);
-          socklist[i].flags |= SOCK_EOFD;
-          return;
-        }
-      }
-#endif
       /* Drain outbuf ring buffer.
        * Use writev() to send both the head and (optional) wrapped tail
        * chunk in a single syscall, avoiding MSG_MORE + second write(). */

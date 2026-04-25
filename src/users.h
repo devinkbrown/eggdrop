@@ -190,7 +190,7 @@ struct userrec *check_chanlist(const char *);
 memberlist *find_member_from_nick(char *);
 
 /* Balloc-backed typed allocators for frequently-created fixed-size structs.
- * Using libop's egg_bh slab allocator: O(1) alloc/free, memory returned to
+ * Using libop's op_bh slab allocator: O(1) alloc/free, memory returned to
  * the OS on heap destroy, zero-initialised on alloc. */
 void userrec_heaps_init(void);
 void user_account_dict_invalidate(void);

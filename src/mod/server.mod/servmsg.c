@@ -20,14 +20,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#ifdef TLS
-  #include <openssl/err.h>
-#endif
+/* wolfssl already included via egg_tls.h in server.c before module.h */
 #include "../irc.mod/irc.h"
 #include "../channels.mod/channels.h"
 #include <errno.h>
 #include "server.h"
-#include "../../dictionary.h"
+/* op_htab replaces egg_dictionary — op_lib.h included via server.c */
 
 #ifdef HAVE_TCL
 char *encode_msgtags(Tcl_Obj *msgtagdict);
@@ -505,10 +503,10 @@ static void nuke_server(char *reason)
   }
 }
 
-/* egg_dictionary index for O(1) capability lookups by name.
+/* op_htab index for O(1) capability lookups by name.
  * Maintained in parallel with the 'cap' linked list; the list is kept
  * because external modules may iterate it directly via server_funcs[43]. */
-static egg_dictionary *cap_dict = NULL;
+static op_htab *cap_dict = NULL;
 
 /* Inline helper: resolve a nick!user@host 'from' string to a userrec,
  * honouring the IRCv3 'account' tag and any matching channel member record.
@@ -1145,7 +1143,7 @@ static void disconnect_server(int idx)
   }
   /* cap_dict is now empty; destroy the tree structure itself */
   if (cap_dict) {
-    egg_dictionary_destroy(cap_dict, NULL, NULL);
+    op_htab_destroy(cap_dict, NULL, NULL);
     cap_dict = NULL;
   }
   server_online = 0;
@@ -1568,12 +1566,12 @@ static int got421(char *from, char *msg) {
 }
 
 /* Helper function to quickly find a capability record.
- * Uses cap_dict (egg_dictionary) for O(1) average lookup when populated;
+ * Uses cap_dict (op_htab) for O(1) average lookup when populated;
  * falls back to O(n) linked-list scan during the brief window before the
  * first CAP LS reply has been processed (cap_dict not yet created). */
 struct capability *find_capability(char *capname) {
   if (cap_dict)
-    return egg_dictionary_retrieve(cap_dict, capname);
+    return op_htab_get(cap_dict, capname);
 
   /* Fallback: linear scan before dict is initialised */
   struct capability *current = cap;
@@ -1623,7 +1621,7 @@ static int del_capability(char *name) {
         cap = curr->next;
       }
       if (cap_dict)
-        egg_dictionary_delete(cap_dict, name);
+        op_htab_del(cap_dict, name);
       free_capability(curr);
       return 0;
     } else {
@@ -1681,8 +1679,8 @@ static int add_capabilities(char *msg) {
     *capdstptr = newcap;
     /* Keep cap_dict in sync for O(1) find_capability() lookups */
     if (!cap_dict)
-      cap_dict = egg_dictionary_create("capabilities", egg_dict_strcasecmp);
-    egg_dictionary_add(cap_dict, newcap->name, newcap);
+      cap_dict = op_htab_create_istr("capabilities", 16);
+    op_htab_set(cap_dict, newcap->name, newcap, NULL);
 
     if (valptr) {
       nextvaldstptr = &newcap->value;
@@ -2090,7 +2088,7 @@ static int got732(char *from, char *msg)
   if (!monitor732) {
     while (current != NULL) {
       next = current->next;
-      egg_bh_free(monitor_heap, current);
+      op_bh_free(monitor_heap, current);
       current = next;
     }
     monitor = NULL;

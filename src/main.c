@@ -29,31 +29,12 @@
  * list available at eggheads@eggheads.org.
  */
 
-/* config.h must be included before eggdrop headers so that EGG_NATIVE_WIN32
- * and other platform macros are visible.  On Windows, winsock2.h/windows.h
- * must precede any OpenSSL headers; the undefs work around OpenSSL bug #2182
- * (macro name collisions with MSYS/MinGW Win32 headers).
- */
 #include <config.h>
-#ifdef EGG_NATIVE_WIN32
-#  include <winsock2.h>
-#  include <windows.h>
-#  undef X509_NAME
-#  undef X509_EXTENSIONS
-#  undef X509_CERT_PAIR
-#  undef PKCS7_ISSUER_AND_SERIAL
-#  undef PKCS7_SIGNER_INFO
-#  undef OCSP_REQUEST
-#  undef OCSP_RESPONSE
-#endif
-
 #include "main.h"
 
 #include <errno.h>
-#ifndef EGG_NATIVE_WIN32
-#  include <fcntl.h>
-#  include <resolv.h>
-#endif
+#include <fcntl.h>
+#include <resolv.h>
 #include <setjmp.h>
 #include <signal.h>
 
@@ -979,9 +960,7 @@ int main(int arg_c, char **arg_v)
   int i, j, xx;
   char s[26];
   FILE *f;
-#ifndef EGG_NATIVE_WIN32
   struct sigaction sv;
-#endif
   struct chanset_t *chan;
 #ifdef DEBUG
   struct rlimit cdlim;
@@ -1001,16 +980,6 @@ int main(int arg_c, char **arg_v)
   cdlim.rlim_cur = RLIM_INFINITY;
   cdlim.rlim_max = RLIM_INFINITY;
   setrlimit(RLIMIT_CORE, &cdlim);
-#endif
-
-#ifdef EGG_NATIVE_WIN32
-  /* Initialise Winsock 2.2 — required before any socket calls on Windows */
-  {
-    WSADATA wsa;
-    int wsa_err = WSAStartup(MAKEWORD(2, 2), &wsa);
-    if (wsa_err != 0)
-      fatal("WSAStartup failed", 0);
-  }
 #endif
 
   argc = arg_c;
@@ -1040,21 +1009,20 @@ int main(int arg_c, char **arg_v)
   setsysinfo(SSI_NVPAIRS, (char *) nvpair, 1, NULL, 0);
 #endif
 
-#ifndef EGG_NATIVE_WIN32
   /* Set up error traps: */
   sv.sa_handler = got_bus;
   sigemptyset(&sv.sa_mask);
-#  ifdef SA_RESETHAND
+#ifdef SA_RESETHAND
   sv.sa_flags = SA_RESETHAND;
-#  else
+#else
   sv.sa_flags = 0;
-#  endif
+#endif
   sigaction(SIGBUS, &sv, NULL);
   sv.sa_handler = got_segv;
   sigaction(SIGSEGV, &sv, NULL);
-#  ifdef SA_RESETHAND
+#ifdef SA_RESETHAND
   sv.sa_flags = 0;
-#  endif
+#endif
   sv.sa_handler = got_fpe;
   sigaction(SIGFPE, &sv, NULL);
   sv.sa_handler = got_term;
@@ -1069,11 +1037,8 @@ int main(int arg_c, char **arg_v)
   sigaction(SIGILL, &sv, NULL);
   sv.sa_handler = got_alarm;
   sigaction(SIGALRM, &sv, NULL);
-  // Added for python.mod because the _signal handler otherwise overwrites it
-  // see https://discuss.python.org/t/asyncio-skipping-signal-handling-setup-during-import-for-python-embedded-context/37054/6
   sv.sa_handler = got_term;
   sigaction(SIGINT, &sv, NULL);
-#endif /* !EGG_NATIVE_WIN32 */
 
   /* Initialize variables and stuff */
   now = time(NULL);
@@ -1092,13 +1057,8 @@ int main(int arg_c, char **arg_v)
 
   printf("\n%s\n", version);
 
-#ifndef EGG_NATIVE_WIN32
-  /* Don't allow eggdrop to run as root.
-   * Not applicable on Windows (no POSIX uid concept).
-   */
   if (((int) getuid() == 0) || ((int) geteuid() == 0))
     fatal("ERROR: Eggdrop will not run as root!", 0);
-#endif
 
   userrec_heaps_init();
   init_userent();
@@ -1150,18 +1110,13 @@ int main(int arg_c, char **arg_v)
   if (f != NULL) {
     if (fgets(s, 10, f) != NULL) {
       xx = atoi(s);
-#ifndef EGG_NATIVE_WIN32
-      i = kill(xx, SIGCHLD);      /* Meaningless kill to determine if pid
-                                   * is used */
+      i = kill(xx, SIGCHLD);      /* Meaningless kill to determine if pid is used */
       if (i == 0 || errno != ESRCH) {
         printf(EGG_RUNNING1, botnetnick);
         printf(EGG_RUNNING2, pid_file);
         bg_send_quit(BG_ABORT);
         exit(1);
       }
-#else
-      (void)xx; /* On Windows we can't signal another process; skip check */
-#endif
     } else {
       printf("Error checking for existing Eggdrop process.\n");
     }
@@ -1207,15 +1162,6 @@ int main(int arg_c, char **arg_v)
     if (freopen("/dev/null", "w", stderr) == NULL) {
       putlog(LOG_MISC, "*", "Error renaming stderr file handle: %s", strerror(errno));
     }
-#ifdef EGG_NATIVE_WIN32
-    /* Hide the console window when running in background mode on native Windows */
-    {
-      HWND con = GetConsoleWindow();
-      if (con)
-        ShowWindow(con, SW_HIDE);
-    }
-    WSACleanup();
-#endif
   }
 
   /* Terminal emulating dcc chat */

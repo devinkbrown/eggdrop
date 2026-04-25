@@ -9,8 +9,7 @@
 
 /* This file requires Tcl — skip compilation when Tcl is disabled. */
 #ifdef HAVE_TCL
-
-#include <openssl/err.h>
+/* wolfssl already included via egg_tls.h in pbkdf2.c before module.h */
 
 static char *pbkdf2_encrypt(const char *);
 

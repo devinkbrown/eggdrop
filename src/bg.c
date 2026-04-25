@@ -28,15 +28,6 @@
 
 extern char pid_file[];
 
-#ifdef EGG_NATIVE_WIN32
-/* On native Windows there is no fork(); the bot always runs in the
- * foreground (the console window is hidden via ShowWindow in main.c).
- * Provide empty stubs so the rest of the code compiles unchanged.
- */
-void bg_prepare_split(void) { }
-void bg_do_split(void)      { }
-void bg_send_quit(bg_quit_t q) { (void)q; }
-#else /* !EGG_NATIVE_WIN32 — full POSIX implementation follows */
 
 /* When threads are started during eggdrop's init phase, we can't simply
  * fork() later on, because that only copies the VM space over and
@@ -249,5 +240,3 @@ void bg_do_split(void)
       bg_do_detach(xx);
   }
 }
-
-#endif /* !EGG_NATIVE_WIN32 */

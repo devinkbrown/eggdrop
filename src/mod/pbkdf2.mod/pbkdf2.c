@@ -7,6 +7,11 @@
  * Copyright (C) 2017 - 2025 Eggheads Development Team
  */
 
+/* egg_tls.h must precede module.h (which includes Tcl) — wolfssl/mp_int conflict. */
+#ifdef HAVE_CONFIG_H
+#  include "config.h"
+#endif
+#include "../../egg_tls.h"
 #include "src/mod/module.h"
 
 #if OPENSSL_VERSION_NUMBER >= 0x1000000fL /* 1.0.0 */

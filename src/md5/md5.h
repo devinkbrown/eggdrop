@@ -28,8 +28,9 @@
 
 #include "src/main.h"
 
-#if (OPENSSL_VERSION_NUMBER < 0x30000000L) && defined(HAVE_OPENSSL_MD5)
-#  include <openssl/md5.h>
+#ifdef HAVE_WOLFSSL
+/* wolfSSL provides MD5 via its OpenSSL compat layer — use it if available. */
+#  include <wolfssl/openssl/md5.h>
 #else
 
 /* Any 32-bit or wider unsigned integer data type will do */
