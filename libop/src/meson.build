@@ -124,7 +124,6 @@ compat_sources_merged = files(
   '../../src/compat/explicit_bzero.c',
   '../../src/compat/in6.c',
   '../../src/compat/inet_aton.c',
-  '../../src/compat/snprintf.c',
   '../../src/compat/strlcpy.c',
   '../../src/md5/md5c.c',
 )

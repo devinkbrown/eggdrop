@@ -540,7 +540,7 @@ void putlog (int type, char *chname, const char *format, ...)
   /* No need to check if out should be null-terminated here,
    * just do it! <cybah>
    */
-  egg_vsnprintf(out, LOGLINEMAX - tsl, format, va);
+  vsnprintf(out, LOGLINEMAX - tsl, format, va);
   out[LOGLINEMAX - tsl] = 0;
   if (keep_all_logs) {
     if (!logfile_suffix[0])
@@ -681,7 +681,7 @@ void check_logsize(void)
             logs[i].f = NULL;
           }
 
-          egg_snprintf(buf, sizeof buf, "%s.yesterday", logs[i].filename);
+          snprintf(buf, sizeof buf, "%s.yesterday", logs[i].filename);
           buf[1023] = 0;
           unlink(buf);
           movefile(logs[i].filename, buf);
@@ -1078,11 +1078,11 @@ void add_help_reference(char *file)
   current->next = help_list;
   current->first = NULL;
   help_list = current;
-  egg_snprintf(s, sizeof s, "%smsg/%s", helpdir, file);
+  snprintf(s, sizeof s, "%smsg/%s", helpdir, file);
   scan_help_file(current, s, 0);
-  egg_snprintf(s, sizeof s, "%s%s", helpdir, file);
+  snprintf(s, sizeof s, "%s%s", helpdir, file);
   scan_help_file(current, s, 1);
-  egg_snprintf(s, sizeof s, "%sset/%s", helpdir, file);
+  snprintf(s, sizeof s, "%sset/%s", helpdir, file);
   scan_help_file(current, s, 2);
 }
 
@@ -1156,14 +1156,14 @@ static FILE *resolve_help(int dcc, char *file)
       for (item = current->first; item; item = item->next)
         if (!strcmp(item->name, file)) {
           if (!item->type && !dcc) {
-            egg_snprintf(s, sizeof s, "%smsg/%s", helpdir, current->name);
+            snprintf(s, sizeof s, "%smsg/%s", helpdir, current->name);
             if ((f = fopen(s, "r")))
               return f;
           } else if (dcc && item->type) {
             if (item->type == 1)
-              egg_snprintf(s, sizeof s, "%s%s", helpdir, current->name);
+              snprintf(s, sizeof s, "%s%s", helpdir, current->name);
             else
-              egg_snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
+              snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
             if ((f = fopen(s, "r")))
               return f;
           }
@@ -1262,9 +1262,9 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
     for (item = current->first; item; item = item->next)
       if (wild_match(match, item->name) && item->type) {
         if (item->type == 1)
-          egg_snprintf(s, sizeof s, "%s%s", helpdir, current->name);
+          snprintf(s, sizeof s, "%s%s", helpdir, current->name);
         else
-          egg_snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
+          snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
         if ((f = fopen(s, "r")))
           display_tellhelp(idx, item->name, f, flags);
       }
@@ -1287,9 +1287,9 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
       if (!strcmp(match, item->name) && item->type) {
 
         if (item->type == 1)
-          egg_snprintf(s, sizeof s, "%s%s", helpdir, current->name);
+          snprintf(s, sizeof s, "%s%s", helpdir, current->name);
         else
-          egg_snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
+          snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
         if ((f = fopen(s, "r")))
           display_tellhelp(idx, item->name, f, flags);
       }

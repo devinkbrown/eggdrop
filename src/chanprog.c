@@ -202,7 +202,7 @@ void tell_verbose_uptime(int idx)
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  snprintf(s + strlen(s), sizeof(s) - strlen(s), "%02d:%02d", (int) hr, (int) min);
+  op_snprintf_append(s, sizeof(s), "%02d:%02d", (int) hr, (int) min);
   s1[0] = 0;
   if (backgrd)
     strlcpy(s1, MISC_BACKGROUND, sizeof(s1));
@@ -242,7 +242,7 @@ void tell_verbose_status(int idx)
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  snprintf(s + strlen(s), sizeof(s) - strlen(s), "%02d:%02d", (int) hr, (int) min);
+  op_snprintf_append(s, sizeof(s), "%02d:%02d", (int) hr, (int) min);
   s1[0] = 0;
   if (backgrd)
     strlcpy(s1, MISC_BACKGROUND, sizeof s1);

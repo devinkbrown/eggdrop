@@ -517,7 +517,7 @@ static void bot_infoq(int idx, char *par)
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  snprintf(s2 + strlen(s2), sizeof(s2) - strlen(s2), "%02d:%02d", (int) hr, (int) min);
+  op_snprintf_append(s2, sizeof(s2), "%02d:%02d", (int) hr, (int) min);
   if (module_find("server", 0, 0)) {
     s[0] = 0;
     for (chan = chanset; chan; chan = chan->next) {

@@ -82,6 +82,9 @@
 #endif
 
 #include <sys/types.h>
+/* op_lib.h must come before eggdrop.h: eggdrop.h redefines malloc/free as
+ * error sentinels and op_memory.h's inline functions need the real ones. */
+#include "op_lib.h"
 #include "lush.h"
 #include "lang.h"
 #include "eggdrop.h"

@@ -42,7 +42,7 @@ static int ctcp_FINGER(char *nick, char *uhost, char *handle,
                        char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && ctcp_finger[0])
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001FINGER %s\001", ctcp_finger);
+    op_snprintf_append(ctcp_reply, 1024, "\001FINGER %s\001", ctcp_finger);
   return 1;
 }
 
@@ -50,7 +50,7 @@ static int ctcp_ECHOERR(char *nick, char *uhost, char *handle,
                         char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && strlen(text) <= 80)
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001%s %s\001", keyword, text);
+    op_snprintf_append(ctcp_reply, 1024, "\001%s %s\001", keyword, text);
   return 1;
 }
 
@@ -61,7 +61,7 @@ static int ctcp_PING(char *nick, char *uhost, char *handle,
   int atr = u ? u->flags : 0;
 
   if ((ctcp_mode != 1 || (atr & USER_OP)) && strlen(text) <= 80)
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001%s %s\001", keyword, text);
+    op_snprintf_append(ctcp_reply, 1024, "\001%s %s\001", keyword, text);
   return 1;
 }
 
@@ -69,7 +69,7 @@ static int ctcp_VERSION(char *nick, char *uhost, char *handle,
                         char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && ctcp_version[0])
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001VERSION %s\001", ctcp_version);
+    op_snprintf_append(ctcp_reply, 1024, "\001VERSION %s\001", ctcp_version);
   return 1;
 }
 
@@ -77,7 +77,7 @@ static int ctcp_USERINFO(char *nick, char *uhost, char *handle,
                          char *object, char *keyword, char *text)
 {
   if (ctcp_mode != 1 && ctcp_userinfo[0])
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001USERINFO %s\001", ctcp_userinfo);
+    op_snprintf_append(ctcp_reply, 1024, "\001USERINFO %s\001", ctcp_userinfo);
   return 1;
 }
 
@@ -115,10 +115,10 @@ static int ctcp_CLIENTINFO(char *nick, char *uhosr, char *handle,
   else if (!strcasecmp(msg, "echo"))
     p = CLIENTINFO_ECHO;
   if (p == NULL) {
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply),
+    op_snprintf_append(ctcp_reply, 1024,
              "\001ERRMSG CLIENTINFO: %s is not a valid function\001", msg);
   } else
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001CLIENTINFO %s\001", p);
+    op_snprintf_append(ctcp_reply, 1024, "\001CLIENTINFO %s\001", p);
   return 1;
 }
 
@@ -131,7 +131,7 @@ static int ctcp_TIME(char *nick, char *uhost, char *handle, char *object,
     return 1;
   ctime_r(&now, s);
   s[24] = 0;
-  snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001TIME %s\001", s);
+  op_snprintf_append(ctcp_reply, 1024, "\001TIME %s\001", s);
   return 1;
 }
 
@@ -149,7 +149,7 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
   if ((atr & (USER_PARTY | USER_XFER)) || ((atr & USER_OP) && !require_p)) {
 
     if (u_pass_match(u, "-")) {
-      snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001ERROR no password set\001");
+      op_snprintf_append(ctcp_reply, 1024, "\001ERROR no password set\001");
       return 1;
     }
 
@@ -197,10 +197,10 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
       }
     }
 #ifdef TLS
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply),
+    op_snprintf_append(ctcp_reply, 1024,
              "\001ERROR no %stelnet port\001", (ssl ? "SSL enabled " : ""));
 #else
-    snprintf(ctcp_reply + strlen(ctcp_reply), 1024 - strlen(ctcp_reply), "\001ERROR no telnet port\001");
+    op_snprintf_append(ctcp_reply, 1024, "\001ERROR no telnet port\001");
 #endif
   }
   return 1;

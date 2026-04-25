@@ -104,11 +104,11 @@ static void flush_chanset_ircx(void)
   if (!chanset_has_ircx || !chanset_channel[0])
     return;
   if (chanset_ircx_modes[0])
-    egg_snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
+    snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
                  chanset_channel, chanset_ownerkey,
                  chanset_ircx_create, chanset_ircx_modes);
   else
-    egg_snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d",
+    snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d",
                  chanset_channel, chanset_ownerkey, chanset_ircx_create);
   run_tcl_cmd(cmd);
   chanset_has_ircx = 0;
@@ -401,9 +401,9 @@ static void run_tcl_cmd(const char *cmd)
         }
       }
       if (pass[0])
-        egg_snprintf(entry, sizeof entry, "%s:%s:%s", host, port, pass);
+        snprintf(entry, sizeof entry, "%s:%s:%s", host, port, pass);
       else if (port[0])
-        egg_snprintf(entry, sizeof entry, "%s:%s", host, port);
+        snprintf(entry, sizeof entry, "%s:%s", host, port);
       else
         strlcpy(entry, host, sizeof entry);
       if (srv_add)
@@ -534,7 +534,7 @@ static void cb_loadmodule(const char *name, void *ud)
 #ifdef HAVE_TCL
   {
     char cmd[256];
-    egg_snprintf(cmd, sizeof cmd, "loadmodule %s", name);
+    snprintf(cmd, sizeof cmd, "loadmodule %s", name);
     run_tcl_cmd(cmd);
   }
 #else
@@ -577,15 +577,15 @@ static void cb_server_add(const char *entry, void *ud)
       memcpy(portpart, rest, plen);
       portpart[plen] = '\0';
       strlcpy(pass, colon2 + 1, sizeof pass);
-      egg_snprintf(cmd, sizeof cmd, "server add %s %s%s %s",
+      snprintf(cmd, sizeof cmd, "server add %s %s%s %s",
                    host, ssl, portpart, pass);
     } else {
       strlcpy(portpart, rest, sizeof portpart);
-      egg_snprintf(cmd, sizeof cmd, "server add %s %s%s",
+      snprintf(cmd, sizeof cmd, "server add %s %s%s",
                    host, ssl, portpart);
     }
   } else {
-    egg_snprintf(cmd, sizeof cmd, "server add %s", host);
+    snprintf(cmd, sizeof cmd, "server add %s", host);
   }
 
   run_tcl_cmd(cmd);
@@ -596,7 +596,7 @@ static void cb_channel_add(const char *name, void *ud)
 {
   char cmd[256];
   (void)ud;
-  egg_snprintf(cmd, sizeof cmd, "channel add %s", name);
+  snprintf(cmd, sizeof cmd, "channel add %s", name);
   run_tcl_cmd(cmd);
 }
 
@@ -608,7 +608,7 @@ static void cb_logfile(const char *entry, void *ud)
 {
   char cmd[512];
   (void)ud;
-  egg_snprintf(cmd, sizeof cmd, "logfile %s", entry);
+  snprintf(cmd, sizeof cmd, "logfile %s", entry);
   run_tcl_cmd(cmd);
 }
 
@@ -618,7 +618,7 @@ static void cb_source(const char *path, void *ud)
 #ifdef HAVE_TCL
   {
     char cmd[512];
-    egg_snprintf(cmd, sizeof cmd, "source %s", path);
+    snprintf(cmd, sizeof cmd, "source %s", path);
     run_tcl_cmd(cmd);
   }
 #else
@@ -630,7 +630,7 @@ static void cb_loadhelp(const char *file, void *ud)
 {
   char cmd[256];
   (void)ud;
-  egg_snprintf(cmd, sizeof cmd, "loadhelp %s", file);
+  snprintf(cmd, sizeof cmd, "loadhelp %s", file);
   run_tcl_cmd(cmd);
 }
 
@@ -850,12 +850,12 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         key_to_tclvar(key, tclkey, sizeof tclkey);
         if (is_chan_flag(tclkey)) {
           /* true/1 → +flag, false/0 → -flag */
-          egg_snprintf(cmd, sizeof cmd, "channel set %s %s%s",
+          snprintf(cmd, sizeof cmd, "channel set %s %s%s",
                        chanset_channel,
                        (strcmp(value, "0") == 0) ? "-" : "+",
                        tclkey);
         } else {
-          egg_snprintf(cmd, sizeof cmd, "channel set %s %s %s",
+          snprintf(cmd, sizeof cmd, "channel set %s %s %s",
                        chanset_channel, tclkey, value);
         }
         run_tcl_cmd(cmd);

@@ -263,11 +263,11 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
         *p++ = '+';
       if (chan->limit_prot != 0) {
         *p++ = 'l';
-        snprintf(s1 + strlen(s1), (sizeof s1) - strlen(s1), "%d ", chan->limit_prot);
+        op_snprintf_append(s1, (sizeof s1), "%d ", chan->limit_prot);
       }
       if (chan->key_prot[0]) {
         *p++ = 'k';
-        snprintf(s1 + strlen(s1), (sizeof s1) - strlen(s1), "%s ", chan->key_prot);
+        op_snprintf_append(s1, (sizeof s1), "%s ", chan->key_prot);
       }
     } else {
       tst = chan->mode_mns_prot;
@@ -509,7 +509,7 @@ static void write_channels(void)
 
   if (!chanfile[0])
     return;
-  egg_snprintf(s, sizeof s, "%s~new", chanfile);
+  snprintf(s, sizeof s, "%s~new", chanfile);
   f = fopen(s, "w");
   chmod(s, userfile_perm);
   if (f == NULL) {
@@ -663,7 +663,7 @@ static void backup_chanfile(void)
 
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "Backing up channel file...");
-  egg_snprintf(s, sizeof s, "%s~bak", chanfile);
+  snprintf(s, sizeof s, "%s~bak", chanfile);
   copyfile(chanfile, s);
 }
 
@@ -723,7 +723,7 @@ static void channels_report(int idx, int details)
 
       if (s2[0]) {
         int len = strlen(s);
-        egg_snprintf(s + len, (sizeof s) - len, ", enforcing \"%s\"", s2); /* Concatenation */
+        snprintf(s + len, (sizeof s) - len, ", enforcing \"%s\"", s2); /* Concatenation */
       }
 
       s2[0] = 0;
@@ -738,13 +738,13 @@ static void channels_report(int idx, int details)
       if (s2[0]) {
         int len = strlen(s);
         s2[strlen(s2) - 2] = 0;
-        egg_snprintf(s + len, (sizeof s) - len, " (%s)", s2); /* Concatenation */
+        snprintf(s + len, (sizeof s) - len, " (%s)", s2); /* Concatenation */
       }
 
       /* If it's a !chan, we want to display it's unique name too <cybah> */
       if (chan->dname[0] == '!') {
         int len = strlen(s);
-        egg_snprintf(s + len, (sizeof s) - len, ", unique name %s", chan->name); /* Concatenation */
+        snprintf(s + len, (sizeof s) - len, ", unique name %s", chan->name); /* Concatenation */
       }
     }
 

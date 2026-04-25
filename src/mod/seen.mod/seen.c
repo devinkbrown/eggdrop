@@ -112,7 +112,7 @@ static int pub_seen(char *nick, char *host, char *hand,
   struct chanset_t *chan = findchan_by_dname(channel);
 
   if ((chan != NULL) && channel_seen(chan)) {
-    egg_snprintf(prefix, sizeof prefix, "PRIVMSG %s :", chan->name);
+    snprintf(prefix, sizeof prefix, "PRIVMSG %s :", chan->name);
     do_seen(DP_HELP, prefix, nick, hand, chan->dname, text);
   }
   return 0;
@@ -464,12 +464,12 @@ targetcont:
   }
   if (work >= 3600) {
     tv = work / 3600;
-    snprintf(word2 + strlen(word2), (sizeof word2) - strlen(word2), "%li hour%s, ", tv, (tv == 1) ? "" : "s");
+    op_snprintf_append(word2, (sizeof word2), "%li hour%s, ", tv, (tv == 1) ? "" : "s");
     work = work % 3600;
   }
   if (work >= 60) {
     tv = work / 60;
-    snprintf(word2 + strlen(word2), (sizeof word2) - strlen(word2), "%li minute%s, ", tv,
+    op_snprintf_append(word2, (sizeof word2), "%li minute%s, ", tv,
             (tv == 1) ? "" : "s");
   }
   if (!word2[0] && (work < 60)) {
@@ -504,10 +504,10 @@ static char *fixnick(char *nick)
     case 'X':
     case 'z':
     case 'Z':
-      egg_snprintf(fixit, sizeof fixit, "%s'", nick);
+      snprintf(fixit, sizeof fixit, "%s'", nick);
       break;
     default:
-      egg_snprintf(fixit, sizeof fixit, "%s's", nick);
+      snprintf(fixit, sizeof fixit, "%s's", nick);
       break;
     }
   return fixit;

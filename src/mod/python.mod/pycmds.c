@@ -897,7 +897,7 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
   m = ismember(ch, nick);
   if (!m)
     Py_RETURN_NONE;
-  egg_snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
+  snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
   u = get_user_by_host(hostbuf);
   if (!u)
     Py_RETURN_NONE;
@@ -918,7 +918,7 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
   if (!ch)
     Py_RETURN_NONE;
   for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
-    egg_snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
+    snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
     u = get_user_by_host(hostbuf);
     if (u && !strcasecmp(u->handle, handle))
       return PyUnicode_FromString(m->nick);
@@ -1022,26 +1022,26 @@ static PyObject *py_duration(PyObject *self, PyObject *args)
   s[0] = 0;
   if (sec >= 31536000) {
     tmp = sec / 31536000; sec -= tmp * 31536000;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
+    op_snprintf_append(s, sizeof s, "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 604800) {
     tmp = sec / 604800; sec -= tmp * 604800;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
+    op_snprintf_append(s, sizeof s, "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 86400) {
     tmp = sec / 86400; sec -= tmp * 86400;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
+    op_snprintf_append(s, sizeof s, "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 3600) {
     tmp = sec / 3600; sec -= tmp * 3600;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
+    op_snprintf_append(s, sizeof s, "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 60) {
     tmp = sec / 60; sec -= tmp * 60;
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
+    op_snprintf_append(s, sizeof s, "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec > 0)
-    snprintf(s + strlen(s), sizeof s - strlen(s), "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
+    op_snprintf_append(s, sizeof s, "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
   else if (s[0] && s[strlen(s) - 1] == ' ')
     s[strlen(s) - 1] = 0;   /* strip trailing space */
   return PyUnicode_FromString(s);
@@ -1182,7 +1182,7 @@ static PyObject *py_die(PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple(args, "|s", &reason))
     return NULL;
   if (reason && reason[0]) {
-    egg_snprintf(s, sizeof s, "BOT SHUTDOWN (%s)", reason);
+    snprintf(s, sizeof s, "BOT SHUTDOWN (%s)", reason);
     strlcpy(quit_msg, reason, 1024);
   } else {
     strlcpy(s, "BOT SHUTDOWN (No reason)", sizeof s);

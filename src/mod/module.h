@@ -63,12 +63,6 @@
 #ifdef egg_inet_aton
 #  undef egg_inet_aton
 #endif
-#ifdef egg_vsnprintf
-#  undef egg_vsnprintf
-#endif
-#ifdef egg_snprintf
-#  undef egg_snprintf
-#endif
 
 /* Mark module entry points visible when -fvisibility=hidden is in effect. */
 #if defined(__GNUC__) || defined(__clang__)
@@ -425,9 +419,8 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define bots_in_subtree ((int (*)(tand_t *))global[249])
 #define users_in_subtree ((int (*)(tand_t *))global[250])
 #define egg_inet_aton ((int (*)(const char *cp, struct in_addr *addr))global[251])
-/* 252 - 255 */
-#define egg_snprintf ((int (*)(char *, size_t, const char *, ...))global[252])
-#define egg_vsnprintf ((int (*)(char *, size_t, const char *, va_list))global[253])
+/* 252 - snprintf: removed — modules use system snprintf directly */
+/* 253 - vsnprintf: removed — modules use system vsnprintf directly */
 /* was egg_memset() -- use memset() instead */
 /* was egg_strcasecmp() -- use strcasecmp() instead */
 /* 256 - 259 */

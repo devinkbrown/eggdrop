@@ -1025,12 +1025,12 @@ static int proxy_connect(int sock, sockname_t *addr)
       if (!(socklist[i].flags & SOCK_UNUSED) && socklist[i].sock == sock)
         socklist[i].flags |= SOCK_PROXYWAIT;    /* drummer */
     memcpy(host, &addr->addr.s4.sin_addr.s_addr, 4);
-    egg_snprintf(s, sizeof s, "\004\001%c%c%c%c%c%c%s", port % 256,
+    snprintf(s, sizeof s, "\004\001%c%c%c%c%c%c%s", port % 256,
                  (port >> 8) % 256, host[0], host[1], host[2], host[3], botuser);
     tputs(sock, s, strlen(botuser) + 9);        /* drummer */
   } else if (proxy == PROXY_SUN) {
     inet_ntop(AF_INET, &addr->addr.s4.sin_addr, host, sizeof host);
-    egg_snprintf(s, sizeof s, "%s %d\n", host, port);
+    snprintf(s, sizeof s, "%s %d\n", host, port);
     tputs(sock, s, strlen(s));  /* drummer */
   }
   return sock;
@@ -2650,10 +2650,10 @@ void tell_netdebug(int idx)
         strlcat(s, " (tcl)", sizeof s);
       if (!(socklist[i].flags & SOCK_TCL)) {
         if (socklist[i].handler.sock.inbuf != NULL)
-          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (inbuf: %04X)",
+          op_snprintf_append(s, sizeof(s), " (inbuf: %04X)",
                   (unsigned int) strlen(socklist[i].handler.sock.inbuf));
         if (socklist[i].handler.sock.outbuf != NULL)
-          snprintf(s + strlen(s), sizeof(s) - strlen(s), " (outbuf: %06zX)",
+          op_snprintf_append(s, sizeof(s), " (outbuf: %06zX)",
                    egg_mbuf_len(socklist[i].handler.sock.outbuf));
       }
       strlcat(s, ",", sizeof s);

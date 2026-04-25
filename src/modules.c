@@ -521,8 +521,8 @@ Function global_table[] = {
   (Function) users_in_subtree,
   (Function) egg_inet_aton,
   /* 252 - 255 */
-  (Function) egg_snprintf,
-  (Function) egg_vsnprintf,
+  (Function) snprintf,
+  (Function) vsnprintf,
   (Function) memset,              /* was egg_memset -- use memset() or egg_bzero() instead */
   (Function) strcasecmp,          /* was egg_strcasecmp -- use strcasecmp() instead */
   /* 256 - 259 */
@@ -1014,7 +1014,7 @@ void *mod_malloc(int size, const char *modname, const char *filename, int line)
   char x[100], *p;
 
   p = strrchr(filename, '/');
-  egg_snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
+  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
   x[19] = 0;
   return n_malloc(size, x, line);
 #else
@@ -1029,7 +1029,7 @@ void *mod_realloc(void *ptr, int size, const char *modname,
   char x[100], *p;
 
   p = strrchr(filename, '/');
-  egg_snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
+  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
   x[19] = 0;
   return n_realloc(ptr, size, x, line);
 #else
@@ -1042,7 +1042,7 @@ void mod_free(void *ptr, const char *modname, const char *filename, int line)
   char x[100], *p;
 
   p = strrchr(filename, '/');
-  egg_snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
+  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
   x[19] = 0;
   n_free(ptr, x, line);
 }
@@ -1054,7 +1054,7 @@ char *mod_strdup(const char *str, const char *modname,
   char x[100], *p;
 
   p = strrchr(filename, '/');
-  egg_snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
+  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
   x[19] = 0;
   return n_strdup(str, x, line);
 #else

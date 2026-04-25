@@ -515,7 +515,7 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
           if (lapse >= note_life)
             strlcat(wt, NOTES_EXPIRE_TODAY, sizeof wt);
           else
-            snprintf(dt + strlen(dt), sizeof(dt) - strlen(dt), NOTES_EXPIRE_XDAYS, note_life - lapse,
+            op_snprintf_append(dt, sizeof(dt), NOTES_EXPIRE_XDAYS, note_life - lapse,
                     (note_life - lapse) == 1 ? "" : "S");
         }
         if (srd[0] == '+') {

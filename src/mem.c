@@ -265,10 +265,10 @@ void debug_mem_to_dcc(int idx)
           *p = 0;
         if (!strcasecmp(memtbl[j].file, fn)) {
           if (p)
-            snprintf(sofar + strlen(sofar), sizeof(sofar) - strlen(sofar), "%-10s/%-4d:(%04d) ",
+            op_snprintf_append(sofar, sizeof(sofar), "%-10s/%-4d:(%04d) ",
                     p + 1, memtbl[j].line, memtbl[j].size);
           else
-            snprintf(sofar + strlen(sofar), sizeof(sofar) - strlen(sofar), "%-4d:(%04d) ",
+            op_snprintf_append(sofar, sizeof(sofar), "%-4d:(%04d) ",
                     memtbl[j].line, memtbl[j].size);
 
           if (strlen(sofar) > 60) {
@@ -305,7 +305,7 @@ void debug_mem_to_dcc(int idx)
         if ((p = strchr(fn, ':')) != NULL) {
           *p = 0;
           if (!strcasecmp(fn, me->name)) {
-            snprintf(sofar + strlen(sofar), sizeof(sofar) - strlen(sofar), "%-10s/%-4d:(%04X) ", p + 1,
+            op_snprintf_append(sofar, sizeof(sofar), "%-10s/%-4d:(%04X) ", p + 1,
                     memtbl[j].line, memtbl[j].size);
             if (strlen(sofar) > 60) {
               sofar[strlen(sofar) - 1] = 0;
