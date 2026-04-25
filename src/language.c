@@ -87,6 +87,10 @@ static lang_sec *langsection = NULL;
 static lang_pri *langpriority = NULL;
 static char lang_dir_override[512] = "";  /* set via set_lang_dir() */
 
+static op_bh *lang_tab_bh  = NULL;
+static op_bh *lang_sec_bh  = NULL;
+static op_bh *lang_pri_bh  = NULL;
+
 static int del_lang(char *);
 static int add_message(int, char *);
 static void recheck_lang_sections(void);
@@ -124,7 +128,9 @@ static void add_lang(char *lang)
   }
 
   /* No existing entry, create a new one */
-  lp = nmalloc(sizeof(lang_pri));
+  if (!lang_pri_bh)
+    lang_pri_bh = op_bh_create(sizeof(lang_pri), 8, "lang_pri");
+  lp = op_bh_alloc(lang_pri_bh);
   lp->lang = nmalloc(strlen(lang) + 1);
   strcpy(lp->lang, lang);
   lp->next = NULL;
@@ -150,7 +156,7 @@ static int del_lang(char *lang)
       else
         langpriority = lp->next;
       nfree(lp->lang);
-      nfree(lp);
+      op_bh_free(lang_pri_bh, lp);
       debug1("LANG: Language unloaded: %s", lang);
       return 1;
     }
@@ -176,11 +182,13 @@ static int add_message(int lidx, char *ltext)
       break;
     l = l->next;
   }
+  if (!lang_tab_bh)
+    lang_tab_bh = op_bh_create(sizeof(lang_tab), 64, "lang_tab");
   if (l) {
-    l->next = nmalloc(sizeof(lang_tab));
+    l->next = op_bh_alloc(lang_tab_bh);
     l = l->next;
   } else
-    l = langtab[lidx & 63] = nmalloc(sizeof(lang_tab));
+    l = langtab[lidx & 63] = op_bh_alloc(lang_tab_bh);
   l->idx = lidx;
   l->text = nmalloc(strlen(ltext) + 1);
   strcpy(l->text, ltext);
@@ -327,7 +335,9 @@ void add_lang_section(char *section)
       return;
 
   /* Create new section entry */
-  ls = nmalloc(sizeof(lang_sec));
+  if (!lang_sec_bh)
+    lang_sec_bh = op_bh_create(sizeof(lang_sec), 16, "lang_sec");
+  ls = op_bh_alloc(lang_sec_bh);
   ls->section = nmalloc(strlen(section) + 1);
   strcpy(ls->section, section);
   ls->lang = NULL;
@@ -372,7 +382,7 @@ int del_lang_section(char *section)
       nfree(ls->section);
       if (ls->lang)
         nfree(ls->lang);
-      nfree(ls);
+      op_bh_free(lang_sec_bh, ls);
       debug1("LANG: Section unloaded: %s", section);
       return 1;
     }

@@ -257,6 +257,11 @@ typedef struct {
   int *right; /* right side */
 } coupletinfo;
 
+static op_bh *tcl_strinfo_bh    = NULL;
+static op_bh *tcl_intinfo_bh    = NULL;
+static op_bh *tcl_couplet_bh    = NULL;
+static op_bh *tcl_cdstrinfo_bh  = NULL;
+
 /* Read/write integer couplets (int1:int2) */
 static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
@@ -429,7 +434,7 @@ struct tcl_call_stringinfo {
 
 static void tcl_cleanup_stringinfo(ClientData cd)
 {
-  nfree(cd);
+  op_bh_free(tcl_cdstrinfo_bh, cd);
 }
 
 /* Compatibility wrapper that calls Tcl functions with String API
@@ -484,7 +489,9 @@ void add_cd_tcl_cmds(cd_tcl_cmd *table)
   struct tcl_call_stringinfo *info;
   while (table->name) {
     if (table->cdata) {
-      info = nmalloc(sizeof *info);
+      if (!tcl_cdstrinfo_bh)
+        tcl_cdstrinfo_bh = op_bh_create(sizeof(struct tcl_call_stringinfo), 16, "tcl_cdstrinfo");
+      info = op_bh_alloc(tcl_cdstrinfo_bh);
       strtot += sizeof(struct tcl_call_stringinfo);
       info->proc = table->callback;
       info->cd = table->cdata;
@@ -1152,7 +1159,9 @@ void add_tcl_strings(tcl_strings *list)
   int tmp;
 
   for (i = 0; list[i].name; i++) {
-    st = nmalloc(sizeof *st);
+    if (!tcl_strinfo_bh)
+      tcl_strinfo_bh = op_bh_create(sizeof(strinfo), 32, "tcl_strinfo");
+    st = op_bh_alloc(tcl_strinfo_bh);
     strtot += sizeof(strinfo);
     st->max = list[i].length - (list[i].flags & STR_DIR);
     if (list[i].flags & STR_PROTECT)
@@ -1181,7 +1190,7 @@ void rem_tcl_strings(tcl_strings *list)
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggstr, st);
     if (st != NULL) {
       strtot -= sizeof(strinfo);
-      nfree(st);
+      op_bh_free(tcl_strinfo_bh, st);
     }
   }
 }
@@ -1192,7 +1201,9 @@ void add_tcl_ints(tcl_ints *list)
   intinfo *ii;
 
   for (i = 0; list[i].name; i++) {
-    ii = nmalloc(sizeof *ii);
+    if (!tcl_intinfo_bh)
+      tcl_intinfo_bh = op_bh_create(sizeof(intinfo), 32, "tcl_intinfo");
+    ii = op_bh_alloc(tcl_intinfo_bh);
     strtot += sizeof(intinfo);
     ii->var = list[i].val;
     ii->ro = list[i].readonly;
@@ -1220,7 +1231,7 @@ void rem_tcl_ints(tcl_ints *list)
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggint, (ClientData) ii);
     if (ii) {
       strtot -= sizeof(intinfo);
-      nfree(ii);
+      op_bh_free(tcl_intinfo_bh, ii);
     }
   }
 }
@@ -1233,7 +1244,9 @@ void add_tcl_coups(tcl_coups *list)
   int i;
 
   for (i = 0; list[i].name; i++) {
-    cp = nmalloc(sizeof *cp);
+    if (!tcl_couplet_bh)
+      tcl_couplet_bh = op_bh_create(sizeof(coupletinfo), 16, "tcl_couplet");
+    cp = op_bh_alloc(tcl_couplet_bh);
     strtot += sizeof(coupletinfo);
     cp->left = list[i].lptr;
     cp->right = list[i].rptr;
@@ -1256,7 +1269,7 @@ void rem_tcl_coups(tcl_coups *list)
                                           tcl_eggcouplet, NULL);
     strtot -= sizeof(coupletinfo);
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggcouplet, (ClientData) cp);
-    nfree(cp);
+    op_bh_free(tcl_couplet_bh, cp);
   }
 }
 

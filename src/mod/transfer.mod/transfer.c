@@ -1173,6 +1173,10 @@ static char *transfer_close(void)
   }
   while (fileq)
     deq_this(fileq);
+  if (fileq_bh) {
+    op_bh_destroy(fileq_bh);
+    fileq_bh = NULL;
+  }
   del_entry_type(&USERENTRY_FSTAT);
   del_bind_table(H_rcvd);
   del_bind_table(H_sent);

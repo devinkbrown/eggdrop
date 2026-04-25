@@ -36,6 +36,8 @@ static int multistatus = 0, count_ctcp = 0;
 static char altnick_char = 0;
 struct capability *cap;
 struct capability *find_capability(char *capname);
+static op_bh *capability_bh  = NULL;
+static op_bh *cap_values_bh  = NULL;
 static int monitor_add(char * nick, int send);
 #ifdef HAVE_TCL
 static int monitor_del (char *nick);
@@ -1600,10 +1602,10 @@ static void free_capability(struct capability *z) {
 
   while (z->value) {
     v = z->value->next;
-    nfree(z->value);
+    op_bh_free(cap_values_bh, z->value);
     z->value = v;
   }
-  nfree(z);
+  op_bh_free(capability_bh, z);
   return;
 }
 
@@ -1671,7 +1673,9 @@ static int add_capabilities(char *msg) {
       continue;
     }
     putlog(LOG_DEBUG, "*", "CAP: adding capability record: %s", capptr);
-    newcap = nmalloc(sizeof *newcap);
+    if (!capability_bh)
+      capability_bh = op_bh_create(sizeof(capability_t), 16, "capability");
+    newcap = op_bh_alloc(capability_bh);
     memset(newcap, 0, sizeof *newcap);
     strlcpy(newcap->name, capptr, sizeof newcap->name);
     *capdstptr = newcap;
@@ -1683,7 +1687,9 @@ static int add_capabilities(char *msg) {
     if (valptr) {
       nextvaldstptr = &newcap->value;
       for (val = strtok_r(valptr, ",", &saveptr2); val; val = strtok_r(NULL, ",", &saveptr2)) {
-        newvalue = nmalloc(sizeof *newvalue);
+        if (!cap_values_bh)
+          cap_values_bh = op_bh_create(sizeof(cap_values_t), 16, "cap_values");
+        newvalue = op_bh_alloc(cap_values_bh);
         memset(newvalue, 0, sizeof *newvalue);
         strlcpy(newvalue->name, val, sizeof newvalue->name);
         putlog(LOG_DEBUG, "*", "CAP: Adding value %s to capability %s", val, newcap->name);

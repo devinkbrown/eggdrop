@@ -31,6 +31,7 @@ typedef struct isupport {
 
 static isupport_t *isupport_list;
 static p_tcl_bind_list H_isupport;
+static op_bh *isupport_bh = NULL;
 static const char isupport_default[4096] = "CASEMAPPING=rfc1459 CHANNELLEN=200 NICKLEN=9 CHANTYPES=#& PREFIX=(ov)@+ CHANMODES=b,k,l,imnpst MODES=3 MAXCHANNELS=10 TOPICLEN=250 KICKLEN=250 STATUSMSG=@+";
 
 static int hexdigit2dec[128] = {
@@ -145,11 +146,13 @@ static void isupport_free(struct isupport *data) {
     nfree(data->value);
   if (data->defaultvalue)
     nfree(data->defaultvalue);
-  nfree(data);
+  op_bh_free(isupport_bh, data);
 }
 
 static struct isupport *add_record(const char *key, size_t keylen) {
-  struct isupport *data = nmalloc(sizeof *data);
+  if (!isupport_bh)
+    isupport_bh = op_bh_create(sizeof(isupport_t), 32, "isupport");
+  struct isupport *data = op_bh_alloc(isupport_bh);
 
   data->key = strrangedup_toupper(key, keylen);
   data->defaultvalue = data->value = NULL;
@@ -453,6 +456,10 @@ void isupport_fini(void) {
   rem_tcl_commands(my_tcl_objcmds);
 #endif
   isupport_clear();
+  if (isupport_bh) {
+    op_bh_destroy(isupport_bh);
+    isupport_bh = NULL;
+  }
 }
 
 size_t isupport_expmem(void) {

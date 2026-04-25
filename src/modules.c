@@ -142,6 +142,9 @@ int false_func(void)
  * 1 indicates handled. */
 op_vec_t hook_list[REAL_HOOKS];
 
+static op_bh *module_entry_bh = NULL;
+static op_bh *dependancy_bh   = NULL;
+
 static void null_share(int idx, char *x)
 {
   if ((x[0] == 'u') && (x[1] == 'n')) {
@@ -638,7 +641,9 @@ void init_modules(void)
 {
   int i;
 
-  module_list = nmalloc(sizeof(module_entry));
+  module_entry_bh = op_bh_create(sizeof(module_entry), 16, "module_entry");
+  dependancy_bh   = op_bh_create(sizeof(dependancy),   16, "module_dep");
+  module_list = op_bh_alloc(module_entry_bh);
   module_list->name = nmalloc(8);
   strlcpy(module_list->name, "eggdrop", strlen("eggdrop") + 1);
   module_list->major = (egg_numver) / 10000;
@@ -838,9 +843,7 @@ const char *module_load(char *name)
   f = (Function) sl->func;
 #endif /* STATIC */
 
-  p = nmalloc(sizeof(module_entry));
-  if (p == NULL)
-    return "Malloc error";
+  p = op_bh_alloc(module_entry_bh);
   p->name = nmalloc(strlen(name) + 1);
   strcpy(p->name, name);
   p->major = 0;
@@ -855,7 +858,7 @@ const char *module_load(char *name)
   if (e) {
     module_list = module_list->next;
     nfree(p->name);
-    nfree(p);
+    op_bh_free(module_entry_bh, p);
     return e;
   }
   check_tcl_load(name);
@@ -910,7 +913,7 @@ char *module_unload(char *name, char *user)
         module_list = p->next;
       else
         o->next = p->next;
-      nfree(p);
+      op_bh_free(module_entry_bh, p);
       putlog(LOG_MISC, "*", "%s %s", MOD_UNLOADED, name);
       return NULL;
     }
@@ -966,7 +969,7 @@ Function *module_depend(char *name1, char *name2, int major, int minor)
   }
   if (!p || !o)
     return 0;
-  d = nmalloc(sizeof(dependancy));
+  d = op_bh_alloc(dependancy_bh);
 
   d->needed = p;
   d->needing = o;
@@ -992,7 +995,7 @@ int module_undepend(char *name1)
       } else {
         o->next = d->next;
       }
-      nfree(d);
+      op_bh_free(dependancy_bh, d);
       if (o == NULL)
         d = dependancy_list;
       else

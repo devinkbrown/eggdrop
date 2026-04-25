@@ -41,6 +41,7 @@ typedef struct assoc_t_ {
 
 /* Channel name-number associations */
 static assoc_t *assoc;
+static op_bh *assoc_bh = NULL;
 
 static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
 {
@@ -93,7 +94,7 @@ static void kill_assoc(int chan)
         last->next = a->next;
       else
         assoc = a->next;
-      nfree(a);
+      op_bh_free(assoc_bh, a);
       a = NULL;
     } else {
       last = a;
@@ -108,7 +109,7 @@ static void kill_all_assoc(void)
 
   for (a = assoc; a; a = x) {
     x = a->next;
-    nfree(a);
+    op_bh_free(assoc_bh, a);
   }
   assoc = NULL;
 }
@@ -131,7 +132,9 @@ static void add_assoc(char *name, int chan)
   /* Add in numerical order */
   for (a = assoc; a; old = a, a = a->next) {
     if (a->channel > chan) {
-      b = nmalloc(sizeof *b);
+      if (!assoc_bh)
+        assoc_bh = op_bh_create(sizeof(assoc_t), 16, "assoc_node");
+      b = op_bh_alloc(assoc_bh);
       b->next = a;
       b->channel = chan;
       strlcpy(b->name, name, sizeof b->name);
@@ -143,7 +146,9 @@ static void add_assoc(char *name, int chan)
     }
   }
   /* Add at the end */
-  b = nmalloc(sizeof *b);
+  if (!assoc_bh)
+    assoc_bh = op_bh_create(sizeof(assoc_t), 16, "assoc_node");
+  b = op_bh_alloc(assoc_bh);
   b->next = NULL;
   b->channel = chan;
   strlcpy(b->name, name, sizeof b->name);
@@ -386,6 +391,10 @@ static cmd_t mylink[] = {
 static char *assoc_close(void)
 {
   kill_all_assoc();
+  if (assoc_bh) {
+    op_bh_destroy(assoc_bh);
+    assoc_bh = NULL;
+  }
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_bot, mybot);
   rem_builtins(H_link, mylink);

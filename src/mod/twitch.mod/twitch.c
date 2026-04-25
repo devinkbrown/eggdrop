@@ -51,6 +51,7 @@ static p_tcl_bind_list H_ccht, H_cmsg, H_htgt, H_wspr, H_wspm, H_rmst, H_usst, H
 
 twitchchan_t *twitchchan = NULL;
 static char cap_request[55];
+static op_bh *tchan_bh = NULL;
 
 /* valuevar must be used immediately without calling back into Tcl, refcount is not increased */
 #define GET_MSGTAG_VALUE_STR(tags, key, valuevar, errctx) do {                                              \
@@ -73,7 +74,7 @@ static void twitch_free_tchan(twitchchan_t *tchan)
   nfree(tchan->vips);
   nfree(tchan->userstate.badges);
   nfree(tchan->userstate.emote_sets);
-  nfree(tchan);
+  op_bh_free(tchan_bh, tchan);
 }
 
 /* Calculate the memory we keep allocated.
@@ -324,7 +325,9 @@ static int gotjoin (char *from, char *msg) {
 
   chname = newsplit(&msg);
   if (!(tchan = findtchan_by_dname(chname))) {    /* Find channel or, if it   */
-    tchan = nmalloc(sizeof *tchan);             /* doesn't exist, create it */
+    if (!tchan_bh)
+      tchan_bh = op_bh_create(sizeof(twitchchan_t), 16, "twitch_tchan");
+    tchan = op_bh_alloc(tchan_bh);             /* doesn't exist, create it */
     explicit_bzero(tchan, sizeof(twitchchan_t));
     strlcpy(tchan->dname, chname, sizeof tchan->dname);
     egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
@@ -443,7 +446,9 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
   int trigger_bind = 0;
 
   if (!(tchan = findtchan_by_dname(chan))) {    /* Find channel or, if it   */
-    tchan = nmalloc(sizeof *tchan);             /* doesn't exist, create it */
+    if (!tchan_bh)
+      tchan_bh = op_bh_create(sizeof(twitchchan_t), 16, "twitch_tchan");
+    tchan = op_bh_alloc(tchan_bh);             /* doesn't exist, create it */
     explicit_bzero(tchan, sizeof(twitchchan_t));
     strlcpy(tchan->dname, chan, sizeof tchan->dname);
     egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
@@ -499,7 +504,9 @@ static int gotroomstate(char *from, char *chan, Tcl_Obj *tags) {
   int trigger_bind = 0;
 
   if (!(tchan = findtchan_by_dname(chan))) {    /* Find channel or, if it   */
-    tchan = nmalloc(sizeof *tchan);             /* doesn't exist, create it */
+    if (!tchan_bh)
+      tchan_bh = op_bh_create(sizeof(twitchchan_t), 16, "twitch_tchan");
+    tchan = op_bh_alloc(tchan_bh);             /* doesn't exist, create it */
     explicit_bzero(tchan, sizeof(twitchchan_t));
     strlcpy(tchan->dname, chan, sizeof tchan->dname);
     egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
@@ -880,6 +887,10 @@ static char *twitch_close(void)
     tchan = next;
   }
   twitchchan = NULL;
+  if (tchan_bh) {
+    op_bh_destroy(tchan_bh);
+    tchan_bh = NULL;
+  }
 
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_raw, twitch_raw);

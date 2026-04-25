@@ -18,6 +18,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+static op_bh *fileq_bh = NULL;
+
 static int expmem_fileq(void)
 {
   fileq_t *q;
@@ -34,7 +36,9 @@ static void queue_file(char *dir, char *file, char *from, char *to)
   fileq_t *q = fileq;
   size_t l;
 
-  fileq = nmalloc(sizeof *fileq);
+  if (!fileq_bh)
+    fileq_bh = op_bh_create(sizeof(fileq_t), 32, "transfer_fileq");
+  fileq = op_bh_alloc(fileq_bh);
   fileq->next = q;
   l = strlen(dir) + 1;
   fileq->dir = nmalloc(l);
@@ -64,7 +68,7 @@ static void deq_this(fileq_t *this)
     fileq = q->next;
   nfree(q->dir);
   nfree(q->file);
-  nfree(q);
+  op_bh_free(fileq_bh, q);
 }
 
 /* Remove all files queued to a certain user.

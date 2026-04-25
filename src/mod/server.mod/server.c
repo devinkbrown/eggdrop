@@ -2476,6 +2476,14 @@ static char *server_close(void)
     op_bh_destroy(msgq_node_bh);
     msgq_node_bh = NULL;
   }
+  if (capability_bh) {
+    op_bh_destroy(capability_bh);
+    capability_bh = NULL;
+  }
+  if (cap_values_bh) {
+    op_bh_destroy(cap_values_bh);
+    cap_values_bh = NULL;
+  }
   /* Restore original commands. */
 #ifdef HAVE_TCL
   del_bind_table(H_wall);
