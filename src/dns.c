@@ -39,6 +39,10 @@ extern sigjmp_buf alarmret;
 
 devent_t *dns_events = NULL;
 
+/* Slab allocators for DNS event nodes — lazy-initialised on first DNS call. */
+static op_bh *devent_bh  = NULL;
+static op_bh *tclinfo_bh = NULL;
+
 static int ipaddr_equal(const sockname_t *ip, const sockname_t *ip2)
 {
   if (!ip || !ip2) {
@@ -210,8 +214,10 @@ void dcc_dnsipbyhost(char *hostn)
     }
   }
 
-  de = nmalloc(sizeof(devent_t));
-  egg_bzero(de, sizeof(devent_t));
+  if (!devent_bh)
+    devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
+  de = op_bh_alloc(devent_bh);
+  memset(de, 0, sizeof *de);
 
   /* Link into list. */
   de->next = dns_events;
@@ -240,8 +246,10 @@ void dcc_dnshostbyip(sockname_t *ip)
     }
   }
 
-  de = nmalloc(sizeof(devent_t));
-  egg_bzero(de, sizeof(devent_t));
+  if (!devent_bh)
+    devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
+  de = op_bh_alloc(devent_bh);
+  memset(de, 0, sizeof *de);
 
   /* Link into list. */
   de->next = dns_events;
@@ -297,7 +305,7 @@ static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other
   nfree(tclinfo->proc);
   if (tclinfo->paras)
     nfree(tclinfo->paras);
-  nfree(tclinfo);
+  op_bh_free(tclinfo_bh, tclinfo);
 }
 
 static int dns_tclexpmem(void *other)
@@ -333,8 +341,10 @@ static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
   devent_t *de;
   devent_tclinfo_t *tclinfo;
 
-  de = nmalloc(sizeof(devent_t));
-  egg_bzero(de, sizeof(devent_t));
+  if (!devent_bh)
+    devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
+  de = op_bh_alloc(devent_bh);
+  memset(de, 0, sizeof *de);
 
   /* Link into list. */
   de->next = dns_events;
@@ -346,7 +356,9 @@ static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
   strcpy(de->res_data.hostname, hostn);
 
   /* Store additional data. */
-  tclinfo = nmalloc(sizeof(devent_tclinfo_t));
+  if (!tclinfo_bh)
+    tclinfo_bh = op_bh_create(sizeof(devent_tclinfo_t), 8, "dns_tclinfo");
+  tclinfo = op_bh_alloc(tclinfo_bh);
   tclinfo->proc = nmalloc(strlen(proc) + 1);
   strlcpy(tclinfo->proc, proc, sizeof(tclinfo->proc));
   if (paras) {
@@ -365,8 +377,10 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   devent_t *de;
   devent_tclinfo_t *tclinfo;
 
-  de = nmalloc(sizeof(devent_t));
-  egg_bzero(de, sizeof(devent_t));
+  if (!devent_bh)
+    devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
+  de = op_bh_alloc(devent_bh);
+  memset(de, 0, sizeof *de);
 
   /* Link into list. */
   de->next = dns_events;
@@ -378,7 +392,9 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   memcpy(de->res_data.ip_addr, ip, sizeof *ip);
 
   /* Store additional data. */
-  tclinfo = nmalloc(sizeof(devent_tclinfo_t));
+  if (!tclinfo_bh)
+    tclinfo_bh = op_bh_create(sizeof(devent_tclinfo_t), 8, "dns_tclinfo");
+  tclinfo = op_bh_alloc(tclinfo_bh);
   tclinfo->proc = nmalloc(strlen(proc) + 1);
   strlcpy(tclinfo->proc, proc, sizeof(tclinfo->proc));
   if (paras) {
@@ -434,7 +450,7 @@ void call_hostbyip(sockname_t *ip, char *hostn, int ok)
                (de->type && de->type->name) ? de->type->name : "<empty>");
       if (de->res_data.ip_addr)
         nfree(de->res_data.ip_addr);
-      nfree(de);
+      op_bh_free(devent_bh, de);
       de = ode;
     }
     ode = de;
@@ -465,7 +481,7 @@ void call_ipbyhost(char *hostn, sockname_t *ip, int ok)
 
       if (de->res_data.hostname)
         nfree(de->res_data.hostname);
-      nfree(de);
+      op_bh_free(devent_bh, de);
       de = ode;
     }
     ode = de;

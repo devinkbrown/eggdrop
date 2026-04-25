@@ -50,7 +50,10 @@ extern SSL_CTX *ssl_ctx;
 
 tcl_timer_t *timer = NULL;         /* Minutely timer               */
 tcl_timer_t *utimer = NULL;        /* Secondly timer               */
-unsigned long timer_id = 1;        /* Next timer of any sort will
+
+/* Slab allocator for tcl_timer_t nodes — lazy-initialised on first timer. */
+static op_bh *timer_bh = NULL;
+uint64_t timer_id = 1;             /* Next timer of any sort will
                                     * have this number             */
 struct chanset_t *chanset = NULL;  /* Channel list                 */
 char admin[121] = "";              /* Admin info                   */
@@ -556,7 +559,9 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   char stringid[8];
   unsigned int ret;
 
-  *stack = nmalloc(sizeof **stack);
+  if (!timer_bh)
+    timer_bh = op_bh_create(sizeof(tcl_timer_t), 16, "tcl_timer");
+  *stack = op_bh_alloc(timer_bh);
   (*stack)->next = old;
   (*stack)->mins = (*stack)->interval = elapse;
   (*stack)->count = count;
@@ -601,7 +606,7 @@ void remove_timer_from_list(tcl_timer_t ** stack)
   nfree(old->cmd);
   if (old->name)
     nfree(old->name);
-  nfree(old);
+  op_bh_free(timer_bh, old);
 }
 
 /* Remove a timer (via name, not ID)

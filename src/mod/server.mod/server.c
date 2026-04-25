@@ -40,6 +40,10 @@ static Function *global = NULL;
  * alloc (no separate memset needed), memory returned to OS on heap destroy. */
 static op_bh *monitor_heap = NULL;
 
+/* Slab allocator for struct msgq nodes (mq / hq / modeq IRC send queues).
+ * Fields are always set explicitly after allocation; no memset needed. */
+static op_bh *msgq_node_bh = NULL;
+
 static int ctcp_mode;
 static int serv;                /* sock # of server currently */
 static char newserver[NEWSERVERMAX]; /* new server? */
@@ -254,7 +258,7 @@ static void deq_msg(void)
       last_time += calc_penalty(modeq.head->msg);
       q = modeq.head->next;
       nfree(modeq.head->msg);
-      nfree(modeq.head);
+      op_bh_free(msgq_node_bh, modeq.head);
       modeq.head = q;
       burst++;
     }
@@ -284,7 +288,7 @@ static void deq_msg(void)
     last_time += calc_penalty(mq.head->msg);
     q = mq.head->next;
     nfree(mq.head->msg);
-    nfree(mq.head);
+    op_bh_free(msgq_node_bh, mq.head);
     mq.head = q;
     if (!mq.head)
       mq.last = NULL;
@@ -311,7 +315,7 @@ static void deq_msg(void)
   last_time += calc_penalty(hq.head->msg);
   q = hq.head->next;
   nfree(hq.head->msg);
-  nfree(hq.head);
+  op_bh_free(msgq_node_bh, hq.head);
   hq.head = q;
   if (!hq.head)
     hq.last = NULL;
@@ -630,7 +634,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
         else
           lm->next = m->next;
         nfree(m->msg);
-        nfree(m);
+        op_bh_free(msgq_node_bh, m);
         m = lm;
         q->tot--;
         if (!q->head)
@@ -695,7 +699,7 @@ static void purge_kicks(struct msgq_head *q)
           else
             lm->next = m->next;
           nfree(m->msg);
-          nfree(m);
+          op_bh_free(msgq_node_bh, m);
           m = lm;
           q->tot--;
           if (!q->head)
@@ -795,7 +799,7 @@ static int deq_kick(int which)
           else
             lm->next = m->next;
           nfree(m->msg);
-          nfree(m);
+          op_bh_free(msgq_node_bh, m);
           m = lm;
           h->tot--;
           if (!h->head)
@@ -838,7 +842,7 @@ static int deq_kick(int which)
   last_time += calc_penalty(newmsg);
   m = h->head->next;
   nfree(h->head->msg);
-  nfree(h->head);
+  op_bh_free(msgq_node_bh, h->head);
   h->head = m;
   if (!h->head)
     h->last = 0;
@@ -949,7 +953,7 @@ static void queue_server(int which, char *msg, int len)
     if (check_tcl_out(which, buf, 0))
       return; /* a Tcl proc requested not to send the message */
 
-    q = nmalloc(sizeof(struct msgq));
+    q = op_bh_alloc(msgq_node_bh);
 
     /* Insert into queue. */
     if (qnext) {
@@ -2315,7 +2319,7 @@ static void msgq_clear(struct msgq_head *qh)
   for (q = qh->head; q; q = qq) {
     qq = q->next;
     nfree(q->msg);
-    nfree(q);
+    op_bh_free(msgq_node_bh, q);
   }
   qh->head = qh->last = NULL;
   qh->tot = qh->warned = 0;
@@ -2467,6 +2471,10 @@ static char *server_close(void)
   if (monitor_heap) {
     op_bh_destroy(monitor_heap);
     monitor_heap = NULL;
+  }
+  if (msgq_node_bh) {
+    op_bh_destroy(msgq_node_bh);
+    msgq_node_bh = NULL;
   }
   /* Restore original commands. */
 #ifdef HAVE_TCL
@@ -2751,7 +2759,8 @@ char *server_start(Function *global_funcs)
   add_hook(HOOK_PRE_REHASH, (Function) server_prerehash);
   add_hook(HOOK_REHASH, (Function) server_postrehash);
   add_hook(HOOK_DIE, (Function) server_die);
-  monitor_heap = op_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
+  monitor_heap   = op_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
+  msgq_node_bh   = op_bh_create(sizeof(struct msgq),    64, "server_msgq");
   mq.head = hq.head = modeq.head = NULL;
   mq.last = hq.last = modeq.last = NULL;
   mq.tot = hq.tot = modeq.tot = 0;

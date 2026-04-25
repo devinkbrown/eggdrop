@@ -55,21 +55,25 @@ static int resync_time = 900;
 static int overr_local_bots = 0;        /* Override local bots?             */
 
 
-/* Store info for sharebots */
+/* Store info for sharebots.
+ * Nodes are allocated from share_msgq_bh and stored by pointer in each
+ * tandbuf's op_deque_t — no embedded 'next' pointer needed. */
 struct share_msgq {
   struct chanset_t *chan;
   char *msg;
-  struct share_msgq *next;
 };
 
 typedef struct tandbuf_t {
   char bot[HANDLEN + 1];
   time_t timer;
-  struct share_msgq *q;
+  op_deque_t q;           /* deque of share_msgq* — embedded, not a pointer */
   struct tandbuf_t *next;
 } tandbuf;
 
 tandbuf *tbuf;
+
+/* Slab allocator for share_msgq nodes. */
+static op_bh *share_msgq_bh = NULL;
 
 /* Prototypes */
 static void start_sending_users(int);
@@ -1532,11 +1536,10 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
  */
 static void new_tbuf(char *bot)
 {
-  tandbuf *new;
+  tandbuf *new = nmalloc(sizeof(tandbuf));
 
-  new = nmalloc(sizeof(tandbuf));
   strlcpy(new->bot, bot, sizeof new->bot);
-  new->q = NULL;
+  op_deque_init(&new->q, 8);
   new->timer = now;
   new->next = tbuf;
   tbuf = new;
@@ -1545,7 +1548,6 @@ static void new_tbuf(char *bot)
 
 static void del_tbuf(tandbuf *goner)
 {
-  struct share_msgq *q, *r;
   tandbuf *t = NULL, *old = NULL;
 
   for (t = tbuf; t; old = t, t = t->next) {
@@ -1554,11 +1556,12 @@ static void del_tbuf(tandbuf *goner)
         old->next = t->next;
       else
         tbuf = t->next;
-      for (q = t->q; q && q->msg[0]; q = r) {
-        r = q->next;
-        nfree(q->msg);
-        nfree(q);
+      while (!op_deque_empty(&t->q)) {
+        struct share_msgq *qe = op_deque_pop_front(&t->q);
+        nfree(qe->msg);
+        op_bh_free(share_msgq_bh, qe);
       }
+      op_deque_fini(&t->q);
       nfree(t);
       break;
     }
@@ -1614,41 +1617,25 @@ static void check_expired_tbufs(void)
     }
 }
 
-static struct share_msgq *q_addmsg(struct share_msgq *qq,
-                                   struct chanset_t *chan, char *s)
+/* Push a share message onto a bot's tandbuf queue.
+ * Silently drops the message when the queue reaches the 1000-entry limit. */
+static void q_push_msg(op_deque_t *q, struct chanset_t *chan, char *s)
 {
-  struct share_msgq *q;
-  int cnt;
+  struct share_msgq *qe;
 
-  if (!qq) {
-    q = nmalloc(sizeof *q);
-
-    q->chan = chan;
-    q->next = NULL;
-    q->msg = nmalloc(strlen(s) + 1);
-    strlcpy(q->msg, s, sizeof(q->msg));
-    return q;
-  }
-  cnt = 0;
-  for (q = qq; q->next; q = q->next)
-    cnt++;
-  if (cnt > 1000)
-    return NULL;                /* Return null: did not alter queue */
-  q->next = nmalloc(sizeof *q->next);
-
-  q = q->next;
-  q->chan = chan;
-  q->next = NULL;
-  q->msg = nmalloc(strlen(s) + 1);
-  strlcpy(q->msg, s, sizeof(q->msg));
-  return qq;
+  if (op_deque_size(q) >= 1000)
+    return;
+  qe = op_bh_alloc(share_msgq_bh);
+  qe->chan = chan;
+  qe->msg = nmalloc(strlen(s) + 1);
+  strlcpy(qe->msg, s, strlen(s) + 1);
+  op_deque_push_back(q, qe);
 }
 
 /* Add stuff to a specific bot's tbuf.
  */
 static void q_tbuf(char *bot, char *s, struct chanset_t *chan)
 {
-  struct share_msgq *q;
   tandbuf *t;
 
   for (t = tbuf; t && t->bot[0]; t = t->next)
@@ -1657,9 +1644,8 @@ static void q_tbuf(char *bot, char *s, struct chanset_t *chan)
         fr.match = (FR_CHAN | FR_BOT);
         get_user_flagrec(get_user_by_handle(userlist, bot), &fr, chan->dname);
       }
-      if ((!chan || bot_chan(fr) || bot_global(fr)) &&
-          (q = q_addmsg(t->q, chan, s)))
-        t->q = q;
+      if (!chan || bot_chan(fr) || bot_global(fr))
+        q_push_msg(&t->q, chan, s);
       break;
     }
 }
@@ -1668,7 +1654,6 @@ static void q_tbuf(char *bot, char *s, struct chanset_t *chan)
  */
 static void q_resync(char *s, struct chanset_t *chan)
 {
-  struct share_msgq *q;
   tandbuf *t;
 
   for (t = tbuf; t && t->bot[0]; t = t->next) {
@@ -1676,9 +1661,8 @@ static void q_resync(char *s, struct chanset_t *chan)
       fr.match = (FR_CHAN | FR_BOT);
       get_user_flagrec(get_user_by_handle(userlist, t->bot), &fr, chan->dname);
     }
-    if ((!chan || bot_chan(fr) || bot_global(fr)) &&
-        (q = q_addmsg(t->q, chan, s)))
-      t->q = q;
+    if (!chan || bot_chan(fr) || bot_global(fr))
+      q_push_msg(&t->q, chan, s);
   }
 }
 
@@ -1698,13 +1682,14 @@ static int can_resync(char *bot)
  */
 static void dump_resync(int idx)
 {
-  struct share_msgq *q;
   tandbuf *t;
 
   for (t = tbuf; t && t->bot[0]; t = t->next)
     if (!strcasecmp(dcc[idx].nick, t->bot)) {
-      for (q = t->q; q && q->msg[0]; q = q->next) {
-        dprintf(idx, "%s", q->msg);
+      size_t _n = op_deque_size(&t->q);
+      for (size_t _i = 0; _i < _n; _i++) {
+        struct share_msgq *qe = op_deque_at(&t->q, _i);
+        dprintf(idx, "%s", qe->msg);
       }
       flush_tbuf(dcc[idx].nick);
       break;
@@ -1715,19 +1700,14 @@ static void dump_resync(int idx)
  */
 static void status_tbufs(int idx)
 {
-  int count, off = 0;
-  struct share_msgq *q;
+  int off = 0;
   char s[121];
   tandbuf *t;
 
-  off = 0;
   for (t = tbuf; t && t->bot[0]; t = t->next)
     if (off < (110 - HANDLEN)) {
       off += my_strcpy(s + off, t->bot);
-      count = 0;
-      for (q = t->q; q; q = q->next)
-        count++;
-      off += simple_sprintf(s + off, " (%d), ", count);
+      off += simple_sprintf(s + off, " (%zu), ", op_deque_size(&t->q));
     }
   if (off) {
     s[off - 2] = 0;
@@ -2246,6 +2226,10 @@ static char *share_close(void)
     tnext = t->next;
     del_tbuf(t);
   }
+  if (share_msgq_bh) {
+    op_bh_destroy(share_msgq_bh);
+    share_msgq_bh = NULL;
+  }
   del_hook(HOOK_SHAREOUT, (Function) shareout_mod);
   del_hook(HOOK_SHAREIN, (Function) sharein_mod);
   del_hook(HOOK_MINUTELY, (Function) check_expired_tbufs);
@@ -2264,14 +2248,14 @@ static char *share_close(void)
 static int share_expmem(void)
 {
   int tot = 0;
-  struct share_msgq *q;
   tandbuf *t;
 
   for (t = tbuf; t && t->bot[0]; t = t->next) {
     tot += sizeof(tandbuf);
-    for (q = t->q; q; q = q->next) {
-      tot += sizeof(struct share_msgq);
-      tot += strlen(q->msg) + 1;
+    size_t _n = op_deque_size(&t->q);
+    for (size_t _i = 0; _i < _n; _i++) {
+      struct share_msgq *qe = op_deque_at(&t->q, _i);
+      tot += sizeof(struct share_msgq) + strlen(qe->msg) + 1;
     }
   }
   tot += uff_expmem();
@@ -2365,6 +2349,7 @@ char *share_start(Function *global_funcs)
     module_undepend(MODULE_NAME);
     return "This module requires channels module 1.0 or later.";
   }
+  share_msgq_bh = op_bh_create(sizeof(struct share_msgq), 32, "share_msgq");
   add_hook(HOOK_SHAREOUT, (Function) shareout_mod);
   add_hook(HOOK_SHAREIN, (Function) sharein_mod);
   add_hook(HOOK_MINUTELY, (Function) check_expired_tbufs);

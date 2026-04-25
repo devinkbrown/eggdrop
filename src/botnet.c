@@ -38,6 +38,9 @@ extern Tcl_Interp *interp;
 tand_t *tandbot;                   /* Keep track of tandem bots on the botnet */
 party_t *party;                    /* Keep track of people on the botnet */
 static int party_size = 0;
+
+/* Slab allocator for tand_t nodes — lazy-initialised on first addbot. */
+static op_bh *tand_bh = NULL;
 int tands = 0;                     /* Number of bots on the botnet */
 int parties = 0;                   /* Number of people on the botnet */
 char botnetnick[HANDLEN + 1] = ""; /* Botnet nickname */
@@ -87,7 +90,9 @@ void addbot(char *who, char *from, char *next, char flag, int vernum, int ssl)
       putlog(LOG_BOTS, "*", "!!! Duplicate botnet bot entry!!");
     ptr = &((*ptr)->next);
   }
-  ptr2 = nmalloc(sizeof(tand_t));
+  if (!tand_bh)
+    tand_bh = op_bh_create(sizeof(tand_t), 32, "tand_t");
+  ptr2 = op_bh_alloc(tand_bh);
   strlcpy(ptr2->bot, who, sizeof ptr2->bot);
   ptr2->share = flag;
   ptr2->ver = vernum;
@@ -321,7 +326,7 @@ void rembot(char *whoin)
 
   ptr2 = *ptr;
   *ptr = ptr2->next;
-  nfree(ptr2);
+  op_bh_free(tand_bh, ptr2);
   tands--;
 
   dupwait_notify(who);

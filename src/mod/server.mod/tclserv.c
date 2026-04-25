@@ -474,17 +474,17 @@ static int tcl_clearqueue STDVAR
     for (q = modeq.head; q; q = qq) {
       qq = q->next;
       nfree(q->msg);
-      nfree(q);
+      op_bh_free(msgq_node_bh, q);
     }
     for (q = mq.head; q; q = qq) {
       qq = q->next;
       nfree(q->msg);
-      nfree(q);
+      op_bh_free(msgq_node_bh, q);
     }
     for (q = hq.head; q; q = qq) {
       qq = q->next;
       nfree(q->msg);
-      nfree(q);
+      op_bh_free(msgq_node_bh, q);
     }
     modeq.tot = mq.tot = hq.tot = modeq.warned = mq.warned = hq.warned = 0;
     mq.head = hq.head = modeq.head = mq.last = hq.last = modeq.last = 0;
@@ -498,7 +498,7 @@ static int tcl_clearqueue STDVAR
     for (q = mq.head; q; q = qq) {
       qq = q->next;
       nfree(q->msg);
-      nfree(q);
+      op_bh_free(msgq_node_bh, q);
     }
     mq.tot = mq.warned = 0;
     mq.head = mq.last = 0;
@@ -515,7 +515,7 @@ static int tcl_clearqueue STDVAR
     for (q = modeq.head; q; q = qq) {
       qq = q->next;
       nfree(q->msg);
-      nfree(q);
+      op_bh_free(msgq_node_bh, q);
     }
     if (mq.tot == 0)
       burst = 0;
@@ -530,7 +530,7 @@ static int tcl_clearqueue STDVAR
     for (q = hq.head; q; q = qq) {
       qq = q->next;
       nfree(q->msg);
-      nfree(q);
+      op_bh_free(msgq_node_bh, q);
     }
     double_warned = 0;
     hq.tot = hq.warned = 0;

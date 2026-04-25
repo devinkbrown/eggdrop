@@ -699,43 +699,53 @@ static int cols = 0;
 static int colsofar = 0;
 static int blind = 0;
 static int subwidth = 70;
-static char *colstr = NULL;
 
+/* op_vec_t of nstrdup'd column strings — replaces the \377-delimited colstr. */
+static op_vec_t colstrings;
+static bool colstrings_ready = false;
 
-/* Add string to colstr
- */
+static void colstrings_drain(void)
+{
+  size_t i;
+  void *p;
+
+  OP_VEC_FOREACH(&colstrings, i, p)
+    nfree(p);
+  op_vec_clear(&colstrings, NULL, NULL);
+}
+
+/* Append a column entry and flush a row to s when enough columns are ready. */
 static void subst_addcol(char *s, size_t sz, char *newcol)
 {
-  char *p, *q;
+  char *col;
   int i, colwidth;
+  size_t j, n;
 
-  if ((newcol[0]) && (newcol[0] != '\377'))
-    colsofar++;
-  size_t colstr_sz = strlen(colstr) + strlen(newcol) + (colstr[0] ? 2 : 1);
-  colstr = nrealloc(colstr, colstr_sz);
-  if ((newcol[0]) && (newcol[0] != '\377')) {
-    if (colstr[0])
-      strlcat(colstr, "\377", colstr_sz);
-    strlcat(colstr, newcol, colstr_sz);
+  if (!colstrings_ready) {
+    op_vec_init(&colstrings, 4);
+    colstrings_ready = true;
   }
-  if ((colsofar == cols) || ((newcol[0] == '\377') && (colstr[0]))) {
+
+  if (newcol[0] && newcol[0] != '\377') {
+    colsofar++;
+    op_vec_push(&colstrings, nstrdup(newcol));
+  }
+
+  n = op_vec_size(&colstrings);
+  if ((colsofar == cols) || (newcol[0] == '\377' && n > 0)) {
     colsofar = 0;
     strlcpy(s, "     ", sz);
     colwidth = (subwidth - 5) / cols;
-    q = colstr;
-    p = strchr(colstr, '\377');
-    while (p != NULL) {
-      *p = 0;
-      strlcat(s, q, sz);
-      for (i = strlen(q); i < colwidth; i++)
-        strlcat(s, " ", sz);
-      q = p + 1;
-      p = strchr(q, '\377');
+    for (j = 0; j < n; j++) {
+      col = op_vec_get(&colstrings, j);
+      strlcat(s, col, sz);
+      if (j < n - 1) {               /* pad all but the last column */
+        for (i = strlen(col); i < colwidth; i++)
+          strlcat(s, " ", sz);
+      }
+      nfree(col);
     }
-    strlcat(s, q, sz);
-    nfree(colstr);
-    colstr = nmalloc(1);
-    colstr[0] = 0;
+    op_vec_clear(&colstrings, NULL, NULL);
   }
 }
 
@@ -794,10 +804,8 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     blind = 0;
     cols = 0;
     subwidth = 70;
-    if (colstr != NULL) {
-      nfree(colstr);
-      colstr = NULL;
-    }
+    if (colstrings_ready && !op_vec_empty(&colstrings))
+      colstrings_drain();
     help_flags = isdcc;
     return;
   }
@@ -956,8 +964,6 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
             if (cols) {
               sub[0] = 0;
               subst_addcol(sub, sizeof sub, "\377");
-              nfree(colstr);
-              colstr = NULL;
               cols = 0;
               towrite = sub;
             }
@@ -968,8 +974,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
 
             cols = atoi(q + 5);
             colsofar = 0;
-            colstr = nmalloc(1);
-            colstr[0] = 0;
+            /* colstrings is already empty; no reset needed */
             r = strchr(q + 5, '/');
             if (r != NULL)
               subwidth = atoi(r + 1);
