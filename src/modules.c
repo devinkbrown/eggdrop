@@ -140,7 +140,7 @@ int false_func(void)
 
 /* The REAL hooks. When these are called, a return of 0 indicates unhandled;
  * 1 indicates handled. */
-struct hook_entry *hook_list[REAL_HOOKS];
+op_vec_t hook_list[REAL_HOOKS];
 
 static void null_share(int idx, char *x)
 {
@@ -649,7 +649,7 @@ void init_modules(void)
   module_list->next = NULL;
   module_list->funcs = NULL;
   for (i = 0; i < REAL_HOOKS; i++)
-    hook_list[i] = NULL;
+    op_vec_init(&hook_list[i], 2);
 }
 
 int expmem_modules(int y)
@@ -657,7 +657,6 @@ int expmem_modules(int y)
   int c = 0, i;
   module_entry *p;
   dependancy *d;
-  struct hook_entry *q;
   Function *f;
 #ifdef STATIC
   struct static_list *s;
@@ -667,8 +666,7 @@ int expmem_modules(int y)
 #endif
 
   for (i = 0; i < REAL_HOOKS; i++)
-    for (q = hook_list[i]; q; q = q->next)
-      c += sizeof(struct hook_entry);
+    c += (int)(op_vec_size(&hook_list[i]) * sizeof(void *));
 
   for (d = dependancy_list; d; d = d->next)
     c += sizeof(dependancy);
@@ -1067,16 +1065,14 @@ char *mod_strdup(const char *str, const char *modname,
 void add_hook(int hook_num, Function func)
 {
   if (hook_num < REAL_HOOKS) {
-    struct hook_entry *p;
+    size_t i;
+    void *fp;
 
-    for (p = hook_list[hook_num]; p; p = p->next)
-      if (p->func == func)
-        return;                 /* Don't add it if it's already there */
-    p = nmalloc(sizeof(struct hook_entry));
-
-    p->next = hook_list[hook_num];
-    hook_list[hook_num] = p;
-    p->func = func;
+    /* Deduplicate: don't add if already registered */
+    OP_VEC_FOREACH(&hook_list[hook_num], i, fp)
+      if (fp == (void *) func)
+        return;
+    op_vec_push(&hook_list[hook_num], (void *) func);
   } else
     switch (hook_num) {
     case HOOK_ENCRYPT_PASS:
@@ -1150,19 +1146,14 @@ void add_hook(int hook_num, Function func)
 void del_hook(int hook_num, Function func)
 {
   if (hook_num < REAL_HOOKS) {
-    struct hook_entry *p = hook_list[hook_num], *o = NULL;
+    size_t i;
+    void *fp;
 
-    while (p) {
-      if (p->func == func) {
-        if (o == NULL)
-          hook_list[hook_num] = p->next;
-        else
-          o->next = p->next;
-        nfree(p);
+    OP_VEC_FOREACH(&hook_list[hook_num], i, fp) {
+      if (fp == (void *) func) {
+        op_vec_remove_fast(&hook_list[hook_num], i);
         break;
       }
-      o = p;
-      p = p->next;
     }
   } else
     switch (hook_num) {

@@ -36,6 +36,12 @@ extern time_t now;
 
 p_tcl_bind_list bind_table_list;
 
+/* op_bh slab allocators for the three fixed-size tclhash node types.
+ * Initialized in init_bind(), destroyed in kill_bind(). */
+static op_bh *tcl_cmd_heap       = NULL;
+static op_bh *tcl_bind_mask_heap = NULL;
+static op_bh *tcl_bind_list_heap = NULL;
+
 /* Set to 1 whenever a bind is added or marked deleted.
  * garbage_collect_tclhash() uses this to skip the traversal when nothing
  * has changed, turning the common idle case into an O(1) check. */
@@ -73,33 +79,22 @@ static int builtin_log STDVAR;
 char last_bind_called[512] = "";
 #endif
 
-/* Allocate and initialise a chunk of memory.
- */
-static void *n_malloc_null(int size, const char *file, int line)
+/* Allocate a tcl_cmd_t from the slab, zeroed. */
+static tcl_cmd_t *tcl_cmd_alloc(void)
 {
-#ifdef DEBUG_MEM
-#  define nmalloc_null(size) n_malloc_null(size, __FILE__, __LINE__)
-  void *ptr = n_malloc(size, file, line);
-#else
-#  define nmalloc_null(size) n_malloc_null(size, NULL, 0)
-  void *ptr = nmalloc(size);
-#endif
-
-  egg_bzero(ptr, size);
-  return ptr;
+  tcl_cmd_t *tc = op_bh_alloc(tcl_cmd_heap);
+  memset(tc, 0, sizeof *tc);
+  return tc;
 }
 
-
-/* Delete trigger/command.
- */
+/* Delete trigger/command — return struct to slab, string to nmalloc pool. */
 static void tcl_cmd_delete(tcl_cmd_t *tc)
 {
   nfree(tc->func_name);
-  nfree(tc);
+  op_bh_free(tcl_cmd_heap, tc);
 }
 
-/* Delete bind and its elements.
- */
+/* Delete bind and its elements. */
 static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
 {
   tcl_cmd_t *tc, *tc_next;
@@ -109,11 +104,10 @@ static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
     tcl_cmd_delete(tc);
   }
   nfree(tm->mask);
-  nfree(tm);
+  op_bh_free(tcl_bind_mask_heap, tm);
 }
 
-/* Delete bind list and its elements.
- */
+/* Delete bind list and its elements. */
 static void tcl_bind_list_delete(tcl_bind_list_t *tl)
 {
   tcl_bind_mask_t *tm, *tm_next;
@@ -122,7 +116,7 @@ static void tcl_bind_list_delete(tcl_bind_list_t *tl)
     tm_next = tm->next;
     tcl_bind_mask_delete(tm);
   }
-  nfree(tl);
+  op_bh_free(tcl_bind_list_heap, tl);
 }
 
 void garbage_collect_tclhash(void)
@@ -233,6 +227,11 @@ static cd_tcl_cmd cd_cmd_table[] = {
 
 void init_bind(void)
 {
+  /* Create slab heaps for the three fixed-size tclhash node types. */
+  tcl_cmd_heap       = op_bh_create(sizeof(tcl_cmd_t),       128, "tcl_cmd");
+  tcl_bind_mask_heap = op_bh_create(sizeof(tcl_bind_mask_t),  64, "tcl_bind_mask");
+  tcl_bind_list_heap = op_bh_create(sizeof(tcl_bind_list_t),  32, "tcl_bind_list");
+
   bind_table_list = NULL;
   add_cd_tcl_cmds(cd_cmd_table);
   H_unld = add_bind_table("unld", HT_STACKABLE, builtin_char);
@@ -277,6 +276,11 @@ void kill_bind(void)
   }
   H_log = NULL;
   bind_table_list = NULL;
+
+  /* Destroy slab heaps (all nodes already freed above). */
+  op_bh_destroy(tcl_cmd_heap);       tcl_cmd_heap       = NULL;
+  op_bh_destroy(tcl_bind_mask_heap); tcl_bind_mask_heap = NULL;
+  op_bh_destroy(tcl_bind_list_heap); tcl_bind_list_heap = NULL;
 }
 
 tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
@@ -298,7 +302,8 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
       break;                    /* New. Insert at start of list.        */
   }
 
-  tl = nmalloc_null(sizeof *tl);
+  tl = op_bh_alloc(tcl_bind_list_heap);
+  memset(tl, 0, sizeof *tl);
   strlcpy(tl->name, nme, sizeof(tl->name));
   tl->flags = flg;
   tl->func = func;
@@ -414,7 +419,8 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
 
   /* Create bind if it doesn't exist yet. */
   if (!tm) {
-    tm = nmalloc_null(sizeof *tm);
+    tm = op_bh_alloc(tcl_bind_mask_heap);
+    memset(tm, 0, sizeof *tm);
     tm->mask = nmalloc(strlen(cmd) + 1);
     strcpy(tm->mask, cmd);
 
@@ -447,7 +453,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
     }
   }
 
-  tc = nmalloc_null(sizeof *tc);
+  tc = tcl_cmd_alloc();
   tc->flags.match = FR_GLOBAL | FR_CHAN;
   break_down_flags(flags, &(tc->flags), NULL);
   tc->func_name = nmalloc(strlen(proc) + 1);
@@ -1448,20 +1454,19 @@ extern cmd_t C_dcc[];
 
 #include "script.h"
 
-/* ---- memory helpers (mirrors the Tcl-build helpers above) --------------- */
+/* ---- memory helpers (no-Tcl build mirrors the Tcl helpers above) -------- */
 
-static void *n_malloc_null_notcl(int size)
+static tcl_cmd_t *tcl_cmd_alloc(void)
 {
-  void *ptr = nmalloc(size);
-  egg_bzero(ptr, size);
-  return ptr;
+  tcl_cmd_t *tc = op_bh_alloc(tcl_cmd_heap);
+  memset(tc, 0, sizeof *tc);
+  return tc;
 }
-#define nmalloc_null(size) n_malloc_null_notcl(size)
 
 static void tcl_cmd_delete(tcl_cmd_t *tc)
 {
   nfree(tc->func_name);
-  nfree(tc);
+  op_bh_free(tcl_cmd_heap, tc);
 }
 
 static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
@@ -1472,7 +1477,7 @@ static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
     tcl_cmd_delete(tc);
   }
   nfree(tm->mask);
-  nfree(tm);
+  op_bh_free(tcl_bind_mask_heap, tm);
 }
 
 static void tcl_bind_list_delete(tcl_bind_list_t *tl)
@@ -1482,7 +1487,7 @@ static void tcl_bind_list_delete(tcl_bind_list_t *tl)
     tm_next = tm->next;
     tcl_bind_mask_delete(tm);
   }
-  nfree(tl);
+  op_bh_free(tcl_bind_list_heap, tl);
 }
 
 void garbage_collect_tclhash(void)
@@ -1582,11 +1587,11 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
       break;
   }
 
-  tl = nmalloc_null(sizeof *tl);
+  tl = op_bh_alloc(tcl_bind_list_heap);
+  memset(tl, 0, sizeof *tl);
   strlcpy(tl->name, nme, sizeof tl->name);
   tl->flags = flg;
   tl->func  = func;   /* native trampoline (e.g. native_dcc_call) or NULL */
-  tl->first = NULL;
 
   if (tl_prev) {
     tl->next      = tl_prev->next;
@@ -1625,6 +1630,10 @@ void kill_bind(void)
   }
   H_log = NULL;
   bind_table_list = NULL;
+
+  op_bh_destroy(tcl_cmd_heap);       tcl_cmd_heap       = NULL;
+  op_bh_destroy(tcl_bind_mask_heap); tcl_bind_mask_heap = NULL;
+  op_bh_destroy(tcl_bind_list_heap); tcl_bind_list_heap = NULL;
 }
 
 /* Pre-create all standard bind tables so find_bind_table() works before
@@ -1633,6 +1642,10 @@ void kill_bind(void)
  * the pre-existing entry). */
 void init_bind(void)
 {
+  tcl_cmd_heap       = op_bh_create(sizeof(tcl_cmd_t),       128, "tcl_cmd");
+  tcl_bind_mask_heap = op_bh_create(sizeof(tcl_bind_mask_t),  64, "tcl_bind_mask");
+  tcl_bind_list_heap = op_bh_create(sizeof(tcl_bind_list_t),  32, "tcl_bind_list");
+
   bind_table_list = NULL;
 
   /* Core tables (with native trampolines where applicable) */
@@ -1716,7 +1729,8 @@ static tcl_bind_mask_t *find_or_add_mask(tcl_bind_list_t *tl, const char *mask)
   for (tm = tl->first; tm; tm = tm->next)
     if (!(tm->flags & TBM_DELETED) && !strcmp(tm->mask, mask))
       return tm;
-  tm = nmalloc_null(sizeof *tm);
+  tm = op_bh_alloc(tcl_bind_mask_heap);
+  memset(tm, 0, sizeof *tm);
   tm->mask  = nstrdup(mask);
   tm->next  = tl->first;
   tl->first = tm;
@@ -1741,7 +1755,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
     if (!(tc->attributes & TC_DELETED) && !strcmp(tc->func_name, proc))
       return 1;
 
-  tc = nmalloc_null(sizeof *tc);
+  tc = tcl_cmd_alloc();
   tc->flags     = fr;
   tc->func_name = nstrdup(proc);
   tc->next      = tm->first;
@@ -1934,7 +1948,7 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
       if (!(tc->attributes & TC_DELETED) && !strcmp(tc->func_name, key))
         goto next_cmd;
 
-    tc = nmalloc_null(sizeof *tc);
+    tc = tcl_cmd_alloc();
     tc->flags     = fr;
     tc->func_name = nstrdup(key);
     tc->native_fn = tl->func;         /* type-specific trampoline */

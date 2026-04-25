@@ -46,19 +46,16 @@ void  mod_free(void *, const char *, const char *, int);
 char *mod_strdup(const char *, const char *, const char *, int);
 void add_hook(int, Function);
 void del_hook(int, Function);
-void *get_next_hook(int, void *);
 
-extern struct hook_entry {
-  struct hook_entry *next;
-  Function func;
-} *hook_list[REAL_HOOKS];
+/* hook_list: per-hook dynamic vector of Function pointers (via op_vec_t).
+ * op_vec_t stores void* elements; Function is cast to/from void* here. */
+extern op_vec_t hook_list[REAL_HOOKS];
 
 #define call_hook(x) do {                                               \
-        struct hook_entry *chook_p, *chook_pn;                          \
-                                                                        \
-        for (chook_p = hook_list[x]; chook_p; chook_p = chook_pn) {    \
-                chook_pn = chook_p->next;                               \
-                ((void (*)(void)) chook_p->func)();                     \
+        size_t _hi;                                                     \
+        void *_hfp;                                                     \
+        OP_VEC_FOREACH(&hook_list[x], _hi, _hfp) {                     \
+                ((void (*)(void)) _hfp)();                              \
         }                                                               \
 } while (0)
 
