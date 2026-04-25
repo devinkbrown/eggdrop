@@ -2237,6 +2237,7 @@ static char *share_close(void)
   del_hook(HOOK_SECONDLY, (Function) check_delay);
   DCC_BOT.kill = def_dcc_bot_kill;
   uff_deltable(internal_uff_table);
+  if (uff_list_bh) { op_bh_destroy(uff_list_bh); uff_list_bh = NULL; }
   delay_free_mem();
   rem_tcl_ints(my_ints);
   rem_tcl_strings(my_strings);

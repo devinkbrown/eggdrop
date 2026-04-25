@@ -434,7 +434,7 @@ static int laston_unpack(struct userrec *u, struct user_entry *e)
   arg = newsplit(&par);
   if (!par[0])
     par = "???";
-  li = user_malloc(sizeof(struct laston_info));
+  li = alloc_laston_info();
   li->lastonplace = user_malloc(strlen(par) + 1);
   li->laston = atoi(arg);
   strlcpy(li->lastonplace, par, sizeof(li->lastonplace));
@@ -456,7 +456,7 @@ static int laston_pack(struct userrec *u, struct user_entry *e)
   e->u.list->extra = user_malloc(l + 1);
   strlcpy(e->u.list->extra, work, l + 1);
   nfree(li->lastonplace);
-  nfree(li);
+  free_laston_info(li);
   return 1;
 }
 
@@ -473,10 +473,11 @@ static int laston_write_userfile(FILE *f, struct userrec *u,
 
 static int laston_kill(struct user_entry *e)
 {
-  if (((struct laston_info *) (e->u.extra))->lastonplace)
-    nfree(((struct laston_info *) (e->u.extra))->lastonplace);
-  nfree(e->u.extra);
-  nfree(e);
+  struct laston_info *li = e->u.extra;
+  if (li->lastonplace)
+    nfree(li->lastonplace);
+  free_laston_info(li);
+  free_user_entry(e);
   return 1;
 }
 
@@ -487,7 +488,7 @@ static int laston_set(struct userrec *u, struct user_entry *e, void *buf)
   if (li != buf) {
     if (li) {
       nfree(li->lastonplace);
-      nfree(li);
+      free_laston_info(li);
     }
 
     e->u.extra = buf;
@@ -563,7 +564,7 @@ static int laston_tcl_set(Tcl_Interp * irp, struct userrec *u,
       }
   }
   /* Save globally */
-  li = user_malloc(sizeof(struct laston_info));
+  li = alloc_laston_info();
 
   if (argc == 5) {
     li->lastonplace = user_malloc(strlen(argv[4]) + 1);
@@ -592,7 +593,7 @@ static int laston_dupuser(struct userrec *new, struct userrec *old,
   struct laston_info *li = e->u.extra, *li2;
 
   if (li) {
-    li2 = user_malloc(sizeof(struct laston_info));
+    li2 = alloc_laston_info();
 
     li2->laston = li->laston;
     li2->lastonplace = user_malloc(strlen(li->lastonplace) + 1);
@@ -972,7 +973,7 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
     nfree(new->key);
     if (new->data)
       nfree(new->data);
-    nfree(new);
+    free_xtra_key(new);
     return TCL_OK;
   }
 
@@ -988,7 +989,7 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
     nfree(old->data);
     if (old == e->u.extra)
       e->u.extra = NULL;
-    nfree(old);
+    free_xtra_key(old);
     old = NULL;
   }
   /* don't do anything when old == new */
@@ -999,7 +1000,7 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
       if (new->data)
         nfree(new->data);
       nfree(new->key);
-      nfree(new);
+      free_xtra_key(new);
     }
   }
   return TCL_OK;
@@ -1014,9 +1015,8 @@ static int xtra_tcl_set(Tcl_Interp * irp, struct userrec *u,
 
   BADARGS(4, 5, " handle type key ?value?");
 
-  xk = user_malloc(sizeof(struct xtra_key));
+  xk = alloc_xtra_key();
   l = strlen(argv[3]);
-  egg_bzero(xk, sizeof(struct xtra_key));
   if (l > 500)
     l = 500;
   xk->key = user_malloc(l + 1);
@@ -1046,7 +1046,7 @@ int xtra_unpack(struct userrec *u, struct user_entry *e)
   head = curr = e->u.list;
   e->u.extra = NULL;
   while (curr) {
-    t = user_malloc(sizeof(struct xtra_key));
+    t = alloc_xtra_key();
 
     data = curr->extra;
     key = newsplit(&data);
@@ -1078,7 +1078,7 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
     next = curr->next;
     nfree(curr->key);
     nfree(curr->data);
-    nfree(curr);
+    free_xtra_key(curr);
     curr = next;
   }
   return 1;
@@ -1118,8 +1118,7 @@ static int xtra_gotshare(struct userrec *u, struct user_entry *e,
   if (!arg[0])
     return 1;
 
-  xk = user_malloc(sizeof(struct xtra_key));
-  egg_bzero(xk, sizeof(struct xtra_key));
+  xk = alloc_xtra_key();
   l = strlen(arg);
   if (l > 500)
     l = 500;
@@ -1144,7 +1143,7 @@ static int xtra_dupuser(struct userrec *new, struct userrec *old,
   struct xtra_key *x1, *x2;
 
   for (x1 = e->u.extra; x1; x1 = x1->next) {
-    x2 = user_malloc(sizeof(struct xtra_key));
+    x2 = alloc_xtra_key();
 
     x2->key = user_malloc(strlen(x1->key) + 1);
     strlcpy(x2->key, x1->key, sizeof(x2->key));
@@ -1174,9 +1173,9 @@ int xtra_kill(struct user_entry *e)
     y = x->next;
     nfree(x->key);
     nfree(x->data);
-    nfree(x);
+    free_xtra_key(x);
   }
-  nfree(e);
+  free_user_entry(e);
   return 1;
 }
 

@@ -205,6 +205,10 @@ struct user_entry  *alloc_user_entry(void);
 void               free_user_entry(struct user_entry *);
 struct list_type   *alloc_list_type(void);
 void               free_list_type(struct list_type *);
+struct xtra_key    *alloc_xtra_key(void);
+void               free_xtra_key(struct xtra_key *);
+struct laston_info *alloc_laston_info(void);
+void               free_laston_info(struct laston_info *);
 
 /* All the default userentry stuff, for code re-use
  */

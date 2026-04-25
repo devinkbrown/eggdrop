@@ -73,6 +73,7 @@ typedef struct {
 
 static uff_head_t uff_list;
 static char uff_sbuf[512];
+static op_bh *uff_list_bh = NULL;
 
 
 /*
@@ -184,7 +185,9 @@ static void uff_addfeature(uff_table_t *ut)
            ut->flag, ut->feature, ul->entry->feature);
     return;
   }
-  ul = nmalloc(sizeof(uff_list_t));
+  if (!uff_list_bh)
+    uff_list_bh = op_bh_create(sizeof(uff_list_t), 16, "uff_list");
+  ul = op_bh_alloc(uff_list_bh);
   ul->entry = ut;
   uff_insert_entry(ul);
 }
@@ -208,7 +211,7 @@ static int uff_delfeature(uff_table_t *ut)
   for (ul = uff_list.start; ul; ul = ul->next)
     if (!strcmp(ul->entry->feature, ut->feature)) {
       uff_remove_entry(ul);
-      nfree(ul);
+      op_bh_free(uff_list_bh, ul);
       return 1;
     }
   return 0;

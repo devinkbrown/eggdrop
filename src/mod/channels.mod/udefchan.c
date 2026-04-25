@@ -20,6 +20,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+static op_bh *udef_struct_bh = NULL;
+static op_bh *udef_chans_bh  = NULL;
+
 static int expmem_udef(struct udef_struct *ul)
 {
   int i = 0;
@@ -82,7 +85,9 @@ static void setudef(struct udef_struct *us, char *name, intptr_t value)
       return;
     }
 
-  ul = nmalloc(sizeof(struct udef_chans));
+  if (!udef_chans_bh)
+    udef_chans_bh = op_bh_create(sizeof(struct udef_chans), 32, "udef_chans");
+  ul = op_bh_alloc(udef_chans_bh);
   ul->chan = nmalloc(strlen(name) + 1);
   strlcpy(ul->chan, name, sizeof(ul->chan));
   ul->value = value;
@@ -110,7 +115,9 @@ static void initudef(int type, char *name, int defined)
     }
 
   debug2("Creating %s (type %d)", name, type);
-  ul = nmalloc(sizeof(struct udef_struct));
+  if (!udef_struct_bh)
+    udef_struct_bh = op_bh_create(sizeof(struct udef_struct), 16, "udef_struct");
+  ul = op_bh_alloc(udef_struct_bh);
   ul->name = nmalloc(strlen(name) + 1);
   strlcpy(ul->name, name, sizeof(ul->name));
   if (defined)
@@ -134,7 +141,7 @@ static void free_udef(struct udef_struct *ul)
     ull = ul->next;
     free_udef_chans(ul->values, ul->type);
     nfree(ul->name);
-    nfree(ul);
+    op_bh_free(udef_struct_bh, ul);
   }
 }
 
@@ -147,6 +154,6 @@ static void free_udef_chans(struct udef_chans *ul, int type)
     if (type == UDEF_STR && ul->value)
       nfree((void *) ul->value);
     nfree(ul->chan);
-    nfree(ul);
+    op_bh_free(udef_chans_bh, ul);
   }
 }

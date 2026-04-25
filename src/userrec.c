@@ -47,13 +47,17 @@ static op_bh *userrec_heap    = NULL;
 static op_bh *chanuserrec_heap = NULL;
 static op_bh *user_entry_heap  = NULL;
 static op_bh *list_type_heap   = NULL;
+static op_bh *xtra_key_heap    = NULL;
+static op_bh *laston_info_heap = NULL;
 
 void userrec_heaps_init(void)
 {
-  userrec_heap     = op_bh_create(sizeof(struct userrec),    0, "userrec");
+  userrec_heap     = op_bh_create(sizeof(struct userrec),     0, "userrec");
   chanuserrec_heap = op_bh_create(sizeof(struct chanuserrec), 0, "chanuserrec");
   user_entry_heap  = op_bh_create(sizeof(struct user_entry),  0, "user_entry");
   list_type_heap   = op_bh_create(sizeof(struct list_type),   0, "list_type");
+  xtra_key_heap    = op_bh_create(sizeof(struct xtra_key),   64, "xtra_key");
+  laston_info_heap = op_bh_create(sizeof(struct laston_info), 0, "laston_info");
 }
 
 void userrec_heaps_destroy(void)
@@ -62,6 +66,8 @@ void userrec_heaps_destroy(void)
   if (chanuserrec_heap) { op_bh_destroy(chanuserrec_heap); chanuserrec_heap = NULL; }
   if (user_entry_heap)  { op_bh_destroy(user_entry_heap);  user_entry_heap  = NULL; }
   if (list_type_heap)   { op_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
+  if (xtra_key_heap)    { op_bh_destroy(xtra_key_heap);    xtra_key_heap    = NULL; }
+  if (laston_info_heap) { op_bh_destroy(laston_info_heap); laston_info_heap = NULL; }
 }
 
 struct userrec *alloc_userrec(void)
@@ -111,6 +117,31 @@ void free_list_type(struct list_type *lt)
 {
   op_bh_free(list_type_heap, lt);
 }
+
+struct xtra_key *alloc_xtra_key(void)
+{
+  struct xtra_key *xk = op_bh_alloc(xtra_key_heap);
+  memset(xk, 0, sizeof *xk);
+  return xk;
+}
+
+void free_xtra_key(struct xtra_key *xk)
+{
+  op_bh_free(xtra_key_heap, xk);
+}
+
+struct laston_info *alloc_laston_info(void)
+{
+  struct laston_info *li = op_bh_alloc(laston_info_heap);
+  memset(li, 0, sizeof *li);
+  return li;
+}
+
+void free_laston_info(struct laston_info *li)
+{
+  op_bh_free(laston_info_heap, li);
+}
+
 struct userrec *lastuser = NULL;   /* last accessed user record         */
 
 /* Splay-tree index from lowercase handle → userrec *.
@@ -900,7 +931,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   set_user(&USERENTRY_PASS, u, pass);
   if (!noxtra) {
     int l;
-    xk = nmalloc(sizeof *xk);
+    xk = alloc_xtra_key();
     xk->key = nmalloc(8);
     strlcpy(xk->key, "created", sizeof(xk->key));
     l = snprintf(NULL, 0, "%" PRId64, (int64_t) now);
@@ -1145,7 +1176,7 @@ void touch_laston(struct userrec *u, char *where, time_t timeval)
     struct laston_info *li = get_user(&USERENTRY_LASTON, u);
 
     if (!li)
-      li = nmalloc(sizeof *li);
+      li = alloc_laston_info();
 
     else if (li->lastonplace)
       nfree(li->lastonplace);

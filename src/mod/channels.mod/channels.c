@@ -968,6 +968,8 @@ static char *channels_close(void)
   write_channels();
   channel_bh_destroy();
   free_udef(udef);
+  if (udef_struct_bh) { op_bh_destroy(udef_struct_bh); udef_struct_bh = NULL; }
+  if (udef_chans_bh)  { op_bh_destroy(udef_chans_bh);  udef_chans_bh  = NULL; }
   if (lastdeletedmask)
     nfree(lastdeletedmask);
   rem_builtins(H_chon, my_chon);
