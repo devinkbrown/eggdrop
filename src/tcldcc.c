@@ -150,11 +150,9 @@ static int tcl_dccbroadcast STDVAR
 
 static int tcl_hand2idx STDVAR
 {
-  int i;
-
   BADARGS(2, 2, " handle");
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
         !strcasecmp(argv[1], dcc[i].nick)) {
       Tcl_AppendResult(irp, int_to_base10((int)dcc[i].sock), NULL);
@@ -265,17 +263,16 @@ static int tcl_dccputchan STDVAR
 static int tcl_do_console(Tcl_Interp *irp, ClientData cd, int argc,
     char **argv, int reset)
 {
-  int i, j, pls, arg;
   module_entry *me;
+  int i = findidx(atoi(argv[1]));
 
-  i = findidx(atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
   }
-  pls = 1;
+  int pls = 1;
 
-  for (arg = 2; arg < argc; arg++) {
+  for (int arg = 2; arg < argc; arg++) {
     if (argv[arg][0] && !reset && ((strchr(CHANMETA, argv[arg][0])
         != NULL) || (argv[arg][0] == '*'))) {
       if ((argv[arg][0] != '*') && (!findchan_by_dname(argv[arg]))) {
@@ -295,16 +292,14 @@ static int tcl_do_console(Tcl_Interp *irp, ClientData cd, int argc,
         dcc[i].u.chat->con_flags =
             (dcc[i].user && (dcc[i].user->flags & USER_MASTER) ? conmask : 0);
       } else {
-        for (j = 0; j < strlen(argv[arg]); j++) {
+        for (int j = 0; j < (int) strlen(argv[arg]); j++) {
           if (argv[arg][j] == '+')
             pls = 1;
           else if (argv[arg][j] == '-')
             pls = -1;
           else {
-            char s[2];
+            char s[2] = { argv[arg][j], 0 };
 
-            s[0] = argv[arg][j];
-            s[1] = 0;
             if (pls == 1)
               dcc[i].u.chat->con_flags |= logmodes(s);
             else
@@ -340,31 +335,28 @@ static int tcl_resetconsole STDVAR
 
 static int tcl_strip STDVAR
 {
-  int i, j, pls, arg;
   module_entry *me;
 
   BADARGS(2, 4, " idx ?strip-flags?");
 
-  i = findidx(atoi(argv[1]));
+  int i = findidx(atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
   }
-  pls = 1;
+  int pls = 1;
 
-  for (arg = 2; arg < argc; arg++) {
+  for (int arg = 2; arg < argc; arg++) {
     if ((argv[arg][0] != '+') && (argv[arg][0] != '-'))
       dcc[i].u.chat->strip_flags = 0;
-    for (j = 0; j < strlen(argv[arg]); j++) {
+    for (int j = 0; j < (int) strlen(argv[arg]); j++) {
       if (argv[arg][j] == '+')
         pls = 1;
       else if (argv[arg][j] == '-')
         pls = -1;
       else {
-        char s[2];
+        char s[2] = { argv[arg][j], 0 };
 
-        s[0] = argv[arg][j];
-        s[1] = 0;
         if (pls == 1)
           dcc[i].u.chat->strip_flags |= stripmodes(s);
         else
@@ -384,12 +376,11 @@ static int tcl_strip STDVAR
 
 static int tcl_echo STDVAR
 {
-  int i;
   module_entry *me;
 
   BADARGS(2, 3, " idx ?status?");
 
-  i = findidx(atoi(argv[1]));
+  int i = findidx(atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
@@ -415,12 +406,11 @@ static int tcl_echo STDVAR
 
 static int tcl_page STDVAR
 {
-  int i;
   module_entry *me;
 
   BADARGS(2, 3, " idx ?status?");
 
-  i = findidx(atoi(argv[1]));
+  int i = findidx(atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
@@ -529,12 +519,11 @@ static int tcl_killdcc STDVAR
 
 static int tcl_putbot STDVAR
 {
-  int i;
   char msg[401];
 
   BADARGS(3, 3, " botnick message");
 
-  i = nextbot(argv[1]);
+  int i = nextbot(argv[1]);
   if (i < 0) {
     Tcl_AppendResult(irp, "bot is not on the botnet", NULL);
     return TCL_ERROR;
@@ -574,11 +563,9 @@ static int tcl_idx2hand STDVAR
 
 static int tcl_islinked STDVAR
 {
-  int i;
-
   BADARGS(2, 2, " bot");
 
-  i = nextbot(argv[1]);
+  int i = nextbot(argv[1]);
   if (i < 0)
     Tcl_AppendResult(irp, "0", NULL);
   else
@@ -670,7 +657,6 @@ static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, const char *id
 
 /* Gather information for dcclist or socklist */
 static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
-  int i;
   char other[160];
   char s[EGG_INET_ADDRSTRLEN];
   socklen_t namelen;
@@ -680,7 +666,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
 
   if (src)
     masterlist = Tcl_NewListObj(0, NULL);
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
         !strcasecmp(dcc[i].type->name, type)))) {
       op_strbuf_t idxstr, timestamp;
@@ -926,13 +912,13 @@ static int tcl_link STDVAR
 
 static int tcl_unlink STDVAR
 {
-  int i, x;
   char bot[HANDLEN + 1];
 
   BADARGS(2, 3, " bot ?comment?");
 
   strlcpy(bot, argv[1], sizeof bot);
-  i = nextbot(bot);
+  int i = nextbot(bot);
+  int x;
   if (i < 0)
     x = 0;
   else {
@@ -948,8 +934,6 @@ static int tcl_unlink STDVAR
 
 static int tcl_connect STDVAR
 {
-  int i, sock;
-
   BADARGS(3, 3, " hostname port");
 
   if (dcc_total == max_dcc && increase_socks_max()) {
@@ -957,12 +941,12 @@ static int tcl_connect STDVAR
     return TCL_ERROR;
   }
 
-  i = new_dcc(&DCC_SOCKET, 0);
+  int i = new_dcc(&DCC_SOCKET, 0);
   if (i < 0) {
     Tcl_AppendResult(irp, "Could not allocate socket.", NULL);
     return TCL_ERROR;
   }
-  sock = open_telnet(i, argv[1], atoi(argv[2]));
+  int sock = open_telnet(i, argv[1], atoi(argv[2]));
   if (sock < 0) {
     switch (sock) {
       case -3:
@@ -1320,7 +1304,6 @@ static int tcl_listen STDVAR
 static int tcl_boot STDVAR
 {
   char who[NOTENAMELEN + 1];
-  int i, ok = 0;
 
   BADARGS(2, 3, " user@bot ?reason?");
 
@@ -1334,7 +1317,7 @@ static int tcl_boot STDVAR
     if (!strcasecmp(who, botnetnick))
       strlcpy(who, whonick, sizeof who);
     else if (remote_boots > 0) {
-      i = nextbot(who);
+      int i = nextbot(who);
       if (i < 0)
         return TCL_OK;
       botnet_send_reject(i, botnetnick, NULL, whonick, who,
@@ -1342,11 +1325,12 @@ static int tcl_boot STDVAR
     } else
       return TCL_OK;
   }
-  for (i = 0; i < dcc_total; i++)
+  bool ok = false;
+  for (int i = 0; i < dcc_total; i++)
     if (!ok && (dcc[i].type->flags & DCT_CANBOOT) &&
         !strcasecmp(dcc[i].nick, who)) {
       do_boot(i, botnetnick, argc >= 3 && argv[2] ? argv[2] : "");
-      ok = 1;
+      ok = true;
     }
   return TCL_OK;
 }

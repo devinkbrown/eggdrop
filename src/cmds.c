@@ -93,7 +93,8 @@ static int add_bot_hostmask(int idx, char *nick)
 
 static void tell_who(struct userrec *u, int idx, int chan)
 {
-  int i, ok = 0, atr = u ? u->flags : 0;
+  int atr = u ? u->flags : 0;
+  bool ok = false;
   int nicklen = 9;
 
   if (!chan)
@@ -120,13 +121,13 @@ static void tell_who(struct userrec *u, int idx, int chan)
   }
 
   /* calculate max nicklen */
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     int nl = (int) strlen(dcc[i].nick);
     if (nl > nicklen)
       nicklen = nl;
   }
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT && dcc[i].u.chat->channel == chan) {
       char icon = (geticon(i) == '-') ? ' ' : geticon(i);
       op_strbuf_t s;
@@ -156,13 +157,13 @@ static void tell_who(struct userrec *u, int idx, int chan)
         dprintf(idx, "      AWAY: %s\n", dcc[i].u.chat->away);
     }
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_BOT) {
       char timebuf[14];
       const char *dir  = (dcc[i].status & STAT_CALLED) ? "<-" : "->";
       char        flag = (dcc[i].status & STAT_SHARE)  ? '+' : ' ';
       if (!ok) {
-        ok = 1;
+        ok = true;
         dprintf(idx, "Bots connected:\n");
       }
       strftime(timebuf, sizeof timebuf, "%d %b %H:%M", localtime(&dcc[i].timeval));
@@ -175,13 +176,13 @@ static void tell_who(struct userrec *u, int idx, int chan)
                 dcc[i].nick, timebuf, dcc[i].u.bot->version);
     }
 
-  ok = 0;
-  for (i = 0; i < dcc_total; i++) {
+  ok = false;
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_CHAT && dcc[i].u.chat->channel != chan) {
       char icon = (geticon(i) == '-') ? ' ' : geticon(i);
       op_strbuf_t s;
       if (!ok) {
-        ok = 1;
+        ok = true;
         dprintf(idx, "Other people on the bot:\n");
       }
       if (atr & USER_OWNER)
@@ -327,8 +328,6 @@ static void cmd_whom(struct userrec *u, int idx, char *par)
 
 static void cmd_me(struct userrec *u, int idx, char *par)
 {
-  int i;
-
   if (dcc[idx].u.chat->channel < 0) {
     dprintf(idx, "You have chat turned off.\n");
     return;
@@ -339,7 +338,7 @@ static void cmd_me(struct userrec *u, int idx, char *par)
   }
   if (dcc[idx].u.chat->away != NULL)
     not_away(idx);
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & DCT_CHAT) &&
         (dcc[i].u.chat->channel == dcc[idx].u.chat->channel) &&
         ((i != idx) || (dcc[i].status & STAT_ECHO)))
@@ -351,14 +350,12 @@ static void cmd_me(struct userrec *u, int idx, char *par)
 
 static void cmd_motd(struct userrec *u, int idx, char *par)
 {
-  int i;
-
   if (par[0]) {
     putlog(LOG_CMDS, "*", "#%s# motd %s", dcc[idx].nick, par);
     if (!strcasecmp(par, botnetnick))
       show_motd(idx);
     else {
-      i = nextbot(par);
+      int i = nextbot(par);
       if (i < 0)
         dprintf(idx, "That bot isn't connected.\n");
       else {
@@ -502,8 +499,6 @@ static void cmd_addlog(struct userrec *u, int idx, char *par)
 
 static void cmd_who(struct userrec *u, int idx, char *par)
 {
-  int i;
-
   if (par[0]) {
     if (dcc[idx].u.chat->channel < 0) {
       dprintf(idx, "You have chat turned off.\n");
@@ -513,7 +508,7 @@ static void cmd_who(struct userrec *u, int idx, char *par)
     if (!strcasecmp(par, botnetnick))
       tell_who(u, idx, dcc[idx].u.chat->channel);
     else {
-      i = nextbot(par);
+      int i = nextbot(par);
       if (i < 0) {
         dprintf(idx, "That bot isn't connected.\n");
       } else if (dcc[idx].u.chat->channel >= GLOBAL_CHANS)
@@ -608,9 +603,7 @@ static void cmd_dccstat(struct userrec *u, int idx, char *par)
 
 static void cmd_boot(struct userrec *u, int idx, char *par)
 {
-  int i, files = 0, ok = 0;
   char *who;
-  struct userrec *u2;
 
   if (!par[0]) {
     dprintf(idx, "Usage: boot nick[@bot]\n");
@@ -626,7 +619,7 @@ static void cmd_boot(struct userrec *u, int idx, char *par)
       return;
     }
     if (remote_boots > 0) {
-      i = nextbot(who);
+      int i = nextbot(who);
       if (i < 0) {
         dprintf(idx, "No such bot connected.\n");
         return;
@@ -639,10 +632,11 @@ static void cmd_boot(struct userrec *u, int idx, char *par)
       dprintf(idx, "Remote boots are disabled here.\n");
     return;
   }
-  for (i = 0; i < dcc_total; i++)
+  bool ok = false;
+  for (int i = 0; i < dcc_total; i++)
     if (!strcasecmp(dcc[i].nick, who) && !ok &&
         (dcc[i].type->flags & DCT_CANBOOT)) {
-      u2 = get_user_by_handle(userlist, dcc[i].nick);
+      struct userrec *u2 = get_user_by_handle(userlist, dcc[i].nick);
       if (u2 && (u2->flags & USER_OWNER) &&
           strcasecmp(dcc[idx].nick, who)) {
         dprintf(idx, "You can't boot a bot owner.\n");
@@ -652,14 +646,14 @@ static void cmd_boot(struct userrec *u, int idx, char *par)
         dprintf(idx, "You can't boot a bot master.\n");
         return;
       }
-      files = (dcc[i].type->flags & DCT_FILES);
+      int files = (dcc[i].type->flags & DCT_FILES);
       if (files)
         dprintf(idx, "Booted %s from the file area.\n", dcc[i].nick);
       else
         dprintf(idx, "Booted %s from the party line.\n", dcc[i].nick);
       putlog(LOG_CMDS, "*", "#%s# boot %s %s", dcc[idx].nick, who, par);
       do_boot(i, dcc[idx].nick, par);
-      ok = 1;
+      ok = true;
     }
   if (!ok)
     dprintf(idx, "Who?  No such person on the party line.\n");
@@ -669,7 +663,7 @@ static void cmd_boot(struct userrec *u, int idx, char *par)
 static void do_console(struct userrec *u, int idx, char *par, int reset)
 {
   char *nick, s[2], s1[512];
-  int dest = 0, i, ok = 0, pls;
+  int dest = 0, pls;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   module_entry *me;
 
@@ -681,10 +675,11 @@ static void do_console(struct userrec *u, int idx, char *par, int reset)
    * he doesn't use IRCnet ++rtc.
    */
   if (nick[0] && !strchr(CHANMETA "+-*", nick[0]) && glob_master(fr)) {
-    for (i = 0; i < dcc_total; i++) {
+    bool ok = false;
+    for (int i = 0; i < dcc_total; i++) {
       if (!strcasecmp(nick, dcc[i].nick) &&
           (dcc[i].type == &DCC_CHAT) && (!ok)) {
-        ok = 1;
+        ok = true;
         dest = i;
       }
     }
@@ -975,7 +970,7 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
 static void cmd_chhandle(struct userrec *u, int idx, char *par)
 {
   char hand[HANDLEN + 1], newhand[HANDLEN + 1];
-  int i, atr = u ? u->flags : 0, atr2;
+  int atr = u ? u->flags : 0, atr2;
   struct userrec *u2;
 
   strlcpy(hand, newsplit(&par), sizeof hand);
@@ -985,7 +980,7 @@ static void cmd_chhandle(struct userrec *u, int idx, char *par)
     dprintf(idx, "Usage: chhandle <oldhandle> <newhandle>\n");
     return;
   }
-  for (i = 0; i < strlen(newhand); i++)
+  for (int i = 0; i < (int) strlen(newhand); i++)
     if (((unsigned char) newhand[i] <= 32) || (newhand[i] == '@'))
       newhand[i] = '?';
   if (strchr(BADHANDCHARS, newhand[0]) != NULL)
@@ -1166,7 +1161,7 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
 #ifdef TLS
   int use_ssl = 0;
 #endif
-  int i, found = 0, telnet_port = 3333, relay_port = 3333;
+  int found = 0, telnet_port = 3333, relay_port = 3333;
   char *handle, *addr, *port, *port2, *relay;
   struct bot_addr *bi;
   struct userrec *u1;
@@ -1191,7 +1186,7 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
 
   if (addr[0]) {
 #ifndef IPV6
-    for (i=0; addr[i]; i++) {
+    for (int i = 0; addr[i]; i++) {
       if (addr[i] == ':') {
         dprintf(idx, "Invalid IP address format (this Eggdrop "
           "was compiled without IPv6 support).\n");
@@ -1202,7 +1197,7 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
  /* Check if user forgot address field by checking if argument is completely
   * numerical, implying a port was provided as the next argument instead.
   */
-    for (i=0; addr[i]; i++) {
+    for (int i = 0; addr[i]; i++) {
       if (strchr(BADADDRCHARS, addr[i])) {
         dprintf(idx, "Bot address may not contain a '%c'. ", addr[i]);
         break;
@@ -1404,10 +1399,8 @@ static void cmd_debug(struct userrec *u, int idx, char *par)
 
 static void cmd_simul(struct userrec *u, int idx, char *par)
 {
-  char *nick;
-  int i, ok = 0;
+  char *nick = newsplit(&par);
 
-  nick = newsplit(&par);
   if (!par[0]) {
     dprintf(idx, "Usage: simul <hand> <text>\n");
     return;
@@ -1416,13 +1409,14 @@ static void cmd_simul(struct userrec *u, int idx, char *par)
     dprintf(idx, "Unable to '.simul' permanent owners.\n");
     return;
   }
-  for (i = 0; i < dcc_total; i++)
+  bool ok = false;
+  for (int i = 0; i < dcc_total; i++)
     if (!strcasecmp(nick, dcc[i].nick) && !ok &&
         (dcc[i].type->flags & DCT_SIMUL)) {
       putlog(LOG_CMDS, "*", "#%s# simul %s %s", dcc[idx].nick, nick, par);
       if (dcc[i].type && dcc[i].type->activity) {
         dcc[i].type->activity(i, par, strlen(par));
-        ok = 1;
+        ok = true;
       }
     }
   if (!ok)
@@ -1431,19 +1425,16 @@ static void cmd_simul(struct userrec *u, int idx, char *par)
 
 static void cmd_link(struct userrec *u, int idx, char *par)
 {
-  char *s;
-  int i;
-
   if (!par[0]) {
     dprintf(idx, "Usage: link [some-bot] <new-bot>\n");
     return;
   }
   putlog(LOG_CMDS, "*", "#%s# link %s", dcc[idx].nick, par);
-  s = newsplit(&par);
+  char *s = newsplit(&par);
   if (!par[0] || !strcasecmp(par, botnetnick))
     botlink(dcc[idx].nick, idx, s);
   else {
-    i = nextbot(s);
+    int i = nextbot(s);
     if (i < 0) {
       dprintf(idx, "No such bot online.\n");
       return;
@@ -1457,16 +1448,13 @@ static void cmd_link(struct userrec *u, int idx, char *par)
 
 static void cmd_unlink(struct userrec *u, int idx, char *par)
 {
-  int i;
-  char *bot;
-
   if (!par[0]) {
     dprintf(idx, "Usage: unlink <bot> [reason]\n");
     return;
   }
   putlog(LOG_CMDS, "*", "#%s# unlink %s", dcc[idx].nick, par);
-  bot = newsplit(&par);
-  i = nextbot(bot);
+  char *bot = newsplit(&par);
+  int i = nextbot(bot);
   if (i < 0) {
     botunlink(idx, bot, par, dcc[idx].nick);
     return;
@@ -1510,7 +1498,6 @@ static void cmd_backup(struct userrec *u, int idx, char *par)
 
 static void cmd_trace(struct userrec *u, int idx, char *par)
 {
-  int i;
   if (!par[0]) {
     dprintf(idx, "Usage: trace <botname>\n");
     return;
@@ -1519,7 +1506,7 @@ static void cmd_trace(struct userrec *u, int idx, char *par)
     dprintf(idx, "That's me!  Hiya! :)\n");
     return;
   }
-  i = nextbot(par);
+  int i = nextbot(par);
   if (i < 0) {
     dprintf(idx, "Unreachable bot.\n");
     return;
@@ -1541,13 +1528,11 @@ static void cmd_binds(struct userrec *u, int idx, char *par)
 
 static void cmd_banner(struct userrec *u, int idx, char *par)
 {
-  int i;
-
   if (!par[0]) {
     dprintf(idx, "Usage: banner <message>\n");
     return;
   }
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type->flags & DCT_MASTER)
       dprintf(i, "\007### Botwide: [%s] %s\n", dcc[idx].nick, par);
 }
@@ -1557,7 +1542,6 @@ static void cmd_banner(struct userrec *u, int idx, char *par)
  */
 int check_dcc_attrs(struct userrec *u, int oatr)
 {
-  int i, stat;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
   if (!u)
@@ -1566,10 +1550,10 @@ int check_dcc_attrs(struct userrec *u, int oatr)
   if (isowner(u->handle)) {
     u->flags = sanity_check(u->flags | USER_OWNER);
   }
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type->flags & DCT_MASTER) &&
         (!strcasecmp(u->handle, dcc[i].nick))) {
-      stat = dcc[i].status;
+      int stat = dcc[i].status;
       if ((dcc[i].type == &DCC_CHAT) &&
           ((u->flags & (USER_OP | USER_MASTER | USER_OWNER | USER_BOTMAST)) !=
           (oatr & (USER_OP | USER_MASTER | USER_OWNER | USER_BOTMAST)))) {
@@ -1661,13 +1645,13 @@ int check_dcc_attrs(struct userrec *u, int oatr)
 int check_dcc_chanattrs(struct userrec *u, char *chname, int chflags,
                         int ochatr)
 {
-  int i, found = 0;
+  int found = 0;
   struct flag_record fr = { FR_CHAN, 0, 0, 0, 0, 0 };
   struct chanset_t *chan;
 
   if (!u)
     return 0;
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type->flags & DCT_MASTER) &&
         !strcasecmp(u->handle, dcc[i].nick)) {
       if ((dcc[i].type == &DCC_CHAT) &&

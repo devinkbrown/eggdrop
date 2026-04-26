@@ -253,7 +253,7 @@ static int tcl_matchattr STDVAR
 {
   struct userrec *u;
   struct flag_record plus = {0}, minus = {0}, user = {0};
-  int ok = 0, nom = 0;
+  bool ok = false, nom = false;
 
   BADARGS(3, 4, " handle flags ?channel?");
 
@@ -265,7 +265,7 @@ static int tcl_matchattr STDVAR
     minus.match = plus.match ^ (FR_AND | FR_OR);
     if (!minus.global && !minus.udef_global && !minus.chan &&
         !minus.udef_chan && !minus.bot) {
-      nom = 1;
+      nom = true;
       if (!plus.global && !plus.udef_global && !plus.chan &&
           !plus.udef_chan && !plus.bot) {
         /* No flags (e.g. "-" or "+" or "-|-" matches anyone */
@@ -275,7 +275,7 @@ static int tcl_matchattr STDVAR
     }
     if (flagrec_eq(&plus, &user)) {
       if (nom || !flagrec_eq(&minus, &user)) {
-        ok = 1;
+        ok = true;
       }
     }
   }
@@ -310,8 +310,7 @@ static int tcl_addbot STDVAR
   struct bot_addr *bi;
   /* Max addr len is 60 ? (see cmd_pls_bot in cmds.c) + brackets + delims + ports + 0 */
   char *p, *q, addr[75], hand[HANDLEN + 1];
-  int i, colon=0, braced = 0, ipv6 = 0, count = 0;
-
+  int colon=0, braced = 0, ipv6 = 0, count = 0;
 
   BADARGS(3, 5, " handle address ?telnet-port ?relay-port??");
 
@@ -329,7 +328,7 @@ static int tcl_addbot STDVAR
       get_user_by_handle(userlist, hand))
     Tcl_AppendResult(irp, "0", NULL);
   else {
-    for (i=0; addr[i]; i++) {
+    for (int i = 0; addr[i]; i++) {
       if (addr[i] == ':') {
         count++;
         colon=i;
@@ -478,7 +477,7 @@ static int tcl_userlist STDVAR
 {
   struct userrec *u;
   struct flag_record user, plus, minus;
-  int ok = 1, f = 0;
+  bool ok = true, f = false;
 
   BADARGS(1, 3, " ?flags ?channel??");
 
@@ -489,7 +488,7 @@ static int tcl_userlist STDVAR
   if (argc >= 2) {
     plus.match = FR_GLOBAL | FR_CHAN | FR_BOT;
     break_down_flags(argv[1], &plus, &minus);
-    f = (minus.global ||minus.udef_global || minus.chan || minus.udef_chan ||
+    f = (minus.global || minus.udef_global || minus.chan || minus.udef_chan ||
          minus.bot);
     minus.match = plus.match ^ (FR_AND | FR_OR);
   }
@@ -500,10 +499,7 @@ static int tcl_userlist STDVAR
         get_user_flagrec(u, &user, argv[2]);
       else
         get_user_flagrec(u, &user, NULL);
-      if (flagrec_eq(&plus, &user) && !(f && flagrec_eq(&minus, &user)))
-        ok = 1;
-      else
-        ok = 0;
+      ok = flagrec_eq(&plus, &user) && !(f && flagrec_eq(&minus, &user));
     }
     if (ok)
       Tcl_AppendElement(interp, u->handle);
