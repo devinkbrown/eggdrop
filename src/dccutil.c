@@ -131,12 +131,10 @@ int increase_socks_max(void)
 
 int expmem_dccutil(void)
 {
-  int tot, i;
-
-  tot = sizeof(struct dcc_t) * max_dcc;
+  int tot = sizeof(struct dcc_t) * max_dcc;
   tot += sizeof(sock_list) * threaddata()->MAXSOCKS;
 
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type && dcc[i].type->expmem)
       tot += dcc[i].type->expmem(dcc[i].u.other);
   }
@@ -145,18 +143,16 @@ int expmem_dccutil(void)
 
 int findidx(int z)
 {
-  int j;
-
   /* O(1) fast path */
   sock_dcc_map_ensure_init();
   if ((unsigned)z < SOCK_MAP_SIZE) {
-    j = sock_dcc_map[z];
+    int j = sock_dcc_map[z];
     if (j >= 0 && j < dcc_total && dcc[j].sock == (long)z &&
         dcc[j].type && (dcc[j].type->flags & DCT_VALIDIDX))
       return j;
   }
   /* Fallback linear scan — self-heals stale map entries */
-  for (j = 0; j < dcc_total; j++)
+  for (int j = 0; j < dcc_total; j++)
     if ((dcc[j].sock == z) && dcc[j].type && (dcc[j].type->flags & DCT_VALIDIDX)) {
       dcc_map_set(z, j);
       return j;
@@ -166,17 +162,15 @@ int findidx(int z)
 
 int findanyidx(int z)
 {
-  int j;
-
   /* O(1) fast path */
   sock_dcc_map_ensure_init();
   if ((unsigned)z < SOCK_MAP_SIZE) {
-    j = sock_dcc_map[z];
+    int j = sock_dcc_map[z];
     if (j >= 0 && j < dcc_total && dcc[j].sock == (long)z)
       return j;
   }
   /* Fallback linear scan — self-heals stale map entries */
-  for (j = 0; j < dcc_total; j++)
+  for (int j = 0; j < dcc_total; j++)
     if (dcc[j].sock == z) {
       dcc_map_set(z, j);
       return j;
@@ -273,7 +267,7 @@ void dprint(int idx, char *buf, int len)
 ATTRIBUTE_FORMAT(printf,1,2)
 void chatout(const char *format, ...)
 {
-  int i, len;
+  int len;
   char s[601];
   va_list va;
 
@@ -286,7 +280,7 @@ void chatout(const char *format, ...)
     len = 511;
   s[len + 1] = 0;
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT)
       if (dcc[i].u.chat->channel >= 0)
         dprintf(i, "%s", s);
@@ -298,7 +292,7 @@ void chatout(const char *format, ...)
 ATTRIBUTE_FORMAT(printf,3,4)
 void chanout_but(int x, int chan, const char *format, ...)
 {
-  int i, len;
+  int len;
   char s[601];
   va_list va;
 
@@ -311,7 +305,7 @@ void chanout_but(int x, int chan, const char *format, ...)
     len = 511;
   s[len + 1] = 0;
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT) && (i != x))
       if (dcc[i].u.chat->channel == chan)
         dprintf(i, "%s", s);
@@ -368,7 +362,7 @@ void dcc_chatter(int idx)
 /* Closes an open FD for transfer sockets. */
 void killtransfer(int n)
 {
-  int i, ok = 1;
+  bool ok = true;
 
   if (dcc[n].type->flags & DCT_FILETRAN) {
     if (dcc[n].u.xfer->f) {
@@ -376,11 +370,11 @@ void killtransfer(int n)
       dcc[n].u.xfer->f = NULL;
     }
     if (dcc[n].u.xfer->filename) {
-      for (i = 0; i < dcc_total; i++) {
+      for (int i = 0; i < dcc_total; i++) {
         if ((i != n) && (dcc[i].type->flags & DCT_FILETRAN) &&
             (dcc[i].u.xfer->filename) &&
             (!strcmp(dcc[i].u.xfer->filename, dcc[n].u.xfer->filename))) {
-          ok = 0;
+          ok = false;
           break;
         }
       }
@@ -437,9 +431,7 @@ void removedcc(int n)
  */
 void dcc_remove_lost(void)
 {
-  int i;
-
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_LOST) {
       dcc[i].type = NULL;
       dcc[i].sock = -1;
@@ -454,12 +446,12 @@ void dcc_remove_lost(void)
  */
 void tell_dcc(int zidx)
 {
-  int i, j, nicklen = 0;
+  int j, nicklen = 0;
   char other[160];
   char format[81];
 
   /* calculate max nicklen */
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (strlen(dcc[i].nick) > nicklen)
       nicklen = strlen(dcc[i].nick);
   }
@@ -492,7 +484,7 @@ void tell_dcc(int zidx)
   }
 
   /* Show server */
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type && dcc[i].type->display)
       dcc[i].type->display(i, other);
     else {

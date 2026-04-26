@@ -126,9 +126,7 @@ void updatebot(int idx, char *who, char share, int vernum)
  */
 int partysock(char *bot, char *nick)
 {
-  int i;
-
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if ((!strcasecmp(party[i].bot, bot)) &&
         (!strcasecmp(party[i].nick, nick)))
       return party[i].sock;
@@ -146,9 +144,7 @@ void set_botnetnick(const char *newnick) {
 int addparty(char *bot, char *nick, int chan, char flag, int sock,
              char *from, int *idx)
 {
-  int i;
-
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     /* Just changing the channel of someone already on? */
     if (!strcasecmp(party[i].bot, bot) && (party[i].sock == sock)) {
       int oldchan = party[i].chan;
@@ -205,9 +201,7 @@ int addparty(char *bot, char *nick, int chan, char flag, int sock,
  */
 void partystat(char *bot, int sock, int add, int rem)
 {
-  int i;
-
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if ((!strcasecmp(party[i].bot, bot)) && (party[i].sock == sock)) {
       party[i].status |= add;
       party[i].status &= ~rem;
@@ -219,9 +213,7 @@ void partystat(char *bot, int sock, int add, int rem)
  */
 void partysetidle(char *bot, int sock, int secs)
 {
-  int i;
-
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if ((!strcasecmp(party[i].bot, bot)) && (party[i].sock == sock)) {
       party[i].timer = (now - (time_t) secs);
     }
@@ -232,9 +224,7 @@ void partysetidle(char *bot, int sock, int secs)
  */
 int getparty(char *bot, int sock)
 {
-  int i;
-
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if (!strcasecmp(party[i].bot, bot) && (party[i].sock == sock)) {
       return i;
     }
@@ -263,9 +253,8 @@ int partyidle(char *bot, char *nick)
 int partynick(char *bot, int sock, char *nick)
 {
   char work[HANDLEN + 1];
-  int i;
 
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if (!strcasecmp(party[i].bot, bot) && (party[i].sock == sock)) {
       strlcpy(work, party[i].nick, sizeof(work));
       strlcpy(party[i].nick, nick, HANDLEN + 1);
@@ -280,9 +269,7 @@ int partynick(char *bot, int sock, char *nick)
  */
 void partyaway(char *bot, int sock, char *msg)
 {
-  int i;
-
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if ((!strcasecmp(party[i].bot, bot)) && (party[i].sock == sock)) {
       if (party[i].away)
         nfree(party[i].away);
@@ -335,9 +322,7 @@ void rembot(char *whoin)
 
 void remparty(char *bot, int sock)
 {
-  int i;
-
-  for (i = 0; i < parties; i++)
+  for (int i = 0; i < parties; i++)
     if ((!strcasecmp(party[i].bot, bot)) && (party[i].sock == sock)) {
       parties--;
       if (party[i].from)
@@ -362,9 +347,7 @@ void remparty(char *bot, int sock)
  */
 static void rempartybot(char *bot)
 {
-  int i;
-
-  for (i = 0; i < parties; i++)
+  for (int i = 0; i < parties; i++)
     if (!strcasecmp(party[i].bot, bot)) {
       if (party[i].chan >= 0)
         check_tcl_chpt(bot, party[i].nick, party[i].sock, party[i].chan);
@@ -437,7 +420,7 @@ void answer_local_whom(int idx, int chan)
 {
   op_strbuf_t format;
   char c;
-  int i, t, nicklen, botnicklen, total = 0;
+  int t, nicklen, botnicklen, total = 0;
 
   if (chan == -1)
     dprintf(idx, "%s (+: %s, *: %s)\n", BOT_BOTNETUSERS, BOT_PARTYLINE,
@@ -463,7 +446,7 @@ void answer_local_whom(int idx, int chan)
   }
   /* Find longest nick and botnick */
   nicklen = botnicklen = 0;
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT) {
       if ((chan == -1) || ((chan >= 0) && (dcc[i].u.chat->channel == chan))) {
         t = strlen(dcc[i].nick);
@@ -474,7 +457,7 @@ void answer_local_whom(int idx, int chan)
           botnicklen = t;
       }
     }
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if ((chan == -1) || ((chan >= 0) && (party[i].chan == chan))) {
       t = strlen(party[i].nick);
       if (t > nicklen)
@@ -493,7 +476,7 @@ void answer_local_whom(int idx, int chan)
   dprintf(idx, op_strbuf_str(&format), " Nick", " Bot", " Host");
   dprintf(idx, op_strbuf_str(&format), "----------", "---------", "--------------------");
   op_strbuf_reset(&format, "%%c%%-%us %%c %%-%us  %%s%%s\n", nicklen, botnicklen);
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT) {
       if ((chan == -1) || ((chan >= 0) && (dcc[i].u.chat->channel == chan))) {
         op_strbuf_t idle;
@@ -525,7 +508,7 @@ void answer_local_whom(int idx, int chan)
           dprintf(idx, "   AWAY: %s\n", dcc[i].u.chat->away);
       }
     }
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if ((chan == -1) || ((chan >= 0) && (party[i].chan == chan))) {
       op_strbuf_t idle;
       op_strbuf_init(&idle);

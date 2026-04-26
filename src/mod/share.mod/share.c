@@ -1237,7 +1237,7 @@ static void share_ufsend(int idx, char *par)
 {
   char *port;
   char s[1024];
-  int i, sock;
+  int sock;
   FILE *f;
 
   {
@@ -1263,7 +1263,7 @@ static void share_ufsend(int idx, char *par)
     /* Ignore longip and use botaddr, arg kept for backward compat for pre 1.8.3 */
     newsplit(&par);
     port = newsplit(&par);
-    i = new_dcc(&DCC_FORK_SEND, sizeof(struct xfer_info));
+    int i = new_dcc(&DCC_FORK_SEND, sizeof(struct xfer_info));
     /* Use same addr we successfully linked to and change port */
     memcpy(&dcc[i].sockname, &dcc[idx].sockname, sizeof dcc[i].sockname);
     dcc[i].port = atoi(port);
@@ -1359,10 +1359,8 @@ static void share_version(int idx, char *par)
 
 static void hook_read_userfile(void)
 {
-  int i;
-
   if (!noshare) {
-    for (i = 0; i < dcc_total; i++)
+    for (int i = 0; i < dcc_total; i++)
       if ((dcc[i].type->flags & DCT_BOT) && (dcc[i].status & STAT_SHARE) &&
           !(dcc[i].status & STAT_AGGRESSIVE)) {
         /* Cancel any existing transfers */
@@ -1478,7 +1476,7 @@ static void sharein_mod(int idx, char *msg)
 ATTRIBUTE_FORMAT(printf,2,3)
 static void shareout_mod(struct chanset_t *chan, const char *format, ...)
 {
-  int i, l;
+  int l;
   char s[601];
   va_list va;
 
@@ -1488,7 +1486,7 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
     strlcpy(s, "s ", sizeof(s));
     if ((l = vsnprintf(s + 2, 509, format, va)) < 0)
       s[2 + (l = 509)] = 0;
-    for (i = 0; i < dcc_total; i++)
+    for (int i = 0; i < dcc_total; i++)
       if ((dcc[i].type->flags & DCT_BOT) &&
           (dcc[i].status & STAT_SHARE) &&
           !(dcc[i].status & (STAT_GETTING | STAT_SENDING))) {
@@ -1509,7 +1507,7 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
 ATTRIBUTE_FORMAT(printf,3,4)
 static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
 {
-  int i, l;
+  int l;
   char s[601];
   va_list va;
 
@@ -1518,7 +1516,7 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
   strlcpy(s, "s ", sizeof(s));
   if ((l = vsnprintf(s + 2, 509, format, va)) < 0)
     s[2 + (l = 509)] = 0;
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & DCT_BOT) && (i != x) &&
         (dcc[i].status & STAT_SHARE) &&
         (!(dcc[i].status & STAT_GETTING)) &&
@@ -1597,7 +1595,6 @@ static int flush_tbuf(char *bot)
  */
 static void check_expired_tbufs(void)
 {
-  int i;
   tandbuf *t, *tnext = NULL;
 
   for (t = tbuf; t; t = tnext) {
@@ -1608,7 +1605,7 @@ static void check_expired_tbufs(void)
     }
   }
   /* Resend userfile requests */
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type->flags & DCT_BOT) {
       if (dcc[i].status & STAT_OFFERED) {
         if ((now - dcc[i].timeval > 120) && (dcc[i].user &&
@@ -1848,9 +1845,9 @@ static void finish_share(int idx)
 {
   struct userrec *u = NULL, *ou = NULL;
   struct chanset_t *chan;
-  int i, j = -1;
+  int j = -1;
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (!strcasecmp(dcc[i].nick, dcc[idx].host) &&
         (dcc[i].type->flags & DCT_BOT))
       j = i;
@@ -1906,10 +1903,10 @@ static void finish_share(int idx)
    * to NULL directly.
    */
   if (u == NULL)
-    for (i = 0; i < dcc_total; i++)
+    for (int i = 0; i < dcc_total; i++)
       dcc[i].user = NULL;
   else
-    for (i = 0; i < dcc_total; i++)
+    for (int i = 0; i < dcc_total; i++)
       dcc[i].user = get_user_by_handle(u, dcc[i].nick);
 
   /* Read the transferred userfile. Add entries to u, which already holds
@@ -1920,7 +1917,7 @@ static void finish_share(int idx)
     clear_userlist(u);          /* Clear new, obsolete, user list.      */
     clear_chanlist();           /* Remove all user references from the
                                  * channel lists.                       */
-    for (i = 0; i < dcc_total; i++)
+    for (int i = 0; i < dcc_total; i++)
       dcc[i].user = get_user_by_handle(ou, dcc[i].nick);
     userlist = ou;              /* Revert to old user list.             */
     lastuser = NULL;            /* Reset last accessed user ptr.        */
@@ -2169,7 +2166,7 @@ static void (*def_dcc_bot_kill) (int, void *) = 0;
 
 static void cancel_user_xfer(int idx, void *x)
 {
-  int i, j, k = 0;
+  int j, k = 0;
 
   if (idx < 0) {
     idx = -idx;
@@ -2180,7 +2177,7 @@ static void cancel_user_xfer(int idx, void *x)
   if (dcc[idx].status & STAT_SHARE) {
     if (dcc[idx].status & STAT_GETTING) {
       j = 0;
-      for (i = 0; i < dcc_total; i++)
+      for (int i = 0; i < dcc_total; i++)
         if (!strcasecmp(dcc[i].host, dcc[idx].nick) &&
             ((dcc[i].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
              (DCT_FILETRAN | DCT_FILESEND)))
@@ -2194,7 +2191,7 @@ static void cancel_user_xfer(int idx, void *x)
     }
     if (dcc[idx].status & STAT_SENDING) {
       j = 0;
-      for (i = 0; i < dcc_total; i++)
+      for (int i = 0; i < dcc_total; i++)
         if ((!strcasecmp(dcc[i].host, dcc[idx].nick)) &&
             ((dcc[i].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
             DCT_FILETRAN))
@@ -2245,12 +2242,11 @@ static cmd_t my_cmds[] = {
 
 static char *share_close(void)
 {
-  int i;
   tandbuf *t, *tnext = NULL;
 
   module_undepend(MODULE_NAME);
   putlog(LOG_MISC | LOG_BOTS, "*", "Sending 'share end' to all sharebots...");
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & DCT_BOT) && (dcc[i].status & STAT_SHARE)) {
       dprintf(i, "s e Unload module\n");
       cancel_user_xfer(-i, 0);
@@ -2310,18 +2306,18 @@ static int share_expmem(void)
 static void share_report(int idx, int details)
 {
   if (details) {
-    int i, j, size = share_expmem();
+    int size = share_expmem();
 
     dprintf(idx, "    Private owners: %s\n", (private_global ||
             (private_globals_bitmask() & USER_OWNER)) ? "yes" : "no");
     dprintf(idx, "    Allow resync: %s\n", allow_resync ? "yes" : "no");
 
-    for (i = 0; i < dcc_total; i++) {
+    for (int i = 0; i < dcc_total; i++) {
       if (dcc[i].type == &DCC_BOT) {
         if (dcc[i].status & STAT_GETTING) {
           int ok = 0;
 
-          for (j = 0; j < dcc_total; j++)
+          for (int j = 0; j < dcc_total; j++)
             if (((dcc[j].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
                 (DCT_FILETRAN | DCT_FILESEND)) &&
                 !strcasecmp(dcc[j].host, dcc[i].nick)) {
@@ -2335,7 +2331,7 @@ static void share_report(int idx, int details)
             dprintf(idx, "    Download userlist from %s (negotiating "
                     "botentries)\n", dcc[i].nick);
         } else if (dcc[i].status & STAT_SENDING) {
-          for (j = 0; j < dcc_total; j++) {
+          for (int j = 0; j < dcc_total; j++) {
             if (((dcc[j].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
                 DCT_FILETRAN) && !strcasecmp(dcc[j].host, dcc[i].nick)) {
               if (dcc[j].type == &DCC_GET)

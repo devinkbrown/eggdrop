@@ -79,21 +79,21 @@ static void flush_mode(struct chanset_t *chan, int pri)
 {
   char *p, out[512], post[512];
   size_t postsize = sizeof(post);
-  int i, plus = 2;              /* 0 = '-', 1 = '+', 2 = none */
+  int plus = 2;              /* 0 = '-', 1 = '+', 2 = none */
 
   p = out;
   post[0] = 0, postsize--;
 
   if (chan->mns[0]) {
     *p++ = '-', plus = 0;
-    for (i = 0; i < strlen(chan->mns); i++)
+    for (int i = 0; i < (int)strlen(chan->mns); i++)
       *p++ = chan->mns[i];
     chan->mns[0] = 0;
   }
 
   if (chan->pls[0]) {
     *p++ = '+', plus = 1;
-    for (i = 0; i < strlen(chan->pls); i++)
+    for (int i = 0; i < (int)strlen(chan->pls); i++)
       *p++ = chan->pls[i];
     chan->pls[0] = 0;
   }
@@ -151,7 +151,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
   }
 
   /* Do -{b,e,I} before +{b,e,I} to avoid the server ignoring overlaps */
-  for (i = 0; i < modesperline; i++) {
+  for (int i = 0; i < modesperline; i++) {
     if ((chan->cmode[i].type & MINUS) && postsize > strlen(chan->cmode[i].op)) {
       if (plus) {
         *p++ = '-', plus = 0;
@@ -172,7 +172,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
   }
 
   /* now do all the + modes... */
-  for (i = 0; i < modesperline; i++) {
+  for (int i = 0; i < modesperline; i++) {
     if ((chan->cmode[i].type & PLUS) && postsize > strlen(chan->cmode[i].op)) {
       if (plus != 1) {
         *p++ = '+', plus = 1;
@@ -218,7 +218,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
 static void real_add_mode(struct chanset_t *chan,
                           char plus, char mode, char *op)
 {
-  int i, type, modes, l;
+  int type, modes, l;
   masklist *m;
   memberlist *mx;
   char s[21];
@@ -325,14 +325,14 @@ static void real_add_mode(struct chanset_t *chan,
     }
 
     /* op-type mode change */
-    for (i = 0; i < modesperline; i++)
+    for (int i = 0; i < modesperline; i++)
       if (chan->cmode[i].type == type && chan->cmode[i].op != NULL &&
           !rfc_casecmp(chan->cmode[i].op, op))
         return;                 /* Already in there :- duplicate */
     l = strlen(op) + 1;
     if (chan->bytes + l > mode_buf_len)
       flush_mode(chan, NORMAL);
-    for (i = 0; i < modesperline; i++)
+    for (int i = 0; i < modesperline; i++)
       if (chan->cmode[i].type == 0) {
         chan->cmode[i].type = type;
         chan->cmode[i].op = (char *) channel_malloc(l);
@@ -378,7 +378,7 @@ static void real_add_mode(struct chanset_t *chan,
     }
   }
   modes = modesperline;         /* Check for full buffer. */
-  for (i = 0; i < modesperline; i++)
+  for (int i = 0; i < modesperline; i++)
     if (chan->cmode[i].type)
       modes--;
   if (include_lk && chan->limit)

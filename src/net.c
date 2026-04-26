@@ -132,8 +132,7 @@ struct iovec { void *iov_base; size_t iov_len; };
 static inline int egg_writev(int sock, const struct iovec *iov, int cnt) {
   WSABUF bufs[2];
   DWORD sent = 0;
-  int i;
-  for (i = 0; i < cnt && i < 2; i++) {
+  for (int i = 0; i < cnt && i < 2; i++) {
     bufs[i].buf = (char *)iov[i].iov_base;
     bufs[i].len = (ULONG)iov[i].iov_len;
   }
@@ -497,10 +496,10 @@ IP my_atoul(char *s)
 
 int expmem_net(void)
 {
-  int i, tot = 0;
+  int tot = 0;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(td->socklist[i].flags & (SOCK_UNUSED | SOCK_TCL))) {
       if (td->socklist[i].handler.sock.inbuf != NULL)
         tot += strlen(td->socklist[i].handler.sock.inbuf) + 1;
@@ -547,7 +546,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
   int error;
 #else
   struct hostent *hp;
-  int i, count;
+  int count;
 #endif
 
   /* DCC CHAT ip is expressed as integer but inet_pton() only accepts dotted
@@ -635,7 +634,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
   if (!inet_pton(AF_INET, src2, &addr->addr.s4.sin_addr)) {
     /* Boring way to count :s */
     count = 0;
-    for (i = 0; src[i]; i++) {
+    for (int i = 0; src[i]; i++) {
       if (src[i] == ':') {
         count++;
         if (count == 2)
@@ -698,10 +697,9 @@ void getvhost(sockname_t *addr, int af)
  */
 int sockoptions(int sock, int operation, int sock_options)
 {
-  int i;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++)
+  for (int i = 0; i < td->MAXSOCKS; i++)
     if ((td->socklist[i].sock == sock) &&
         !(td->socklist[i].flags & SOCK_UNUSED)) {
       if (operation == EGG_OPTION_SET)
@@ -719,10 +717,9 @@ int sockoptions(int sock, int operation, int sock_options)
  */
 int allocsock(int sock, int options)
 {
-  int i;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if (td->socklist[i].flags & SOCK_UNUSED) {
       /* yay!  there is table space */
       /* Initialise inbuf_lock only for non-TCL sockets: TCL sockets use
@@ -809,10 +806,9 @@ int alloctclsock(int sock, int mask, Tcl_FileProc *proc, ClientData cd)
 {
 #ifdef HAVE_TCL
   int f = -1;
-  int i;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if (td->socklist[i].flags & SOCK_UNUSED) {
       if (f == -1)
         f = i;
@@ -925,14 +921,13 @@ int getsock(int af, int options)
  */
 void killsock(int sock)
 {
-  int i;
   struct threaddata *td = threaddata();
 
   /* Ignore invalid sockets.  */
   if (sock < 0)
     return;
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if ((td->socklist[i].sock == sock) && !(td->socklist[i].flags & SOCK_UNUSED)) {
       if (!(td->socklist[i].flags & SOCK_TCL)) { /* nothing to free for tclsocks */
         /* Remove from io_thread's epoll BEFORE closing the fd so the kernel
@@ -1001,13 +996,12 @@ void killsock(int sock)
  */
 void killtclsock(int sock)
 {
-  int i;
   struct threaddata *td = threaddata();
 
   if (sock < 0)
     return;
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if ((td->socklist[i].flags & SOCK_TCL) && td->socklist[i].sock == sock) {
       td->socklist[i].flags = SOCK_UNUSED;
       return;
@@ -1021,7 +1015,7 @@ static int proxy_connect(int sock, sockname_t *addr)
 {
   sockname_t name;
   char host[121], s[256];
-  int i, port, proxy;
+  int port, proxy;
   struct threaddata *td = threaddata();
 
   if (!firewall[0])
@@ -1045,7 +1039,7 @@ static int proxy_connect(int sock, sockname_t *addr)
   if (connect(sock, &name.addr.sa, name.addrlen) < 0 && errno != EINPROGRESS)
     return -1;
   if (proxy == PROXY_SOCKS) {
-    for (i = 0; i < td->MAXSOCKS; i++)
+    for (int i = 0; i < td->MAXSOCKS; i++)
       if (!(socklist[i].flags & SOCK_UNUSED) && socklist[i].sock == sock)
         socklist[i].flags |= SOCK_PROXYWAIT;    /* drummer */
     memcpy(host, &addr->addr.s4.sin_addr.s_addr, 4);
@@ -1095,10 +1089,11 @@ int open_telnet_raw(int sock, sockname_t *addr)
   sockname_t name;
   socklen_t res_len;
   fd_set sockset;
-  int i, j, rc, errno_tmp, res;
+  int rc, errno_tmp, res;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < dcc_total; i++)
+  int i = 0;
+  for (; i < dcc_total; i++)
     if (dcc[i].sock == sock) { /* Got idx from sock ? */
 #ifdef TLS
       debug5("net: open_telnet_raw(): idx %i host %s ip %s port %i ssl %i",
@@ -1113,7 +1108,7 @@ int open_telnet_raw(int sock, sockname_t *addr)
   if (bind(sock, &name.addr.sa, name.addrlen) < 0) {
     return -1;
   }
-  for (j = 0; j < td->MAXSOCKS; j++) {
+  for (int j = 0; j < td->MAXSOCKS; j++) {
     if (!(socklist[j].flags & SOCK_UNUSED) && (socklist[j].sock == sock))
       socklist[j].flags = (socklist[j].flags & ~SOCK_VIRTUAL) | SOCK_CONNECT;
   }
@@ -1405,10 +1400,10 @@ int getdccfamilyaddr(sockname_t *addr, char *s, size_t l, int restrict_af)
  */
 static int preparefdset(fd_set *fds, sock_list *slist, int slistmax, int tclonly, int tclmask)
 {
-  int fd, i, maxfd = -1;
+  int fd, maxfd = -1;
 
   FD_ZERO(fds);
-  for (i = 0; i < slistmax; i++) {
+  for (int i = 0; i < slistmax; i++) {
     if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL))) {
       if ((slist[i].sock == STDOUT) && !backgrd)
         fd = STDIN;
@@ -1469,7 +1464,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
 {
   struct timeval t;
   fd_set fdr, fdw, fde;
-  int i, x, maxfd_r, maxfd_w, maxfd_e;
+  int x, maxfd_r, maxfd_w, maxfd_e;
   int fd;
   int grab = READMAX, tclsock = -1, events = 0;
   struct threaddata *td = threaddata();
@@ -1505,7 +1500,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     maxfd_r = maxfd_w = maxfd_e = -1;
 
     /* Build fd_sets for TCL sockets only */
-    for (i = 0; i < slistmax; i++) {
+    for (int i = 0; i < slistmax; i++) {
       if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL)) &&
           (slist[i].flags & SOCK_TCL)) {
         fd = slist[i].sock;
@@ -1552,7 +1547,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
      * would overwrite recv_buf and discard the unconsumed bytes. */
     {
     int buffered_cnt = 0;
-    for (i = 0; i < slistmax; i++) {
+    for (int i = 0; i < slistmax; i++) {
       if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL))) {
         if (!slist[i].ssl && slist[i].handler.sock.recv_len >= 0) {
           /* Buffered data present — surface directly without a new SQE */
@@ -1757,7 +1752,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       int k;
       DWORD wait_ms = (DWORD)(t.tv_sec * 1000 + t.tv_usec / 1000);
 
-      for (i = 0; i < slistmax; i++) {
+      for (int i = 0; i < slistmax; i++) {
         if (!(slist[i].flags & (SOCK_UNUSED | SOCK_VIRTUAL | SOCK_NONSOCK | SOCK_TCL)))
           iocp_arm_read(slist[i].sock, i);
       }
@@ -1817,7 +1812,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     /* Count any TCL/TDNS events ready from the earlier select() */
     {
       int tcl_ready = 0;
-      for (i = 0; i < slistmax && !tcl_ready; i++) {
+      for (int i = 0; i < slistmax && !tcl_ready; i++) {
         if (!(slist[i].flags & SOCK_UNUSED) && (slist[i].flags & SOCK_TCL)) {
           int ev2 = 0;
           if (FD_ISSET(slist[i].sock, &fdr)) ev2 |= TCL_READABLE;
@@ -1842,7 +1837,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       {
         int tls_pending = 0;
         if (x == 0 && !tcl_ready) {
-          for (i = 0; i < slistmax; i++) {
+          for (int i = 0; i < slistmax; i++) {
             if (!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL)) && slist[i].ssl) {
               if (!SSL_is_init_finished(slist[i].ssl)) {
                 tls_pending = 1;
@@ -1903,7 +1898,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       return -3;
   }
 
-  for (i = 0; i < slistmax; i++) {
+  for (int i = 0; i < slistmax; i++) {
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
         ((FD_ISSET(slist[i].sock, &fdr)) ||
 #ifdef TLS
@@ -2105,11 +2100,11 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
 int sockgets(char *s, int *len)
 {
   char xx[READMAX + 2], *p, *px, *p2;
-  int ret, i, data = 0;
+  int ret, data = 0;
   size_t len2;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     /* Fast-path flag check (outside lock — flags are main-thread-only writes) */
     if (socklist[i].flags & (SOCK_UNUSED | SOCK_TCL | SOCK_BUFFER))
       continue;
@@ -2339,7 +2334,7 @@ int sockgets(char *s, int *len)
  */
 void tputs(int z, char *s, unsigned int len)
 {
-  int i, x, idx;
+  int x, idx;
   char *s2 = 0;
   static int inhere = 0;
   struct threaddata *td = threaddata();
@@ -2352,7 +2347,7 @@ void tputs(int z, char *s, unsigned int len)
     return;
   }
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & SOCK_UNUSED) && (socklist[i].sock == z)) {
       /* O(1) traffic accounting via sock→dcc map */
       idx = findanyidx(z);
@@ -2438,14 +2433,14 @@ void tputs(int z, char *s, unsigned int len)
  */
 void dequeue_sockets(void)
 {
-  int i, x;
+  int x;
   fd_set wfds;
   struct threaddata *td = threaddata();
 
   /* Detect whether any sockets have pending outbuf data */
   {
     int has_pending = 0;
-    for (i = 0; i < td->MAXSOCKS && !has_pending; i++)
+    for (int i = 0; i < td->MAXSOCKS && !has_pending; i++)
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
 #ifdef TLS
@@ -2471,7 +2466,7 @@ void dequeue_sockets(void)
      * watch EPOLLOUT, poll once with zero timeout, then restore EPOLLIN-only.
      * We reuse the existing interest set so the kernel doesn't need a new fd.
      */
-    for (i = 0; i < td->MAXSOCKS; i++) {
+    for (int i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
 #    ifdef TLS
@@ -2482,7 +2477,7 @@ void dequeue_sockets(void)
     }
     x = epoll_wait(egg_wepoll_fd, epevs, 64, 0);
     /* Restore EPOLLIN-only for sockets that had outbuf pending */
-    for (i = 0; i < td->MAXSOCKS; i++) {
+    for (int i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL)
         epoll_mod_sock(socklist[i].sock, i, 0);
@@ -2493,7 +2488,7 @@ void dequeue_sockets(void)
      * just for EPOLLOUT detection.  EPOLLONESHOT auto-disarms after each
      * event so we never accumulate stale interest entries.
      */
-    for (i = 0; i < td->MAXSOCKS; i++) {
+    for (int i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
 #    ifdef TLS
@@ -2533,7 +2528,7 @@ void dequeue_sockets(void)
     struct kevent kevs[64];
     struct timespec zt = {0, 0};
     int k;
-    for (i = 0; i < td->MAXSOCKS; i++) {
+    for (int i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
 #  ifdef TLS
@@ -2566,7 +2561,7 @@ void dequeue_sockets(void)
    */
   if (egg_hcp) {
     int k;
-    for (i = 0; i < td->MAXSOCKS; i++) {
+    for (int i = 0; i < td->MAXSOCKS; i++) {
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
 #  ifdef TLS
@@ -2600,7 +2595,7 @@ void dequeue_sockets(void)
     /* Check if any write fds were set */
     {
       int any = 0;
-      for (i = 0; i < td->MAXSOCKS && !any; i++)
+      for (int i = 0; i < td->MAXSOCKS && !any; i++)
         if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
             socklist[i].handler.sock.outbuf != NULL &&
             FD_ISSET(socklist[i].sock, &wfds))
@@ -2613,7 +2608,7 @@ void dequeue_sockets(void)
     /* select() fallback: zero-timeout write-readiness check */
     int maxfd = -1;
     struct timeval tv = {0, 0};
-    for (i = 0; i < td->MAXSOCKS; i++)
+    for (int i = 0; i < td->MAXSOCKS; i++)
       if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[i].handler.sock.outbuf != NULL
 #ifdef TLS
@@ -2631,7 +2626,7 @@ void dequeue_sockets(void)
     if (x <= 0) return;
   }
 
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
         (socklist[i].handler.sock.outbuf != NULL) && (FD_ISSET(socklist[i].sock, &wfds))) {
       /* Drain outbuf ring buffer.
@@ -2713,11 +2708,10 @@ void dequeue_sockets(void)
 
 void tell_netdebug(int idx)
 {
-  int i;
   struct threaddata *td = threaddata();
 
   dprintf(idx, "Open sockets:");
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & SOCK_UNUSED)) {
       op_strbuf_t s;
       op_strbuf_printf(&s, " %s", int_to_base10(socklist[i].sock));
@@ -2845,10 +2839,11 @@ int hostsanitycheck_dcc(char *nick, char *from, sockname_t *ip, char *dnsname,
  */
 int sock_has_data(int type, int sock)
 {
-  int ret = 0, i;
+  int ret = 0;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++)
+  int i = 0;
+  for (; i < td->MAXSOCKS; i++)
     if (!(socklist[i].flags & SOCK_UNUSED) && socklist[i].sock == sock)
       break;
   if (i < td->MAXSOCKS) {
@@ -2877,15 +2872,14 @@ int sock_has_data(int type, int sock)
  */
 int flush_inbuf(int idx)
 {
-  int i, len;
   char *inbuf;
   struct threaddata *td = threaddata();
 
   Assert((idx >= 0) && (idx < dcc_total));
-  for (i = 0; i < td->MAXSOCKS; i++) {
+  for (int i = 0; i < td->MAXSOCKS; i++) {
     if ((dcc[idx].sock == socklist[i].sock) &&
         !(socklist[i].flags & SOCK_UNUSED)) {
-      len = socklist[i].handler.sock.inbuflen;
+      int len = socklist[i].handler.sock.inbuflen;
       if ((len > 0) && socklist[i].handler.sock.inbuf) {
         if (dcc[idx].type && dcc[idx].type->activity) {
           inbuf = socklist[i].handler.sock.inbuf;
@@ -2908,10 +2902,10 @@ int flush_inbuf(int idx)
  */
 int findsock(int sock)
 {
-  int i;
   struct threaddata *td = threaddata();
 
-  for (i = 0; i < td->MAXSOCKS; i++)
+  int i = 0;
+  for (; i < td->MAXSOCKS; i++)
     if (td->socklist[i].sock == sock)
       break;
   if (i == td->MAXSOCKS)

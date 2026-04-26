@@ -148,12 +148,10 @@ extern char last_bind_called[];
 
 void fatal(const char *s, int recoverable)
 {
-  int i;
-
   putlog(LOG_MISC, "*", "* %s", s);
   /* Stop io_thread before closing sockets so it can't race on dying fds. */
   io_thread_stop();
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
       killsock(dcc[i].sock);
 #ifdef TLS
@@ -205,9 +203,7 @@ int expected_memory(void)
 
 static void check_expired_dcc(void)
 {
-  int i;
-
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type && dcc[i].type->timeout_val &&
         ((now - dcc[i].timeval) > *(dcc[i].type->timeout_val))) {
       if (dcc[i].type->timeout)
@@ -562,7 +558,6 @@ static void core_secondly(void)
   static int cnt = 10; /* Don't wait the first 10 seconds to display */
   int miltime;
   time_t nowmins;
-  int i;
   uint64_t drift_mins;
 
   do_check_timers(&utimer);     /* Secondly timers */
@@ -585,7 +580,7 @@ static void core_secondly(void)
   nowmins = now / 60;
   if (nowmins > lastmin) {
     localtime_r(&now, &nowtm);
-    i = 0;
+    int i = 0;
     /* Once a minute */
     ++lastmin;
     call_hook(HOOK_MINUTELY);
@@ -608,14 +603,12 @@ static void core_secondly(void)
       check_botnet_pings();
       if (!miltime) {           /* At midnight */
         char s[26];
-        int j;
-
         ctime_r(&now, s);
         s[24] = 0;
         if (quiet_save < 3)
           putlog(LOG_ALL, "*", "--- %.11s%s", s, s + 20);
         call_hook(HOOK_BACKUP);
-        for (j = 0; j < max_logs; j++) {
+        for (int j = 0; j < max_logs; j++) {
           if (logs[j].filename != NULL && logs[j].f != NULL) {
             fclose(logs[j].f);
             logs[j].f = NULL;
@@ -633,7 +626,7 @@ static void core_secondly(void)
       if (!keep_all_logs) {
         if (quiet_save < 3)
           putlog(LOG_MISC, "*", "%s", MISC_LOGSWITCH);
-        for (i = 0; i < max_logs; i++)
+        for (int i = 0; i < max_logs; i++)
           if (logs[i].filename) {
             char s[1024];
 
@@ -974,7 +967,6 @@ static void init_random(void) {
 
 int main(int arg_c, char **arg_v)
 {
-  int i, j, xx;
   char s[26];
   FILE *f;
   struct sigaction sv;
@@ -1113,10 +1105,10 @@ int main(int arg_c, char **arg_v)
     bg_send_quit(BG_ABORT);
     exit(1);
   }
-  i = 0;
+  int i = 0;
   for (chan = chanset; chan; chan = chan->next)
     i++;
-  j = count_users(userlist);
+  int j = count_users(userlist);
   putlog(LOG_MISC, "*", "=== %s: %d channel%s, %d user%s.",
          botnetnick, i, (i == 1) ? "" : "s", j, (j == 1) ? "" : "s");
   if ((cliflags & CLI_N) && (cliflags & CLI_T)) {
@@ -1140,9 +1132,8 @@ int main(int arg_c, char **arg_v)
   f = fopen(pid_file, "r");
   if (f != NULL) {
     if (fgets(s, 10, f) != NULL) {
-      xx = atoi(s);
-      i = kill(xx, SIGCHLD);      /* Meaningless kill to determine if pid is used */
-      if (i == 0 || errno != ESRCH) {
+      int xx = atoi(s);
+      if (kill(xx, SIGCHLD) == 0 || errno != ESRCH) {
         printf(EGG_RUNNING1, botnetnick);
         printf(EGG_RUNNING2, pid_file);
         bg_send_quit(BG_ABORT);
@@ -1158,7 +1149,7 @@ int main(int arg_c, char **arg_v)
   if (backgrd) {
     bg_do_split();
   } else {                        /* !backgrd */
-    xx = getpid();
+    int xx = getpid();
     if (xx != 0) {
       FILE *fp;
 

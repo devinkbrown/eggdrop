@@ -43,6 +43,18 @@
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
+/* module.h defines 'days', 'daysago', 'daysdur' as global[] dispatch macros;
+ * these collide with wolfssl parameter names.  Suppress them before the
+ * wolfssl include and they are not needed in this translation unit. */
+#ifdef days
+#  undef days
+#endif
+#ifdef daysago
+#  undef daysago
+#endif
+#ifdef daysdur
+#  undef daysdur
+#endif
 #include "../../egg_tls.h"
 /* Include main.h (which in turn includes eggdrop.h and, when NOT
  * MAKING_MODS, proto.h as well) so that res.c compiles as a standalone
@@ -140,7 +152,7 @@ static inline void res_dlinkDelete(res_dlink_node *m, res_dlink_list *list) {
 #define op_strlcpy(dst, src, sz)    strlcpy(dst, src, sz)
 
 /* Socket helpers */
-static inline [[maybe_unused]]
+[[maybe_unused]] static inline
 int res_inet_pton_sock(const char *addr,
                        struct sockaddr_storage *ss)
 {
@@ -161,7 +173,7 @@ int res_inet_pton_sock(const char *addr,
 }
 #define op_inet_pton_sock(addr, ss)  res_inet_pton_sock(addr, ss)
 
-static inline [[maybe_unused]]
+[[maybe_unused]] static inline
 const char *res_inet_ntop_sock(const struct sockaddr *sa,
                                char *buf, size_t len)
 {
@@ -197,7 +209,7 @@ static inline socklen_t res_ss_len(const struct sockaddr_storage *ss) {
 /* Random ID generation — uses getrandom(2) (Linux ≥ 3.17) with a
  * /dev/urandom fallback so query IDs are unpredictable and resist
  * off-path DNS cache poisoning (Kaminsky-style attacks). */
-static inline void op_get_random(void *buf, size_t len) {
+static inline void res_get_random(void *buf, size_t len) {
 #if defined(SYS_getrandom)
   /* getrandom() never blocks for urandom-quality entropy and has no fd. */
   ssize_t got = syscall(SYS_getrandom, buf, len, 0);
@@ -351,9 +363,8 @@ struct __res_state myres;
 
 /* Sync myres nameserver list from irc_nsaddr_list */
 static void sync_myres_from_irc(void) {
-  int i;
   myres.nscount = 0;
-  for (i = 0; i < irc_nscount && i < MAXNS; i++) {
+  for (int i = 0; i < irc_nscount && i < MAXNS; i++) {
     if (GET_SS_FAMILY(&irc_nsaddr_list[i]) == AF_INET) {
       memcpy(&myres.nsaddr_list[myres.nscount],
              &irc_nsaddr_list[i],
@@ -364,10 +375,9 @@ static void sync_myres_from_irc(void) {
 }
 
 /* Sync irc_nsaddr_list from myres (called after dns_change() TCL write) */
-static void [[maybe_unused]] sync_irc_from_myres(void) {
-  int i;
+[[maybe_unused]] static void sync_irc_from_myres(void) {
   irc_nscount = 0;
-  for (i = 0; i < myres.nscount && i < IRCD_MAXNS; i++) {
+  for (int i = 0; i < myres.nscount && i < IRCD_MAXNS; i++) {
     memset(&irc_nsaddr_list[irc_nscount], 0,
            sizeof(irc_nsaddr_list[irc_nscount]));
     memcpy(&irc_nsaddr_list[irc_nscount],
@@ -766,7 +776,7 @@ static uint16_t next_query_id(void)
 {
   uint16_t id;
   do {
-    op_get_random(&id, sizeof id);
+    res_get_random(&id, sizeof id);
   } while (id == 0 || find_req_by_id(id));
   return id;
 }
@@ -866,8 +876,7 @@ static void send_dns_query(struct dns_req *req)
    * A mixed IPv4/IPv6 resolv.conf would otherwise cause sendto() to fail
    * with EAFNOSUPPORT, silently dropping the query until it times out. */
   {
-    int i;
-    for (i = 0; i < irc_nscount; i++) {
+    for (int i = 0; i < irc_nscount; i++) {
       int try_ns = (ns + i) % irc_nscount;
       if ((int)GET_SS_FAMILY(&irc_nsaddr_list[try_ns]) == resfd_family) {
         ns = try_ns;
@@ -1779,7 +1788,7 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
  * dns_lookup — reverse lookup (IP -> hostname).
  * Registered on HOOK_DNS_HOSTBYIP; receives a sockname_t *.
  */
-static void [[maybe_unused]] dns_lookup(sockname_t *addr)
+[[maybe_unused]] static void dns_lookup(sockname_t *addr)
 {
   struct egg_dns_ctx *ctx;
   struct DNSQuery    *q;
@@ -1818,7 +1827,7 @@ static void [[maybe_unused]] dns_lookup(sockname_t *addr)
  * dns_forward — forward lookup (hostname -> IP).
  * Registered on HOOK_DNS_IPBYHOST; receives a char *.
  */
-static void [[maybe_unused]] dns_forward(char *hostn)
+[[maybe_unused]] static void dns_forward(char *hostn)
 {
   struct egg_dns_ctx *ctx;
   struct DNSQuery    *q;
@@ -1857,7 +1866,7 @@ static void [[maybe_unused]] dns_forward(char *hostn)
  * dns_check_expires — called every second via HOOK_SECONDLY.
  * Delegates to res_secondly_check().
  */
-static void [[maybe_unused]] dns_check_expires(void)
+[[maybe_unused]] static void dns_check_expires(void)
 {
   res_secondly_check();
 }
@@ -1866,7 +1875,7 @@ static void [[maybe_unused]] dns_check_expires(void)
  * dns_ack — called from DCC_DNS activity handler.
  * Reads pending UDP replies.
  */
-static void [[maybe_unused]] dns_ack(void)
+[[maybe_unused]] static void dns_ack(void)
 {
   res_read_udp();
 }
@@ -1875,7 +1884,7 @@ static void [[maybe_unused]] dns_ack(void)
  * init_dns_core — initialise the resolver; returns 1 on success, 0 on error.
  * Called from dns_start() in dns.mod/dns.c.
  */
-static int [[maybe_unused]] init_dns_core(void)
+[[maybe_unused]] static int init_dns_core(void)
 {
   init_resolver();
 

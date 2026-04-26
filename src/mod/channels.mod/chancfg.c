@@ -160,8 +160,7 @@ static int egg_split_list(const char *str, int *argc, char ***argv)
 
 static void egg_free_list(int argc, char **argv)
 {
-  int i;
-  for (i = 0; i < argc; i++)
+  for (int i = 0; i < argc; i++)
     nfree(argv[i]);
   nfree(argv);
 }
@@ -177,7 +176,7 @@ static void egg_free_list(int argc, char **argv)
 static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                               int items, char **item)
 {
-  int i, x = 0, found, old_status = chan->status,
+  int x = 0, found, old_status = chan->status,
       old_mode_mns_prot = chan->mode_mns_prot,
       old_mode_pls_prot = chan->mode_pls_prot;
   struct udef_struct *ul;
@@ -185,7 +184,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
   char *endptr;
   module_entry *me;
 
-  for (i = 0; i < items; i++) {
+  for (int i = 0; i < items; i++) {
 #ifdef HAVE_TCL
     if (item[i][0] == '+' || item[i][0] == '-') {
       if (check_tcl_chanset(chan->dname, item[i] + 1,

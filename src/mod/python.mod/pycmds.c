@@ -73,7 +73,6 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
   PyObject *pobj;
   PyObject *pystr, *module_name, *pymodule, *pyfunc, *pyval, *item;
   Py_ssize_t n;
-  int i;
 
   if (!isowner(dcc[idx].nick) && must_be_owner) {
     dprintf(idx, "%s", MISC_NOSUCHCMD);
@@ -109,7 +108,7 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
       // Check if traceback is a list and handle as such
       if (pyval && PyList_Check(pyval)) {
         n = PyList_Size(pyval);
-        for (i = 0; i < n; i++) {
+        for (Py_ssize_t i = 0; i < n; i++) {
           item = PyList_GetItem(pyval, i);
           pystr = PyObject_Str(item);
           dprintf(idx, "%s", PyUnicode_AsUTF8(pystr));
@@ -140,7 +139,7 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
       // Check if traceback is a list and handle as such
       if (pyval && PyList_Check(pyval)) {
         n = PyList_Size(pyval);
-        for (i = 0; i < n; i++) {
+        for (Py_ssize_t i = 0; i < n; i++) {
           item = PyList_GetItem(pyval, i);
           pystr = PyObject_Str(item);
           dprintf(idx, "%s", PyUnicode_AsUTF8(pystr));
@@ -217,7 +216,6 @@ static int tcl_call_python(ClientData cd, Tcl_Interp *irp, int objc, Tcl_Obj *co
 static int python_script_call(const char *name, int argc, const char **argv)
 {
   PyObject *pybind, *pyargs, *result;
-  int i;
 
   if (!python_callbacks)
     return 0;
@@ -226,7 +224,7 @@ static int python_script_call(const char *name, int argc, const char **argv)
     return 0;
 
   pyargs = PyTuple_New(argc);
-  for (i = 0; i < argc; i++)
+  for (int i = 0; i < argc; i++)
     PyTuple_SET_ITEM(pyargs, i, PyUnicode_FromString(argv[i] ? argv[i] : ""));
 
   result = PyObject_Call(((PythonBind *)pybind)->callback, pyargs, NULL);
@@ -1685,7 +1683,6 @@ static PyObject *py_chhandle(PyObject *self, PyObject *args)
   char *oldh, *newh;
   char newbuf[HANDLEN + 1];
   struct userrec *u;
-  int i;
 
   if (!PyArg_ParseTuple(args, "ss", &oldh, &newh))
     return NULL;
@@ -1693,7 +1690,7 @@ static PyObject *py_chhandle(PyObject *self, PyObject *args)
   if (!u)
     Py_RETURN_FALSE;
   strlcpy(newbuf, newh, sizeof newbuf);
-  for (i = 0; newbuf[i]; i++)
+  for (int i = 0; newbuf[i]; i++)
     if (((unsigned char)newbuf[i] <= 32) || (newbuf[i] == '@'))
       newbuf[i] = '?';
   if (strchr(BADHANDCHARS, newbuf[0]) || !newbuf[0] ||
@@ -1777,11 +1774,10 @@ static PyObject *py_ignorelist(PyObject *self, PyObject *args)
 static PyObject *py_hand2idx(PyObject *self, PyObject *args)
 {
   char *handle;
-  int i;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
     return NULL;
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
         !strcasecmp(handle, dcc[i].nick))
       return PyLong_FromLong(dcc[i].sock);
@@ -1792,11 +1788,10 @@ static PyObject *py_hand2idx(PyObject *self, PyObject *args)
 static PyObject *py_idx2hand(PyObject *self, PyObject *args)
 {
   long sock;
-  int i;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
     return NULL;
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock == sock)
       return PyUnicode_FromString(dcc[i].nick);
   Py_RETURN_NONE;
@@ -1807,11 +1802,10 @@ static PyObject *py_killdcc(PyObject *self, PyObject *args)
 {
   long sock;
   char *reason = NULL;
-  int i;
 
   if (!PyArg_ParseTuple(args, "l|s", &sock, &reason))
     return NULL;
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (dcc[i].type->flags & DCT_CHAT) {
         dprintf(i, "Lost connection: %s\n", reason ? reason : "");
@@ -1829,13 +1823,12 @@ static PyObject *py_killdcc(PyObject *self, PyObject *args)
 static PyObject *py_dcclist(PyObject *self, PyObject *args)
 {
   char *typefilter = NULL;
-  int i;
   PyObject *list, *d;
 
   if (!PyArg_ParseTuple(args, "|s", &typefilter))
     return NULL;
   list = PyList_New(0);
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (!dcc[i].type)
       continue;
     if (typefilter && strcasecmp(dcc[i].type->name, typefilter))
@@ -2055,8 +2048,7 @@ static PyObject *py_account2nicks(PyObject *self, PyObject *args)
   struct chanset_t *ch, *thechan = NULL;
   memberlist *m;
   PyObject *list, *nick_str;
-  int found, i;
-  Py_ssize_t n;
+  int found;
 
   if (!PyArg_ParseTuple(args, "s|s", &account, &chan))
     return NULL;
@@ -2076,8 +2068,8 @@ static PyObject *py_account2nicks(PyObject *self, PyObject *args)
       if (!rfc_casecmp(m->account, account)) {
         /* Deduplicate */
         found = 0;
-        n = PyList_Size(list);
-        for (i = 0; i < n; i++) {
+        Py_ssize_t n = PyList_Size(list);
+        for (Py_ssize_t i = 0; i < n; i++) {
           const char *s = PyUnicode_AsUTF8(PyList_GET_ITEM(list, i));
           if (s && !rfc_casecmp(m->nick, s)) { found = 1; break; }
         }
@@ -2101,8 +2093,7 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
   memberlist *m;
   struct userrec *u;
   PyObject *list, *nick_str;
-  int found, i;
-  Py_ssize_t n;
+  int found;
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &chan))
     return NULL;
@@ -2122,8 +2113,8 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
       u = get_user_from_member(m);
       if (u && !strcasecmp(u->handle, handle)) {
         found = 0;
-        n = PyList_Size(list);
-        for (i = 0; i < n; i++) {
+        Py_ssize_t n = PyList_Size(list);
+        for (Py_ssize_t i = 0; i < n; i++) {
           const char *s = PyUnicode_AsUTF8(PyList_GET_ITEM(list, i));
           if (s && !rfc_casecmp(m->nick, s)) { found = 1; break; }
         }
@@ -2145,11 +2136,10 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
 static PyObject *py_putbot(PyObject *self, PyObject *args)
 {
   char *botnick, *msg, msgbuf[401];
-  int i;
 
   if (!PyArg_ParseTuple(args, "ss", &botnick, &msg))
     return NULL;
-  i = nextbot(botnick);
+  int i = nextbot(botnick);
   if (i < 0) {
     PyErr_SetString(EggdropError, "bot is not on the botnet");
     return NULL;

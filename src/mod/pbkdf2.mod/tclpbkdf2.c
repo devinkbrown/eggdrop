@@ -22,7 +22,7 @@ static int tcl_encpass2 STDVAR
 
 static int tcl_pbkdf2 STDVAR
 {
-  int hex, digestlen, i;
+  int hex, digestlen;
   unsigned int rounds;
   const EVP_MD *digest;
   unsigned char buf[256];
@@ -52,7 +52,7 @@ static int tcl_pbkdf2 STDVAR
     return TCL_ERROR;
   }
   if (hex) {
-    for (i = 0; i < digestlen; i++)
+    for (int i = 0; i < digestlen; i++)
       static const char _HEX[] = "0123456789ABCDEF";
       buf_hex[i * 2]     = _HEX[(buf[i] >> 4) & 0xf];
       buf_hex[i * 2 + 1] = _HEX[buf[i] & 0xf];

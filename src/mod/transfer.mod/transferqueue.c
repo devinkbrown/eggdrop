@@ -183,7 +183,7 @@ static void send_next_file(char *to)
 
 static void show_queued_files(int idx)
 {
-  int i, cnt = 0, len;
+  int cnt = 0, len;
   char spaces[] = "                                 ";
   fileq_t *q;
 
@@ -205,7 +205,7 @@ static void show_queued_files(int idx)
       spaces[len] = ' ';
     }
   }
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type == &DCC_GET_PENDING || dcc[i].type == &DCC_GET) &&
         (!strcasecmp(dcc[i].nick, dcc[idx].nick) ||
          !strcasecmp(dcc[i].u.xfer->from, dcc[idx].nick))) {
@@ -240,7 +240,7 @@ static void show_queued_files(int idx)
 
 static void fileq_cancel(int idx, char *par)
 {
-  int fnd = 1, matches = 0, atot = 0, i;
+  int fnd = 1, matches = 0, atot = 0;
   fileq_t *q;
   char *s = NULL;
 
@@ -286,7 +286,7 @@ static void fileq_cancel(int idx, char *par)
   if (s)
     nfree(s);
 
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type == &DCC_GET_PENDING || dcc[i].type == &DCC_GET) &&
         (!strcasecmp(dcc[i].nick, dcc[idx].nick) ||
          !strcasecmp(dcc[i].u.xfer->from, dcc[idx].nick))) {
@@ -315,7 +315,7 @@ static void fileq_cancel(int idx, char *par)
     dprintf(idx, "%s", TRANSFER_NO_MATCHES);
   else
     dprintf(idx, TRANSFER_CANCELLED_FILE, matches, (matches != 1) ? "s" : "");
-  for (i = 0; i < atot; i++)
+  for (int i = 0; i < atot; i++)
     if (!at_limit(dcc[idx].nick))
       send_next_file(dcc[idx].nick);
 }

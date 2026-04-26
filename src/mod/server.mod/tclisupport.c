@@ -46,21 +46,20 @@ static struct {
 
 int tcl_isupport STDOBJVAR
 {
-  int i;
   const char *subcmd;
   Tcl_Obj *str;
 
   BADOBJARGS(2, -1, 1, "subcommand ?args?");
 
   subcmd = Tcl_GetString(objv[1]);
-  for (i = 0; i < sizeof subcmds / sizeof *subcmds; i++) {
+  for (int i = 0; i < sizeof subcmds / sizeof *subcmds; i++) {
     if (!strcmp(subcmds[i].subcmd, subcmd))
       return (subcmds[i].proc)(cd, irp, objc, objv);
   }
 
   str = Tcl_NewStringObj("", 0);
   Tcl_AppendStringsToObj(str, "Invalid subcommand, must be one of:", NULL);
-  for (i = 0; i < sizeof subcmds / sizeof *subcmds; i++)
+  for (int i = 0; i < sizeof subcmds / sizeof *subcmds; i++)
     Tcl_AppendStringsToObj(str, " ", subcmds[i].subcmd, NULL);
   Tcl_SetObjResult(interp, str);
   return TCL_ERROR;

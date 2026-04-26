@@ -24,7 +24,6 @@
 static int tcl_dccsend STDVAR
 {
   char *sys, *nfn;
-  int i;
 
   BADARGS(3, 3, " filename ircnick");
 
@@ -58,7 +57,7 @@ static int tcl_dccsend STDVAR
     Tcl_AppendResult(irp, "4", NULL);
     return TCL_OK;
   }
-  i = raw_dcc_send(argv[1], argv[2], "*");
+  int i = raw_dcc_send(argv[1], argv[2], "*");
   Tcl_AppendResult(irp, int_to_base10(i), NULL);
   return TCL_OK;
 }
@@ -96,12 +95,12 @@ static int tcl_getfileq STDVAR
 
 static int tcl_getfilesendtime STDVAR
 {
-  int sock, i;
+  int sock;
 
   BADARGS(2, 2, " idx");
 
   sock = atoi(argv[1]);
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (dcc[i].type == &DCC_SEND || dcc[i].type == &DCC_GET) {
         op_strbuf_t _b;

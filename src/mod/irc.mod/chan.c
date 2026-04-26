@@ -1014,7 +1014,8 @@ static void recheck_channel(struct chanset_t *chan, int dobans)
  */
 static int got324(char *from, char *msg)
 {
-  int i = 1, ok = 0;
+  int i = 1;
+  bool ok = false;
   char *p, *q, *chname;
   struct chanset_t *chan;
 
@@ -1027,7 +1028,7 @@ static int got324(char *from, char *msg)
     return 0;
   }
   if (chan->status & CHAN_ASKEDMODES)
-    ok = 1;
+    ok = true;
   chan->status &= ~CHAN_ASKEDMODES;
   chan->channel.mode = 0;
   while (msg[i] != 0) {
@@ -1354,7 +1355,6 @@ static int got353(char *from, char *msg)
   char prefixchars[64];
   char *nameptr, *chname, *uhost, *nick, *p, *host = NULL;
   struct chanset_t *chan = NULL;
-  int i;
 
   if ((current = find_capability("userhost-in-names")) && current->enabled) {
     strlcpy(prefixchars, isupport_get_prefixchars(), sizeof prefixchars);
@@ -1370,7 +1370,7 @@ static int got353(char *from, char *msg)
       fixcolon(uhost);
       nick = splitnick(&uhost);
       /* Strip @, +, etc chars prefixed to nicks in NAMES */
-      for (i = 0; prefixchars[i]; i++) {
+      for (int i = 0; prefixchars[i]; i++) {
         if(nick[0] == prefixchars[i]) {
           nick=nick+1;
         }

@@ -75,10 +75,10 @@ static char *strrangedup(const char *value, size_t len) {
 }
 
 static char *strrangedup_toupper(const char *value, size_t len) {
-  int i;
   char *str = nmalloc(len + 1);
 
-  for (i = 0; i < len; i++) {
+  int i = 0;
+  for (; i < len; i++) {
     str[i] = toupper((unsigned char)value[i]);
   }
   str[i] = '\0';

@@ -556,11 +556,9 @@ static int tcl_chhandle STDVAR
 
 static int tcl_getting_users STDVAR
 {
-  int i;
-
   BADARGS(1, 1, "");
 
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_BOT && dcc[i].status & STAT_GETTING) {
       Tcl_AppendResult(irp, "1", NULL);
       return TCL_OK;

@@ -614,7 +614,7 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
 #endif
 {
   char *param, *ip, *prt, *buf = NULL, *msg;
-  int atr = u ? u->flags : 0, i, j = 0;
+  int atr = u ? u->flags : 0, j = 0;
 
   if (text[j] == '"') {
     text[j] = ' ';
@@ -668,7 +668,7 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
         my_free(buf);
         return;
       }
-      i = new_dcc(&DCC_DNSWAIT, sizeof(struct dns_info));
+      int i = new_dcc(&DCC_DNSWAIT, sizeof(struct dns_info));
       if (i < 0) {
         dprintf(DP_HELP, "NOTICE %s :Sorry, too many DCC connections.\n", nick);
         putlog(LOG_MISC, "*", "DCC connections full: SEND %s (%s!%s)", param,
@@ -831,7 +831,6 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
                             char *object, char *keyword, char *text)
 {
   char *param, *ip, *prt, buf[512], *msg = buf;
-  int i;
   struct userrec *u = get_user_by_handle(userlist, handle);
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
@@ -881,7 +880,7 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
       putlog(LOG_FILES, "*", "%s: %s!%s", DCC_REFUSED7, nick, from);
       return 1;
     }
-    i = new_dcc(&DCC_FILES_PASS, sizeof(struct file_info));
+    int i = new_dcc(&DCC_FILES_PASS, sizeof(struct file_info));
     dcc[i].sock = open_telnet(i, ip, atoi(prt));
     if (dcc[i].sock < 0) {
       lostdcc(i);
@@ -956,12 +955,11 @@ static void filesys_report(int idx, int details)
 
 static char *filesys_close(void)
 {
-  int i;
   p_tcl_bind_list H_ctcp;
 
   putlog(LOG_MISC, "*", "%s", "Unloading filesystem; killing all filesystem "
          "connections.");
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_FILES) {
       dprintf(i, "%s", DCC_BOOTED1);
       dprintf(i, "You have been booted from the filesystem, module "

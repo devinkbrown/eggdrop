@@ -113,7 +113,7 @@ static void cmd_noteigns(struct userrec *u, int idx, char *par)
 {
   struct userrec *u2;
   char **ignores;
-  int ignoresn, i;
+  int ignoresn;
 
   if (par[0]) {
     u2 = get_user_by_handle(userlist, par);
@@ -140,7 +140,7 @@ static void cmd_noteigns(struct userrec *u, int idx, char *par)
   }
   putlog(LOG_CMDS, "*", "#%s# noteigns %s", dcc[idx].nick, par);
   dprintf(idx, NOTES_IGN_FOR, u2->handle);
-  for (i = 0; i < ignoresn; i++)
+  for (int i = 0; i < ignoresn; i++)
     dprintf(idx, " %s", ignores[i]);
   dprintf(idx, "\n");
   nfree(ignores[0]);            /* Free the string buffer       */

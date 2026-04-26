@@ -642,8 +642,6 @@ Function global_table[] = {
 
 void init_modules(void)
 {
-  int i;
-
   module_entry_bh = op_bh_create(sizeof(module_entry), 16, "module_entry");
   dependancy_bh   = op_bh_create(sizeof(dependancy),   16, "module_dep");
   module_list = op_bh_alloc(module_entry_bh);
@@ -656,13 +654,13 @@ void init_modules(void)
 #endif
   module_list->next = NULL;
   module_list->funcs = NULL;
-  for (i = 0; i < REAL_HOOKS; i++)
+  for (int i = 0; i < REAL_HOOKS; i++)
     op_vec_init(&hook_list[i], 2);
 }
 
 int expmem_modules(int y)
 {
-  int c = 0, i;
+  int c = 0;
   module_entry *p;
   dependancy *d;
   Function *f;
@@ -673,7 +671,7 @@ int expmem_modules(int y)
     c += sizeof(struct static_list) + strlen(s->name) + 1;
 #endif
 
-  for (i = 0; i < REAL_HOOKS; i++)
+  for (int i = 0; i < REAL_HOOKS; i++)
     c += (int)(op_vec_size(&hook_list[i]) * sizeof(void *));
 
   for (d = dependancy_list; d; d = d->next)

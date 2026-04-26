@@ -1261,7 +1261,6 @@ static void cmd_mns_chan(struct userrec *u, int idx, char *par)
 {
   char *chname;
   struct chanset_t *chan;
-  int i;
 
   if (!par[0]) {
     dprintf(idx, "Usage: -chan [%s]<channel>\n", CHANMETA);
@@ -1282,7 +1281,7 @@ static void cmd_mns_chan(struct userrec *u, int idx, char *par)
     return;
   }
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & DCT_CHAT) &&
         !rfc_casecmp(dcc[i].u.chat->con_chan, chan->dname)) {
       dprintf(i, "%s is no longer a valid channel, changing your console "
