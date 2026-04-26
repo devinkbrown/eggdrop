@@ -49,7 +49,7 @@
 /* wolfSSL_CTX_get0_certificate requires KEEP_OUR_CERT at compile time.
  * If not available, stub it — callers must handle a NULL return. */
 #ifndef SSL_CTX_get0_certificate
-static X509 *SSL_CTX_get0_certificate(SSL_CTX *ctx) { (void)ctx; return NULL; }
+static X509 *SSL_CTX_get0_certificate([[maybe_unused]] SSL_CTX *ctx) { return NULL; }
 #endif
 
 /* wolfssl provides OPENSSL_VERSION_NUMBER via its compat layer */
@@ -1119,7 +1119,6 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
 
   /* Prepare a ssl appdata struct for the verify callback */
   data = nmalloc(sizeof(ssl_appdata));
-  egg_bzero(data, sizeof(ssl_appdata));
   data->flags = flags & (TLS_LISTEN | TLS_CONNECT);
   data->verify = verify;
   /* Invert these flags as their corresponding configuration values express
@@ -1184,27 +1183,23 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
         ERR_GET_REASON(err) == SSL_R_HTTP_REQUEST) {
       /* We dont have access to real port, host or dcc information here */
       putlog(LOG_MISC, "*", "TLS: error: HTTP request received on an SSL port");
-      int j;
       char *response;
       char *body = "Error: HTTP request received on an SSL port, please try HTTPS";
-      j = snprintf(NULL, 0,
-        "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
-        "Content-Length: %zu\r\n"
-        "Content-Type: text/plain; charset=utf-8\r\n"
-        "Server: %s\r\n"
-        "\r\n%s", strlen(body),
+      {
+        op_strbuf_t _r;
+        op_strbuf_printf(&_r,
+          "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
+          "Content-Length: %zu\r\n"
+          "Content-Type: text/plain; charset=utf-8\r\n"
+          "Server: %s\r\n"
+          "\r\n%s", strlen(body),
           stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
           body);
-      response = nmalloc(j + 1);
-      snprintf(response, j + 1,
-        "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
-        "Content-Length: %zu\r\n"
-        "Content-Type: text/plain; charset=utf-8\r\n"
-        "Server: %s\r\n"
-        "\r\n%s", strlen(body),
-          stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
-          body);
-      if (write(sock, response, j) < 0) /* tputs() cannot be used here */
+        response = nmalloc(op_strbuf_len(&_r) + 1);
+        strlcpy(response, op_strbuf_str(&_r), op_strbuf_len(&_r) + 1);
+        op_strbuf_free(&_r);
+      }
+      if (write(sock, response, strlen(response)) < 0) /* tputs() cannot be used here */
         putlog(LOG_MISC, "*", "TLS: error: write(sock %i): %s", sock, strerror(errno));
       /* Note: ideally we would drain remaining request bytes here so the
        * client can receive our response before the socket closes (avoiding

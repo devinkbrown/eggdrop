@@ -43,12 +43,14 @@ struct userrec *userlist = NULL;   /* user records are stored here      */
  * Replaced nmalloc(sizeof(*x)) / nfree(x) with these wrappers everywhere
  * these structs are allocated or freed, giving O(1) slab alloc/free and
  * returning memory to the OS when the heaps are destroyed on shutdown. */
-static op_bh *userrec_heap    = NULL;
+static op_bh *userrec_heap     = NULL;
 static op_bh *chanuserrec_heap = NULL;
 static op_bh *user_entry_heap  = NULL;
 static op_bh *list_type_heap   = NULL;
 static op_bh *xtra_key_heap    = NULL;
 static op_bh *laston_info_heap = NULL;
+static op_bh *igrec_heap       = NULL;
+static op_bh *maskrec_heap     = NULL;
 
 void userrec_heaps_init(void)
 {
@@ -58,6 +60,8 @@ void userrec_heaps_init(void)
   list_type_heap   = op_bh_create(sizeof(struct list_type),   0, "list_type");
   xtra_key_heap    = op_bh_create(sizeof(struct xtra_key),   64, "xtra_key");
   laston_info_heap = op_bh_create(sizeof(struct laston_info), 0, "laston_info");
+  igrec_heap       = op_bh_create(sizeof(struct igrec),      16, "igrec");
+  maskrec_heap     = op_bh_create(sizeof(maskrec),           32, "maskrec");
 }
 
 void userrec_heaps_destroy(void)
@@ -68,6 +72,8 @@ void userrec_heaps_destroy(void)
   if (list_type_heap)   { op_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
   if (xtra_key_heap)    { op_bh_destroy(xtra_key_heap);    xtra_key_heap    = NULL; }
   if (laston_info_heap) { op_bh_destroy(laston_info_heap); laston_info_heap = NULL; }
+  if (igrec_heap)       { op_bh_destroy(igrec_heap);       igrec_heap       = NULL; }
+  if (maskrec_heap)     { op_bh_destroy(maskrec_heap);     maskrec_heap     = NULL; }
 }
 
 struct userrec *alloc_userrec(void)
@@ -142,6 +148,30 @@ void free_laston_info(struct laston_info *li)
   op_bh_free(laston_info_heap, li);
 }
 
+struct igrec *alloc_igrec(void)
+{
+  struct igrec *ig = op_bh_alloc(igrec_heap);
+  memset(ig, 0, sizeof *ig);
+  return ig;
+}
+
+void free_igrec(struct igrec *ig)
+{
+  op_bh_free(igrec_heap, ig);
+}
+
+maskrec *alloc_maskrec(void)
+{
+  maskrec *m = op_bh_alloc(maskrec_heap);
+  memset(m, 0, sizeof *m);
+  return m;
+}
+
+void free_maskrec(maskrec *m)
+{
+  op_bh_free(maskrec_heap, m);
+}
+
 struct userrec *lastuser = NULL;   /* last accessed user record         */
 
 /* Splay-tree index from lowercase handle → userrec *.
@@ -206,12 +236,12 @@ char userfile[121];                /* where the user records are stored */
 void *_user_malloc(int size, const char *file, int line)
 {
 #ifdef DEBUG_MEM
-  char x[1024];
-  const char *p;
-
-  p = strrchr(file, '/');
-  snprintf(x, sizeof x, "userrec.c:%s", p ? p + 1 : file);
-  return n_malloc(size, x, line);
+  const char *p = strrchr(file, '/');
+  op_strbuf_t x;
+  op_strbuf_printf(&x, "userrec.c:%s", p ? p + 1 : file);
+  void *ret = n_malloc(size, op_strbuf_str(&x), line);
+  op_strbuf_free(&x);
+  return ret;
 #else
   return nmalloc(size);
 #endif
@@ -220,12 +250,12 @@ void *_user_malloc(int size, const char *file, int line)
 void *_user_realloc(void *ptr, int size, const char *file, int line)
 {
 #ifdef DEBUG_MEM
-  char x[1024];
-  const char *p;
-
-  p = strrchr(file, '/');
-  snprintf(x, sizeof x, "userrec.c:%s", p ? p + 1 : file);
-  return n_realloc(ptr, size, x, line);
+  const char *p = strrchr(file, '/');
+  op_strbuf_t x;
+  op_strbuf_printf(&x, "userrec.c:%s", p ? p + 1 : file);
+  void *ret = n_realloc(ptr, size, op_strbuf_str(&x), line);
+  op_strbuf_free(&x);
+  return ret;
 #else
   return nrealloc(ptr, size);
 #endif
@@ -434,9 +464,10 @@ struct userrec *get_user_from_member(memberlist *m)
 
   /* Check if there is a user with a matching hostmask if one is provided */
   if ((m->userhost[0] != '\0') && (m->nick[0] != '\0')) {
-    char s[NICKMAX+UHOSTLEN+1];
-    snprintf(s, sizeof(s), "%s!%s", m->nick, m->userhost);
-    ret = get_user_by_host(s);
+    op_strbuf_t s;
+    op_strbuf_printf(&s, "%s!%s", m->nick, m->userhost);
+    ret = get_user_by_host((char *) op_strbuf_str(&s));
+    op_strbuf_free(&s);
     if (ret) {
       goto getuser_done;
     }
@@ -512,7 +543,7 @@ void clear_masks(maskrec *m)
       nfree(m->user);
     if (m->desc)
       nfree(m->desc);
-    nfree(m);
+    free_maskrec(m);
   }
 }
 
@@ -820,7 +851,6 @@ static void sort_userlist(void)
 void write_userfile(int idx)
 {
   FILE *f;
-  char new_userfile[(sizeof userfile) + 4]; /* 4 = strlen("~new") */
   char s[26];
   struct userrec *u;
   int ok;
@@ -828,12 +858,14 @@ void write_userfile(int idx)
   if (userlist == NULL)
     return;                     /* No point in saving userfile */
 
-  snprintf(new_userfile, sizeof new_userfile, "%s~new", userfile);
+  op_strbuf_t new_userfile;
+  op_strbuf_printf(&new_userfile, "%s~new", userfile);
 
-  f = fopen(new_userfile, "w");
-  chmod(new_userfile, userfile_perm);
+  f = fopen(op_strbuf_str(&new_userfile), "w");
+  chmod(op_strbuf_str(&new_userfile), userfile_perm);
   if (f == NULL) {
     putlog(LOG_MISC, "*", "%s", USERF_ERRWRITE);
+    op_strbuf_free(&new_userfile);
     return;
   }
   if (!quiet_save)
@@ -850,21 +882,23 @@ void write_userfile(int idx)
   if (!ok || !write_ignores(f, -1) || fflush(f)) {
     putlog(LOG_MISC, "*", "%s (%s)", USERF_ERRWRITE, strerror(ferror(f)));
     fclose(f);
+    op_strbuf_free(&new_userfile);
     return;
   }
   fclose(f);
   call_hook(HOOK_USERFILE);
-  movefile(new_userfile, userfile);
+  movefile(op_strbuf_str(&new_userfile), userfile);
+  op_strbuf_free(&new_userfile);
 }
 
 void backup_userfile(void)
 {
-  char s[(sizeof userfile) + 4]; /* 4 = strlen("~bak") */
-
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "%s", USERF_BACKUP);
-  snprintf(s, sizeof s, "%s~bak", userfile);
-  copyfile(userfile, s);
+  op_strbuf_t s;
+  op_strbuf_printf(&s, "%s~bak", userfile);
+  copyfile(userfile, op_strbuf_str(&s));
+  op_strbuf_free(&s);
 }
 
 int change_handle(struct userrec *u, char *newh)
@@ -930,13 +964,15 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   }
   set_user(&USERENTRY_PASS, u, pass);
   if (!noxtra) {
-    int l;
     xk = alloc_xtra_key();
     xk->key = nmalloc(8);
     strlcpy(xk->key, "created", sizeof(xk->key));
-    l = snprintf(NULL, 0, "%" PRId64, (int64_t) now);
-    xk->data = nmalloc(l + 1);
-    snprintf(xk->data, l + 1, "%" PRId64, (int64_t) now);
+    {
+      op_strbuf_t ts;
+      op_strbuf_printf(&ts, "%" PRId64, (int64_t) now);
+      xk->data = nstrdup(op_strbuf_str(&ts));
+      op_strbuf_free(&ts);
+    }
     set_user(&USERENTRY_XTRA, u, xk);
   }
   /* Strip out commas -- they're illegal */
@@ -1205,11 +1241,11 @@ struct userrec *get_user_by_nick(char *nick)
   for (chan = chanset; chan; chan = chan->next) {
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       if (!rfc_casecmp(nick, m->nick)) {
-        char word[512];
-
-        snprintf(word, sizeof word, "%s!%s", m->nick, m->userhost);
-        /* No need to check the return value ourself */
-        return get_user_by_host(word);
+        op_strbuf_t word;
+        op_strbuf_printf(&word, "%s!%s", m->nick, m->userhost);
+        struct userrec *r = get_user_by_host((char *) op_strbuf_str(&word));
+        op_strbuf_free(&word);
+        return r;
       }
     }
   }

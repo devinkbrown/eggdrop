@@ -26,6 +26,7 @@ core_sources = files(
   'dccutil.c',
   'dns.c',
   'flags.c',
+  'io_thread.c',
   'language.c',
   'main.c',
   'match.c',
@@ -56,6 +57,11 @@ core_cargs = [
   '-DHANDLEN=@0@'.format(opt_handlen),
   '-DEGG_DATADIR="@0@"'.format(get_option('prefix') / get_option('datadir') / 'eggdrop'),
   '-DEGG_MODDIR="@0@"'.format(get_option('prefix') / get_option('libdir') / 'eggdrop' / meson.project_version()),
+  # IntFunc (typedef int (*IntFunc)()) is intentional type-erasure: functions are
+  # always called through explicit casts back to the real type.  C23 changed
+  # the meaning of () from "unspecified args" to (void), making all implicit
+  # function-pointer conversions into hard errors.  Suppress for this pattern.
+  '-Wno-incompatible-pointer-types',
 ]
 
 # -DDEBUG_MEM is eggdrop-specific (memory tracking); the generic -DDEBUG/-g

@@ -201,8 +201,12 @@ static int check_tcl_clearchat(char *chan, char *nick) {
   char mask[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
-  snprintf(mask, sizeof mask, "%s %s!%s@%s.tmi.twitch.tv",
-                                chan, nick, nick, nick);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
+    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+    op_strbuf_free(&_b);
+  }
   Tcl_SetVar(interp, "_ccht1", nick ? (char *) nick : "", 0);
   Tcl_SetVar(interp, "_ccht2", chan, 0);
   x = check_tcl_bind(H_ccht, mask, &fr, " $_ccht1 $_ccht2",
@@ -215,8 +219,12 @@ static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
   char mask[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
-  snprintf(mask, sizeof mask, "%s %s!%s@%s.tmi.twitch.tv",
-                                chan, nick, nick, nick);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
+    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+    op_strbuf_free(&_b);
+  }
   Tcl_SetVar(interp, "_cmsg1", nick, 0);
   Tcl_SetVar(interp, "_cmsg2", chan, 0);
   Tcl_SetVar(interp, "_cmsg3", msgid, 0);
@@ -231,7 +239,12 @@ static int check_tcl_hosttarget(char *chan, char *nick, char *viewers) {
   char mask[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
-  snprintf(mask, sizeof mask, "%s %s", chan, nick);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s", chan, nick);
+    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+    op_strbuf_free(&_b);
+  }
   Tcl_SetVar(interp, "_htgt1", nick, 0);
   Tcl_SetVar(interp, "_htgt2", chan, 0);
   Tcl_SetVar(interp, "_htgt3", viewers, 0);
@@ -269,9 +282,12 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
 
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
-  if (msg[0])                       /* Re-attach the cmd to the msg */
-    snprintf(args, sizeof args, "%s %s", cmd, msg);
-  else
+  if (msg[0]) {                     /* Re-attach the cmd to the msg */
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s", cmd, msg);
+    strlcpy(args, op_strbuf_str(&_b), sizeof args);
+    op_strbuf_free(&_b);
+  } else
     strlcpy(args, cmd, sizeof args);
   get_user_flagrec(u, &fr, NULL);
   u = get_user_by_host(from);
@@ -288,7 +304,12 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
 static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
   char mask[TOTALTAGMAX + 200]; /* channel + key */
 
-  snprintf(mask, sizeof mask, "%s %s", chan, encode_msgtags(tags));
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
+    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+    op_strbuf_free(&_b);
+  }
   Tcl_SetVar(interp, "_rmst1", chan, 0);
   Tcl_SetVar(interp, "_rmst2", Tcl_GetString(tags), 0);
   check_tcl_bind(H_rmst, mask, NULL, " $_rmst1 $_rmst2",
@@ -298,7 +319,12 @@ static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
 static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
   char mask[TOTALTAGMAX + 200]; /* channel + key */
 
-  snprintf(mask, sizeof mask, "%s %s", chan, encode_msgtags(tags));
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
+    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+    op_strbuf_free(&_b);
+  }
   Tcl_SetVar(interp, "_usst1", chan, 0);
   Tcl_SetVar(interp, "_usst2", Tcl_GetString(tags), 0);
   check_tcl_bind(H_usst, mask, NULL, " $_usst1 $_usst2",
@@ -308,7 +334,12 @@ static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
 static void check_tcl_usernotice(char *chan, char *msg, Tcl_Obj *tags) {
   char mask[TOTALTAGMAX + 200]; /* channel + msgid */
 
-  snprintf(mask, sizeof mask, "%s %s", chan, encode_msgtags(tags));
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
+    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+    op_strbuf_free(&_b);
+  }
   Tcl_SetVar(interp, "_usrntc1", chan, 0);
   Tcl_SetVar(interp, "_usrntc2", Tcl_GetString(tags), 0);
   Tcl_SetVar(interp, "_usrntc3", msg ? msg : "", 0);
@@ -429,7 +460,10 @@ static int gothosttarget(char *from, char *msg) {
   nick = newsplit(&msg);
   viewers = newsplit(&msg);
   if (viewers) {
-    snprintf(s, sizeof(s), " (Viewers: %s)", viewers);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, " (Viewers: %s)", viewers);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
   }
   check_tcl_hosttarget(chan, nick, viewers);
   if (nick[0] == '-') {             /* Check if it is an unhost */
@@ -608,7 +642,6 @@ static int gotusernotice(char *from, char *msg, Tcl_Obj *tags) {
 #ifdef HAVE_TCL
 static int tcl_userstate STDVAR {
   twitchchan_t *tchan;
-  char s [3];
   Tcl_DString usdict;
 
   BADARGS(2, 2, " chan");
@@ -619,8 +652,7 @@ static int tcl_userstate STDVAR {
     return TCL_ERROR;
   }
   Tcl_DStringAppendElement(&usdict, "badge-info");
-  snprintf(s, sizeof s, "%d", tchan->userstate.badge_info);
-  Tcl_DStringAppendElement(&usdict, s);
+  Tcl_DStringAppendElement(&usdict, int_to_base10(tchan->userstate.badge_info));
   Tcl_DStringAppendElement(&usdict, "badges");
   Tcl_DStringAppendElement(&usdict, tchan->userstate.badges ? tchan->userstate.badges : "");
   Tcl_DStringAppendElement(&usdict, "color");
@@ -630,8 +662,7 @@ static int tcl_userstate STDVAR {
   Tcl_DStringAppendElement(&usdict, "emote-sets");
   Tcl_DStringAppendElement(&usdict, tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "");
   Tcl_DStringAppendElement(&usdict, "mod");
-  snprintf(s, sizeof s, "%d", tchan->userstate.mod);
-  Tcl_DStringAppendElement(&usdict, s);
+  Tcl_DStringAppendElement(&usdict, int_to_base10(tchan->userstate.mod));
 
   Tcl_AppendResult(irp, Tcl_DStringValue(&usdict), NULL);
   Tcl_DStringFree(&usdict);
@@ -741,7 +772,6 @@ static int tcl_isvip STDVAR {
 
 
 static int tcl_roomstate STDVAR {
-  char s[5];
   twitchchan_t *tchan;
   Tcl_DString rsdict;
 
@@ -753,20 +783,15 @@ static int tcl_roomstate STDVAR {
     return TCL_ERROR;
   }
   Tcl_DStringAppendElement(&rsdict, "emote-only");
-  snprintf(s, sizeof s, "%d", tchan->emote_only);
-  Tcl_DStringAppendElement(&rsdict, s);
+  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->emote_only));
   Tcl_DStringAppendElement(&rsdict, "followers-only");
-  snprintf(s, sizeof s, "%d", tchan->followers_only);
-  Tcl_DStringAppendElement(&rsdict, s);
+  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->followers_only));
   Tcl_DStringAppendElement(&rsdict, "r9k");
-  snprintf(s, sizeof s, "%d", tchan->emote_only);
-  Tcl_DStringAppendElement(&rsdict, s);
+  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->emote_only));
   Tcl_DStringAppendElement(&rsdict, "slow");
-  snprintf(s, sizeof s, "%d", tchan->slow);
-  Tcl_DStringAppendElement(&rsdict, s);
+  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->slow));
   Tcl_DStringAppendElement(&rsdict, "subs-only");
-  snprintf(s, sizeof s, "%d", tchan->subs_only);
-  Tcl_DStringAppendElement(&rsdict, s);
+  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->subs_only));
 
   Tcl_AppendResult(irp, Tcl_DStringValue(&rsdict), NULL);
   Tcl_DStringFree(&rsdict);

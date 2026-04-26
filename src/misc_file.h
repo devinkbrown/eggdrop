@@ -23,10 +23,10 @@
 #ifndef _EGG_MISC_FILE_H
 #define _EGG_MISC_FILE_H
 
-int copyfile(char *, char *);
-int copyfilef(char *, FILE *);
-int fcopyfile(FILE *, char *);
-int movefile(char *, char *);
-int file_readable(char *);
+int copyfile(const char *, const char *);
+int copyfilef(const char *, FILE *);
+int fcopyfile(FILE *, const char *);
+int movefile(const char *, const char *);
+int file_readable(const char *);
 
 #endif /* _EGG_MISC_FILE_H */

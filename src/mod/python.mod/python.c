@@ -114,7 +114,12 @@ static char *init_python() {
   config.install_signal_handlers = 0;
   config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
-    snprintf(venvpython, sizeof venvpython, "%s/bin/python3", venv);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s/bin/python3", venv);
+      strlcpy(venvpython, op_strbuf_str(&_b), sizeof venvpython);
+      op_strbuf_free(&_b);
+    }
     /* Validate the venv executable exists and is runnable before telling
      * Python to use it.  Py_InitializeFromConfig() issues a fatal (not just
      * exception) status for a missing executable, which internally calls

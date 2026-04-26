@@ -120,13 +120,18 @@ static void notes_change(char *oldnick, char *newnick)
   f = fopen(notefile, "r");
   if (f == NULL)
     return;
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  g = fopen(s, "w");
-  if (g == NULL) {
-    fclose(f);
-    return;
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    g = fopen(op_strbuf_str(&_b), "w");
+    if (g == NULL) {
+      op_strbuf_free(&_b);
+      fclose(f);
+      return;
+    }
+    chmod(op_strbuf_str(&_b), userfile_perm);
+    op_strbuf_free(&_b);
   }
-  chmod(s, userfile_perm);      /* Use userfile permissions. */
   while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
@@ -149,8 +154,12 @@ static void notes_change(char *oldnick, char *newnick)
   fclose(f);
   fclose(g);
   unlink(notefile);
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  movefile(s, notefile);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    movefile((char *) op_strbuf_str(&_b), notefile);
+    op_strbuf_free(&_b);
+  }
   putlog(LOG_MISC, "*", NOTES_SWITCHED_NOTES, tot, tot == 1 ? "" : "s",
          oldnick, newnick);
 }
@@ -168,13 +177,18 @@ static void expire_notes(void)
   f = fopen(notefile, "r");
   if (f == NULL)
     return;
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  g = fopen(s, "w");
-  if (g == NULL) {
-    fclose(f);
-    return;
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    g = fopen(op_strbuf_str(&_b), "w");
+    if (g == NULL) {
+      op_strbuf_free(&_b);
+      fclose(f);
+      return;
+    }
+    chmod(op_strbuf_str(&_b), userfile_perm);
+    op_strbuf_free(&_b);
   }
-  chmod(s, userfile_perm);      /* Use userfile permissions. */
   while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
@@ -199,8 +213,12 @@ static void expire_notes(void)
   fclose(f);
   fclose(g);
   unlink(notefile);
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  movefile(s, notefile);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    movefile((char *) op_strbuf_str(&_b), notefile);
+    op_strbuf_free(&_b);
+  }
   if (tot > 0)
     putlog(LOG_MISC, "*", NOTES_EXPIRED, tot, tot == 1 ? "" : "s");
 }
@@ -212,7 +230,7 @@ static int tcl_storenote STDVAR
 {
   FILE *f;
   int idx;
-  char u[20], *f1, *to = NULL, work[1024];
+  char u[HANDLEN + 2], *f1, *to = NULL;
   struct userrec *ur;
   struct userrec *ur2;
 
@@ -264,27 +282,34 @@ static int tcl_storenote STDVAR
         }
       }
       if (ok) {
+        op_strbuf_t note_sb;
+
+        op_strbuf_init(&note_sb);
         if (p && strchr(argv[1], '@')) {
-          simple_sprintf(work, "<%s@%s >%s %s", argv[2], botnetnick,
-                         argv[1], argv[3]);
-          simple_sprintf(u, "@%s", botnetnick);
+          op_strbuf_appendf(&note_sb, "<%s@%s >%s %s", argv[2], botnetnick,
+                            argv[1], argv[3]);
+          {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "@%s", botnetnick);
+            strlcpy(u, op_strbuf_str(&_b), sizeof u);
+            op_strbuf_free(&_b);
+          }
           p = u;
         } else {
-          simple_sprintf(work, "<%s@%s %s", argv[2], botnetnick, argv[3]);
+          op_strbuf_appendf(&note_sb, "<%s@%s %s", argv[2], botnetnick,
+                            argv[3]);
           p = argv[1];
         }
-      }
+        if ((add_note(fwd, p, (char *)op_strbuf_str(&note_sb), idx, 0) == NOTE_OK)
+            && (idx >= 0))
+          dprintf(idx, NOTES_FORWARD_NOTONLINE, f1);
+        op_strbuf_free(&note_sb);
+        Tcl_AppendResult(irp, f1, NULL);
+        to = NULL;
+      } else
+        to = argv[2];
     } else
-      ok = 0;
-    if (ok) {
-      if ((add_note(fwd, p, work, idx, 0) == NOTE_OK) && (idx >= 0))
-        dprintf(idx, NOTES_FORWARD_NOTONLINE, f1);
-      Tcl_AppendResult(irp, f1, NULL);
-      to = NULL;
-    } else {
-      strlcpy(work, argv[3], sizeof(work));
       to = argv[2];
-    }
   } else
     to = argv[2];
   if (to) {
@@ -303,19 +328,21 @@ static int tcl_storenote STDVAR
           dprintf(idx, "%s\n", NOTES_NOTEFILE_FAILED);
         putlog(LOG_MISC, "*", "%s", NOTES_NOTEFILE_UNREACHABLE);
       } else {
+        op_strbuf_t chain;
         char *p, *blah = argv[3], *from = argv[1];
-        int l = 0;
 
+        op_strbuf_init(&chain);
         chmod(notefile, userfile_perm); /* Use userfile permissions. */
         while ((blah[0] == '<') || (blah[0] == '>')) {
           p = newsplit(&blah);
           if (*p == '<')
-            l += simple_sprintf(work + l, "via %s, ", p + 1);
+            op_strbuf_appendf(&chain, "via %s, ", p + 1);
           else if (argv[1][0] == '@')
             from = p + 1;
         }
         fprintf(f, "%s %s %li %s%s\n", to, from, (long) now,
-                l ? work : "", blah);
+                op_strbuf_str(&chain), blah);
+        op_strbuf_free(&chain);
         fclose(f);
         if (idx >= 0)
           dprintf(idx, "%s.\n", NOTES_STORED_MESSAGE);
@@ -397,14 +424,19 @@ static int tcl_erasenotes STDVAR
     Tcl_AppendResult(irp, "-2", NULL);
     return TCL_OK;
   }
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  g = fopen(s, "w");
-  if (g == NULL) {
-    fclose(f);
-    Tcl_AppendResult(irp, "-2", NULL);
-    return TCL_OK;
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    g = fopen(op_strbuf_str(&_b), "w");
+    if (g == NULL) {
+      op_strbuf_free(&_b);
+      fclose(f);
+      Tcl_AppendResult(irp, "-2", NULL);
+      return TCL_OK;
+    }
+    chmod(op_strbuf_str(&_b), userfile_perm);
+    op_strbuf_free(&_b);
   }
-  chmod(s, userfile_perm); /* Use userfile permissions. */
   read = 0;
   erased = 0;
   notes_parse(nl, (argv[2][0] == 0) ? "-" : argv[2]);
@@ -425,13 +457,16 @@ static int tcl_erasenotes STDVAR
         fprintf(g, "%s %s\n", to, s1);
     }
   }
-  snprintf(s, sizeof(s), "%d", erased);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, int_to_base10(erased), NULL);
   fclose(f);
   fclose(g);
   unlink(notefile);
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  movefile(s, notefile);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    movefile((char *) op_strbuf_str(&_b), notefile);
+    op_strbuf_free(&_b);
+  }
   return TCL_OK;
 }
 
@@ -439,7 +474,6 @@ static int tcl_listnotes STDVAR
 {
   int i, numnotes;
   int ln[128]; /* Is it enough? */
-  char s[32];
 
   BADARGS(3, 3, " handle noteslist#");
 
@@ -452,8 +486,7 @@ static int tcl_listnotes STDVAR
   notes_parse(ln, argv[2]);
   for (i = 1; i <= numnotes; i++) {
     if (notes_in(ln, i)) {
-      snprintf(s, sizeof(s), "%d", i);
-      Tcl_AppendElement(irp, s);
+      Tcl_AppendElement(irp, int_to_base10(i));
     }
   }
   return TCL_OK;
@@ -512,11 +545,18 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
         dt = wt;
         lapse = (int) ((now - tt) / 86400);
         if (lapse > note_life - 7) {
-          if (lapse >= note_life)
-            strlcat(wt, NOTES_EXPIRE_TODAY, sizeof wt);
-          else
-            op_snprintf_append(dt, sizeof(dt), NOTES_EXPIRE_XDAYS, note_life - lapse,
-                    (note_life - lapse) == 1 ? "" : "S");
+          {
+            op_strbuf_t _xd;
+            if (lapse >= note_life)
+              op_strbuf_printf(&_xd, "%s%s", wt, NOTES_EXPIRE_TODAY);
+            else {
+              op_strbuf_printf(&_xd, "%s", wt);
+              op_strbuf_appendf(&_xd, NOTES_EXPIRE_XDAYS,
+                      note_life - lapse, (note_life - lapse) == 1 ? "" : "S");
+            }
+            strlcpy(wt, op_strbuf_str(&_xd), sizeof wt);
+            op_strbuf_free(&_xd);
+          }
         }
         if (srd[0] == '+') {
           if (idx >= 0) {
@@ -595,17 +635,22 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
       dprintf(DP_HELP, "NOTICE %s :%s.\n", nick, NOTES_NO_MESSAGES);
     return;
   }
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  g = fopen(s, "w");
-  if (g == NULL) {
-    if (idx >= 0)
-      dprintf(idx, "%s. :(\n", NOTES_FAILED_CHMOD);
-    else
-      dprintf(DP_HELP, "NOTICE %s :%s. :(\n", nick, NOTES_FAILED_CHMOD);
-    fclose(f);
-    return;
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    g = fopen(op_strbuf_str(&_b), "w");
+    if (g == NULL) {
+      op_strbuf_free(&_b);
+      if (idx >= 0)
+        dprintf(idx, "%s. :(\n", NOTES_FAILED_CHMOD);
+      else
+        dprintf(DP_HELP, "NOTICE %s :%s. :(\n", nick, NOTES_FAILED_CHMOD);
+      fclose(f);
+      return;
+    }
+    chmod(op_strbuf_str(&_b), userfile_perm);
+    op_strbuf_free(&_b);
   }
-  chmod(s, userfile_perm);      /* Use userfile permissions. */
   notes_parse(dl, sdl);
   while (fgets(s, sizeof s, f) != NULL) {
     if (s[strlen(s) - 1] == '\n')
@@ -631,8 +676,12 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   fclose(f);
   fclose(g);
   unlink(notefile);
-  snprintf(s, sizeof(s), "%s~new", notefile);
-  movefile(s, notefile);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", notefile);
+    movefile((char *) op_strbuf_str(&_b), notefile);
+    op_strbuf_free(&_b);
+  }
   if ((er == 0) && (in > 1)) {
     if (idx >= 0)
       dprintf(idx, "%s.\n", NOTES_NOT_THAT_MANY);
@@ -675,8 +724,7 @@ static int tcl_notes STDVAR
     return TCL_OK;
   }
   if (argc == 2) {
-    snprintf(s, sizeof(s), "%d", num_notes(argv[1]));
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_AppendResult(irp, int_to_base10(num_notes(argv[1])), NULL);
     return TCL_OK;
   }
   if (!notefile[0]) {
@@ -990,7 +1038,7 @@ int add_note_ignore(struct userrec *u, char *mask)
   xk = getnotesentry(u);
   /* First entry? */
   if (!xk) {
-    struct xtra_key *mxk = user_malloc(sizeof(struct xtra_key));
+    struct xtra_key *mxk = alloc_xtra_key();
     struct user_entry *ue = find_user_entry(&USERENTRY_XTRA, u);
 
     if (!ue)
@@ -1003,11 +1051,11 @@ int add_note_ignore(struct userrec *u, char *mask)
     xtra_set(u, ue, mxk);
   } else {                        /* ... else, we already have other entries. */
     {
-      size_t old_len = strlen(xk->data);
-      size_t new_size = old_len + strlen(mask) + 2;
-      xk->data = user_realloc(xk->data, new_size);
-      strlcat(xk->data, " ", new_size);
-      strlcat(xk->data, mask, new_size);
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s %s", xk->data, mask);
+      xk->data = user_realloc(xk->data, op_strbuf_len(&_b) + 1);
+      strlcpy(xk->data, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
     }
   }
   return 1;
@@ -1018,7 +1066,7 @@ int del_note_ignore(struct userrec *u, char *mask)
   struct user_entry *ue;
   struct xtra_key *xk;
   char **ignores, *buf = NULL;
-  int ignoresn, i, size = 0, foundit = 0;
+  int ignoresn, i, foundit = 0;
 
   ignoresn = get_note_ignores(u, &ignores);
   if (!ignoresn)
@@ -1028,13 +1076,14 @@ int del_note_ignore(struct userrec *u, char *mask)
   buf[0] = 0;
   for (i = 0; i < ignoresn; i++) {
     if (strcmp(ignores[i], mask)) {
-      size += strlen(ignores[i]);
+      op_strbuf_t _b;
       if (buf[0])
-        size++;
-      buf = user_realloc(buf, size + 1);
-      if (buf[0])
-        strlcat(buf, " ", (size_t)(size + 1));
-      strlcat(buf, ignores[i], (size_t)(size + 1));
+        op_strbuf_printf(&_b, "%s %s", buf, ignores[i]);
+      else
+        op_strbuf_printf(&_b, "%s", ignores[i]);
+      buf = user_realloc(buf, op_strbuf_len(&_b) + 1);
+      strlcpy(buf, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
     } else
       foundit = 1;
   }
@@ -1048,7 +1097,7 @@ int del_note_ignore(struct userrec *u, char *mask)
   ue = find_user_entry(&USERENTRY_XTRA, u);
   /* Delete the entry if the buffer is empty */
 
-  xk = user_malloc(sizeof(struct xtra_key));
+  xk = alloc_xtra_key();
   xk->key = user_malloc(strlen(NOTES_IGNKEY) + 1);
   xk->next = 0;
 

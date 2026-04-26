@@ -137,16 +137,15 @@ do {                                                                    \
 #define FILEDB_VERSION3 0x0003
 #define FILEDB_NEWEST_VER FILEDB_VERSION3       /* Newest DB version    */
 
-#define POS_NEW         0       /* Position which indicates that the
-                                 * entry wants to be repositioned.      */
+constexpr int POS_NEW     = 0;      /* Entry wants to be repositioned */
 
-#define FILE_UNUSED     0x0001  /* Deleted entry.                       */
-#define FILE_DIR        0x0002  /* It's actually a directory.           */
-#define FILE_SHARE      0x0004  /* Can be shared on the botnet.         */
-#define FILE_HIDDEN     0x0008  /* Hidden file.                         */
-#define FILE_ISLINK     0x0010  /* The file is a link to another bot.   */
+constexpr int FILE_UNUSED = 0x0001; /* Deleted entry.                       */
+constexpr int FILE_DIR    = 0x0002; /* It's actually a directory.           */
+constexpr int FILE_SHARE  = 0x0004; /* Can be shared on the botnet.         */
+constexpr int FILE_HIDDEN = 0x0008; /* Hidden file.                         */
+constexpr int FILE_ISLINK = 0x0010; /* The file is a link to another bot.   */
 
-#define FILEDB_ESTDYN   50      /* Estimated dynamic length of an entry */
+constexpr int FILEDB_ESTDYN = 50;   /* Estimated dynamic length of an entry */
 
 enum {
   GET_HEADER,                   /* Only save minimal data               */

@@ -310,7 +310,7 @@ char *newsplit(char **rest)
 void maskaddr(const char *s, char *nw, int type)
 {
   int d = type % 5, num = 1;
-  char *p, *u = 0, *h = 0, *ss;
+  const char *p, *u = 0, *h = 0, *ss;
 
   /* Look for user and host.. */
   ss = (char *)s;
@@ -400,7 +400,12 @@ void maskaddr(const char *s, char *nw, int type)
     u = strchr(h, '.');
     if (d > 3 || (d == 3 && strlen(p) > 3))
       u = strchr(++u, '.'); /* ccTLD or not? Look above. */
-    snprintf(nw, UHOSTLEN, "*%s", u);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "*%s", u);
+      strlcpy(nw, op_strbuf_str(&_b), UHOSTLEN);
+      op_strbuf_free(&_b);
+    }
   } else if (!*h)
       /* take care if the mask is empty or contains only '@' */
       strlcpy(nw, "*", sizeof(nw));
@@ -458,7 +463,12 @@ void daysago(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, 29, "%d day%s ago", days, (days == 1) ? "" : "s");
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%d day%s ago", days, (days == 1) ? "" : "s");
+      strlcpy(out, op_strbuf_str(&_b), 29);
+      op_strbuf_free(&_b);
+    }
     return;
   }
   strftime(out, 6, "%H:%M", localtime(&then));
@@ -472,7 +482,12 @@ void days(time_t now, time_t then, char *out)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, 29, "in %d day%s", days, (days == 1) ? "" : "s");
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "in %d day%s", days, (days == 1) ? "" : "s");
+      strlcpy(out, op_strbuf_str(&_b), 29);
+      op_strbuf_free(&_b);
+    }
     return;
   }
   strftime(out, 9, "at %H:%M", localtime(&now));
@@ -483,21 +498,29 @@ void days(time_t now, time_t then, char *out)
  */
 void daysdur(time_t now, time_t then, char *out)
 {
-  char s[81];
   int hrs, mins;
 
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    snprintf(out, 41, "for %d day%s", days, (days == 1) ? "" : "s");
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "for %d day%s", days, (days == 1) ? "" : "s");
+      strlcpy(out, op_strbuf_str(&_b), 41);
+      op_strbuf_free(&_b);
+    }
     return;
   }
   strlcpy(out, "for ", 41);
   now -= then;
   hrs = (int) (now / 3600);
   mins = (int) ((now - (hrs * 3600)) / 60);
-  snprintf(s, sizeof(s), "%02d:%02d", hrs, mins);
-  strlcat(out, s, 41);
+  {
+    op_strbuf_t s;
+    op_strbuf_printf(&s, "%02d:%02d", hrs, mins);
+    strlcat(out, op_strbuf_str(&s), 41);
+    op_strbuf_free(&s);
+  }
 }
 
 
@@ -513,7 +536,7 @@ void putlog (int type, char *chname, const char *format, ...)
 {
   static int inhere = 0;
   int i, tsl = 0;
-  char s[LOGLINELEN], path[PATH_MAX], *out, ct[81], *s2, stamp[34];
+  char s[LOGLINELEN], *out, ct[81], *s2, stamp[34];
   va_list va;
   time_t now2 = time(NULL);
   static time_t now2_last = 0; /* cache expensive localtime() */
@@ -577,8 +600,11 @@ void putlog (int type, char *chname, const char *format, ...)
         if (logs[i].f == NULL) {
           /* Open this logfile */
           if (keep_all_logs) {
-            snprintf(path, sizeof path, "%s%s", logs[i].filename, ct);
-            if ((logs[i].f = fopen(path, "a")))
+            op_strbuf_t path;
+            op_strbuf_printf(&path, "%s%s", logs[i].filename, ct);
+            logs[i].f = fopen(op_strbuf_str(&path), "a");
+            op_strbuf_free(&path);
+            if (logs[i].f)
               setvbuf(logs[i].f, NULL, _IOLBF, 0); /* line buffered */
           } else if ((logs[i].f = fopen(logs[i].filename, "a")))
             setvbuf(logs[i].f, NULL, _IOLBF, 0); /* line buffered */
@@ -664,9 +690,6 @@ void check_logsize(void)
   struct stat ss;
   int i;
 
-/* int x=1; */
-  char buf[1024];               /* Should be plenty */
-
   if (!keep_all_logs && max_logsize > 0) {
     for (i = 0; i < max_logs; i++) {
       if (logs[i].filename) {
@@ -681,10 +704,13 @@ void check_logsize(void)
             logs[i].f = NULL;
           }
 
-          snprintf(buf, sizeof buf, "%s.yesterday", logs[i].filename);
-          buf[1023] = 0;
-          unlink(buf);
-          movefile(logs[i].filename, buf);
+          {
+            op_strbuf_t buf;
+            op_strbuf_printf(&buf, "%s.yesterday", logs[i].filename);
+            unlink(op_strbuf_str(&buf));
+            movefile(logs[i].filename, op_strbuf_str(&buf));
+            op_strbuf_free(&buf);
+          }
         }
       }
     }
@@ -734,16 +760,21 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
   n = op_vec_size(&colstrings);
   if ((colsofar == cols) || (newcol[0] == '\377' && n > 0)) {
     colsofar = 0;
-    strlcpy(s, "     ", sz);
     colwidth = (subwidth - 5) / cols;
-    for (j = 0; j < n; j++) {
-      col = op_vec_get(&colstrings, j);
-      strlcat(s, col, sz);
-      if (j < n - 1) {               /* pad all but the last column */
-        for (i = strlen(col); i < colwidth; i++)
-          strlcat(s, " ", sz);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "     ");
+      for (j = 0; j < n; j++) {
+        col = op_vec_get(&colstrings, j);
+        op_strbuf_append_cstr(&_b, col);
+        if (j < n - 1) {             /* pad all but the last column */
+          for (i = (int) strlen(col); i < colwidth; i++)
+            op_strbuf_append_cstr(&_b, " ");
+        }
+        nfree(col);
       }
-      nfree(col);
+      strlcpy(s, op_strbuf_str(&_b), sz);
+      op_strbuf_free(&_b);
     }
     op_vec_clear(&colstrings, NULL, NULL);
   }
@@ -758,7 +789,12 @@ char *egg_uname(void)
     if (uname(&u) < 0)
       return "*unknown*";
     else {
-      snprintf(sysrel, sizeof sysrel, "%s %s", u.sysname, u.release);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s %s", u.sysname, u.release);
+        strlcpy(sysrel, op_strbuf_str(&_b), sizeof sysrel);
+        op_strbuf_free(&_b);
+      }
       return sysrel;
     }
   }
@@ -784,11 +820,11 @@ char *egg_uname(void)
  * %{help=TOPIC} start a section for a particular command
  * %{end}     end of section
  */
-#define HELP_BUF_LEN 256
-#define HELP_BOLD  1
-#define HELP_REV   2
-#define HELP_UNDER 4
-#define HELP_FLASH 8
+constexpr int HELP_BUF_LEN = 256;
+constexpr int HELP_BOLD    = 1;
+constexpr int HELP_REV     = 2;
+constexpr int HELP_UNDER   = 4;
+constexpr int HELP_FLASH   = 8;
 
 void help_subst(char *s, char *nick, struct flag_record *flags,
                 int isdcc, char *topic)
@@ -1035,7 +1071,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
   }
 }
 
-static void scan_help_file(struct help_ref *current, char *filename, int type)
+static void scan_help_file(struct help_ref *current, const char *filename, int type)
 {
   FILE *f;
   char s[HELP_BUF_LEN + 1], *p, *q;
@@ -1070,7 +1106,6 @@ static void scan_help_file(struct help_ref *current, char *filename, int type)
 
 void add_help_reference(char *file)
 {
-  char s[1024];
   struct help_ref *current;
 
   for (current = help_list; current; current = current->next)
@@ -1083,12 +1118,16 @@ void add_help_reference(char *file)
   current->next = help_list;
   current->first = NULL;
   help_list = current;
-  snprintf(s, sizeof s, "%smsg/%s", helpdir, file);
-  scan_help_file(current, s, 0);
-  snprintf(s, sizeof s, "%s%s", helpdir, file);
-  scan_help_file(current, s, 1);
-  snprintf(s, sizeof s, "%sset/%s", helpdir, file);
-  scan_help_file(current, s, 2);
+  {
+    op_strbuf_t s;
+    op_strbuf_printf(&s, "%smsg/%s", helpdir, file);
+    scan_help_file(current, op_strbuf_str(&s), 0);
+    op_strbuf_reset(&s, "%s%s", helpdir, file);
+    scan_help_file(current, op_strbuf_str(&s), 1);
+    op_strbuf_reset(&s, "%sset/%s", helpdir, file);
+    scan_help_file(current, op_strbuf_str(&s), 2);
+    op_strbuf_free(&s);
+  }
 }
 
 void rem_help_reference(char *file)
@@ -1149,8 +1188,6 @@ void debug_help(int idx)
 
 static FILE *resolve_help(int dcc, char *file)
 {
-
-  char s[1024];
   FILE *f;
   struct help_ref *current;
   struct help_list_t *item;
@@ -1161,15 +1198,21 @@ static FILE *resolve_help(int dcc, char *file)
       for (item = current->first; item; item = item->next)
         if (!strcmp(item->name, file)) {
           if (!item->type && !dcc) {
-            snprintf(s, sizeof s, "%smsg/%s", helpdir, current->name);
-            if ((f = fopen(s, "r")))
+            op_strbuf_t s;
+            op_strbuf_printf(&s, "%smsg/%s", helpdir, current->name);
+            f = fopen(op_strbuf_str(&s), "r");
+            op_strbuf_free(&s);
+            if (f)
               return f;
           } else if (dcc && item->type) {
+            op_strbuf_t s;
             if (item->type == 1)
-              snprintf(s, sizeof s, "%s%s", helpdir, current->name);
+              op_strbuf_printf(&s, "%s%s", helpdir, current->name);
             else
-              snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
-            if ((f = fopen(s, "r")))
+              op_strbuf_printf(&s, "%sset/%s", helpdir, current->name);
+            f = fopen(op_strbuf_str(&s), "r");
+            op_strbuf_free(&s);
+            if (f)
               return f;
           }
         }
@@ -1177,11 +1220,17 @@ static FILE *resolve_help(int dcc, char *file)
     return NULL;
   }
   /* Since we're not dealing with help files, we should just prepend the filename with textdir */
-  snprintf(s, sizeof s, "%s%s", textdir, file);
-  if (is_file(s))
-    return fopen(s, "r");
-  else
+  {
+    op_strbuf_t s;
+    op_strbuf_printf(&s, "%s%s", textdir, file);
+    if (is_file(op_strbuf_str(&s))) {
+      f = fopen(op_strbuf_str(&s), "r");
+      op_strbuf_free(&s);
+      return f;
+    }
+    op_strbuf_free(&s);
     return NULL;
+  }
 }
 
 void showhelp(char *who, char *file, struct flag_record *flags, int fl)
@@ -1260,20 +1309,24 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
   struct help_ref *current;
   struct help_list_t *item;
   FILE *f;
-  char s[1024];
+  bool found = false;
 
-  s[0] = '\0';
   for (current = help_list; current; current = current->next)
     for (item = current->first; item; item = item->next)
       if (wild_match(match, item->name) && item->type) {
+        op_strbuf_t s;
         if (item->type == 1)
-          snprintf(s, sizeof s, "%s%s", helpdir, current->name);
+          op_strbuf_printf(&s, "%s%s", helpdir, current->name);
         else
-          snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
-        if ((f = fopen(s, "r")))
+          op_strbuf_printf(&s, "%sset/%s", helpdir, current->name);
+        f = fopen(op_strbuf_str(&s), "r");
+        op_strbuf_free(&s);
+        if (f) {
           display_tellhelp(idx, item->name, f, flags);
+          found = true;
+        }
       }
-  if (!s[0])
+  if (!found)
     dprintf(idx, "%s\n", IRC_NOHELP2);
 }
 
@@ -1284,21 +1337,24 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
   struct help_ref *current;
   struct help_list_t *item;
   FILE *f;
-  char s[1024];
+  bool found = false;
 
-  s[0] = '\0';
   for (current = help_list; current; current = current->next)
     for (item = current->first; item; item = item->next)
       if (!strcmp(match, item->name) && item->type) {
-
+        op_strbuf_t s;
         if (item->type == 1)
-          snprintf(s, sizeof s, "%s%s", helpdir, current->name);
+          op_strbuf_printf(&s, "%s%s", helpdir, current->name);
         else
-          snprintf(s, sizeof s, "%sset/%s", helpdir, current->name);
-        if ((f = fopen(s, "r")))
+          op_strbuf_printf(&s, "%sset/%s", helpdir, current->name);
+        f = fopen(op_strbuf_str(&s), "r");
+        op_strbuf_free(&s);
+        if (f) {
           display_tellhelp(idx, item->name, f, flags);
+          found = true;
+        }
       }
-  if (!s[0])
+  if (!found)
     dprintf(idx, "%s\n", IRC_NOHELP2);
 }
 
@@ -1463,7 +1519,12 @@ char *str_escape(const char *str, const char div, const char mask)
     }
 
     if (*s == div || *s == mask) {
-      snprintf(b, 4, "%c%02x", mask, *s);
+      {
+        op_strbuf_t _e;
+        op_strbuf_printf(&_e, "%c%02x", mask, (unsigned char)*s);
+        memcpy(b, op_strbuf_str(&_e), op_strbuf_len(&_e));
+        op_strbuf_free(&_e);
+      }
       b += 3;
       blen += 3;
     } else {
@@ -1538,7 +1599,7 @@ void str_unescape(char *str, const char esc_char)
 /* Kills the bot. s1 is the reason shown to other bots,
  * s2 the reason shown on the partyline. (Sup 25Jul2001)
  */
-void kill_bot(char *s1, char *s2)
+[[noreturn]] void kill_bot(const char *s1, const char *s2)
 {
   check_tcl_die(s2);
   call_hook(HOOK_DIE);
@@ -1547,6 +1608,7 @@ void kill_bot(char *s1, char *s2)
   botnet_send_bye();
   write_userfile(-1);
   fatal(s2, 2);
+  __builtin_unreachable();
 }
 
 /* Compares two strings with constant-time algorithm to avoid timing attack and

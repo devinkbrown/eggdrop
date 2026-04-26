@@ -53,7 +53,9 @@ static int tcl_pbkdf2 STDVAR
   }
   if (hex) {
     for (i = 0; i < digestlen; i++)
-      snprintf(buf_hex + (i * 2), 3, "%.2X", buf[i]);
+      static const char _HEX[] = "0123456789ABCDEF";
+      buf_hex[i * 2]     = _HEX[(buf[i] >> 4) & 0xf];
+      buf_hex[i * 2 + 1] = _HEX[buf[i] & 0xf];
     result = Tcl_NewByteArrayObj((unsigned char *) buf_hex, digestlen * 2);
     explicit_bzero(buf_hex, digestlen * 2);
   }

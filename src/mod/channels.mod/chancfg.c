@@ -608,7 +608,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
   Tcl_Size items;
   int ret = TCL_OK;
   int join = 0;
-  char buf[2048], buf2[256];
+  char buf2[256];
   char **item;
   struct chanset_t *chan;
 
@@ -623,28 +623,34 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
   }
 
   convert_element(glob_chanmode, buf2);
-  snprintf(buf, sizeof buf, "chanmode %s %s%s", buf2, glob_chanset, options);
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "chanmode %s %s%s", buf2, glob_chanset, options);
+  const char *buf = op_strbuf_str(&_b);
 
 #ifdef HAVE_TCL
   {
     EGG_CONST char **tcl_item;
     Tcl_Size tcl_items;
-    if (Tcl_SplitList(NULL, buf, &tcl_items, &tcl_item) != TCL_OK)
+    if (Tcl_SplitList(NULL, buf, &tcl_items, &tcl_item) != TCL_OK) {
+      op_strbuf_free(&_b);
       return TCL_ERROR;
+    }
     items = tcl_items;
     item = (char **) tcl_item;
   }
 #else
-  if (egg_split_list(buf, (int *) &items, &item) != TCL_OK)
+  if (egg_split_list(buf, (int *) &items, &item) != TCL_OK) {
+    op_strbuf_free(&_b);
     return TCL_ERROR;
+  }
 #endif
+  op_strbuf_free(&_b);
 
   if ((chan = findchan_by_dname(newname))) {
     /* Already existing channel, maybe a reload of the channel file */
     chan->status &= ~CHAN_FLAGGED;      /* don't delete me! :) */
   } else {
     chan = nmalloc(sizeof *chan);
-    egg_bzero(chan, sizeof(struct chanset_t));
 
     chan->flood_pub_thr = gfld_chan_thr;
     chan->flood_pub_time = gfld_chan_time;

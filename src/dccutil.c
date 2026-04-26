@@ -51,7 +51,7 @@ int max_dcc = 0;       /* indicates the current dcc limit in the main thread */
  * Socket fds on Linux are capped at ~1 M but are almost always < 65536
  * in practice; anything above SOCK_MAP_SIZE falls back to a linear scan.
  * ----------------------------------------------------------------------- */
-#define SOCK_MAP_SIZE 65536
+constexpr int SOCK_MAP_SIZE = 65536;
 static int sock_dcc_map[SOCK_MAP_SIZE];
 static int sock_dcc_map_inited = 0;
 
@@ -472,21 +472,36 @@ void tell_dcc(int zidx)
   if (j > 40)
     j = 40;
 
-  snprintf(format, sizeof format, "%%-3s %%-%u.%us %%-6s %%-%u.%us %%s\n",
-               j, j, nicklen, nicklen);
+  {
+    op_strbuf_t fmt_buf;
+    op_strbuf_printf(&fmt_buf, "%%-3s %%-%u.%us %%-6s %%-%u.%us %%s\n",
+                     j, j, nicklen, nicklen);
+    strlcpy(format, op_strbuf_str(&fmt_buf), sizeof format);
+    op_strbuf_free(&fmt_buf);
+  }
   dprintf(zidx, format, "IDX", "ADDR", "+ PORT", "NICK", "TYPE  INFO");
   dprintf(zidx, format, "---",
           "------------------------------------------------------", "------",
           "--------------------------------", "----- ---------");
-  snprintf(format, sizeof format, "%%-3d %%-%u.%us %%c%%5d %%-%u.%us %%s\n",
-               j, j, nicklen, nicklen);
+  {
+    op_strbuf_t fmt_buf;
+    op_strbuf_printf(&fmt_buf, "%%-3d %%-%u.%us %%c%%5d %%-%u.%us %%s\n",
+                     j, j, nicklen, nicklen);
+    strlcpy(format, op_strbuf_str(&fmt_buf), sizeof format);
+    op_strbuf_free(&fmt_buf);
+  }
 
   /* Show server */
   for (i = 0; i < dcc_total; i++) {
     if (dcc[i].type && dcc[i].type->display)
       dcc[i].type->display(i, other);
     else {
-      snprintf(other, sizeof(other), "?:%lX  !! ERROR !!", (long) dcc[i].type);
+      {
+        op_strbuf_t err_buf;
+        op_strbuf_printf(&err_buf, "?:%lX  !! ERROR !!", (long) dcc[i].type);
+        strlcpy(other, op_strbuf_str(&err_buf), sizeof other);
+        op_strbuf_free(&err_buf);
+      }
       break;
     }
       dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
@@ -550,11 +565,12 @@ void *_get_data_ptr(int size, char *file, int line)
 {
   char *p;
 #ifdef DEBUG_MEM
-  char x[1024];
+  op_strbuf_t _b;
 
   p = strrchr(file, '/');
-  snprintf(x, sizeof x, "dccutil.c:%s", p ? p + 1 : file);
-  p = n_malloc(size, x, line);
+  op_strbuf_printf(&_b, "dccutil.c:%s", p ? p + 1 : file);
+  p = n_malloc(size, op_strbuf_str(&_b), line);
+  op_strbuf_free(&_b);
 #else
   p = nmalloc(size);
 #endif
@@ -605,7 +621,6 @@ int new_dcc(struct dcc_table *type, int xtra_size)
   dcc[i].type = type;
   if (xtra_size) {
     dcc[i].u.other = nmalloc(xtra_size);
-    egg_bzero(dcc[i].u.other, xtra_size);
   }
   return i;
 }
@@ -623,7 +638,6 @@ void changeover_dcc(int i, struct dcc_table *type, int xtra_size)
   dcc[i].type = type;
   if (xtra_size) {
     dcc[i].u.other = nmalloc(xtra_size);
-    egg_bzero(dcc[i].u.other, xtra_size);
   } else
     dcc[i].u.other = NULL;
 }
@@ -647,7 +661,12 @@ int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
       if ((dcc[idx].type->flags & DCT_CHAT) && (chat->channel >= 0)) {
         char x[1024];
 
-        snprintf(x, sizeof x, DCC_FLOODBOOT, dcc[idx].nick);
+        {
+          op_strbuf_t boot_buf;
+          op_strbuf_printf(&boot_buf, DCC_FLOODBOOT, dcc[idx].nick);
+          strlcpy(x, op_strbuf_str(&boot_buf), sizeof x);
+          op_strbuf_free(&boot_buf);
+        }
         chanout_but(idx, chat->channel, "*** %s", x);
         if (chat->channel < GLOBAL_CHANS)
           botnet_send_part_idx(idx, x);
@@ -681,8 +700,13 @@ void do_boot(int idx, char *by, char *reason)
   if ((dcc[idx].type->flags & DCT_CHAT) && (dcc[idx].u.chat->channel >= 0)) {
     char x[1024];
 
-    snprintf(x, sizeof x, DCC_BOOTED3, by, dcc[idx].nick,
-                 reason[0] ? ": " : "", reason);
+    {
+      op_strbuf_t boot_buf;
+      op_strbuf_printf(&boot_buf, DCC_BOOTED3, by, dcc[idx].nick,
+                       reason[0] ? ": " : "", reason);
+      strlcpy(x, op_strbuf_str(&boot_buf), sizeof x);
+      op_strbuf_free(&boot_buf);
+    }
     chanout_but(idx, dcc[idx].u.chat->channel, "*** %s.\n", x);
     if (dcc[idx].u.chat->channel < GLOBAL_CHANS)
       botnet_send_part_idx(idx, x);

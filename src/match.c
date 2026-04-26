@@ -30,7 +30,7 @@
 #define WILDQ '?'  /* matches exactly one character */
 #define WILDT '~'  /* matches 1 or more spaces */
 
-#define NOMATCH 0
+constexpr int NOMATCH = 0;
 #define MATCH (match+sofar)
 #define PERMATCH (match+saved+sofar)
 
@@ -102,7 +102,7 @@ int _wild_match_per(unsigned char *m, unsigned char *n,
           }
           continue;             /* Done with '%' */
         }
-        __attribute__((fallthrough));
+        [[fallthrough]];
       case WILDS:
         do
           m++;                  /* Zap redundant wilds */

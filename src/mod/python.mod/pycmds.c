@@ -390,7 +390,12 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   bind->bindtable = tl;
   bind->callback = callback;
   hash = PyObject_Hash((PyObject *)bind);
-  snprintf(bind->tclcmdname, sizeof bind->tclcmdname, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
+    strlcpy(bind->tclcmdname, op_strbuf_str(&_b), sizeof bind->tclcmdname);
+    op_strbuf_free(&_b);
+  }
 
 #ifdef HAVE_TCL
   Tcl_CreateObjCommand(tclinterp, bind->tclcmdname, tcl_call_python, bind, python_bind_destroyed);
@@ -897,7 +902,12 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
   m = ismember(ch, nick);
   if (!m)
     Py_RETURN_NONE;
-  snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+    strlcpy(hostbuf, op_strbuf_str(&_b), sizeof hostbuf);
+    op_strbuf_free(&_b);
+  }
   u = get_user_by_host(hostbuf);
   if (!u)
     Py_RETURN_NONE;
@@ -918,7 +928,12 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
   if (!ch)
     Py_RETURN_NONE;
   for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
-    snprintf(hostbuf, sizeof hostbuf, "%s!%s", m->nick, m->userhost);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+      strlcpy(hostbuf, op_strbuf_str(&_b), sizeof hostbuf);
+      op_strbuf_free(&_b);
+    }
     u = get_user_by_host(hostbuf);
     if (u && !strcasecmp(u->handle, handle))
       return PyUnicode_FromString(m->nick);
@@ -1010,68 +1025,74 @@ static PyObject *py_unixtime(PyObject *self, PyObject *args)
 /* duration(seconds) — convert seconds to human-readable string */
 static PyObject *py_duration(PyObject *self, PyObject *args)
 {
-  char s[80];
+  op_strbuf_t s;
   uint64_t sec, tmp;
   long n;
+  PyObject *ret;
 
   if (!PyArg_ParseTuple(args, "l", &n))
     return NULL;
   if (n <= 0)
     return PyUnicode_FromString("0 seconds");
   sec = (uint64_t) n;
-  s[0] = 0;
+  op_strbuf_init(&s);
   if (sec >= 31536000) {
     tmp = sec / 31536000; sec -= tmp * 31536000;
-    op_snprintf_append(s, sizeof s, "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 604800) {
     tmp = sec / 604800; sec -= tmp * 604800;
-    op_snprintf_append(s, sizeof s, "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 86400) {
     tmp = sec / 86400; sec -= tmp * 86400;
-    op_snprintf_append(s, sizeof s, "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 3600) {
     tmp = sec / 3600; sec -= tmp * 3600;
-    op_snprintf_append(s, sizeof s, "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec >= 60) {
     tmp = sec / 60; sec -= tmp * 60;
-    op_snprintf_append(s, sizeof s, "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
   }
   if (sec > 0)
-    op_snprintf_append(s, sizeof s, "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
-  else if (s[0] && s[strlen(s) - 1] == ' ')
-    s[strlen(s) - 1] = 0;   /* strip trailing space */
-  return PyUnicode_FromString(s);
+    op_strbuf_appendf(&s, "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
+  else if (!op_strbuf_empty(&s))
+    op_strbuf_truncate(&s, op_strbuf_len(&s) - 1);  /* strip trailing space */
+  ret = PyUnicode_FromString(op_strbuf_str(&s));
+  op_strbuf_free(&s);
+  return ret;
 }
 
 /* maskhost(nick, userhost) — create a standard IRC hostmask from nick!user@host */
 static PyObject *py_maskhost(PyObject *self, PyObject *args)
 {
-  char *userhost, *nick, buf[UHOSTLEN + 16], *at, *dot;
+  [[maybe_unused]] char *nick;
+  char *userhost, *at, *dot;
+  op_strbuf_t buf;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &userhost))
     return NULL;
   at = strchr(userhost, '@');
   if (!at) {
-    /* If only host given, build !*@*.domain */
+    /* If only host given, build *!*@*.domain or *!*@host */
     dot = strchr(userhost, '.');
     if (dot)
-      snprintf(buf, sizeof buf, "*!*@*%s", dot);
+      op_strbuf_printf(&buf, "*!*@*%s", dot);
     else
-      snprintf(buf, sizeof buf, "*!*@%s", userhost);
+      op_strbuf_printf(&buf, "*!*@%s", userhost);
   } else {
     /* userhost is user@host */
     dot = strchr(at + 1, '.');
     if (dot)
-      snprintf(buf, sizeof buf, "*!*@*%s", dot);
+      op_strbuf_printf(&buf, "*!*@*%s", dot);
     else
-      snprintf(buf, sizeof buf, "*!*@%s", at + 1);
+      op_strbuf_printf(&buf, "*!*@%s", at + 1);
   }
-  (void)nick;  /* nick not used in default mask, kept for compat */
-  return PyUnicode_FromString(buf);
+  PyObject *ret = PyUnicode_FromString(op_strbuf_str(&buf));
+  op_strbuf_free(&buf);
+  return ret;
 }
 
 /* isidentified(nick[, channel]) — True if nick is logged in to services
@@ -1182,7 +1203,10 @@ static PyObject *py_die(PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple(args, "|s", &reason))
     return NULL;
   if (reason && reason[0]) {
-    snprintf(s, sizeof s, "BOT SHUTDOWN (%s)", reason);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "BOT SHUTDOWN (%s)", reason);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
     strlcpy(quit_msg, reason, 1024);
   } else {
     strlcpy(s, "BOT SHUTDOWN (No reason)", sizeof s);

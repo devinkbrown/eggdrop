@@ -23,74 +23,74 @@
 #ifndef _EGG_MOD_MODVALS_H
 #define _EGG_MOD_MODVALS_H
 
-/* #define HOOK_GET_FLAGREC            0 */
-/* #define HOOK_BUILD_FLAGREC          1 */
-/* #define HOOK_SET_FLAGREC            2 */
-#define HOOK_READ_USERFILE             3
-#define HOOK_REHASH                    4
-#define HOOK_MINUTELY                  5
-#define HOOK_DAILY                     6
-#define HOOK_HOURLY                    7
-#define HOOK_USERFILE                  8
-#define HOOK_SECONDLY                  9
-#define HOOK_PRE_REHASH               10
-#define HOOK_IDLE                     11
-#define HOOK_5MINUTELY                12
-#define HOOK_LOADED                   13
-#define HOOK_BACKUP                   14
-#define HOOK_DIE                      15
-#define HOOK_PRE_SELECT               16
-#define HOOK_POST_SELECT              17
+/* HOOK_GET_FLAGREC   = 0 */
+/* HOOK_BUILD_FLAGREC = 1 */
+/* HOOK_SET_FLAGREC   = 2 */
+constexpr int HOOK_READ_USERFILE             =  3;
+constexpr int HOOK_REHASH                    =  4;
+constexpr int HOOK_MINUTELY                  =  5;
+constexpr int HOOK_DAILY                     =  6;
+constexpr int HOOK_HOURLY                    =  7;
+constexpr int HOOK_USERFILE                  =  8;
+constexpr int HOOK_SECONDLY                  =  9;
+constexpr int HOOK_PRE_REHASH               = 10;
+constexpr int HOOK_IDLE                     = 11;
+constexpr int HOOK_5MINUTELY                = 12;
+constexpr int HOOK_LOADED                   = 13;
+constexpr int HOOK_BACKUP                   = 14;
+constexpr int HOOK_DIE                      = 15;
+constexpr int HOOK_PRE_SELECT               = 16;
+constexpr int HOOK_POST_SELECT              = 17;
 
-#define REAL_HOOKS                    18
+constexpr int REAL_HOOKS                    = 18;
 
-#define HOOK_SHAREOUT                105
-#define HOOK_SHAREIN                 106
-#define HOOK_ENCRYPT_PASS            107
-#define HOOK_QSERV                   108
-#define HOOK_ADD_MODE                109
-#define HOOK_MATCH_NOTEREJ           110
-#define HOOK_RFC_CASECMP             111
-#define HOOK_DNS_HOSTBYIP            112
-#define HOOK_DNS_IPBYHOST            113
-#define HOOK_ENCRYPT_STRING          114
-#define HOOK_DECRYPT_STRING          115
-#define HOOK_ENCRYPT_PASS2           116
-#define HOOK_VERIFY_PASS2            117
-#define HOOK_DCC_TELNET_HOSTRESOLVED 118
-#define HOOK_WEBUI_FRAME             119
-#define HOOK_WEBUI_UNFRAME           120
+constexpr int HOOK_SHAREOUT                = 105;
+constexpr int HOOK_SHAREIN                 = 106;
+constexpr int HOOK_ENCRYPT_PASS            = 107;
+constexpr int HOOK_QSERV                   = 108;
+constexpr int HOOK_ADD_MODE                = 109;
+constexpr int HOOK_MATCH_NOTEREJ           = 110;
+constexpr int HOOK_RFC_CASECMP             = 111;
+constexpr int HOOK_DNS_HOSTBYIP            = 112;
+constexpr int HOOK_DNS_IPBYHOST            = 113;
+constexpr int HOOK_ENCRYPT_STRING          = 114;
+constexpr int HOOK_DECRYPT_STRING          = 115;
+constexpr int HOOK_ENCRYPT_PASS2           = 116;
+constexpr int HOOK_VERIFY_PASS2            = 117;
+constexpr int HOOK_DCC_TELNET_HOSTRESOLVED = 118;
+constexpr int HOOK_WEBUI_FRAME             = 119;
+constexpr int HOOK_WEBUI_UNFRAME           = 120;
 
 /* These are FIXED once they are in a release they STAY */
-#define MODCALL_START             0
-#define MODCALL_CLOSE             1
-#define MODCALL_EXPMEM            2
-#define MODCALL_REPORT            3
+constexpr int MODCALL_START   = 0;
+constexpr int MODCALL_CLOSE   = 1;
+constexpr int MODCALL_EXPMEM  = 2;
+constexpr int MODCALL_REPORT  = 3;
 /* Filesys */
-#define FILESYS_REMOTE_REQ        4
-#define FILESYS_ADDFILE           5
-#define FILESYS_INCRGOTS          6
-#define FILESYS_ISVALID           7
+constexpr int FILESYS_REMOTE_REQ = 4;
+constexpr int FILESYS_ADDFILE    = 5;
+constexpr int FILESYS_INCRGOTS   = 6;
+constexpr int FILESYS_ISVALID    = 7;
 /* Share */
-#define SHARE_FINISH              4
-#define SHARE_DUMP_RESYNC         5
+constexpr int SHARE_FINISH     = 4;
+constexpr int SHARE_DUMP_RESYNC = 5;
 /* Channels */
-#define CHANNEL_CLEAR            15
+constexpr int CHANNEL_CLEAR = 15;
 /* Server */
-#define SERVER_BOTNAME            4
-#define SERVER_BOTUSERHOST        5
-#define SERVER_NICKLEN           37
+constexpr int SERVER_BOTNAME    =  4;
+constexpr int SERVER_BOTUSERHOST =  5;
+constexpr int SERVER_NICKLEN    = 37;
 /* IRC */
-#define IRC_RECHECK_CHANNEL       15
-#define IRC_RECHECK_CHANNEL_MODES 17
-#define IRC_DO_CHANNEL_PART       19
-#define IRC_CHECK_THIS_BAN        20
-#define IRC_CHECK_THIS_USER       21
-#define IRC_RESET_CHAN_INFO       25
+constexpr int IRC_RECHECK_CHANNEL       = 15;
+constexpr int IRC_RECHECK_CHANNEL_MODES = 17;
+constexpr int IRC_DO_CHANNEL_PART       = 19;
+constexpr int IRC_CHECK_THIS_BAN        = 20;
+constexpr int IRC_CHECK_THIS_USER       = 21;
+constexpr int IRC_RESET_CHAN_INFO       = 25;
 /* Notes */
-#define NOTES_CMD_NOTE            4
+constexpr int NOTES_CMD_NOTE  = 4;
 /* Console */
-#define CONSOLE_DOSTORE           4
+constexpr int CONSOLE_DOSTORE = 4;
 
 #ifdef MOD_USE_SHL
 #  include <dl.h>

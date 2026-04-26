@@ -300,8 +300,14 @@ static const char *isupport_encode(const char *value) {
   int i, j;
 
   for (i = j = 0; i < strlen(value) && j < sizeof buf - strlen("\\xHH") - 1; i++) {
-    if ((unsigned char)value[i] < 33 || (unsigned char)value[i] > 126)
-      j += snprintf(buf + j, sizeof(buf) - j, "\\x%02hhx", (unsigned char)value[i]);
+    if ((unsigned char)value[i] < 33 || (unsigned char)value[i] > 126) {
+      static const char _hex[] = "0123456789abcdef";
+      unsigned char _c = (unsigned char)value[i];
+      buf[j++] = '\\';
+      buf[j++] = 'x';
+      buf[j++] = _hex[_c >> 4];
+      buf[j++] = _hex[_c & 0xf];
+    }
     else
       buf[j++] = value[i];
   }
@@ -494,10 +500,16 @@ static void isupport_stringify(int idx, char *buf, size_t bufsize, size_t *len,
       return;
     }
   }
-  if (!value || !value[0])
-    *len += snprintf(buf + *len, bufsize - *len, " %s", key);
-  else
-    *len += snprintf(buf + *len, bufsize - *len, " %s=%s", key, value);
+  {
+    op_strbuf_t _b;
+    if (!value || !value[0])
+      op_strbuf_printf(&_b, " %s", key);
+    else
+      op_strbuf_printf(&_b, " %s=%s", key, value);
+    strlcat(buf + *len, op_strbuf_str(&_b), bufsize - *len);
+    op_strbuf_free(&_b);
+  }
+  *len = strlen(buf);
 }
 
 void isupport_report(int idx, const char *prefix, int details)
@@ -508,7 +520,13 @@ void isupport_report(int idx, const char *prefix, int details)
   if (!server_online)
     return;
 
-  len = prefixlen = snprintf(buf, sizeof(buf), "%s%s", prefix, "isupport:");
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%sisupport:", prefix);
+    strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
+    op_strbuf_free(&_b);
+  }
+  len = prefixlen = strlen(buf);
   for (struct isupport *data = isupport_list; data; data = data->next) {
     isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, isupport_get_from_record(data));
   }
@@ -516,7 +534,13 @@ void isupport_report(int idx, const char *prefix, int details)
     dprintf(idx, "%s\n", buf);
 
   if (details) {
-    len = prefixlen = snprintf(buf, sizeof(buf), "%s%s", prefix, "isupport (default):");
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%sisupport (default):", prefix);
+      strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
+      op_strbuf_free(&_b);
+    }
+    len = prefixlen = strlen(buf);
     for (struct isupport *data = isupport_list; data; data = data->next) {
       if (data->defaultvalue) {
         isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, data->defaultvalue);

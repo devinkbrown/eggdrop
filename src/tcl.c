@@ -286,7 +286,12 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
     }
   }
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
-    snprintf(s1, sizeof s1, "%d:%d", *(cp->left), *(cp->right));
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%d:%d", *(cp->left), *(cp->right));
+      strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+      op_strbuf_free(&_b);
+    }
     Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS)
       Tcl_TraceVar(interp, name1,
@@ -318,9 +323,14 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
       fr.udef_global = default_uflags;
       build_flags(s1, &fr, 0);
     } else if ((int *) ii->var == &userfile_perm) {
-      snprintf(s1, sizeof s1, "0%o", userfile_perm);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "0%o", userfile_perm);
+        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+        op_strbuf_free(&_b);
+      }
     } else
-      snprintf(s1, sizeof s1, "%d", *(int *) ii->var);
+      strlcpy(s1, int_to_base10(*(int *) ii->var), sizeof s1);
     Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS)
       Tcl_TraceVar(interp, name1,
@@ -384,7 +394,12 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
     if ((st->str == firewall) && (firewall[0])) {
       char s1[127];
 
-      snprintf(s1, sizeof s1, "%s:%d", firewall, firewallport);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s:%d", firewall, firewallport);
+        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+        op_strbuf_free(&_b);
+      }
       Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
     } else
       Tcl_SetVar2(interp, name1, name2, st->str, TCL_GLOBAL_ONLY);
@@ -894,7 +909,7 @@ void init_unicodesup_cmd(Tcl_Obj *ensdict, const char *subcmd, int index)
 {
   Tcl_Obj *orig_cmd;
   static struct tcl_unicodesup_info info[3];
-  char buf[64];
+  op_strbuf_t buf;
 
   if (Tcl_DictObjGet(interp, ensdict, Tcl_NewStringObj(subcmd, -1), &orig_cmd) != TCL_OK || !orig_cmd) {
     putlog(LOG_MISC, "*", "ERROR: Tcl non-BMP unicodesup could not find string %s subcommand", subcmd);
@@ -905,13 +920,16 @@ void init_unicodesup_cmd(Tcl_Obj *ensdict, const char *subcmd, int index)
   info[index].cmd = orig_cmd;
   Tcl_IncrRefCount(orig_cmd);
 
-  snprintf(buf, sizeof buf, "::egg_string_%s", subcmd);
-  Tcl_CreateObjCommand(interp, buf, egg_string_unicodesup, &info[index], NULL);
+  op_strbuf_printf(&buf, "::egg_string_%s", subcmd);
+  Tcl_CreateObjCommand(interp, op_strbuf_str(&buf), egg_string_unicodesup, &info[index], NULL);
 
-  if (Tcl_DictObjPut(interp, ensdict, Tcl_NewStringObj(subcmd, -1), Tcl_NewStringObj(buf, -1)) != TCL_OK) {
+  if (Tcl_DictObjPut(interp, ensdict, Tcl_NewStringObj(subcmd, -1),
+                     Tcl_NewStringObj(op_strbuf_str(&buf), -1)) != TCL_OK) {
+    op_strbuf_free(&buf);
     putlog(LOG_MISC, "*", "ERROR: Tcl non-BMP unicodesup could not set dictionary redirect");
     return;
   }
+  op_strbuf_free(&buf);
 }
 
 /* register all workaround functions */
@@ -1094,7 +1112,7 @@ resetPath:
 #endif
 }
 
-void do_tcl(char *whatzit, char *script)
+void do_tcl(const char *whatzit, const char *script)
 {
   int code;
   char *result;
@@ -1337,7 +1355,7 @@ void init_tcl1(int argc, char **argv)
 
 void kill_tcl(void) {}
 
-void do_tcl(char *whatzit, char *script) {}
+void do_tcl(const char *whatzit, const char *script) {}
 
 int readtclprog(char *fname)
 {
@@ -1354,7 +1372,7 @@ void rem_tcl_commands(tcl_cmds *list) {}
  * add_tcl_strings/ints/coups so that notcl_setvar/notcl_getvar can walk
  * them and read/write the underlying C variables.
  */
-#define NOTCL_MAXLISTS 32
+constexpr int NOTCL_MAXLISTS = 32;
 static tcl_strings *notcl_str_lists[NOTCL_MAXLISTS];
 static tcl_ints    *notcl_int_lists[NOTCL_MAXLISTS];
 static tcl_coups   *notcl_coup_lists[NOTCL_MAXLISTS];
@@ -1494,7 +1512,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
     for (e = notcl_int_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
         if (e->val) {
-          snprintf(buf, bufsz, "%d", *e->val);
+          strlcpy(buf, int_to_base10(*e->val), bufsz);
           return buf;
         }
         return NULL;

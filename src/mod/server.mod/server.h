@@ -23,14 +23,14 @@
 #ifndef _EGG_MOD_SERVER_SERVER_H
 #define _EGG_MOD_SERVER_SERVER_H
 
-#define CAPMAX           499    /*  (512 - "CAP REQ :XXX\r\n")     */
-#define CLITAGMAX        4096   /* Max size for IRCv3 message-tags sent by client*/
-#define TOTALTAGMAX      8191   /* @ + Server tag len + ; + Client tag len + ' ' */
-#define MSGMAX           511    /* Max size of IRC message line    */
-#define SENDLINEMAX      CLITAGMAX + MSGMAX
-#define RECVLINEMAX      TOTALTAGMAX + MSGMAX
-#define NEWSERVERMAX     256
-#define NEWSERVERPASSMAX 128
+constexpr int CAPMAX          = 499;   /*  (512 - "CAP REQ :XXX\r\n")     */
+constexpr int CLITAGMAX       = 4096;  /* Max size for IRCv3 message-tags sent by client */
+constexpr int TOTALTAGMAX     = 8191;  /* @ + Server tag len + ; + Client tag len + ' ' */
+constexpr int MSGMAX          = 511;   /* Max size of IRC message line    */
+constexpr int SENDLINEMAX     = CLITAGMAX + MSGMAX;
+constexpr int RECVLINEMAX     = TOTALTAGMAX + MSGMAX;
+constexpr int NEWSERVERMAX    = 256;
+constexpr int NEWSERVERPASSMAX = 128;
 
 #define check_tcl_ctcp(a,b,c,d,e,f) check_tcl_ctcpr(a,b,c,d,e,f,H_ctcp)
 #define check_tcl_ctcr(a,b,c,d,e,f) check_tcl_ctcpr(a,b,c,d,e,f,H_ctcr)

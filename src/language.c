@@ -431,9 +431,11 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
   }
 
   for (i = 0; i < ndirs; i++) {
-    size_t lflen = strlen(dirs[i]) + strlen(sec->section) + strlen(language) + 8;
-    langfile = nmalloc(lflen);
-    snprintf(langfile, lflen, "%s/%s.%s.lang", dirs[i], sec->section, language);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
+    langfile = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(langfile, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
     if (file_readable(langfile)) {
       /* Save language used for this section */
       sec->lang = nrealloc(sec->lang, strlen(language) + 1);
@@ -612,7 +614,12 @@ char *get_language(int idx)
   for (l = langtab[idx & 63]; l; l = l->next)
     if (idx == l->idx)
       return l->text;
-  snprintf(text, sizeof text, "MSG%03X", idx);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "MSG%03X", idx);
+    strlcpy(text, op_strbuf_str(&_b), sizeof text);
+    op_strbuf_free(&_b);
+  }
   return text;
 }
 

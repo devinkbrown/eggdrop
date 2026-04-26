@@ -204,38 +204,40 @@ const char *masktype(int x)
 char *maskname(int x)
 {
   static char s[512];
-  int i;
+  op_strbuf_t _b;
 
-  if ((i = snprintf(s, sizeof s, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-                    (x & LOG_MSGS)   ? "msgs, " : "",
-                    (x & LOG_PUBLIC) ? "public, " : "",
-                    (x & LOG_JOIN) ? "joins, " : "",
-                    (x & LOG_MODES) ? "kicks/modes, " : "",
-                    (x & LOG_CMDS) ? "cmds, " : "",
-                    (x & LOG_MISC) ? "misc, " : "",
-                    (x & LOG_BOTS) ? "bots, " : "",
-                    (x & LOG_BOTMSG) ? "linked bot msgs, " : "",
-                    ((x & LOG_RAW) && raw_log) ? "raw, " : "",
-                    (x & LOG_FILES) ? "files, " : "",
-                    (x & LOG_SERV) ? "server input, " : "",
-                    (x & LOG_DEBUG) ? "debug, " : "",
-                    (x & LOG_WALL) ? "wallops, " : "",
-                    ((x & LOG_SRVOUT) && raw_log) ? "server output, " : "",
-                    ((x & LOG_BOTNETIN) && raw_log) ? "botnet incoming, " : "",
-                    ((x & LOG_BOTNETOUT) && raw_log) ? "botnet outgoing, " : "",
-                    ((x & LOG_BOTSHRIN) && raw_log) ? "incoming share traffic, " : "",
-                    ((x & LOG_BOTSHROUT) && raw_log) ? "outgoing share traffic, " : "",
-                    (x & LOG_LEV1) ? "level 1, " : "",
-                    (x & LOG_LEV2) ? "level 2, " : "",
-                    (x & LOG_LEV3) ? "level 3, " : "",
-                    (x & LOG_LEV4) ? "level 4, " : "",
-                    (x & LOG_LEV5) ? "level 5, " : "",
-                    (x & LOG_LEV6) ? "level 6, " : "",
-                    (x & LOG_LEV7) ? "level 7, " : "",
-                    (x & LOG_LEV8) ? "level 8, " : "")))
-    s[i - 2] = 0;
+  op_strbuf_init(&_b);
+  if (x & LOG_MSGS)    op_strbuf_append_cstr(&_b, "msgs, ");
+  if (x & LOG_PUBLIC)  op_strbuf_append_cstr(&_b, "public, ");
+  if (x & LOG_JOIN)    op_strbuf_append_cstr(&_b, "joins, ");
+  if (x & LOG_MODES)   op_strbuf_append_cstr(&_b, "kicks/modes, ");
+  if (x & LOG_CMDS)    op_strbuf_append_cstr(&_b, "cmds, ");
+  if (x & LOG_MISC)    op_strbuf_append_cstr(&_b, "misc, ");
+  if (x & LOG_BOTS)    op_strbuf_append_cstr(&_b, "bots, ");
+  if (x & LOG_BOTMSG)  op_strbuf_append_cstr(&_b, "linked bot msgs, ");
+  if ((x & LOG_RAW) && raw_log)       op_strbuf_append_cstr(&_b, "raw, ");
+  if (x & LOG_FILES)   op_strbuf_append_cstr(&_b, "files, ");
+  if (x & LOG_SERV)    op_strbuf_append_cstr(&_b, "server input, ");
+  if (x & LOG_DEBUG)   op_strbuf_append_cstr(&_b, "debug, ");
+  if (x & LOG_WALL)    op_strbuf_append_cstr(&_b, "wallops, ");
+  if ((x & LOG_SRVOUT) && raw_log)    op_strbuf_append_cstr(&_b, "server output, ");
+  if ((x & LOG_BOTNETIN) && raw_log)  op_strbuf_append_cstr(&_b, "botnet incoming, ");
+  if ((x & LOG_BOTNETOUT) && raw_log) op_strbuf_append_cstr(&_b, "botnet outgoing, ");
+  if ((x & LOG_BOTSHRIN) && raw_log)  op_strbuf_append_cstr(&_b, "incoming share traffic, ");
+  if ((x & LOG_BOTSHROUT) && raw_log) op_strbuf_append_cstr(&_b, "outgoing share traffic, ");
+  if (x & LOG_LEV1)    op_strbuf_append_cstr(&_b, "level 1, ");
+  if (x & LOG_LEV2)    op_strbuf_append_cstr(&_b, "level 2, ");
+  if (x & LOG_LEV3)    op_strbuf_append_cstr(&_b, "level 3, ");
+  if (x & LOG_LEV4)    op_strbuf_append_cstr(&_b, "level 4, ");
+  if (x & LOG_LEV5)    op_strbuf_append_cstr(&_b, "level 5, ");
+  if (x & LOG_LEV6)    op_strbuf_append_cstr(&_b, "level 6, ");
+  if (x & LOG_LEV7)    op_strbuf_append_cstr(&_b, "level 7, ");
+  if (x & LOG_LEV8)    op_strbuf_append_cstr(&_b, "level 8, ");
+  if (op_strbuf_len(&_b))
+    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) - 1);
   else
-    strlcpy(s, "none", sizeof(s));
+    strlcpy(s, "none", sizeof s);
+  op_strbuf_free(&_b);
   return s;
 }
 
@@ -1293,8 +1295,7 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
         break;
     ch = findchan_by_dname(chname);
     if (!cr && ch) {
-      cr = user_malloc(sizeof(struct chanuserrec));
-      egg_bzero(cr, sizeof(struct chanuserrec));
+      cr = alloc_chanuserrec();
 
       cr->next = u->chanrec;
       u->chanrec = cr;
@@ -1388,7 +1389,7 @@ static int botfl_pack(struct userrec *u, struct user_entry *e)
 
 static int botfl_kill(struct user_entry *e)
 {
-  nfree(e);
+  free_user_entry(e);
   return 1;
 }
 

@@ -46,7 +46,7 @@
 
 #include "compress.h"
 
-#define BUFLEN 512
+constexpr int BUFLEN = 512;
 
 
 static Function *global = NULL, *share_funcs = NULL;
@@ -237,7 +237,12 @@ static int compress_to_file(char *f_src, char *f_target, int mode_num)
   int len;
 
   adjust_mode_num(&mode_num);
-  snprintf(mode, sizeof mode, "wb%d", mode_num);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "wb%s", int_to_base10(mode_num));
+    strlcpy(mode, op_strbuf_str(&_b), sizeof mode);
+    op_strbuf_free(&_b);
+  }
 
   if (!is_file(f_src)) {
     putlog(LOG_MISC, "*", "Failed to compress file `%s': not a file.", f_src);
@@ -308,11 +313,14 @@ static int compress_file(char *filename, int mode_num)
   int ret;
 
   /* Create temporary filename. */
-  size_t temp_fn_sz = strlen(filename) + sizeof rands;
-  temp_fn = nmalloc(temp_fn_sz);
   make_rand_str(rands, sizeof rands - 1);
-  strlcpy(temp_fn, filename, temp_fn_sz);
-  strlcat(temp_fn, rands, temp_fn_sz);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s", filename, rands);
+    temp_fn = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(temp_fn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
+  }
 
   /* Compress file. */
   ret = compress_to_file(filename, temp_fn, mode_num);
@@ -335,11 +343,14 @@ static int uncompress_file(char *filename)
   int ret;
 
   /* Create temporary filename. */
-  size_t temp_fn_sz = strlen(filename) + sizeof rands;
-  temp_fn = nmalloc(temp_fn_sz);
   make_rand_str(rands, sizeof rands - 1);
-  strlcpy(temp_fn, filename, temp_fn_sz);
-  strlcat(temp_fn, rands, temp_fn_sz);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s", filename, rands);
+    temp_fn = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(temp_fn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
+  }
 
   /* Uncompress file. */
   ret = uncompress_to_file(filename, temp_fn);

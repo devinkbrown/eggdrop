@@ -48,6 +48,7 @@
 #include "modules.h"
 #include "bg.h"
 #include "configtoml.h"
+#include "io_thread.h"
 
 #ifdef HAVE_GETRANDOM
 #  include <sys/random.h>
@@ -116,29 +117,30 @@ char quit_msg[1024];                  /* Quit message                           
 unsigned char cliflags = 0;
 
 
-/* Traffic stats — 64-bit to avoid overflow on high-volume bots */
-uint64_t otraffic_irc = 0;
-uint64_t otraffic_irc_today = 0;
-uint64_t otraffic_bn = 0;
-uint64_t otraffic_bn_today = 0;
-uint64_t otraffic_dcc = 0;
-uint64_t otraffic_dcc_today = 0;
-uint64_t otraffic_filesys = 0;
-uint64_t otraffic_filesys_today = 0;
-uint64_t otraffic_trans = 0;
-uint64_t otraffic_trans_today = 0;
-uint64_t otraffic_unknown = 0;
-uint64_t otraffic_unknown_today = 0;
-uint64_t itraffic_irc = 0;
-uint64_t itraffic_irc_today = 0;
-uint64_t itraffic_bn = 0;
-uint64_t itraffic_bn_today = 0;
-uint64_t itraffic_dcc = 0;
-uint64_t itraffic_dcc_today = 0;
-uint64_t itraffic_trans = 0;
-uint64_t itraffic_trans_today = 0;
-uint64_t itraffic_unknown = 0;
-uint64_t itraffic_unknown_today = 0;
+/* Traffic stats — atomic 64-bit counters; written from io_thread, read from main */
+#include <stdatomic.h>
+_Atomic uint64_t otraffic_irc = 0;
+_Atomic uint64_t otraffic_irc_today = 0;
+_Atomic uint64_t otraffic_bn = 0;
+_Atomic uint64_t otraffic_bn_today = 0;
+_Atomic uint64_t otraffic_dcc = 0;
+_Atomic uint64_t otraffic_dcc_today = 0;
+_Atomic uint64_t otraffic_filesys = 0;
+_Atomic uint64_t otraffic_filesys_today = 0;
+_Atomic uint64_t otraffic_trans = 0;
+_Atomic uint64_t otraffic_trans_today = 0;
+_Atomic uint64_t otraffic_unknown = 0;
+_Atomic uint64_t otraffic_unknown_today = 0;
+_Atomic uint64_t itraffic_irc = 0;
+_Atomic uint64_t itraffic_irc_today = 0;
+_Atomic uint64_t itraffic_bn = 0;
+_Atomic uint64_t itraffic_bn_today = 0;
+_Atomic uint64_t itraffic_dcc = 0;
+_Atomic uint64_t itraffic_dcc_today = 0;
+_Atomic uint64_t itraffic_trans = 0;
+_Atomic uint64_t itraffic_trans_today = 0;
+_Atomic uint64_t itraffic_unknown = 0;
+_Atomic uint64_t itraffic_unknown_today = 0;
 
 #ifdef DEBUG_CONTEXT
 extern char last_bind_called[];
@@ -149,6 +151,8 @@ void fatal(const char *s, int recoverable)
   int i;
 
   putlog(LOG_MISC, "*", "* %s", s);
+  /* Stop io_thread before closing sockets so it can't race on dying fds. */
+  io_thread_stop();
   for (i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
       killsock(dcc[i].sock);
@@ -425,8 +429,8 @@ static void show_ver(void) {
   char x[512], *z = x;
 
   strlcpy(x, egg_version, sizeof x);
-  newsplit(&z);
-  newsplit(&z);
+  (void)newsplit(&z);
+  (void)newsplit(&z);
   printf("%s\n", version);
   if (z[0]) {
     printf("  (patches: %s)\n", z);
@@ -637,7 +641,12 @@ static void core_secondly(void)
               fclose(logs[i].f);
               logs[i].f = NULL;
             }
-            snprintf(s, sizeof s, "%s.yesterday", logs[i].filename);
+            {
+              op_strbuf_t _b;
+              op_strbuf_printf(&_b, "%s.yesterday", logs[i].filename);
+              strlcpy(s, op_strbuf_str(&_b), sizeof s);
+              op_strbuf_free(&_b);
+            }
             unlink(s);
             movefile(logs[i].filename, s);
           }
@@ -683,21 +692,28 @@ static void event_logfile(void)
 
 static void event_resettraffic(void)
 {
-  otraffic_irc += otraffic_irc_today;
-  itraffic_irc += itraffic_irc_today;
-  otraffic_bn += otraffic_bn_today;
-  itraffic_bn += itraffic_bn_today;
-  otraffic_dcc += otraffic_dcc_today;
-  itraffic_dcc += itraffic_dcc_today;
-  otraffic_unknown += otraffic_unknown_today;
-  itraffic_unknown += itraffic_unknown_today;
-  otraffic_trans += otraffic_trans_today;
-  itraffic_trans += itraffic_trans_today;
-  otraffic_irc_today = otraffic_bn_today = 0;
-  otraffic_dcc_today = otraffic_unknown_today = 0;
-  itraffic_irc_today = itraffic_bn_today = 0;
-  itraffic_dcc_today = itraffic_unknown_today = 0;
-  itraffic_trans_today = otraffic_trans_today = 0;
+  /* Accumulate daily totals into all-time counters atomically.
+   * Called from main thread only (HOOK_DAILY), so relaxed ordering is fine. */
+  atomic_fetch_add_explicit(&otraffic_irc,     atomic_load_explicit(&otraffic_irc_today,     memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&itraffic_irc,     atomic_load_explicit(&itraffic_irc_today,     memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&otraffic_bn,      atomic_load_explicit(&otraffic_bn_today,      memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&itraffic_bn,      atomic_load_explicit(&itraffic_bn_today,      memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&otraffic_dcc,     atomic_load_explicit(&otraffic_dcc_today,     memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&itraffic_dcc,     atomic_load_explicit(&itraffic_dcc_today,     memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&otraffic_unknown, atomic_load_explicit(&otraffic_unknown_today, memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&itraffic_unknown, atomic_load_explicit(&itraffic_unknown_today, memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&otraffic_trans,   atomic_load_explicit(&otraffic_trans_today,   memory_order_relaxed), memory_order_relaxed);
+  atomic_fetch_add_explicit(&itraffic_trans,   atomic_load_explicit(&itraffic_trans_today,   memory_order_relaxed), memory_order_relaxed);
+  atomic_store_explicit(&otraffic_irc_today,     0, memory_order_relaxed);
+  atomic_store_explicit(&otraffic_bn_today,      0, memory_order_relaxed);
+  atomic_store_explicit(&otraffic_dcc_today,     0, memory_order_relaxed);
+  atomic_store_explicit(&otraffic_unknown_today, 0, memory_order_relaxed);
+  atomic_store_explicit(&otraffic_trans_today,   0, memory_order_relaxed);
+  atomic_store_explicit(&itraffic_irc_today,     0, memory_order_relaxed);
+  atomic_store_explicit(&itraffic_bn_today,      0, memory_order_relaxed);
+  atomic_store_explicit(&itraffic_dcc_today,     0, memory_order_relaxed);
+  atomic_store_explicit(&itraffic_unknown_today, 0, memory_order_relaxed);
+  atomic_store_explicit(&itraffic_trans_today,   0, memory_order_relaxed);
 }
 
 static void event_loaded(void)
@@ -774,26 +790,27 @@ static void mainloop(int toplevel)
 
     if (idx >= 0) {
       if (dcc[idx].type && dcc[idx].type->activity) {
-        /* Traffic stats */
+        /* Traffic stats — atomic_fetch_add for thread safety with io_thread */
         if (dcc[idx].type->name) {
+          size_t _nb = strlen(buf) + 1;
           if (!strncmp(dcc[idx].type->name, "BOT", 3))
-            itraffic_bn_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_bn_today, _nb, memory_order_relaxed);
           else if (!strcmp(dcc[idx].type->name, "SERVER"))
-            itraffic_irc_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_irc_today, _nb, memory_order_relaxed);
           else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
-            itraffic_dcc_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_dcc_today, _nb, memory_order_relaxed);
           else if (!strncmp(dcc[idx].type->name, "WEBUI", 5))
-            itraffic_dcc_today += i;
+            atomic_fetch_add_explicit(&itraffic_dcc_today, (size_t)i, memory_order_relaxed);
           else if (!strncmp(dcc[idx].type->name, "FILES", 5))
-            itraffic_dcc_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_dcc_today, _nb, memory_order_relaxed);
           else if (!strcmp(dcc[idx].type->name, "SEND"))
-            itraffic_trans_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_trans_today, _nb, memory_order_relaxed);
           else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
-            itraffic_trans_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_trans_today, _nb, memory_order_relaxed);
           else if (!strncmp(dcc[idx].type->name, "GET", 3))
-            itraffic_trans_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_trans_today, _nb, memory_order_relaxed);
           else
-            itraffic_unknown_today += strlen(buf) + 1;
+            atomic_fetch_add_explicit(&itraffic_unknown_today, _nb, memory_order_relaxed);
         }
         dcc[idx].type->activity(idx, buf, i);
       } else
@@ -988,14 +1005,24 @@ int main(int arg_c, char **arg_v)
 
   /* Version info! */
 #ifdef EGG_PATCH
-  snprintf(egg_version, sizeof egg_version, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
-  snprintf(ver, sizeof ver, "eggdrop v%s+%s", EGG_STRINGVER, EGG_PATCH);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
+    strlcpy(egg_version, op_strbuf_str(&_b), sizeof egg_version);
+    op_strbuf_free(&_b);
+  }
+  strlcpy(ver, "eggdrop v" EGG_STRINGVER "+" EGG_PATCH, sizeof ver);
   strlcpy(version,
           "Eggdrop v" EGG_STRINGVER "+" EGG_PATCH " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
           sizeof version);
 #else
-  snprintf(egg_version, sizeof egg_version, "%s %u", EGG_STRINGVER, egg_numver);
-  snprintf(ver, sizeof ver, "eggdrop v%s", EGG_STRINGVER);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %u", EGG_STRINGVER, egg_numver);
+    strlcpy(egg_version, op_strbuf_str(&_b), sizeof egg_version);
+    op_strbuf_free(&_b);
+  }
+  strlcpy(ver, "eggdrop v" EGG_STRINGVER, sizeof ver);
   strlcpy(version,
           "Eggdrop v" EGG_STRINGVER " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
           sizeof version);
@@ -1102,8 +1129,12 @@ int main(int arg_c, char **arg_v)
 #endif
   cache_miss = 0;
   cache_hit = 0;
-  if (!pid_file[0])
-    snprintf(pid_file, sizeof pid_file, "pid.%s", botnetnick);
+  if (!pid_file[0]) {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "pid.%s", botnetnick);
+    strlcpy(pid_file, op_strbuf_str(&_b), sizeof pid_file);
+    op_strbuf_free(&_b);
+  }
 
   /* Check for pre-existing eggdrop! */
   f = fopen(pid_file, "r");
@@ -1218,6 +1249,13 @@ int main(int arg_c, char **arg_v)
   add_hook(HOOK_LOADED, (Function) event_loaded);
 
   call_hook(HOOK_LOADED);
+
+  /* Start the dedicated I/O reader thread.  All non-TCL, non-TLS socket
+   * reads will happen in the io_thread from this point on; the main thread
+   * only drains the pre-filled inbufs via sockgets(). */
+  if (io_thread_start() < 0)
+    putlog(LOG_MISC, "*", "WARNING: io_thread could not start (%s) — falling back to single-threaded I/O.",
+           strerror(errno));
 
   debug0("main: entering loop");
   while (1) {

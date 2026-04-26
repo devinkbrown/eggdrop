@@ -140,7 +140,7 @@ static inline void res_dlinkDelete(res_dlink_node *m, res_dlink_list *list) {
 #define op_strlcpy(dst, src, sz)    strlcpy(dst, src, sz)
 
 /* Socket helpers */
-static inline __attribute__((unused))
+static inline [[maybe_unused]]
 int res_inet_pton_sock(const char *addr,
                        struct sockaddr_storage *ss)
 {
@@ -161,7 +161,7 @@ int res_inet_pton_sock(const char *addr,
 }
 #define op_inet_pton_sock(addr, ss)  res_inet_pton_sock(addr, ss)
 
-static inline __attribute__((unused))
+static inline [[maybe_unused]]
 const char *res_inet_ntop_sock(const struct sockaddr *sa,
                                char *buf, size_t len)
 {
@@ -245,38 +245,41 @@ static int dot_reconnect_seconds = -1;  /* -1 = not scheduled */
  * DNS wire-format constants
  * ====================================================================== */
 
-#define DNS_HDR_SIZE     12
-#define DNS_MAXPKT       4096   /* EDNS0 max UDP payload (RFC 6891) */
-#define DNS_MAXLABEL     63
-#define DNS_PTR_HI       0xC0
-#define DNS_CLASS_IN     1
+constexpr int DNS_HDR_SIZE     = 12;
+constexpr int DNS_MAXPKT       = 4096;  /* EDNS0 max UDP payload (RFC 6891) */
+constexpr int DNS_MAXLABEL     = 63;
+constexpr int DNS_PTR_HI       = 0xC0;
+constexpr int DNS_CLASS_IN     = 1;
 
-#define DNS_TYPE_A       1
-#define DNS_TYPE_CNAME   5
-#define DNS_TYPE_OPT     41     /* EDNS0 pseudo-RR (RFC 6891) */
-#define DNS_TYPE_PTR     12
-#define DNS_TYPE_AAAA    28
+constexpr int DNS_TYPE_A       = 1;
+constexpr int DNS_TYPE_CNAME   = 5;
+constexpr int DNS_TYPE_OPT     = 41;    /* EDNS0 pseudo-RR (RFC 6891) */
+constexpr int DNS_TYPE_PTR     = 12;
+constexpr int DNS_TYPE_AAAA    = 28;
 
 /* EDNS0 OPT record constants (RFC 6891) */
-#define DNS_EDNS0_PAYLOAD  4096  /* advertised UDP payload size */
-#define DNS_OPT_RDLEN      0     /* no option data */
+constexpr int DNS_EDNS0_PAYLOAD = 4096; /* advertised UDP payload size */
+constexpr int DNS_OPT_RDLEN     = 0;    /* no option data */
 
 /* TC (Truncation) bit in DNS flags word (bit 9) */
-#define DNS_FLAG_TC      0x0200
+constexpr int DNS_FLAG_TC      = 0x0200;
 
-#define DNS_RC_NOERR     0
-#define DNS_RC_SERVFAIL  2
-#define DNS_RC_NXDOMAIN  3
-#define DNS_RC_NOTIMP    4
-#define DNS_RC_REFUSED   5
+constexpr int DNS_RC_NOERR     = 0;
+constexpr int DNS_RC_SERVFAIL  = 2;
+constexpr int DNS_RC_NXDOMAIN  = 3;
+constexpr int DNS_RC_NOTIMP    = 4;
+constexpr int DNS_RC_REFUSED   = 5;
 
-#define DNS_INITIAL_TIMEOUT  4
-#define DNS_MAX_RETRIES      3
-#define DNS_TIMER_INTERVAL   1
-#define DNS_MAX_CNAME_DEPTH  8  /* RFC 1034 §3.6.2 recommends ≤ a few hops */
+constexpr int DNS_INITIAL_TIMEOUT = 4;
+constexpr int DNS_MAX_RETRIES     = 3;
+constexpr int DNS_TIMER_INTERVAL  = 1;
+constexpr int DNS_MAX_CNAME_DEPTH = 8; /* RFC 1034 §3.6.2 recommends ≤ a few hops */
 
 /* High bit of dns_req.type marks a forward-confirmation query */
-#define DNS_FLAG_FCRDNS  0x8000
+constexpr int DNS_FLAG_FCRDNS  = 0x8000;
+
+/* Cap on answer RRs to guard against malformed packets (tight-loop DoS) */
+constexpr int DNS_MAX_ANCOUNT  = 64;
 
 /* =========================================================================
  * DNS header field accessors (byte-level; safe on all arches)
@@ -332,7 +335,7 @@ static int resfd_family = AF_INET;
  * dns.mod/dns.c iterate this list, but with the new resolver all
  * memory is managed internally per-query.  The cache concept from the
  * old coredns.c no longer applies; we return 0 / NULL safely. */
-static struct resolve *expireresolves __attribute__((unused)) = NULL;
+static struct resolve *expireresolves [[maybe_unused]] = NULL;
 
 /* myres: struct __res_state used by dns_change() and dns_report() in
  * dns.mod/dns.c to get/set nameserver addresses via TCL "dns-servers"
@@ -361,7 +364,7 @@ static void sync_myres_from_irc(void) {
 }
 
 /* Sync irc_nsaddr_list from myres (called after dns_change() TCL write) */
-static void __attribute__((unused)) sync_irc_from_myres(void) {
+static void [[maybe_unused]] sync_irc_from_myres(void) {
   int i;
   irc_nscount = 0;
   for (i = 0; i < myres.nscount && i < IRCD_MAXNS; i++) {
@@ -708,7 +711,7 @@ static int            ns_failures[IRCD_MAXNS];
  * ====================================================================== */
 
 
-#define DOT_RECONNECT_DELAY 30  /* seconds between reconnect attempts */
+constexpr int DOT_RECONNECT_DELAY = 30; /* seconds between reconnect attempts */
 
 #ifdef EGG_TLS
 static int  dot_active = 0;
@@ -965,7 +968,6 @@ static int process_answer(struct dns_req *req,
    * responses with absurdly large wire counts (e.g. 65535 with a 200-byte
    * packet).  The loop already breaks on out-of-bounds access, but the
    * cap makes the worst case explicit and cheap. */
-#define DNS_MAX_ANCOUNT 64
   ancount   = HDR_ANCOUNT(pkt);
   if (ancount > DNS_MAX_ANCOUNT)
     ancount = DNS_MAX_ANCOUNT;
@@ -1276,12 +1278,10 @@ void res_read_udp(void) { res_read_dns(); }
  * Timeout / retry — driven by res_secondly_check() via HOOK_SECONDLY
  * ====================================================================== */
 
-static void timeout_resolver(void *unused)
+static void timeout_resolver([[maybe_unused]] void *unused)
 {
   time_t         t = op_current_time();
   op_dlink_node *n, *nt;
-
-  (void)unused;
 
   OP_DLINK_FOREACH_SAFE(n, nt, req_list.head) {
     struct dns_req *req = n->data;
@@ -1580,10 +1580,11 @@ void res_disable_dot(void)
 
 #else /* !EGG_TLS */
 
-void res_enable_dot(const struct sockaddr_storage *sa,
-                    const char *addr_str, uint16_t port, int verify)
+void res_enable_dot([[maybe_unused]] const struct sockaddr_storage *sa,
+                    [[maybe_unused]] const char *addr_str,
+                    [[maybe_unused]] uint16_t port,
+                    [[maybe_unused]] int verify)
 {
-  (void)sa; (void)addr_str; (void)port; (void)verify;
   iwarn("DoT: TLS not compiled in — secure_dns ignored");
 }
 
@@ -1605,27 +1606,37 @@ void build_rdns(char *buf, size_t size,
   if (GET_SS_FAMILY(addr) == AF_INET) {
     const struct sockaddr_in *v4 = (const struct sockaddr_in *)addr;
     cp = (const unsigned char *)&v4->sin_addr.s_addr;
-    snprintf(buf, size, "%u.%u.%u.%u.%s",
-             (unsigned)cp[3], (unsigned)cp[2],
-             (unsigned)cp[1], (unsigned)cp[0],
-             suffix ? suffix : "in-addr.arpa");
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%u.%u.%u.%u.%s",
+                       (unsigned)cp[3], (unsigned)cp[2],
+                       (unsigned)cp[1], (unsigned)cp[0],
+                       suffix ? suffix : "in-addr.arpa");
+      strlcpy(buf, op_strbuf_str(&_b), size);
+      op_strbuf_free(&_b);
+    }
 
 #ifdef IPV6
   } else if (GET_SS_FAMILY(addr) == AF_INET6) {
     const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)addr;
     cp = (const unsigned char *)&v6->sin6_addr.s6_addr;
-    snprintf(buf, size,
-        "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
-        "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%s",
-        cp[15] & 0xf, cp[15] >> 4,  cp[14] & 0xf, cp[14] >> 4,
-        cp[13] & 0xf, cp[13] >> 4,  cp[12] & 0xf, cp[12] >> 4,
-        cp[11] & 0xf, cp[11] >> 4,  cp[10] & 0xf, cp[10] >> 4,
-        cp[9]  & 0xf, cp[9]  >> 4,  cp[8]  & 0xf, cp[8]  >> 4,
-        cp[7]  & 0xf, cp[7]  >> 4,  cp[6]  & 0xf, cp[6]  >> 4,
-        cp[5]  & 0xf, cp[5]  >> 4,  cp[4]  & 0xf, cp[4]  >> 4,
-        cp[3]  & 0xf, cp[3]  >> 4,  cp[2]  & 0xf, cp[2]  >> 4,
-        cp[1]  & 0xf, cp[1]  >> 4,  cp[0]  & 0xf, cp[0]  >> 4,
-        suffix ? suffix : "ip6.arpa");
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b,
+          "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
+          "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%s",
+          cp[15] & 0xf, cp[15] >> 4,  cp[14] & 0xf, cp[14] >> 4,
+          cp[13] & 0xf, cp[13] >> 4,  cp[12] & 0xf, cp[12] >> 4,
+          cp[11] & 0xf, cp[11] >> 4,  cp[10] & 0xf, cp[10] >> 4,
+          cp[9]  & 0xf, cp[9]  >> 4,  cp[8]  & 0xf, cp[8]  >> 4,
+          cp[7]  & 0xf, cp[7]  >> 4,  cp[6]  & 0xf, cp[6]  >> 4,
+          cp[5]  & 0xf, cp[5]  >> 4,  cp[4]  & 0xf, cp[4]  >> 4,
+          cp[3]  & 0xf, cp[3]  >> 4,  cp[2]  & 0xf, cp[2]  >> 4,
+          cp[1]  & 0xf, cp[1]  >> 4,  cp[0]  & 0xf, cp[0]  >> 4,
+          suffix ? suffix : "ip6.arpa");
+      strlcpy(buf, op_strbuf_str(&_b), size);
+      op_strbuf_free(&_b);
+    }
 #endif
 
   } else {
@@ -1768,7 +1779,7 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
  * dns_lookup — reverse lookup (IP -> hostname).
  * Registered on HOOK_DNS_HOSTBYIP; receives a sockname_t *.
  */
-static void __attribute__((unused)) dns_lookup(sockname_t *addr)
+static void [[maybe_unused]] dns_lookup(sockname_t *addr)
 {
   struct egg_dns_ctx *ctx;
   struct DNSQuery    *q;
@@ -1807,7 +1818,7 @@ static void __attribute__((unused)) dns_lookup(sockname_t *addr)
  * dns_forward — forward lookup (hostname -> IP).
  * Registered on HOOK_DNS_IPBYHOST; receives a char *.
  */
-static void __attribute__((unused)) dns_forward(char *hostn)
+static void [[maybe_unused]] dns_forward(char *hostn)
 {
   struct egg_dns_ctx *ctx;
   struct DNSQuery    *q;
@@ -1846,7 +1857,7 @@ static void __attribute__((unused)) dns_forward(char *hostn)
  * dns_check_expires — called every second via HOOK_SECONDLY.
  * Delegates to res_secondly_check().
  */
-static void __attribute__((unused)) dns_check_expires(void)
+static void [[maybe_unused]] dns_check_expires(void)
 {
   res_secondly_check();
 }
@@ -1855,7 +1866,7 @@ static void __attribute__((unused)) dns_check_expires(void)
  * dns_ack — called from DCC_DNS activity handler.
  * Reads pending UDP replies.
  */
-static void __attribute__((unused)) dns_ack(void)
+static void [[maybe_unused]] dns_ack(void)
 {
   res_read_udp();
 }
@@ -1864,7 +1875,7 @@ static void __attribute__((unused)) dns_ack(void)
  * init_dns_core — initialise the resolver; returns 1 on success, 0 on error.
  * Called from dns_start() in dns.mod/dns.c.
  */
-static int __attribute__((unused)) init_dns_core(void)
+static int [[maybe_unused]] init_dns_core(void)
 {
   init_resolver();
 

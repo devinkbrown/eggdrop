@@ -591,7 +591,6 @@ static int tcl_getchanidle STDVAR
 {
   memberlist *m;
   struct chanset_t *chan;
-  char s[20];
   int x;
 
   BADARGS(3, 3, " nickname channel");
@@ -604,8 +603,7 @@ static int tcl_getchanidle STDVAR
 
   if (m) {
     x = (now - (m->last)) / 60;
-    simple_sprintf(s, "%d", x);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_AppendResult(irp, int_to_base10(x), NULL);
     return TCL_OK;
   }
   Tcl_AppendResult(irp, "-1", NULL);
@@ -620,7 +618,12 @@ static int tcl_chanmasks(masklist *m, Tcl_Interp *irp)
   for (; m && m->mask && m->mask[0]; m = m->next) {
     list[0] = m->mask;
     list[1] = m->who;
-    snprintf(work, sizeof work, "%" PRId64, (int64_t) (now - m->timer));
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%" PRId64, (int64_t) (now - m->timer));
+      strlcpy(work, op_strbuf_str(&_b), sizeof work);
+      op_strbuf_free(&_b);
+    }
     list[2] = work;
     p = Tcl_Merge(3, list);
     Tcl_AppendElement(irp, p);
@@ -689,7 +692,6 @@ static int tcl_getchanmode STDVAR
 static int tcl_getchanjoin STDVAR
 {
   struct chanset_t *chan;
-  char s[21];
   memberlist *m;
 
   BADARGS(3, 3, " nick channel");
@@ -705,8 +707,12 @@ static int tcl_getchanjoin STDVAR
     Tcl_AppendResult(irp, argv[1], " is not on ", argv[2], NULL);
     return TCL_ERROR;
   }
-  snprintf(s, sizeof(s), "%" PRIu64, (uint64_t) m->joined);
-  Tcl_AppendResult(irp, s, NULL);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%" PRIu64, (uint64_t) m->joined);
+    Tcl_AppendResult(irp, op_strbuf_str(&_b), NULL);
+    op_strbuf_free(&_b);
+  }
   return TCL_OK;
 }
 
@@ -1136,8 +1142,9 @@ static int tcl_nick2hand STDVAR
 static int tcl_putkick STDVAR
 {
   struct chanset_t *chan;
+  op_strbuf_t kicknick;
   int k = 0, l;
-  char kicknick[512], *nick, *p, *comment = NULL;
+  char *nick, *p, *comment = NULL;
   memberlist *m;
 
   BADARGS(3, 4, " channel nick?s? ?comment?");
@@ -1156,7 +1163,7 @@ static int tcl_putkick STDVAR
     return TCL_ERROR;
   }
 
-  kicknick[0] = 0;
+  op_strbuf_init(&kicknick);
   p = argv[2];
   /* Loop through all given nicks */
   while (p) {
@@ -1170,27 +1177,29 @@ static int tcl_putkick STDVAR
     m = ismember(chan, nick);
     if (!me_op(chan) && !(me_halfop(chan) && !chan_hasop(m))) {
       Tcl_AppendResult(irp, "need op", NULL);
+      op_strbuf_free(&kicknick);
       return TCL_ERROR;
     }
     if (!m)
       continue;                 /* Skip non-existent nicks */
     m->flags |= SENTKICK;       /* Mark as pending kick */
-    if (kicknick[0])
-      strlcat(kicknick, ",", sizeof kicknick);
-    strlcat(kicknick, nick, sizeof kicknick);     /* Add to local queue */
+    if (op_strbuf_len(&kicknick))
+      op_strbuf_append_cstr(&kicknick, ",");
+    op_strbuf_append_cstr(&kicknick, nick);     /* Add to local queue */
     k++;
 
     /* Check if we should send the kick command yet */
-    l = strlen(chan->name) + strlen(kicknick) + strlen(comment);
+    l = strlen(chan->name) + op_strbuf_len(&kicknick) + strlen(comment);
     if (((kick_method != 0) && (k == kick_method)) || (l > 480)) {
-      dprintf(DP_SERVER, "KICK %s %s :%s\n", chan->name, kicknick, comment);
+      dprintf(DP_SERVER, "KICK %s %s :%s\n", chan->name, op_strbuf_str(&kicknick), comment);
       k = 0;
-      kicknick[0] = 0;
+      op_strbuf_truncate(&kicknick, 0);
     }
   }
   /* Clear out all pending kicks in our local kick queue */
   if (k > 0)
-    dprintf(DP_SERVER, "KICK %s %s :%s\n", chan->name, kicknick, comment);
+    dprintf(DP_SERVER, "KICK %s %s :%s\n", chan->name, op_strbuf_str(&kicknick), comment);
+  op_strbuf_free(&kicknick);
   return TCL_OK;
 }
 

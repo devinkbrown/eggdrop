@@ -633,8 +633,11 @@ Function global_table[] = {
 /* 328 - 331 */
   (Function) & stealth_telnets,   /* int                                 */
   (Function) mod_strdup,           /* char *(str, modname, file, line)    */
-/* 330 */
-  (Function) threaddata            /* struct threaddata *(*)(void)        */
+  (Function) free_user_entry,      /* void (struct user_entry *)          */
+  (Function) alloc_user_entry,     /* struct user_entry *(void)           */
+  (Function) alloc_chanuserrec,    /* struct chanuserrec *(void)          */
+  (Function) alloc_xtra_key,       /* struct xtra_key *(void)             */
+  (Function) free_xtra_key         /* void (struct xtra_key *)            */
 };
 
 void init_modules(void)
@@ -712,7 +715,6 @@ const char *module_load(char *name)
 #endif
 
 #ifndef STATIC
-  size_t len;
   char workbuf[PATH_MAX];
 #  ifdef MOD_USE_SHL
   shl_t hand;
@@ -743,28 +745,47 @@ const char *module_load(char *name)
       debug1("modules: getcwd(): %s\n", strerror(errno));
       return MOD_BADCWD;
     }
-    len = strlen(workbuf);
-    snprintf(workbuf + len, (sizeof workbuf) - len, "/%s%s." EGG_MOD_EXT, moddir, name);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s/%s%s." EGG_MOD_EXT, workbuf, moddir, name);
+      strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+      op_strbuf_free(&_b);
+    }
   } else {
-    snprintf(workbuf, sizeof workbuf, "%s%s." EGG_MOD_EXT, moddir, name);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s." EGG_MOD_EXT, moddir, name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
   }
 #ifdef EGG_MODDIR
   /* Fall back to the compiled-in install directory if the configured path
    * doesn't exist (e.g. running an installed binary from an arbitrary CWD). */
-  if (access(workbuf, F_OK) != 0)
-    snprintf(workbuf, sizeof workbuf, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
+  if (access(workbuf, F_OK) != 0) {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
+  }
 #endif
 
 #  ifdef MOD_USE_SHL
   hand = shl_load(workbuf, BIND_IMMEDIATE, 0L);
   if (!hand)
     return "Can't load module.";
-  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
+  }
   if (shl_findsym(&hand, workbuf, (short) TYPE_PROCEDURE, (void *) &f))
     f = NULL;
   if (f == NULL) {
     /* Some OS's require a _ to be prepended to the symbol name (Darwin, etc). */
-    snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "_%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
     if (shl_findsym(&hand, workbuf, (short) TYPE_PROCEDURE, (void *) &f))
       f = NULL;
   }
@@ -779,7 +800,12 @@ const char *module_load(char *name)
   if (ret != NSObjectFileImageSuccess)
     return "Can't load module.";
   hand = NSLinkModule(file, workbuf, DYLDFLAGS);
-  snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "_%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
+  }
   sym = NSLookupSymbolInModule(hand, workbuf);
   if (sym)
     f = (Function) NSAddressOfSymbol(sym);
@@ -795,7 +821,12 @@ const char *module_load(char *name)
   ret = rld_load(NULL, (struct mach_header **) 0, workbuf, (const char *) 0);
   if (!ret)
     return "Can't load module.";
-  snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "_%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
+  }
   ret = rld_lookup(NULL, workbuf, &f)
   if (!ret || f == NULL)
     return MOD_NOSTARTDEF;
@@ -806,10 +837,18 @@ const char *module_load(char *name)
   hand = load(workbuf, LDR_NOFLAGS);
   if (hand == LDR_NULL_MODULE)
     return "Can't load module.";
-  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
+  }
   f = (Function) ldr_lookup_package(hand, workbuf);
   if (f == NULL) {
-    snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "_%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
     f = (Function) ldr_lookup_package(hand, workbuf);
   }
   if (f == NULL) {
@@ -822,10 +861,18 @@ const char *module_load(char *name)
   hand = dlopen(workbuf, DLFLAGS);
   if (!hand)
     return dlerror();
-  snprintf(workbuf, sizeof(workbuf), "%s_start", name);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
+  }
   f = (Function) dlsym(hand, workbuf);
   if (f == NULL) {
-    snprintf(workbuf, sizeof(workbuf), "_%s_start", name);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "_%s_start", name);
+    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    op_strbuf_free(&_b);
     f = (Function) dlsym(hand, workbuf);
   }
   if (f == NULL) {
@@ -1012,12 +1059,13 @@ int module_undepend(char *name1)
 void *mod_malloc(int size, const char *modname, const char *filename, int line)
 {
 #ifdef DEBUG_MEM
-  char x[100], *p;
-
-  p = strrchr(filename, '/');
-  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
-  x[19] = 0;
-  return n_malloc(size, x, line);
+  const char *p = strrchr(filename, '/');
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
+  op_strbuf_truncate(&_b, 19);
+  void *result = n_malloc(size, op_strbuf_str(&_b), line);
+  op_strbuf_free(&_b);
+  return result;
 #else
   return nmalloc(size);
 #endif
@@ -1027,12 +1075,13 @@ void *mod_realloc(void *ptr, int size, const char *modname,
                   const char *filename, int line)
 {
 #ifdef DEBUG_MEM
-  char x[100], *p;
-
-  p = strrchr(filename, '/');
-  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
-  x[19] = 0;
-  return n_realloc(ptr, size, x, line);
+  const char *p = strrchr(filename, '/');
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
+  op_strbuf_truncate(&_b, 19);
+  void *result = n_realloc(ptr, size, op_strbuf_str(&_b), line);
+  op_strbuf_free(&_b);
+  return result;
 #else
   return nrealloc(ptr, size);
 #endif
@@ -1040,24 +1089,25 @@ void *mod_realloc(void *ptr, int size, const char *modname,
 
 void mod_free(void *ptr, const char *modname, const char *filename, int line)
 {
-  char x[100], *p;
-
-  p = strrchr(filename, '/');
-  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
-  x[19] = 0;
-  n_free(ptr, x, line);
+  const char *p = strrchr(filename, '/');
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
+  op_strbuf_truncate(&_b, 19);
+  n_free(ptr, op_strbuf_str(&_b), line);
+  op_strbuf_free(&_b);
 }
 
 char *mod_strdup(const char *str, const char *modname,
                  const char *filename, int line)
 {
 #ifdef DEBUG_MEM
-  char x[100], *p;
-
-  p = strrchr(filename, '/');
-  snprintf(x, sizeof x, "%s:%s", modname, p ? p + 1 : filename);
-  x[19] = 0;
-  return n_strdup(str, x, line);
+  const char *p = strrchr(filename, '/');
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
+  op_strbuf_truncate(&_b, 19);
+  char *result = n_strdup(str, op_strbuf_str(&_b), line);
+  op_strbuf_free(&_b);
+  return result;
 #else
   return nstrdup(str);
 #endif

@@ -30,8 +30,8 @@
 #define check_tcl_topc(a,b,c,d,e) check_tcl_signtopcnick(a,b,c,d,e,H_topc)
 #define check_tcl_nick(a,b,c,d,e) check_tcl_signtopcnick(a,b,c,d,e,H_nick)
 
-#define REVENGE_KICK 1          /* Kicked victim        */
-#define REVENGE_DEOP 2          /* Took op              */
+constexpr int REVENGE_KICK = 1; /* Kicked victim */
+constexpr int REVENGE_DEOP = 2; /* Took op       */
 
 #ifdef MAKING_IRC
 static void check_tcl_need(char *, char *);
@@ -55,7 +55,7 @@ static int me_voice(struct chanset_t *);
 static int me_owner(struct chanset_t *);  /* IRCX/Ophion +q owner mode */
 static int any_ops(struct chanset_t *);
 static int hand_on_chan(struct chanset_t *, struct userrec *);
-static char *getchanmode(struct chanset_t *);
+[[nodiscard]] static char *getchanmode(struct chanset_t *);
 static void flush_mode(struct chanset_t *, int);
 static void set_delay(struct chanset_t *, char *);
 static void refresh_who_chan(char *);
@@ -78,7 +78,7 @@ static void maybe_revenge(struct chanset_t *, char *, char *, int);
 static int detect_chan_flood(char *, char *, char *, struct chanset_t *, int,
                              char *);
 static void newmask(masklist *, char *, char *);
-static char *quickban(struct chanset_t *, char *);
+[[nodiscard]] static char *quickban(struct chanset_t *, char *);
 static void got_op(struct chanset_t *chan, char *nick, char *from, char *who,
                    struct userrec *opu, struct flag_record *opper);
 static void got_halfop(struct chanset_t *chan, char *nick, char *from,

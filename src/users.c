@@ -47,7 +47,7 @@ extern time_t now;
 int ignore_time = 10; /* how many minutes will ignores last? */
 
 /* is this nick!user@host being ignored? */
-int match_ignore(char *uhost)
+int match_ignore(const char *uhost)
 {
   struct igrec *ir;
 
@@ -96,12 +96,12 @@ int delignore(char *ign)
       nfree((*u)->user);
     t = *u;
     *u = (*u)->next;
-    nfree(t);
+    free_igrec(t);
   }
   return i;
 }
 
-void addignore(char *ign, char *from, char *mnote, time_t expire_time)
+void addignore(const char *ign, char *from, char *mnote, time_t expire_time)
 {
   struct igrec *p = NULL, *l;
 
@@ -112,7 +112,7 @@ void addignore(char *ign, char *from, char *mnote, time_t expire_time)
     }
 
   if (p == NULL) {
-    p = user_malloc(sizeof(struct igrec));
+    p = alloc_igrec();
     p->next = global_ign;
     global_ign = p;
   } else {
@@ -144,31 +144,39 @@ void addignore(char *ign, char *from, char *mnote, time_t expire_time)
 /* take host entry from ignore list and display it ignore-style */
 static void display_ignore(int idx, int number, struct igrec *ignore)
 {
-  char dates[81], s[41];
+  char when[41], expire[41];
 
   if (ignore->added) {
-    daysago(now, ignore->added, s);
-    snprintf(dates, sizeof(dates), "Started %s", s);
+    char ago[29];
+    daysago(now, ignore->added, ago);
+    op_strbuf_t _d;
+    op_strbuf_printf(&_d, "Started %s", ago);
+    strlcpy(when, op_strbuf_str(&_d), sizeof when);
+    op_strbuf_free(&_d);
   } else
-    dates[0] = 0;
-  if (ignore->flags & IGREC_PERM)
-    strlcpy(s, "(perm)", sizeof(s));
-  else {
-    char s1[29];
+    when[0] = 0;
 
-    days(ignore->expire, now, s1);
-    snprintf(s, sizeof(s), "(expires %s)", s1);
+  if (ignore->flags & IGREC_PERM) {
+    strlcpy(expire, "(perm)", sizeof expire);
+  } else {
+    char d[29];
+    days(ignore->expire, now, d);
+    op_strbuf_t _e;
+    op_strbuf_printf(&_e, "(expires %s)", d);
+    strlcpy(expire, op_strbuf_str(&_e), sizeof expire);
+    op_strbuf_free(&_e);
   }
+
   if (number >= 0)
-    dprintf(idx, "  [%3d] %s %s\n", number, ignore->igmask, s);
+    dprintf(idx, "  [%3d] %s %s\n", number, ignore->igmask, expire);
   else
-    dprintf(idx, "IGNORE: %s %s\n", ignore->igmask, s);
+    dprintf(idx, "IGNORE: %s %s\n", ignore->igmask, expire);
   if (ignore->msg && ignore->msg[0])
     dprintf(idx, "        %s: %s\n", ignore->user, ignore->msg);
   else
     dprintf(idx, "        %s %s\n", MODES_PLACEDBY, ignore->user);
-  if (dates[0])
-    dprintf(idx, "        %s\n", dates);
+  if (when[0])
+    dprintf(idx, "        %s\n", when);
 }
 
 /* list the ignores and how long they've been active */
@@ -218,7 +226,7 @@ static void addmask_fully(maskrec ** m, char *mask, char *from, char *note,
                           time_t expire_time, int flags, time_t added,
                           time_t last)
 {
-  maskrec *p = user_malloc(sizeof(maskrec));
+  maskrec *p = alloc_maskrec();
 
   p->next = *m;
   *m = p;
@@ -427,7 +435,7 @@ static void restore_ignore(char *host)
         added = "0";
         desc = NULL;
       }
-      p = user_malloc(sizeof(struct igrec));
+      p = alloc_igrec();
 
       p->next = global_ign;
       global_ign = p;
@@ -451,7 +459,7 @@ static void restore_ignore(char *host)
 
 static void tell_user(int idx, struct userrec *u)
 {
-  char s[81], s1[81], format[81];
+  char s[81], s1[81];
   int n = 0, p = 0;
   time_t now2;
   struct chanuserrec *ch;
@@ -460,7 +468,6 @@ static void tell_user(int idx, struct userrec *u)
   struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
 
   fr.global = u->flags;
-
   fr.udef_global = u->flags_udef;
   build_flags(s, &fr, NULL);
   if (module_find("notes", 0, 0)) {
@@ -472,7 +479,7 @@ static void tell_user(int idx, struct userrec *u)
   }
   li = get_user(&USERENTRY_LASTON, u);
   if (!li || !li->laston)
-    strlcpy(s1, "never", sizeof(s1));
+    strlcpy(s1, "never", sizeof s1);
   else {
     now2 = now - li->laston;
     if (now2 >= 86400)
@@ -480,11 +487,10 @@ static void tell_user(int idx, struct userrec *u)
     else
       strftime(s1, 6, "%H:%M", localtime(&li->laston));
   }
-  snprintf(format, sizeof format, "%%-%us %%-5s%%5d %%-15s %%s (%%s)\n",
-               HANDLEN);
   if (!u_pass_match(u, "-"))
     p = 1;
-  dprintf(idx, format, u->handle, p ? "yes" : "no", n, s, s1,
+  dprintf(idx, "%-*s %-5s%5d %-15s %s (%s)\n",
+          HANDLEN, u->handle, p ? "yes" : "no", n, s, s1,
           (li && li->lastonplace) ? li->lastonplace : "nowhere");
   /* channel flags? */
   for (ch = u->chanrec; ch; ch = ch->next) {
@@ -492,7 +498,7 @@ static void tell_user(int idx, struct userrec *u)
     get_user_flagrec(dcc[idx].user, &fr, ch->channel);
     if (glob_op(fr) || chan_op(fr)) {
       if (ch->laston == 0L)
-        strlcpy(s1, "never", sizeof(s1));
+        strlcpy(s1, "never", sizeof s1);
       else {
         now2 = now - (ch->laston);
         if (now2 >= 86400)
@@ -504,9 +510,8 @@ static void tell_user(int idx, struct userrec *u)
       fr.chan = ch->flags;
       fr.udef_chan = ch->flags_udef;
       build_flags(s, &fr, NULL);
-      snprintf(format, sizeof format, "%%%us  %%-18s %%-15s %%s\n",
-                   HANDLEN - 9);
-      dprintf(idx, format, " ", ch->channel, s, s1);
+      dprintf(idx, "%*s  %-18s %-15s %s\n",
+              HANDLEN - 9, " ", ch->channel, s, s1);
       if (ch->info != NULL)
         dprintf(idx, "    INFO: %s\n", ch->info);
     }
@@ -520,17 +525,13 @@ static void tell_user(int idx, struct userrec *u)
 /* show user by ident */
 void tell_user_ident(int idx, char *id)
 {
-  char format[81];
-  struct userrec *u;
+  struct userrec *u = get_user_by_handle(userlist, id);
 
-  u = get_user_by_handle(userlist, id);
   if (u == NULL) {
     dprintf(idx, "%s.\n", USERF_NOMATCH);
     return;
   }
-  snprintf(format, sizeof format,
-               "%%-%us PASS NOTES FLAGS           LAST\n", HANDLEN);
-  dprintf(idx, format, "HANDLE");
+  dprintf(idx, "%-*s PASS NOTES FLAGS           LAST\n", HANDLEN, "HANDLE");
   tell_user(idx, u);
 }
 
@@ -539,17 +540,13 @@ void tell_user_ident(int idx, char *id)
  * +attr to find all with attr */
 void tell_users_match(int idx, char *mtch, int start, int limit, char *chname)
 {
-  char format[81];
   struct userrec *u;
-  int fnd = 0, cnt, nomns = 0, flags = 0;
+  int fnd = 0, cnt = 0, nomns = 0, flags = 0;
   struct list_type *q;
   struct flag_record user, pls, mns;
 
   dprintf(idx, "*** %s '%s':\n", MISC_MATCHING, mtch);
-  cnt = 0;
-  snprintf(format, sizeof format,
-               "%%-%us PASS NOTES FLAGS           LAST\n", HANDLEN);
-  dprintf(idx, format, "HANDLE");
+  dprintf(idx, "%-*s PASS NOTES FLAGS           LAST\n", HANDLEN, "HANDLE");
   if (start > 1)
     dprintf(idx, "(%s %d)\n", MISC_SKIPPING, start - 1);
   if (strchr("+-&|", *mtch)) {
@@ -635,7 +632,7 @@ static void cleanup_pass(void) {
         nfree(p->u.extra);
         p->u.extra = NULL;
         egg_list_delete((struct list_type **) &(u->entries), (struct list_type *) p);
-        nfree(p);
+        free_user_entry(p);
       }
     }
   }
@@ -798,11 +795,12 @@ int readuserfile(char *file, struct userrec **ret)
           strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
-            strlcpy(s1, lasthand, sizeof(s1));
-            strlcat(s1, " ", sizeof(s1));
-            if (strstr(ignored, s1) == NULL) {
-              strlcat(ignored, lasthand, sizeof ignored);
-              strlcat(ignored, " ", sizeof ignored);
+            {
+              op_strbuf_t _b;
+              op_strbuf_printf(&_b, "%s ", lasthand);
+              if (strstr(ignored, op_strbuf_str(&_b)) == NULL)
+                strlcat(ignored, op_strbuf_str(&_b), sizeof ignored);
+              op_strbuf_free(&_b);
             }
             lasthand[0] = 0;
           } else {
@@ -824,11 +822,12 @@ int readuserfile(char *file, struct userrec **ret)
           strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
-            strlcpy(s1, lasthand, sizeof(s1));
-            strlcat(s1, " ", sizeof(s1));
-            if (strstr(ignored, s1) == NULL) {
-              strlcat(ignored, lasthand, sizeof ignored);
-              strlcat(ignored, " ", sizeof ignored);
+            {
+              op_strbuf_t _b;
+              op_strbuf_printf(&_b, "%s ", lasthand);
+              if (strstr(ignored, op_strbuf_str(&_b)) == NULL)
+                strlcat(ignored, op_strbuf_str(&_b), sizeof ignored);
+              op_strbuf_free(&_b);
             }
             lasthand[0] = 0;
           } else {
@@ -852,11 +851,12 @@ int readuserfile(char *file, struct userrec **ret)
           strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = NULL;
           if (!findchan_by_dname(lasthand)) {
-            strlcpy(s1, lasthand, sizeof(s1));
-            strlcat(s1, " ", sizeof(s1));
-            if (strstr(ignored, s1) == NULL) {
-              strlcat(ignored, lasthand, sizeof ignored);
-              strlcat(ignored, " ", sizeof ignored);
+            {
+              op_strbuf_t _b;
+              op_strbuf_printf(&_b, "%s ", lasthand);
+              if (strstr(ignored, op_strbuf_str(&_b)) == NULL)
+                strlcat(ignored, op_strbuf_str(&_b), sizeof ignored);
+              op_strbuf_free(&_b);
             }
             lasthand[0] = 0;
           } else {

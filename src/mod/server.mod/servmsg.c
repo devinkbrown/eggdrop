@@ -148,20 +148,22 @@ static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
                           struct userrec *u, char *arg)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  op_strbuf_t args;
   int x;
-  char args[1024];
 
   if (arg[0])
-    snprintf(args, sizeof args, "%s %s", cmd, arg);
+    op_strbuf_printf(&args, "%s %s", cmd, arg);
   else
-    strlcpy(args, cmd, sizeof args);
+    op_strbuf_printf(&args, "%s", cmd);
   get_user_flagrec(u, &fr, NULL);
   Tcl_SetVar(interp, "_msgm1", nick, 0);
   Tcl_SetVar(interp, "_msgm2", uhost, 0);
   Tcl_SetVar(interp, "_msgm3", u ? u->handle : "*", 0);
-  Tcl_SetVar(interp, "_msgm4", args, 0);
-  x = check_tcl_bind(H_msgm, args, &fr, " $_msgm1 $_msgm2 $_msgm3 $_msgm4",
+  Tcl_SetVar(interp, "_msgm4", op_strbuf_str(&args), 0);
+  x = check_tcl_bind(H_msgm, op_strbuf_str(&args), &fr,
+                     " $_msgm1 $_msgm2 $_msgm3 $_msgm4",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_STACKRET);
+  op_strbuf_free(&args);
 
   /*
    * 0 - no match
@@ -296,7 +298,8 @@ static int check_tcl_flud(char *nick, char *uhost, struct userrec *u,
 static int check_tcl_out(int which, char *msg, int sent)
 {
   int x;
-  char args[32], *queue;
+  const char *queue, *state = sent ? "sent" : "queued";
+  op_strbuf_t args;
 
   switch (which) {
   case DP_MODE:
@@ -314,13 +317,13 @@ static int check_tcl_out(int which, char *msg, int sent)
   default:
     queue = "noqueue";
   }
-  snprintf(args, sizeof args, "%s %s", queue, sent ? "sent" : "queued");
+  op_strbuf_printf(&args, "%s %s", queue, state);
   Tcl_SetVar(interp, "_out1", queue, 0);
   Tcl_SetVar(interp, "_out2", msg, 0);
-  Tcl_SetVar(interp, "_out3", sent ? "sent" : "queued", 0);
-  x = check_tcl_bind(H_out, args, 0, " $_out1 $_out2 $_out3",
+  Tcl_SetVar(interp, "_out3", state, 0);
+  x = check_tcl_bind(H_out, op_strbuf_str(&args), 0, " $_out1 $_out2 $_out3",
                      MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
-
+  op_strbuf_free(&args);
   return (x == BIND_EXEC_LOG);
 }
 
@@ -529,7 +532,7 @@ static time_t lastmsgtime[FLOOD_GLOBAL_MAX];
  */
 static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
 {
-  char *p, ftype[10], h[1024];
+  char *p, ftype[10];
   struct userrec *u;
   int thr = 0, lapse = 0, atr;
 
@@ -591,10 +594,12 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     if (check_tcl_flud(floodnick, floodhost, u, ftype, "*"))
       return 0;
     /* Private msg */
-    snprintf(h, sizeof h, "*!*@%s", p);
+    op_strbuf_t h;
+    op_strbuf_printf(&h, "*!*@%s", p);
     putlog(LOG_MISC, "*", IRC_FLOODIGNORE1, p);
-    addignore(h, botnetnick, (which == FLOOD_CTCP) ? "CTCP flood" :
+    addignore((char *) op_strbuf_str(&h), botnetnick, (which == FLOOD_CTCP) ? "CTCP flood" :
               "MSG/NOTICE flood", now + (60 * ignore_time));
+    op_strbuf_free(&h);
   }
   return 0;
 }
@@ -1270,7 +1275,12 @@ static char *encode_msgtag(char *key, char *value)
     buf[0] = '\0';
     return buf;
   }
-  snprintf(buf, sizeof buf, "%s%s", key, encode_msgtag_value(value));
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s", key, encode_msgtag_value(value));
+    strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
+    op_strbuf_free(&_b);
+  }
   return buf;
 }
 #endif /* HAVE_TCL */
@@ -1316,7 +1326,7 @@ static void server_activity(int idx, char *tagmsg, int len)
 {
   char *from, *code, *msgptr;
   char rawmsg[RECVLINEMAX+7];
-  int ret;
+  [[maybe_unused]] int ret;
 #ifdef HAVE_TCL
   Tcl_Obj *tagdict = Tcl_NewDictObj();
 #endif
@@ -1400,7 +1410,6 @@ static void server_activity(int idx, char *tagmsg, int len)
 #else
   current_msgtag_account[0] = '\0';
   check_tcl_raw(from, code, msgptr);
-  (void)ret;
 #endif
 }
 
@@ -1455,8 +1464,12 @@ static int got311(char *from, char *msg)
   if (!n1 || !n2 || !u || !h)
     return 0;
 
-  if (match_my_nick(n2))
-    snprintf(botuserhost, sizeof botuserhost, "%s@%s", u, h);
+  if (match_my_nick(n2)) {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s@%s", u, h);
+    strlcpy(botuserhost, op_strbuf_str(&_b), sizeof botuserhost);
+    op_strbuf_free(&_b);
+  }
 
   return 0;
 }
@@ -1503,9 +1516,8 @@ static int gotbatch(char *from, char *msg)
 /* CHATHISTORY — Ophion scrollback request reply (outside a batch).
  * In practice Ophion wraps CHATHISTORY replies in BATCH; this handler
  * is a no-op safety net so the command is not left unrecognised. */
-static int gotchathistory(char *from, char *msg)
+static int gotchathistory([[maybe_unused]] char *from, [[maybe_unused]] char *msg)
 {
-  (void)from; (void)msg;
   return 0;
 }
 
@@ -1718,10 +1730,8 @@ static int is_cap_value(const struct cap_values *cap_value_list, const char *nam
 
 /* Got CAP message */
 static int gotcap(char *from, char *msg) {
-  char *cmd, *splitstr;
-  char cape[CAPMAX+1], buf[CAPMAX+1], *p;
+  char *cmd, *splitstr, *p;
   int remove = 0, multiline = 0;
-  size_t written = 0;
   struct capability *current;
 
   newsplit(&msg);
@@ -1831,8 +1841,8 @@ static int gotcap(char *from, char *msg) {
       /* Add any custom capes the user listed */
       {
         char *saveptr = NULL;
-        strlcpy(cape, cap_request, sizeof cape);
-        if ((p = strtok_r(cape, " ", &saveptr))) {
+        char *cap_copy = nstrdup(cap_request);
+        if ((p = strtok_r(cap_copy, " ", &saveptr))) {
           while (p != NULL) {
             if (!strcmp(current->name, p) && (!current->enabled)) {
               add_req(p);
@@ -1840,23 +1850,27 @@ static int gotcap(char *from, char *msg) {
             p = strtok_r(NULL, " ", &saveptr);
           }
         }
+        nfree(cap_copy);
       }
       current=current->next;
     }
     current = cap;
     /* Request the desired capabilities from server */
-    cape[0] = 0;
-    while (current != NULL) {
-      if (current->requested && (!current->enabled)) {
-        putlog(LOG_DEBUG, "*", "CAP: Requesting %s capability from server", current->name);
-        written += snprintf(cape + written, sizeof cape - written, " %s", current->name);
+    {
+      op_strbuf_t cape_req;
+      op_strbuf_init(&cape_req);
+      while (current != NULL) {
+        if (current->requested && (!current->enabled)) {
+          putlog(LOG_DEBUG, "*", "CAP: Requesting %s capability from server", current->name);
+          op_strbuf_appendf(&cape_req, " %s", current->name);
+        }
+        current = current->next;
       }
-      current = current->next;
-    }
-    if (strlen(cape)) {
-      dprintf(DP_MODE, "CAP REQ :%s\n", cape);
-    } else {
-      dprintf(DP_MODE, "CAP END\n");
+      if (!op_strbuf_empty(&cape_req))
+        dprintf(DP_MODE, "CAP REQ :%s\n", op_strbuf_str(&cape_req));
+      else
+        dprintf(DP_MODE, "CAP END\n");
+      op_strbuf_free(&cape_req);
     }
   } else if (!strcmp(cmd, "LIST")) {
     putlog(LOG_SERV, "*", "CAP: Negotiated CAP capabilities: %s", msg);
@@ -1926,14 +1940,18 @@ static int gotcap(char *from, char *msg) {
       dprintf(DP_MODE, "CAP END\n");
     }
     current = cap;
-    buf[0] = 0;
-    while (current != NULL) {
-      if (current->enabled) {
-        written += snprintf(buf + written, sizeof buf - written, " %s", current->name);
+    {
+      op_strbuf_t caplog;
+      op_strbuf_init(&caplog);
+      while (current != NULL) {
+        if (current->enabled)
+          op_strbuf_appendf(&caplog, " %s", current->name);
+        current = current->next;
       }
-      current = current->next;
+      putlog(LOG_SERV, "*", "CAP: Current negotiations with %s:%s", from,
+             op_strbuf_str(&caplog));
+      op_strbuf_free(&caplog);
     }
-    putlog(LOG_SERV, "*", "CAP: Current negotiations with %s:%s", from, buf);
   } else if (!strcmp(cmd, "NAK")) {
     putlog(LOG_SERV, "*", "CAP: Requested capability change %s rejected by %s",
         msg, from);
@@ -1985,21 +2003,22 @@ static int got730or1(char *from, char *msg, int code)
 }
 
 static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
-                               char *code, char *context, char *desc)
+                               char *code, const char *context, char *desc)
 {
-  char mask[MSGMAX];
+  op_strbuf_t mask;
   int x;
 
-  snprintf(mask, sizeof mask, "%s:%s:%s", msgtype, cmd, code);
+  op_strbuf_printf(&mask, "%s:%s:%s", msgtype, cmd, code);
   Tcl_SetVar(interp, "_sr1", from,     0);
   Tcl_SetVar(interp, "_sr2", msgtype,  0);
   Tcl_SetVar(interp, "_sr3", cmd,      0);
   Tcl_SetVar(interp, "_sr4", code,     0);
   Tcl_SetVar(interp, "_sr5", context,  0);
   Tcl_SetVar(interp, "_sr6", desc,     0);
-  x = check_tcl_bind(H_stdreply, mask, 0,
+  x = check_tcl_bind(H_stdreply, op_strbuf_str(&mask), 0,
                      " $_sr1 $_sr2 $_sr3 $_sr4 $_sr5 $_sr6",
                      MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
+  op_strbuf_free(&mask);
   return (x == BIND_EXEC_LOG);
 }
 
@@ -2009,7 +2028,8 @@ static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
 static int gotstdreply(char *from, char *msgtype, char *msg)
 {
   char *cmd, *code, *text, *p;
-  char context[MSGMAX] = "";
+  op_strbuf_t context;
+  op_strbuf_init(&context);
 
   cmd  = newsplit(&msg);
   code = newsplit(&msg);
@@ -2018,10 +2038,8 @@ static int gotstdreply(char *from, char *msgtype, char *msg)
   p = strstr(msg, " :");
   if (p) {
     /* context tokens sit between code and the " :" */
-    if (p != msg) {
-      int len = p - msg;
-      snprintf(context, sizeof context, "%.*s", len, msg);
-    }
+    if (p != msg)
+      op_strbuf_append(&context, msg, (size_t)(p - msg));
     text = p + 2;           /* skip the " :" */
   } else {
     /* single-word description with no context */
@@ -2031,7 +2049,8 @@ static int gotstdreply(char *from, char *msgtype, char *msg)
   }
   putlog(LOG_SERV, "*", "%s: %s: Received a %s message from %s: %s",
          cmd, code, msgtype, from, text);
-  check_tcl_stdreply(from, msgtype, cmd, code, context, text);
+  check_tcl_stdreply(from, msgtype, cmd, code, op_strbuf_str(&context), text);
+  op_strbuf_free(&context);
   return 0;
 }
 
@@ -2271,10 +2290,10 @@ static int gotwhisper(char *from, char *msg)
   /* Route to the msg bind if the bot is the target, otherwise log only */
   if (match_my_nick(target)) {
     struct userrec *u;
-    char hostbuf[UHOSTLEN + NICKLEN + 2];
-
-    snprintf(hostbuf, sizeof hostbuf, "%s!%s", nick, from);
-    u = get_user_by_host(hostbuf);
+    op_strbuf_t hostbuf;
+    op_strbuf_printf(&hostbuf, "%s!%s", nick, from);
+    u = get_user_by_host((char *) op_strbuf_str(&hostbuf));
+    op_strbuf_free(&hostbuf);
     check_tcl_msg("whisper", nick, from, u, msg);
   }
   return 0;
@@ -2382,11 +2401,11 @@ static void server_resolve_failure(int);
  */
 static void connect_server(void)
 {
-  char pass[NEWSERVERPASSMAX], botserver[NEWSERVERMAX], s[1024];
+  char pass[NEWSERVERPASSMAX], botserver[NEWSERVERMAX];
 #ifdef IPV6
   char buf[sizeof(struct in6_addr)];
 #endif
-  int servidx, len = 0;
+  int servidx;
   unsigned int botserverport = 0;
 
   lastpingcheck = 0;
@@ -2428,24 +2447,22 @@ static void connect_server(void)
     check_tcl_event("connect-server");
     next_server(&curserv, botserver, sizeof botserver, &botserverport, pass, sizeof pass);
 
+    op_strbuf_t s;
 #ifdef IPV6
-    if (inet_pton(AF_INET6, botserver, buf)) {
-      len += snprintf(s, sizeof s, "%s [%s]", IRC_SERVERTRY, botserver);
-    } else {
+    if (inet_pton(AF_INET6, botserver, buf))
+      op_strbuf_printf(&s, "%s [%s]", IRC_SERVERTRY, botserver);
+    else
 #endif
-     len += snprintf(s, sizeof s, "%s %s", IRC_SERVERTRY, botserver);
-#ifdef IPV6
-    }
-#endif
+      op_strbuf_printf(&s, "%s %s", IRC_SERVERTRY, botserver);
 
 #ifdef TLS
-    len += snprintf(s + len, sizeof s - len, ":%s%d",
-            use_ssl ? "+" : "", botserverport);
+    op_strbuf_appendf(&s, ":%s%d", use_ssl ? "+" : "", botserverport);
     dcc[servidx].ssl = use_ssl;
 #else
-    len += snprintf(s + len, sizeof s - len, ":%d", botserverport);
+    op_strbuf_appendf(&s, ":%d", botserverport);
 #endif
-    putlog(LOG_SERV, "*", "%s", s);
+    putlog(LOG_SERV, "*", "%s", op_strbuf_str(&s));
+    op_strbuf_free(&s);
     dcc[servidx].port = botserverport;
     strlcpy(dcc[servidx].nick, "(server)", sizeof(dcc[servidx].nick));
     strlcpy(dcc[servidx].host, botserver, UHOSTLEN);
@@ -2495,7 +2512,9 @@ static void server_resolve_failure(int servidx)
 
 static void server_resolve_success(int servidx)
 {
-  char pass[121], errstr2[128];
+  char pass[121];
+  op_strbuf_t errstr2;
+  op_strbuf_init(&errstr2);
 
   resolvserv = 0;
   strlcpy(pass, dcc[servidx].u.dns->cbuf, sizeof pass);
@@ -2512,16 +2531,18 @@ static void server_resolve_success(int servidx)
 #ifdef IPV6
     } else if (errno == ENETUNREACH) {
       errstr = strerror(errno);
-      snprintf(errstr2, sizeof errstr2, " prefer-ipv6 %i", pref_af);
+      op_strbuf_printf(&errstr2, " prefer-ipv6 %i", pref_af);
 #endif
     } else {
       errstr = strerror(errno);
     }
     putlog(LOG_SERV, "*", "%s %s (%s ip %s port %i %s)", IRC_FAILEDCONNECT,
            dcc[servidx].host, errstr, iptostr(&dcc[servidx].sockname.addr.sa),
-           dcc[servidx].port, errno == ENETUNREACH ? errstr2 : "");
+           dcc[servidx].port,
+           errno == ENETUNREACH ? op_strbuf_str(&errstr2) : "");
 
     check_tcl_event("fail-server");
+    op_strbuf_free(&errstr2);
     lostdcc(servidx);
     return;
   }
@@ -2531,6 +2552,7 @@ static void server_resolve_success(int servidx)
     putlog(LOG_SERV, "*", "%s %s (%s)", IRC_FAILEDCONNECT, dcc[servidx].host,
            "TLS negotiation failure");
     check_tcl_event("fail-server");
+    op_strbuf_free(&errstr2);
     lostdcc(servidx);
     return;
   }
@@ -2553,6 +2575,7 @@ static void server_resolve_success(int servidx)
   if (botrealname[0] == 0)
     strlcpy(botrealname, "/msg LamestBot hello", sizeof(botrealname));
   dprintf(DP_MODE, "USER %s . . :%s\n", botuser, botrealname);
+  op_strbuf_free(&errstr2);
 
   /* Wait for async result now. */
 }

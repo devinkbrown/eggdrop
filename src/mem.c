@@ -22,9 +22,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#define MEMTBLSIZE_START (1 << 12) /* 4096    */
-#define MEMTBLSIZE_MAX   (1 << 20) /* 1048576 */
-#define COMPILING_MEM
+#define COMPILING_MEM  /* must come before main.h to suppress malloc/free macros */
 
 #include "main.h"
 #include <stdio.h>
@@ -39,6 +37,9 @@
 extern module_entry *module_list;
 
 #ifdef DEBUG_MEM
+constexpr int MEMTBLSIZE_START = 1 << 12; /* 4096    */
+constexpr int MEMTBLSIZE_MAX   = 1 << 20; /* 1048576 */
+
 uint64_t memused = 0;
 static int lastused = 0;
 
@@ -264,12 +265,19 @@ void debug_mem_to_dcc(int idx)
         if ((p = strchr(memtbl[j].file, ':')))
           *p = 0;
         if (!strcasecmp(memtbl[j].file, fn)) {
-          if (p)
-            op_snprintf_append(sofar, sizeof(sofar), "%-10s/%-4d:(%04d) ",
-                    p + 1, memtbl[j].line, memtbl[j].size);
-          else
-            op_snprintf_append(sofar, sizeof(sofar), "%-4d:(%04d) ",
-                    memtbl[j].line, memtbl[j].size);
+          if (p) {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "%-10s/%-4d:(%04d) ",
+                             p + 1, memtbl[j].line, memtbl[j].size);
+            strlcat(sofar, op_strbuf_str(&_b), sizeof sofar);
+            op_strbuf_free(&_b);
+          } else {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "%-4d:(%04d) ",
+                             memtbl[j].line, memtbl[j].size);
+            strlcat(sofar, op_strbuf_str(&_b), sizeof sofar);
+            op_strbuf_free(&_b);
+          }
 
           if (strlen(sofar) > 60) {
             sofar[strlen(sofar) - 1] = 0;
@@ -305,8 +313,13 @@ void debug_mem_to_dcc(int idx)
         if ((p = strchr(fn, ':')) != NULL) {
           *p = 0;
           if (!strcasecmp(fn, me->name)) {
-            op_snprintf_append(sofar, sizeof(sofar), "%-10s/%-4d:(%04X) ", p + 1,
-                    memtbl[j].line, memtbl[j].size);
+            {
+              op_strbuf_t _b;
+              op_strbuf_printf(&_b, "%-10s/%-4d:(%04X) ",
+                               p + 1, memtbl[j].line, memtbl[j].size);
+              strlcat(sofar, op_strbuf_str(&_b), sizeof sofar);
+              op_strbuf_free(&_b);
+            }
             if (strlen(sofar) > 60) {
               sofar[strlen(sofar) - 1] = 0;
               dprintf(idx, "%s\n", sofar);

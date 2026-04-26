@@ -187,7 +187,7 @@ static char cap_request[CAPMAX - 9];
 #include "servmsg.c"
 #include "sasl.c"
 
-#define MAXPENALTY 10
+constexpr int MAXPENALTY = 10;
 
 /* Maximum messages to store in each queue. */
 static int maxqmsg;
@@ -528,7 +528,7 @@ static int fast_deq(int which)
       }
   }
   to = newsplit(&msg);
-  simple_sprintf(victims, "%s", to);
+  strlcpy(victims, to, sizeof victims);
   while (m) {
     nm = m->next;
     if (!nm)
@@ -541,10 +541,15 @@ static int fast_deq(int which)
         ((strlen(cmd) + strlen(victims) + strlen(nextto) + strlen(msg) + 2) <
         SENDLINEMAX-2) && (!stack_limit || cmd_count < stack_limit - 1)) {
       cmd_count++;
-      if (stack_method == 1)
-        simple_sprintf(victims, "%s,%s", victims, nextto);
-      else
-        simple_sprintf(victims, "%s %s", victims, nextto);
+      {
+        op_strbuf_t _b;
+        if (stack_method == 1)
+          op_strbuf_printf(&_b, "%s,%s", victims, nextto);
+        else
+          op_strbuf_printf(&_b, "%s %s", victims, nextto);
+        strlcpy(victims, op_strbuf_str(&_b), sizeof victims);
+        op_strbuf_free(&_b);
+      }
       doit = 1;
       m->next = nm->next;
       if (!nm->next)
@@ -556,7 +561,12 @@ static int fast_deq(int which)
       m = m->next;
   }
   if (doit) {
-    simple_sprintf(tosend, "%s %s %s", cmd, victims, msg);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s %s %s", cmd, victims, msg);
+      strlcpy(tosend, op_strbuf_str(&_b), sizeof tosend);
+      op_strbuf_free(&_b);
+    }
     len = strlen(tosend);
     check_tcl_out(which, tosend, 1);
     write_to_server(tosend, len);
@@ -618,14 +628,28 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
         if (!strcasecmp(nick, oldnick) &&
             ((9 + strlen(chan) + strlen(newnicks) + strlen(newnick) +
               strlen(nicks) + strlen(msg)) < SENDLINEMAX-1)) {
-          if (newnick)
-            snprintf(newnicks, sizeof newnicks, "%s,%s", newnicks, newnick);
+          if (newnick) {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "%s,%s", newnicks, newnick);
+            strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
+            op_strbuf_free(&_b);
+          }
           changed = 1;
         } else
-          snprintf(newnicks, sizeof newnicks, ",%s", nick);
+          strlcpy(newnicks, ",", sizeof newnicks);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%s%s", newnicks, nick);
+          strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
+          op_strbuf_free(&_b);
+        }
       }
-      snprintf(newmsg, sizeof newmsg, "KICK %s %s %s", chan,
-                   newnicks + 1, msg);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, msg);
+        strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
+        op_strbuf_free(&_b);
+      }
     }
     if (changed) {
       if (newnicks[0] == 0) {
@@ -684,8 +708,12 @@ static void purge_kicks(struct msgq_head *q)
           if (ismember(cs, nick))
             found = 1;
         }
-        if (found)
-          snprintf(newnicks, sizeof newnicks, "%s,%s", newnicks, nick);
+        if (found) {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%s,%s", newnicks, nick);
+          strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
+          op_strbuf_free(&_b);
+        }
         else {
           putlog(LOG_SRVOUT, "*", "%s isn't on any target channel; removing "
                  "kick.", nick);
@@ -706,8 +734,12 @@ static void purge_kicks(struct msgq_head *q)
             q->last = 0;
         } else {
           nfree(m->msg);
-          snprintf(newmsg, sizeof newmsg, "KICK %s %s %s", chan,
-                       newnicks + 1, reason);
+          {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, reason);
+            strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
+            op_strbuf_free(&_b);
+          }
           m->msg = nmalloc(strlen(newmsg) + 1);
           m->len = strlen(newmsg);
           strlcpy(m->msg, newmsg, sizeof(m->msg));
@@ -767,8 +799,11 @@ static int deq_kick(int which)
   chan = newsplit(&reason);
   nicks = newsplit(&reason);
   while (strlen(nicks) > 0) {
-    snprintf(newnicks, sizeof newnicks, "%s,%s", newnicks,
-                 newsplit(&nicks));
+    const char *_nick = newsplit(&nicks);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s,%s", newnicks, _nick);
+    strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
+    op_strbuf_free(&_b);
     nr++;
   }
   for (m = msg->next, lm = NULL; m && (nr < kick_method);) {
@@ -785,11 +820,18 @@ static int deq_kick(int which)
           nick = splitnicks(&nicks);
           if ((nr < kick_method) && ((9 + strlen(chan) + strlen(newnicks) +
               strlen(nick) + strlen(reason)) < 510)) {
-            snprintf(newnicks, sizeof newnicks, "%s,%s", newnicks, nick);
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "%s,%s", newnicks, nick);
+            strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
+            op_strbuf_free(&_b);
             nr++;
             changed = 1;
-          } else
-            snprintf(newnicks2, sizeof newnicks2, "%s,%s", newnicks2, nick);
+          } else {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "%s,%s", newnicks2, nick);
+            strlcpy(newnicks2, op_strbuf_str(&_b), sizeof newnicks2);
+            op_strbuf_free(&_b);
+          }
         }
       }
       if (changed) {
@@ -806,8 +848,12 @@ static int deq_kick(int which)
             h->last = 0;
         } else {
           nfree(m->msg);
-          snprintf(newmsg, sizeof newmsg, "KICK %s %s %s", chan2,
-                       newnicks2 + 1, reason);
+          {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "KICK %s %s %s", chan2, newnicks2 + 1, reason);
+            strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
+            op_strbuf_free(&_b);
+          }
           m->msg = nmalloc(strlen(newmsg) + 1);
           m->len = strlen(newmsg);
           strlcpy(m->msg, newmsg, sizeof(m->msg));
@@ -820,8 +866,12 @@ static int deq_kick(int which)
     else
       m = h->head->next;
   }
-  snprintf(newmsg, sizeof newmsg, "KICK %s %s %s", chan, newnicks + 1,
-               reason);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, reason);
+    strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
+    op_strbuf_free(&_b);
+  }
   check_tcl_out(which, newmsg, 1);
   write_to_server(newmsg, strlen(newmsg));
   if (raw_log) {
@@ -899,7 +949,7 @@ static void queue_server(int which, char *msg, int len)
   switch (which) {
   case DP_MODE_NEXT:
     qnext = 1;
-    __attribute__((fallthrough));
+    [[fallthrough]];
 
   case DP_MODE:
     h = &modeq;
@@ -910,7 +960,7 @@ static void queue_server(int which, char *msg, int len)
 
   case DP_SERVER_NEXT:
     qnext = 1;
-    __attribute__((fallthrough));
+    [[fallthrough]];
 
   case DP_SERVER:
     h = &mq;
@@ -921,7 +971,7 @@ static void queue_server(int which, char *msg, int len)
 
   case DP_HELP_NEXT:
     qnext = 1;
-    __attribute__((fallthrough));
+    [[fallthrough]];
 
   case DP_HELP:
     h = &hq;
@@ -1005,19 +1055,19 @@ static void queue_server(int which, char *msg, int len)
     if (!h->warned) {
       switch (which) {
       case DP_MODE_NEXT:
-        /* Fallthrough */
+        [[fallthrough]];
       case DP_MODE:
         putlog(LOG_MISC, "*", "Warning: over maximum mode queue!");
         break;
 
       case DP_SERVER_NEXT:
-        /* Fallthrough */
+        [[fallthrough]];
       case DP_SERVER:
         putlog(LOG_MISC, "*", "Warning: over maximum server queue!");
         break;
 
       case DP_HELP_NEXT:
-        /* Fallthrough */
+        [[fallthrough]];
       case DP_HELP:
         putlog(LOG_MISC, "*", "Warning: over maximum help queue!");
         break;
@@ -1041,7 +1091,7 @@ static void queue_server(int which, char *msg, int len)
 static int add_server(const char *name, const char *port, const char *pass)
 {
   struct server_list *x, *z;
-  char *ret;
+  const char *ret;
 
   for (z = serverlist; z && z->next; z = z->next);
 
@@ -1104,7 +1154,7 @@ static void old_add_server(const char *ss) {
 static int del_server(const char *name, const char *port)
 {
   struct server_list *z, *curr, *prev;
-  char *ret;
+  const char *ret;
   int found = 0;
 
   if (!serverlist) {
@@ -1395,14 +1445,11 @@ static void monitor_clear(void)
 static int server_6char STDVAR
 {
   IntFunc F = (IntFunc) cd;
-  char x[20];
 
   BADARGS(7, 7, " nick user@host handle dest/chan keyword text");
 
   CHECKVALIDITY(server_6char);
-  snprintf(x, sizeof x, "%d",
-           ((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
-  Tcl_AppendResult(irp, x, NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6])), NULL);
   return TCL_OK;
 }
 
@@ -1576,20 +1623,21 @@ static char *traced_serveraddress(ClientData cdata, Tcl_Interp *irp,
                                   EGG_CONST char *name1,
                                   EGG_CONST char *name2, int flags)
 {
-  char s[1024];
+  op_strbuf_t s;
+  op_strbuf_init(&s);
 
   if (server_online) {
     int servidx = findanyidx(serv);
 
 #ifdef TLS
-    simple_sprintf(s, "%s:%s%u", dcc[servidx].host, dcc[servidx].ssl ? "+" : "",
-                   dcc[servidx].port);
+    op_strbuf_appendf(&s, "%s:%s%u", dcc[servidx].host,
+                      dcc[servidx].ssl ? "+" : "", dcc[servidx].port);
 #else
-    simple_sprintf(s, "%s:%u", dcc[servidx].host, dcc[servidx].port);
+    op_strbuf_appendf(&s, "%s:%u", dcc[servidx].host, dcc[servidx].port);
 #endif
-  } else
-    s[0] = 0;
-  Tcl_SetVar2(interp, name1, name2, s, TCL_GLOBAL_ONLY);
+  }
+  Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&s), TCL_GLOBAL_ONLY);
+  op_strbuf_free(&s);
   if (flags & TCL_TRACE_UNSETS)
     Tcl_TraceVar(irp, name1, TCL_TRACE_READS | TCL_TRACE_WRITES |
                  TCL_TRACE_UNSETS, traced_serveraddress, cdata);
@@ -1602,21 +1650,22 @@ static char *traced_server(ClientData cdata, Tcl_Interp *irp,
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
 {
-  char s[1024];
+  op_strbuf_t s;
+  op_strbuf_init(&s);
 
   if (server_online && realservername) {
     int servidx = findanyidx(serv);
 
     /* return real server name */
 #ifdef TLS
-    simple_sprintf(s, "%s:%s%u", realservername, dcc[servidx].ssl ? "+" : "",
-                   dcc[servidx].port);
+    op_strbuf_appendf(&s, "%s:%s%u", realservername,
+                      dcc[servidx].ssl ? "+" : "", dcc[servidx].port);
 #else
-    simple_sprintf(s, "%s:%u", realservername, dcc[servidx].port);
+    op_strbuf_appendf(&s, "%s:%u", realservername, dcc[servidx].port);
 #endif
-  } else
-    s[0] = 0;
-  Tcl_SetVar2(interp, name1, name2, s, TCL_GLOBAL_ONLY);
+  }
+  Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&s), TCL_GLOBAL_ONLY);
+  op_strbuf_free(&s);
   if (flags & TCL_TRACE_UNSETS)
     Tcl_TraceVar(irp, name1, TCL_TRACE_READS | TCL_TRACE_WRITES |
                  TCL_TRACE_UNSETS, traced_server, cdata);
@@ -1629,11 +1678,11 @@ static char *traced_botname(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
-  char s[1024];
-
-  simple_sprintf(s, "%s%s%s", botname,
-                 botuserhost[0] ? "!" : "", botuserhost[0] ? botuserhost : "");
-  Tcl_SetVar2(interp, name1, name2, s, TCL_GLOBAL_ONLY);
+  op_strbuf_t s;
+  op_strbuf_printf(&s, "%s%s%s", botname,
+                   botuserhost[0] ? "!" : "", botuserhost[0] ? botuserhost : "");
+  Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&s), TCL_GLOBAL_ONLY);
+  op_strbuf_free(&s);
   if (flags & TCL_TRACE_UNSETS)
     Tcl_TraceVar(irp, name1, TCL_TRACE_READS | TCL_TRACE_WRITES |
                  TCL_TRACE_UNSETS, traced_botname, cdata);
@@ -1656,24 +1705,26 @@ static void do_nettype(void)
     use_penalties = 1;
     use_fastdeq = 3;
     nick_len = 15;
-    simple_sprintf(stackablecmds, "INVITE AWAY VERSION NICK");
+    strlcpy(stackablecmds, "INVITE AWAY VERSION NICK", sizeof stackablecmds);
     kick_method = 4;
     break;
   case NETT_UNDERNET:
     check_mode_r = 0;
     use_fastdeq = 2;
     nick_len = 12;
-    simple_sprintf(stackablecmds,
-                   "PRIVMSG NOTICE TOPIC PART WHOIS USERHOST USERIP ISON");
-    simple_sprintf(stackable2cmds, "USERHOST USERIP ISON");
+    strlcpy(stackablecmds,
+            "PRIVMSG NOTICE TOPIC PART WHOIS USERHOST USERIP ISON",
+            sizeof stackablecmds);
+    strlcpy(stackable2cmds, "USERHOST USERIP ISON", sizeof stackable2cmds);
     break;
   case NETT_DALNET:
     check_mode_r = 0;
     use_fastdeq = 2;
     nick_len = 30;
-    simple_sprintf(stackablecmds,
-                   "PRIVMSG NOTICE PART WHOIS WHOWAS USERHOST ISON WATCH DCCALLOW");
-    simple_sprintf(stackable2cmds, "USERHOST ISON WATCH");
+    strlcpy(stackablecmds,
+            "PRIVMSG NOTICE PART WHOIS WHOWAS USERHOST ISON WATCH DCCALLOW",
+            sizeof stackablecmds);
+    strlcpy(stackable2cmds, "USERHOST ISON WATCH", sizeof stackable2cmds);
     stack_limit = 20;
     kick_method = 4;
     break;
@@ -1689,9 +1740,10 @@ static void do_nettype(void)
     check_mode_r = 0;
     use_fastdeq = 2;
     nick_len = 15;
-    simple_sprintf(stackablecmds,
-                   "PRIVMSG NOTICE TOPIC PART WHOIS USERHOST USERIP ISON");
-    simple_sprintf(stackable2cmds, "USERHOST USERIP ISON");
+    strlcpy(stackablecmds,
+            "PRIVMSG NOTICE TOPIC PART WHOIS USERHOST USERIP ISON",
+            sizeof stackablecmds);
+    strlcpy(stackable2cmds, "USERHOST USERIP ISON", sizeof stackable2cmds);
     break;
   case NETT_RIZON:
     check_mode_r = 0;
@@ -1706,8 +1758,8 @@ static void do_nettype(void)
     check_mode_r = 0;
     nick_len = 32;
     use_fastdeq = 2;
-    simple_sprintf(stackablecmds, "PRIVMSG NOTICE TOPIC PART WHOIS");
-    simple_sprintf(stackable2cmds, "WHOIS");
+    strlcpy(stackablecmds, "PRIVMSG NOTICE TOPIC PART WHOIS", sizeof stackablecmds);
+    strlcpy(stackable2cmds, "WHOIS", sizeof stackable2cmds);
     ircx_owner_support = 1;   /* Ophion supports +q (owner) mode     */
     ircx_prop_support = 1;    /* Ophion supports PROP command        */
     if (ircx_auto_negotiate)
@@ -1916,10 +1968,7 @@ static char *traced_nicklen(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name2, int flags)
 {
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
-    char s[40];
-
-    snprintf(s, sizeof s, "%d", nick_len);
-    Tcl_SetVar2(interp, name1, name2, s, TCL_GLOBAL_ONLY);
+    Tcl_SetVar2(interp, name1, name2, int_to_base10(nick_len), TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS)
       Tcl_TraceVar(irp, name1, TCL_TRACE_READS | TCL_TRACE_WRITES |
                    TCL_TRACE_UNSETS, traced_nicklen, cdata);
@@ -2025,16 +2074,29 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
     Tcl_DStringInit(&ds);
     for (q = serverlist; q; q = q->next) {
 #ifdef TLS
-      snprintf(x, sizeof x, "%s%s%s:%s%d%s%s %s", strchr(q->name, ':') ?
-                   "[" : "", q->name, strchr(q->name, ':') ? "]" : "",
-                   q->ssl ? "+" : "", q->port ? q->port : default_port,
-                   q->pass ? ":" : "", q->pass ? q->pass : "",
-                   q->realname ? q->realname : "");
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s%s%s:%s%d%s%s %s",
+                         strchr(q->name, ':') ? "[" : "", q->name,
+                         strchr(q->name, ':') ? "]" : "",
+                         q->ssl ? "+" : "", q->port ? q->port : default_port,
+                         q->pass ? ":" : "", q->pass ? q->pass : "",
+                         q->realname ? q->realname : "");
+        strlcpy(x, op_strbuf_str(&_b), sizeof x);
+        op_strbuf_free(&_b);
+      }
 #else
-      snprintf(x, sizeof x, "%s%s%s:%d%s%s %s", strchr(q->name, ':') ?
-                   "[" : "", q->name, strchr(q->name, ':') ? "]" : "",
-                   q->port ? q->port : default_port, q->pass ? ":" : "",
-                   q->pass ? q->pass : "", q->realname ? q->realname : "");
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s%s%s:%d%s%s %s",
+                         strchr(q->name, ':') ? "[" : "", q->name,
+                         strchr(q->name, ':') ? "]" : "",
+                         q->port ? q->port : default_port,
+                         q->pass ? ":" : "", q->pass ? q->pass : "",
+                         q->realname ? q->realname : "");
+        strlcpy(x, op_strbuf_str(&_b), sizeof x);
+        op_strbuf_free(&_b);
+      }
 #endif
       Tcl_DStringAppendElement(&ds, x);
     }
@@ -2181,7 +2243,7 @@ static void dcc_chat_hostresolved(int i)
   char buf[512];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
-  snprintf(buf, sizeof buf, "%d", dcc[i].port);
+  strlcpy(buf, int_to_base10(dcc[i].port), sizeof buf);
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].host, &dcc[i].sockname,
       dcc[i].u.dns->host, buf)) {
     lostdcc(i);
@@ -2190,7 +2252,7 @@ static void dcc_chat_hostresolved(int i)
   buf[0] = 0;
   dcc[i].sock = getsock(dcc[i].sockname.family, 0);
   if (dcc[i].sock < 0 || open_telnet_raw(dcc[i].sock, &dcc[i].sockname) < 0)
-    snprintf(buf, sizeof buf, "%s", strerror(errno));
+    strlcpy(buf, strerror(errno), sizeof buf);
 #ifdef TLS
   else if (dcc[i].ssl && ssl_handshake(dcc[i].sock, TLS_CONNECT, tls_vfydcc,
                                        LOG_MISC, dcc[i].host, &dcc_chat_sslcb))
@@ -2302,7 +2364,12 @@ static void server_die(void)
   char msg[MSGMAX];
   cycle_time = 100;
   if (server_online) {
-    snprintf(msg, sizeof msg, "QUIT :%s", quit_msg);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "QUIT :%s", quit_msg);
+      strlcpy(msg, op_strbuf_str(&_b), sizeof msg);
+      op_strbuf_free(&_b);
+    }
     dprintf(-serv, "%s\n", msg);
     if (raw_log)
       putlog(LOG_SRVOUT, "*", "[->] %s", msg);
@@ -2374,13 +2441,17 @@ static void server_report(int idx, int details)
       dprintf(idx, "    NICK IS JUPED: %s%s\n", origbotname,
               keepnick ? " (trying)" : "");
     daysdur(now, server_online, s1);
-    snprintf(s, sizeof s, "(connected %s)", s1);
-    if (server_lag && !lastpingcheck) {
-      if (server_lag == -1)
-        strlcpy(s1, " (bad pong replies)", sizeof s1);
-      else
-        snprintf(s1, sizeof s1, " (lag: %ds)", server_lag);
-      strlcat(s, s1, sizeof s);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "(connected %s)", s1);
+      if (server_lag && !lastpingcheck) {
+        if (server_lag == -1)
+          op_strbuf_append_cstr(&_b, " (bad pong replies)");
+        else
+          op_strbuf_appendf(&_b, " (lag: %ds)", server_lag);
+      }
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
     }
   }
 
@@ -2409,11 +2480,17 @@ static void server_report(int idx, int details)
     dprintf(idx, "    %s %d%% (%d msgs)\n", IRC_HELPQUEUE,
             (int) ((float) (hq.tot * 100.0) / (float) maxqmsg), (int) hq.tot);
 
-  for (current = cap; current; current = current->next) {
-    if (current->enabled) {
-      written += snprintf(capbuf + written, sizeof capbuf - written, "%s ", current->name);
+  {
+    op_strbuf_t _cb;
+    op_strbuf_init(&_cb);
+    for (current = cap; current; current = current->next) {
+      if (current->enabled)
+        op_strbuf_appendf(&_cb, "%s ", current->name);
     }
+    strlcpy(capbuf, op_strbuf_str(&_cb), sizeof capbuf);
+    op_strbuf_free(&_cb);
   }
+  written = strlen(capbuf);
   if (written) {
     strlcpy(buf, capbuf, sizeof buf);
     bufptr = buf;

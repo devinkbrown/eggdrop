@@ -122,18 +122,28 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
     if (strlen(who) > UHOSTMAX - 4)
       who[UHOSTMAX - 4] = 0;
     /* Fix missing ! or @ BEFORE checking against myself */
-    if (!strchr(who, '!')) {
-      if (!strchr(who, '@'))
-        snprintf(s, sizeof s, "%s!*@*", who);       /* Lame nick ban */
+    {
+      op_strbuf_t _b;
+      if (!strchr(who, '!')) {
+        if (!strchr(who, '@'))
+          op_strbuf_printf(&_b, "%s!*@*", who);     /* Lame nick ban */
+        else
+          op_strbuf_printf(&_b, "*!%s", who);
+      } else if (!strchr(who, '@'))
+        op_strbuf_printf(&_b, "%s@*", who);         /* brain-dead? */
       else
-        snprintf(s, sizeof s, "*!%s", who);
-    } else if (!strchr(who, '@'))
-      snprintf(s, sizeof s, "%s@*", who);   /* brain-dead? */
-    else
-      strlcpy(s, who, sizeof s);
+        op_strbuf_printf(&_b, "%s", who);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    }
     if ((me = module_find("server", 0, 0)) && me->funcs) {
-      snprintf(s1, sizeof s1, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
-                   (char *) me->funcs[SERVER_BOTUSERHOST]);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
+                         (char *) me->funcs[SERVER_BOTUSERHOST]);
+        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+        op_strbuf_free(&_b);
+      }
       if (match_addr(s, s1)) {
         dprintf(idx, "I'm not going to ban myself.\n");
         putlog(LOG_CMDS, "*", "#%s# attempted +ban %s", dcc[idx].nick, s);
@@ -260,16 +270,20 @@ static void cmd_pls_exempt(struct userrec *u, int idx, char *par)
     if (strlen(who) > UHOSTMAX - 4)
       who[UHOSTMAX - 4] = 0;
     /* Fix missing ! or @ BEFORE checking against myself */
-    if (!strchr(who, '!')) {
-      if (!strchr(who, '@'))
-        snprintf(s, sizeof s, "%s!*@*", who);       /* Lame nick exempt */
+    {
+      op_strbuf_t _b;
+      if (!strchr(who, '!')) {
+        if (!strchr(who, '@'))
+          op_strbuf_printf(&_b, "%s!*@*", who);     /* Lame nick exempt */
+        else
+          op_strbuf_printf(&_b, "*!%s", who);
+      } else if (!strchr(who, '@'))
+        op_strbuf_printf(&_b, "%s@*", who);         /* brain-dead? */
       else
-        snprintf(s, sizeof s, "*!%s", who);
-    } else if (!strchr(who, '@'))
-      snprintf(s, sizeof s, "%s@*", who);   /* brain-dead? */
-    else
-      strlcpy(s, who, sizeof s);
-
+        op_strbuf_printf(&_b, "%s", who);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    }
     truncate_mask_hostname(s);
     if (chan) {
       u_addexempt(chan, s, dcc[idx].nick, par,
@@ -384,16 +398,20 @@ static void cmd_pls_invite(struct userrec *u, int idx, char *par)
     if (strlen(who) > UHOSTMAX - 4)
       who[UHOSTMAX - 4] = 0;
     /* Fix missing ! or @ BEFORE checking against myself */
-    if (!strchr(who, '!')) {
-      if (!strchr(who, '@'))
-        snprintf(s, sizeof s, "%s!*@*", who);       /* Lame nick invite */
+    {
+      op_strbuf_t _b;
+      if (!strchr(who, '!')) {
+        if (!strchr(who, '@'))
+          op_strbuf_printf(&_b, "%s!*@*", who);     /* Lame nick invite */
+        else
+          op_strbuf_printf(&_b, "*!%s", who);
+      } else if (!strchr(who, '@'))
+        op_strbuf_printf(&_b, "%s@*", who);         /* brain-dead? */
       else
-        snprintf(s, sizeof s, "*!%s", who);
-    } else if (!strchr(who, '@'))
-      snprintf(s, sizeof s, "%s@*", who);   /* brain-dead? */
-    else
-      strlcpy(s, who, sizeof s);
-
+        op_strbuf_printf(&_b, "%s", who);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    }
     truncate_mask_hostname(s);
     if (chan) {
       u_addinvite(chan, s, dcc[idx].nick, par,
@@ -489,10 +507,10 @@ static void cmd_mns_ban(struct userrec *u, int idx, char *par)
   if (str_isdigit(ban)) {
     i = atoi(ban);
     /* subtract the number of global bans to get the number of the channel ban */
-    snprintf(s, sizeof s, "%d", i);
+    strlcpy(s, int_to_base10(i), sizeof s);
     j = u_delban(0, s, 0);
     if (j < 0) {
-      snprintf(s, sizeof s, "%d", -j);
+      strlcpy(s, int_to_base10(-j), sizeof s);
       j = u_delban(chan, s, 1);
       if (j > 0) {
         if (lastdeletedmask)
@@ -600,10 +618,10 @@ static void cmd_mns_exempt(struct userrec *u, int idx, char *par)
   if (str_isdigit(exempt)) {
     i = atoi(exempt);
     /* subtract the number of global exempts to get the number of the channel exempt */
-    snprintf(s, sizeof s, "%d", i);
+    strlcpy(s, int_to_base10(i), sizeof s);
     j = u_delexempt(0, s, 0);
     if (j < 0) {
-      snprintf(s, sizeof s, "%d", -j);
+      strlcpy(s, int_to_base10(-j), sizeof s);
       j = u_delexempt(chan, s, 1);
       if (j > 0) {
         if (lastdeletedmask)
@@ -712,10 +730,10 @@ static void cmd_mns_invite(struct userrec *u, int idx, char *par)
   if (str_isdigit(invite)) {
     i = atoi(invite);
     /* subtract the number of global invites to get the number of the channel invite */
-    snprintf(s, sizeof s, "%d", i);
+    strlcpy(s, int_to_base10(i), sizeof s);
     j = u_delinvite(0, s, 0);
     if (j < 0) {
-      snprintf(s, sizeof s, "%d", -j);
+      strlcpy(s, int_to_base10(-j), sizeof s);
       j = u_delinvite(chan, s, 1);
       if (j > 0) {
         if (lastdeletedmask)
@@ -828,7 +846,7 @@ static void cmd_info(struct userrec *u, int idx, char *par)
       dprintf(idx, "No such channel.\n");
       return;
     }
-    get_handle_chaninfo(dcc[idx].nick, chname, s);
+    get_handle_chaninfo(dcc[idx].nick, chname, s, sizeof s);
     if (s[0] == '@')
       locked = 1;
     s1 = s;
@@ -997,7 +1015,7 @@ static void cmd_stick_yn(int idx, char *par, int yn)
       /* subtract the number of global exempts to get the number of the channel exempt */
       j = u_setsticky_exempt(NULL, s, -1);
       if (j < 0)
-        snprintf(s, sizeof s, "%d", -j);
+        strlcpy(s, int_to_base10(-j), sizeof s);
     }
     j = u_setsticky_exempt(chan, s, yn);
     if (j > 0) {
@@ -1035,7 +1053,7 @@ static void cmd_stick_yn(int idx, char *par, int yn)
       /* subtract the number of global invites to get the number of the channel invite */
       j = u_setsticky_invite(NULL, s, -1);
       if (j < 0)
-        snprintf(s, sizeof s, "%d", -j);
+        strlcpy(s, int_to_base10(-j), sizeof s);
     }
     j = u_setsticky_invite(chan, s, yn);
     if (j > 0) {
@@ -1070,7 +1088,7 @@ static void cmd_stick_yn(int idx, char *par, int yn)
     /* subtract the number of global bans to get the number of the channel ban */
     j = u_setsticky_ban(NULL, s, -1);
     if (j < 0)
-      snprintf(s, sizeof s, "%d", -j);
+      strlcpy(s, int_to_base10(-j), sizeof s);
   }
   j = u_setsticky_ban(chan, s, yn);
   if (j > 0) {
@@ -1137,7 +1155,7 @@ static void cmd_pls_chrec(struct userrec *u, int idx, char *par)
     return;
   }
   putlog(LOG_CMDS, "*", "#%s# +chrec %s %s", dcc[idx].nick, nick, chan->dname);
-  add_chanrec(u1, chan->dname);
+  (void)add_chanrec(u1, chan->dname);
   dprintf(idx, "Added %s channel record for %s.\n", chan->dname, nick);
 }
 
@@ -1388,52 +1406,57 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
             (chan->ircnet_status & CHAN_DYNAMICINVITES) ? '+' : '-',
             (chan->ircnet_status & CHAN_NOUSERINVITES) ? '-' : '+');
 
-    ii = 1;
-    tmp = 0;
-    for (ul = udef; ul; ul = ul->next)
-      if (ul->defined && ul->type == UDEF_FLAG) {
-        int work_len;
+    {
+      op_strbuf_t flagbuf;
+      op_strbuf_init(&flagbuf);
+      ii = 1;
+      tmp = 0;
+      for (ul = udef; ul; ul = ul->next)
+        if (ul->defined && ul->type == UDEF_FLAG) {
+          if (!tmp) {
+            dprintf(idx, "User defined channel flags:\n");
+            tmp = 1;
+          }
+          if (ii == 1)
+            op_strbuf_printf(&flagbuf, "    ");
+          op_strbuf_appendf(&flagbuf, " %c%s",
+                            getudef(ul->values, chan->dname) ? '+' : '-', ul->name);
+          ii++;
+          if (ii > 4) {
+            dprintf(idx, "%s\n", op_strbuf_str(&flagbuf));
+            op_strbuf_clear(&flagbuf);
+            ii = 1;
+          }
+        }
+      if (ii > 1)
+        dprintf(idx, "%s\n", op_strbuf_str(&flagbuf));
+      op_strbuf_free(&flagbuf);
+    }
 
-        if (!tmp) {
-          dprintf(idx, "User defined channel flags:\n");
-          tmp = 1;
+    {
+      op_strbuf_t intbuf;
+      op_strbuf_init(&intbuf);
+      ii = 1;
+      tmp = 0;
+      for (ul = udef; ul; ul = ul->next)
+        if (ul->defined && ul->type == UDEF_INT) {
+          if (!tmp) {
+            dprintf(idx, "User defined channel settings:\n");
+            tmp = 1;
+          }
+          op_strbuf_appendf(&intbuf, "%s: %" PRIdPTR "   ",
+                            ul->name, getudef(ul->values, chan->dname));
+          ii++;
+          if (ii > 4) {
+            dprintf(idx, "%s\n", op_strbuf_str(&intbuf));
+            op_strbuf_clear(&intbuf);
+            ii = 1;
+          }
         }
-        if (ii == 1)
-          strlcpy(work, "    ", sizeof work);
-        work_len = strlen(work);
-        snprintf(work + work_len, sizeof(work) - work_len, " %c%s",
-                     getudef(ul->values, chan->dname) ? '+' : '-', ul->name);
-        ii++;
-        if (ii > 4) {
-          dprintf(idx, "%s\n", work);
-          ii = 1;
-        }
-      }
-    if (ii > 1)
-      dprintf(idx, "%s\n", work);
-
-    work[0] = 0;
-    ii = 1;
-    tmp = 0;
-    for (ul = udef; ul; ul = ul->next)
-      if (ul->defined && ul->type == UDEF_INT) {
-        int work_len = strlen(work);
-
-        if (!tmp) {
-          dprintf(idx, "User defined channel settings:\n");
-          tmp = 1;
-        }
-        snprintf(work + work_len, sizeof(work) - work_len, "%s: %" PRIdPTR "   ",
-                     ul->name, getudef(ul->values, chan->dname));
-        ii++;
-        if (ii > 4) {
-          dprintf(idx, "%s\n", work);
-          work[0] = 0;
-          ii = 1;
-        }
-      }
-    if (ii > 1)
-      dprintf(idx, "%s\n", work);
+      if (ii > 1)
+        dprintf(idx, "%s\n", op_strbuf_str(&intbuf));
+      op_strbuf_free(&intbuf);
+    }
 
     if (u->flags & USER_OWNER) {
       tmp = 0;
@@ -1470,11 +1493,14 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
 
 static void cmd_chanset(struct userrec *u, int idx, char *par)
 {
-  char *chname = NULL, answers[1024];
+  char *chname = NULL;
+  op_strbuf_t answers;
   char *list[2], value[2], *bak, *buf;
   char *parcpy;
   struct chanset_t *chan = NULL;
-  int len, all = 0;
+  int all = 0;
+
+  op_strbuf_init(&answers);
 
   if (!par[0])
     dprintf(idx, "Usage: chanset [%schannel] <settings>\n", CHANMETA);
@@ -1519,24 +1545,23 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
     buf = nmalloc(strlen(par) + 1);
     while (chan) {
       chname = chan->dname;
-      strlcpy(buf, bak, sizeof(buf));
+      strcpy(buf, bak);
       par = buf;
       list[0] = newsplit(&par);
-      answers[0] = 0;
+      op_strbuf_clear(&answers);
       while (list[0][0]) {
         if (list[0][0] == '+' || list[0][0] == '-' ||
             (!strcmp(list[0], "dont-idle-kick"))) {
             if (!strcmp(list[0] + 1, "static") && must_be_owner &&
                 !(isowner(dcc[idx].nick))) {
               dprintf(idx, "Only permanent owners can modify the static flag.\n");
+              op_strbuf_free(&answers);
               nfree(buf);
               return;
             }
           if (tcl_channel_modify(0, chan, 1, list) == TCL_OK) {
             strlcpy(value, list[0], 2);
-            len = strlen(answers);
-            snprintf(answers + len, (sizeof answers) - len, 
-                (len == 0) ? "%s" : " %s", list[0]);        /* Concatenation */
+            op_strbuf_appendf(&answers, op_strbuf_empty(&answers) ? "%s" : " %s", list[0]);
           } else if (!all || !chan->next)
             dprintf(idx, "Error trying to set %s for %s, invalid mode.\n",
                     list[0], all ? "all channels" : chname);
@@ -1552,6 +1577,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
           if (!strncmp(list[0], "need-", 5) && !(isowner(dcc[idx].nick)) &&
               must_be_owner) {
             dprintf(idx, "Due to security concerns, only permanent owners can set these modes.\n");
+            op_strbuf_free(&answers);
             nfree(buf);
             return;
           }
@@ -1560,11 +1586,10 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
            * circumstances, so save it now.
            */
           parcpy = nmalloc(strlen(par) + 1);
-          strlcpy(parcpy, par, sizeof(parcpy));
+          strcpy(parcpy, par);
           irp = Tcl_CreateInterp();
           if (tcl_channel_modify(irp, chan, 2, list) == TCL_OK) {
-            len = strlen(answers);
-            snprintf(answers + len, (sizeof answers) - len, "%s { %s }", list[0], parcpy); /* Concatenation */
+            op_strbuf_appendf(&answers, "%s { %s }", list[0], parcpy);
           } else if (!all || !chan->next)
             dprintf(idx, "Error trying to set %s for %s, %s\n",
                     list[0], all ? "all channels" : chname, Tcl_GetStringResult(irp));
@@ -1574,24 +1599,25 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
         }
         break;
       }
-      if (!all && answers[0]) {
-        dprintf(idx, "Successfully set modes { %s } on %s.\n", answers,
+      if (!all && !op_strbuf_empty(&answers)) {
+        dprintf(idx, "Successfully set modes { %s } on %s.\n", op_strbuf_str(&answers),
                 chname);
         putlog(LOG_CMDS, "*", "#%s# chanset %s %s", dcc[idx].nick, chname,
-               answers);
+               op_strbuf_str(&answers));
       }
       if (!all)
         chan = NULL;
       else
         chan = chan->next;
     }
-    if (all && answers[0]) {
+    if (all && !op_strbuf_empty(&answers)) {
       dprintf(idx, "Successfully set modes { %s } on all channels.\n",
-              answers);
-      putlog(LOG_CMDS, "*", "#%s# chanset * %s", dcc[idx].nick, answers);
+              op_strbuf_str(&answers));
+      putlog(LOG_CMDS, "*", "#%s# chanset * %s", dcc[idx].nick, op_strbuf_str(&answers));
     }
     nfree(buf);
   }
+  op_strbuf_free(&answers);
 }
 
 static void cmd_chansave(struct userrec *u, int idx, char *par)

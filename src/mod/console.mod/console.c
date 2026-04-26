@@ -76,10 +76,16 @@ static int console_pack(struct userrec *u, struct user_entry *e)
 
   ci = (struct console_info *) e->u.extra;
 
-  l = snprintf(work, sizeof work, "%s %s %s %d %d %d",
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s %s %d %d %d",
                      ci->channel, masktype(ci->conflags),
                      stripmasktype(ci->stripflags), ci->echoflags,
                      ci->page, ci->conchan);
+    strlcpy(work, op_strbuf_str(&_b), sizeof work);
+    l = (int) op_strbuf_len(&_b);
+    op_strbuf_free(&_b);
+  }
 
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
@@ -97,7 +103,7 @@ static int console_kill(struct user_entry *e)
 
   nfree(i->channel);
   nfree(i);
-  nfree(e);
+  free_user_entry(e);
   return 1;
 }
 
@@ -136,10 +142,15 @@ static int console_set(struct userrec *u, struct user_entry *e, void *buf)
 #ifdef HAVE_TCL
 static void console_tcl_format(char *work, struct console_info *i)
 {
-  snprintf(work, 1024, "%s %s %s %d %d %d",
-                 i->channel, masktype(i->conflags),
-                 stripmasktype(i->stripflags), i->echoflags,
-                 i->page, i->conchan);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s %s %d %d %d",
+                     i->channel, masktype(i->conflags),
+                     stripmasktype(i->stripflags), i->echoflags,
+                     i->page, i->conchan);
+    strlcpy(work, op_strbuf_str(&_b), 1024);
+    op_strbuf_free(&_b);
+  }
 }
 static int console_tcl_get(Tcl_Interp *irp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
@@ -302,7 +313,12 @@ static int console_chon(char *handle, int idx)
 
           chanout_but(-1, dcc[idx].u.chat->channel,
                       "*** [%s] %s\n", dcc[idx].nick, p);
-          snprintf(x, sizeof x, "[%s] %s", dcc[idx].nick, p);
+          {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "[%s] %s", dcc[idx].nick, p);
+            strlcpy(x, op_strbuf_str(&_b), sizeof x);
+            op_strbuf_free(&_b);
+          }
           botnet_send_chan(-1, botnetnick, NULL, dcc[idx].u.chat->channel, x);
         }
       }

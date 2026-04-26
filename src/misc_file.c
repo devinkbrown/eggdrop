@@ -36,7 +36,7 @@
  *           3 if original file isn't normal
  *           4 if ran out of disk space
  */
-int copyfile(char *oldpath, char *newpath)
+int copyfile(const char *oldpath, const char *newpath)
 {
   int fi, fo, x;
   char buf[512];
@@ -81,7 +81,7 @@ int copyfile(char *oldpath, char *newpath)
  *           3 if original file isn't normal
  *           4 if ran out of disk space
  */
-int copyfilef(char *oldpath, FILE *newfile)
+int copyfilef(const char *oldpath, FILE *newfile)
 {
   int fi, x;
   char buf[512];
@@ -128,7 +128,7 @@ int copyfilef(char *oldpath, FILE *newfile)
  *           3 if original file isn't normal
  *           4 if ran out of disk space
  */
-int fcopyfile(FILE *oldfile, char *newpath)
+int fcopyfile(FILE *oldfile, const char *newpath)
 {
   int fo;
   size_t x;
@@ -167,7 +167,7 @@ int fcopyfile(FILE *oldfile, char *newpath)
   return 0;
 }
 
-int movefile(char *oldpath, char *newpath)
+int movefile(const char *oldpath, const char *newpath)
 {
   int ret;
 
@@ -184,7 +184,7 @@ int movefile(char *oldpath, char *newpath)
   return ret;
 }
 
-int file_readable(char *file)
+int file_readable(const char *file)
 {
   FILE *fp;
 

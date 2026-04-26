@@ -290,7 +290,7 @@ static int tcl_assoc STDVAR
     if (chan == -1)
       Tcl_AppendResult(irp, "", NULL);
     else {
-      snprintf(name, sizeof name, "%d", chan);
+      strlcpy(name, int_to_base10(chan), sizeof name);
       Tcl_AppendResult(irp, name, NULL);
     }
     return TCL_OK;

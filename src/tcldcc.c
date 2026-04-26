@@ -48,13 +48,13 @@ extern sock_list *socklist;
 extern party_t *party;
 extern tand_t *tandbot;
 extern time_t now;
-extern uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
-                itraffic_irc_today, otraffic_bn, otraffic_bn_today,
-                itraffic_bn, itraffic_bn_today, otraffic_dcc,
-                otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
-                otraffic_trans, otraffic_trans_today, itraffic_trans,
-                itraffic_trans_today, otraffic_unknown, itraffic_unknown,
-                otraffic_unknown_today, itraffic_unknown_today;
+extern _Atomic uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
+                        itraffic_irc_today, otraffic_bn, otraffic_bn_today,
+                        itraffic_bn, itraffic_bn_today, otraffic_dcc,
+                        otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
+                        otraffic_trans, otraffic_trans_today, itraffic_trans,
+                        itraffic_trans_today, otraffic_unknown, itraffic_unknown,
+                        otraffic_unknown_today, itraffic_unknown_today;
 static struct portmap *root = NULL;
 
 
@@ -105,29 +105,6 @@ static int tcl_putdcc STDVAR
  */
 static int tcl_putdccraw STDVAR
 {
-#if 0
-  int i, j = 0, z;
-
-  BADARGS(4, 4, " idx size text");
-
-  z = atoi(argv[1]);
-  for (i = 0; i < dcc_total; i++) {
-    if (!z && !strcmp(dcc[i].nick, "(server)")) {
-      j = dcc[i].sock;
-      break;
-    } else if (dcc[i].sock == z) {
-      j = dcc[i].sock;
-      break;
-    }
-  }
-  if (i == dcc_total) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
-    return TCL_ERROR;
-  }
-  tputs(j, argv[3], atoi(argv[2]));
-  return TCL_OK;
-#endif
-
   Tcl_AppendResult(irp, "putdccraw is deprecated. "
                    "Please use putdcc/putnow instead.", NULL);
   return TCL_ERROR;
@@ -174,15 +151,13 @@ static int tcl_dccbroadcast STDVAR
 static int tcl_hand2idx STDVAR
 {
   int i;
-  char s[11];
 
   BADARGS(2, 2, " handle");
 
   for (i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
         !strcasecmp(argv[1], dcc[i].nick)) {
-      snprintf(s, sizeof s, "%ld", dcc[i].sock);
-      Tcl_AppendResult(irp, s, NULL);
+      Tcl_AppendResult(irp, int_to_base10((int)dcc[i].sock), NULL);
       return TCL_OK;
     }
   Tcl_AppendResult(irp, "-1", NULL);
@@ -191,7 +166,6 @@ static int tcl_hand2idx STDVAR
 
 static int tcl_getchan STDVAR
 {
-  char s[7];
   int idx;
 
   BADARGS(2, 2, " idx");
@@ -203,12 +177,10 @@ static int tcl_getchan STDVAR
     return TCL_ERROR;
   }
 
-  if (dcc[idx].type == &DCC_SCRIPT)
-    snprintf(s, sizeof s, "%d", dcc[idx].u.script->u.chat->channel);
-  else
-    snprintf(s, sizeof s, "%d", dcc[idx].u.chat->channel);
-
-  Tcl_AppendResult(irp, s, NULL);
+  int chan = (dcc[idx].type == &DCC_SCRIPT)
+    ? dcc[idx].u.script->u.chat->channel
+    : dcc[idx].u.chat->channel;
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(chan));
   return TCL_OK;
 }
 
@@ -444,7 +416,6 @@ static int tcl_echo STDVAR
 static int tcl_page STDVAR
 {
   int i;
-  char x[20];
   module_entry *me;
 
   BADARGS(2, 3, " idx ?status?");
@@ -464,11 +435,8 @@ static int tcl_page STDVAR
       dcc[i].u.chat->max_line = l;
     }
   }
-  if (dcc[i].status & STAT_PAGE) {
-    snprintf(x, sizeof x, "%d", dcc[i].u.chat->max_line);
-    Tcl_AppendResult(irp, x, NULL);
-  } else
-    Tcl_AppendResult(irp, "0", NULL);
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(
+    (dcc[i].status & STAT_PAGE) ? dcc[i].u.chat->max_line : 0));
   /* Console autosave. */
   if ((argc > 2) && (me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
@@ -652,8 +620,9 @@ static int tcl_botlist STDVAR
   return TCL_OK;
 }
 
-static void build_dcc_list(Tcl_Interp *irp, char *idxstr, char *nick, char *host,
-            char *portstring, char *type, char *other, char *timestamp) {
+static void build_dcc_list(Tcl_Interp *irp, const char *idxstr, const char *nick,
+            const char *host, const char *portstring, const char *type,
+            const char *other, const char *timestamp) {
   char *p;
   EGG_CONST char *list[7];
 
@@ -670,17 +639,13 @@ static void build_dcc_list(Tcl_Interp *irp, char *idxstr, char *nick, char *host
 }
 
 /* Build and return a list of lists of all sockets, in dict-readable format */
-static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, char *idxstr,
-            char *nick, char *host, char *ip, int port, int secure,
-            char *type, char *other, char *timestamp) {
+static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, const char *idxstr,
+            const char *nick, const char *host, const char *ip, int port, int secure,
+            const char *type, const char *other, const char *timestamp) {
   EGG_CONST char *val[] = {"idx", "handle", "host", "ip", "port", "secure",
                            "type", "info", "time"};
-  Tcl_Obj *thelist;
-  char securestr[2], portstr[6];
+  Tcl_Obj *thelist = Tcl_NewListObj(0, NULL);
 
-  snprintf(securestr, sizeof securestr, "%d", secure);
-  snprintf(portstr, sizeof portstr, "%d", port);
-  thelist = Tcl_NewListObj(0, NULL);
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[0], -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(idxstr, -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[1], -1));
@@ -690,9 +655,9 @@ static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, char *idxstr,
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[3], -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(ip, -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[4], -1));
-  Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(portstr, -1));
+  Tcl_ListObjAppendElement(irp, thelist, Tcl_NewIntObj(port));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[5], -1));
-  Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(securestr, -1));
+  Tcl_ListObjAppendElement(irp, thelist, Tcl_NewIntObj(secure));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[6], -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(type, -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[7], -1));
@@ -706,40 +671,47 @@ static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, char *idxstr,
 /* Gather information for dcclist or socklist */
 static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
   int i;
-  char idxstr[10], timestamp[21], other[160];
-  char portstring[7]; /* ssl + portmax + NULL */
+  char other[160];
   char s[EGG_INET_ADDRSTRLEN];
   socklen_t namelen;
   struct sockaddr_storage ss;
   Tcl_Obj *masterlist = NULL; /* initialize to NULL to make old gcc versions
                                * happy */
 
-  if (src) {
+  if (src)
     masterlist = Tcl_NewListObj(0, NULL);
-  }
   for (i = 0; i < dcc_total; i++) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
         !strcasecmp(dcc[i].type->name, type)))) {
-      snprintf(idxstr, sizeof idxstr, "%ld", dcc[i].sock);
-      snprintf(timestamp, sizeof timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
+      op_strbuf_t idxstr, timestamp;
+      op_strbuf_printf(&idxstr, "%ld", dcc[i].sock);
+      op_strbuf_printf(&timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
       if (dcc[i].type && dcc[i].type->display)
         dcc[i].type->display(i, other);
       else {
-        snprintf(other, sizeof other, "?:%lX  !! ERROR !!",
-                     (long) dcc[i].type);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "?:%lX  !! ERROR !!", (long) dcc[i].type);
+          strlcpy(other, op_strbuf_str(&_b), sizeof other);
+          op_strbuf_free(&_b);
+        }
+        op_strbuf_free(&idxstr);
+        op_strbuf_free(&timestamp);
         break;
       }
-#ifdef TLS
-      snprintf(portstring, sizeof portstring, "%s%d", dcc[i].ssl ? "+" : "", dcc[i].port);
-#else
-      snprintf(portstring, sizeof portstring, "%d", dcc[i].port);
-#endif
       /* If this came from dcclist... */
       if (!src) {
-        build_dcc_list(irp, idxstr, dcc[i].nick,
+        op_strbuf_t portstring;
+#ifdef TLS
+        op_strbuf_printf(&portstring, "%s%d", dcc[i].ssl ? "+" : "", dcc[i].port);
+#else
+        op_strbuf_printf(&portstring, "%d", dcc[i].port);
+#endif
+        build_dcc_list(irp, op_strbuf_str(&idxstr), dcc[i].nick,
             (dcc[i].host[0] == '\0') ? iptostr(&dcc[i].sockname.addr.sa) : dcc[i].host,
-            portstring, dcc[i].type ? dcc[i].type->name : "*UNKNOWN*", other,
-            timestamp);
+            op_strbuf_str(&portstring), dcc[i].type ? dcc[i].type->name : "*UNKNOWN*",
+            other, op_strbuf_str(&timestamp));
+        op_strbuf_free(&portstring);
       /* If this came from socklist... */
       } else {
         /* Update dcc table socket information, needed for getting local IP */
@@ -754,7 +726,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
             inet_ntop(AF_INET6, &(saddr->sin6_addr), s, sizeof s);
 #endif
         }
-        build_sock_list(irp, masterlist, idxstr, dcc[i].nick,
+        build_sock_list(irp, masterlist, op_strbuf_str(&idxstr), dcc[i].nick,
             (dcc[i].host[0] == '\0') ? iptostr(&dcc[i].sockname.addr.sa) : dcc[i].host,
             s, dcc[i].port,
 #ifdef TLS
@@ -763,8 +735,10 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
             0,
 #endif
             dcc[i].type ? dcc[i].type->name : "*UNKNOWN*", other,
-            timestamp);
+            op_strbuf_str(&timestamp));
       }
+      op_strbuf_free(&idxstr);
+      op_strbuf_free(&timestamp);
     }
   }
 }
@@ -787,7 +761,8 @@ static int tcl_dcclist STDVAR
 static int tcl_whom STDVAR
 {
   int chan, i;
-  char c[2], idle[21], work[20], *p;
+  char c[2], *p;
+  op_strbuf_t idle, work;
   EGG_CONST char *list[7];
 
   BADARGS(2, 2, " chan");
@@ -816,20 +791,23 @@ static int tcl_whom STDVAR
       if (dcc[i].u.chat->channel == chan || chan == -1) {
         c[0] = geticon(i);
         c[1] = 0;
-        snprintf(idle, sizeof idle, "%" PRId64, (int64_t) ((now - dcc[i].timeval) / 60));
+        op_strbuf_printf(&idle, "%" PRId64, (int64_t) ((now - dcc[i].timeval) / 60));
         list[0] = dcc[i].nick;
         list[1] = botnetnick;
         list[2] = dcc[i].host;
         list[3] = c;
-        list[4] = idle;
+        list[4] = op_strbuf_str(&idle);
         list[5] = dcc[i].u.chat->away ? dcc[i].u.chat->away : "";
         if (chan == -1) {
-          snprintf(work, sizeof work, "%d", dcc[i].u.chat->channel);
-          list[6] = work;
+          op_strbuf_printf(&work, "%d", dcc[i].u.chat->channel);
+          list[6] = op_strbuf_str(&work);
         }
         p = Tcl_Merge((chan == -1) ? 7 : 6, list);
         Tcl_AppendElement(irp, p);
         Tcl_Free((char *) p);
+        op_strbuf_free(&idle);
+        if (chan == -1)
+          op_strbuf_free(&work);
       }
     }
   for (i = 0; i < parties; i++) {
@@ -837,22 +815,25 @@ static int tcl_whom STDVAR
       c[0] = party[i].flag;
       c[1] = 0;
       if (party[i].timer == 0L)
-        strlcpy(idle, "0", sizeof(idle));
+        op_strbuf_printf(&idle, "0");
       else
-        snprintf(idle, sizeof idle, "%" PRId64, (int64_t) ((now - party[i].timer) / 60));
+        op_strbuf_printf(&idle, "%" PRId64, (int64_t) ((now - party[i].timer) / 60));
       list[0] = party[i].nick;
       list[1] = party[i].bot;
       list[2] = party[i].from ? party[i].from : "";
       list[3] = c;
-      list[4] = idle;
+      list[4] = op_strbuf_str(&idle);
       list[5] = party[i].status & PLSTAT_AWAY ? party[i].away : "";
       if (chan == -1) {
-        snprintf(work, sizeof work, "%d", party[i].chan);
-        list[6] = work;
+        op_strbuf_printf(&work, "%d", party[i].chan);
+        list[6] = op_strbuf_str(&work);
       }
       p = Tcl_Merge((chan == -1) ? 7 : 6, list);
       Tcl_AppendElement(irp, p);
       Tcl_Free((char *) p);
+      op_strbuf_free(&idle);
+      if (chan == -1)
+        op_strbuf_free(&work);
     }
   }
   return TCL_OK;
@@ -860,19 +841,15 @@ static int tcl_whom STDVAR
 
 static int tcl_dccused STDVAR
 {
-  char s[20];
-
   BADARGS(1, 1, "");
 
-  snprintf(s, sizeof s, "%d", dcc_total);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(dcc_total));
   return TCL_OK;
 }
 
 static int tcl_getdccidle STDVAR
 {
   int x, idx;
-  char s[21];
 
   BADARGS(2, 2, " idx");
 
@@ -882,9 +859,7 @@ static int tcl_getdccidle STDVAR
     return TCL_ERROR;
   }
   x = (now - dcc[idx].timeval);
-
-  snprintf(s, sizeof s, "%d", x);
-  Tcl_AppendElement(irp, s);
+  Tcl_AppendElement(irp, int_to_base10(x));
   return TCL_OK;
 }
 
@@ -945,8 +920,7 @@ static int tcl_link STDVAR
   } else
     x = botlink("", -2, bot);
 
-  snprintf(bot, sizeof bot, "%d", x);
-  Tcl_AppendResult(irp, bot, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
   return TCL_OK;
 }
 
@@ -968,16 +942,13 @@ static int tcl_unlink STDVAR
     else
       botnet_send_unlink(i, botnetnick, lastbot(bot), bot, argv[2]);
   }
-  snprintf(bot, sizeof bot, "%d", x);
-
-  Tcl_AppendResult(irp, bot, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
   return TCL_OK;
 }
 
 static int tcl_connect STDVAR
 {
   int i, sock;
-  char s[81];
 
   BADARGS(3, 3, " hostname port");
 
@@ -1011,8 +982,7 @@ static int tcl_connect STDVAR
     if (ssl_handshake(sock, TLS_CONNECT, 0, LOG_MISC, NULL, NULL)) {
       killsock(sock);
       lostdcc(i);
-      strlcpy(s, "Failed to establish a TLS session", sizeof s);
-      Tcl_AppendResult(irp, s, NULL);
+      Tcl_AppendResult(irp, "Failed to establish a TLS session", NULL);
       return TCL_ERROR;
     } else
       dcc[i].ssl = 1;
@@ -1020,14 +990,13 @@ static int tcl_connect STDVAR
 #endif
   strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
   strlcpy(dcc[i].host, argv[1], UHOSTMAX);
-  snprintf(s, sizeof s, "%d", sock);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(sock));
   return TCL_OK;
 }
 
 static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *maskproc, char *flag) {
   int i, idx = -1, port, realport, found=0, ipv4=1, error;
-  char s[11], msg[256], newip[EGG_INET_ADDRSTRLEN];
+  char newip[EGG_INET_ADDRSTRLEN];
   struct portmap *pmap = NULL, *pold = NULL;
   sockname_t name;
   struct in_addr ipaddr4;
@@ -1180,19 +1149,23 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       setsockname(&name, newip, port, 1);
       i = open_address_listen(&name);
       if (i < 0) {
-        snprintf(msg, sizeof msg, "Couldn't listen on port %d on %s: %s. "
+        op_strbuf_t msg;
+        op_strbuf_printf(&msg, "Couldn't listen on port %d on %s: %s. "
                  "Please check that the port is not already in use",
                   realport, newip, strerror(errno));
-        Tcl_AppendResult(irp, msg, NULL);
+        Tcl_AppendResult(irp, op_strbuf_str(&msg), NULL);
+        op_strbuf_free(&msg);
         return TCL_ERROR;
       }
     } else {
       i = open_listen(&port);
       if (i < 0) {
-        snprintf(msg, sizeof msg, "Couldn't listen on port %d on the given "
+        op_strbuf_t msg;
+        op_strbuf_printf(&msg, "Couldn't listen on port %d on the given "
                  "address: %s. Please check that the port is not already in use",
                   realport, strerror(errno));
-        Tcl_AppendResult(irp, msg, NULL);
+        Tcl_AppendResult(irp, op_strbuf_str(&msg), NULL);
+        op_strbuf_free(&msg);
         return TCL_ERROR;
       }
     }
@@ -1217,8 +1190,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       dcc[idx].status = LSTN_PUBLIC;
     }
     strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
-    snprintf(s, sizeof s, "%d", port);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_AppendResult(irp, int_to_base10(port), NULL);
     return TCL_OK;
   }
   /* bots/users/all */
@@ -1234,8 +1206,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
   else
     strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host));
-  snprintf(s, sizeof s, "%d", port);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, int_to_base10(port), NULL);
   if (!pmap) {
     pmap = nmalloc(sizeof(struct portmap));
     pmap->next = root;
@@ -1417,39 +1388,39 @@ static int tcl_restart STDVAR
 
 static int tcl_traffic STDVAR
 {
-  char buf[1024];
+  op_strbuf_t buf;
   uint64_t out_total_today, out_total;
   uint64_t in_total_today, in_total;
 
   /* IRC traffic */
-  snprintf(buf, sizeof(buf), "irc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_printf(&buf, "irc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_irc_today, itraffic_irc + itraffic_irc_today,
           otraffic_irc_today, otraffic_irc + otraffic_irc_today);
-  Tcl_AppendElement(irp, buf);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Botnet traffic */
-  snprintf(buf, sizeof(buf), "botnet %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_reset(&buf, "botnet %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_bn_today, itraffic_bn + itraffic_bn_today,
           otraffic_bn_today, otraffic_bn + otraffic_bn_today);
-  Tcl_AppendElement(irp, buf);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Partyline */
-  snprintf(buf, sizeof(buf), "partyline %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_reset(&buf, "partyline %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_dcc_today, itraffic_dcc + itraffic_dcc_today,
           otraffic_dcc_today, otraffic_dcc + otraffic_dcc_today);
-  Tcl_AppendElement(irp, buf);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Transfer */
-  snprintf(buf, sizeof(buf), "transfer %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_reset(&buf, "transfer %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_trans_today, itraffic_trans + itraffic_trans_today,
           otraffic_trans_today, otraffic_trans + otraffic_trans_today);
-  Tcl_AppendElement(irp, buf);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Misc traffic */
-  snprintf(buf, sizeof(buf), "misc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_reset(&buf, "misc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_unknown_today, itraffic_unknown + itraffic_unknown_today,
           otraffic_unknown_today, otraffic_unknown + otraffic_unknown_today);
-  Tcl_AppendElement(irp, buf);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Totals */
   in_total_today = itraffic_irc_today + itraffic_bn_today +
@@ -1462,9 +1433,10 @@ static int tcl_traffic STDVAR
                     otraffic_unknown_today;
   out_total = out_total_today + otraffic_irc + otraffic_bn + otraffic_dcc +
               otraffic_trans + otraffic_unknown;
-  snprintf(buf, sizeof(buf), "total %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_reset(&buf, "total %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           in_total_today, in_total, out_total_today, out_total);
-  Tcl_AppendElement(irp, buf);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+  op_strbuf_free(&buf);
   return TCL_OK;
 }
 

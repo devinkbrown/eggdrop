@@ -24,22 +24,22 @@
 #define _EGG_MOD_CHANNELS_CHANNELS_H
 
 /* User defined chanmodes/settings */
-#define UDEF_FLAG 1
-#define UDEF_INT  2
-#define UDEF_STR  3
+constexpr int UDEF_FLAG = 1;
+constexpr int UDEF_INT  = 2;
+constexpr int UDEF_STR  = 3;
 
-#define MASKREASON_MAX 307    /* Max length of ban/invite/exempt/etc reasons. */
-#define MASKREASON_LEN (MASKREASON_MAX + 1)
+constexpr int MASKREASON_MAX = 307; /* Max length of ban/invite/exempt/etc reasons. */
+constexpr int MASKREASON_LEN = MASKREASON_MAX + 1;
 
 /* Flags for reset_chan_info() */
-#define CHAN_RESETMODES   0x01
-#define CHAN_RESETWHO     0x02
-#define CHAN_RESETTOPIC   0x04
-#define CHAN_RESETBANS    0x08
-#define CHAN_RESETEXEMPTS 0x10
-#define CHAN_RESETINVITED 0x20
-#define CHAN_RESETAWAY    0x40
-#define CHAN_RESETALL     0xFF
+constexpr int CHAN_RESETMODES   = 0x01;
+constexpr int CHAN_RESETWHO     = 0x02;
+constexpr int CHAN_RESETTOPIC   = 0x04;
+constexpr int CHAN_RESETBANS    = 0x08;
+constexpr int CHAN_RESETEXEMPTS = 0x10;
+constexpr int CHAN_RESETINVITED = 0x20;
+constexpr int CHAN_RESETAWAY    = 0x40;
+constexpr int CHAN_RESETALL     = 0xFF;
 
 #ifdef MAKING_CHANNELS
 
@@ -66,10 +66,10 @@ struct udef_struct {
 };
 
 static void del_chanrec(struct userrec *u, char *);
-static struct chanuserrec *get_chanrec(struct userrec *u, char *chname);
-static struct chanuserrec *add_chanrec(struct userrec *u, char *chname);
+[[nodiscard]] static struct chanuserrec *get_chanrec(struct userrec *u, char *chname);
+[[nodiscard]] static struct chanuserrec *add_chanrec(struct userrec *u, char *chname);
 static void add_chanrec_by_handle(struct userrec *bu, char *hand, char *chname);
-static void get_handle_chaninfo(char *handle, char *chname, char *s);
+static void get_handle_chaninfo(char *handle, char *chname, char *s, size_t slen);
 static void set_handle_chaninfo(struct userrec *bu, char *handle,
                                 char *chname, char *info);
 static void set_handle_laston(char *chan, struct userrec *u, time_t n);
@@ -145,7 +145,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define set_handle_laston ((void (*)(char *,struct userrec *,time_t))channels_funcs[16])
 /* *HOLE* channels_funcs[17] used to be ban_time <wcc[07/19/02]> */
 #define use_info (*(int *)(channels_funcs[18]))
-#define get_handle_chaninfo ((void (*)(char *, char *, char *))channels_funcs[19])
+#define get_handle_chaninfo ((void (*)(char *, char *, char *, size_t))channels_funcs[19])
 /* 20 - 23 */
 #define u_sticky_mask ((int (*)(maskrec *, char *))channels_funcs[20])
 #define ismasked ((int (*)(masklist *, char *))channels_funcs[21])
@@ -210,17 +210,13 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define u_setsticky_invite(chan, host, sticky)  u_setsticky_mask(chan, ((struct chanset_t *)chan) ? ((struct chanset_t *)chan)->invites : global_invites, host, sticky, "sInv")
 
 #define CHKFLAG_POS(x,y,z) (!strcmp(setting, y)) {                       \
-        if (z & x)                                                       \
-          simple_sprintf(s, "%d", 1);                                    \
-        else                                                             \
-          simple_sprintf(s, "%d", 0);                                    \
+        s[0] = ((z) & (x)) ? '1' : '0';                                 \
+        s[1] = '\0';                                                     \
 }
 
 #define CHKFLAG_NEG(x,y,z) (!strcmp(setting, y)) {                       \
-        if (z & x)                                                       \
-          simple_sprintf(s, "%d", 0);                                    \
-        else                                                             \
-          simple_sprintf(s, "%d", 1);                                    \
+        s[0] = ((z) & (x)) ? '0' : '1';                                 \
+        s[1] = '\0';                                                     \
 }
 
 #endif /* _EGG_MOD_CHANNELS_CHANNELS_H */

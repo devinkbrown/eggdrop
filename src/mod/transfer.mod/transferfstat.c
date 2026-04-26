@@ -56,8 +56,13 @@ static int fstat_pack(struct userrec *u, struct user_entry *e)
 
   fs = e->u.extra;
   l->extra = user_malloc(41);
-  snprintf(l->extra, 41, "%09u %09u %09u %09u", fs->uploads, fs->upload_ks,
-               fs->dnloads, fs->dnload_ks);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%09u %09u %09u %09u", fs->uploads, fs->upload_ks,
+                     fs->dnloads, fs->dnload_ks);
+    strlcpy(l->extra, op_strbuf_str(&_b), 41);
+    op_strbuf_free(&_b);
+  }
   l->next = NULL;
   e->u.list = l;
   nfree(fs);
@@ -115,18 +120,26 @@ static int fstat_set(struct userrec *u, struct user_entry *e, void *buf)
 
 static int fstat_tcl_format(char *d, size_t max, struct filesys_stats *fs, char *arg)
 {
-  if (!arg)
-    snprintf(d, max, "%u %u %u %u", fs->uploads, fs->upload_ks,
-                 fs->dnloads, fs->dnload_ks);
-  else
-    switch (arg[0]) {
-    case 'u':
-      snprintf(d, max, "%u %u", fs->uploads, fs->upload_ks);
-      break;
-    case 'd':
-      snprintf(d, max, "%u %u", fs->dnloads, fs->dnload_ks);
-      break;
-    }
+  {
+    op_strbuf_t _b;
+    if (!arg)
+      op_strbuf_printf(&_b, "%u %u %u %u", fs->uploads, fs->upload_ks,
+                       fs->dnloads, fs->dnload_ks);
+    else
+      switch (arg[0]) {
+      case 'u':
+        op_strbuf_printf(&_b, "%u %u", fs->uploads, fs->upload_ks);
+        break;
+      case 'd':
+        op_strbuf_printf(&_b, "%u %u", fs->dnloads, fs->dnload_ks);
+        break;
+      default:
+        op_strbuf_printf(&_b, "");
+        break;
+      }
+    strlcpy(d, op_strbuf_str(&_b), max);
+    op_strbuf_free(&_b);
+  }
 
   return TCL_OK;
 }
@@ -166,7 +179,7 @@ static int fstat_kill(struct user_entry *e)
 {
   if (e->u.extra)
     nfree(e->u.extra);
-  nfree(e);
+  free_user_entry(e);
 
   return 1;
 }

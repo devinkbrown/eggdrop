@@ -106,50 +106,6 @@ static int tcl_isupport_isset STDOBJVAR
   return TCL_OK;
 }
 
-#if 0
-/* not exposed for now */
-static int tcl_isupport_set STDOBJVAR
-{
-  Tcl_Size keylen, valuelen;
-  const char *key, *value;
-
-  /* First one to check for type validity only */
-  BADOBJARGS(4, 4, 2, "setting value");
-
-  key = Tcl_GetStringFromObj(objv[2], &keylen);
-  value = Tcl_GetStringFromObj(objv[3], &valuelen);
-  isupport_set(key, keylen, value, valuelen);
-
-  Tcl_SetObjResult(irp, objv[3]);
-  return TCL_OK;
-}
-
-static int tcl_isupport_unset STDOBJVAR
-{
-  struct isupport *data;
-  Tcl_Size keylen;
-  const char *key;
-
-  BADOBJARGS(3, 3, 2, "setting");
-
-  key = Tcl_GetStringFromObj(objv[2], &keylen);
-  data = find_record(key, keylen);
-
-  if (!data) {
-    TCL_ERR_NOTSET(irp, objv[2]);
-  }
-  if (!data->value) {
-    Tcl_SetResult(interp, "no server value set, cannot unset default values, change 'set isupport-default' instead", TCL_STATIC);
-    return TCL_ERROR;
-  }
-  isupport_unset(key, keylen);
-  /* data might be invalidated by isupport_unset */
-  data = find_record(key, keylen);
-  Tcl_SetObjResult(irp, Tcl_NewStringObj(data ? isupport_get_from_record(data) : "", -1));
-  return TCL_OK;
-}
-#endif
-
 char *traced_isupport(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)

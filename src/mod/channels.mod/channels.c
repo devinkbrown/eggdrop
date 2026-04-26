@@ -252,10 +252,11 @@ static void set_mode_protect(struct chanset_t *chan, char *set)
 
 static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
 {
-  char *p = s, s1[122];
+  char *p = s;
+  op_strbuf_t s1;
   int i, tst;
 
-  s1[0] = 0;
+  op_strbuf_init(&s1);
   for (i = 0; i < 2; i++) {
     if (i == 0) {
       tst = chan->mode_pls_prot;
@@ -263,11 +264,11 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
         *p++ = '+';
       if (chan->limit_prot != 0) {
         *p++ = 'l';
-        op_snprintf_append(s1, (sizeof s1), "%d ", chan->limit_prot);
+        op_strbuf_appendf(&s1, "%d ", chan->limit_prot);
       }
       if (chan->key_prot[0]) {
         *p++ = 'k';
-        op_snprintf_append(s1, (sizeof s1), "%s ", chan->key_prot);
+        op_strbuf_appendf(&s1, "%s ", chan->key_prot);
       }
     } else {
       tst = chan->mode_mns_prot;
@@ -314,11 +315,14 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
       *p++ = 'q';
   }
   *p = 0;
-  if (s1[0]) {
-    s1[strlen(s1) - 1] = 0;
-    strlcat(s, " ", sz);
-    strlcat(s, s1, sz);
+  if (!op_strbuf_empty(&s1)) {
+    op_strbuf_truncate(&s1, op_strbuf_len(&s1) - 1);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, " %s", op_strbuf_str(&s1));
+    strlcat(s, op_strbuf_str(&_b), sz);
+    op_strbuf_free(&_b);
   }
+  op_strbuf_free(&s1);
 }
 
 #ifdef HAVE_TCL
@@ -502,16 +506,22 @@ static char *convert_element(char *src, char *dst)
 static void write_channels(void)
 {
   FILE *f;
-  char s[sizeof chanfile + 4], s1[26], w[1024], w2[1024], name[163];
+  char s1[26], w[1024], w2[1024], name[163];
   char need1[242], need2[242], need3[242], need4[242], need5[242];
   struct chanset_t *chan;
   struct udef_struct *ul;
 
   if (!chanfile[0])
     return;
-  snprintf(s, sizeof s, "%s~new", chanfile);
-  f = fopen(s, "w");
-  chmod(s, userfile_perm);
+  char tmpfile[PATH_MAX];
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s~new", chanfile);
+    strlcpy(tmpfile, op_strbuf_str(&_b), sizeof tmpfile);
+    op_strbuf_free(&_b);
+  }
+  f = fopen(tmpfile, "w");
+  chmod(tmpfile, userfile_perm);
   if (f == NULL) {
     putlog(LOG_MISC, "*", "ERROR writing channel file.");
     return;
@@ -613,7 +623,7 @@ static void write_channels(void)
   }
   fclose(f);
   unlink(chanfile);
-  movefile(s, chanfile);
+  movefile(tmpfile, chanfile);
 }
 
 static void read_channels(int create, int reload)
@@ -659,12 +669,12 @@ static void read_channels(int create, int reload)
 
 static void backup_chanfile(void)
 {
-  char s[sizeof chanfile + 4];
-
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "Backing up channel file...");
-  snprintf(s, sizeof s, "%s~bak", chanfile);
-  copyfile(chanfile, s);
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s~bak", chanfile);
+  copyfile(chanfile, op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
 }
 
 static void channels_prerehash(void)
@@ -686,8 +696,7 @@ static cmd_t my_chon[] = {
 
 static void channels_report(int idx, int details)
 {
-  int i;
-  char s[1024], s1[100], s2[256];
+  char s2[256];
   struct chanset_t *chan;
   struct flag_record fr = { FR_CHAN | FR_GLOBAL, 0, 0, 0, 0, 0 };
 
@@ -701,86 +710,86 @@ static void channels_report(int idx, int details)
     if ((idx != DP_STDOUT) && !glob_master(fr) && !chan_master(fr))
       continue;
 
-    s[0] = 0;
-
-    snprintf(s, sizeof(s), "    %-20s: ", chan->dname);
+    op_strbuf_t s;
+    op_strbuf_printf(&s, "    %-20s: ", chan->dname);
 
     if (channel_inactive(chan))
-      strlcat(s, "(inactive)", sizeof s);
+      op_strbuf_append_cstr(&s, "(inactive)");
     else if (channel_pending(chan))
-      strlcat(s, "(pending)", sizeof s);
+      op_strbuf_append_cstr(&s, "(pending)");
     else if (!channel_active(chan))
-      strlcat(s, "(not on channel)", sizeof s);
+      op_strbuf_append_cstr(&s, "(not on channel)");
     else {
-
-      s1[0] = 0;
-      snprintf(s1, sizeof(s1), "%3d member%s", chan->channel.members,
-              (chan->channel.members == 1) ? "" : "s");
-      strlcat(s, s1, sizeof s);
+      op_strbuf_appendf(&s, "%3d member%s", chan->channel.members,
+                        (chan->channel.members == 1) ? "" : "s");
 
       s2[0] = 0;
       get_mode_protect(chan, s2, sizeof s2);
+      if (s2[0])
+        op_strbuf_appendf(&s, ", enforcing \"%s\"", s2);
 
-      if (s2[0]) {
-        int len = strlen(s);
-        snprintf(s + len, (sizeof s) - len, ", enforcing \"%s\"", s2); /* Concatenation */
+      /* Build feature list */
+      op_strbuf_t feats;
+      op_strbuf_init(&feats);
+      if (channel_greet(chan))   op_strbuf_append_cstr(&feats, "greet, ");
+      if (channel_autoop(chan))  op_strbuf_append_cstr(&feats, "auto-op, ");
+      if (channel_bitch(chan))   op_strbuf_append_cstr(&feats, "bitch, ");
+      if (op_strbuf_len(&feats) >= 2) {
+        /* strip trailing ", " */
+        op_strbuf_appendc(&feats, '\0');
+        size_t flen = op_strbuf_len(&feats);
+        if (flen >= 3) {
+          char *fs = (char *)op_strbuf_str(&feats);
+          fs[flen - 3] = '\0';  /* overwrite the ", " */
+        }
+        op_strbuf_appendf(&s, " (%s)", op_strbuf_str(&feats));
       }
+      op_strbuf_free(&feats);
 
-      s2[0] = 0;
-
-      if (channel_greet(chan))
-        strlcat(s2, "greet, ", sizeof s2);
-      if (channel_autoop(chan))
-        strlcat(s2, "auto-op, ", sizeof s2);
-      if (channel_bitch(chan))
-        strlcat(s2, "bitch, ", sizeof s2);
-
-      if (s2[0]) {
-        int len = strlen(s);
-        s2[strlen(s2) - 2] = 0;
-        snprintf(s + len, (sizeof s) - len, " (%s)", s2); /* Concatenation */
-      }
-
-      /* If it's a !chan, we want to display it's unique name too <cybah> */
-      if (chan->dname[0] == '!') {
-        int len = strlen(s);
-        snprintf(s + len, (sizeof s) - len, ", unique name %s", chan->name); /* Concatenation */
-      }
+      /* If it's a !chan, display the unique name too */
+      if (chan->dname[0] == '!')
+        op_strbuf_appendf(&s, ", unique name %s", chan->name);
     }
 
-    dprintf(idx, "%s\n", s);
+    dprintf(idx, "%s\n", op_strbuf_str(&s));
+    op_strbuf_free(&s);
 
     if (details) {
-      if ((i = snprintf(s, sizeof s, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-                        channel_enforcebans(chan) ? "enforcebans " : "",
-                        channel_dynamicbans(chan) ? "dynamicbans " : "",
-                        !channel_nouserbans(chan) ? "userbans " : "",
-                        channel_autoop(chan) ? "autoop " : "",
-                        channel_bitch(chan) ? "bitch " : "",
-                        channel_greet(chan) ? "greet " : "",
-                        channel_protectops(chan) ? "protectops " : "",
-                        channel_protecthalfops(chan) ? "protecthalfops " : "",
-                        channel_protectfriends(chan) ? "protectfriends " : "",
-                        channel_dontkickops(chan) ? "dontkickops " : "",
-                        channel_logstatus(chan) ? "statuslog " : "",
-                        channel_revenge(chan) ? "revenge " : "",
-                        channel_revengebot(chan) ? "revengebot " : "",
-                        channel_secret(chan) ? "secret " : "",
-                        channel_shared(chan) ? "shared " : "",
-                        !channel_static(chan) ? "dynamic " : "",
-                        channel_autovoice(chan) ? "autovoice " : "",
-                        channel_autohalfop(chan) ? "autohalfop " : "",
-                        channel_cycle(chan) ? "cycle " : "",
-                        channel_seen(chan) ? "seen " : "",
-                        channel_dynamicexempts(chan) ? "dynamicexempts " : "",
-                        !channel_nouserexempts(chan) ? "userexempts " : "",
-                        channel_dynamicinvites(chan) ? "dynamicinvites " : "",
-                        !channel_nouserinvites(chan) ? "userinvites " : "",
-                        channel_inactive(chan) ? "inactive " : "",
-                        channel_nodesynch(chan) ? "nodesynch " : "")))
-        s[i - 2] = 0;
-
-      dprintf(idx, "      Options: %s\n", s);
+      op_strbuf_t opts;
+      op_strbuf_init(&opts);
+      if (channel_enforcebans(chan))    op_strbuf_append_cstr(&opts, "enforcebans ");
+      if (channel_dynamicbans(chan))    op_strbuf_append_cstr(&opts, "dynamicbans ");
+      if (!channel_nouserbans(chan))    op_strbuf_append_cstr(&opts, "userbans ");
+      if (channel_autoop(chan))         op_strbuf_append_cstr(&opts, "autoop ");
+      if (channel_bitch(chan))          op_strbuf_append_cstr(&opts, "bitch ");
+      if (channel_greet(chan))          op_strbuf_append_cstr(&opts, "greet ");
+      if (channel_protectops(chan))     op_strbuf_append_cstr(&opts, "protectops ");
+      if (channel_protecthalfops(chan)) op_strbuf_append_cstr(&opts, "protecthalfops ");
+      if (channel_protectfriends(chan)) op_strbuf_append_cstr(&opts, "protectfriends ");
+      if (channel_dontkickops(chan))    op_strbuf_append_cstr(&opts, "dontkickops ");
+      if (channel_logstatus(chan))      op_strbuf_append_cstr(&opts, "statuslog ");
+      if (channel_revenge(chan))        op_strbuf_append_cstr(&opts, "revenge ");
+      if (channel_revengebot(chan))     op_strbuf_append_cstr(&opts, "revengebot ");
+      if (channel_secret(chan))         op_strbuf_append_cstr(&opts, "secret ");
+      if (channel_shared(chan))         op_strbuf_append_cstr(&opts, "shared ");
+      if (!channel_static(chan))        op_strbuf_append_cstr(&opts, "dynamic ");
+      if (channel_autovoice(chan))      op_strbuf_append_cstr(&opts, "autovoice ");
+      if (channel_autohalfop(chan))     op_strbuf_append_cstr(&opts, "autohalfop ");
+      if (channel_cycle(chan))          op_strbuf_append_cstr(&opts, "cycle ");
+      if (channel_seen(chan))           op_strbuf_append_cstr(&opts, "seen ");
+      if (channel_dynamicexempts(chan)) op_strbuf_append_cstr(&opts, "dynamicexempts ");
+      if (!channel_nouserexempts(chan)) op_strbuf_append_cstr(&opts, "userexempts ");
+      if (channel_dynamicinvites(chan)) op_strbuf_append_cstr(&opts, "dynamicinvites ");
+      if (!channel_nouserinvites(chan)) op_strbuf_append_cstr(&opts, "userinvites ");
+      if (channel_inactive(chan))       op_strbuf_append_cstr(&opts, "inactive ");
+      if (channel_nodesynch(chan))      op_strbuf_append_cstr(&opts, "nodesynch ");
+      /* trim trailing space */
+      if (op_strbuf_len(&opts) > 0) {
+        char *op = (char *)op_strbuf_str(&opts);
+        op[op_strbuf_len(&opts) - 1] = '\0';
+      }
+      dprintf(idx, "      Options: %s\n", op_strbuf_str(&opts));
+      op_strbuf_free(&opts);
 
       if (chan->need_op[0])
         dprintf(idx, "      To get ops, I do: %s\n", chan->need_op);

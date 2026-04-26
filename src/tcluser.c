@@ -619,9 +619,19 @@ static int tcl_ignorelist STDVAR
   for (i = global_ign; i; i = i->next) {
     list[0] = i->igmask;
     list[1] = i->msg;
-    snprintf(expire, sizeof expire, "%" PRId64, (int64_t) i->expire);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%" PRId64, (int64_t) i->expire);
+      strlcpy(expire, op_strbuf_str(&_b), sizeof expire);
+      op_strbuf_free(&_b);
+    }
     list[2] = expire;
-    snprintf(added, sizeof added, "%" PRId64, (int64_t) i->added);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%" PRId64, (int64_t) i->added);
+      strlcpy(added, op_strbuf_str(&_b), sizeof added);
+      op_strbuf_free(&_b);
+    }
     list[3] = added;
     list[4] = i->user;
     p = Tcl_Merge(5, list);
@@ -709,7 +719,7 @@ static int tcl_setuser STDVAR
     ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 1, NULL);
   }
   if (!(e = find_user_entry(et, u))) {
-    e = user_malloc(sizeof(struct user_entry));
+    e = alloc_user_entry();
     e->type = et;
     e->name = NULL;
     e->u.list = NULL;
@@ -719,7 +729,7 @@ static int tcl_setuser STDVAR
   /* Yeah... e is freed, and we read it... (tcl: setuser hand HOSTS none) */
   if ((!e->u.list) && (egg_list_delete((struct list_type **) &(u->entries),
       (struct list_type *) e)))
-    nfree(e);
+    free_user_entry(e);
     /* else maybe already freed... (entry_type==HOSTS) <drummer> */
   if (me && !strcasecmp(argv[2], "hosts") && argc == 4) {
     Function *func = me->funcs;

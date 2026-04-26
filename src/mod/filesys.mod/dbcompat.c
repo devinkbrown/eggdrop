@@ -42,9 +42,11 @@ static int convert_old_files(char *path, char *newfiledb)
   struct stat st;
 
   {
-    size_t s1len = strlen(path) + 8;
-    s1 = nmalloc(s1len);
-    snprintf(s1, s1len, "%s/.files", path);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s/.files", path);
+    s1 = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
   }
   f = fopen(s1, "r");
   my_free(s1);
@@ -76,10 +78,13 @@ static int convert_old_files(char *path, char *newfiledb)
         if (in_file && fdbe) {
           rmspace(s);
           if (fdbe->desc) {
-            size_t desc_sz = strlen(fdbe->desc) + strlen(s) + 2;
-            fdbe->desc = nrealloc(fdbe->desc, desc_sz);
-            strlcat(fdbe->desc, "\n", desc_sz);
-            strlcat(fdbe->desc, s, desc_sz);
+            {
+              op_strbuf_t _b;
+              op_strbuf_printf(&_b, "%s\n%s", fdbe->desc, s);
+              fdbe->desc = nrealloc(fdbe->desc, op_strbuf_len(&_b) + 1);
+              strlcpy(fdbe->desc, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+              op_strbuf_free(&_b);
+            }
           } else {
             size_t desc_sz = strlen(s) + 1;
             fdbe->desc = nmalloc(desc_sz);
@@ -106,7 +111,12 @@ static int convert_old_files(char *path, char *newfiledb)
         malloc_strcpy(fdbe->uploader, nick);
         fdbe->gots = atoi(s1);
         fdbe->uploaded = atoi(tm);
-        snprintf(s, sizeof s, "%s/%s", path, fn);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%s/%s", path, fn);
+          strlcpy(s, op_strbuf_str(&_b), sizeof s);
+          op_strbuf_free(&_b);
+        }
         if (stat(s, &st) == 0) {
           /* File is okay */
           if (S_ISDIR(st.st_mode)) {
@@ -234,8 +244,13 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
     putlog(LOG_MISC, "*", "Converting old filedb %s to newest format.",
            filedb);
     /* Create backup name */
-    tempdb = nmalloc(strlen(filedb) + 5);
-    snprintf(tempdb, strlen(filedb) + 5, "%s-tmp", filedb);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s-tmp", filedb);
+      tempdb = nmalloc(op_strbuf_len(&_b) + 1);
+      strlcpy(tempdb, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
+    }
 
     /* Step 1: Copy old content to backup while original is still locked */
     if (fcopyfile(*fdb_s, tempdb) != 0) {

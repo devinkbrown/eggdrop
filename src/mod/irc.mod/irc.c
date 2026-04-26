@@ -117,7 +117,8 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
                           struct userrec *u, char *badnick, char *victim,
                           int mevictim, int type)
 {
-  char reason[1024], ct[81], *kick_msg;
+  op_strbuf_t reason, comment;
+  char ct[7], *kick_msg;
   memberlist *m;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
@@ -127,27 +128,29 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
   get_user_flagrec(u, &fr, chan->dname);
 
   /* Get current time into a string */
-  strftime(ct, 7, "%d %b", localtime(&now));
+  strftime(ct, sizeof ct, "%d %b", localtime(&now));
 
   /* Put together log and kick messages */
-  reason[0] = 0;
+  op_strbuf_init(&reason);
+  op_strbuf_init(&comment);
   switch (type) {
   case REVENGE_KICK:
     kick_msg = IRC_KICK_PROTECT;
-    simple_sprintf(reason, "kicked %s off %s", victim, chan->dname);
+    op_strbuf_appendf(&reason, "kicked %s off %s", victim, chan->dname);
     break;
   case REVENGE_DEOP:
-    simple_sprintf(reason, "deopped %s on %s", victim, chan->dname);
+    op_strbuf_appendf(&reason, "deopped %s on %s", victim, chan->dname);
     kick_msg = IRC_DEOP_PROTECT;
     break;
   default:
     kick_msg = "revenge!";
   }
-  putlog(LOG_MISC, chan->dname, "Punishing %s (%s)", badnick, reason);
+  putlog(LOG_MISC, chan->dname, "Punishing %s (%s)", badnick,
+         op_strbuf_str(&reason));
 
   /* Set the offender +d */
   if ((chan->revenge_mode > 0) && !(chan_deop(fr) || glob_deop(fr))) {
-    char s[UHOSTLEN], s1[UHOSTLEN];
+    char mask[UHOSTLEN], s1[UHOSTLEN];
 
     /* Removing op */
     if (chan_op(fr) || (glob_op(fr) && !chan_deop(fr))) {
@@ -158,7 +161,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
         fr.chan |= USER_DEOP;
       set_user_flagrec(u, &fr, chan->dname);
       putlog(LOG_MISC, "*", "No longer opping %s[%s] (%s)", u->handle, whobad,
-             reason);
+             op_strbuf_str(&reason));
     }
     /* ... or just setting to deop */
     else if (u) {
@@ -166,13 +169,15 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
       fr.match = FR_CHAN;
       fr.chan |= USER_DEOP;
       set_user_flagrec(u, &fr, chan->dname);
-      simple_sprintf(s, "(%s) %s", ct, reason);
-      putlog(LOG_MISC, "*", "Now deopping %s[%s] (%s)", u->handle, whobad, s);
+      op_strbuf_clear(&comment);
+      op_strbuf_appendf(&comment, "(%s) %s", ct, op_strbuf_str(&reason));
+      putlog(LOG_MISC, "*", "Now deopping %s[%s] (%s)", u->handle, whobad,
+             op_strbuf_str(&comment));
     }
     /* ... or creating new user and setting that to deop */
     else {
-      strlcpy(s1, whobad, sizeof(s1));
-      maskaddr(s1, s, chan->ban_type);
+      strlcpy(s1, whobad, sizeof s1);
+      maskaddr(s1, mask, chan->ban_type);
       strlcpy(s1, badnick, sizeof s1);
       /* If that handle exists use "badX" (where X is an increasing number)
        * instead.
@@ -182,19 +187,22 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
           int i;
 
           i = atoi(s1 + 3);
-          simple_sprintf(s1 + 3, "%d", i + 1);
+          strlcpy(s1 + 3, int_to_base10(i + 1), sizeof s1 - 3);
         } else
-          strlcpy(s1, "bad1", sizeof(s1));   /* Start with '1' */
+          strlcpy(s1, "bad1", sizeof s1);   /* Start with '1' */
       }
-      userlist = adduser(userlist, s1, s, "-", 0);
+      userlist = adduser(userlist, s1, mask, "-", 0);
       fr.match = FR_CHAN;
       fr.chan = USER_DEOP;
       fr.udef_chan = 0;
       u = get_user_by_handle(userlist, s1);
       set_user_flagrec(u, &fr, chan->dname);
-      simple_sprintf(s, "(%s) %s (%s)", ct, reason, whobad);
-      set_user(&USERENTRY_COMMENT, u, (void *) s);
-      putlog(LOG_MISC, "*", "Now deopping %s (%s)", whobad, reason);
+      op_strbuf_clear(&comment);
+      op_strbuf_appendf(&comment, "(%s) %s (%s)", ct, op_strbuf_str(&reason),
+                        whobad);
+      set_user(&USERENTRY_COMMENT, u, (void *)op_strbuf_str(&comment));
+      putlog(LOG_MISC, "*", "Now deopping %s (%s)", whobad,
+             op_strbuf_str(&reason));
     }
   }
 
@@ -203,14 +211,16 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
     add_mode(chan, '-', 'o', badnick);
   /* Ban. Should be done before kicking. */
   if (chan->revenge_mode > 2) {
-    char s[UHOSTLEN], s1[UHOSTLEN];
+    char banmask[UHOSTLEN];
 
     splitnick(&whobad);
-    maskaddr(whobad, s1, chan->ban_type);
-    simple_sprintf(s, "(%s) %s", ct, reason);
-    u_addban(chan, s1, botnetnick, s, now + (60 * chan->ban_time), 0);
+    maskaddr(whobad, banmask, chan->ban_type);
+    op_strbuf_clear(&comment);
+    op_strbuf_appendf(&comment, "(%s) %s", ct, op_strbuf_str(&reason));
+    u_addban(chan, banmask, botnetnick, (char *)op_strbuf_str(&comment),
+             now + (60 * chan->ban_time), 0);
     if (!mevictim && HALFOP_CANDOMODE('b')) {
-      add_mode(chan, '+', 'b', s1);
+      add_mode(chan, '+', 'b', banmask);
       flush_mode(chan, QUICK);
     }
   }
@@ -222,6 +232,8 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
     dprintf(DP_MODE, "KICK %s %s :%s\n", chan->name, badnick, kick_msg);
     m->flags |= SENTKICK;
   }
+  op_strbuf_free(&reason);
+  op_strbuf_free(&comment);
 }
 
 /* Punishes bad guys under certain circumstances using methods as defined
@@ -535,8 +547,8 @@ static void status_log(void)
       for (invites = 0, b = chan->channel.invite; b->mask[0]; b = b->next)
         invites++;
 
-      snprintf(s, sizeof(s), "%d", exempts);
-      snprintf(s2, sizeof(s2), "%d", invites);
+      strlcpy(s, int_to_base10(exempts), sizeof s);
+      strlcpy(s2, int_to_base10(invites), sizeof s2);
 
       putlog(LOG_MISC, chan->dname,
              "%s%s (%s) : [m/%d o/%d h/%d v/%d n/%d b/%d e/%s I/%s]",
@@ -731,13 +743,11 @@ static void check_expired_chanstuff(void)
 static int channels_6char STDVAR
 {
   Function F = (Function) cd;
-  char x[20];
 
   BADARGS(7, 7, " nick user@host handle desto/chan keyword/nick text");
 
   CHECKVALIDITY(channels_6char);
-  snprintf(x, sizeof(x), "%d", ((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]));
-  Tcl_AppendResult(irp, x, NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6])), NULL);
   return TCL_OK;
 }
 
@@ -790,20 +800,21 @@ static int check_tcl_chghost(char *nick, char *from, char *mask, struct userrec 
                              char *chan, char *ident, char * host)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
-  char usermask[UHOSTMAX];
+  op_strbuf_t usermask;
   int x;
 
   get_user_flagrec(u, &fr, NULL);
-  snprintf(usermask, sizeof usermask, "%s!%s@%s", nick, ident, host);
+  op_strbuf_printf(&usermask, "%s!%s@%s", nick, ident, host);
 
   Tcl_SetVar(interp, "_chghost1", nick, 0);
   Tcl_SetVar(interp, "_chghost2", from, 0);
   Tcl_SetVar(interp, "_chghost3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_chghost4", chan, 0);
-  Tcl_SetVar(interp, "_chghost5", usermask, 0);
+  Tcl_SetVar(interp, "_chghost5", (char *)op_strbuf_str(&usermask), 0);
   x = check_tcl_bind(H_chghost, mask, &fr,
                 " $_chghost1 $_chghost2 $_chghost3 $_chghost4 $_chghost5",
                 MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
+  op_strbuf_free(&usermask);
   return (x == BIND_EXEC_LOG);
 }
 
@@ -828,16 +839,18 @@ static void check_tcl_joinspltrejn(char *nick, char *uhost, struct userrec *u,
                                    char *chname, p_tcl_bind_list table)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  char args[1024];
+  op_strbuf_t args;
 
-  simple_sprintf(args, "%s %s!%s", chname, nick, uhost);
+  op_strbuf_init(&args);
+  op_strbuf_appendf(&args, "%s %s!%s", chname, nick, uhost);
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_jp1", nick, 0);
   Tcl_SetVar(interp, "_jp2", uhost, 0);
   Tcl_SetVar(interp, "_jp3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_jp4", chname, 0);
-  check_tcl_bind(table, args, &fr, " $_jp1 $_jp2 $_jp3 $_jp4",
+  check_tcl_bind(table, (char *)op_strbuf_str(&args), &fr, " $_jp1 $_jp2 $_jp3 $_jp4",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
+  op_strbuf_free(&args);
 }
 
 /* we handle part messages now *sigh* (guppy 27Jan2000) */
@@ -846,17 +859,19 @@ static void check_tcl_part(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *text)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  char args[1024];
+  op_strbuf_t args;
 
-  simple_sprintf(args, "%s %s!%s", chname, nick, uhost);
+  op_strbuf_init(&args);
+  op_strbuf_appendf(&args, "%s %s!%s", chname, nick, uhost);
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_p1", nick, 0);
   Tcl_SetVar(interp, "_p2", uhost, 0);
   Tcl_SetVar(interp, "_p3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_p4", chname, 0);
   Tcl_SetVar(interp, "_p5", text ? text : "", 0);
-  check_tcl_bind(H_part, args, &fr, " $_p1 $_p2 $_p3 $_p4 $_p5",
+  check_tcl_bind(H_part, (char *)op_strbuf_str(&args), &fr, " $_p1 $_p2 $_p3 $_p4 $_p5",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
+  op_strbuf_free(&args);
 }
 
 static void check_tcl_signtopcnick(char *nick, char *uhost, struct userrec *u,
@@ -864,85 +879,93 @@ static void check_tcl_signtopcnick(char *nick, char *uhost, struct userrec *u,
                                    p_tcl_bind_list table)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  char args[1024];
+  op_strbuf_t args;
 
+  op_strbuf_init(&args);
   if (table == H_sign)
-    simple_sprintf(args, "%s %s!%s", chname, nick, uhost);
+    op_strbuf_appendf(&args, "%s %s!%s", chname, nick, uhost);
   else
-    simple_sprintf(args, "%s %s", chname, reason);
+    op_strbuf_appendf(&args, "%s %s", chname, reason);
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_stnm1", nick, 0);
   Tcl_SetVar(interp, "_stnm2", uhost, 0);
   Tcl_SetVar(interp, "_stnm3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_stnm4", chname, 0);
   Tcl_SetVar(interp, "_stnm5", reason, 0);
-  check_tcl_bind(table, args, &fr, " $_stnm1 $_stnm2 $_stnm3 $_stnm4 $_stnm5",
+  check_tcl_bind(table, (char *)op_strbuf_str(&args), &fr,
+                 " $_stnm1 $_stnm2 $_stnm3 $_stnm4 $_stnm5",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
+  op_strbuf_free(&args);
 }
 
 static void check_tcl_mode(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *mode, char *target)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  char args[512];
+  op_strbuf_t args;
 
   get_user_flagrec(u, &fr, chname);
-  simple_sprintf(args, "%s %s", chname, mode);
+  op_strbuf_init(&args);
+  op_strbuf_appendf(&args, "%s %s", chname, mode);
   Tcl_SetVar(interp, "_mode1", nick, 0);
   Tcl_SetVar(interp, "_mode2", uhost, 0);
   Tcl_SetVar(interp, "_mode3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_mode4", chname, 0);
   Tcl_SetVar(interp, "_mode5", mode, 0);
   Tcl_SetVar(interp, "_mode6", target, 0);
-  check_tcl_bind(H_mode, args, &fr,
+  check_tcl_bind(H_mode, (char *)op_strbuf_str(&args), &fr,
                  " $_mode1 $_mode2 $_mode3 $_mode4 $_mode5 $_mode6",
                  MATCH_MODE | BIND_USE_ATTR | BIND_STACKABLE);
+  op_strbuf_free(&args);
 }
 
 static void check_tcl_kick(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *dest, char *reason)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  char args[512];
+  op_strbuf_t args;
 
   get_user_flagrec(u, &fr, chname);
-  simple_sprintf(args, "%s %s %s", chname, dest, reason);
+  op_strbuf_init(&args);
+  op_strbuf_appendf(&args, "%s %s %s", chname, dest, reason);
   Tcl_SetVar(interp, "_kick1", nick, 0);
   Tcl_SetVar(interp, "_kick2", uhost, 0);
   Tcl_SetVar(interp, "_kick3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_kick4", chname, 0);
   Tcl_SetVar(interp, "_kick5", dest, 0);
   Tcl_SetVar(interp, "_kick6", reason, 0);
-  check_tcl_bind(H_kick, args, &fr,
+  check_tcl_bind(H_kick, (char *)op_strbuf_str(&args), &fr,
                  " $_kick1 $_kick2 $_kick3 $_kick4 $_kick5 $_kick6",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
+  op_strbuf_free(&args);
 }
 
 static void check_tcl_invite(char *nick, char *from, char *chan, char *invitee)
 {
-  char args[1024];
+  op_strbuf_t args;
 
   Tcl_SetVar(interp, "_invite1", nick, 0);
   Tcl_SetVar(interp, "_invite2", from, 0);
   Tcl_SetVar(interp, "_invite3", chan, 0);
   Tcl_SetVar(interp, "_invite4", invitee, 0);
-  snprintf(args, sizeof args, "%s %s", chan, invitee);
-  check_tcl_bind(H_invt, args, 0, " $_invite1 $_invite2 $_invite3 $_invite4",
-                    MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_printf(&args, "%s %s", chan, invitee);
+  check_tcl_bind(H_invt, (char *)op_strbuf_str(&args), 0,
+                 " $_invite1 $_invite2 $_invite3 $_invite4",
+                 MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&args);
 }
 
 static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   int x;
-  char buf[512], *args = buf, *cmd, host[161], *hand;
+  char buf[512], *args = buf, *cmd, *hand;
   struct chanset_t *chan;
   struct userrec *u = NULL;
   memberlist *m;
 
   strlcpy(buf, msg, sizeof buf);
   cmd = newsplit(&args);
-  simple_sprintf(host, "%s!%s", nick, from);
   chan = findchan(chname);
   m = ismember(chan, nick);
   if (!m)
@@ -968,13 +991,12 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   int x;
-  char buf[1024], host[161];
+  op_strbuf_t buf;
   struct userrec *u;
   struct chanset_t *chan;
   memberlist *m;
 
-  simple_sprintf(buf, "%s %s", chname, msg);
-  simple_sprintf(host, "%s!%s", nick, from);
+  op_strbuf_printf(&buf, "%s %s", chname, msg);
   chan = findchan(chname);
   m = ismember(chan, nick);
   if (!m)
@@ -986,8 +1008,10 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
   Tcl_SetVar(interp, "_pubm3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_pubm4", chname, 0);
   Tcl_SetVar(interp, "_pubm5", msg, 0);
-  x = check_tcl_bind(H_pubm, buf, &fr, " $_pubm1 $_pubm2 $_pubm3 $_pubm4 $_pubm5",
+  x = check_tcl_bind(H_pubm, (char *)op_strbuf_str(&buf), &fr,
+                     " $_pubm1 $_pubm2 $_pubm3 $_pubm4 $_pubm5",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_STACKRET);
+  op_strbuf_free(&buf);
 
   /*
    * 0 - no match
@@ -1004,28 +1028,31 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
 
 static void check_tcl_need(char *chname, char *type)
 {
-  char buf[1024];
+  op_strbuf_t buf;
 
-  simple_sprintf(buf, "%s %s", chname, type);
+  op_strbuf_init(&buf);
+  op_strbuf_appendf(&buf, "%s %s", chname, type);
   Tcl_SetVar(interp, "_need1", chname, 0);
   Tcl_SetVar(interp, "_need2", type, 0);
-  check_tcl_bind(H_need, buf, 0, " $_need1 $_need2",
+  check_tcl_bind(H_need, (char *)op_strbuf_str(&buf), 0, " $_need1 $_need2",
                  MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&buf);
 }
 
 static void check_tcl_account(char *nick, char *uhost, struct userrec *u, char *chan, char *account)
 {
-  char mask[1024];
+  op_strbuf_t mask;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
-  snprintf(mask, sizeof mask, "%s %s!%s %s", chan, nick, uhost, account);
+  op_strbuf_printf(&mask, "%s %s!%s %s", chan, nick, uhost, account);
   Tcl_SetVar(interp, "_acnt1", nick, 0);
   Tcl_SetVar(interp, "_acnt2", uhost, 0);
   Tcl_SetVar(interp, "_acnt3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_acnt4", chan, 0);
   Tcl_SetVar(interp, "_acnt5", account, 0);
-  check_tcl_bind(H_account, mask, &fr,
+  check_tcl_bind(H_account, (char *)op_strbuf_str(&mask), &fr,
        " $_acnt1 $_acnt2 $_acnt3 $_acnt4 $_acnt5", MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&mask);
 }
 
 
@@ -1173,8 +1200,14 @@ static void irc_report(int idx, int details)
         else if ((chan->dname[0] != '+') && !me_op(chan))
           p = MISC_WANTOPS;
       }
-      l = simple_sprintf(ch, "%s%s%s%s, ", chan->dname, p ? " (" : "",
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s%s%s%s, ", chan->dname, p ? " (" : "",
                          p ? p : "", p ? ")" : "");
+        strlcpy(ch, op_strbuf_str(&_b), sizeof ch);
+        l = (int) op_strbuf_len(&_b);
+        op_strbuf_free(&_b);
+      }
       if ((k + l) > 70) {
         dprintf(idx, "    %s\n", q);
         strlcpy(q, "          ", sizeof(q));

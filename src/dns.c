@@ -42,6 +42,7 @@ devent_t *dns_events = NULL;
 /* Slab allocators for DNS event nodes — lazy-initialised on first DNS call. */
 static op_bh *devent_bh  = NULL;
 static op_bh *tclinfo_bh = NULL;
+static op_bh *sockname_bh = NULL;
 
 static int ipaddr_equal(const sockname_t *ip, const sockname_t *ip2)
 {
@@ -257,7 +258,9 @@ void dcc_dnshostbyip(sockname_t *ip)
 
   de->type = &DNS_DCCEVENT_HOSTBYIP;
   de->lookup = RES_HOSTBYIP;
-  de->res_data.ip_addr = nmalloc(sizeof *ip);
+  if (!sockname_bh)
+    sockname_bh = op_bh_create(sizeof(sockname_t), 16, "dns_sockname");
+  de->res_data.ip_addr = op_bh_alloc(sockname_bh);
   memcpy(de->res_data.ip_addr, ip, sizeof *ip);
 
   /* Send request. */
@@ -388,7 +391,9 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
 
   de->type = &DNS_TCLEVENT_HOSTBYIP;
   de->lookup = RES_HOSTBYIP;
-  de->res_data.ip_addr = nmalloc(sizeof *ip);
+  if (!sockname_bh)
+    sockname_bh = op_bh_create(sizeof(sockname_t), 16, "dns_sockname");
+  de->res_data.ip_addr = op_bh_alloc(sockname_bh);
   memcpy(de->res_data.ip_addr, ip, sizeof *ip);
 
   /* Store additional data. */
@@ -449,7 +454,7 @@ void call_hostbyip(sockname_t *ip, char *hostn, int ok)
         putlog(LOG_MISC, "*", "(!) Unknown DNS event type found: %s",
                (de->type && de->type->name) ? de->type->name : "<empty>");
       if (de->res_data.ip_addr)
-        nfree(de->res_data.ip_addr);
+        op_bh_free(sockname_bh, de->res_data.ip_addr);
       op_bh_free(devent_bh, de);
       de = ode;
     }
@@ -488,6 +493,7 @@ void call_ipbyhost(char *hostn, sockname_t *ip, int ok)
     de = nde;
   }
 }
+
 
 /*
  *    Async DNS emulation functions (fallback when dns module is not loaded)
@@ -588,7 +594,7 @@ static int tcl_dnslookup STDVAR
 }
 
 tcl_cmds tcldns_cmds[] = {
-  {"dnslookup", tcl_dnslookup},
-  {NULL,                 NULL}
+  {"dnslookup", (IntFunc) tcl_dnslookup},
+  {NULL,                          NULL}
 };
 #endif /* HAVE_TCL */

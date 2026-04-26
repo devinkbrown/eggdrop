@@ -23,11 +23,11 @@
 #ifndef _EGG_MOD_BLOWFISH_BLOWFISH_H
 #define _EGG_MOD_BLOWFISH_BLOWFISH_H
 
-#define MAXKEYBYTES 56 /* 448 bits */
-#define bf_N        16
-#define noErr        0
-#define DATAERROR   -1
-#define KEYBYTES     8
+constexpr int MAXKEYBYTES = 56; /* 448 bits */
+constexpr int bf_N        = 16;
+constexpr int noErr       = 0;
+constexpr int DATAERROR   = -1;
+constexpr int KEYBYTES    = 8;
 
 union aword {
   uint32_t word;

@@ -135,14 +135,12 @@ static struct user_entry_type USERENTRY_DCCDIR = {
 static int check_tcl_fil(char *cmd, int idx, char *args)
 {
   int x;
-  char s[21];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.file->chat->con_chan);
-  snprintf(s, sizeof s, "%ld", dcc[idx].sock);
 #ifdef HAVE_TCL
   Tcl_SetVar(interp, "_fil1", dcc[idx].nick, 0);
-  Tcl_SetVar(interp, "_fil2", s, 0);
+  Tcl_SetVar(interp, "_fil2", int_to_base10((int) dcc[idx].sock), 0);
   Tcl_SetVar(interp, "_fil3", args, 0);
 #endif /* HAVE_TCL */
   x = check_tcl_bind(H_fil, cmd, &fr, " $_fil1 $_fil2 $_fil3",
@@ -442,14 +440,15 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
            fn, dcc[idx].nick);
     return 0;
   }
-  if (dir[0]) {
-    size_t slen = strlen(dccdir) + strlen(dir) + strlen(fn) + 2;
-    s = nmalloc(slen);
-    snprintf(s, slen, "%s%s/%s", dccdir, dir, fn);
-  } else {
-    size_t slen = strlen(dccdir) + strlen(fn) + 1;
-    s = nmalloc(slen);
-    snprintf(s, slen, "%s%s", dccdir, fn);
+  {
+    op_strbuf_t _b;
+    if (dir[0])
+      op_strbuf_printf(&_b, "%s%s/%s", dccdir, dir, fn);
+    else
+      op_strbuf_printf(&_b, "%s%s", dccdir, fn);
+    s = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
   }
 
   if (!file_readable(s)) {
@@ -466,7 +465,12 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   if (at_limit(nick)) {
     char xxx[1024];
 
-    snprintf(xxx, sizeof(xxx), "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
+      strlcpy(xxx, op_strbuf_str(&_b), sizeof xxx);
+      op_strbuf_free(&_b);
+    }
     queue_file(xxx, fn, dcc[idx].nick, nick);
     dprintf(idx, "Queued: %s to %s\n", fn, nick);
     my_free(s);
@@ -718,7 +722,12 @@ static char *mktempfile(char *filename)
   {
     size_t tlen = l + MKTEMPFILE_TOT + 1;
     tempname = nmalloc(tlen);
-    snprintf(tempname, tlen, "%li-%s-%s", (long) getpid(), rands, fn);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
+      strlcpy(tempname, op_strbuf_str(&_b), tlen);
+      op_strbuf_free(&_b);
+    }
   }
   if (fn != filename)
     my_free(fn);
@@ -730,7 +739,7 @@ static void filesys_dcc_send_hostresolved(int i)
   char *s1, *param, prt[6], *tempf;
   int len = dcc[i].u.dns->ibuf, j;
 
-  snprintf(prt, sizeof prt, "%d", dcc[i].port);
+  strlcpy(prt, int_to_base10(dcc[i].port), sizeof prt);
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].u.dns->host, &dcc[i].sockname,
                            dcc[i].u.dns->host, prt)) {
     lostdcc(i);
@@ -755,18 +764,22 @@ static void filesys_dcc_send_hostresolved(int i)
   if (upload_to_cd) {
     char *p = get_user(&USERENTRY_DCCDIR, dcc[i].user);
 
-    if (p)
-      snprintf(dcc[i].u.xfer->dir, sizeof(dcc[i].u.xfer->dir), "%s%s/", dccdir, p);
-    else
-      snprintf(dcc[i].u.xfer->dir, sizeof(dcc[i].u.xfer->dir), "%s", dccdir);
+    if (p) {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s%s/", dccdir, p);
+      strlcpy(dcc[i].u.xfer->dir, op_strbuf_str(&_b), sizeof(dcc[i].u.xfer->dir));
+      op_strbuf_free(&_b);
+    } else
+      strlcpy(dcc[i].u.xfer->dir, dccdir, sizeof(dcc[i].u.xfer->dir));
   } else
     strlcpy(dcc[i].u.xfer->dir, dccin, sizeof(dcc[i].u.xfer->dir));
   dcc[i].u.xfer->length = len;
   {
-    size_t s1len = strlen(dcc[i].u.xfer->dir) +
-                   strlen(dcc[i].u.xfer->origname) + 1;
-    s1 = nmalloc(s1len);
-    snprintf(s1, s1len, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
+    s1 = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
   }
 
   if (file_readable(s1)) {

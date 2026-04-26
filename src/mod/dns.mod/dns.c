@@ -125,8 +125,13 @@ static char *dns_change(ClientData cdata, Tcl_Interp *irp,
 
     Tcl_DStringInit(&ds);
     for (i = 0; i < myres.nscount; i++) {
-      snprintf(buf, sizeof buf, "%s:%d", iptostr((struct sockaddr *)
-               &myres.nsaddr_list[i]), ntohs(myres.nsaddr_list[i].sin_port));
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s:%s", iptostr((struct sockaddr *) &myres.nsaddr_list[i]),
+                         int_to_base10(ntohs(myres.nsaddr_list[i].sin_port)));
+        strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
+        op_strbuf_free(&_b);
+      }
       Tcl_DStringAppendElement(&ds, buf);
     }
     slist = Tcl_DStringValue(&ds);
@@ -246,10 +251,9 @@ static int dns_check_servercount(void)
  *   dnsdot off                  — disable DoT, revert to plain UDP
  *   dnsdot                      — report current DoT status
  * ====================================================================== */
-static int tcl_dnsdot(ClientData cd, Tcl_Interp *irp, int argc,
+static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
                       EGG_CONST char *argv[])
 {
-  (void)cd;
 
   if (argc < 2) {
 #ifdef EGG_TLS

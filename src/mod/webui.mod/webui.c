@@ -41,14 +41,13 @@
 #include <wolfssl/openssl/sha.h>
 #include "src/version.h"
 
-#define WS_GUID   "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-#define WS_KEY    "Sec-WebSocket-Key:"
-#define WS_KEYLEN 24 /* key is padded, so its always 24 bytes */
-#define WS_LEN    28 /* length of Sec-WebSocket-Accept header field value
-                      * base64(len(sha1))
-                      * import math; (4 * math.ceil(20 / 3)) */
-#define WS_ECHO_ON  0x01
-#define WS_ECHO_OFF 0x02
+constexpr char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+constexpr char WS_KEY[]  = "Sec-WebSocket-Key:";
+constexpr int  WS_KEYLEN = 24; /* key is padded, so its always 24 bytes */
+/* WS_LEN = base64(len(sha1)): import math; (4 * math.ceil(20 / 3)) */
+constexpr int  WS_LEN    = 28; /* length of Sec-WebSocket-Accept header field value */
+constexpr int  WS_ECHO_ON  = 0x01;
+constexpr int  WS_ECHO_OFF = 0x02;
 
 static Function *global = NULL;
 
@@ -70,23 +69,21 @@ static void put_404(int idx) {
   char *response;
 
   debug1("webui: put_404() idx %i", idx);
-  i = snprintf(NULL, 0,
-    "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
-    "Content-Length: 13\r\n"
-    "Content-Type: text/plain\r\n"
-    "Server: %s\r\n"
-    "\r\n"
-    "404 Not Found",
-    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
-  response = nmalloc(i + 1);
-  snprintf(response, i + 1,
-    "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
-    "Content-Length: 13\r\n"
-    "Content-Type: text/plain\r\n"
-    "Server: %s\r\n"
-    "\r\n"
-    "404 Not Found",
-    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b,
+      "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
+      "Content-Length: 13\r\n"
+      "Content-Type: text/plain\r\n"
+      "Server: %s\r\n"
+      "\r\n"
+      "404 Not Found",
+      stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+    i = (int) op_strbuf_len(&_b);
+    response = nmalloc(i + 1);
+    memcpy(response, op_strbuf_str(&_b), i + 1);
+    op_strbuf_free(&_b);
+  }
   tputs(dcc[idx].sock, response, i);
   nfree(response);
   killsock(dcc[idx].sock);
@@ -138,23 +135,21 @@ static void put_file(int idx, int file_cache_index) {
     f->st_mtim.tv_sec = sb.st_mtim.tv_sec;
     f->st_mtim.tv_nsec = sb.st_mtim.tv_nsec;
   }
-  i = snprintf(NULL, 0,
-    "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
-    "Content-Length: %jd\r\n"
-    "Content-Type: %s\r\n" /* at least firefox 144 needs this */
-    "Server: %s\r\n"
-    "\r\n",
-    (intmax_t) sb.st_size, f->content_type,
-    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
-  response = nmalloc(i + sb.st_size);
-  snprintf(response, i + 1,
-    "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
-    "Content-Length: %jd\r\n"
-    "Content-Type: %s\r\n" /* at least firefox 144 needs this */
-    "Server: %s\r\n"
-    "\r\n",
-    (intmax_t) sb.st_size, f->content_type,
-    stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b,
+      "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
+      "Content-Length: %jd\r\n"
+      "Content-Type: %s\r\n" /* at least firefox 144 needs this */
+      "Server: %s\r\n"
+      "\r\n",
+      (intmax_t) sb.st_size, f->content_type,
+      stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
+    i = (int) op_strbuf_len(&_b);
+    response = nmalloc(i + sb.st_size);
+    memcpy(response, op_strbuf_str(&_b), i);
+    op_strbuf_free(&_b);
+  }
   memcpy(response + i, f->data, sb.st_size);
   tputs(dcc[idx].sock, response, i + sb.st_size);
   nfree(response);
@@ -230,19 +225,19 @@ static void webui_http_activity(int idx, char *buf, int len)
       return;
     }
 
-    i = snprintf(NULL, 0,
-      "HTTP/1.1 101 Switching Protocols\r\n"
-      "Upgrade: websocket\r\n"
-      "Connection: Upgrade\r\n"
-      "Sec-WebSocket-Accept: %s\r\n"
-      "\r\n", out);
-    response = nmalloc(i + 1);
-    snprintf(response, i + 1,
-      "HTTP/1.1 101 Switching Protocols\r\n"
-      "Upgrade: websocket\r\n"
-      "Connection: Upgrade\r\n"
-      "Sec-WebSocket-Accept: %s\r\n"
-      "\r\n", out);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b,
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: %s\r\n"
+        "\r\n", out);
+      i = (int) op_strbuf_len(&_b);
+      response = nmalloc(i + 1);
+      memcpy(response, op_strbuf_str(&_b), i + 1);
+      op_strbuf_free(&_b);
+    }
     tputs(dcc[idx].sock, response, i);
     nfree(response);
 

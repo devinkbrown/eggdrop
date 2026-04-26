@@ -48,38 +48,38 @@ typedef struct {
 } party_t;
 
 /* Status: */
-#define PLSTAT_AWAY   0x001
-#define IS_PARTY      0x002
+constexpr int PLSTAT_AWAY = 0x001;
+constexpr int IS_PARTY    = 0x002;
 
 /* Minimum version that uses tokens & base64 ints
  * for channel msg's
  */
-#define NEAT_BOTNET 1029900
-#define GLOBAL_CHANS 100000
+constexpr int NEAT_BOTNET  = 1029900;
+constexpr int GLOBAL_CHANS = 100000;
 
 
 #ifndef MAKING_MODS
 
 void send_tand_but(int, char *, int);
 void botnet_send_chan(int, char *, char *, int, char *);
-void botnet_send_chat(int, char *, char *);
+void botnet_send_chat(int, char *, const char *);
 void botnet_send_act(int, char *, char *, int, char *);
 void botnet_send_ping(int);
 void botnet_send_pong(int);
 void botnet_send_priv (int idx, char *from, char *to, char *tobot, const char *format, ...) ATTRIBUTE_FORMAT(printf,5,6);
-void botnet_send_who(int, char *, char *, int);
-void botnet_send_infoq(int, char *);
-void botnet_send_unlinked(int, char *, char *);
-void botnet_send_traced(int, char *, char *);
-void botnet_send_trace(int, char *, char *, char *);
-void botnet_send_unlink(int, char *, char *, char *, char *);
-void botnet_send_link(int, char *, char *, char *);
+void botnet_send_who(int, const char *, const char *, int);
+void botnet_send_infoq(int, const char *);
+void botnet_send_unlinked(int, char *, const char *);
+void botnet_send_traced(int, const char *, const char *);
+void botnet_send_trace(int, const char *, const char *, const char *);
+void botnet_send_unlink(int, const char *, char *, const char *, const char *);
+void botnet_send_link(int, const char *, char *, const char *);
 void botnet_send_update(int, tand_t *);
 void botnet_send_nlinked(int, char *, char *, char, int);
 void botnet_send_reject(int, char *, char *, char *, char *, char *);
 void botnet_send_zapf(int, char *, char *, char *);
 void botnet_send_zapf_broad(int, char *, char *, char *);
-void botnet_send_motd(int, char *, char *);
+void botnet_send_motd(int, const char *, const char *);
 void botnet_send_filereq(int, char *, char *, char *);
 void botnet_send_filereject(int, char *, char *, char *);
 void botnet_send_filesend(int, char *, char *, char *);

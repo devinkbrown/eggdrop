@@ -37,7 +37,7 @@ static Function *global = NULL;
 static char bf_mode[4];
 
 /* Each box takes up 4k so be very careful here */
-#define BOXES 3
+constexpr int BOXES = 3;
 
 /* #define S(x,i) (bf_S[i][x.w.byte##i]) */
 #define S0(x) (bf_S[0][x.w.byte0])
@@ -265,8 +265,8 @@ static void blowfish_init(uint8_t *key, int keybytes)
 /* Of course, if you change either of these, then your userfile will
  * no longer be able to be shared. :)
  */
-#define SALT1  0xdeadd061
-#define SALT2  0x23f6b095
+constexpr unsigned int SALT1 = 0xdeadd061;
+constexpr unsigned int SALT2 = 0x23f6b095;
 
 /* Convert 64-bit encrypted password to text for userfile */
 static const char *base64 =
@@ -286,7 +286,7 @@ static int base64dec(char c)
 
 static int cbcbase64dec(char c)
 {
-  char *i = strchr(cbcbase64, c);
+  const char *i = strchr(cbcbase64, c);
   return i ? (int)(i - cbcbase64) : -1;
 }
 

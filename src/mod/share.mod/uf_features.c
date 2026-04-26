@@ -239,8 +239,9 @@ static void uf_features_parse(int idx, char *par)
 {
   char *buf, *s, *p;
   uff_list_t *ul;
+  op_strbuf_t _sb;
 
-  uff_sbuf[0] = 0; /* Reset static buffer  */
+  op_strbuf_init(&_sb);
   size_t par_sz = strlen(par) + 1;
   p = s = buf = nmalloc(par_sz);        /* Allocate temp buffer */
   strlcpy(buf, par, par_sz);
@@ -256,17 +257,18 @@ static void uf_features_parse(int idx, char *par)
     ul = uff_findentry_byname(p);
     if (ul && (ul->entry->ask_func == NULL || ul->entry->ask_func(idx))) {
       dcc[idx].u.bot->uff_flags |= ul->entry->flag; /* Set flag */
-      if (uff_sbuf[0])
-        strlcat(uff_sbuf, " ", sizeof uff_sbuf);
-      strlcat(uff_sbuf, ul->entry->feature, sizeof uff_sbuf);
+      if (op_strbuf_len(&_sb))
+        op_strbuf_append_cstr(&_sb, " ");
+      op_strbuf_append_cstr(&_sb, ul->entry->feature);
     }
     p = ++s;
   }
   nfree(buf);
 
   /* Send response string                                               */
-  if (uff_sbuf[0])
-    dprintf(idx, "s feats %s\n", uff_sbuf);
+  if (op_strbuf_len(&_sb))
+    dprintf(idx, "s feats %s\n", op_strbuf_str(&_sb));
+  op_strbuf_free(&_sb);
 }
 
 /* Return a list of features we are supporting.
@@ -274,14 +276,17 @@ static void uf_features_parse(int idx, char *par)
 static char *uf_features_dump(int idx)
 {
   uff_list_t *ul;
+  op_strbuf_t _sb;
 
-  uff_sbuf[0] = 0;
+  op_strbuf_init(&_sb);
   for (ul = uff_list.start; ul; ul = ul->next)
     if (ul->entry->ask_func == NULL || ul->entry->ask_func(idx)) {
-      if (uff_sbuf[0])
-        strlcat(uff_sbuf, " ", sizeof uff_sbuf);
-      strlcat(uff_sbuf, ul->entry->feature, sizeof uff_sbuf); /* Add feature to list  */
+      if (op_strbuf_len(&_sb))
+        op_strbuf_append_cstr(&_sb, " ");
+      op_strbuf_append_cstr(&_sb, ul->entry->feature); /* Add feature to list  */
     }
+  strlcpy(uff_sbuf, op_strbuf_str(&_sb), sizeof uff_sbuf);
+  op_strbuf_free(&_sb);
   return uff_sbuf;
 }
 
@@ -290,7 +295,6 @@ static int uf_features_check(int idx, char *par)
   char *buf, *s, *p;
   uff_list_t *ul;
 
-  uff_sbuf[0] = 0; /* Reset static buffer  */
   size_t par_sz = strlen(par) + 1;
   p = s = buf = nmalloc(par_sz);        /* Allocate temp buffer */
   strlcpy(buf, par, par_sz);

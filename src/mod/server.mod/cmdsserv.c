@@ -26,11 +26,10 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
   struct server_list *x = serverlist;
   time_t t;
   struct tm *currtm;
-  int i, len = 0;
+  int i;
 #ifdef IPV6
   char buf[sizeof(struct in6_addr)];
 #endif
-  char s[1024];
   char setpass[12];
 
   putlog(LOG_CMDS, "*", "#%s# servers", dcc[idx].nick);
@@ -40,42 +39,38 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
     dprintf(idx, "Server list:\n");
     i = 0;
     for (; x; x = x->next) {
-      len = 0;
-/* Build server display line, section by section */
+      op_strbuf_t s;
 #ifdef IPV6
-      if (inet_pton(AF_INET6, x->name, buf) == 1) {
-        len += snprintf(s, sizeof s, "  [%s]:", x->name);
-      } else {
+      if (inet_pton(AF_INET6, x->name, buf) == 1)
+        op_strbuf_printf(&s, "  [%s]:", x->name);
+      else
 #endif
-        len += snprintf(s, sizeof s, "  %s:", x->name);
-#ifdef IPV6
-      }
-#endif
-
+        op_strbuf_printf(&s, "  %s:", x->name);
 #ifdef TLS
-      len += snprintf(s+len, sizeof s - len, "%s", x->ssl ? "+" : "");
+      if (x->ssl)
+        op_strbuf_append_cstr(&s, "+");
 #endif
       if (x->pass) {
         t = time(NULL);
         currtm = localtime(&t); /* ******* */
-        if ((currtm->tm_mon == 3) && (currtm->tm_mday == 1)) {
+        if ((currtm->tm_mon == 3) && (currtm->tm_mday == 1))
           strlcpy(setpass, " (hunter2)", sizeof setpass);
-        } else {
+        else
           strlcpy(setpass, " (password)", sizeof setpass);
-        }
       } else {
         strlcpy(setpass, "", sizeof setpass);
       }
       if ((i == curserv) && realservername) {
-        snprintf(s+len, sizeof s - len, "%d%s (%s) <- I am here",
-                 x->port ? x->port : default_port, setpass,
-                 realservername);
+        op_strbuf_appendf(&s, "%s%s (%s) <- I am here",
+                          int_to_base10(x->port ? x->port : default_port),
+                          setpass, realservername);
       } else {
-        snprintf(s+len, sizeof s - len, "%d%s%s",
-                 x->port ? x->port : default_port, setpass,
-                 (i == curserv) ? " <- I am here" : "");
+        op_strbuf_appendf(&s, "%s%s", int_to_base10(x->port ? x->port : default_port), setpass);
+        if (i == curserv)
+          op_strbuf_append_cstr(&s, " <- I am here");
       }
-      dprintf(idx, "%s\n", s);
+      dprintf(idx, "%s\n", op_strbuf_str(&s));
+      op_strbuf_free(&s);
       i++;
     }
     dprintf(idx, "End of server list.\n");

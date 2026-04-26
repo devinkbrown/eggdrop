@@ -24,7 +24,7 @@
 #define _EGG_TCLHASH_H
 
 
-#define TC_DELETED   0x0001     /* This command/trigger was deleted. */
+constexpr uint8_t TC_DELETED  = 0x0001; /* This command/trigger was deleted. */
 
 typedef struct tcl_cmd_b {
   struct tcl_cmd_b *next;
@@ -49,7 +49,7 @@ struct threaddata {
   int MAXSOCKS;
 };
 
-#define TBM_DELETED  0x0001     /* This mask was deleted. */
+constexpr uint8_t TBM_DELETED = 0x0001; /* This mask was deleted. */
 
 typedef struct tcl_bind_mask_b {
   struct tcl_bind_mask_b *next;
@@ -59,9 +59,8 @@ typedef struct tcl_bind_mask_b {
 } tcl_bind_mask_t;
 
 
-#define HT_STACKABLE 0x0001     /* Triggers in this bind list may be stacked. */
-#define HT_DELETED   0x0002     /* This bind list was already deleted. Do not
-                                 * use it anymore. */
+constexpr uint8_t HT_STACKABLE = 0x0001; /* Triggers in this bind list may be stacked. */
+constexpr uint8_t HT_DELETED   = 0x0002; /* This bind list was deleted; do not use it anymore. */
 
 typedef struct tcl_bind_list_b {
   struct tcl_bind_list_b *next;
@@ -97,7 +96,7 @@ void check_tcl_chpt(const char *, const char *, int, int);
 void check_tcl_bot(const char *, const char *, const char *);
 void check_tcl_link(const char *, const char *);
 void check_tcl_disc(const char *);
-const char *check_tcl_filt(int, const char *);
+[[nodiscard]] const char *check_tcl_filt(int, const char *);
 int check_tcl_note(const char *, const char *, const char *);
 void check_tcl_listen(const char *, int);
 void check_tcl_time_and_cron(struct tm *);
@@ -108,7 +107,7 @@ void check_tcl_chatactbcst(const char *, int, const char *, tcl_bind_list_t *);
 void check_tcl_event(const char *);
 void check_tcl_event_arg(const char *, const char *);
 int check_tcl_signal(const char *);
-void check_tcl_die(char *);
+void check_tcl_die(const char *);
 void check_tcl_log(int, char *, char *);
 #ifdef TLS
 int check_tcl_tls(int);

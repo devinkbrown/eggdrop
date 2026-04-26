@@ -189,23 +189,24 @@ float getcputime(void)
  */
 void tell_verbose_uptime(int idx)
 {
-  char s[256], s1[121];
+  char s1[121];
   time_t now2, hr, min;
+  op_strbuf_t s;
 
   now2 = now - online_since;
-  s[0] = 0;
+  op_strbuf_init(&s);
   if (now2 > 86400) {
     /* days */
-    snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
+    op_strbuf_printf(&s, "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
-      strlcat(s, "s", sizeof s);
-    strlcat(s, ", ", sizeof s);
+      op_strbuf_append_cstr(&s, "s");
+    op_strbuf_append_cstr(&s, ", ");
     now2 -= (((int) (now2 / 86400)) * 86400);
   }
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  op_snprintf_append(s, sizeof(s), "%02d:%02d", (int) hr, (int) min);
+  op_strbuf_appendf(&s, "%02d:%02d", (int) hr, (int) min);
   s1[0] = 0;
   if (backgrd)
     strlcpy(s1, MISC_BACKGROUND, sizeof(s1));
@@ -217,35 +218,37 @@ void tell_verbose_uptime(int idx)
     else
       strlcpy(s1, MISC_LOGMODE, sizeof(s1));
   }
-  dprintf(idx, "%s %s  (%s)\n", MISC_ONLINEFOR, s, s1);
+  dprintf(idx, "%s %s  (%s)\n", MISC_ONLINEFOR, op_strbuf_str(&s), s1);
+  op_strbuf_free(&s);
 }
 
 /* Dump status info out to dcc
  */
 void tell_verbose_status(int idx)
 {
-  char s[256], s1[121], s2[81], *sysrel;
+  char s1[121], *sysrel;
   int i;
   time_t now2 = now - online_since, hr, min;
   double cputime, cache_total;
+  op_strbuf_t s, s2;
 
   i = count_users(userlist);
   dprintf(idx, "I am %s, running %s: %d user%s (mem: %uk).\n",
           botnetnick, ver, i, i == 1 ? "" : "s",
           (int) (expected_memory() / 1024));
-  s[0] = 0;
+  op_strbuf_init(&s);
   if (now2 > 86400) {
     /* days */
-    snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
+    op_strbuf_printf(&s, "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
-      strlcat(s, "s", sizeof s);
-    strlcat(s, ", ", sizeof s);
+      op_strbuf_append_cstr(&s, "s");
+    op_strbuf_append_cstr(&s, ", ");
     now2 -= (((int) (now2 / 86400)) * 86400);
   }
   hr = (time_t) ((int) now2 / 3600);
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
-  op_snprintf_append(s, sizeof(s), "%02d:%02d", (int) hr, (int) min);
+  op_strbuf_appendf(&s, "%02d:%02d", (int) hr, (int) min);
   s1[0] = 0;
   if (backgrd)
     strlcpy(s1, MISC_BACKGROUND, sizeof s1);
@@ -259,18 +262,21 @@ void tell_verbose_status(int idx)
   }
   cputime = getcputime();
   if (cputime < 0)
-    strlcpy(s2, "CPU: unknown", sizeof s2);
+    op_strbuf_printf(&s2, "CPU: unknown");
   else {
     hr = cputime / 60;
     cputime -= hr * 60;
-    snprintf(s2, sizeof(s2), "CPU: %02d:%05.2f", (int) hr, cputime); /* Actually min/sec */
+    op_strbuf_printf(&s2, "CPU: %02d:%05.2f", (int) hr, cputime); /* Actually min/sec */
   }
   if (cache_hit + cache_miss) {      /* 2019, still can't divide by zero */
     cache_total = 100.0 * (cache_hit) / (cache_hit + cache_miss);
   } else
     cache_total = 0;
-  dprintf(idx, "%s %s (%s) - %s - %s: %4.1f%%\n", MISC_ONLINEFOR, s, s1, s2,
+  dprintf(idx, "%s %s (%s) - %s - %s: %4.1f%%\n", MISC_ONLINEFOR,
+          op_strbuf_str(&s), s1, op_strbuf_str(&s2),
           MISC_CACHEHIT, cache_total);
+  op_strbuf_free(&s);
+  op_strbuf_free(&s2);
   dprintf(idx, "Configured with: " EGG_AC_ARGS "\n");
   if (admin[0])
     dprintf(idx, "Admin: %s\n", admin);
@@ -490,10 +496,10 @@ void chanprog(void)
         make_userfile = 1;
         printf("User file created.  Say '%s hello' on IRC or connect via DCC to set your password.\n\n", origbotname);
       } else {
-        char tmp[256];
-
-        snprintf(tmp, sizeof tmp, MISC_NOUSERFILE, configfile);
-        fatal(tmp, 0);
+        op_strbuf_t tmp;
+        op_strbuf_printf(&tmp, MISC_NOUSERFILE, configfile);
+        fatal(op_strbuf_str(&tmp), 0);
+        op_strbuf_free(&tmp);
       }
     } else {
       printf("\n\n%s\n", MISC_NOUSERFILE2);
@@ -556,8 +562,6 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
                         char *cmd, char *name, unsigned long prev_id)
 {
   tcl_timer_t *old = (*stack);
-  char stringid[8];
-  unsigned int ret;
 
   if (!timer_bh)
     timer_bh = op_bh_create(sizeof(tcl_timer_t), 16, "tcl_timer");
@@ -584,14 +588,10 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
       strlcpy((*stack)->name, name, namelen);
     }
   } else {
-    (*stack)->name = NULL;
-    ret = snprintf(stringid, sizeof stringid, "%lu", (*stack)->id);
-    if (ret >= (sizeof stringid)) {
-      remove_timer_from_list(stack);
-      return NULL;
-    }
-    (*stack)->name = nmalloc(strlen(stringid) + 6); /* 6 = strlen of "timer" + null */
-    snprintf((*stack)->name, (strlen(stringid) + 6), "timer%s", stringid);
+    op_strbuf_t name_buf;
+    op_strbuf_printf(&name_buf, "timer%" PRIu64, (*stack)->id);
+    (*stack)->name = nstrdup(op_strbuf_str(&name_buf));
+    op_strbuf_free(&name_buf);
   }
   return (*stack)->name;
 }
@@ -631,7 +631,6 @@ int remove_timer(tcl_timer_t **stack, char *name)
 void do_check_timers(tcl_timer_t ** stack)
 {
   tcl_timer_t *mark = *stack, *old = NULL;
-  char x[26];
 
   /* New timers could be added by a Tcl script inside a current timer
    * so i'll just clear out the timer list completely, and add any
@@ -644,15 +643,17 @@ void do_check_timers(tcl_timer_t ** stack)
     old = mark;
     mark = mark->next;
     if (!old->mins) {
-      snprintf(x, sizeof x, "timer%lu", old->id);
+      op_strbuf_t x;
+      op_strbuf_printf(&x, "timer%lu", old->id);
 #ifdef HAVE_TCL
-      do_tcl(x, old->cmd);
+      do_tcl(op_strbuf_str(&x), old->cmd);
 #endif
+      op_strbuf_free(&x);
       if (old->count == 1) {
         nfree(old->cmd);
         if (old->name)
           nfree(old->name);
-        nfree(old);
+        op_bh_free(timer_bh, old);
         continue;
       } else {
         old->mins = old->interval;
@@ -677,7 +678,7 @@ void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
     nfree(old->cmd);
     if (old->name)
       nfree(old->name);
-    nfree(old);
+    op_bh_free(timer_bh, old);
   }
   *stack = NULL;
 }
@@ -687,20 +688,23 @@ void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
 void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
 {
 #ifdef HAVE_TCL
-  char mins[11], count[11], *x;
+  char *x;
   EGG_CONST char *argv[4];
   tcl_timer_t *mark;
 
   for (mark = stack; mark; mark = mark->next) {
-    snprintf(mins, sizeof mins, "%u", mark->mins);
-    snprintf(count, sizeof count, "%u", mark->count);
-    argv[0] = mins;
+    op_strbuf_t mins, count;
+    op_strbuf_printf(&mins, "%u", mark->mins);
+    op_strbuf_printf(&count, "%u", mark->count);
+    argv[0] = op_strbuf_str(&mins);
     argv[1] = mark->cmd;
     argv[2] = mark->name;
-    argv[3] = count;
+    argv[3] = op_strbuf_str(&count);
     x = Tcl_Merge(sizeof(argv)/sizeof(*argv), argv);
     Tcl_AppendElement(irp, x);
     Tcl_Free((char *) x);
+    op_strbuf_free(&mins);
+    op_strbuf_free(&count);
   }
 #endif /* HAVE_TCL */
 }

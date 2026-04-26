@@ -23,8 +23,8 @@ static Function *global = NULL; /* before tclpbkdf2.c */
 #include <openssl/err.h>
 #include <openssl/rand.h>
 
-/* Salt string length */
-#define PBKDF2_SALT_LEN 16 /* DO NOT TOUCH! */
+/* Salt string length — DO NOT CHANGE; changing breaks stored passwords. */
+constexpr int PBKDF2_SALT_LEN = 16;
 
 /* Cryptographic hash function used. openssl list -digest-algorithms */
 static char pbkdf2_method[28] = "SHA256";
@@ -95,8 +95,13 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   }
   out2 = out;
   restlen = outlen;
-  bufcount(&out2, &restlen, snprintf((char *) out2, restlen,
-           "$pbkdf2-%s$rounds=%u$", digest_name, rounds));
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "$pbkdf2-%s$rounds=%u$", digest_name, rounds);
+    strlcpy((char *) out2, op_strbuf_str(&_b), restlen);
+    bufcount(&out2, &restlen, op_strbuf_len(&_b));
+    op_strbuf_free(&_b);
+  }
   ret = b64_ntop_without_padding(salt, saltlen, out2, restlen);
   if (ret < 0) {
     explicit_bzero(out, outlen);
@@ -181,12 +186,17 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
   int saltlen;
   static char *buf;
 
-  if (snprintf(format, sizeof format,
-               "$pbkdf2-%%%zu[^$]$rounds=%%u$%%%zu[^$]$%%%zus",
-               (sizeof method) - 1, (sizeof b64salt) - 1, (sizeof b64hash) - 1)
-      != (sizeof format) - 1) {
-    putlog(LOG_MISC, "*", "PBKDF2 error: could not initialize parser for hashed password.");
-    return NULL;
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "$pbkdf2-%%%zu[^$]$rounds=%%u$%%%zu[^$]$%%%zus",
+                     (sizeof method) - 1, (sizeof b64salt) - 1, (sizeof b64hash) - 1);
+    strlcpy(format, op_strbuf_str(&_b), sizeof format);
+    size_t _fmtlen = op_strbuf_len(&_b);
+    op_strbuf_free(&_b);
+    if (_fmtlen != (sizeof format) - 1) {
+      putlog(LOG_MISC, "*", "PBKDF2 error: could not initialize parser for hashed password.");
+      return NULL;
+    }
   }
   if (sscanf(encrypted, format, method, &rounds, b64salt, b64hash) != 4) {
     putlog(LOG_MISC, "*", "PBKDF2 error: could not parse hashed password.");

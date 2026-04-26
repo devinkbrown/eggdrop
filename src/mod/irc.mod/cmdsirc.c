@@ -162,7 +162,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
   char *chname, *nick, *s1;
   memberlist *m;
   char bantype = 0;
-  char s[UHOSTLEN];
+  char s[NICKLEN + UHOSTLEN];
 
   if (!par[0]) {
     dprintf(idx, "Usage: kickban [channel] [-|@]<nick> [reason]\n");
@@ -205,7 +205,12 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
     dprintf(idx, "I can't help you now because halfops cannot kick ops.\n");
     return;
   }
-  snprintf(s, sizeof s, "%s!%s", m->nick, m->userhost);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
+  }
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);
   if ((chan_op(victim) || (glob_op(victim) && !chan_deop(victim))) &&
@@ -713,14 +718,16 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
     return;
   putlog(LOG_CMDS, "*", "#%s# (%s) channel", dcc[idx].nick, chan->dname);
   strlcpy(s, getchanmode(chan), sizeof s);
-  if (channel_pending(chan))
-    snprintf(s1, sizeof s1, "%s %s", IRC_PROCESSINGCHAN, chan->dname);
-  else if (channel_active(chan))
-    snprintf(s1, sizeof s1, "%s %s", IRC_CHANNEL, chan->dname);
-  else
-    snprintf(s1, sizeof s1, "%s %s", IRC_DESIRINGCHAN, chan->dname);
-  dprintf(idx, "%s, %d member%s, mode %s:\n", s1, chan->channel.members,
-          chan->channel.members == 1 ? "" : "s", s);
+  {
+    op_strbuf_t _s1;
+    const char *state = channel_pending(chan) ? IRC_PROCESSINGCHAN
+                      : channel_active(chan)   ? IRC_CHANNEL
+                                               : IRC_DESIRINGCHAN;
+    op_strbuf_printf(&_s1, "%s %s", state, chan->dname);
+    dprintf(idx, "%s, %d member%s, mode %s:\n", op_strbuf_str(&_s1),
+            chan->channel.members, chan->channel.members == 1 ? "" : "s", s);
+    op_strbuf_free(&_s1);
+  }
   if (chan->channel.topic)
     dprintf(idx, "%s: %s\n", IRC_CHANNELTOPIC, chan->channel.topic);
   if (channel_active(chan)) {
@@ -841,18 +848,28 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
                 m->account, s, atrflag);
       } else {
         /* Determine idle time */
-        if (now - (m->last) > 86400)
-          snprintf(s1, sizeof s1, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
-        else if (now - (m->last) > 3600)
-          snprintf(s1, sizeof s1, "%2" PRId64 "h", ((int64_t) (now - m->last)) / 3600);
-        else if (now - (m->last) > 180)
-          snprintf(s1, sizeof s1, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
-        else
+        if (now - (m->last) > 86400) {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
+          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+          op_strbuf_free(&_b);
+        } else if (now - (m->last) > 3600) {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%2" PRId64 "h", ((int64_t) (now - m->last)) / 3600);
+          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+          op_strbuf_free(&_b);
+        } else if (now - (m->last) > 180) {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
+          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+          op_strbuf_free(&_b);
+        } else
           strlcpy(s1, "   ", sizeof s1);
-        if (chan_ircaway(m)) {
-          strlcpy(s1+strlen(s1), " (away)", ((sizeof s1)-strlen(s1)));
-        } else {
-          strlcpy(s1+strlen(s1), "       ", ((sizeof s1)-strlen(s1)));
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "%s%s", s1, chan_ircaway(m) ? " (away)" : "       ");
+          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+          op_strbuf_free(&_b);
         }
         dprintf(idx, "%c%-*s %-*s %-*s %-6s %c %s  %s\n", chanflag, maxnicklen,
               m->nick, maxhandlen, handle, maxnicklen, m->account, s, atrflag,
@@ -953,7 +970,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   char *nick, *hand;
   struct chanset_t *chan;
   memberlist *m = NULL;
-  char s[UHOSTLEN], s1[UHOSTLEN];
+  char s[NICKLEN + UHOSTLEN], s1[UHOSTLEN];
   int atr = u ? u->flags : 0;
   int statichost = 0;
   char *p1 = s1;
@@ -1000,7 +1017,12 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   }
   if (strlen(hand) > HANDLEN)
     hand[HANDLEN] = 0;
-  snprintf(s, sizeof s, "%s!%s", m->nick, m->userhost);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
+  }
   u = get_user_from_member(m);
   if (u) {
     dprintf(idx, "%s is already known as %s.\n", nick, u->handle);

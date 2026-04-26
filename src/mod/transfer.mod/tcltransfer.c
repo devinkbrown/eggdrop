@@ -23,7 +23,7 @@
 
 static int tcl_dccsend STDVAR
 {
-  char s[10], *sys, *nfn;
+  char *sys, *nfn;
   int i;
 
   BADARGS(3, 3, " filename ircnick");
@@ -46,9 +46,11 @@ static int tcl_dccsend STDVAR
       *nfn = 0;
       nfn++;
       {
-        size_t syslen = strlen(argv[1]) + 2;
-        sys = nmalloc(syslen);
-        snprintf(sys, syslen, "*%s", argv[1]);
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "*%s", argv[1]);
+        sys = nmalloc(op_strbuf_len(&_b) + 1);
+        strlcpy(sys, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+        op_strbuf_free(&_b);
       }
       queue_file(sys, nfn, "(script)", argv[2]);
       nfree(sys);
@@ -57,8 +59,7 @@ static int tcl_dccsend STDVAR
     return TCL_OK;
   }
   i = raw_dcc_send(argv[1], argv[2], "*");
-  snprintf(s, sizeof s, "%d", i);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, int_to_base10(i), NULL);
   return TCL_OK;
 }
 
@@ -72,12 +73,18 @@ static int tcl_getfileq STDVAR
   for (q = fileq; q; q = q->next) {
     if (!strcasecmp(q->nick, argv[1])) {
       {
-        size_t slen = strlen(q->to) + strlen(q->dir) + strlen(q->file) + 4;
-        s = nrealloc(s, slen);
-        if (q->dir[0] == '*')
-          snprintf(s, slen, "%s %s/%s", q->to, &q->dir[1], q->file);
-        else
-          snprintf(s, slen, "%s /%s%s%s", q->to, q->dir, q->dir[0] ? "/" : "", q->file);
+        op_strbuf_t _b;
+        if (q->dir[0] == '*') {
+          op_strbuf_printf(&_b, "%s %s/%s", q->to, &q->dir[1], q->file);
+        } else {
+          if (q->dir[0])
+            op_strbuf_printf(&_b, "%s /%s/%s", q->to, q->dir, q->file);
+          else
+            op_strbuf_printf(&_b, "%s /%s", q->to, q->file);
+        }
+        s = nrealloc(s, op_strbuf_len(&_b) + 1);
+        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+        op_strbuf_free(&_b);
       }
       Tcl_AppendElement(irp, s);
     }
@@ -90,7 +97,6 @@ static int tcl_getfileq STDVAR
 static int tcl_getfilesendtime STDVAR
 {
   int sock, i;
-  char s[15];
 
   BADARGS(2, 2, " idx");
 
@@ -98,8 +104,10 @@ static int tcl_getfilesendtime STDVAR
   for (i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (dcc[i].type == &DCC_SEND || dcc[i].type == &DCC_GET) {
-        snprintf(s, sizeof s, "%lu", dcc[i].u.xfer->start_time);
-        Tcl_AppendResult(irp, s, NULL);
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%lu", dcc[i].u.xfer->start_time);
+        Tcl_AppendResult(irp, op_strbuf_str(&_b), NULL);
+        op_strbuf_free(&_b);
       } else
         Tcl_AppendResult(irp, "-2", NULL); /* Not a valid file transfer */
       return TCL_OK;

@@ -35,15 +35,15 @@
 /* Modules specific functions and functions called by Eggdrop */
 void do_module_report(int, int, char *);
 int module_register(char *, Function *, int, int);
-const char *module_load(char *);
-char *module_unload(char *, char *);
-module_entry *module_find(char *, int, int);
-Function *module_depend(char *, char *, int, int);
+[[nodiscard]] const char *module_load(char *);
+[[nodiscard]] char *module_unload(char *, char *);
+[[nodiscard]] module_entry *module_find(char *, int, int);
+[[nodiscard]] Function *module_depend(char *, char *, int, int);
 int module_undepend(char *);
-void *mod_malloc(int, const char *, const char *, int);
-void *mod_realloc(void *, int, const char *, const char *, int);
+[[nodiscard]] void *mod_malloc(int, const char *, const char *, int);
+[[nodiscard]] void *mod_realloc(void *, int, const char *, const char *, int);
 void  mod_free(void *, const char *, const char *, int);
-char *mod_strdup(const char *, const char *, const char *, int);
+[[nodiscard]] char *mod_strdup(const char *, const char *, const char *, int);
 void add_hook(int, Function);
 void del_hook(int, Function);
 

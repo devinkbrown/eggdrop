@@ -66,18 +66,21 @@ int expmem_tclmisc(void)
 /* logfile [<modes> <channel> <filename>] */
 static int tcl_logfile STDVAR
 {
-  int i;
-  char s[256];
-
   BADARGS(1, 4, " ?logModes channel logFile?");
+
+  int i;
 
   if (argc == 1) {
     /* They just want a list of the logfiles and modes */
     for (i = 0; i < max_logs; i++)
       if (logs[i].filename != NULL) {
-        snprintf(s, sizeof s, "%s %s %s", masktype(logs[i].mask),
-                 logs[i].chname, logs[i].filename);
-        Tcl_AppendElement(interp, s);
+        {
+          op_strbuf_t logline;
+          op_strbuf_printf(&logline, "%s %s %s", masktype(logs[i].mask),
+                           logs[i].chname, logs[i].filename);
+          Tcl_AppendElement(interp, op_strbuf_str(&logline));
+          op_strbuf_free(&logline);
+        }
       }
     return TCL_OK;
   }
@@ -225,7 +228,7 @@ static int tcl_binds STDVAR
             !wild_match_per(argv[1], tc->func_name))
           continue;
         build_flags(flg, &(tc->flags), NULL);
-        snprintf(hits, sizeof hits, "%i", (int) tc->hits);
+        strlcpy(hits, int_to_base10((int) tc->hits), sizeof hits);
         list[0] = tl->name;
         list[1] = flg;
         list[2] = tm->mask;
@@ -349,7 +352,7 @@ static int tcl_utimers STDVAR
 
 static int tcl_duration STDVAR
 {
-  char s[70];
+  op_strbuf_t s;
   uint64_t sec, tmp;
 
   BADARGS(2, 2, " seconds");
@@ -360,51 +363,49 @@ static int tcl_duration STDVAR
   }
   sec = (uint64_t)atoll(argv[1]);
 
-  s[0] = 0;
+  op_strbuf_init(&s);
   if (sec >= 31536000) {
     tmp = (sec / 31536000);
-    snprintf(s, sizeof(s), "%" PRIu64 " year%s ", tmp, (tmp == 1) ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " year%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 31536000);
   }
   if (sec >= 604800) {
     tmp = (sec / 604800);
-    op_snprintf_append(s, sizeof(s), "%" PRIu64 " week%s ", tmp, (tmp == 1) ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " week%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 604800);
   }
   if (sec >= 86400) {
     tmp = (sec / 86400);
-    op_snprintf_append(s, sizeof(s), "%" PRIu64 " day%s ", tmp, (tmp == 1) ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " day%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 86400);
   }
   if (sec >= 3600) {
     tmp = (sec / 3600);
-    op_snprintf_append(s, sizeof(s), "%" PRIu64 " hour%s ", tmp, (tmp == 1) ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " hour%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 3600);
   }
   if (sec >= 60) {
     tmp = (sec / 60);
-    op_snprintf_append(s, sizeof(s), "%" PRIu64 " minute%s ", tmp, (tmp == 1) ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " minute%s ", tmp, (tmp == 1) ? "" : "s");
     sec -= (tmp * 60);
   }
   if (sec > 0) {
     tmp = sec;
-    op_snprintf_append(s, sizeof(s), "%" PRIu64 " second%s", tmp, (tmp == 1) ? "" : "s");
+    op_strbuf_appendf(&s, "%" PRIu64 " second%s", tmp, (tmp == 1) ? "" : "s");
   }
-  if (strlen(s) > 0 && s[strlen(s) - 1] == ' ')
-    s[strlen(s) - 1] = 0;
-  Tcl_AppendResult(irp, s, NULL);
+  size_t slen = op_strbuf_len(&s);
+  if (slen > 0 && op_strbuf_str(&s)[slen - 1] == ' ')
+    op_strbuf_truncate(&s, slen - 1);
+  Tcl_AppendResult(irp, op_strbuf_str(&s), NULL);
+  op_strbuf_free(&s);
   return TCL_OK;
 }
 
 static int tcl_unixtime STDVAR
 {
-  char s[21];
-  time_t now2 = time(NULL);
-
   BADARGS(1, 1, "");
 
-  snprintf(s, sizeof s, "%" PRId64, (int64_t) now2);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewWideIntObj((Tcl_WideInt)(int64_t) time(NULL)));
   return TCL_OK;
 }
 
@@ -463,7 +464,6 @@ static int tcl_rand STDVAR
 {
   long i;
   uint64_t x;
-  char s[21];
 
   BADARGS(2, 2, " limit");
 
@@ -480,23 +480,20 @@ static int tcl_rand STDVAR
 
   x = randint(i);
 
-  snprintf(s, sizeof s, "%" PRIu64, x);
-
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewWideIntObj((Tcl_WideInt) x));
   return TCL_OK;
 }
 
 static int tcl_sendnote STDVAR
 {
-  char s[5], from[NOTENAMELEN + 1], to[NOTENAMELEN + 1], msg[451];
+  char from[NOTENAMELEN + 1], to[NOTENAMELEN + 1], msg[451];
 
   BADARGS(4, 4, " from to message");
 
   strlcpy(from, argv[1], sizeof from);
   strlcpy(to, argv[2], sizeof to);
   strlcpy(msg, argv[3], sizeof msg);
-  snprintf(s, sizeof s, "%d", add_note(to, from, msg, -1, 0));
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(add_note(to, from, msg, -1, 0)));
   return TCL_OK;
 }
 
@@ -542,18 +539,19 @@ static int tcl_backup STDVAR
 
 static int tcl_die STDVAR
 {
-  char s[1024];
+  op_strbuf_t s;
 
   BADARGS(1, 2, " ?reason?");
 
   if (argc == 2) {
-    snprintf(s, sizeof s, "BOT SHUTDOWN (%s)", argv[1]);
+    op_strbuf_printf(&s, "BOT SHUTDOWN (%s)", argv[1]);
     strlcpy(quit_msg, argv[1], 1024);
   } else {
-    strlcpy(s, "BOT SHUTDOWN (No reason)", sizeof s);
+    op_strbuf_printf(&s, "BOT SHUTDOWN (No reason)");
     quit_msg[0] = 0;
   }
-  kill_bot(s, quit_msg[0] ? quit_msg : "EXIT");
+  kill_bot(op_strbuf_str(&s), quit_msg[0] ? quit_msg : "EXIT");
+  op_strbuf_free(&s);
   return TCL_OK;
 }
 
@@ -596,13 +594,23 @@ static int tcl_modules STDVAR
 
   for (current = module_list; current; current = current->next) {
     list[0] = current->name;
-    snprintf(s, sizeof s, "%d.%d", current->major, current->minor);
+    {
+      op_strbuf_t t;
+      op_strbuf_printf(&t, "%d.%d", current->major, current->minor);
+      strlcpy(s, op_strbuf_str(&t), sizeof s);
+      op_strbuf_free(&t);
+    }
     list[1] = s;
     i = 2;
     for (dep = dependancy_list; dep && (i < 100); dep = dep->next) {
       if (dep->needing == current) {
         list2[0] = dep->needed->name;
-        snprintf(s2, sizeof s2, "%d.%d", dep->major, dep->minor);
+        {
+          op_strbuf_t t;
+          op_strbuf_printf(&t, "%d.%d", dep->major, dep->minor);
+          strlcpy(s2, op_strbuf_str(&t), sizeof s2);
+          op_strbuf_free(&t);
+        }
         list2[1] = s2;
         list[i] = Tcl_Merge(2, list2);
         i++;
@@ -726,8 +734,12 @@ static int tcl_md5 STDVAR
   MD5_Final(digest, &md5context);
 #endif
 
-  for (i = 0; i < 16; i++)
-    snprintf(digest_string + (i * 2), 3, "%.2x", digest[i]);
+  for (i = 0; i < 16; i++) {
+    static const char hex[] = "0123456789abcdef";
+    digest_string[i * 2]     = hex[(digest[i] >> 4) & 0xf];
+    digest_string[i * 2 + 1] = hex[digest[i] & 0xf];
+  }
+  digest_string[32] = '\0';
   Tcl_AppendResult(irp, digest_string, NULL);
   return TCL_OK;
 }
@@ -767,19 +779,18 @@ static int tcl_matchstr STDVAR
 
 static int tcl_status STDVAR
 {
-  char s[15];
-
   BADARGS(1, 2, " ?type?");
 
   if ((argc < 2) || !strcmp(argv[1], "cpu")) {
+    op_strbuf_t cpu_buf;
     Tcl_AppendElement(irp, "cputime");
-    snprintf(s, sizeof s, "%f", getcputime());
-    Tcl_AppendElement(irp, s);
+    op_strbuf_printf(&cpu_buf, "%f", getcputime());
+    Tcl_AppendElement(irp, op_strbuf_str(&cpu_buf));
+    op_strbuf_free(&cpu_buf);
   }
   if ((argc < 2) || !strcmp(argv[1], "mem")) {
     Tcl_AppendElement(irp, "expmem");
-    snprintf(s, sizeof s, "%d", expected_memory());
-    Tcl_AppendElement(irp, s);
+    Tcl_AppendElement(irp, int_to_base10(expected_memory()));
   }
   if ((argc < 2) || !strcmp(argv[1], "ipv6")) {
     Tcl_AppendElement(irp, "ipv6");
@@ -798,10 +809,12 @@ static int tcl_status STDVAR
 #endif
   }
   if ((argc < 2) || !strcmp(argv[1], "cache")) {
+    op_strbuf_t cache_buf;
     Tcl_AppendElement(irp, "usercache");
-    snprintf(s, sizeof s, "%4.1f", 100.0 *
-             ((float) cache_hit) / ((float) (cache_hit + cache_miss)));
-    Tcl_AppendElement(irp, s);
+    op_strbuf_printf(&cache_buf, "%4.1f", 100.0 *
+                     ((float) cache_hit) / ((float) (cache_hit + cache_miss)));
+    Tcl_AppendElement(irp, op_strbuf_str(&cache_buf));
+    op_strbuf_free(&cache_buf);
   }
 
   return TCL_OK;

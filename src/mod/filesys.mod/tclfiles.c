@@ -76,14 +76,10 @@ static int tcl_setowner STDVAR
 
 static int tcl_getgots STDVAR
 {
-  int i;
-  char s[12];
-
   BADARGS(3, 3, " dir file");
 
-  i = filedb_getgots(argv[1], argv[2]);
-  snprintf(s, sizeof s, "%d", i);
-  Tcl_AppendResult(irp, s, NULL);
+  int i = filedb_getgots(argv[1], argv[2]);
+  Tcl_AppendResult(irp, int_to_base10(i), NULL);
   return TCL_OK;
 }
 
@@ -327,9 +323,11 @@ static int tcl_mkdir STDVAR
 
   if (!fdbe) {
     {
-      size_t tlen = strlen(dccdir) + strlen(d) + strlen(p) + 2;
-      t = nmalloc(tlen);
-      snprintf(t, tlen, "%s%s/%s", dccdir, d, p);
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
+      t = nmalloc(op_strbuf_len(&_b) + 1);
+      strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
     }
     if (mkdir(t, 0755) != 0) {
       Tcl_AppendResult(irp, "1", NULL);
@@ -418,13 +416,21 @@ static int tcl_rmdir STDVAR
   }
   /* Erase '.filedb' and '.files' if they exist */
   {
-    size_t tlen = strlen(dccdir) + strlen(d) + strlen(p) + 11;
-    t = nmalloc(tlen);
-    snprintf(t, tlen, "%s%s/%s/.filedb", dccdir, d, p);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s/%s/.filedb", dccdir, d, p);
+    t = nmalloc(op_strbuf_len(&_b) + 1);
+    strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
     unlink(t);
-    snprintf(t, tlen, "%s%s/%s/.files", dccdir, d, p);
+    op_strbuf_printf(&_b, "%s%s/%s/.files", dccdir, d, p);
+    t = nrealloc(t, op_strbuf_len(&_b) + 1);
+    strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
     unlink(t);
-    snprintf(t, tlen, "%s%s/%s", dccdir, d, p);
+    op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
+    t = nrealloc(t, op_strbuf_len(&_b) + 1);
+    strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
   }
   my_free(s);
   if (rmdir(t) == 0) {
@@ -543,16 +549,22 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
     skip_this = 0;
     if (!(fdbe_old->stat & (FILE_HIDDEN | FILE_DIR))) {
       {
-        size_t slen = strlen(dccdir) + strlen(oldpath)
-                      + strlen(fdbe_old->filename) + 2;
-        size_t s1len = strlen(dccdir) + strlen(newpath)
-                       + strlen(newfn[0] ? newfn : fdbe_old->filename) + 2;
-        s = nmalloc(slen);
-        s1 = nmalloc(s1len);
-        snprintf(s, slen, "%s%s%s%s", dccdir, oldpath,
-                oldpath[0] ? "/" : "", fdbe_old->filename);
-        snprintf(s1, s1len, "%s%s%s%s", dccdir, newpath,
-                newpath[0] ? "/" : "", newfn[0] ? newfn : fdbe_old->filename);
+        op_strbuf_t _b;
+        if (oldpath[0])
+          op_strbuf_printf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
+        else
+          op_strbuf_printf(&_b, "%s%s", dccdir, fdbe_old->filename);
+        s = nmalloc(op_strbuf_len(&_b) + 1);
+        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+        op_strbuf_free(&_b);
+        const char *newfn_eff = newfn[0] ? newfn : fdbe_old->filename;
+        if (newpath[0])
+          op_strbuf_printf(&_b, "%s%s/%s", dccdir, newpath, newfn_eff);
+        else
+          op_strbuf_printf(&_b, "%s%s", dccdir, newfn_eff);
+        s1 = nmalloc(op_strbuf_len(&_b) + 1);
+        strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+        op_strbuf_free(&_b);
       }
       if (!strcmp(s, s1)) {
         Tcl_AppendResult(irp, "-3", NULL);      /* Stupid copy to self */
@@ -615,10 +627,7 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
   if (!ok)
     Tcl_AppendResult(irp, "-4", NULL);  /* No match */
   else {
-    char x[30];
-
-    snprintf(x, sizeof(x), "%d", ok);
-    Tcl_AppendResult(irp, x, NULL);
+    Tcl_AppendResult(irp, int_to_base10(ok), NULL);
   }
   my_free(newfn);
   my_free(fn);
@@ -640,13 +649,10 @@ static int tcl_cp STDVAR
 static int tcl_fileresend_send(ClientData cd, Tcl_Interp *irp, int argc,
                                char *argv[], int resend)
 {
-  int i, idx;
-  char s[21];
-
   BADARGS(3, 4, " idx filename ?nick?");
 
-  i = atoi(argv[1]);
-  idx = findanyidx(i);
+  int i   = atoi(argv[1]);
+  int idx = findanyidx(i);
   if (idx < 0 || dcc[idx].type != &DCC_FILES) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
@@ -655,8 +661,7 @@ static int tcl_fileresend_send(ClientData cd, Tcl_Interp *irp, int argc,
     i = files_reget(idx, argv[2], argv[3], resend);
   else
     i = files_reget(idx, argv[2], "", resend);
-  snprintf(s, sizeof(s), "%d", i);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, int_to_base10(i), NULL);
   return TCL_OK;
 }
 

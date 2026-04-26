@@ -53,7 +53,7 @@ extern char moddir[121]; /* defined in modules.c */
 #include <string.h>
 
 /* Maximum length of a single config line. */
-#define TOML_LINE_MAX 4096
+constexpr int TOML_LINE_MAX = 4096;
 
 /* Recognised top-level TOML sections. */
 typedef enum {
@@ -100,17 +100,18 @@ static void reset_chanset_state(void)
 /* Emit ircxautoowner for the current block if any IRCX keys were set. */
 static void flush_chanset_ircx(void)
 {
-  char cmd[512];
   if (!chanset_has_ircx || !chanset_channel[0])
     return;
+  op_strbuf_t cmd;
   if (chanset_ircx_modes[0])
-    snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
-                 chanset_channel, chanset_ownerkey,
-                 chanset_ircx_create, chanset_ircx_modes);
+    op_strbuf_printf(&cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
+                     chanset_channel, chanset_ownerkey,
+                     chanset_ircx_create, chanset_ircx_modes);
   else
-    snprintf(cmd, sizeof cmd, "ircxautoowner %s \"%s\" %d",
-                 chanset_channel, chanset_ownerkey, chanset_ircx_create);
-  run_tcl_cmd(cmd);
+    op_strbuf_printf(&cmd, "ircxautoowner %s \"%s\" %d",
+                     chanset_channel, chanset_ownerkey, chanset_ircx_create);
+  run_tcl_cmd(op_strbuf_str(&cmd));
+  op_strbuf_free(&cmd);
   chanset_has_ircx = 0;
 }
 
@@ -400,14 +401,18 @@ static void run_tcl_cmd(const char *cmd)
           strlcpy(host, p, sizeof host);
         }
       }
-      if (pass[0])
-        snprintf(entry, sizeof entry, "%s:%s:%s", host, port, pass);
-      else if (port[0])
-        snprintf(entry, sizeof entry, "%s:%s", host, port);
-      else
-        strlcpy(entry, host, sizeof entry);
-      if (srv_add)
-        srv_add(entry);
+      {
+        op_strbuf_t es;
+        if (pass[0])
+          op_strbuf_printf(&es, "%s:%s:%s", host, port, pass);
+        else if (port[0])
+          op_strbuf_printf(&es, "%s:%s", host, port);
+        else
+          op_strbuf_printf(&es, "%s", host);
+        if (srv_add)
+          srv_add(op_strbuf_str(&es));
+        op_strbuf_free(&es);
+      }
     }
     return;
   }
@@ -528,14 +533,14 @@ static int parse_string_array(const char *src, ArrayCb cb, void *ud)
 /* Count of servers added during the current readtomlconfig() call. */
 static int toml_server_count = 0;
 
-static void cb_loadmodule(const char *name, void *ud)
+static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
 {
-  (void)ud;
 #ifdef HAVE_TCL
   {
-    char cmd[256];
-    snprintf(cmd, sizeof cmd, "loadmodule %s", name);
-    run_tcl_cmd(cmd);
+    op_strbuf_t cmd;
+    op_strbuf_printf(&cmd, "loadmodule %s", name);
+    run_tcl_cmd(op_strbuf_str(&cmd));
+    op_strbuf_free(&cmd);
   }
 #else
   {
@@ -553,91 +558,89 @@ static void cb_loadmodule(const char *name, void *ud)
  *   "host:+port"            → server add host +port   (SSL)
  *   "host:+port:password"   → server add host +port password
  */
-static void cb_server_add(const char *entry, void *ud)
+static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
 {
-  char cmd[512];
-  char host[256] = {0}, portpart[64] = {0}, pass[128] = {0};
-  char *colon;
-  (void)ud;
+  char host[256] = {0}, portpart[68] = {0}, pass[128] = {0};
 
   strlcpy(host, entry, sizeof host);
 
-  colon = strchr(host, ':');
+  char *colon = strchr(host, ':');
   if (colon) {
     *colon = '\0';
-    const char *rest = colon + 1;           /* "+port" or "port" or "+port:pass" */
-    char ssl[2] = {0, 0};
-    if (*rest == '+') { ssl[0] = '+'; rest++; }
-
-    char *colon2 = strchr(rest, ':');
+    const char *rest = colon + 1;     /* "+port" or "port" or "+port:pass" */
+    /* Preserve SSL '+' prefix as part of portpart (e.g. "+6697"). */
+    const char *colon2 = strchr(rest, ':');
     if (colon2) {
-      /* Has password */
+      /* Has password — copy "+port" or "port" verbatim, then grab pass. */
       size_t plen = (size_t)(colon2 - rest);
       if (plen >= sizeof portpart) plen = sizeof portpart - 1;
       memcpy(portpart, rest, plen);
       portpart[plen] = '\0';
       strlcpy(pass, colon2 + 1, sizeof pass);
-      snprintf(cmd, sizeof cmd, "server add %s %s%s %s",
-                   host, ssl, portpart, pass);
     } else {
       strlcpy(portpart, rest, sizeof portpart);
-      snprintf(cmd, sizeof cmd, "server add %s %s%s",
-                   host, ssl, portpart);
     }
-  } else {
-    snprintf(cmd, sizeof cmd, "server add %s", host);
   }
 
-  run_tcl_cmd(cmd);
+  {
+    op_strbuf_t cmd;
+    if (pass[0])
+      op_strbuf_printf(&cmd, "server add %s %s %s", host, portpart, pass);
+    else if (portpart[0])
+      op_strbuf_printf(&cmd, "server add %s %s", host, portpart);
+    else
+      op_strbuf_printf(&cmd, "server add %s", host);
+    run_tcl_cmd(op_strbuf_str(&cmd));
+    op_strbuf_free(&cmd);
+  }
   toml_server_count++;
 }
 
-static void cb_channel_add(const char *name, void *ud)
+static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
 {
-  char cmd[256];
-  (void)ud;
-  snprintf(cmd, sizeof cmd, "channel add %s", name);
-  run_tcl_cmd(cmd);
+  op_strbuf_t cmd;
+  op_strbuf_printf(&cmd, "channel add %s", name);
+  run_tcl_cmd(op_strbuf_str(&cmd));
+  op_strbuf_free(&cmd);
 }
 
 /*
  * Logging entry format: "flags channel logfile"
  * e.g. "mco * eggdrop.log"
  */
-static void cb_logfile(const char *entry, void *ud)
+static void cb_logfile(const char *entry, [[maybe_unused]] void *ud)
 {
-  char cmd[512];
-  (void)ud;
-  snprintf(cmd, sizeof cmd, "logfile %s", entry);
-  run_tcl_cmd(cmd);
+  op_strbuf_t cmd;
+  op_strbuf_printf(&cmd, "logfile %s", entry);
+  run_tcl_cmd(op_strbuf_str(&cmd));
+  op_strbuf_free(&cmd);
 }
 
-static void cb_source(const char *path, void *ud)
+static void cb_source(const char *path, [[maybe_unused]] void *ud)
 {
-  (void)ud;
 #ifdef HAVE_TCL
   {
-    char cmd[512];
-    snprintf(cmd, sizeof cmd, "source %s", path);
-    run_tcl_cmd(cmd);
+    op_strbuf_t cmd;
+    op_strbuf_printf(&cmd, "source %s", path);
+    run_tcl_cmd(op_strbuf_str(&cmd));
+    op_strbuf_free(&cmd);
   }
 #else
   script_load(path);
 #endif
 }
 
-static void cb_loadhelp(const char *file, void *ud)
+static void cb_loadhelp(const char *file, [[maybe_unused]] void *ud)
 {
-  char cmd[256];
-  (void)ud;
-  snprintf(cmd, sizeof cmd, "loadhelp %s", file);
-  run_tcl_cmd(cmd);
+  op_strbuf_t cmd;
+  op_strbuf_printf(&cmd, "loadhelp %s", file);
+  run_tcl_cmd(op_strbuf_str(&cmd));
+  op_strbuf_free(&cmd);
 }
 
 /* Used by [tcl] commands = [...] — each entry is a raw Tcl command. */
-static void cb_tcl_eval(const char *cmd, void *ud)
+static void cb_tcl_eval(const char *cmd, [[maybe_unused]] void *ud)
 {
-  (void)ud;
   run_tcl_cmd(cmd);
 }
 
@@ -846,19 +849,19 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
        * Boolean flags use +/- prefix with no value argument.
        * Valued options use "channel set #chan option-name value". */
       {
-        char tclkey[64], cmd[512];
+        char tclkey[64];
         key_to_tclvar(key, tclkey, sizeof tclkey);
-        if (is_chan_flag(tclkey)) {
-          /* true/1 → +flag, false/0 → -flag */
-          snprintf(cmd, sizeof cmd, "channel set %s %s%s",
-                       chanset_channel,
-                       (strcmp(value, "0") == 0) ? "-" : "+",
-                       tclkey);
-        } else {
-          snprintf(cmd, sizeof cmd, "channel set %s %s %s",
-                       chanset_channel, tclkey, value);
-        }
-        run_tcl_cmd(cmd);
+        op_strbuf_t cmd;
+        if (is_chan_flag(tclkey))
+          op_strbuf_printf(&cmd, "channel set %s %s%s",
+                           chanset_channel,
+                           (strcmp(value, "0") == 0) ? "-" : "+",
+                           tclkey);
+        else
+          op_strbuf_printf(&cmd, "channel set %s %s %s",
+                           chanset_channel, tclkey, value);
+        run_tcl_cmd(op_strbuf_str(&cmd));
+        op_strbuf_free(&cmd);
       }
       return;
 
@@ -945,7 +948,7 @@ void prescan_paths(const char *fname)
  * the config file those variables would otherwise be silently discarded.
  * Replaying after the parse loop ensures every module-registered path is set
  * regardless of section ordering. */
-#define PATHS_BUF_MAX 32
+constexpr int PATHS_BUF_MAX = 32;
 typedef struct { char key[256]; char val[TOML_LINE_MAX]; } PathsEntry;
 
 int readtomlconfig(const char *fname)
@@ -1074,8 +1077,12 @@ int readtomlconfig(const char *fname)
           size_t llen = strlen(line);
           while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
             line[--llen] = '\0';
-          strlcat(ml_value, "\n", sizeof ml_value);
-          strlcat(ml_value, line, sizeof ml_value);
+          {
+            op_strbuf_t _b;
+            op_strbuf_printf(&_b, "\n%s", line);
+            strlcat(ml_value, op_strbuf_str(&_b), sizeof ml_value);
+            op_strbuf_free(&_b);
+          }
         }
         v = ml_value;
       }
@@ -1333,12 +1340,19 @@ int run_setup_wizard(const char *outfile)
   prompt_required("Bot nick (no spaces)", nick, sizeof nick);
 
   /* Smart defaults derived from nick */
-  snprintf(tmp, sizeof tmp, "%s?", nick);
-  prompt("Alternate nick (? replaced by a random digit)", tmp,
-         altnick, sizeof altnick);
-
-  snprintf(tmp, sizeof tmp, "/msg %s help", nick);
-  prompt("Real name (IRC GECOS)", tmp, realname, sizeof realname);
+  {
+    op_strbuf_t _t;
+    op_strbuf_printf(&_t, "%s?", nick);
+    prompt("Alternate nick (? replaced by a random digit)", op_strbuf_str(&_t),
+           altnick, sizeof altnick);
+    op_strbuf_free(&_t);
+  }
+  {
+    op_strbuf_t _t;
+    op_strbuf_printf(&_t, "/msg %s help", nick);
+    prompt("Real name (IRC GECOS)", op_strbuf_str(&_t), realname, sizeof realname);
+    op_strbuf_free(&_t);
+  }
 
   /* Lowercase nick as default IRC username */
   strlcpy(tmp, nick, sizeof tmp);
@@ -1366,7 +1380,7 @@ int run_setup_wizard(const char *outfile)
   prompt("IRC server hostname", net_defaults[net_idx], server, sizeof server);
   use_ssl = prompt_yn("Use SSL/TLS?", 1);
 
-  snprintf(tmp, sizeof tmp, "%d", use_ssl ? 6697 : 6667);
+  strlcpy(tmp, int_to_base10(use_ssl ? 6697 : 6667), sizeof tmp);
   prompt("Port", tmp, port_buf, sizeof port_buf);
   port = atoi(port_buf);
   if (port <= 0 || port > 65535)
@@ -1463,12 +1477,27 @@ int run_setup_wizard(const char *outfile)
   step_header(4, 6, "Files");
 
   /* Defaults derived from nick */
-  snprintf(tmp, sizeof tmp, "%s.user", nick);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s.user", nick);
+    strlcpy(tmp, op_strbuf_str(&_b), sizeof tmp);
+    op_strbuf_free(&_b);
+  }
   prompt("User file", tmp, userfile, sizeof userfile);
-  snprintf(tmp, sizeof tmp, "%s.chan", nick);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s.chan", nick);
+    strlcpy(tmp, op_strbuf_str(&_b), sizeof tmp);
+    op_strbuf_free(&_b);
+  }
   prompt("Chan file", tmp, chanfile, sizeof chanfile);
-  snprintf(tmp, sizeof tmp, "%s.log",  nick);
-  prompt("Log file",  tmp, logfile,  sizeof logfile);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s.log", nick);
+    strlcpy(tmp, op_strbuf_str(&_b), sizeof tmp);
+    op_strbuf_free(&_b);
+  }
+  prompt("Log file", tmp, logfile, sizeof logfile);
 
   /* ── Step 5/6: Listen ports ──────────────────────────── */
   step_header(5, 6, "Listen ports");

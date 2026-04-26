@@ -66,10 +66,11 @@ static void filelist_add(filelist_t *flist, char *filename)
 static void filelist_addout(filelist_t *flist, char *desc)
 {
   if (FILELIST_LE(flist).output) {
-    size_t old_len = strlen(FILELIST_LE(flist).output);
-    size_t new_sz  = old_len + strlen(desc) + 1;
-    FILELIST_LE(flist).output = nrealloc(FILELIST_LE(flist).output, new_sz);
-    strlcat(FILELIST_LE(flist).output, desc, new_sz);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s%s", FILELIST_LE(flist).output, desc);
+    FILELIST_LE(flist).output = nrealloc(FILELIST_LE(flist).output, op_strbuf_len(&_b) + 1);
+    strlcpy(FILELIST_LE(flist).output, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+    op_strbuf_free(&_b);
   } else {
     size_t desc_sz = strlen(desc) + 1;
     FILELIST_LE(flist).output = nmalloc(desc_sz);

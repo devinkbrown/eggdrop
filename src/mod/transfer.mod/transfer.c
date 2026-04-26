@@ -191,16 +191,23 @@ static void check_tcl_toutlost(struct userrec *u, char *nick, char *path,
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
   char *hand = u ? u->handle : "*";
-  char s[15];
 
   get_user_flagrec(u, &fr, NULL);
   Tcl_SetVar(interp, "_sr1", hand, 0);
   Tcl_SetVar(interp, "_sr2", nick, 0);
   Tcl_SetVar(interp, "_sr3", path, 0);
-  snprintf(s, sizeof s, "%" PRIu64, acked);
-  Tcl_SetVar(interp, "_sr4", s, 0);
-  snprintf(s, sizeof s, "%" PRIu64, length);
-  Tcl_SetVar(interp, "_sr5", s, 0);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%" PRIu64, acked);
+    Tcl_SetVar(interp, "_sr4", op_strbuf_str(&_b), 0);
+    op_strbuf_free(&_b);
+  }
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%" PRIu64, length);
+    Tcl_SetVar(interp, "_sr5", op_strbuf_str(&_b), 0);
+    op_strbuf_free(&_b);
+  }
   check_tcl_bind(h, hand, &fr, " $_sr1 $_sr2 $_sr3 $_sr4 $_sr5",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
 }
@@ -223,9 +230,9 @@ static void check_tcl_toutlost(struct userrec *u, char *nick, char *path,
  * Note: To optimize buffer sizes, we default to PMAX_SIZE, but
  *       allocate a smaller buffer for smaller pending_data sizes.
  */
-#define PMAX_SIZE 4096
-static unsigned long pump_file_to_sock(FILE *file, long sock,
-                                       unsigned long pending_data)
+constexpr int PMAX_SIZE = 4096;
+static uint64_t pump_file_to_sock(FILE *file, long sock,
+                                  uint64_t pending_data)
 {
 #ifdef EGG_SENDFILE
   /* Zero-copy fast path: sendfile() moves data file→socket in the kernel,
@@ -324,10 +331,11 @@ static void eof_dcc_send(int idx)
     }
 
     {
-      size_t nfnlen = strlen(dcc[idx].u.xfer->dir)
-                      + strlen(dcc[idx].u.xfer->origname) + 1;
-      nfn = nmalloc(nfnlen);
-      snprintf(nfn, nfnlen, "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
+      nfn = nmalloc(op_strbuf_len(&_b) + 1);
+      strlcpy(nfn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
     }
 
     if ((l = fcopyfile(dcc[idx].u.xfer->f, nfn))) {
@@ -337,7 +345,12 @@ static void eof_dcc_send(int idx)
     fclose(dcc[idx].u.xfer->f);
 
     /* lookup handle */
-    snprintf(s, sizeof s, "%s!%s", dcc[idx].nick, dcc[idx].host);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    }
     u = get_user_by_host(s);
     hand = u ? u->handle : "*";
 
@@ -393,7 +406,12 @@ static void eof_dcc_send(int idx)
       if (shunlink) {
         /* Drop that bot */
         dprintf(y, "bye\n");
-        snprintf(s, sizeof s, TRANSFER_USERFILE_DISCON, dcc[y].nick);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, TRANSFER_USERFILE_DISCON, dcc[y].nick);
+          strlcpy(s, op_strbuf_str(&_b), sizeof s);
+          op_strbuf_free(&_b);
+        }
         botnet_send_unlinked(y, dcc[y].nick, s);
         putlog(LOG_BOTS, "*", "%s.", s);
         if (y != idx) {
@@ -486,8 +504,7 @@ static void dcc_get(int idx, char *buf, int len)
       cmp = dcc[idx].u.xfer->offset;
     } else
       return;
-    /* Fall through! */
-    /* No, only want 4 bit ack responses. */
+    /* Fall through! No, only want 4 bit ack responses. */
   } else {
     /* Complete packet? */
     if (w == 4) {
@@ -613,7 +630,12 @@ static void eof_dcc_get(int idx)
       if (shunlink) {
         /* Drop that bot */
         dprintf(-dcc[y].sock, "bye\n");
-        snprintf(s, sizeof s, TRANSFER_USERFILE_DISCON, dcc[y].nick);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, TRANSFER_USERFILE_DISCON, dcc[y].nick);
+          strlcpy(s, op_strbuf_str(&_b), sizeof s);
+          op_strbuf_free(&_b);
+        }
         botnet_send_unlinked(y, dcc[y].nick, s);
         putlog(LOG_BOTS, "*", "%s.", s);
         if (y != idx) {
@@ -631,7 +653,12 @@ static void eof_dcc_get(int idx)
 
     /* Call `lost' DCC trigger now.
      */
-    snprintf(s, sizeof s, "%s!%s", dcc[idx].nick, dcc[idx].host);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    }
     u = get_user_by_host(s);
     check_tcl_toutlost(u, dcc[idx].nick, dcc[idx].u.xfer->dir,
                        dcc[idx].u.xfer->acked, dcc[idx].u.xfer->length, H_lost);
@@ -683,7 +710,12 @@ static void transfer_get_timeout(int i)
     if (y) {
       if (shunlink) {
         dprintf(y, "bye\n");
-        snprintf(xx, sizeof xx, TRANSFER_DICONNECT_TIMEOUT, dcc[y].nick);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, TRANSFER_DICONNECT_TIMEOUT, dcc[y].nick);
+          strlcpy(xx, op_strbuf_str(&_b), sizeof xx);
+          op_strbuf_free(&_b);
+        }
         botnet_send_unlinked(y, dcc[y].nick, xx);
         putlog(LOG_BOTS, "*", "%s.", xx);
         if (y != i) {
@@ -706,7 +738,12 @@ static void transfer_get_timeout(int i)
 
     /* Call DCC `timeout' trigger now.
      */
-    snprintf(xx, sizeof xx, "%s!%s", dcc[i].nick, dcc[i].host);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s!%s", dcc[i].nick, dcc[i].host);
+      strlcpy(xx, op_strbuf_str(&_b), sizeof xx);
+      op_strbuf_free(&_b);
+    }
     u = get_user_by_host(xx);
     check_tcl_toutlost(u, dcc[i].nick, dcc[i].u.xfer->dir,
                        dcc[i].u.xfer->acked, dcc[i].u.xfer->length, H_tout);
@@ -778,7 +815,7 @@ static void display_dcc_send(int idx, char *buf)
 
 static void display_dcc_fork_send(int idx, char *buf)
 {
-  snprintf(buf, 160, "%s", TRANSFER_CONN_SEND);
+  strlcpy(buf, TRANSFER_CONN_SEND, 160);
 }
 
 static int expmem_dcc_xfer(void *x)
@@ -894,7 +931,10 @@ static void dcc_fork_send(int idx, char *x, int y)
   dcc[idx].u.xfer->start_time = now;
 
   if (strcmp(dcc[idx].nick, "*users")) {
-    snprintf(s, sizeof s, "%s!%s", dcc[idx].nick, dcc[idx].host);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
     putlog(LOG_MISC, "*", TRANSFER_DCC_CONN, dcc[idx].u.xfer->origname, s);
   }
   if (dcc[idx].type->activity && y) {

@@ -77,7 +77,7 @@ void dump_links(int);
 void addbot(char *, char *, char *, char, int, int);
 void updatebot(int, char *, char, int);
 void rembot(char *);
-struct tand_t_struct *findbot(char *);
+[[nodiscard]] struct tand_t_struct *findbot(char *);
 void unvia(int, struct tand_t_struct *);
 void check_botnet_pings(void);
 int partysock(char *, char *);
@@ -96,9 +96,9 @@ int getparty(char *, int);
 int add_note(char *, char *, char *, int, int);
 int simple_sprintf(char *buf, const char *formatt, ...);
 void tandout_but(int, const char *format, ...) ATTRIBUTE_FORMAT(printf,2,3);
-char *int_to_base10(int);
-char *unsigned_int_to_base10(unsigned int);
-char *int_to_base64(unsigned int);
+[[nodiscard]] char *int_to_base10(int);
+[[nodiscard]] char *unsigned_int_to_base10(unsigned int);
+[[nodiscard]] char *int_to_base64(unsigned int);
 
 /* chanprog.c */
 void tell_verbose_uptime(int);
@@ -106,8 +106,8 @@ void tell_verbose_status(int);
 void tell_settings(int);
 int logmodes(char *);
 int isowner(char *);
-const char *masktype(int);
-char *maskname(int);
+[[nodiscard]] const char *masktype(int);
+[[nodiscard]] char *maskname(int);
 void reaffirm_owners(void);
 void add_hq_user(void);
 void rehash(void);
@@ -127,9 +127,9 @@ int check_dcc_attrs(struct userrec *, int);
 int check_dcc_chanattrs(struct userrec *, char *, int, int);
 int check_int_range(char *value, int min, int max);
 int stripmodes(char *);
-const char *stripmasktype(int);
-char *check_validpass(struct userrec *, char *);
-void cmd_die(struct userrec *, int, char *);
+[[nodiscard]] const char *stripmasktype(int);
+[[nodiscard]] char *check_validpass(struct userrec *, char *);
+[[noreturn]] void cmd_die(struct userrec *, int, char *);
 
 /* dcc.c */
 void failed_link(int);
@@ -162,14 +162,14 @@ void makepass(char *);
 void tell_dcc(int);
 void not_away(int);
 void set_away(int, char *);
-void *_get_data_ptr(int, char *, int);
+[[nodiscard]] void *_get_data_ptr(int, char *, int);
 void dcc_remove_lost(void);
 void do_boot(int, char *, char *);
 int detect_dcc_flood(time_t *, struct chat_info *, int);
 
 #define get_data_ptr(x) _get_data_ptr(x,__FILE__,__LINE__)
 void flush_lines(int, struct chat_info *);
-struct dcc_t *find_idx(int);
+[[nodiscard]] struct dcc_t *find_idx(int);
 int new_dcc(struct dcc_table *, int);
 void del_dcc(int);
 void changeover_dcc(int, struct dcc_table *, int);
@@ -185,7 +185,7 @@ void core_dns_ipbyhost(char *);
 void dcc_dnsipbyhost(char *);
 
 /* language.c */
-char *get_language(int);
+[[nodiscard]] char *get_language(int);
 int cmd_loadlanguage(struct userrec *, int, char *);
 void add_lang_section(char *);
 void set_lang_dir(const char *);
@@ -225,10 +225,10 @@ int cron_match(const char *, const char *);
 #define cmp_usermasks(a,b) addr_match((char *)(a),(char *)(b),1,1)
 
 /* mem.c */
-void *n_malloc(int, const char *, int);
-void *n_realloc(void *, int, const char *, int);
-void  n_free(void *, const char *, int);
-char *n_strdup(const char *, const char *, int);
+[[nodiscard]] void *n_malloc(int, const char *, int);
+[[nodiscard]] void *n_realloc(void *, int, const char *, int);
+void                n_free(void *, const char *, int);
+[[nodiscard]] char *n_strdup(const char *, const char *, int);
 void tell_mem_status(char *);
 void tell_mem_status_dcc(int);
 void debug_mem_to_dcc(int);
@@ -241,14 +241,14 @@ void check_logsize(void);
 void splitc(char *, char *, char);
 void splitcn(char *, char *, char, size_t);
 void remove_crlf(char **);
-char *newsplit(char **);
-char *splitnick(char **);
+[[nodiscard]] char *newsplit(char **);
+[[nodiscard]] char *splitnick(char **);
 void stridx(char *, char *, int);
 void dumplots(int, const char *, const char *);
 void daysago(time_t, time_t, char *);
 void days(time_t, time_t, char *);
 void daysdur(time_t, time_t, char *);
-char *egg_uname(void);
+[[nodiscard]] char *egg_uname(void);
 void help_subst(char *, char *, struct flag_record *, int, char *);
 void sub_lang(int, char *);
 void show_motd(int);
@@ -260,18 +260,18 @@ void rem_help_reference(char *);
 void add_help_reference(char *);
 void debug_help(int);
 void reload_help_data(void);
-char *extracthostname(char *);
+[[nodiscard]] char *extracthostname(char *);
 void show_banner(int i);
 void make_rand_str_from_chars(char *, int, char *);
 void make_rand_str(char *, int);
 int oatoi(const char *);
 int is_file(const char *);
 void logsuffix_change(char *);
-char *str_escape(const char *, const char, const char);
-char *strchr_unescape(char *, const char, const char);
+[[nodiscard]] char *str_escape(const char *, const char, const char);
+[[nodiscard]] char *strchr_unescape(char *, const char, const char);
 void str_unescape(char *, const char);
 int str_isdigit(const char *);
-void kill_bot(char *, char *);
+[[noreturn]] void kill_bot(const char *, const char *);
 void maskaddr(const char *, char *, int);
 #define maskhost(a,b) maskaddr((a),(b),3)
 #define maskban(a,b)  maskaddr((a),(b),3)
@@ -307,7 +307,7 @@ int sockgets(char *, int *);
 void tell_netdebug(int);
 int sanitycheck_dcc(char *, char *, char *, char *);
 int hostsanitycheck_dcc(char *, char *, sockname_t *, char *, char *);
-char *iptostr(struct sockaddr *);
+[[nodiscard]] char *iptostr(struct sockaddr *);
 int sock_has_data(int, int);
 int sockoptions(int sock, int operation, int sock_options);
 int flush_inbuf(int idx);
@@ -315,11 +315,11 @@ int findsock(int sock);
 void safe_write(int, const void *, size_t);
 
 /* tcl.c */
-struct threaddata *threaddata(void);
+[[nodiscard]] struct threaddata *threaddata(void);
 void init_threaddata(int);
 void protect_tcl(void);
 void unprotect_tcl(void);
-void do_tcl(char *, char *);
+void do_tcl(const char *, const char *);
 int readtclprog(char *fname);
 
 /* tls.c */
@@ -327,9 +327,9 @@ int readtclprog(char *fname);
 void verify_cert_expiry(int);
 void ssl_cleanup(void);
 int ssl_handshake(int, int, int, int, char *, IntFunc);
-char *ssl_fpconv(char *in, char *out);
-const char *ssl_getuid(int sock);
-char *ssl_getfp(int sock);
+[[nodiscard]] char *ssl_fpconv(char *in, char *out);
+[[nodiscard]] const char *ssl_getuid(int sock);
+[[nodiscard]] char *ssl_getfp(int sock);
 #endif
 
 /* userent.c */
@@ -338,7 +338,7 @@ int list_type_expmem(struct list_type *);
 int xtra_set(struct userrec *,struct user_entry *, void *);
 
 /* userrec.c */
-struct userrec *adduser(struct userrec *, char *, char *, char *, int);
+[[nodiscard]] struct userrec *adduser(struct userrec *, char *, char *, char *, int);
 void addhost_by_handle(char *, char *);
 void addaccount_by_handle(char *, char *);
 void clear_masks(struct maskrec *);
@@ -360,10 +360,10 @@ void user_del_chan(char *);
 int check_conflags(struct flag_record *fr, int md);
 
 /* users.c */
-void addignore(char *, char *, char *, time_t);
+void addignore(const char *, char *, char *, time_t);
 int delignore(char *);
 void tell_ignores(int, char *);
-int match_ignore(char *);
+int match_ignore(const char *);
 void check_expired_ignores(void);
 void autolink_cycle(char *);
 void tell_file_stats(int, char *);

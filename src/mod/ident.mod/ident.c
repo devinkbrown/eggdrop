@@ -28,9 +28,9 @@
 #include "src/mod/module.h"
 #include "server.mod/server.h"
 
-#define IDENT_METHOD_OIDENT     0
-#define IDENT_METHOD_BUILTIN    1
-#define IDENT_SIZE           1000 /* rfc1413 */
+constexpr int IDENT_METHOD_OIDENT  = 0;
+constexpr int IDENT_METHOD_BUILTIN = 1;
+constexpr int IDENT_SIZE           = 1000; /* rfc1413 */
 
 static Function *global = NULL, *server_funcs = NULL;
 
@@ -69,7 +69,12 @@ static void ident_activity(int idx, char *buf, int len)
     putlog(LOG_MISC, "*", "Ident error: could not read request.");
     return;
   }
-  snprintf(pos, (sizeof buf2) - (pos - buf2), " : USERID : UNIX : %s\r\n", botname);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, " : USERID : UNIX : %s\r\n", botname);
+    strlcpy(pos, op_strbuf_str(&_b), (sizeof buf2) - (size_t)(pos - buf2));
+    op_strbuf_free(&_b);
+  }
   count = strlen(buf2) + 1;
   if ((i = write(s, buf2, count)) != count) {
     if (i < 0)
@@ -105,58 +110,54 @@ static void ident_oidentd(void)
 {
   char *home = getenv("HOME");
   FILE *fd;
-  long filesize;
-  char *data = NULL;
+  op_strbuf_t data_buf;
   char path[PATH_MAX], line[256], buf[256], identstr[256];
   char s[EGG_INET_ADDRSTRLEN];
   int ret, prevtime, servidx, i;
   socklen_t namelen;
   struct sockaddr_storage ss;
 
-  snprintf(identstr, sizeof identstr, "### eggdrop_%s", pid_file);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "### eggdrop_%s", pid_file);
+    strlcpy(identstr, op_strbuf_str(&_b), sizeof identstr);
+    op_strbuf_free(&_b);
+  }
 
   if (!home) {
     putlog(LOG_MISC, "*",
            "Ident error: variable HOME is not in the current environment.");
     return;
   }
-  if (snprintf(path, sizeof path, "%s/.oidentd.conf", home) >= sizeof path) {
+  if (strlen(home) + sizeof("/.oidentd.conf") - 1 >= sizeof path) {
     putlog(LOG_MISC, "*", "Ident error: path too long.");
     return;
   }
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s/.oidentd.conf", home);
+    strlcpy(path, op_strbuf_str(&_b), sizeof path);
+    op_strbuf_free(&_b);
+  }
+  op_strbuf_init(&data_buf);
   fd = fopen(path, "r");
   if (fd != NULL) {
-    /* Calculate file size for buffer */
-    if (fseek(fd, 0, SEEK_END) == 0) {
-      filesize = ftell(fd);
-      if (filesize == -1) {
-        putlog(LOG_MISC, "*", "IDENT: Error reading oident.conf");
-      }
-      data = nmalloc(filesize + 256); /* Room for Eggdrop adds */
-      data[0] = '\0';
-
-      /* Read the file into buffer */
-      if (fseek(fd, 0, SEEK_SET) != 0) {
-        putlog(LOG_MISC, "*", "IDENT: Error setting oident.conf file pointer");
+    while (fgets(line, 255, fd)) {
+      /* If it is not an Eggdrop entry, don't mess with it */
+      if (!strstr(line, "### eggdrop_")) {
+        op_strbuf_append_cstr(&data_buf, line);
       } else {
-        while (fgets(line, 255, fd)) {
-          /* If it is not an Eggdrop entry, don't mess with it */
-          if (!strstr(line, "### eggdrop_")) {
-            strlcat(data, line, (size_t)(filesize + 256));
+        /* If it is Eggdrop but not me, check for expiration and remove */
+        if (!strstr(line, identstr)) {
+          char *saveptr = NULL;
+          strlcpy(buf, line, sizeof buf);
+          strtok_r(buf, "!", &saveptr);
+          prevtime = atoi(strtok_r(NULL, "!", &saveptr));
+          if ((now - prevtime) > 300) {
+            putlog(LOG_DEBUG, "*", "IDENT: Removing expired oident.conf "
+                "entry: \"%s\"", buf);
           } else {
-            /* If it is Eggdrop but not me, check for expiration and remove */
-            if (!strstr(line, identstr)) {
-              char *saveptr = NULL;
-              strlcpy(buf, line, sizeof buf);
-              strtok_r(buf, "!", &saveptr);
-              prevtime = atoi(strtok_r(NULL, "!", &saveptr));
-              if ((now - prevtime) > 300) {
-                putlog(LOG_DEBUG, "*", "IDENT: Removing expired oident.conf "
-                    "entry: \"%s\"", buf);
-              } else {
-                strlcat(data, line, (size_t)(filesize + 256));
-              }
-            }
+            op_strbuf_append_cstr(&data_buf, line);
           }
         }
       }
@@ -173,8 +174,7 @@ static void ident_oidentd(void)
     }
   if (servidx < 0 ) {
     putlog(LOG_MISC, "*", "IDENT: Error could not find server socket");
-    if (data)
-      nfree(data);
+    op_strbuf_free(&data_buf);
     return;
   }
   namelen = sizeof ss;
@@ -184,9 +184,8 @@ static void ident_oidentd(void)
   }
   fd = fopen(path, "w");
   if (fd != NULL) {
-    if (data) {
-      fprintf(fd, "%s", data);
-    }
+    if (op_strbuf_len(&data_buf))
+      fprintf(fd, "%s", op_strbuf_str(&data_buf));
     if (ss.ss_family == AF_INET) {
       struct sockaddr_in *saddr = (struct sockaddr_in *)&ss;
       fprintf(fd, "lport %" PRIu16 " from %s { reply \"%s\" } "
@@ -208,9 +207,7 @@ static void ident_oidentd(void)
   } else {
     putlog(LOG_MISC, "*", "IDENT: Error opening oident.conf for writing");
   }
-  if (data) {
-    nfree(data);
-  }
+  op_strbuf_free(&data_buf);
 }
 
 static void ident_builtin_on(void)

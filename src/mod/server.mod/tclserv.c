@@ -226,12 +226,12 @@ static int tcl_isidentified STDVAR {
 
 /* Send a msg to the server prefixed with an IRCv3 message-tag */
 static int tcl_tagmsg STDVAR {
-  char tag[CLITAGMAX-9];    /* minus @, TAGMSG and two spaces */
+  op_strbuf_t tag;
   char tagdict[CLITAGMAX-9];
   char target[MSGMAX];
   struct capability *current = 0;
   char *p;
-  int taglen = 0, i = 1;
+  int i = 1;
   BADARGS(3, 3, " tag target");
 
   current = find_capability("message-tags");
@@ -240,17 +240,20 @@ static int tcl_tagmsg STDVAR {
     return TCL_ERROR;
   }
   char *saveptr = NULL;
-  strlcpy(tagdict, argv[1], sizeof tag);
+  strlcpy(tagdict, argv[1], sizeof tagdict);
   strlcpy(target, argv[2], sizeof target);
+  op_strbuf_init(&tag);
   p = strtok_r(tagdict, " ", &saveptr);
   while (p != NULL) {
     if ((i % 2) != 0) {
-      taglen += snprintf(tag + taglen, CLITAGMAX - 9 - taglen, "%s", p);
+      op_strbuf_append_cstr(&tag, p);
     } else {
       if (strcmp(p, "{}") != 0) {
-        taglen += snprintf(tag + taglen, CLITAGMAX - 9 - taglen, "=%s;", p);
+        op_strbuf_append_cstr(&tag, "=");
+        op_strbuf_append_cstr(&tag, p);
+        op_strbuf_append_cstr(&tag, ";");
       } else {
-        taglen += snprintf(tag + taglen, CLITAGMAX - 9 - taglen, ";");
+        op_strbuf_append_cstr(&tag, ";");
       }
     }
     i++;
@@ -262,14 +265,14 @@ static int tcl_tagmsg STDVAR {
   p = strchr(target, '\r');
   if (p != NULL)
     *p = 0;
-  dprintf(DP_SERVER, "@%s TAGMSG %s\n", tag, target);
+  dprintf(DP_SERVER, "@%s TAGMSG %s\n", op_strbuf_str(&tag), target);
+  op_strbuf_free(&tag);
   return TCL_OK;
 }
 
 
 /* Tcl interface to send CAP messages to server */
 static int tcl_cap STDVAR {
-  char s[CAPMAX];
   int found = 0;
   struct capability *current;
   struct cap_values *currentvalue;
@@ -326,8 +329,10 @@ static int tcl_cap STDVAR {
       current = current->next;
     }
     if ((argc == 3) && (!found)) {
-      simple_sprintf(s, "Capability \"%s\" is not enabled", argv[2]);
-      Tcl_AppendResult(irp, s, NULL);
+      op_strbuf_t errmsg;
+      op_strbuf_printf(&errmsg, "Capability \"%s\" is not enabled", argv[2]);
+      Tcl_AppendResult(irp, op_strbuf_str(&errmsg), NULL);
+      op_strbuf_free(&errmsg);
       return TCL_ERROR;
     }
     Tcl_SetObjResult(irp, capes);
@@ -337,14 +342,18 @@ static int tcl_cap STDVAR {
       Tcl_AppendResult(irp, "No CAP request provided", NULL);
       return TCL_ERROR;
     } else {
-      snprintf(s, sizeof s, "CAP REQ :%s", argv[2]);
-      dprintf(DP_SERVER, "%s\n", s);
+      op_strbuf_t cap_req;
+      op_strbuf_printf(&cap_req, "CAP REQ :%s", argv[2]);
+      dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_req));
+      op_strbuf_free(&cap_req);
     }
   /* Send a raw CAP command to the server */
   } else if (!strcasecmp(argv[1], "raw")) {
     if (argc == 3) {
-      snprintf(s, sizeof s, "CAP %s", argv[2]);
-      dprintf(DP_SERVER, "%s\n", s);
+      op_strbuf_t cap_raw;
+      op_strbuf_printf(&cap_raw, "CAP %s", argv[2]);
+      dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_raw));
+      op_strbuf_free(&cap_raw);
     } else {
       Tcl_AppendResult(irp, "Raw requires a CAP sub-command to be provided",
         NULL);
@@ -465,7 +474,6 @@ static int tcl_clearqueue STDVAR
 {
   struct msgq *q, *qq;
   int msgs = 0;
-  char s[20];
 
   BADARGS(2, 2, " queue");
 
@@ -490,8 +498,7 @@ static int tcl_clearqueue STDVAR
     mq.head = hq.head = modeq.head = mq.last = hq.last = modeq.last = 0;
     double_warned = 0;
     burst = 0;
-    simple_sprintf(s, "%d", msgs);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(msgs));
     return TCL_OK;
   } else if (!strncmp(argv[1], "serv", 4)) {
     msgs = mq.tot;
@@ -507,8 +514,7 @@ static int tcl_clearqueue STDVAR
     double_warned = 0;
     mq.tot = mq.warned = 0;
     mq.head = mq.last = 0;
-    simple_sprintf(s, "%d", msgs);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(msgs));
     return TCL_OK;
   } else if (!strcmp(argv[1], "mode")) {
     msgs = modeq.tot;
@@ -522,8 +528,7 @@ static int tcl_clearqueue STDVAR
     double_warned = 0;
     modeq.tot = modeq.warned = 0;
     modeq.head = modeq.last = 0;
-    simple_sprintf(s, "%d", msgs);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(msgs));
     return TCL_OK;
   } else if (!strcmp(argv[1], "help")) {
     msgs = hq.tot;
@@ -535,8 +540,7 @@ static int tcl_clearqueue STDVAR
     double_warned = 0;
     hq.tot = hq.warned = 0;
     hq.head = hq.last = 0;
-    simple_sprintf(s, "%d", msgs);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(msgs));
     return TCL_OK;
   }
   Tcl_AppendResult(irp, "bad option \"", argv[1],
@@ -546,30 +550,25 @@ static int tcl_clearqueue STDVAR
 
 static int tcl_queuesize STDVAR
 {
-  char s[20];
   int x;
 
   BADARGS(1, 2, " ?queue?");
 
   if (argc == 1) {
     x = (int) (modeq.tot + hq.tot + mq.tot);
-    simple_sprintf(s, "%d", x);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
     return TCL_OK;
   } else if (!strncmp(argv[1], "serv", 4)) {
     x = (int) (mq.tot);
-    simple_sprintf(s, "%d", x);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
     return TCL_OK;
   } else if (!strcmp(argv[1], "mode")) {
     x = (int) (modeq.tot);
-    simple_sprintf(s, "%d", x);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
     return TCL_OK;
   } else if (!strcmp(argv[1], "help")) {
     x = (int) (hq.tot);
-    simple_sprintf(s, "%d", x);
-    Tcl_AppendResult(irp, s, NULL);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
     return TCL_OK;
   }
 
@@ -618,9 +617,14 @@ static int tcl_server STDVAR {
     while(z != NULL) {
       server = Tcl_NewListObj(0, NULL);
 #ifdef TLS
-      snprintf(s, sizeof s, "%s%d", z->ssl ? "+" : "", z->port);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s%d", z->ssl ? "+" : "", z->port);
+        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        op_strbuf_free(&_b);
+      }
 #else
-      snprintf(s, sizeof s, "%d", z->port);
+      strlcpy(s, int_to_base10(z->port), sizeof s);
 #endif
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->name, -1));
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(s, -1));
@@ -781,7 +785,6 @@ static int tcl_ircxautoowner STDVAR
 
   if (!existing) {
     existing = (ircx_autoowner_t *) nmalloc(sizeof(ircx_autoowner_t));
-    memset(existing, 0, sizeof(ircx_autoowner_t));
     existing->next = ircx_autoowner_list;
     ircx_autoowner_list = existing;
   }

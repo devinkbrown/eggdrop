@@ -50,15 +50,25 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     dprintf(DP_HELP, IRC_BADHOST2, nick, botname);
     return 1;
   }
-  snprintf(s, sizeof s, "%s!%s", nick, h);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", nick, h);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
+  }
   if (u_match_mask(global_bans, s)) {
     dprintf(DP_HELP, "NOTICE %s :%s.\n", nick, IRC_BANNED2);
     return 1;
   }
   if (atr & USER_COMMON) {
     maskhost(s, host);
-    strlcpy(s, host, sizeof(s));
-    snprintf(host, sizeof host, "%s!%s", nick, s + 2);
+    strlcpy(s, host, sizeof s);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s!%s", nick, s + 2);
+      strlcpy(host, op_strbuf_str(&_b), sizeof host);
+      op_strbuf_free(&_b);
+    }
     userlist = adduser(userlist, handle, host, "-", USER_DEFAULT);
     putlog(LOG_MISC, "*", "%s %s (%s) -- %s",
            IRC_INTRODUCED, nick, host, IRC_COMMONSITE);
@@ -99,7 +109,12 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     /* Notify the user that his/her handle was truncated. */
     dprintf(DP_HELP, IRC_NICKTOOLONG, nick, handle);
   if (notify_new[0]) {
-    snprintf(s, sizeof s, IRC_INITINTRO, nick, host);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, IRC_INITINTRO, nick, host);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    }
     strlcpy(s1, notify_new, sizeof(s1));
     while (s1[0]) {
       p1 = strchr(s1, ',');
@@ -200,7 +215,12 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
       return 1;
     } else {
       putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, who);
-      snprintf(s, sizeof s, "%s!%s", nick, host);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s!%s", nick, host);
+        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        op_strbuf_free(&_b);
+      }
       maskhost(s, s1);
       dprintf(DP_HELP, "NOTICE %s :%s: %s\n", nick, IRC_ADDHOSTMASK, s1);
       addhost_by_handle(who, s1);
@@ -292,7 +312,7 @@ static int msg_info(char *nick, char *host, struct userrec *u, char *par)
     if (p && (p[0] == '@'))
       locked = 1;
     if (chname) {
-      get_handle_chaninfo(u->handle, chname, s);
+      get_handle_chaninfo(u->handle, chname, s, sizeof s);
       if (s[0] == '@')
         locked = 1;
     }
@@ -328,7 +348,7 @@ static int msg_info(char *nick, char *host, struct userrec *u, char *par)
     return 1;
   }
   if (chname) {
-    get_handle_chaninfo(u->handle, chname, s);
+    get_handle_chaninfo(u->handle, chname, s, sizeof s);
     p = s;
     putlog(LOG_CMDS, "*", "(%s!%s) !%s! INFO? %s", nick, host, u->handle,
            chname);
@@ -355,7 +375,7 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
   struct chanset_t *chan;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   memberlist *m;
-  char s[NICKLEN + UHOSTLEN], also[512], *info;
+  char s[121], also[512], *info;
   int i;
 
   if (!use_info || match_my_nick(nick))
@@ -386,8 +406,6 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
     struct userrec *mu;
 
-    snprintf(s, sizeof s, "%s!%s", m->nick, m->userhost);
-    /* Don't use s for host here, b/c if we don't have m, we won't have s */
     mu = get_user_from_member(m);
     info = get_user(&USERENTRY_INFO, mu);
     if (mu && (mu->flags & USER_BOT))
@@ -395,7 +413,7 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
     if (info && (info[0] == '@'))
       info++;
     else if (mu) {
-      get_handle_chaninfo(mu->handle, chan->dname, s);
+      get_handle_chaninfo(mu->handle, chan->dname, s, sizeof s);
       if (s[0]) {
         info = s;
         if (info[0] == '@')
@@ -436,7 +454,8 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
 
 static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
 {
-  char s1[143], *s2, stime[14], uhost[NICKLEN + UHOSTLEN];
+  op_strbuf_t s1, uhost;
+  char *s2, stime[14];
   int ok;
   struct chanset_t *chan;
   memberlist *m;
@@ -459,8 +478,10 @@ static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
   }
   if (strlen(par) > NICKMAX)
     par[NICKMAX] = 0;
-  snprintf(uhost, sizeof uhost, "%s!%s", nick, host);
-  putlog(LOG_CMDS, "*", "(%s) !%s! WHOIS %s", uhost, u->handle, par);
+  op_strbuf_printf(&uhost, "%s!%s", nick, host);
+  putlog(LOG_CMDS, "*", "(%s) !%s! WHOIS %s", op_strbuf_str(&uhost),
+         u->handle, par);
+  op_strbuf_free(&uhost);
   u2 = get_user_by_handle(userlist, par);
   if (!u2) {
     /* No such handle -- maybe it's a nickname of someone on a chan? */
@@ -491,10 +512,12 @@ static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
       dprintf(DP_HELP, "NOTICE %s :[%s] E-mail: %s\n", nick, u2->handle,
               xk->data);
   ok = 0;
+  op_strbuf_init(&s1);
   for (chan = chanset; chan; chan = chan->next) {
     if (hand_on_chan(chan, u2)) {
-      snprintf(s1, sizeof s1, "NOTICE %s :[%s] %s: %s.", nick, u2->handle,
-                   IRC_ONCHANNOW, chan->dname);
+      op_strbuf_clear(&s1);
+      op_strbuf_appendf(&s1, "NOTICE %s :[%s] %s: %s.", nick, u2->handle,
+                        IRC_ONCHANNOW, chan->dname);
       ok = 1;
     } else {
       get_user_flagrec(u, &fr, chan->dname);
@@ -505,15 +528,17 @@ static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
         tt = cr->laston;
         strftime(stime, sizeof stime, "%b %d %H:%M", localtime(&tt));
         ok = 1;
-        snprintf(s1, sizeof s1, "NOTICE %s :[%s] %s %s on %s", nick,
-                     u2->handle, IRC_LASTSEENAT, stime, chan->dname);
+        op_strbuf_clear(&s1);
+        op_strbuf_appendf(&s1, "NOTICE %s :[%s] %s %s on %s", nick,
+                          u2->handle, IRC_LASTSEENAT, stime, chan->dname);
       }
     }
   }
   if (!ok)
-    snprintf(s1, sizeof s1, "NOTICE %s :[%s] %s", nick, u2->handle,
-                 IRC_NEVERJOINED);
-  dprintf(DP_HELP, "%s\n", s1);
+    op_strbuf_appendf(&s1, "NOTICE %s :[%s] %s", nick, u2->handle,
+                      IRC_NEVERJOINED);
+  dprintf(DP_HELP, "%s\n", op_strbuf_str(&s1));
+  op_strbuf_free(&s1);
   if (u2->flags & USER_BOT)
     dprintf(DP_HELP, "NOTICE %s :[%s] Status: bot\n", nick, u2->handle);
   else if (u2->flags & USER_OWNER)
@@ -785,7 +810,7 @@ static int msg_invite(char *nick, char *host, struct userrec *u, char *par)
 
 static int msg_status(char *nick, char *host, struct userrec *u, char *par)
 {
-  char s[256], *pass, *sysrel;
+  char *pass, *sysrel;
   int i;
   struct chanset_t *chan;
   time_t now2 = now - online_since, hr, min;
@@ -813,20 +838,21 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
           nick, botnetnick, ver, i, i == 1 ? "" : "s",
          (int) (expected_memory() / 1024));
 
-  s[0] = 0;
-  if (now2 > 86400) {
-    /* days */
-    snprintf(s, sizeof(s), "%d day", (int) (now2 / 86400));
-    if ((int) (now2 / 86400) >= 2)
-      strlcat(s, "s", sizeof s);
-    strlcat(s, ", ", sizeof s);
-    now2 -= (((int) (now2 / 86400)) * 86400);
+  {
+    op_strbuf_t _up;
+    op_strbuf_init(&_up);
+    if (now2 > 86400) {
+      int d = (int) (now2 / 86400);
+      op_strbuf_appendf(&_up, "%d day%s, ", d, d >= 2 ? "s" : "");
+      now2 -= (d * 86400);
+    }
+    hr = (time_t) ((int) now2 / 3600);
+    now2 -= (hr * 3600);
+    min = (time_t) ((int) now2 / 60);
+    op_strbuf_appendf(&_up, "%02d:%02d", (int) hr, (int) min);
+    dprintf(DP_HELP, "NOTICE %s :%s %s.\n", nick, MISC_ONLINEFOR, op_strbuf_str(&_up));
+    op_strbuf_free(&_up);
   }
-  hr = (time_t) ((int) now2 / 3600);
-  now2 -= (hr * 3600);
-  min = (time_t) ((int) now2 / 60);
-  op_snprintf_append(s, sizeof(s), "%02d:%02d", (int) hr, (int) min);
-  dprintf(DP_HELP, "NOTICE %s :%s %s.\n", nick, MISC_ONLINEFOR, s);
 
   if (admin[0])
     dprintf(DP_HELP, "NOTICE %s :Admin: %s.\n", nick, admin);
@@ -835,27 +861,29 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
     dprintf(DP_HELP, "NOTICE %s :OS: %s.\n", nick, sysrel);
   dprintf(DP_HELP, "NOTICE %s :Online as: %s!%s.\n", nick, botname, botuserhost);
 
-  /* This shouldn't overflow anymore -Wcc */
-  s[0] = 0;
-  strlcpy(s, "Channels: ", sizeof s);
-  for (chan = chanset; chan; chan = chan->next) {
-    strlcat(s, chan->dname, sizeof s);
-    if (!channel_active(chan))
-      strlcat(s, " (trying)", sizeof s);
-    else if (channel_pending(chan))
-      strlcat(s, " (pending)", sizeof s);
-    else if (!me_op(chan))
-      strlcat(s, " (need ops)", sizeof s);
-    strlcat(s, ", ", sizeof s);
-    if (strlen(s) > 140) {
-      s[strlen(s) - 2] = 0; /* remove ', ' */
-      dprintf(DP_HELP, "NOTICE %s :%s\n", nick, s);
-      s[0] = 0;
+  {
+    op_strbuf_t _s;
+    op_strbuf_printf(&_s, "Channels: ");
+    for (chan = chanset; chan; chan = chan->next) {
+      op_strbuf_appendf(&_s, "%s", chan->dname);
+      if (!channel_active(chan))
+        op_strbuf_append_cstr(&_s, " (trying)");
+      else if (channel_pending(chan))
+        op_strbuf_append_cstr(&_s, " (pending)");
+      else if (!me_op(chan))
+        op_strbuf_append_cstr(&_s, " (need ops)");
+      op_strbuf_append_cstr(&_s, ", ");
+      if (op_strbuf_len(&_s) > 140) {
+        op_strbuf_truncate(&_s, op_strbuf_len(&_s) - 2); /* remove ', ' */
+        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&_s));
+        op_strbuf_reset(&_s, "Channels: ");
+      }
     }
-  }
-  if (strlen(s) > 10) {
-    s[strlen(s) - 2] = 0; /* remove ', ' */
-    dprintf(DP_HELP, "NOTICE %s :%s\n", nick, s);
+    if (op_strbuf_len(&_s) > 10) {
+      op_strbuf_truncate(&_s, op_strbuf_len(&_s) - 2); /* remove ', ' */
+      dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&_s));
+    }
+    op_strbuf_free(&_s);
   }
   return 1;
 }
@@ -887,7 +915,6 @@ static int msg_memory(char *nick, char *host, struct userrec *u, char *par)
 
 static int msg_die(char *nick, char *host, struct userrec *u, char *par)
 {
-  char s[1024];
   char *pass;
 
   if (match_my_nick(nick))
@@ -907,12 +934,16 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   }
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! DIE", nick, host, u->handle);
   dprintf(-serv, "NOTICE %s :%s\n", nick, BOT_MSGDIE);
-  if (!par[0])
-    snprintf(s, sizeof s, "BOT SHUTDOWN (authorized by %s)", u->handle);
-  else
-    snprintf(s, sizeof s, "BOT SHUTDOWN (%s: %s)", u->handle, par);
-  chatout("*** %s\n", s);
-  botnet_send_chat(-1, botnetnick, s);
+  {
+    op_strbuf_t _s;
+    if (!par[0])
+      op_strbuf_printf(&_s, "BOT SHUTDOWN (authorized by %s)", u->handle);
+    else
+      op_strbuf_printf(&_s, "BOT SHUTDOWN (%s: %s)", u->handle, par);
+    chatout("*** %s\n", op_strbuf_str(&_s));
+    botnet_send_chat(-1, botnetnick, (char *) op_strbuf_str(&_s));
+    op_strbuf_free(&_s);
+  }
   botnet_send_bye();
   if (!par[0])
     nuke_server(nick);
@@ -920,8 +951,12 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
     nuke_server(par);
   write_userfile(-1);
   sleep(1); /* Give the server time to understand. 1s has proven more than enough. */
-  snprintf(s, sizeof s, "DEAD BY REQUEST OF %s!%s", nick, host);
-  fatal(s, 0);
+  {
+    op_strbuf_t _s;
+    op_strbuf_printf(&_s, "DEAD BY REQUEST OF %s!%s", nick, host);
+    fatal(op_strbuf_str(&_s), 0);
+    op_strbuf_free(&_s);
+  }
   return 1;
 }
 

@@ -176,20 +176,20 @@ struct igrec {
 };
 extern struct igrec *global_ign;
 
-#define IGREC_PERM   2
+constexpr int IGREC_PERM = 2;
 
 /*
  * Note: Flags are in eggdrop.h
  */
 
-struct userrec *get_user_by_handle(struct userrec *, char *);
-struct userrec *get_user_by_host(char *);
-struct userrec *get_user_by_account(char *);
-struct userrec *get_user_by_nick(char *);
-struct userrec *get_user_from_member(memberlist *);
-struct userrec *lookup_user_record(memberlist *, char *, char *);
-struct userrec *check_chanlist(const char *);
-memberlist *find_member_from_nick(char *);
+[[nodiscard]] struct userrec *get_user_by_handle(struct userrec *, char *);
+[[nodiscard]] struct userrec *get_user_by_host(char *);
+[[nodiscard]] struct userrec *get_user_by_account(char *);
+[[nodiscard]] struct userrec *get_user_by_nick(char *);
+[[nodiscard]] struct userrec *get_user_from_member(memberlist *);
+[[nodiscard]] struct userrec *lookup_user_record(memberlist *, char *, char *);
+[[nodiscard]] struct userrec *check_chanlist(const char *);
+[[nodiscard]] memberlist *find_member_from_nick(char *);
 
 /* Balloc-backed typed allocators for frequently-created fixed-size structs.
  * Using libop's op_bh slab allocator: O(1) alloc/free, memory returned to
@@ -197,18 +197,22 @@ memberlist *find_member_from_nick(char *);
 void userrec_heaps_init(void);
 void user_account_dict_invalidate(void);
 void userrec_heaps_destroy(void);
-struct userrec    *alloc_userrec(void);
-void               free_userrec(struct userrec *);
-struct chanuserrec *alloc_chanuserrec(void);
-void               free_chanuserrec(struct chanuserrec *);
-struct user_entry  *alloc_user_entry(void);
-void               free_user_entry(struct user_entry *);
-struct list_type   *alloc_list_type(void);
-void               free_list_type(struct list_type *);
-struct xtra_key    *alloc_xtra_key(void);
-void               free_xtra_key(struct xtra_key *);
-struct laston_info *alloc_laston_info(void);
-void               free_laston_info(struct laston_info *);
+[[nodiscard]] struct userrec    *alloc_userrec(void);
+void                             free_userrec(struct userrec *);
+[[nodiscard]] struct chanuserrec *alloc_chanuserrec(void);
+void                              free_chanuserrec(struct chanuserrec *);
+[[nodiscard]] struct user_entry  *alloc_user_entry(void);
+void                              free_user_entry(struct user_entry *);
+[[nodiscard]] struct list_type   *alloc_list_type(void);
+void                              free_list_type(struct list_type *);
+[[nodiscard]] struct xtra_key    *alloc_xtra_key(void);
+void                              free_xtra_key(struct xtra_key *);
+[[nodiscard]] struct laston_info *alloc_laston_info(void);
+void                              free_laston_info(struct laston_info *);
+[[nodiscard]] struct igrec       *alloc_igrec(void);
+void                              free_igrec(struct igrec *);
+[[nodiscard]] maskrec             *alloc_maskrec(void);
+void                               free_maskrec(maskrec *);
 
 /* All the default userentry stuff, for code re-use
  */

@@ -103,7 +103,7 @@ int def_pack(struct userrec *u, struct user_entry *e)
 int def_kill(struct user_entry *e)
 {
   nfree(e->u.string);
-  nfree(e);
+  free_user_entry(e);
   return 1;
 }
 
@@ -450,7 +450,13 @@ static int laston_pack(struct userrec *u, struct user_entry *e)
   int l;
 
   li = (struct laston_info *) e->u.extra;
-  l = snprintf(work, sizeof(work), "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
+    l = (int) op_strbuf_len(&_b);
+    strlcpy(work, op_strbuf_str(&_b), sizeof work);
+    op_strbuf_free(&_b);
+  }
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
@@ -517,7 +523,12 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
     if (!cr)
       Tcl_AppendResult(irp, "0", NULL);
   } else {
-    snprintf(number, sizeof number, "%" PRId64 " ", (int64_t) li->laston);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%" PRId64 " ", (int64_t) li->laston);
+      strlcpy(number, op_strbuf_str(&_b), sizeof number);
+      op_strbuf_free(&_b);
+    }
     Tcl_AppendResult(irp, number, li->lastonplace, NULL);
   }
   return TCL_OK;
@@ -678,12 +689,23 @@ static int botaddr_pack(struct userrec *u, struct user_entry *e)
     else
       *q++ = *p;
 #ifdef TLS
-  l = snprintf(q, sizeof(work) - (q - work), ":%s%u/%s%u",
-               (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
-               (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, ":%s%u/%s%u",
+                     (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
+                     (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
+    l = (int) op_strbuf_len(&_b);
+    strlcat(work, op_strbuf_str(&_b), sizeof work);
+    op_strbuf_free(&_b);
+  }
 #else
-  l = snprintf(q, sizeof(work) - (q - work), ":%u/%u",
-               bi->telnet_port, bi->relay_port);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, ":%u/%u", bi->telnet_port, bi->relay_port);
+    l = (int) op_strbuf_len(&_b);
+    strlcat(work, op_strbuf_str(&_b), sizeof work);
+    op_strbuf_free(&_b);
+  }
 #endif
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
@@ -698,7 +720,7 @@ static int botaddr_kill(struct user_entry *e)
 {
   nfree(((struct bot_addr *) (e->u.extra))->address);
   nfree(e->u.extra);
-  nfree(e);
+  free_user_entry(e);
   return 1;
 }
 
@@ -1072,8 +1094,14 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
   e->u.list = NULL;
   while (curr) {
     t = alloc_list_type();
-    t->extra = user_malloc(strlen(curr->key) + strlen(curr->data) + 4);
-    snprintf(t->extra, strlen(curr->key) + strlen(curr->data) + 4, "%s %s", curr->key, curr->data);
+    {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s %s", curr->key, curr->data);
+      size_t _el = op_strbuf_len(&_b) + 1;
+      t->extra = user_malloc(_el);
+      strlcpy(t->extra, op_strbuf_str(&_b), _el);
+      op_strbuf_free(&_b);
+    }
     list_insert((&e->u.list), t);
     next = curr->next;
     nfree(curr->key);
@@ -1299,7 +1327,7 @@ static int hosts_write_userfile(FILE *f, struct userrec *u,
 static int hosts_kill(struct user_entry *e)
 {
   list_type_kill(e->u.list);
-  nfree(e);
+  free_user_entry(e);
   return 1;
 }
 
@@ -1313,20 +1341,27 @@ static void hosts_display(int idx, struct user_entry *e)
   char s[1024];
   struct list_type *q;
 
-  s[0] = 0;
-  strlcpy(s, "  HOSTS: ", sizeof(s));
+  strlcpy(s, "  HOSTS: ", sizeof s);
   for (q = e->u.list; q; q = q->next) {
-    if (s[0] && !s[9])
-      strlcat(s, q->extra, sizeof s);
-    else if (!s[0])
-      snprintf(s, sizeof(s), "         %s", q->extra);
-    else {
-      if (strlen(s) + strlen(q->extra) + 2 > 65) {
-        dprintf(idx, "%s\n", s);
-        snprintf(s, sizeof(s), "         %s", q->extra);
-      } else {
-        strlcat(s, ", ", sizeof s);
-        strlcat(s, q->extra, sizeof s);
+    if (s[0] && !s[9]) {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s%s", s, q->extra);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    } else if (strlen(s) + strlen(q->extra) + 2 > 65) {
+      dprintf(idx, "%s\n", s);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "         %s", q->extra);
+        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        op_strbuf_free(&_b);
+      }
+    } else {
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s, %s", s, q->extra);
+        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        op_strbuf_free(&_b);
       }
     }
   }
@@ -1523,21 +1558,26 @@ static void account_display(int idx, struct user_entry *e)
   char s[1024];
   struct list_type *q;
 
-  s[0] = 0;
-  strlcpy(s, "  ACCOUNTS: ", sizeof(s));
+  strlcpy(s, "  ACCOUNTS: ", sizeof s);
   for (q = e->u.list; q; q = q->next) {
-    if (s[0] && !s[12])
-      strlcat(s, q->extra, sizeof s);
-    else if (!s[0])
-      snprintf(s, sizeof(s), "         %s", q->extra);
-    else {
-      if (strlen(s) + strlen(q->extra) + 2 > 65) {
-        dprintf(idx, "%s\n", s);
-        snprintf(s, sizeof(s), "         %s", q->extra);
-      } else {
-        strlcat(s, ", ", sizeof s);
-        strlcat(s, q->extra, sizeof s);
+    if (s[0] && !s[12]) {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s%s", s, q->extra);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
+    } else if (strlen(s) + strlen(q->extra) + 2 > 65) {
+      dprintf(idx, "%s\n", s);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "         %s", q->extra);
+        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        op_strbuf_free(&_b);
       }
+    } else {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s, %s", s, q->extra);
+      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      op_strbuf_free(&_b);
     }
   }
   if (s[0])
@@ -1776,7 +1816,7 @@ int set_user(struct user_entry_type *et, struct userrec *u, void *d)
     return 0;
 
   if (!(e = find_user_entry(et, u))) {
-    e = user_malloc(sizeof(struct user_entry));
+    e = alloc_user_entry();
 
     e->type = et;
     e->name = NULL;
@@ -1786,7 +1826,7 @@ int set_user(struct user_entry_type *et, struct userrec *u, void *d)
   r = et->set(u, e, d);
   if (!e->u.list) {
     egg_list_delete((struct list_type **) &(u->entries), (struct list_type *) e);
-    nfree(e);
+    free_user_entry(e);
   }
   return r;
 }

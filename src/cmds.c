@@ -36,14 +36,14 @@ extern tcl_timer_t *timer, *utimer;
 extern int dcc_total, remote_boots, backgrd, make_userfile, conmask, require_p,
            must_be_owner;
 extern volatile sig_atomic_t do_restart;
-extern uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
-                itraffic_irc_today, otraffic_bn, otraffic_bn_today,
-                itraffic_bn, itraffic_bn_today, otraffic_dcc,
-                otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
-                otraffic_trans, otraffic_trans_today, itraffic_trans,
-                itraffic_trans_today, otraffic_unknown,
-                otraffic_unknown_today, itraffic_unknown,
-                itraffic_unknown_today;
+extern _Atomic uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
+                        itraffic_irc_today, otraffic_bn, otraffic_bn_today,
+                        itraffic_bn, itraffic_bn_today, otraffic_dcc,
+                        otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
+                        otraffic_trans, otraffic_trans_today, itraffic_trans,
+                        itraffic_trans_today, otraffic_unknown,
+                        otraffic_unknown_today, itraffic_unknown,
+                        itraffic_unknown_today;
 extern Tcl_Interp *interp;
 extern char botnetnick[], origbotname[], ver[], network[], owner[], quit_msg[];
 extern time_t now, online_since;
@@ -67,22 +67,24 @@ static int add_bot_hostmask(int idx, char *nick)
       memberlist *m = ismember(chan, nick);
 
       if (m) {
-        char s[UHOSTLEN+NICKLEN+5];
+        op_strbuf_t s;
         struct userrec *u;
 
-        snprintf(s, sizeof s, "%s!%s", m->nick, m->userhost);
-        u = get_user_by_host(s);
+        op_strbuf_printf(&s, "%s!%s", m->nick, m->userhost);
+        u = get_user_by_host((char *) op_strbuf_str(&s));
         if (u) {
+          op_strbuf_free(&s);
           dprintf(idx, "(Can't add hostmask for %s because it matches %s)\n",
                   nick, u->handle);
           return 0;
         }
         if (strchr("~^+=-", m->userhost[0]))
-          snprintf(s, sizeof s, "*!?%s", m->userhost + 1);
+          op_strbuf_reset(&s, "*!?%s", m->userhost + 1);
         else
-          snprintf(s, sizeof s, "*!%s", m->userhost);
+          op_strbuf_reset(&s, "*!%s", m->userhost);
         dprintf(idx, "(Added hostmask for %s from %s)\n", nick, chan->dname);
-        addhost_by_handle(nick, s);
+        addhost_by_handle(nick, (char *) op_strbuf_str(&s));
+        op_strbuf_free(&s);
         return 1;
       }
     }
@@ -91,18 +93,17 @@ static int add_bot_hostmask(int idx, char *nick)
 
 static void tell_who(struct userrec *u, int idx, int chan)
 {
-  int i, k, ok = 0, atr = u ? u->flags : 0;
-  int nicklen;
-  char format[81];
-  char s[1024]; /* temp fix - 1.4 has a better one */
+  int i, ok = 0, atr = u ? u->flags : 0;
+  int nicklen = 9;
 
   if (!chan)
     dprintf(idx, "%s (* = owner, + = master, %% = botmaster, @ = op, "
             "^ = halfop)\n", BOT_PARTYMEMBS);
   else {
-    snprintf(s, sizeof s, "assoc %d", chan);
+    op_strbuf_t assoccmd;
+    op_strbuf_printf(&assoccmd, "assoc %d", chan);
 #ifdef HAVE_TCL
-    if ((Tcl_Eval(interp, s) != TCL_OK) || tcl_resultempty())
+    if ((Tcl_Eval(interp, op_strbuf_str(&assoccmd)) != TCL_OK) || tcl_resultempty())
       dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
               "*", chan % GLOBAL_CHANS);
@@ -115,188 +116,174 @@ static void tell_who(struct userrec *u, int idx, int chan)
             "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
             "*", chan % GLOBAL_CHANS);
 #endif /* HAVE_TCL */
+    op_strbuf_free(&assoccmd);
   }
 
   /* calculate max nicklen */
-  nicklen = 0;
   for (i = 0; i < dcc_total; i++) {
-    if (strlen(dcc[i].nick) > nicklen)
-      nicklen = strlen(dcc[i].nick);
+    int nl = (int) strlen(dcc[i].nick);
+    if (nl > nicklen)
+      nicklen = nl;
   }
-  if (nicklen < 9)
-    nicklen = 9;
 
   for (i = 0; i < dcc_total; i++)
-    if (dcc[i].type == &DCC_CHAT)
-      if (dcc[i].u.chat->channel == chan) {
-        if (atr & USER_OWNER) {
-          snprintf(format, sizeof format, "  [%%.2lu]  %%c%%-%us %%s",
-                       nicklen);
-          snprintf(s, sizeof s, format, dcc[i].sock,
-                  (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick,
-                  dcc[i].host);
-        } else {
-          snprintf(format, sizeof format, "  %%c%%-%us %%s", nicklen);
-          snprintf(s, sizeof s, format,
-                  (geticon(i) == '-' ? ' ' : geticon(i)),
-                  dcc[i].nick, dcc[i].host);
-        }
-        if (atr & USER_MASTER) {
-          if (dcc[i].u.chat->con_flags)
-            op_snprintf_append(s, sizeof s, " (con:%s)",
-                    masktype(dcc[i].u.chat->con_flags));
-        }
-        if (now - dcc[i].timeval > 300) {
-          uint64_t days, hrs, mins;
-
-          days = (now - dcc[i].timeval) / 86400;
-          hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
-          mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
-          if (days > 0)
-            op_snprintf_append(s, sizeof s, " (idle %" PRIu64 "d%" PRIu64 "h)", days, hrs);
-          else if (hrs > 0)
-            op_snprintf_append(s, sizeof s, " (idle %" PRIu64 "h%" PRIu64 "m)", hrs, mins);
-          else
-            op_snprintf_append(s, sizeof s, " (idle %" PRIu64 "m)", mins);
-        }
-        dprintf(idx, "%s\n", s);
-        if (dcc[i].u.chat->away != NULL)
-          dprintf(idx, "      AWAY: %s\n", dcc[i].u.chat->away);
+    if (dcc[i].type == &DCC_CHAT && dcc[i].u.chat->channel == chan) {
+      char icon = (geticon(i) == '-') ? ' ' : geticon(i);
+      op_strbuf_t s;
+      if (atr & USER_OWNER)
+        op_strbuf_printf(&s, "  [%02lu]  %c%-*s %s", dcc[i].sock, icon,
+                         nicklen, dcc[i].nick, dcc[i].host);
+      else
+        op_strbuf_printf(&s, "  %c%-*s %s", icon, nicklen, dcc[i].nick,
+                         dcc[i].host);
+      if ((atr & USER_MASTER) && dcc[i].u.chat->con_flags)
+        op_strbuf_appendf(&s, " (con:%s)", masktype(dcc[i].u.chat->con_flags));
+      if (now - dcc[i].timeval > 300) {
+        uint64_t elapsed = (uint64_t)(now - dcc[i].timeval);
+        uint64_t days = elapsed / 86400;
+        uint64_t hrs  = (elapsed % 86400) / 3600;
+        uint64_t mins = (elapsed % 3600) / 60;
+        if (days > 0)
+          op_strbuf_appendf(&s, " (idle %" PRIu64 "d%" PRIu64 "h)", days, hrs);
+        else if (hrs > 0)
+          op_strbuf_appendf(&s, " (idle %" PRIu64 "h%" PRIu64 "m)", hrs, mins);
+        else
+          op_strbuf_appendf(&s, " (idle %" PRIu64 "m)", mins);
       }
+      dprintf(idx, "%s\n", op_strbuf_str(&s));
+      op_strbuf_free(&s);
+      if (dcc[i].u.chat->away != NULL)
+        dprintf(idx, "      AWAY: %s\n", dcc[i].u.chat->away);
+    }
+
   for (i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_BOT) {
+      char timebuf[14];
+      const char *dir  = (dcc[i].status & STAT_CALLED) ? "<-" : "->";
+      char        flag = (dcc[i].status & STAT_SHARE)  ? '+' : ' ';
       if (!ok) {
         ok = 1;
         dprintf(idx, "Bots connected:\n");
       }
-      strftime(s, 14, "%d %b %H:%M", localtime(&dcc[i].timeval));
-      if (atr & USER_OWNER) {
-        snprintf(format, sizeof format,
-                     "  [%%.2lu]  %%s%%c%%-%us (%%s) %%s\n", nicklen);
-        dprintf(idx, format, dcc[i].sock,
-                dcc[i].status & STAT_CALLED ? "<-" : "->",
-                dcc[i].status & STAT_SHARE ? '+' : ' ', dcc[i].nick, s,
+      strftime(timebuf, sizeof timebuf, "%d %b %H:%M", localtime(&dcc[i].timeval));
+      if (atr & USER_OWNER)
+        dprintf(idx, "  [%02lu]  %s%c%-*s (%s) %s\n", dcc[i].sock,
+                dir, flag, nicklen, dcc[i].nick, timebuf,
                 dcc[i].u.bot->version);
-      } else {
-        snprintf(format, sizeof format, "  %%s%%c%%-%us (%%s) %%s\n",
-                     nicklen);
-        dprintf(idx, format, dcc[i].status & STAT_CALLED ? "<-" : "->",
-                dcc[i].status & STAT_SHARE ? '+' : ' ', dcc[i].nick, s,
-                dcc[i].u.bot->version);
-      }
+      else
+        dprintf(idx, "  %s%c%-*s (%s) %s\n", dir, flag, nicklen,
+                dcc[i].nick, timebuf, dcc[i].u.bot->version);
     }
+
   ok = 0;
   for (i = 0; i < dcc_total; i++) {
-    if ((dcc[i].type == &DCC_CHAT) && (dcc[i].u.chat->channel != chan)) {
+    if (dcc[i].type == &DCC_CHAT && dcc[i].u.chat->channel != chan) {
+      char icon = (geticon(i) == '-') ? ' ' : geticon(i);
+      op_strbuf_t s;
       if (!ok) {
         ok = 1;
         dprintf(idx, "Other people on the bot:\n");
       }
-      if (atr & USER_OWNER) {
-        snprintf(format, sizeof format, "  [%%.2lu]  %%c%%-%us ", nicklen);
-        snprintf(s, sizeof s, format, dcc[i].sock,
-                (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick);
-      } else {
-        snprintf(format, sizeof format, "  %%c%%-%us ", nicklen);
-        snprintf(s, sizeof s, format, (geticon(i) == '-' ? ' ' : geticon(i)), dcc[i].nick);
-      }
+      if (atr & USER_OWNER)
+        op_strbuf_printf(&s, "  [%02lu]  %c%-*s ", dcc[i].sock, icon,
+                         nicklen, dcc[i].nick);
+      else
+        op_strbuf_printf(&s, "  %c%-*s ", icon, nicklen, dcc[i].nick);
       if (atr & USER_MASTER) {
         if (dcc[i].u.chat->channel < 0)
-          strlcat(s, "(-OFF-) ", sizeof s);
+          op_strbuf_append_cstr(&s, "(-OFF-) ");
         else if (!dcc[i].u.chat->channel)
-          strlcat(s, "(party) ", sizeof s);
+          op_strbuf_append_cstr(&s, "(party) ");
         else
-          op_snprintf_append(s, sizeof s, "(%5d) ", dcc[i].u.chat->channel);
+          op_strbuf_appendf(&s, "(%5d) ", dcc[i].u.chat->channel);
       }
-      strlcat(s, dcc[i].host, sizeof s);
-      if (atr & USER_MASTER) {
-        if (dcc[i].u.chat->con_flags)
-          op_snprintf_append(s, sizeof s, " (con:%s)",
-                  masktype(dcc[i].u.chat->con_flags));
-      }
+      op_strbuf_append_cstr(&s, dcc[i].host);
+      if ((atr & USER_MASTER) && dcc[i].u.chat->con_flags)
+        op_strbuf_appendf(&s, " (con:%s)", masktype(dcc[i].u.chat->con_flags));
       if (now - dcc[i].timeval > 300) {
-        k = (now - dcc[i].timeval) / 60;
+        int k = (int)((now - dcc[i].timeval) / 60);
         if (k < 60)
-          op_snprintf_append(s, sizeof s, " (idle %dm)", k);
+          op_strbuf_appendf(&s, " (idle %dm)", k);
         else
-          op_snprintf_append(s, sizeof s, " (idle %dh%dm)", k / 60, k % 60);
+          op_strbuf_appendf(&s, " (idle %dh%dm)", k / 60, k % 60);
       }
-      dprintf(idx, "%s\n", s);
+      dprintf(idx, "%s\n", op_strbuf_str(&s));
+      op_strbuf_free(&s);
       if (dcc[i].u.chat->away != NULL)
         dprintf(idx, "      AWAY: %s\n", dcc[i].u.chat->away);
     }
     if ((atr & USER_MASTER) && (dcc[i].type->flags & DCT_SHOWWHO) &&
         (dcc[i].type != &DCC_CHAT)) {
+      char flag = (dcc[i].status & STAT_CHAT) ? '+' : ' ';
       if (!ok) {
         ok = 1;
         dprintf(idx, "Other people on the bot:\n");
       }
-      if (atr & USER_OWNER) {
-        snprintf(format, sizeof format, "  [%%.2lu]  %%c%%-%us (files) %%s",
-                     nicklen);
-        snprintf(s, sizeof(s), format,
-                dcc[i].sock, dcc[i].status & STAT_CHAT ? '+' : ' ',
-                dcc[i].nick, dcc[i].host);
-      } else {
-        snprintf(format, sizeof format, "  %%c%%-%us (files) %%s", nicklen);
-        snprintf(s, sizeof(s), format,
-                dcc[i].status & STAT_CHAT ? '+' : ' ',
-                dcc[i].nick, dcc[i].host);
-      }
-      dprintf(idx, "%s\n", s);
+      if (atr & USER_OWNER)
+        dprintf(idx, "  [%02lu]  %c%-*s (files) %s\n", dcc[i].sock, flag,
+                nicklen, dcc[i].nick, dcc[i].host);
+      else
+        dprintf(idx, "  %c%-*s (files) %s\n", flag, nicklen, dcc[i].nick,
+                dcc[i].host);
     }
   }
 }
 
 static void cmd_botinfo(struct userrec *u, int idx, char *par)
 {
-  char s[512], s2[32];
   struct chanset_t *chan;
-  time_t now2;
+  time_t now2 = now - online_since;
   int hr, min;
 
-  now2 = now - online_since;
-  s2[0] = 0;
+  /* Build uptime string */
+  op_strbuf_t s2;
+  op_strbuf_init(&s2);
   if (now2 > 86400) {
-    int days = now2 / 86400;
-
-    /* Days */
-    snprintf(s2, sizeof(s2), "%d day", days);
-    if (days >= 2)
-      strlcat(s2, "s", sizeof s2);
-    strlcat(s2, ", ", sizeof s2);
-    now2 -= days * 86400;
+    int days = (int)(now2 / 86400);
+    op_strbuf_appendf(&s2, "%d day%s, ", days, days >= 2 ? "s" : "");
+    now2 -= (time_t)days * 86400;
   }
-  hr = (time_t) ((int) now2 / 3600);
-  now2 -= (hr * 3600);
-  min = (time_t) ((int) now2 / 60);
-  op_snprintf_append(s2, sizeof(s2), "%02d:%02d", (int) hr, (int) min);
+  hr  = (int)(now2 / 3600);
+  min = (int)((now2 % 3600) / 60);
+  op_strbuf_appendf(&s2, "%02d:%02d", hr, min);
+
   putlog(LOG_CMDS, "*", "#%s# botinfo", dcc[idx].nick);
-  snprintf(s, sizeof s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
-  botnet_send_infoq(-1, s);
-  s[0] = 0;
+
+  op_strbuf_t infokey;
+  op_strbuf_printf(&infokey, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+  botnet_send_infoq(-1, op_strbuf_str(&infokey));
+  op_strbuf_free(&infokey);
+
   if (module_find("server", 0, 0)) {
+    op_strbuf_t chanlist;
+    op_strbuf_init(&chanlist);
+    bool truncated = false;
     for (chan = chanset; chan; chan = chan->next) {
       if (!channel_secret(chan)) {
-        if ((strlen(s) + strlen(chan->dname) + strlen(network)
-             + strlen(botnetnick) + strlen(ver) + 1) >= 490) {
-          strlcat(s, "++  ", sizeof s);
-          break;                /* yeesh! */
+        /* Leave room for botnetnick, ver, network and protocol overhead */
+        if (op_strbuf_len(&chanlist) + strlen(chan->dname) + strlen(network)
+            + strlen(botnetnick) + strlen(ver) + 1 >= 490) {
+          op_strbuf_append_cstr(&chanlist, "++  ");
+          truncated = true;
+          break;
         }
-        strlcat(s, chan->dname, sizeof s);
-        strlcat(s, ", ", sizeof s);
+        op_strbuf_appendf(&chanlist, "%s, ", chan->dname);
       }
     }
+    if (!truncated && op_strbuf_len(&chanlist) >= 2)
+      op_strbuf_truncate(&chanlist, op_strbuf_len(&chanlist) - 2);
 
-    if (s[0]) {
-      s[strlen(s) - 2] = 0;
-      dprintf(idx, "*** [%s] %s <%s> (%s) [UP %s]\n", botnetnick,
-              ver, network, s, s2);
-    } else
-      dprintf(idx, "*** [%s] %s <%s> (%s) [UP %s]\n", botnetnick,
-              ver, network, BOT_NOCHANNELS, s2);
+    if (!op_strbuf_empty(&chanlist))
+      dprintf(idx, "*** [%s] %s <%s> (%s) [UP %s]\n", botnetnick, ver,
+              network, op_strbuf_str(&chanlist), op_strbuf_str(&s2));
+    else
+      dprintf(idx, "*** [%s] %s <%s> (%s) [UP %s]\n", botnetnick, ver,
+              network, BOT_NOCHANNELS, op_strbuf_str(&s2));
+    op_strbuf_free(&chanlist);
   } else
-    dprintf(idx, "*** [%s] %s <NO_IRC> [UP %s]\n", botnetnick, ver, s2);
+    dprintf(idx, "*** [%s] %s <NO_IRC> [UP %s]\n", botnetnick, ver,
+            op_strbuf_str(&s2));
+  op_strbuf_free(&s2);
 }
 
 static void cmd_whom(struct userrec *u, int idx, char *par)
@@ -375,13 +362,13 @@ static void cmd_motd(struct userrec *u, int idx, char *par)
       if (i < 0)
         dprintf(idx, "That bot isn't connected.\n");
       else {
-        char x[40];
-
-        snprintf(x, sizeof x, "%s%ld:%s@%s",
-                       (u->flags & USER_HIGHLITE) ?
-                       ((dcc[idx].status & STAT_TELNET) ? "#" : "!") : "",
-                       dcc[idx].sock, dcc[idx].nick, botnetnick);
-        botnet_send_motd(i, x, par);
+        const char *hl = (u->flags & USER_HIGHLITE) ?
+                         ((dcc[idx].status & STAT_TELNET) ? "#" : "!") : "";
+        op_strbuf_t x;
+        op_strbuf_printf(&x, "%s%ld:%s@%s", hl, dcc[idx].sock, dcc[idx].nick,
+                         botnetnick);
+        botnet_send_motd(i, op_strbuf_str(&x), par);
+        op_strbuf_free(&x);
       }
     }
   } else {
@@ -532,10 +519,10 @@ static void cmd_who(struct userrec *u, int idx, char *par)
       } else if (dcc[idx].u.chat->channel >= GLOBAL_CHANS)
         dprintf(idx, "You are on a local channel.\n");
       else {
-        char s[40];
-
-        snprintf(s, sizeof s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
-        botnet_send_who(i, s, par, dcc[idx].u.chat->channel);
+        op_strbuf_t s;
+        op_strbuf_printf(&s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+        botnet_send_who(i, op_strbuf_str(&s), par, dcc[idx].u.chat->channel);
+        op_strbuf_free(&s);
       }
     }
   } else {
@@ -1385,24 +1372,23 @@ static void cmd_reload(struct userrec *u, int idx, char *par)
   reload();
 }
 
-void cmd_die(struct userrec *u, int idx, char *par)
+[[noreturn]] void cmd_die(struct userrec *u, int idx, char *par)
 {
-  char s1[1024], s2[1024];
-
   putlog(LOG_CMDS, "*", "#%s# die %s", dcc[idx].nick, par);
+  op_strbuf_t s1, s2;
   if (par[0]) {
-    snprintf(s1, sizeof s1, "BOT SHUTDOWN (%s: %s)", dcc[idx].nick, par);
-    snprintf(s2, sizeof s2, "DIE BY %s!%s (%s)", dcc[idx].nick,
-                 dcc[idx].host, par);
+    op_strbuf_printf(&s1, "BOT SHUTDOWN (%s: %s)", dcc[idx].nick, par);
+    op_strbuf_printf(&s2, "DIE BY %s!%s (%s)", dcc[idx].nick, dcc[idx].host, par);
     strlcpy(quit_msg, par, 1024);
   } else {
-    snprintf(s1, sizeof s1, "BOT SHUTDOWN (Authorized by %s)",
-                 dcc[idx].nick);
-    snprintf(s2, sizeof s2, "DIE BY %s!%s (request)", dcc[idx].nick,
-                 dcc[idx].host);
+    op_strbuf_printf(&s1, "BOT SHUTDOWN (Authorized by %s)", dcc[idx].nick);
+    op_strbuf_printf(&s2, "DIE BY %s!%s (request)", dcc[idx].nick, dcc[idx].host);
     strlcpy(quit_msg, dcc[idx].nick, 1024);
   }
-  kill_bot(s1, s2);
+  kill_bot(op_strbuf_str(&s1), op_strbuf_str(&s2));
+  /* kill_bot() is [[noreturn]], but free anyway for correctness */
+  op_strbuf_free(&s1);
+  op_strbuf_free(&s2);
 }
 
 static void cmd_debug(struct userrec *u, int idx, char *par)
@@ -1457,15 +1443,15 @@ static void cmd_link(struct userrec *u, int idx, char *par)
   if (!par[0] || !strcasecmp(par, botnetnick))
     botlink(dcc[idx].nick, idx, s);
   else {
-    char x[40];
-
     i = nextbot(s);
     if (i < 0) {
       dprintf(idx, "No such bot online.\n");
       return;
     }
-    snprintf(x, sizeof x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
-    botnet_send_link(i, x, s, par);
+    op_strbuf_t x;
+    op_strbuf_printf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+    botnet_send_link(i, op_strbuf_str(&x), s, par);
+    op_strbuf_free(&x);
   }
 }
 
@@ -1491,10 +1477,10 @@ static void cmd_unlink(struct userrec *u, int idx, char *par)
   if (!strcasecmp(dcc[i].nick, bot))
     botunlink(idx, bot, par, dcc[i].nick);
   else {
-    char x[40];
-
-    snprintf(x, sizeof x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
-    botnet_send_unlink(i, x, lastbot(bot), bot, par);
+    op_strbuf_t x;
+    op_strbuf_printf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+    botnet_send_unlink(i, op_strbuf_str(&x), lastbot(bot), bot, par);
+    op_strbuf_free(&x);
   }
 }
 
@@ -1525,8 +1511,6 @@ static void cmd_backup(struct userrec *u, int idx, char *par)
 static void cmd_trace(struct userrec *u, int idx, char *par)
 {
   int i;
-  char x[NOTENAMELEN + 11], y[22];
-
   if (!par[0]) {
     dprintf(idx, "Usage: trace <botname>\n");
     return;
@@ -1541,9 +1525,12 @@ static void cmd_trace(struct userrec *u, int idx, char *par)
     return;
   }
   putlog(LOG_CMDS, "*", "#%s# trace %s", dcc[idx].nick, par);
-  snprintf(x, sizeof x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
-  snprintf(y, sizeof y, ":%" PRId64, (int64_t) now);
-  botnet_send_trace(i, x, par, y);
+  op_strbuf_t x, y;
+  op_strbuf_printf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+  op_strbuf_printf(&y, ":%" PRId64, (int64_t) now);
+  botnet_send_trace(i, op_strbuf_str(&x), par, op_strbuf_str(&y));
+  op_strbuf_free(&x);
+  op_strbuf_free(&y);
 }
 
 static void cmd_binds(struct userrec *u, int idx, char *par)
@@ -1554,17 +1541,15 @@ static void cmd_binds(struct userrec *u, int idx, char *par)
 
 static void cmd_banner(struct userrec *u, int idx, char *par)
 {
-  char s[1024];
   int i;
 
   if (!par[0]) {
     dprintf(idx, "Usage: banner <message>\n");
     return;
   }
-  snprintf(s, sizeof s, "\007### Botwide: [%s] %s\n", dcc[idx].nick, par);
   for (i = 0; i < dcc_total; i++)
     if (dcc[i].type->flags & DCT_MASTER)
-      dprintf(i, "%s", s);
+      dprintf(i, "\007### Botwide: [%s] %s\n", dcc[idx].nick, par);
 }
 
 /* After messing with someone's user flags, make sure the dcc-chat flags
@@ -2134,10 +2119,11 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
         return;
       }
     } else if (arg && !strpbrk(chg, "&|")) {
-      size_t tmpchg_sz = strlen(chg) + 2;
-      tmpchg = nmalloc(tmpchg_sz);
-      strlcpy(tmpchg, "|", tmpchg_sz);
-      strlcat(tmpchg, chg, tmpchg_sz);
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "|%s", chg);
+      tmpchg = nmalloc(op_strbuf_len(&_b) + 1);
+      strlcpy(tmpchg, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
       chg = tmpchg;
     }
   }
@@ -2330,10 +2316,11 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
         return;
       }
     } else if (arg && !strpbrk(chg, "&|")) {
-      size_t tmpchg_sz = strlen(chg) + 2;
-      tmpchg = nmalloc(tmpchg_sz);
-      strlcpy(tmpchg, "|", tmpchg_sz);
-      strlcat(tmpchg, chg, tmpchg_sz);
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "|%s", chg);
+      tmpchg = nmalloc(op_strbuf_len(&_b) + 1);
+      strlcpy(tmpchg, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
+      op_strbuf_free(&_b);
       chg = tmpchg;
     }
   }
@@ -2627,20 +2614,22 @@ const char *stripmasktype(int x)
 static char *stripmaskname(int x)
 {
   static char s[128];
-  int i;
+  op_strbuf_t _b;
 
-  if ((i = snprintf(s, sizeof s, "%s%s%s%s%s%s%s%s",
-                    (x & STRIP_COLOR) ? "color, " : "",
-                    (x & STRIP_BOLD) ? "bold, " : "",
-                    (x & STRIP_REVERSE) ? "reverse, " : "",
-                    (x & STRIP_UNDERLINE) ? "underline, " : "",
-                    (x & STRIP_ANSI) ? "ansi, " : "",
-                    (x & STRIP_BELLS) ? "bells, " : "",
-                    (x & STRIP_ORDINARY) ? "ordinary, " : "",
-                    (x & STRIP_ITALICS) ? "italics, " : "")))
-    s[i - 2] = 0;
+  op_strbuf_init(&_b);
+  if (x & STRIP_COLOR)     op_strbuf_append_cstr(&_b, "color, ");
+  if (x & STRIP_BOLD)      op_strbuf_append_cstr(&_b, "bold, ");
+  if (x & STRIP_REVERSE)   op_strbuf_append_cstr(&_b, "reverse, ");
+  if (x & STRIP_UNDERLINE) op_strbuf_append_cstr(&_b, "underline, ");
+  if (x & STRIP_ANSI)      op_strbuf_append_cstr(&_b, "ansi, ");
+  if (x & STRIP_BELLS)     op_strbuf_append_cstr(&_b, "bells, ");
+  if (x & STRIP_ORDINARY)  op_strbuf_append_cstr(&_b, "ordinary, ");
+  if (x & STRIP_ITALICS)   op_strbuf_append_cstr(&_b, "italics, ");
+  if (op_strbuf_len(&_b))
+    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) - 1);
   else
-    strlcpy(s, "none", sizeof(s));
+    strlcpy(s, "none", sizeof s);
+  op_strbuf_free(&_b);
   return s;
 }
 
@@ -2774,10 +2763,11 @@ static void cmd_su(struct userrec *u, int idx, char *par)
         strlcpy(dcc[idx].nick, par, sizeof(dcc[idx].nick));
         /* Display password prompt and turn off echo (send IAC WILL ECHO). */
         if (dcc[idx].status & STAT_TELNET) {
-          char buf[512];
-          snprintf(buf, sizeof buf, "Enter password for %s" TLN_IAC_C TLN_WILL_C
-                   TLN_ECHO_C "\r\n", par);
-          tputs(dcc[idx].sock, buf, strlen(buf));
+          op_strbuf_t buf;
+          op_strbuf_printf(&buf, "Enter password for %s" TLN_IAC_C TLN_WILL_C
+                           TLN_ECHO_C "\r\n", par);
+          tputs(dcc[idx].sock, (char *) op_strbuf_str(&buf), op_strbuf_len(&buf));
+          op_strbuf_free(&buf);
         } else
           dprintf(idx, "Enter password for %s\n", par);
         dcc[idx].type = &DCC_CHAT_PASS;
@@ -2915,8 +2905,12 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
     dumplots(idx, "Global vars: ", tcl_resultstring());
     return;
   }
-  strlcpy(s, "set ", sizeof(s));
-  strlcpy(s + 4, msg, (sizeof s) - 4);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "set %s", msg);
+    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strbuf_free(&_b);
+  }
   code = Tcl_Eval(interp, s);
 
   /* properly convert string to system encoding. */
@@ -2989,7 +2983,8 @@ static void cmd_unloadmod(struct userrec *u, int idx, char *par)
 
 static void cmd_pls_ignore(struct userrec *u, int idx, char *par)
 {
-  char *who, s[UHOSTLEN], *p, *p_expire;
+  char *who, *p, *p_expire;
+  op_strbuf_t s;
   long expire_foo;
   uint64_t expire_time = 0;
 
@@ -3050,21 +3045,24 @@ static void cmd_pls_ignore(struct userrec *u, int idx, char *par)
   /* Fix missing ! or @ BEFORE continuing */
   if (!strchr(who, '!')) {
     if (!strchr(who, '@'))
-      snprintf(s, sizeof s, "%s!*@*", who);
+      op_strbuf_printf(&s, "%s!*@*", who);
     else
-      snprintf(s, sizeof s, "*!%s", who);
+      op_strbuf_printf(&s, "*!%s", who);
   } else if (!strchr(who, '@'))
-    snprintf(s, sizeof s, "%s@*", who);
+    op_strbuf_printf(&s, "%s@*", who);
   else
-    strlcpy(s, who, sizeof(s));
+    op_strbuf_printf(&s, "%s", who);
 
-  if (match_ignore(s))
+  if (match_ignore(op_strbuf_str(&s)))
     dprintf(idx, "That already matches an existing ignore.\n");
   else {
-    dprintf(idx, "Now ignoring: %s (%s)\n", s, par);
-    addignore(s, dcc[idx].nick, par, expire_time ? now + expire_time : 0L);
-    putlog(LOG_CMDS, "*", "#%s# +ignore %s %s", dcc[idx].nick, s, par);
+    dprintf(idx, "Now ignoring: %s (%s)\n", op_strbuf_str(&s), par);
+    addignore(op_strbuf_str(&s), dcc[idx].nick, par,
+              expire_time ? now + expire_time : 0L);
+    putlog(LOG_CMDS, "*", "#%s# +ignore %s %s", dcc[idx].nick,
+           op_strbuf_str(&s), par);
   }
+  op_strbuf_free(&s);
 }
 
 static void cmd_mns_ignore(struct userrec *u, int idx, char *par)
@@ -3334,10 +3332,17 @@ static char *btos(uint64_t bytes)
     unit = "TBytes";
     xbytes = xbytes / 1024.0;
   }
-  if (bytes > 1024)
-    snprintf(traffictxt, sizeof(traffictxt), "%.2f %s", xbytes, unit);
-  else
-    snprintf(traffictxt, sizeof(traffictxt), "%" PRIu64 " Bytes", bytes);
+  if (bytes > 1024) {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%.2f %s", xbytes, unit);
+    strlcpy(traffictxt, op_strbuf_str(&_b), sizeof traffictxt);
+    op_strbuf_free(&_b);
+  } else {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%" PRIu64 " Bytes", bytes);
+    strlcpy(traffictxt, op_strbuf_str(&_b), sizeof traffictxt);
+    op_strbuf_free(&_b);
+  }
   return traffictxt;
 }
 

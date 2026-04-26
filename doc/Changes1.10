@@ -1,8 +1,75 @@
 
-Eggdrop Changes (Last Updated 2026-03-16):
+Eggdrop Changes (Last Updated 2026-04-26):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-04-26 * source: full C23 modernisation of the entire codebase.
+               All source files updated to C23: variables declared at
+               first use, `constexpr` for compile-time constants, `bool`
+               flags replacing `int ok`/`int found` idioms, and `for`-init
+               declarations throughout.  Dead variables and unreachable code
+               removed from every module.  Affected files include botcmd.c,
+               botmsg.c, botnet.c, chanprog.c, cmds.c, dcc.c, dccutil.c,
+               misc.c, misc_file.c, tcl.c, tclhash.c, tclmisc.c, userrec.c,
+               users.c, configtoml.c, and all modules: channels.mod,
+               filesys.mod, irc.mod, notes.mod, server.mod, transfer.mod,
+               and console.mod.
+               [Patch by: devinkbrown]
+
+  2026-04-26 * source: wire op_strbuf_t (libop) through all string-building
+               sites in the core and every module.  Every snprintf/sprintf
+               pattern replaced with op_strbuf_t — dynamic string builder
+               with SSO — using op_strbuf_printf, op_strbuf_appendf,
+               op_strbuf_append_cstr, and op_strbuf_str.  No stack-size
+               guessing; no truncation.  Affected files: botcmd.c, botmsg.c,
+               cmds.c, dcc.c, dccutil.c, misc.c, userrec.c, users.c, and
+               all module source files listed above.
+               [Patch by: devinkbrown]
+
+  2026-04-26 * source: propagate const correctness across function signatures.
+               Functions that only read string arguments updated to accept
+               `const char *`: misc_file.c (copyfile, movefile, file_readable,
+               copyfilef, fcopyfile), misc.c (kill_bot, maskaddr,
+               scan_help_file), tcl.c (do_tcl), tclhash.c (check_tcl_die),
+               users.c (match_ignore, addignore), dcc.c
+               (dcc_telnet_got_ident), botmsg.c (botnet_send_chat,
+               botnet_send_who, botnet_send_unlinked, botnet_send_infoq,
+               botnet_send_traced, botnet_send_trace, botnet_send_unlink,
+               botnet_send_link, botnet_send_motd), server.mod
+               (check_tcl_stdreply context param), and all corresponding
+               header declarations in tandem.h, misc_file.h, proto.h,
+               tclhash.h.  tclegg.h: cd_tcl_cmd.name changed to
+               `const char *`.  Call sites that pass op_strbuf_str() results
+               to functions with legacy char * ABI use explicit casts.
+               [Patch by: devinkbrown]
+
+  2026-04-26 * bugfix: channels.mod write_channels: temp filename built with
+               op_strbuf_t was freed before movefile() consumed it, leaving
+               a dangling pointer.  Fixed by copying the path into a
+               stack-local `char tmpfile[PATH_MAX]` before freeing the
+               strbuf.
+               [Patch by: devinkbrown]
+
+  2026-04-26 * bugfix: notes.mod: NOTES_EXPIRE_XDAYS is a get_language()
+               call (a format string), not a string literal.  Concatenating
+               it with a string literal via adjacent-string syntax produced
+               an "called object is not a function" compile error.  Fixed by
+               splitting into op_strbuf_printf() + op_strbuf_appendf() calls.
+               [Patch by: devinkbrown]
+
+  2026-04-26 * bugfix: irc.mod msgcmds.c: local variable `int days` collided
+               with the `days` macro defined in module.h (function pointer
+               via global[133]).  The macro expansion turned arithmetic
+               expressions into "invalid operands to binary *" errors.
+               Renamed to `int d` throughout the affected function.
+               [Patch by: devinkbrown]
+
+  2026-04-26 * bugfix: botcmd.c bot_chan2: variable `i` was used in
+               `i = nextbot(p)` without being declared — a latent bug
+               introduced when TBUF was removed in a prior session.  Added
+               `int i` declaration at point of first use.
+               [Patch by: devinkbrown]
 
   2026-03-16 * configtoml: fix [paths] chanfile (and other module-registered
                variables) being silently dropped when [paths] appears before

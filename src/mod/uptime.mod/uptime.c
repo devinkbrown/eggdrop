@@ -218,7 +218,12 @@ static int send_uptime(void)
                              * is always good.
                              */
   memcpy(mem, &upPack, sizeof(upPack));
-  snprintf(mem->string, sizeof(mem->string), "%s %s %s", botnetnick, servhost, uptime_version);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s %s %s", botnetnick, servhost, uptime_version);
+    strlcpy(mem->string, op_strbuf_str(&_b), sizeof(mem->string));
+    op_strbuf_free(&_b);
+  }
   egg_bzero(&sai, sizeof(sai));
   sai.sin_family = AF_INET;
   sai.sin_addr.s_addr = uptimeip;

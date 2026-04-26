@@ -49,18 +49,18 @@
  *       You should leave this at 32 characters and modify nick-len in the
  *       configuration file instead.
  */
-#define CHANNELLEN 200 /* RFC 1459 allows up to 200 chars; see issue #3 and #38 */
-#define HANDLEN    32 /* valid values 9->NICKMAX                             */
-#define NICKMAX    32 /* valid values HANDLEN->32                            */
-#define USERLEN    10
+constexpr int CHANNELLEN = 200; /* RFC 1459 allows up to 200 chars; see issue #3 and #38 */
+#define HANDLEN    32 /* valid values 9->NICKMAX; used in #if guards — keep as #define */
+#define NICKMAX    32 /* valid values HANDLEN->32; used in #if guards — keep as #define */
+constexpr int USERLEN    = 10;
 
 
 /* Handy string lengths */
-#define HOSTMAX     63            /* DNS RFC 1035, IRC RFC 2812          */
-#define UHOSTMAX    291 + NICKMAX /* 32 (ident) + 3 (\0, !, @) + NICKMAX */
-#define DIRMAX      512           /* paranoia                            */
-#define LOGLINEMAX  9000          /* for misc.c/putlog() <cybah>         */
-#define READMAX     16384         /* for read() and SSL_read()           */
+constexpr int HOSTMAX    =  63;           /* DNS RFC 1035, IRC RFC 2812          */
+constexpr int UHOSTMAX   = 291 + NICKMAX; /* 32 (ident) + 3 (\0, !, @) + NICKMAX */
+constexpr int DIRMAX     = 512;           /* paranoia                            */
+constexpr int LOGLINEMAX = 9000;          /* for misc.c/putlog() <cybah>         */
+constexpr int READMAX    = 16384;         /* for read() and SSL_read()           */
 
 /* Invalid characters */
 #define BADHANDCHARS "-,+*=:!.@#;$%&"
@@ -81,13 +81,13 @@
 /* The 'configure' script should make this next part automatic, so you
  * shouldn't need to adjust anything below.
  */
-#define NICKLEN     NICKMAX + 1
-#define UHOSTLEN    UHOSTMAX + 1
-#define DIRLEN      DIRMAX + 1
-#define LOGLINELEN  LOGLINEMAX + 1
-#define NOTENAMELEN ((HANDLEN * 2) + 1)
-#define PASSWORDMAX 30 /* highest value compatible to older eggdrop */
-#define PASSWORDLEN PASSWORDMAX + 1
+constexpr int NICKLEN     = NICKMAX + 1;
+constexpr int UHOSTLEN    = UHOSTMAX + 1;
+constexpr int DIRLEN      = DIRMAX + 1;
+constexpr int LOGLINELEN  = LOGLINEMAX + 1;
+constexpr int NOTENAMELEN = (HANDLEN * 2) + 1;
+constexpr int PASSWORDMAX = 30; /* highest value compatible to older eggdrop */
+constexpr int PASSWORDLEN = PASSWORDMAX + 1;
 
 #ifdef HAVE_UNISTD_H
 #  include <unistd.h>
@@ -481,8 +481,8 @@ struct dns_info {
 };
 
 /* Flags for dns_type. */
-#define RES_HOSTBYIP  1         /* hostname to IP address               */
-#define RES_IPBYHOST  2         /* IP address to hostname               */
+constexpr int RES_HOSTBYIP = 1; /* hostname to IP address */
+constexpr int RES_IPBYHOST = 2; /* IP address to hostname */
 
 struct dupwait_info {
   int atr;                      /* the bots attributes                  */
@@ -490,80 +490,75 @@ struct dupwait_info {
 };
 
 /* Flags for dcc types. */
-#define DCT_CHAT      0x00000001        /* this dcc type receives botnet
-                                         * chatter                          */
-#define DCT_MASTER    0x00000002        /* received master chatter          */
-#define DCT_SHOWWHO   0x00000004        /* show the user in .who            */
-#define DCT_REMOTEWHO 0x00000008        /* show in remote who               */
-#define DCT_VALIDIDX  0x00000010        /* valid idx for outputting to
-                                         * in tcl                           */
-#define DCT_SIMUL     0x00000020        /* can be tcl_simul'd               */
-#define DCT_CANBOOT   0x00000040        /* can be booted                    */
-#define DCT_GETNOTES  DCT_CHAT          /* can receive notes                */
-#define DCT_FILES     0x00000080        /* gratuitous hack ;)               */
-#define DCT_FORKTYPE  0x00000100        /* a forking type                   */
-#define DCT_BOT       0x00000200        /* a bot connection of some sort... */
-#define DCT_FILETRAN  0x00000400        /* a file transfer of some sort     */
-#define DCT_FILESEND  0x00000800        /* a sending file transfer,
-                                         * getting = !this                  */
-#define DCT_LISTEN    0x00001000        /* a listening port of some sort    */
+constexpr int DCT_CHAT      = 0x00000001; /* this dcc type receives botnet chatter */
+constexpr int DCT_MASTER    = 0x00000002; /* received master chatter               */
+constexpr int DCT_SHOWWHO   = 0x00000004; /* show the user in .who                 */
+constexpr int DCT_REMOTEWHO = 0x00000008; /* show in remote who                    */
+constexpr int DCT_VALIDIDX  = 0x00000010; /* valid idx for outputting to in tcl    */
+constexpr int DCT_SIMUL     = 0x00000020; /* can be tcl_simul'd                    */
+constexpr int DCT_CANBOOT   = 0x00000040; /* can be booted                         */
+constexpr int DCT_GETNOTES  = DCT_CHAT;   /* can receive notes                     */
+constexpr int DCT_FILES     = 0x00000080; /* gratuitous hack ;)                    */
+constexpr int DCT_FORKTYPE  = 0x00000100; /* a forking type                        */
+constexpr int DCT_BOT       = 0x00000200; /* a bot connection of some sort...      */
+constexpr int DCT_FILETRAN  = 0x00000400; /* a file transfer of some sort          */
+constexpr int DCT_FILESEND  = 0x00000800; /* a sending file transfer (getting = !this) */
+constexpr int DCT_LISTEN    = 0x00001000; /* a listening port of some sort         */
 
 /* For dcc chat & files. */
-#define STAT_ECHO    0x00001    /* echo commands back?                  */
-#define STAT_FPRINT  0x00002    /* fingerprint auth (ignore password &
-                                 * allow access)                        */
-#define STAT_CHAT    0x00004    /* in file-system but may return        */
-#define STAT_TELNET  0x00008    /* connected via telnet                 */
-#define STAT_PARTY   0x00010    /* only on party line via 'p' flag      */
-#define STAT_BOTONLY 0x00020    /* telnet on bots-only connect          */
-#define STAT_USRONLY 0x00040    /* telnet on users-only connect         */
-#define STAT_PAGE    0x00080    /* page output to the user              */
-#define STAT_SERV    0x00100    /* this is a server connection          */
-#define STAT_WS      0x00200    /* webui websocket                      */
+constexpr int STAT_ECHO    = 0x00001; /* echo commands back?                     */
+constexpr int STAT_FPRINT  = 0x00002; /* fingerprint auth (ignore password)      */
+constexpr int STAT_CHAT    = 0x00004; /* in file-system but may return           */
+constexpr int STAT_TELNET  = 0x00008; /* connected via telnet                    */
+constexpr int STAT_PARTY   = 0x00010; /* only on party line via 'p' flag         */
+constexpr int STAT_BOTONLY = 0x00020; /* telnet on bots-only connect             */
+constexpr int STAT_USRONLY = 0x00040; /* telnet on users-only connect            */
+constexpr int STAT_PAGE    = 0x00080; /* page output to the user                 */
+constexpr int STAT_SERV    = 0x00100; /* this is a server connection             */
+constexpr int STAT_WS      = 0x00200; /* webui websocket                         */
 
 /* For stripping out mIRC codes. */
-#define STRIP_COLOR     0x00001    /* remove mIRC color codes            */
-#define STRIP_BOLD      0x00002    /* remove bold codes                  */
-#define STRIP_REVERSE   0x00004    /* remove reverse video codes         */
-#define STRIP_UNDERLINE 0x00008    /* remove underline codes             */
-#define STRIP_ANSI      0x00010    /* remove ALL ANSI codes              */
-#define STRIP_BELLS     0x00020    /* remove ctrl-g's                    */
-#define STRIP_ORDINARY  0x00040    /* remove ordinary codes              */
-#define STRIP_ITALICS   0x00080    /* remove italics codes               */
-#define STRIP_ALL       0x000FF    /* remove every damn thing!           */
+constexpr int STRIP_COLOR     = 0x00001; /* remove mIRC color codes              */
+constexpr int STRIP_BOLD      = 0x00002; /* remove bold codes                    */
+constexpr int STRIP_REVERSE   = 0x00004; /* remove reverse video codes           */
+constexpr int STRIP_UNDERLINE = 0x00008; /* remove underline codes               */
+constexpr int STRIP_ANSI      = 0x00010; /* remove ALL ANSI codes                */
+constexpr int STRIP_BELLS     = 0x00020; /* remove ctrl-g's                      */
+constexpr int STRIP_ORDINARY  = 0x00040; /* remove ordinary codes                */
+constexpr int STRIP_ITALICS   = 0x00080; /* remove italics codes                 */
+constexpr int STRIP_ALL       = 0x000FF; /* remove every damn thing!             */
 
 /* For dcc bot links. */
-#define STAT_PINGED  0x00001    /* waiting for ping to return            */
-#define STAT_SHARE   0x00002    /* sharing user data with the bot        */
-#define STAT_CALLED  0x00004    /* this bot called me                    */
-#define STAT_OFFERED 0x00008    /* offered her the user file             */
-#define STAT_SENDING 0x00010    /* in the process of sending a user list */
-#define STAT_GETTING 0x00020    /* in the process of getting a user list */
-#define STAT_WARNED  0x00040    /* warned him about unleaflike behavior  */
-#define STAT_LEAF    0x00080    /* this bot is a leaf only               */
-#define STAT_LINKING 0x00100    /* the bot is currently going through
-                                 * the linking stage                     */
-#define STAT_AGGRESSIVE 0x00200 /* aggressively sharing with this bot    */
+constexpr int STAT_PINGED     = 0x00001; /* waiting for ping to return           */
+constexpr int STAT_SHARE      = 0x00002; /* sharing user data with the bot       */
+constexpr int STAT_CALLED     = 0x00004; /* this bot called me                   */
+constexpr int STAT_OFFERED    = 0x00008; /* offered her the user file            */
+constexpr int STAT_SENDING    = 0x00010; /* in the process of sending a user list */
+constexpr int STAT_GETTING    = 0x00020; /* in the process of getting a user list */
+constexpr int STAT_WARNED     = 0x00040; /* warned him about unleaflike behavior */
+constexpr int STAT_LEAF       = 0x00080; /* this bot is a leaf only              */
+constexpr int STAT_LINKING    = 0x00100; /* the bot is currently linking         */
+constexpr int STAT_AGGRESSIVE = 0x00200; /* aggressively sharing with this bot   */
 
 /* Flags for listening sockets */
-#define LSTN_PUBLIC  0x000001   /* No access restrictions               */
+constexpr int LSTN_PUBLIC = 0x000001;    /* No access restrictions               */
 
-/* chan & global */
-#define FLOOD_PRIVMSG    0
-#define FLOOD_NOTICE     1
-#define FLOOD_CTCP       2
-#define FLOOD_NICK       3
-#define FLOOD_JOIN       4
-#define FLOOD_KICK       5
-#define FLOOD_DEOP       6
+/* chan & global flood types */
+constexpr int FLOOD_PRIVMSG    = 0;
+constexpr int FLOOD_NOTICE     = 1;
+constexpr int FLOOD_CTCP       = 2;
+constexpr int FLOOD_NICK       = 3;
+constexpr int FLOOD_JOIN       = 4;
+constexpr int FLOOD_KICK       = 5;
+constexpr int FLOOD_DEOP       = 6;
 
-#define FLOOD_CHAN_MAX   7
-#define FLOOD_GLOBAL_MAX 3
+constexpr int FLOOD_CHAN_MAX   = 7;
+constexpr int FLOOD_GLOBAL_MAX = 3;
 
 /* For local console: */
-#define STDIN  0
-#define STDOUT 1
-#define STDERR 2
+constexpr int STDIN  = 0;
+constexpr int STDOUT = 1;
+constexpr int STDERR = 2;
 
 /* Structure for internal logs */
 typedef struct {
@@ -579,59 +574,58 @@ typedef struct {
 
 /* Logfile display flags
  */
-#define LOG_MSGS     0x000001   /* m   private msgs/notices/ctcps       */
-#define LOG_PUBLIC   0x000002   /* p   public  msgs/notices/ctcps       */
-#define LOG_JOIN     0x000004   /* j   channel joins/parts/etc          */
-#define LOG_MODES    0x000008   /* k   mode changes/kicks/bans          */
-#define LOG_CMDS     0x000010   /* c   user dcc or msg commands         */
-#define LOG_MISC     0x000020   /* o   other misc bot things            */
-#define LOG_BOTS     0x000040   /* b   bot notices                      */
-#define LOG_RAW      0x000080   /* r   raw server stuff coming in       */
-#define LOG_FILES    0x000100   /* x   file transfer commands and stats */
-#define LOG_LEV1     0x000200   /* 1   user log level                   */
-#define LOG_LEV2     0x000400   /* 2   user log level                   */
-#define LOG_LEV3     0x000800   /* 3   user log level                   */
-#define LOG_LEV4     0x001000   /* 4   user log level                   */
-#define LOG_LEV5     0x002000   /* 5   user log level                   */
-#define LOG_LEV6     0x004000   /* 6   user log level                   */
-#define LOG_LEV7     0x008000   /* 7   user log level                   */
-#define LOG_LEV8     0x010000   /* 8   user log level                   */
-#define LOG_SERV     0x020000   /* s   server information               */
-#define LOG_DEBUG    0x040000   /* d   debug                            */
-#define LOG_WALL     0x080000   /* w   wallops                          */
-#define LOG_SRVOUT   0x100000   /* v   server output                    */
-#define LOG_BOTNETIN 0x200000   /* t   incoming botnet traffic          */
-#define LOG_BOTSHRIN 0x400000   /* h   incoming share traffic           */
-#define LOG_BOTNETOUT 0x800000  /* u   outgoing botnet traffic          */
-#define LOG_BOTSHROUT 0x1000000 /* g   outgoing share traffic           */
-#define LOG_BOTMSG   0x2000000  /* l   linked bot messages              */
-#define LOG_ALL      0x3ffffff  /* (dump to all logfiles)               */
+constexpr int LOG_MSGS      = 0x000001; /* m   private msgs/notices/ctcps       */
+constexpr int LOG_PUBLIC    = 0x000002; /* p   public  msgs/notices/ctcps       */
+constexpr int LOG_JOIN      = 0x000004; /* j   channel joins/parts/etc          */
+constexpr int LOG_MODES     = 0x000008; /* k   mode changes/kicks/bans          */
+constexpr int LOG_CMDS      = 0x000010; /* c   user dcc or msg commands         */
+constexpr int LOG_MISC      = 0x000020; /* o   other misc bot things            */
+constexpr int LOG_BOTS      = 0x000040; /* b   bot notices                      */
+constexpr int LOG_RAW       = 0x000080; /* r   raw server stuff coming in       */
+constexpr int LOG_FILES     = 0x000100; /* x   file transfer commands and stats */
+constexpr int LOG_LEV1      = 0x000200; /* 1   user log level                   */
+constexpr int LOG_LEV2      = 0x000400; /* 2   user log level                   */
+constexpr int LOG_LEV3      = 0x000800; /* 3   user log level                   */
+constexpr int LOG_LEV4      = 0x001000; /* 4   user log level                   */
+constexpr int LOG_LEV5      = 0x002000; /* 5   user log level                   */
+constexpr int LOG_LEV6      = 0x004000; /* 6   user log level                   */
+constexpr int LOG_LEV7      = 0x008000; /* 7   user log level                   */
+constexpr int LOG_LEV8      = 0x010000; /* 8   user log level                   */
+constexpr int LOG_SERV      = 0x020000; /* s   server information               */
+constexpr int LOG_DEBUG     = 0x040000; /* d   debug                            */
+constexpr int LOG_WALL      = 0x080000; /* w   wallops                          */
+constexpr int LOG_SRVOUT    = 0x100000; /* v   server output                    */
+constexpr int LOG_BOTNETIN  = 0x200000; /* t   incoming botnet traffic          */
+constexpr int LOG_BOTSHRIN  = 0x400000; /* h   incoming share traffic           */
+constexpr int LOG_BOTNETOUT = 0x800000; /* u   outgoing botnet traffic          */
+constexpr int LOG_BOTSHROUT = 0x1000000; /* g  outgoing share traffic           */
+constexpr int LOG_BOTMSG    = 0x2000000; /* l  linked bot messages              */
+constexpr int LOG_ALL       = 0x3ffffff; /* (dump to all logfiles)              */
 
 /* Internal logfile flags
  */
-#define LF_EXPIRING 0x000001    /* Logfile will be closed soon          */
+constexpr int LF_EXPIRING = 0x000001;   /* Logfile will be closed soon          */
 
-#define FILEDB_HIDE     1
-#define FILEDB_UNHIDE   2
-#define FILEDB_SHARE    3
-#define FILEDB_UNSHARE  4
+constexpr int FILEDB_HIDE   = 1;
+constexpr int FILEDB_UNHIDE = 2;
+constexpr int FILEDB_SHARE  = 3;
+constexpr int FILEDB_UNSHARE = 4;
 
 /* Socket flags:
  */
-#define SOCK_UNUSED     0x0001  /* empty socket                         */
-#define SOCK_BINARY     0x0002  /* do not buffer input                  */
-#define SOCK_LISTEN     0x0004  /* listening port                       */
-#define SOCK_CONNECT    0x0008  /* connection attempt                   */
-#define SOCK_NONSOCK    0x0010  /* used for file i/o on debug           */
-#define SOCK_STRONGCONN 0x0020  /* don't report success until sure      */
-#define SOCK_EOFD       0x0040  /* it EOF'd recently during a write     */
-#define SOCK_PROXYWAIT  0x0080  /* waiting for SOCKS traversal          */
-#define SOCK_PASS       0x0100  /* passed on; only notify in case
-                                 * of traffic                           */
-#define SOCK_VIRTUAL    0x0200  /* not-connected socket (dont read it!) */
-#define SOCK_BUFFER     0x0400  /* buffer data; don't notify dcc funcs  */
-#define SOCK_TCL        0x0800  /* tcl socket, don't do anything on it  */
-#define SOCK_WS         0x1000  /* webui websocket                      */
+constexpr int SOCK_UNUSED     = 0x0001; /* empty socket                         */
+constexpr int SOCK_BINARY     = 0x0002; /* do not buffer input                  */
+constexpr int SOCK_LISTEN     = 0x0004; /* listening port                       */
+constexpr int SOCK_CONNECT    = 0x0008; /* connection attempt                   */
+constexpr int SOCK_NONSOCK    = 0x0010; /* used for file i/o on debug           */
+constexpr int SOCK_STRONGCONN = 0x0020; /* don't report success until sure      */
+constexpr int SOCK_EOFD       = 0x0040; /* it EOF'd recently during a write     */
+constexpr int SOCK_PROXYWAIT  = 0x0080; /* waiting for SOCKS traversal          */
+constexpr int SOCK_PASS       = 0x0100; /* passed on; only notify on traffic    */
+constexpr int SOCK_VIRTUAL    = 0x0200; /* not-connected socket (dont read it!) */
+constexpr int SOCK_BUFFER     = 0x0400; /* buffer data; don't notify dcc funcs  */
+constexpr int SOCK_TCL        = 0x0800; /* tcl socket, don't do anything on it  */
+constexpr int SOCK_WS         = 0x1000; /* webui websocket                      */
 
 /* Flags to sock_has_data
  */
@@ -642,35 +636,35 @@ enum {
 
 /* Fake idx's for dprintf - these should be ridiculously large +ve nums
  */
-#define DP_STDOUT       0x7FF1
-#define DP_LOG          0x7FF2
-#define DP_SERVER       0x7FF3
-#define DP_HELP         0x7FF4
-#define DP_STDERR       0x7FF5
-#define DP_MODE         0x7FF6
-#define DP_MODE_NEXT    0x7FF7
-#define DP_SERVER_NEXT  0x7FF8
-#define DP_HELP_NEXT    0x7FF9
+constexpr int DP_STDOUT      = 0x7FF1;
+constexpr int DP_LOG         = 0x7FF2;
+constexpr int DP_SERVER      = 0x7FF3;
+constexpr int DP_HELP        = 0x7FF4;
+constexpr int DP_STDERR      = 0x7FF5;
+constexpr int DP_MODE        = 0x7FF6;
+constexpr int DP_MODE_NEXT   = 0x7FF7;
+constexpr int DP_SERVER_NEXT = 0x7FF8;
+constexpr int DP_HELP_NEXT   = 0x7FF9;
 
-#define NORMAL          0
-#define QUICK           1
+constexpr int NORMAL = 0;
+constexpr int QUICK  = 1;
 
 /* Return codes for add_note */
-#define NOTE_ERROR      0       /* error                        */
-#define NOTE_OK         1       /* success                      */
-#define NOTE_STORED     2       /* not online; stored           */
-#define NOTE_FULL       3       /* too many notes stored        */
-#define NOTE_TCL        4       /* tcl binding caught it        */
-#define NOTE_AWAY       5       /* away; stored                 */
-#define NOTE_FWD        6       /* away; forwarded              */
-#define NOTE_REJECT     7       /* ignore mask matched          */
+constexpr int NOTE_ERROR  = 0; /* error                        */
+constexpr int NOTE_OK     = 1; /* success                      */
+constexpr int NOTE_STORED = 2; /* not online; stored           */
+constexpr int NOTE_FULL   = 3; /* too many notes stored        */
+constexpr int NOTE_TCL    = 4; /* tcl binding caught it        */
+constexpr int NOTE_AWAY   = 5; /* away; stored                 */
+constexpr int NOTE_FWD    = 6; /* away; forwarded              */
+constexpr int NOTE_REJECT = 7; /* ignore mask matched          */
 
-#define STR_PROTECT     2
-#define STR_DIR         1
+constexpr int STR_PROTECT = 2;
+constexpr int STR_DIR     = 1;
 
-#define HELP_DCC        1
-#define HELP_TEXT       2
-#define HELP_IRC        16
+constexpr int HELP_DCC  =  1;
+constexpr int HELP_TEXT =  2;
+constexpr int HELP_IRC  = 16;
 
 #ifdef TLS
 /* TLS generic flags */
@@ -699,6 +693,9 @@ typedef struct {
 /* Ring-buffer for outgoing socket data (eliminates memmove on partial write) */
 #include "compat/mbuf.h"
 
+/* stdatomic.h for _Atomic used by sock_handler.inbuf_lock */
+#include <stdatomic.h>
+
 /* These are used by the net module to keep track of sockets and what's
  * queued on them
  */
@@ -706,11 +703,43 @@ struct sock_handler {
   char *inbuf;
   egg_mbuf_t *outbuf;           /* ring buffer for pending outgoing data */
   size_t inbuflen;              /* Inbuf could be binary data   */
+  /* inbuf_lock: spinlock protecting inbuf/inbuflen from concurrent access
+   * by the io_thread (reads) and the main thread (drains).
+   * Using _Atomic int rather than a mutex so the struct is safe to realloc
+   * (pthread_mutex_t contains internal pointers; mtx_t is implementation-
+   * defined — neither survives memcpy).  Contention is minimal (io_thread
+   * holds it only for a single recv() + buffer append).
+   * 0 = unlocked, 1 = locked. */
+  _Atomic int inbuf_lock;
 #ifdef HAVE_LIBURING
   char *recv_buf;               /* kernel-filled async recv buffer (READMAX+2 bytes) */
   int   recv_len;               /* bytes ready: -1=none, 0=EOF, >0=data available   */
 #endif
 };
+
+/* Spinlock helpers for sock_handler.inbuf_lock.
+ * These are header-inline so net.c and io_thread.c share the same
+ * implementation without an extra translation unit. */
+static inline void egg_spin_init(_Atomic int *lock)
+{
+  atomic_store_explicit(lock, 0, memory_order_relaxed);
+}
+
+static inline void egg_spin_lock(_Atomic int *lock)
+{
+  int expected = 0;
+  while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1,
+             memory_order_acquire, memory_order_relaxed))
+    expected = 0;   /* reset after failed CAS */
+}
+
+static inline void egg_spin_unlock(_Atomic int *lock)
+{
+  atomic_store_explicit(lock, 0, memory_order_release);
+}
+
+/* egg_spin_destroy: no-op (spinlock has no OS resources to free). */
+static inline void egg_spin_destroy([[maybe_unused]] _Atomic int *lock) {}
 
 struct tclsock_handler {
   int mask;                     /* desired events               */

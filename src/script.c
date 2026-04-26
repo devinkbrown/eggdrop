@@ -33,9 +33,9 @@
  * 64 slots is well above the deepest set of variables used in the tree.
  * ------------------------------------------------------------------------- */
 
-#define EGG_MAXVARS    64
-#define EGG_VARNAME_MAX 64
-#define EGG_VARVAL_MAX 1024
+constexpr int EGG_MAXVARS    = 64;
+constexpr int EGG_VARNAME_MAX = 64;
+constexpr int EGG_VARVAL_MAX  = 1024;
 
 static struct {
   char name[EGG_VARNAME_MAX];
