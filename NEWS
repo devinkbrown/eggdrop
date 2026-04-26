@@ -1,5 +1,5 @@
 News
-Last revised: March 16, 2026
+Last revised: April 26, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -17,6 +17,21 @@ Last revised: March 16, 2026
      _________________________________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+ Code quality — C23 modernisation:
+    - Entire codebase compiled as -std=gnu23 with -Wshadow=local enforced.
+    - Loop counters and single-use variables moved to point of first use
+      throughout all source files (net.c, tls.c, chanprog.c, language.c,
+      share.mod, blowfish.mod, python.mod, webui.mod, irc.mod, dns.mod,
+      transfer.mod, notes.mod, server.mod, channels.mod, filesys.mod,
+      ident.mod, pbkdf2.mod, and all core src/ files). 55 files changed,
+      net ~350 lines removed.
+    - op_strbuf_t (libop dynamic string builder) wired through all string-
+      construction sites replacing snprintf/strlcpy chaining.
+    - libop synced from ophion: CIDR parsing helpers (op_cidr_parse_str /
+      op_cidr_parse_addr) and C11 threads middle tier in thread_pool.c.
+
+
 
  Tcl is now fully optional — no-Tcl builds are complete:
     - A no-Tcl build is now fully functional for core bot operation, not
