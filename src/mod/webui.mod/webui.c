@@ -158,7 +158,7 @@ static void put_file(int idx, int file_cache_index) {
 static void webui_http_activity(int idx, char *buf, int len)
 {
   struct rusage ru1, ru2;
-  int r, i, listen_idx;
+  int r, listen_idx;
   char *response;
 
   if (len > 0 && buf[0] == 0x16) { /* 0x16 = TLS handshake on plain port */
@@ -196,7 +196,7 @@ static void webui_http_activity(int idx, char *buf, int len)
       return;
     }
     buf += sizeof WS_KEY;
-    for(i = 0; i < WS_KEYLEN; i++)
+    for (int i = 0; i < WS_KEYLEN; i++)
       if (!buf[i]) {
         putlog(LOG_MISC, "*", "WEBUI error: Sec-WebSocket-Key too short ip %s", iptostr(&dcc[idx].sockname.addr.sa));
         return;
@@ -225,6 +225,7 @@ static void webui_http_activity(int idx, char *buf, int len)
       return;
     }
 
+    int i;
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b,
@@ -309,10 +310,9 @@ static void webui_dcc_telnet_hostresolved(int idx, int listen_idx)
 }
 
 static size_t escape_html(char *dst, size_t dst_size, char *src, size_t src_size) {
-  int i;
   char *d = dst;
 
-  for (i = 0; i < src_size; i++) {
+  for (int i = 0; i < src_size; i++) {
     switch ((unsigned char) src[i]) {
       case '"':
         if (dst_size < 6) {
@@ -471,7 +471,7 @@ static size_t webui_frame(char **dst, char *src, size_t len) {
 
 static void webui_unframe(int sock, char *buf, int *len)
 {
-  int i, hdrlen;
+  int hdrlen;
   uint8_t *key, *payload;
   uint16_t status_code;
 
@@ -512,7 +512,7 @@ static void webui_unframe(int sock, char *buf, int *len)
     *len -= 14;
   }
   payload = key + 4;
-  for (i = 0; i < *len; i++)
+  for (int i = 0; i < *len; i++)
     payload[i] = payload[i] ^ key[i % 4];
 
   if (buf[0] & 0x08) {

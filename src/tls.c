@@ -144,11 +144,11 @@ char tls_ciphers[2049] = "";  /* A list of ciphers for SSL to use             */
  */
 int expmem_tls(void)
 {
-  int i, tot;
+  int tot = 0;
   struct threaddata *td = threaddata();
 
   /* currently it's only the appdata structs allocated by ssl_handshake() */
-  for (i = 0, tot = 0; i < td->MAXSOCKS; i++)
+  for (int i = 0; i < td->MAXSOCKS; i++)
     if (!(td->socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)))
       if (td->socklist[i].ssl && SSL_get_app_data(td->socklist[i].ssl))
         tot += sizeof(ssl_appdata);
@@ -206,10 +206,9 @@ static int ssl_seed(void)
  */
 static X509 *ssl_getcert(int sock)
 {
-  int i;
   struct threaddata *td = threaddata();
 
-  i = findsock(sock);
+  int i = findsock(sock);
   if (i == -1 || !td->socklist[i].ssl)
     return NULL;
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L /* 3.0.0 */
@@ -963,7 +962,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
   const
 #endif
   SSL_CIPHER *cipher;
-  int secret, processed, i;
+  int secret, processed;
 
   if (!(data = (ssl_appdata *) SSL_get_app_data(ssl)))
     return;
@@ -1006,7 +1005,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
 
     /* More verbose information, for debugging only */
     SSL_CIPHER_description(cipher, buf, sizeof buf);
-    i = strlen(buf);
+    int i = (int)strlen(buf);
     if ((i > 0) && (buf[i - 1]) == '\n')
       buf[i - 1] = 0;
     debug1("TLS: cipher details: %s", buf);
@@ -1086,7 +1085,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
 int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
                   IntFunc cb)
 {
-  int i, err, ret;
+  int err, ret;
   ssl_appdata *data;
   struct threaddata *td = threaddata();
 
@@ -1100,7 +1099,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
     return -4;
   }
   /* find the socket in the list */
-  i = findsock(sock);
+  int i = findsock(sock);
   if (i == -1) {
     debug0("TLS: socket not in socklist");
     return -2;
@@ -1285,7 +1284,6 @@ static int tcl_starttls STDVAR
 static int tcl_tlsstatus STDVAR
 {
   char *p;
-  int i, j;
   X509 *cert;
   const SSL_CIPHER *cipher;
   struct threaddata *td = threaddata();
@@ -1297,12 +1295,12 @@ static int tcl_tlsstatus STDVAR
    * ones. This makes it possible for a script to display the
    * server certificate.
    */
-  i = findanyidx(atoi(argv[1]));
+  int i = findanyidx(atoi(argv[1]));
   if (i < 0) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
   }
-  j = findsock(dcc[i].sock);
+  int j = findsock(dcc[i].sock);
   if (!j || !dcc[i].ssl || !td->socklist[j].ssl) {
     Tcl_AppendResult(irp, "not a TLS connection", NULL);
     return TCL_ERROR;

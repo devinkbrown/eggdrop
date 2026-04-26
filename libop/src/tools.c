@@ -26,9 +26,6 @@
 #include <libop_config.h>
 #include <op_lib.h>
 #include <op_tools.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 /* -------------------------------------------------------------------------
  * dlink node heap
@@ -490,89 +487,4 @@ op_fsnprintf(char *restrict buf, size_t len, const op_strf_t *restrict strings,
 	va_end(args);
 
 	return ret;
-}
-
-/* =========================================================================
- * CIDR / IP address parsing helpers
- * ====================================================================== */
-
-/*
- * op_cidr_parse_str — parse "addr/prefixlen" into *ss and *prefixlen.
- * Handles both IPv4 ("10.0.0.0/8") and IPv6 ("2001:db8::/32").
- * When no "/n" suffix is present: /32 for IPv4, /128 for IPv6.
- * Returns 0 on success, -1 on any parse error.
- */
-int
-op_cidr_parse_str(const char *cidr, struct sockaddr_storage *ss, int *prefixlen)
-{
-	char buf[INET6_ADDRSTRLEN + 4]; /* enough for addr + "/128\0" */
-	char *slash;
-	int plen, maxbits;
-	int af;
-
-	if (!cidr || !ss || !prefixlen)
-		return -1;
-
-	op_strlcpy(buf, cidr, sizeof buf);
-	slash = strchr(buf, '/');
-	if (slash) {
-		*slash = '\0';
-		plen = atoi(slash + 1);
-	} else {
-		plen = -1; /* filled in after family detection */
-	}
-
-	memset(ss, 0, sizeof *ss);
-
-	/* Try IPv4 first, then IPv6 */
-	if (inet_pton(AF_INET, buf,
-	              &((struct sockaddr_in *)ss)->sin_addr) == 1) {
-		af = AF_INET;
-		maxbits = 32;
-		((struct sockaddr_in *)ss)->sin_family = AF_INET;
-	} else if (inet_pton(AF_INET6, buf,
-	                     &((struct sockaddr_in6 *)ss)->sin6_addr) == 1) {
-		af = AF_INET6;
-		maxbits = 128;
-		((struct sockaddr_in6 *)ss)->sin6_family = AF_INET6;
-	} else {
-		return -1;
-	}
-	(void)af;
-
-	if (plen < 0)
-		plen = maxbits;
-	if (plen < 0 || plen > maxbits)
-		return -1;
-
-	ss->ss_family = (sa_family_t)(af == AF_INET ? AF_INET : AF_INET6);
-	*prefixlen = plen;
-	return 0;
-}
-
-/*
- * op_cidr_parse_addr — parse a bare IP address string (no CIDR suffix).
- * Returns 0 on success, -1 on parse error.
- */
-int
-op_cidr_parse_addr(const char *addr, struct sockaddr_storage *ss)
-{
-	if (!addr || !ss)
-		return -1;
-
-	memset(ss, 0, sizeof *ss);
-
-	if (inet_pton(AF_INET, addr,
-	              &((struct sockaddr_in *)ss)->sin_addr) == 1) {
-		ss->ss_family = AF_INET;
-		((struct sockaddr_in *)ss)->sin_family = AF_INET;
-		return 0;
-	}
-	if (inet_pton(AF_INET6, addr,
-	              &((struct sockaddr_in6 *)ss)->sin6_addr) == 1) {
-		ss->ss_family = AF_INET6;
-		((struct sockaddr_in6 *)ss)->sin6_family = AF_INET6;
-		return 0;
-	}
-	return -1;
 }

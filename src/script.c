@@ -45,19 +45,17 @@ static struct {
 
 void egg_setvar(const char *name, const char *value)
 {
-  int i;
-
   if (!name)
     return;
   /* Update existing slot first */
-  for (i = 0; i < EGG_MAXVARS; i++) {
+  for (int i = 0; i < EGG_MAXVARS; i++) {
     if (egg_vars[i].used && !strcmp(egg_vars[i].name, name)) {
       strlcpy(egg_vars[i].value, value ? value : "", EGG_VARVAL_MAX);
       return;
     }
   }
   /* Allocate a new slot */
-  for (i = 0; i < EGG_MAXVARS; i++) {
+  for (int i = 0; i < EGG_MAXVARS; i++) {
     if (!egg_vars[i].used) {
       strlcpy(egg_vars[i].name,  name,            EGG_VARNAME_MAX);
       strlcpy(egg_vars[i].value, value ? value : "", EGG_VARVAL_MAX);
@@ -70,11 +68,9 @@ void egg_setvar(const char *name, const char *value)
 
 const char *egg_getvar(const char *name)
 {
-  int i;
-
   if (!name)
     return "";
-  for (i = 0; i < EGG_MAXVARS; i++) {
+  for (int i = 0; i < EGG_MAXVARS; i++) {
     if (egg_vars[i].used && !strcmp(egg_vars[i].name, name))
       return egg_vars[i].value;
   }

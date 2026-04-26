@@ -30,10 +30,9 @@ extern struct dcc_t *dcc;
 
 int logmodes(char *s)
 {
-  int i;
   int res = 0;
 
-  for (i = 0; i < strlen(s); i++)
+  for (int i = 0; i < strlen(s); i++)
     switch (s[i]) {
     case 'm':
     case 'M':

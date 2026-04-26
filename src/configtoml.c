@@ -1115,11 +1115,8 @@ int readtomlconfig(const char *fname)
    * (like chanfile from channels.mod) were not yet available during the first
    * pass.  Replaying is idempotent for already-set variables and correctly
    * populates the module tables for any that were missed. */
-  {
-    int i;
-    for (i = 0; i < paths_buf_n; i++)
-      process_kv(SEC_PATHS, paths_buf[i].key, paths_buf[i].val);
-  }
+  for (int i = 0; i < paths_buf_n; i++)
+    process_kv(SEC_PATHS, paths_buf[i].key, paths_buf[i].val);
 
   /* ---- Validate required settings ---- */
   {

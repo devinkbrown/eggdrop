@@ -376,7 +376,6 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   memberlist *m;
   char s[121], also[512], *info;
-  int i;
 
   if (!use_info || match_my_nick(nick))
     return 1;
@@ -402,7 +401,7 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
   }
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! WHO", nick, host, u->handle);
   also[0] = 0;
-  i = 0;
+  int i = 0;
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
     struct userrec *mu;
 
@@ -811,7 +810,6 @@ static int msg_invite(char *nick, char *host, struct userrec *u, char *par)
 static int msg_status(char *nick, char *host, struct userrec *u, char *par)
 {
   char *pass, *sysrel;
-  int i;
   struct chanset_t *chan;
   time_t now2 = now - online_since, hr, min;
 
@@ -833,7 +831,7 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   }
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! STATUS", nick, host, u->handle);
 
-  i = count_users(userlist);
+  int i = count_users(userlist);
   dprintf(DP_HELP, "NOTICE %s :I am %s, running %s: %d user%s  (mem: %uk).\n",
           nick, botnetnick, ver, i, i == 1 ? "" : "s",
          (int) (expected_memory() / 1024));

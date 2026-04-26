@@ -44,25 +44,6 @@ char *op_dirname(const char *);
 
 int op_string_to_array(char *string, char **parv, int maxpara);
 
-/* -------------------------------------------------------------------------
- * CIDR / IP address parsing helpers
- *
- * op_cidr_parse_str — parse a CIDR string such as "192.168.1.0/24" or
- *   "2001:db8::/32" into *ss (AF_INET or AF_INET6 sockaddr_storage) and
- *   *prefixlen.  When no prefix-length suffix is present the full host
- *   address is assumed (/32 for IPv4, /128 for IPv6).
- *   Returns  0 on success, -1 on parse error.
- *
- * op_cidr_parse_addr — parse a bare IP address string (no CIDR suffix) into
- *   *ss.  Returns 0 on success, -1 on parse error.
- * ---------------------------------------------------------------------- */
-int op_cidr_parse_str (const char *cidr,
-                        struct sockaddr_storage *ss, int *prefixlen);
-int op_cidr_parse_addr(const char *addr,
-                        struct sockaddr_storage *ss);
-
-int op_gettimeofday(struct timeval *tv, void *tz);
-
 /*
  * double-linked-list stuff
  */
@@ -387,6 +368,26 @@ int op_fsnprintf(char *buf, size_t len, const op_strf_t *strings, const char *fo
 
 
 const char *op_path_to_self(void);
+
+/* -------------------------------------------------------------------------
+ * CIDR / IP address parsing helpers
+ *
+ * op_cidr_parse_str — parse a CIDR string such as "192.168.1.0/24" or
+ *   "2001:db8::/32" into *ss (AF_INET or AF_INET6 sockaddr_storage) and
+ *   *prefixlen.  When no prefix-length suffix is present the full host
+ *   address is assumed (/32 for IPv4, /128 for IPv6).
+ *   Returns  0 on success, -1 on parse error.
+ *
+ * op_cidr_parse_addr — parse a bare IP address string (no CIDR suffix) into
+ *   *ss.  Returns 0 on success, -1 on parse error.
+ * ---------------------------------------------------------------------- */
+#include <sys/socket.h>
+#include <netinet/in.h>
+int op_cidr_parse_str (const char *cidr,
+                        struct sockaddr_storage *ss, int *prefixlen);
+int op_cidr_parse_addr(const char *addr,
+                        struct sockaddr_storage *ss);
+
 int op_gettimeofday(struct timeval *tv, void *tz);
 
 #endif /* __TOOLS_H__ */

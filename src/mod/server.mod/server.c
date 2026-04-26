@@ -2155,7 +2155,6 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
                          char *object, char *keyword, char *text)
 {
   char *action, *param, *ip, *prt, buf[512], *msg = buf;
-  int i;
 #ifdef TLS
   int ssl = 0;
 #endif
@@ -2202,7 +2201,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
   } else {
     if (!sanitycheck_dcc(nick, from, ip, prt))
       return 1;
-    i = new_dcc(&DCC_DNSWAIT, sizeof(struct dns_info));
+    int i = new_dcc(&DCC_DNSWAIT, sizeof(struct dns_info));
     if (i < 0) {
       putlog(LOG_MISC, "*", "DCC connection: CHAT (%s!%s)", nick, ip);
       return 1;

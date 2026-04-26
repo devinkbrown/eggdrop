@@ -212,11 +212,11 @@ static int dns_expmem(void)
 static int dns_report(int idx, int details)
 {
   if (details) {
-    int i, size = dns_expmem();
+    int size = dns_expmem();
 
     dprintf(idx, "    Async DNS resolver is active.\n");
     dprintf(idx, "    DNS server list:");
-    for (i = 0; i < myres.nscount; i++)
+    for (int i = 0; i < myres.nscount; i++)
       dprintf(idx, " %s:%d", iptostr((struct sockaddr *) &myres.nsaddr_list[i]),
               ntohs(myres.nsaddr_list[i].sin_port));
     if (!myres.nscount)
@@ -280,7 +280,6 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
     const char *addr;
     uint16_t    port    = 853;
     int         verify  = 1;
-    int         i;
 
     if (argc < 3) {
       Tcl_AppendResult(irp, "Usage: dnsdot on <server> [port] [-noverify]",
@@ -289,7 +288,7 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
     }
     addr = argv[2];
 
-    for (i = 3; i < argc; i++) {
+    for (int i = 3; i < argc; i++) {
       if (!strcasecmp(argv[i], "-noverify"))
         verify = 0;
       else
@@ -329,8 +328,6 @@ static tcl_cmds dnscmds[] = {
 
 static char *dns_close(void)
 {
-  int i;
-
   del_hook(HOOK_DNS_HOSTBYIP, (Function) dns_lookup);
   del_hook(HOOK_DNS_IPBYHOST, (Function) dns_forward);
   del_hook(HOOK_SECONDLY, (Function) dns_check_expires);
@@ -342,7 +339,7 @@ static char *dns_close(void)
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  dns_change, NULL);
 
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_DNS && dcc[i].sock == resfd) {
       killsock(dcc[i].sock);
       lostdcc(i);

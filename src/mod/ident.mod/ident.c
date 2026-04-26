@@ -113,7 +113,7 @@ static void ident_oidentd(void)
   op_strbuf_t data_buf;
   char path[PATH_MAX], line[256], buf[256], identstr[256];
   char s[EGG_INET_ADDRSTRLEN];
-  int ret, prevtime, servidx, i;
+  int ret, prevtime, servidx;
   socklen_t namelen;
   struct sockaddr_storage ss;
 
@@ -167,7 +167,7 @@ static void ident_oidentd(void)
     putlog(LOG_MISC, "*", "IDENT error: fopen(%s): %s", path, strerror(errno));
   /* To minimize a known race condition, this code is called now */
   servidx = -1;
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].status & STAT_SERV) {
       servidx = i;
       break;

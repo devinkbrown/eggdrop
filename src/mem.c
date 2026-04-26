@@ -78,15 +78,13 @@ void init_mem(void)
 {
 #ifdef DEBUG_MEM
   size_t size;
-  int i;
-
   size =  memtbl_size * sizeof *memtbl;
   if (!(memtbl = malloc(size))) {
     putlog(LOG_MISC, "*", "*** FAILED MALLOC mem.c (memtbl) (%ld): %s", (long)size,
            strerror(errno));
     fatal("Memory allocation failed", 0);
   }
-  for (i = 0; i < memtbl_size; i++)
+  for (int i = 0; i < memtbl_size; i++)
     memtbl[i].ptr = NULL;
 #endif
 }
@@ -134,7 +132,6 @@ void debug_mem_to_dcc(int idx)
 #    define MAX_MEM 13
 #  endif
   uint64_t exp[MAX_MEM], use[MAX_MEM], l;
-  int i, j;
   char fn[20], sofar[81];
   module_entry *me;
   char *p;
@@ -159,10 +156,10 @@ void debug_mem_to_dcc(int idx)
   for (me = module_list; me; me = me->next)
     me->mem_work = 0;
 
-  for (i = 0; i < MAX_MEM; i++)
+  for (int i = 0; i < MAX_MEM; i++)
     use[i] = 0;
 
-  for (i = 0; i < lastused; i++) {
+  for (int i = 0; i < lastused; i++) {
     strlcpy(fn, memtbl[i].file, sizeof(fn));
     p = strchr(fn, ':');
     if (p)
@@ -206,7 +203,7 @@ void debug_mem_to_dcc(int idx)
       dprintf(idx, "Not logging file %s!\n", fn);
   }
 
-  for (i = 0; i < MAX_MEM; i++) {
+  for (int i = 0; i < MAX_MEM; i++) {
     switch (i) {
     case 0:
       strlcpy(fn, "language.c", sizeof(fn));
@@ -261,7 +258,7 @@ void debug_mem_to_dcc(int idx)
       dprintf(idx, "File '%-10s' accounted for %" PRIu64 "/%" PRIu64 " (debug follows:)\n",
               fn, exp[i], use[i]);
       strlcpy(sofar, "   ", sizeof(sofar));
-      for (j = 0; j < lastused; j++) {
+      for (int j = 0; j < lastused; j++) {
         if ((p = strchr(memtbl[j].file, ':')))
           *p = 0;
         if (!strcasecmp(memtbl[j].file, fn)) {
@@ -308,7 +305,7 @@ void debug_mem_to_dcc(int idx)
       dprintf(idx, "Module '%-10s' accounted for %" PRIu64 "/%" PRIu64 " (debug follows:)\n",
               me->name, expt, me->mem_work);
       strlcpy(sofar, "   ", sizeof(sofar));
-      for (j = 0; j < lastused; j++) {
+      for (int j = 0; j < lastused; j++) {
         strlcpy(fn, memtbl[j].file, sizeof(fn));
         if ((p = strchr(fn, ':')) != NULL) {
           *p = 0;

@@ -29,8 +29,6 @@ static int tcl_pysource STDVAR
   PyObject *pystr;
   Py_ssize_t n;
   const char *res = NULL;
-  int i;
-
   BADARGS(2, 2, " script");
 
   if (!(fp = fopen(argv[1], "r"))) {
@@ -63,7 +61,7 @@ static int tcl_pysource STDVAR
       pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, NULL);
       if (pyval && PyList_Check(pyval)) {
         n = PyList_Size(pyval);
-        for (i = 0; i < n; i++) {
+        for (Py_ssize_t i = 0; i < n; i++) {
           item = PyList_GetItem(pyval, i);
           pystr = PyObject_Str(item);
           res = PyUnicode_AsUTF8(pystr);
@@ -101,7 +99,7 @@ static int tcl_pysource STDVAR
 
         if (pyval && PyList_Check(pyval)) {
           n = PyList_Size(pyval);
-          for (i = 0; i < n; i++) {
+          for (Py_ssize_t i = 0; i < n; i++) {
             item = PyList_GetItem(pyval, i);
             pystr = PyObject_Str(item);
             res = PyUnicode_AsUTF8(pystr);

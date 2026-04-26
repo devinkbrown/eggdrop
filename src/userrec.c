@@ -351,9 +351,7 @@ int count_users(struct userrec *bu)
  */
 static struct userrec *check_dcclist_hand(char *handle)
 {
-  int i;
-
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (!strcasecmp(dcc[i].nick, handle))
       return dcc[i].user;
   return NULL;
@@ -550,7 +548,6 @@ void clear_masks(maskrec *m)
 void clear_userlist(struct userrec *bu)
 {
   struct userrec *u, *v;
-  int i;
 
   for (u = bu; u; u = v) {
     v = u->next;
@@ -559,7 +556,7 @@ void clear_userlist(struct userrec *bu)
   if (userlist == bu) {
     struct chanset_t *cst;
 
-    for (i = 0; i < dcc_total; i++)
+    for (int i = 0; i < dcc_total; i++)
       dcc[i].user = NULL;
     clear_chanlist();
     lastuser = NULL;
@@ -903,7 +900,6 @@ void backup_userfile(void)
 
 int change_handle(struct userrec *u, char *newh)
 {
-  int i;
   char s[HANDLEN + 1];
 
   if (!u)
@@ -924,7 +920,7 @@ int change_handle(struct userrec *u, char *newh)
     op_htab_del(user_handle_dict,s);
     op_htab_set(user_handle_dict, u->handle, u, NULL);
   }
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT || dcc[i].type == &DCC_CHAT_PASS) &&
         !strcasecmp(dcc[i].nick, s)) {
       strlcpy(dcc[i].nick, newh, sizeof dcc[i].nick);

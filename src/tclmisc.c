@@ -47,9 +47,9 @@ extern Tcl_Interp *interp;
 
 int expmem_tclmisc(void)
 {
-  int i, tot = 0;
+  int tot = 0;
 
-  for (i = 0; i < max_logs; i++) {
+  for (int i = 0; i < max_logs; i++) {
     if (logs[i].filename != NULL) {
       tot += strlen(logs[i].filename) + 1;
       tot += strlen(logs[i].chname) + 1;
@@ -68,11 +68,9 @@ static int tcl_logfile STDVAR
 {
   BADARGS(1, 4, " ?logModes channel logFile?");
 
-  int i;
-
   if (argc == 1) {
     /* They just want a list of the logfiles and modes */
-    for (i = 0; i < max_logs; i++)
+    for (int i = 0; i < max_logs; i++)
       if (logs[i].filename != NULL) {
         {
           op_strbuf_t logline;
@@ -101,7 +99,7 @@ static int tcl_logfile STDVAR
     return TCL_ERROR;
   }
 
-  for (i = 0; i < max_logs; i++)
+  for (int i = 0; i < max_logs; i++)
     if ((logs[i].filename != NULL) && (!strcmp(logs[i].filename, argv[3]))) {
       logs[i].flags &= ~LF_EXPIRING;
       logs[i].mask = logmodes(argv[1]);
@@ -129,7 +127,7 @@ static int tcl_logfile STDVAR
                      "\" from list: no such logfile", NULL);
     return TCL_ERROR;
   }
-  for (i = 0; i < max_logs; i++)
+  for (int i = 0; i < max_logs; i++)
     if (logs[i].filename == NULL) {
       logs[i].flags = 0;
       logs[i].mask = logmodes(argv[1]);
@@ -715,8 +713,6 @@ static int tcl_md5 STDVAR
 {
   char digest_string[33];
   unsigned char digest[16];
-  int i;
-
   BADARGS(2, 2, " string");
 
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L) && defined(HAVE_EVP_MD5)
@@ -734,7 +730,7 @@ static int tcl_md5 STDVAR
   MD5_Final(digest, &md5context);
 #endif
 
-  for (i = 0; i < 16; i++) {
+  for (int i = 0; i < 16; i++) {
     static const char hex[] = "0123456789abcdef";
     digest_string[i * 2]     = hex[(digest[i] >> 4) & 0xf];
     digest_string[i * 2 + 1] = hex[digest[i] & 0xf];

@@ -45,11 +45,11 @@
  */
 static int too_many_filers(void)
 {
-  int i, n = 0;
+  int n = 0;
 
   if (dcc_users == 0)
     return 0;
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_FILES)
       n++;
   return (n >= dcc_users);
@@ -438,7 +438,7 @@ static void cmd_lsa(int idx, char *par)
 
 static void cmd_reget_get(int idx, char *par, int resend)
 {
-  int ok = 0, i;
+  int ok = 0;
   char *p, *what, *destdir = NULL, *s = NULL;
   filedb_entry *fdbe;
   FILE *fdb;
@@ -503,7 +503,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
         else if (!in_chain(bot))
           dprintf(idx, FILES_NOTAVAIL, fdbe->filename);
         else {
-          i = nextbot(bot);
+          int i = nextbot(bot);
           malloc_strcpy(whoto, par);
           if (!whoto) {
             fatal("cmd_reget_get: malloc_strcpy returned NULL", 0);

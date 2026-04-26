@@ -149,7 +149,7 @@ static int iot_thread_fn([[maybe_unused]] void *arg)
 
 #ifdef IOT_HAVE_EPOLL
   struct epoll_event events[IOT_MAX_EVENTS];
-  int n, i;
+  int n;
 
   while (atomic_load_explicit(&iot_running, memory_order_acquire)) {
     /* Wait for readability on any registered socket, or for the stop fd. */
@@ -161,7 +161,7 @@ static int iot_thread_fn([[maybe_unused]] void *arg)
       break;
     }
 
-    for (i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
       uint64_t data64 = events[i].data.u64;
       int is_control   = (int)(data64 >> 32);
       int slot_or_fd   = (int)(uint32_t)data64;

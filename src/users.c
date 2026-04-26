@@ -677,7 +677,6 @@ int readuserfile(char *file, struct userrec **ret)
   FILE *f;
   struct userrec *bu, *u = NULL;
   struct chanset_t *cst = NULL;
-  int i;
   char ignored[LOGLINEMAX]; /* putlog() will truncate anything larger anyway */
   struct flag_record fr;
   struct chanuserrec *cr;
@@ -951,7 +950,7 @@ int readuserfile(char *file, struct userrec **ret)
                            sanity_check(fr.global &USER_VALID));
 
               u = get_user_by_handle(bu, code);
-              for (i = 0; i < dcc_total; i++)
+              for (int i = 0; i < dcc_total; i++)
                 if (!strcasecmp(code, dcc[i].nick))
                   dcc[i].user = u;
               u->flags_udef = fr.udef_global;
@@ -1002,11 +1001,11 @@ void autolink_cycle(char *start)
 {
   struct userrec *u = userlist, *autc = NULL;
   static int cycle = 0;
-  int got_hub = 0, got_alt = 0, got_shared = 0, linked, ready = 0, i, bfl;
+  int got_hub = 0, got_alt = 0, got_shared = 0, linked, ready = 0, bfl;
 
   /* don't start a new cycle if some links are still pending */
   if (!start) {
-    for (i = 0; i < dcc_total; i++) {
+    for (int i = 0; i < dcc_total; i++) {
       if (dcc[i].type == &DCC_BOT_NEW)
         return;
       if (dcc[i].type == &DCC_FORK_BOT)
@@ -1026,7 +1025,7 @@ void autolink_cycle(char *start)
         bfl = bot_flags(u);
         if (bfl & (BOT_HUB | BOT_ALT)) {
           linked = 0;
-          for (i = 0; i < dcc_total; i++) {
+          for (int i = 0; i < dcc_total; i++) {
             if (dcc[i].user == u) {
               if (dcc[i].type == &DCC_BOT)
                 linked = 1;

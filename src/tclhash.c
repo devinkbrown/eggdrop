@@ -1405,13 +1405,13 @@ void tell_binds(int idx, char *par)
 /* Bring the default msg/dcc/fil commands into the Tcl interpreter */
 void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
 {
-  int k, i;
+  int k;
   char *l;
   cd_tcl_cmd table[2];
 
   table[0].callback = tl->func;
   table[1].name = NULL;
-  for (i = 0; cc[i].name; i++) {
+  for (int i = 0; cc[i].name; i++) {
     op_strbuf_t p;
     op_strbuf_printf(&p, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -1429,10 +1429,10 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
 /* Remove the default msg/dcc/fil commands from the Tcl interpreter */
 void rem_builtins(tcl_bind_list_t *table, cmd_t *cc)
 {
-  int k, i;
+  int k;
   char *l;
 
-  for (i = 0; cc[i].name; i++) {
+  for (int i = 0; cc[i].name; i++) {
     op_strbuf_t p;
     op_strbuf_printf(&p, "*%s:%s", table->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -1938,14 +1938,13 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
 
 void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
 {
-  int i;
   tcl_bind_mask_t *tm;
   tcl_cmd_t *tc;
   struct flag_record fr;
 
   if (!tl)
     return;
-  for (i = 0; cc[i].name; i++) {
+  for (int i = 0; cc[i].name; i++) {
     op_strbuf_t key_buf;
     op_strbuf_printf(&key_buf, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -1980,11 +1979,9 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
 
 void rem_builtins(tcl_bind_list_t *tl, cmd_t *cc)
 {
-  int i;
-
   if (!tl)
     return;
-  for (i = 0; cc[i].name; i++) {
+  for (int i = 0; cc[i].name; i++) {
     op_strbuf_t key_buf;
     op_strbuf_printf(&key_buf, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);

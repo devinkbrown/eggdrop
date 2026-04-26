@@ -43,7 +43,7 @@ static char OBUF[1024];
 ATTRIBUTE_FORMAT(printf,2,3)
 void tandout_but(int x, const char *format, ...)
 {
-  int i, len;
+  int len;
   char s[511];
   va_list va;
 
@@ -56,7 +56,7 @@ void tandout_but(int x, const char *format, ...)
     s[len] = 0;
   }
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_BOT) && (i != x) && (b_numver(i) < NEAT_BOTNET))
       dprint(i, s, len);
 }
@@ -202,14 +202,14 @@ int simple_sprintf (char *buf, const char *format, ...)
  */
 void send_tand_but(int x, char *buf, int len)
 {
-  int i, iso = 0;
+  int iso = 0;
 
   if (len < 0) {
     /* Very unlikely len would be INT_MIN */
     len = -len;
     iso = 1;
   }
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_BOT) && (i != x) &&
         (b_numver(i) >= NEAT_BOTNET) &&
         (!iso || !(bot_flags(dcc[i].user) & BOT_ISOLATE)))
@@ -228,14 +228,10 @@ void botnet_send_bye(void)
 
 void botnet_send_chan(int idx, char *botnick, char *user, int chan, char *data)
 {
-  int i;
-
   if ((tands > 0) && (chan < GLOBAL_CHANS)) {
-    if (user) {
-      i = simple_sprintf(OBUF, "c %s@%s %D %s\n", user, botnick, chan, data);
-    } else {
-      i = simple_sprintf(OBUF, "c %s %D %s\n", botnick, chan, data);
-    }
+    int i = user
+      ? simple_sprintf(OBUF, "c %s@%s %D %s\n", user, botnick, chan, data)
+      : simple_sprintf(OBUF, "c %s %D %s\n", botnick, chan, data);
     send_tand_but(idx, OBUF, -i);
 #ifndef NO_OLD_BOTNET
     tandout_but(idx, "chan %s%s%s %d %s\n", user ? user : "",
@@ -246,14 +242,10 @@ void botnet_send_chan(int idx, char *botnick, char *user, int chan, char *data)
 
 void botnet_send_act(int idx, char *botnick, char *user, int chan, char *data)
 {
-  int i;
-
   if ((tands > 0) && (chan < GLOBAL_CHANS)) {
-    if (user) {
-      i = simple_sprintf(OBUF, "a %s@%s %D %s\n", user, botnick, chan, data);
-    } else {
-      i = simple_sprintf(OBUF, "a %s %D %s\n", botnick, chan, data);
-    }
+    int i = user
+      ? simple_sprintf(OBUF, "a %s@%s %D %s\n", user, botnick, chan, data)
+      : simple_sprintf(OBUF, "a %s %D %s\n", botnick, chan, data);
     send_tand_but(idx, OBUF, -i);
 #ifndef NO_OLD_BOTNET
     tandout_but(idx, "actchan %s%s%s %d %s\n", user ? user : "",
@@ -264,8 +256,6 @@ void botnet_send_act(int idx, char *botnick, char *user, int chan, char *data)
 
 void botnet_send_chat(int idx, char *botnick, const char *data)
 {
-  int i;
-
   if (tands > 0) {
     {
       op_strbuf_t _b;
@@ -273,7 +263,7 @@ void botnet_send_chat(int idx, char *botnick, const char *data)
       strlcpy(OBUF, op_strbuf_str(&_b), sizeof OBUF);
       op_strbuf_free(&_b);
     }
-    i = (int) strlen(OBUF);
+    int i = (int) strlen(OBUF);
     send_tand_but(idx, OBUF, -i);
 #ifndef NO_OLD_BOTNET
     tandout_but(idx, "chat %s %s\n", botnick, data);
@@ -862,7 +852,7 @@ void botnet_send_nkch_part(int butidx, int useridx, char *oldnick)
 int add_note(char *to, char *from, char *msg, int idx, int echo)
 {
   #define FROMLEN 40
-  int i, iaway, sock;
+  int iaway, sock;
 #ifdef HAVE_TCL
   int status;
 #endif
@@ -906,7 +896,7 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
     } else
       strlcpy(botf, botnetnick, sizeof(botf));
 
-    i = nextbot(p);
+    int i = nextbot(p);
     if (i < 0) {
       if (idx >= 0)
         dprintf(idx, "%s", BOT_NOTHERE);
@@ -980,7 +970,7 @@ int add_note(char *to, char *from, char *msg, int idx, int echo)
   iaway = 0;
 
   /* Online right now? */
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type->flags & DCT_GETNOTES) &&
         (sock == -1 || sock == dcc[i].sock) &&
         !strcasecmp(dcc[i].nick, to)) {

@@ -63,9 +63,9 @@ static uint32_t **bf_S;
 
 static int blowfish_expmem(void)
 {
-  int i, tot = 0;
+  int tot = 0;
 
-  for (i = 0; i < BOXES; i++)
+  for (int i = 0; i < BOXES; i++)
     if (box[i].P != NULL) {
       tot += ((bf_N + 2) * sizeof(uint32_t));
       tot += (4 * sizeof(uint32_t *));
@@ -140,9 +140,9 @@ static void blowfish_decipher(uint32_t *xl, uint32_t *xr)
 static void blowfish_report(int idx, int details)
 {
   if (details) {
-    int i, tot = 0, size = blowfish_expmem();
+    int tot = 0, size = blowfish_expmem();
 
-    for (i = 0; i < BOXES; i++)
+    for (int i = 0; i < BOXES; i++)
       if (box[i].P != NULL)
         tot++;
 
@@ -151,7 +151,7 @@ static void blowfish_report(int idx, int details)
       dprintf(idx, "      0 of %d boxes in use\n", BOXES);
     else {
       dprintf(idx, "      %d of %d boxes in use:", tot, BOXES);
-      for (i = 0; i < BOXES; i++)
+      for (int i = 0; i < BOXES; i++)
         if (box[i].P != NULL) {
           dprintf(idx, " (age: %" PRId64 ")", (int64_t) (now - box[i].lastuse));
         }
@@ -164,7 +164,7 @@ static void blowfish_report(int idx, int details)
 
 static void blowfish_init(uint8_t *key, int keybytes)
 {
-  int i, j, bx;
+  int j, bx;
   time_t lowest;
   uint32_t data;
   uint32_t datal;
@@ -178,7 +178,7 @@ static void blowfish_init(uint8_t *key, int keybytes)
     keybytes = 80;
 
   /* Is buffer already allocated for this? */
-  for (i = 0; i < BOXES; i++)
+  for (int i = 0; i < BOXES; i++)
     if (box[i].P != NULL) {
       if ((box[i].keybytes == keybytes) &&
           (!strncmp((char *) (box[i].key), (char *) key, keybytes))) {
@@ -192,7 +192,7 @@ static void blowfish_init(uint8_t *key, int keybytes)
   /* No pre-allocated buffer: make new one */
   /* Set 'bx' to empty buffer */
   bx = -1;
-  for (i = 0; i < BOXES; i++) {
+  for (int i = 0; i < BOXES; i++) {
     if (box[i].P == NULL) {
       bx = i;
       i = BOXES + 1;
@@ -201,13 +201,13 @@ static void blowfish_init(uint8_t *key, int keybytes)
   if (bx < 0) {
     /* Find oldest */
     lowest = now;
-    for (i = 0; i < BOXES; i++)
+    for (int i = 0; i < BOXES; i++)
       if (box[i].lastuse <= lowest) {
         lowest = box[i].lastuse;
         bx = i;
       }
     nfree(box[bx].P);
-    for (i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++)
       nfree(box[bx].S[i]);
     nfree(box[bx].S);
   }
@@ -215,7 +215,7 @@ static void blowfish_init(uint8_t *key, int keybytes)
   /* uh... this is over 4k */
   box[bx].P = nmalloc((bf_N + 2) * sizeof(uint32_t));
   box[bx].S = nmalloc(4 * sizeof(uint32_t *));
-  for (i = 0; i < 4; i++)
+  for (int i = 0; i < 4; i++)
     box[bx].S[i] = nmalloc(256 * sizeof(uint32_t));
   bf_P = box[bx].P;
   bf_S = box[bx].S;
@@ -227,15 +227,15 @@ static void blowfish_init(uint8_t *key, int keybytes)
    * (I guess normally it just keeps scrambling them, but here it's
    * important to get the same encrypted result each time)
    */
-  for (i = 0; i < bf_N + 2; i++)
+  for (int i = 0; i < bf_N + 2; i++)
     bf_P[i] = initbf_P[i];
-  for (i = 0; i < 4; i++)
+  for (int i = 0; i < 4; i++)
     for (j = 0; j < 256; j++)
       bf_S[i][j] = initbf_S[i][j];
 
   j = 0;
   if (keybytes > 0) {           /* drummer: fixes crash if key=="" */
-    for (i = 0; i < bf_N + 2; ++i) {
+    for (int i = 0; i < bf_N + 2; ++i) {
       temp.word = 0;
       temp.w.byte0 = key[j];
       temp.w.byte1 = key[(j + 1) % keybytes];
@@ -248,12 +248,12 @@ static void blowfish_init(uint8_t *key, int keybytes)
   }
   datal = 0x00000000;
   datar = 0x00000000;
-  for (i = 0; i < bf_N + 2; i += 2) {
+  for (int i = 0; i < bf_N + 2; i += 2) {
     blowfish_encipher(&datal, &datar);
     bf_P[i] = datal;
     bf_P[i + 1] = datar;
   }
-  for (i = 0; i < 4; ++i) {
+  for (int i = 0; i < 4; ++i) {
     for (j = 0; j < 256; j += 2) {
       blowfish_encipher(&datal, &datar);
       bf_S[i][j] = datal;
@@ -276,9 +276,7 @@ static const char *cbcbase64 =
 
 static int base64dec(char c)
 {
-  int i;
-
-  for (i = 0; i < 64; i++)
+  for (int i = 0; i < 64; i++)
     if (base64[i] == c)
       return i;
   return 0;
@@ -324,7 +322,6 @@ static char *encrypt_string_ecb(char *key, char *str)
   uint32_t left, right;
   unsigned char *p;
   char *s, *dest, *d;
-  int i;
 
   /* Pad fake string with 8 bytes to make sure there's enough */
   s = nmalloc(strlen(str) + 9);
@@ -335,7 +332,7 @@ static char *encrypt_string_ecb(char *key, char *str)
   dest = nmalloc((strlen(str) + 9) * 2);
   while (*p)
     p++;
-  for (i = 0; i < 8; i++)
+  for (int i = 0; i < 8; i++)
     *p++ = 0;
   blowfish_init((unsigned char *) key, strlen(key));
   p = (unsigned char *) s;
@@ -350,11 +347,11 @@ static char *encrypt_string_ecb(char *key, char *str)
     right += ((*p++) << 8);
     right += (*p++);
     blowfish_encipher(&left, &right);
-    for (i = 0; i < 6; i++) {
+    for (int i = 0; i < 6; i++) {
       *d++ = base64[right & 0x3f];
       right = (right >> 6);
     }
-    for (i = 0; i < 6; i++) {
+    for (int i = 0; i < 6; i++) {
       *d++ = base64[left & 0x3f];
       left = (left >> 6);
     }
@@ -371,13 +368,13 @@ static char *encrypt_string_cbc(char *key, char *str)
   uint32_t left, right, prevleft = 0, prevright = 0;
   unsigned char *p;
   char *s, *dest;
-  int i, slen;
+  int slen;
 
   /* Pad fake string with 8 bytes to make sure there's enough
    * and prepend with 8 byte IV */
   slen = strlen(str) + 8;
   s = nmalloc(slen + 9);
-  for (i = 0; i < 8; ++i) {
+  for (int i = 0; i < 8; ++i) {
     s[i] = (char) (random() % 256);
   }
   strlcpy(s + 8, str, sizeof(s) - 8);
@@ -415,10 +412,10 @@ static char *encrypt_string_cbc(char *key, char *str)
     prevright = right;
 
     /* turn back into chars */
-    for (i = 0; i < 32; i += 8) {
+    for (int i = 0; i < 32; i += 8) {
         *--p = (unsigned char) ((right >> i) & 0xff);
     }
-    for (i = 0; i < 32; i += 8) {
+    for (int i = 0; i < 32; i += 8) {
         *--p = (unsigned char) ((left >> i) & 0xff);
     }
     p += 8;
@@ -432,7 +429,8 @@ static char *encrypt_string_cbc(char *key, char *str)
   /* base64 encode */
   /* go on til slen - #possible pads */
   p = (unsigned char *) dest + 1;
-  for (i = 0; i < slen - 2; i += 3) {
+  int i = 0;
+  for (; i < slen - 2; i += 3) {
     *p++ = cbcbase64[((unsigned char) s[i]) >> 2];
     *p++ = cbcbase64[((s[i] & 0x03) << 4) | (((unsigned char)s[i + 1]) >> 4)];
     *p++ = cbcbase64[((s[i + 1] & 0x0f) << 2) | (((unsigned char)s[i + 2]) >> 6)];
@@ -484,7 +482,6 @@ static char *decrypt_string_ecb(char *key, char *str)
 {
   uint32_t left, right;
   char *p, *s, *dest, *d;
-  int i;
 
   /* Pad encoded string with 0 bits in case it's bogus */
   s = nmalloc(strlen(str) + 12);
@@ -495,7 +492,7 @@ static char *decrypt_string_ecb(char *key, char *str)
   dest = nmalloc(strlen(str) + 12);
   while (*p)
     p++;
-  for (i = 0; i < 12; i++)
+  for (int i = 0; i < 12; i++)
     *p++ = 0;
   blowfish_init((unsigned char *) key, strlen(key));
   p = s;
@@ -503,14 +500,14 @@ static char *decrypt_string_ecb(char *key, char *str)
   while (*p) {
     right = 0L;
     left = 0L;
-    for (i = 0; i < 6; i++)
+    for (int i = 0; i < 6; i++)
       right |= (base64dec(*p++)) << (i * 6);
-    for (i = 0; i < 6; i++)
+    for (int i = 0; i < 6; i++)
       left |= (base64dec(*p++)) << (i * 6);
     blowfish_decipher(&left, &right);
-    for (i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++)
       *d++ = (left & (0xff << ((3 - i) * 8))) >> ((3 - i) * 8);
-    for (i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++)
       *d++ = (right & (0xff << ((3 - i) * 8))) >> ((3 - i) * 8);
   }
   *d = 0;
@@ -525,7 +522,7 @@ static char *decrypt_string_cbc(char *key, char *str)
   uint32_t left, right, prevleft = 0, prevright = 0, prevencleft, prevencright;
   unsigned char *p;
   char *s, *dest;
-  int i, slen, dlen;
+  int slen, dlen;
 
   slen = strlen(str);
   s = nmalloc(slen + 1);
@@ -541,7 +538,7 @@ static char *decrypt_string_cbc(char *key, char *str)
   dest = nmalloc(dlen + 1);
   p = (unsigned char *) dest;
   /* '=' will/should return 64 */
-  for (i = 0; i < slen; i += 4) {
+  for (int i = 0; i < slen; i += 4) {
     int s1 = cbcbase64dec(s[i]);
     int s2 = cbcbase64dec(s[i + 1]);
     int s3 = cbcbase64dec(s[i + 2]);
@@ -588,10 +585,10 @@ static char *decrypt_string_cbc(char *key, char *str)
     prevright = prevencright;
 
     /* turn back into chars */
-    for (i = 0; i < 32; i += 8) {
+    for (int i = 0; i < 32; i += 8) {
         *--p = (unsigned char) ((right >> i) & 0xff);
     }
-    for (i = 0; i < 32; i += 8) {
+    for (int i = 0; i < 32; i += 8) {
         *--p = (unsigned char) ((left >> i) & 0xff);
     }
     p += 8;
@@ -705,8 +702,6 @@ static Function blowfish_table[] = {
 
 char *blowfish_start(Function *global_funcs)
 {
-  int i;
-
   /* `global_funcs' is NULL if eggdrop is recovering from a restart.
    *
    * As the encryption module is never unloaded, only initialise stuff
@@ -718,7 +713,7 @@ char *blowfish_start(Function *global_funcs)
     if (!module_rename("blowfish", MODULE_NAME))
       return "Already loaded.";
     /* Initialize buffered boxes */
-    for (i = 0; i < BOXES; i++) {
+    for (int i = 0; i < BOXES; i++) {
       box[i].P = NULL;
       box[i].S = NULL;
       box[i].key[0] = 0;

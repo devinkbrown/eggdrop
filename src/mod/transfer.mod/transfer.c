@@ -122,9 +122,9 @@ static int wild_match_file(char *m, char *n)
  */
 static int at_limit(char *nick)
 {
-  int i, x = 0;
+  int x = 0;
 
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_GET || dcc[i].type == &DCC_GET_PENDING) &&
         !strcasecmp(dcc[i].nick, nick))
       x++;
@@ -946,9 +946,8 @@ static void dcc_fork_send(int idx, char *x, int y)
 static void dcc_get_pending(int idx, char *buf, int len)
 {
   uint16_t port;
-  int i;
 
-  i = answer(dcc[idx].sock, &dcc[idx].sockname, &port, 1);
+  int i = answer(dcc[idx].sock, &dcc[idx].sockname, &port, 1);
   killsock(dcc[idx].sock);
 #ifdef TLS
   if (dcc[idx].ssl && ssl_handshake(i, TLS_LISTEN, tls_vfydcc,
@@ -1026,7 +1025,7 @@ static void dcc_get_pending(int idx, char *buf, int len)
 static int raw_dcc_resend_send(char *filename, char *nick, char *from,
                                int resend)
 {
-  int zz, port, i;
+  int zz, port;
   char *nfn, *buf = NULL, s[EGG_INET_ADDRSTRLEN];
   off_t dccfilesize;
   FILE *f;
@@ -1072,7 +1071,8 @@ static int raw_dcc_resend_send(char *filename, char *nick, char *from,
     return DCCSEND_FCOPY;
   }
 
-  if ((i = new_dcc(&DCC_GET_PENDING, sizeof(struct xfer_info))) == -1) {
+  int i = new_dcc(&DCC_GET_PENDING, sizeof(struct xfer_info));
+  if (i == -1) {
     fclose(f);
     return DCCSEND_FULL;
   }
@@ -1131,7 +1131,7 @@ static int ctcp_DCC_RESUME(char *nick, char *from, char *handle,
                            char *object, char *keyword, char *text)
 {
   char *action, *fn, buf[512], *msg = buf;
-  int i, port;
+  int port;
   unsigned long offset;
 
   strlcpy(buf, text, sizeof buf);
@@ -1144,7 +1144,8 @@ static int ctcp_DCC_RESUME(char *nick, char *from, char *handle,
   port = atoi(newsplit(&msg));
   offset = my_atoul(newsplit(&msg));
 
-  for (i = 0; i < dcc_total; i++) /* Search for existing SEND */
+  int i = 0;
+  for (; i < dcc_total; i++) /* Search for existing SEND */
     if ((dcc[i].type == &DCC_GET_PENDING) &&
         (!rfc_casecmp(dcc[i].nick, nick)) && (dcc[i].port == port))
       break;
@@ -1199,11 +1200,10 @@ static int server_transfer_setup(char *mod)
 
 static char *transfer_close(void)
 {
-  int i;
   p_tcl_bind_list H_ctcp;
 
   putlog(LOG_MISC, "*", "%s", TRANSFER_UNLOADING);
-  for (i = dcc_total - 1; i >= 0; i--) {
+  for (int i = dcc_total - 1; i >= 0; i--) {
     if (dcc[i].type == &DCC_GET || dcc[i].type == &DCC_GET_PENDING)
       eof_dcc_get(i);
     else if (dcc[i].type == &DCC_SEND)

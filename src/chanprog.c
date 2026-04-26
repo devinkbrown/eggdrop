@@ -227,12 +227,11 @@ void tell_verbose_uptime(int idx)
 void tell_verbose_status(int idx)
 {
   char s1[121], *sysrel;
-  int i;
   time_t now2 = now - online_since, hr, min;
   double cputime, cache_total;
   op_strbuf_t s, s2;
 
-  i = count_users(userlist);
+  int i = count_users(userlist);
   dprintf(idx, "I am %s, running %s: %d user%s (mem: %uk).\n",
           botnetnick, ver, i, i == 1 ? "" : "s",
           (int) (expected_memory() / 1024));
@@ -328,7 +327,6 @@ void tell_verbose_status(int idx)
 void tell_settings(int idx)
 {
   char s[1024];
-  int i;
   struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
 
   dprintf(idx, "Botnet nickname: %s\n", botnetnick);
@@ -350,7 +348,7 @@ void tell_settings(int idx)
           MISC_NOTIFY, notify_new);
   if (owner[0])
     dprintf(idx, "%s: %s\n", MISC_PERMOWNER, owner);
-  for (i = 0; i < max_logs; i++)
+  for (int i = 0; i < max_logs; i++)
     if (logs[i].filename != NULL) {
       dprintf(idx, "Logfile #%d: %s on %s (%s: %s)\n", i + 1,
               logs[i].filename, logs[i].chname,
@@ -388,14 +386,12 @@ void reaffirm_owners(void)
 
 void chanprog(void)
 {
-  int i;
-
   admin[0]   = 0;
   helpdir[0] = 0;
   /* default mkcoblxs */
   conmask = LOG_MSGS|LOG_MODES|LOG_CMDS|LOG_MISC|LOG_BOTS|LOG_BOTMSG|LOG_FILES|LOG_SERV;
 
-  for (i = 0; i < max_logs; i++)
+  for (int i = 0; i < max_logs; i++)
     logs[i].flags |= LF_EXPIRING;
 
   /* Turn off read-only variables (make them write-able) for rehash */
@@ -432,7 +428,7 @@ void chanprog(void)
       fatal(MISC_NOCONFIGFILE, 0);
   }
 
-  for (i = 0; i < max_logs; i++) {
+  for (int i = 0; i < max_logs; i++) {
     if (logs[i].flags & LF_EXPIRING) {
       if (logs[i].filename != NULL) {
         nfree(logs[i].filename);

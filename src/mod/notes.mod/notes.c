@@ -472,7 +472,7 @@ static int tcl_erasenotes STDVAR
 
 static int tcl_listnotes STDVAR
 {
-  int i, numnotes;
+  int numnotes;
   int ln[128]; /* Is it enough? */
 
   BADARGS(3, 3, " handle noteslist#");
@@ -484,7 +484,7 @@ static int tcl_listnotes STDVAR
   numnotes = num_notes(argv[1]);
 
   notes_parse(ln, argv[2]);
-  for (i = 1; i <= numnotes; i++) {
+  for (int i = 1; i <= numnotes; i++) {
     if (notes_in(ln, i)) {
       Tcl_AppendElement(irp, int_to_base10(i));
     }
@@ -507,7 +507,6 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
   int ix = 1;
   int ir = 0;
   int rd[128]; /* Is it enough ? */
-  int i;
 
   if (srd[0] == 0)
     srd = "-";
@@ -528,7 +527,7 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
   }
   notes_parse(rd, srd);
   while (fgets(s, sizeof s, f) != NULL) {
-    i = strlen(s);
+    int i = (int)strlen(s);
     if (i > 0 && s[i - 1] == '\n')
       s[i - 1] = 0;
     rmspace(s);
@@ -813,7 +812,6 @@ static int msg_notes(char *nick, char *host, struct userrec *u, char *par)
       notes_del(u->handle, nick, par, -1);
   } else if (!strcasecmp(fcn, "TO")) {
     char *to;
-    int i;
     FILE *f;
     struct userrec *u2;
 
@@ -831,7 +829,7 @@ static int msg_notes(char *nick, char *host, struct userrec *u, char *par)
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, NOTES_NOTTO_BOT);
       return 1;
     }
-    for (i = 0; i < dcc_total; i++) {
+    for (int i = 0; i < dcc_total; i++) {
       if ((!strcasecmp(dcc[i].nick, to)) &&
           (dcc[i].type->flags & DCT_GETNOTES)) {
         int aok = 1;
@@ -1019,12 +1017,12 @@ int add_note_ignore(struct userrec *u, char *mask)
 {
   struct xtra_key *xk;
   char **ignores;
-  int ignoresn, i;
+  int ignoresn;
 
   ignoresn = get_note_ignores(u, &ignores);
   if (ignoresn > 0) {
     /* Search for existing mask */
-    for (i = 0; i < ignoresn; i++)
+    for (int i = 0; i < ignoresn; i++)
       if (!strcmp(ignores[i], mask)) {
         nfree(ignores[0]);      /* Free the string buffer       */
         nfree(ignores);         /* Free the ptr array           */
@@ -1066,7 +1064,7 @@ int del_note_ignore(struct userrec *u, char *mask)
   struct user_entry *ue;
   struct xtra_key *xk;
   char **ignores, *buf = NULL;
-  int ignoresn, i, foundit = 0;
+  int ignoresn, foundit = 0;
 
   ignoresn = get_note_ignores(u, &ignores);
   if (!ignoresn)
@@ -1074,7 +1072,7 @@ int del_note_ignore(struct userrec *u, char *mask)
 
   buf = user_malloc(1);
   buf[0] = 0;
-  for (i = 0; i < ignoresn; i++) {
+  for (int i = 0; i < ignoresn; i++) {
     if (strcmp(ignores[i], mask)) {
       op_strbuf_t _b;
       if (buf[0])
@@ -1119,12 +1117,12 @@ int del_note_ignore(struct userrec *u, char *mask)
 int match_note_ignore(struct userrec *u, char *from)
 {
   char **ignores;
-  int ignoresn, i;
+  int ignoresn;
 
   ignoresn = get_note_ignores(u, &ignores);
   if (!ignoresn)
     return 0;
-  for (i = 0; i < ignoresn; i++)
+  for (int i = 0; i < ignoresn; i++)
     if (wild_match(ignores[i], from)) {
       nfree(ignores[0]);
       nfree(ignores);

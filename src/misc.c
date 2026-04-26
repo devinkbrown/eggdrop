@@ -535,7 +535,7 @@ ATTRIBUTE_FORMAT(printf,3,4)
 void putlog (int type, char *chname, const char *format, ...)
 {
   static int inhere = 0;
-  int i, tsl = 0;
+  int tsl = 0;
   char s[LOGLINELEN], *out, ct[81], *s2, stamp[34];
   va_list va;
   time_t now2 = time(NULL);
@@ -593,7 +593,7 @@ void putlog (int type, char *chname, const char *format, ...)
   }
   strlcat(out, "\n", LOGLINELEN - (size_t)(out - s));
   if (!use_stderr) {
-    for (i = 0; i < max_logs; i++) {
+    for (int i = 0; i < max_logs; i++) {
       if ((logs[i].filename != NULL) && (logs[i].mask & type) &&
           ((chname[0] == '*') || (logs[i].chname[0] == '*') ||
            (!rfc_casecmp(chname, logs[i].chname)))) {
@@ -639,7 +639,7 @@ void putlog (int type, char *chname, const char *format, ...)
       }
     }
   }
-  for (i = 0; i < dcc_total; i++) {
+  for (int i = 0; i < dcc_total; i++) {
     if (((dcc[i].type == &DCC_CHAT) && (dcc[i].u.chat->con_flags & type)) ||
         ((dcc[i].type == &DCC_PRE_RELAY) && (dcc[i].u.relay->chat->con_flags & type))) {
       if ((chname[0] == '*') || (dcc[i].u.chat->con_chan[0] == '*') ||
@@ -663,7 +663,6 @@ void putlog (int type, char *chname, const char *format, ...)
  */
 void logsuffix_change(char *s)
 {
-  int i;
   char *s2 = logfile_suffix;
 
   /* If the suffix didn't really change, ignore. It's probably a rehash. */
@@ -677,7 +676,7 @@ void logsuffix_change(char *s)
       s2[0] = '_';
     s2++;
   }
-  for (i = 0; i < max_logs; i++) {
+  for (int i = 0; i < max_logs; i++) {
     if (logs[i].f) {
       fclose(logs[i].f);
       logs[i].f = NULL;
@@ -688,10 +687,9 @@ void logsuffix_change(char *s)
 void check_logsize(void)
 {
   struct stat ss;
-  int i;
 
   if (!keep_all_logs && max_logsize > 0) {
-    for (i = 0; i < max_logs; i++) {
+    for (int i = 0; i < max_logs; i++) {
       if (logs[i].filename) {
         if (stat(logs[i].filename, &ss) != 0) {
           break;
@@ -744,8 +742,8 @@ static void colstrings_drain(void)
 static void subst_addcol(char *s, size_t sz, char *newcol)
 {
   char *col;
-  int i, colwidth;
-  size_t j, n;
+  int colwidth;
+  size_t n;
 
   if (!colstrings_ready) {
     op_vec_init(&colstrings, 4);
@@ -764,11 +762,11 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "     ");
-      for (j = 0; j < n; j++) {
+      for (size_t j = 0; j < n; j++) {
         col = op_vec_get(&colstrings, j);
         op_strbuf_append_cstr(&_b, col);
         if (j < n - 1) {             /* pad all but the last column */
-          for (i = (int) strlen(col); i < colwidth; i++)
+          for (int i = (int) strlen(col); i < colwidth; i++)
             op_strbuf_append_cstr(&_b, " ");
         }
         nfree(col);
@@ -830,7 +828,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
                 int isdcc, char *topic)
 {
   struct chanset_t *chan;
-  int i, j, center = 0;
+  int center = 0;
   static int help_flags;
   char xx[HELP_BUF_LEN + 1], *current, *q, chr, *writeidx, *readidx, *towrite,
        sub[512];
@@ -1045,7 +1043,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     }
   }
   if (!blind) {
-    i = strlen(readidx);
+    int i = strlen(readidx);
     if (i && ((writeidx + i) >= (s + HELP_BUF_LEN))) {
       memcpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
       s[HELP_BUF_LEN] = 0;
@@ -1056,10 +1054,10 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     *writeidx = 0;
   if (center) {
     strlcpy(xx, s, sizeof(xx));
-    i = 35 - (strlen(xx) / 2);
+    int i = 35 - (int)(strlen(xx) / 2);
     if (i > 0) {
       s[0] = 0;
-      for (j = 0; j < i; j++)
+      for (int j = 0; j < i; j++)
         s[j] = ' ';
       strlcpy(s + i, xx, sizeof(s) - i);
     }
@@ -1462,9 +1460,7 @@ void show_banner(int idx)
 
 void make_rand_str_from_chars(char *s, const int len, char *chars)
 {
-  int i;
-
-  for (i = 0; i < len; i++)
+  for (int i = 0; i < len; i++)
     s[i] = chars[randint(strlen(chars))];
   s[len] = 0;
 }
@@ -1482,11 +1478,10 @@ void make_rand_str(char *s, const int len)
  */
 int oatoi(const char *octal)
 {
-  int i;
-
   if (!*octal)
     return -1;
-  for (i = 0; ((*octal >= '0') && (*octal <= '7')); octal++)
+  int i = 0;
+  for (; ((*octal >= '0') && (*octal <= '7')); octal++)
     i = (i * 8) + (*octal - '0');
   if (*octal)
     return -1;
@@ -1640,14 +1635,13 @@ int crypto_verify(const char *x_, const char *y_)
   const volatile unsigned char *volatile y =
     (const volatile unsigned char *volatile) y_;
   volatile uint_fast16_t d = 0U;
-  int n, i;
 
   /* Could leak string length */
-  n = strlen(x_);
-  if (n != strlen(y_))
+  int n = strlen(x_);
+  if (n != (int)strlen(y_))
     return 1;
 
-  for (i = 0; i < n; i++) {
+  for (int i = 0; i < n; i++) {
     d |= x[i] ^ y[i];
   }
   return (1 & ((d - 1) >> 8)) - 1;

@@ -746,7 +746,7 @@ static int tcl_dcclist STDVAR
 
 static int tcl_whom STDVAR
 {
-  int chan, i;
+  int chan;
   char c[2], *p;
   op_strbuf_t idle, work;
   EGG_CONST char *list[7];
@@ -772,7 +772,7 @@ static int tcl_whom STDVAR
       return TCL_ERROR;
     }
   }
-  for (i = 0; i < dcc_total; i++)
+  for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT) {
       if (dcc[i].u.chat->channel == chan || chan == -1) {
         c[0] = geticon(i);
@@ -796,7 +796,7 @@ static int tcl_whom STDVAR
           op_strbuf_free(&work);
       }
     }
-  for (i = 0; i < parties; i++) {
+  for (int i = 0; i < parties; i++) {
     if (party[i].chan == chan || chan == -1) {
       c[0] = party[i].flag;
       c[1] = 0;
@@ -889,7 +889,7 @@ static int tcl_setdccaway STDVAR
 
 static int tcl_link STDVAR
 {
-  int x, i;
+  int x;
   char bot[HANDLEN + 1], bot2[HANDLEN + 1];
 
   BADARGS(2, 3, " ?via-bot? bot");
@@ -898,7 +898,7 @@ static int tcl_link STDVAR
   if (argc == 3) {
     x = 1;
     strlcpy(bot2, argv[2], sizeof bot2);
-    i = nextbot(bot);
+    int i = nextbot(bot);
     if (i < 0)
       x = 0;
     else

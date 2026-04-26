@@ -461,18 +461,18 @@ static void tcl_cleanup_stringinfo(ClientData cd)
 static int tcl_call_stringproc_cd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
   const char **argv;
-  int i, ret;
+  int ret;
   struct tcl_call_stringinfo *info = cd;
 
   /* The string API guarantees argv[argc] == NULL, unlike the obj API */
   argv = nmalloc((objc + 1) * sizeof *argv);
-  for (i = 0; i < objc; i++) {
+  for (int i = 0; i < objc; i++) {
     Tcl_IncrRefCount(objv[i]);
     argv[i] = Tcl_GetString(objv[i]);
   }
   argv[objc] = NULL;
   ret = (info->proc)(info->cd, interp, objc, argv);
-  for (i = 0; i < objc; i++) {
+  for (int i = 0; i < objc; i++) {
     Tcl_DecrRefCount(objv[i]);
   }
   nfree(argv);
@@ -493,9 +493,7 @@ static int tcl_call_stringproc(ClientData cd, Tcl_Interp *interp, int objc, Tcl_
 
 void add_tcl_commands(tcl_cmds *table)
 {
-  int i;
-
-  for (i = 0; table[i].name; i++)
+  for (int i = 0; table[i].name; i++)
     Tcl_CreateObjCommand(interp, table[i].name, tcl_call_stringproc, table[i].func, NULL);
 }
 
@@ -520,17 +518,13 @@ void add_cd_tcl_cmds(cd_tcl_cmd *table)
 
 void rem_tcl_commands(tcl_cmds *table)
 {
-  int i;
-
-  for (i = 0; table[i].name; i++)
+  for (int i = 0; table[i].name; i++)
     Tcl_DeleteCommand(interp, table[i].name);
 }
 
 void add_tcl_objcommands(tcl_cmds *table)
 {
-  int i;
-
-  for (i = 0; table[i].name; i++)
+  for (int i = 0; table[i].name; i++)
     Tcl_CreateObjCommand(interp, table[i].name, table[i].func, (ClientData) 0,
                          NULL);
 }
@@ -657,9 +651,7 @@ void tickle_ServiceModeHook(int mode)
 
 int tclthreadmainloop(int zero)
 {
-  int i;
-  i = sockread(NULL, NULL, threaddata()->socklist, threaddata()->MAXSOCKS, 1);
-  return (i == -5);
+  return (sockread(NULL, NULL, threaddata()->socklist, threaddata()->MAXSOCKS, 1) == -5);
 }
 
 struct threaddata *td_main = 0;
@@ -855,7 +847,6 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
 {
   struct tcl_unicodesup_info *info = cd;
   Tcl_Obj **new_objv;
-  int i;
   int ret;
 
   /* impossible? */
@@ -865,7 +856,7 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
   /* new arguments to original Tcl string tolower/toupper/totitle */
   new_objv = nmalloc(objc * sizeof *new_objv);
 
-  for (i = 0; i < objc; i++) {
+  for (int i = 0; i < objc; i++) {
     if (i == 0) {
       /* overwrite command objv[0] with original Tcl command instead of this function */
       new_objv[i] = info->cmd;
@@ -887,7 +878,7 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
   ret = Tcl_EvalObjv(interp, objc, new_objv, 0);
 
   /* decrease ref count of new arguments */
-  for (i = 0; i < objc; i++) {
+  for (int i = 0; i < objc; i++) {
     Tcl_DecrRefCount(new_objv[i]);
   }
   nfree(new_objv);
@@ -997,7 +988,6 @@ void init_tcl0(int argc, char **argv)
 void init_tcl1(int argc, char **argv)
 {
   const char *encoding;
-  int i, j;
   char *langEnv, pver[1024] = "";
 
   /* Initialize the interpreter */
@@ -1032,7 +1022,7 @@ void init_tcl1(int argc, char **argv)
 
   encoding = NULL;
   if (langEnv != NULL) {
-    for (i = 0; localeTable[i].lang != NULL; i++)
+    for (int i = 0; localeTable[i].lang != NULL; i++)
       if (strcmp(localeTable[i].lang, langEnv) == 0) {
         encoding = localeTable[i].encoding;
         break;
@@ -1088,7 +1078,7 @@ resetPath:
   Tcl_GetEncoding(NULL, "iso8859-1");
 
   /* Add eggdrop to Tcl's package list */
-  for (j = 0; j <= strlen(egg_version); j++) {
+  for (int j = 0; j <= (int)strlen(egg_version); j++) {
     if ((egg_version[j] == ' ') || (egg_version[j] == '+'))
       break;
     pver[strlen(pver)] = egg_version[j];
@@ -1172,11 +1162,10 @@ int readtclprog(char *fname)
 
 void add_tcl_strings(tcl_strings *list)
 {
-  int i;
   strinfo *st;
   int tmp;
 
-  for (i = 0; list[i].name; i++) {
+  for (int i = 0; list[i].name; i++) {
     if (!tcl_strinfo_bh)
       tcl_strinfo_bh = op_bh_create(sizeof(strinfo), 32, "tcl_strinfo");
     st = op_bh_alloc(tcl_strinfo_bh);
@@ -1198,11 +1187,11 @@ void add_tcl_strings(tcl_strings *list)
 
 void rem_tcl_strings(tcl_strings *list)
 {
-  int i, f;
+  int f;
   strinfo *st;
 
   f = TCL_GLOBAL_ONLY | TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS;
-  for (i = 0; list[i].name; i++) {
+  for (int i = 0; list[i].name; i++) {
     st = (strinfo *) Tcl_VarTraceInfo(interp, list[i].name, f, tcl_eggstr,
                                       NULL);
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggstr, st);
@@ -1215,10 +1204,10 @@ void rem_tcl_strings(tcl_strings *list)
 
 void add_tcl_ints(tcl_ints *list)
 {
-  int i, tmp;
+  int tmp;
   intinfo *ii;
 
-  for (i = 0; list[i].name; i++) {
+  for (int i = 0; list[i].name; i++) {
     if (!tcl_intinfo_bh)
       tcl_intinfo_bh = op_bh_create(sizeof(intinfo), 32, "tcl_intinfo");
     ii = op_bh_alloc(tcl_intinfo_bh);
@@ -1239,11 +1228,11 @@ void add_tcl_ints(tcl_ints *list)
 
 void rem_tcl_ints(tcl_ints *list)
 {
-  int i, f;
+  int f;
   intinfo *ii;
 
   f = TCL_GLOBAL_ONLY | TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS;
-  for (i = 0; list[i].name; i++) {
+  for (int i = 0; list[i].name; i++) {
     ii = (intinfo *) Tcl_VarTraceInfo(interp, list[i].name, f, tcl_eggint,
                                       NULL);
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggint, (ClientData) ii);
@@ -1259,9 +1248,8 @@ void rem_tcl_ints(tcl_ints *list)
 void add_tcl_coups(tcl_coups *list)
 {
   coupletinfo *cp;
-  int i;
 
-  for (i = 0; list[i].name; i++) {
+  for (int i = 0; list[i].name; i++) {
     if (!tcl_couplet_bh)
       tcl_couplet_bh = op_bh_create(sizeof(coupletinfo), 16, "tcl_couplet");
     cp = op_bh_alloc(tcl_couplet_bh);
@@ -1278,11 +1266,11 @@ void add_tcl_coups(tcl_coups *list)
 
 void rem_tcl_coups(tcl_coups *list)
 {
-  int i, f;
+  int f;
   coupletinfo *cp;
 
   f = TCL_GLOBAL_ONLY | TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS;
-  for (i = 0; list[i].name; i++) {
+  for (int i = 0; list[i].name; i++) {
     cp = (coupletinfo *) Tcl_VarTraceInfo(interp, list[i].name, f,
                                           tcl_eggcouplet, NULL);
     strtot -= sizeof(coupletinfo);
@@ -1386,8 +1374,7 @@ void add_tcl_strings(tcl_strings *list)
 
 void rem_tcl_strings(tcl_strings *list)
 {
-  int i;
-  for (i = 0; i < notcl_nstr; i++)
+  for (int i = 0; i < notcl_nstr; i++)
     if (notcl_str_lists[i] == list) {
       notcl_str_lists[i] = notcl_str_lists[--notcl_nstr];
       break;
@@ -1402,8 +1389,7 @@ void add_tcl_ints(tcl_ints *list)
 
 void rem_tcl_ints(tcl_ints *list)
 {
-  int i;
-  for (i = 0; i < notcl_nint; i++)
+  for (int i = 0; i < notcl_nint; i++)
     if (notcl_int_lists[i] == list) {
       notcl_int_lists[i] = notcl_int_lists[--notcl_nint];
       break;
@@ -1418,8 +1404,7 @@ void add_tcl_coups(tcl_coups *list)
 
 void rem_tcl_coups(tcl_coups *list)
 {
-  int i;
-  for (i = 0; i < notcl_ncoup; i++)
+  for (int i = 0; i < notcl_ncoup; i++)
     if (notcl_coup_lists[i] == list) {
       notcl_coup_lists[i] = notcl_coup_lists[--notcl_ncoup];
       break;
@@ -1431,9 +1416,8 @@ void rem_tcl_coups(tcl_coups *list)
  */
 void notcl_setvar(const char *name, const char *value)
 {
-  int i;
   /* Strings */
-  for (i = 0; i < notcl_nstr; i++) {
+  for (int i = 0; i < notcl_nstr; i++) {
     tcl_strings *e;
     for (e = notcl_str_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
@@ -1444,7 +1428,7 @@ void notcl_setvar(const char *name, const char *value)
     }
   }
   /* Ints */
-  for (i = 0; i < notcl_nint; i++) {
+  for (int i = 0; i < notcl_nint; i++) {
     tcl_ints *e;
     for (e = notcl_int_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
@@ -1473,7 +1457,7 @@ void notcl_setvar(const char *name, const char *value)
     }
   }
   /* Coups ("N:M") */
-  for (i = 0; i < notcl_ncoup; i++) {
+  for (int i = 0; i < notcl_ncoup; i++) {
     tcl_coups *e;
     for (e = notcl_coup_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
@@ -1492,9 +1476,8 @@ void notcl_setvar(const char *name, const char *value)
  */
 const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
 {
-  int i;
   /* Strings */
-  for (i = 0; i < notcl_nstr; i++) {
+  for (int i = 0; i < notcl_nstr; i++) {
     tcl_strings *e;
     for (e = notcl_str_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
@@ -1507,7 +1490,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
     }
   }
   /* Ints */
-  for (i = 0; i < notcl_nint; i++) {
+  for (int i = 0; i < notcl_nint; i++) {
     tcl_ints *e;
     for (e = notcl_int_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {

@@ -36,11 +36,9 @@ static filelist_t *filelist_new(void)
 
 static void filelist_free(filelist_t *flist)
 {
-  int i;
-
   if (!flist)
     return;
-  for (i = 0; i < flist->tot; i++) {
+  for (int i = 0; i < flist->tot; i++) {
     if (flist->elements[i].output)
       my_free(flist->elements[i].output);
     my_free(flist->elements[i].fn);
@@ -81,9 +79,7 @@ static void filelist_addout(filelist_t *flist, char *desc)
 /* Dump all data to specified idx */
 static void filelist_idxshow(filelist_t *flist, int idx)
 {
-  int i;
-
-  for (i = 0; i < flist->tot; i++)
+  for (int i = 0; i < flist->tot; i++)
     dprintf(idx, "%s", flist->elements[i].output);
 }
 

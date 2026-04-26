@@ -26,7 +26,6 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
   struct server_list *x = serverlist;
   time_t t;
   struct tm *currtm;
-  int i;
 #ifdef IPV6
   char buf[sizeof(struct in6_addr)];
 #endif
@@ -37,7 +36,7 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
     dprintf(idx, "There are no servers in the server list.\n");
   } else {
     dprintf(idx, "Server list:\n");
-    i = 0;
+    int i = 0;
     for (; x; x = x->next) {
       op_strbuf_t s;
 #ifdef IPV6

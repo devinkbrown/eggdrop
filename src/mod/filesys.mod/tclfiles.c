@@ -109,12 +109,10 @@ static int tcl_getlink STDVAR
 
 static int tcl_setpwd STDVAR
 {
-  int i, idx;
-
   BADARGS(3, 3, " idx dir");
 
-  i = atoi(argv[1]);
-  idx = findanyidx(i);
+  int i = atoi(argv[1]);
+  int idx = findanyidx(i);
   if ((idx < 0) || (dcc[idx].type != &DCC_FILES)) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
@@ -126,12 +124,10 @@ static int tcl_setpwd STDVAR
 
 static int tcl_getpwd STDVAR
 {
-  int i, idx;
-
   BADARGS(2, 2, " idx");
 
-  i = atoi(argv[1]);
-  idx = findanyidx(i);
+  int i = atoi(argv[1]);
+  int idx = findanyidx(i);
   if ((idx < 0) || (dcc[idx].type != &DCC_FILES)) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;

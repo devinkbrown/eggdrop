@@ -417,7 +417,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
   char *env_ldir = getenv("EGG_LANGDIR");
   char *langfile;
   const char *dirs[3];
-  int i, ndirs = 0;
+  int ndirs = 0;
 
   if (lang_dir_override[0]) {
     dirs[ndirs++] = lang_dir_override;
@@ -430,7 +430,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
 #endif
   }
 
-  for (i = 0; i < ndirs; i++) {
+  for (int i = 0; i < ndirs; i++) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
     langfile = nmalloc(op_strbuf_len(&_b) + 1);
@@ -584,7 +584,6 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
   lang_tab *l;
   char ltext2[512];
   unsigned int idx2;
-  int i;
 
   putlog(LOG_CMDS, "*", "#%s# ldump %s", dcc[idx].nick, par);
   if (par[0]) {
@@ -598,7 +597,7 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
     return 0;
   }
   dprintf(idx, " LANGIDX TEXT\n");
-  for (i = 0; i < 64; i++)
+  for (int i = 0; i < 64; i++)
     for (l = langtab[i]; l; l = l->next)
       dprintf(idx, "0x%x   %s\n", l->idx, l->text);
   return 0;
@@ -628,9 +627,9 @@ int expmem_language(void)
   lang_tab *l;
   lang_sec *ls;
   lang_pri *lp;
-  int i, size = 0;
+  int size = 0;
 
-  for (i = 0; i < 64; i++)
+  for (int i = 0; i < 64; i++)
     for (l = langtab[i]; l; l = l->next) {
       size += sizeof(lang_tab);
       size += (strlen(l->text) + 1);
@@ -655,14 +654,14 @@ int expmem_language(void)
 static int cmd_languagestatus(struct userrec *u, int idx, char *par)
 {
   int ltexts = 0;
-  int i, c, maxdepth = 0, used = 0, empty = 0;
+  int maxdepth = 0, used = 0, empty = 0;
   lang_tab *l;
   lang_sec *ls = langsection;
   lang_pri *lp = langpriority;
 
   putlog(LOG_CMDS, "*", "#%s# lstat %s", dcc[idx].nick, par);
-  for (i = 0; i < 64; i++) {
-    c = 0;
+  for (int i = 0; i < 64; i++) {
+    int c = 0;
     for (l = langtab[i]; l; l = l->next)
       c++;
     if (c > maxdepth)

@@ -376,7 +376,6 @@ char *encode_msgtags(Tcl_Obj *msgtagdict) {
 /* 001: welcome to IRC (use it to fix the server name) */
 static int got001(char *from, char *msg)
 {
-  int i;
   char *key;
   struct chanset_t *chan;
   struct server_list *x = serverlist;
@@ -385,7 +384,7 @@ static int got001(char *from, char *msg)
    * cleared while a connection is in progress.  Guard defensively: walk only
    * when the list is present and bail out below if we cannot find curserv. */
   if (x) {
-    for (i = curserv; i > 0 && x; i--)
+    for (int i = curserv; i > 0 && x; i--)
       x = x->next;
     if (!x) {
       putlog(LOG_MISC, "*", "Invalid server list (curserv=%d)!", curserv);

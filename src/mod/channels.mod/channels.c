@@ -254,10 +254,10 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
 {
   char *p = s;
   op_strbuf_t s1;
-  int i, tst;
+  int tst;
 
   op_strbuf_init(&s1);
-  for (i = 0; i < 2; i++) {
+  for (int i = 0; i < 2; i++) {
     if (i == 0) {
       tst = chan->mode_pls_prot;
       if ((tst) || (chan->limit_prot != 0) || (chan->key_prot[0]))
@@ -395,7 +395,6 @@ static int chanset_unlink(struct chanset_t *chan)
  */
 static void remove_channel(struct chanset_t *chan)
 {
-  int i;
   module_entry *me;
 
   /* Remove the channel from the list, so that no one can pull it
@@ -424,7 +423,7 @@ static void remove_channel(struct chanset_t *chan)
   user_del_chan(chan->dname);
   noshare = 0;
   nfree(chan->channel.key);
-  for (i = 0; i < MODES_PER_LINE_MAX && chan->cmode[i].op; i++)
+  for (int i = 0; i < MODES_PER_LINE_MAX && chan->cmode[i].op; i++)
     nfree(chan->cmode[i].op);
   if (chan->key)
     nfree(chan->key);
@@ -845,7 +844,7 @@ static int expmem_masklist(masklist *m)
 
 static int channels_expmem(void)
 {
-  int tot = 0, i;
+  int tot = 0;
   struct chanset_t *chan;
 
   for (chan = chanset; chan; chan = chan->next) {
@@ -860,7 +859,7 @@ static int channels_expmem(void)
     tot += expmem_masklist(chan->channel.exempt);
     tot += expmem_masklist(chan->channel.invite);
 
-    for (i = 0; i < MODES_PER_LINE_MAX && chan->cmode[i].op; i++)
+    for (int i = 0; i < MODES_PER_LINE_MAX && chan->cmode[i].op; i++)
       tot += strlen(chan->cmode[i].op) + 1;
     if (chan->key)
       tot += strlen(chan->key) + 1;

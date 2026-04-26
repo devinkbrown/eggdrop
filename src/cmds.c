@@ -801,7 +801,7 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
   char *handle, *addr, *port, *port2, *relay, *host, *p;
   struct userrec *u1;
   struct bot_addr *bi;
-  int i, found = 0;
+  bool found = false;
 
   if (!par[0]) {
     dprintf(idx, "Usage: +bot <handle> [address [telnet-port[/relay-port]]] "
@@ -847,7 +847,7 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
   if (addr[0]) {
 #ifndef IPV6
  /* Reject IPv6 addresses */
-    for (i=0; addr[i]; i++) {
+    for (int i=0; addr[i]; i++) {
       if (addr[i] == ':') {
         dprintf(idx, "Invalid IP address format (this Eggdrop "
           "was compiled without IPv6 support).\n");
@@ -858,13 +858,13 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
  /* Check if user forgot address field by checking if argument is completely
   * numerical, implying a port was provided as the next argument instead.
   */
-    for (i=0; addr[i]; i++) {
+    for (int i=0; addr[i]; i++) {
       if (strchr(BADADDRCHARS, addr[i])) {
         dprintf(idx, "Bot address may not contain a '%c'. ", addr[i]);
         break;
       }
       if (!isdigit((unsigned char) addr[i])) {
-        found=1;
+        found=true;
         break;
       }
     }
@@ -1018,7 +1018,6 @@ static void cmd_chhandle(struct userrec *u, int idx, char *par)
 static void cmd_handle(struct userrec *u, int idx, char *par)
 {
   char oldhandle[HANDLEN + 1], newhandle[HANDLEN + 1];
-  int i;
 
   strlcpy(newhandle, newsplit(&par), sizeof newhandle);
 
@@ -1026,7 +1025,7 @@ static void cmd_handle(struct userrec *u, int idx, char *par)
     dprintf(idx, "Usage: handle <new-handle>\n");
     return;
   }
-  for (i = 0; i < strlen(newhandle); i++)
+  for (int i = 0; i < strlen(newhandle); i++)
     if (((unsigned char) newhandle[i] <= 32) || (newhandle[i] == '@'))
       newhandle[i] = '?';
   if (strchr(BADHANDCHARS, newhandle[0]) != NULL)
@@ -1161,7 +1160,8 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
 #ifdef TLS
   int use_ssl = 0;
 #endif
-  int found = 0, telnet_port = 3333, relay_port = 3333;
+  bool found = false;
+  int telnet_port = 3333, relay_port = 3333;
   char *handle, *addr, *port, *port2, *relay;
   struct bot_addr *bi;
   struct userrec *u1;
@@ -1203,7 +1203,7 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
         break;
       }
       if (!isdigit((unsigned char) addr[i])) {
-        found=1;
+        found=true;
         break;
       }
     }
