@@ -119,8 +119,7 @@ static void add_delay(struct chanset_t *chan, int plsmns, int mode, char *mask)
   d->mode = mode;
   d->seconds = now + randint(30);
 
-  d->mask = nmalloc(strlen(mask) + 1);
-  strlcpy(d->mask, mask, sizeof(d->mask));
+  d->mask = op_strdup(mask);
 
   if (!delay_head)
     delay_head = d;
@@ -151,7 +150,7 @@ static void check_delay(void)
         delay_tail = prev;
 
       if (d->mask)
-        nfree(d->mask);
+        op_free(d->mask);
 
       op_bh_free(delay_mode_bh, d);
     }
@@ -169,7 +168,7 @@ static void delay_free_mem(void)
     dnext = d->next;
 
     if (d->mask)
-      nfree(d->mask);
+      op_free(d->mask);
 
     op_bh_free(delay_mode_bh, d);
   }
@@ -554,7 +553,7 @@ static void share_newchan(int idx, char *par)
     if ((ch = findchan_by_dname(par)) && channel_shared(ch)) {
 
       /* Go over users and check if it has flags for that chan */
-      for (u = userlist; u->next; u = u->next) {
+      for (u = userlist; u; u = u->next) {
         /* Only for shared users */
         if (!(u->flags & USER_UNSHARED)) {
           struct flag_record fr = { FR_CHAN, 0, 0, 0, 0, 0 };
@@ -950,9 +949,12 @@ static void share_pls_ban(int idx, char *par)
            from, par);
     /* check ban against users in chans */
     if ((me = module_find("irc", 0, 0)))
-      for (chan = chanset; chan != NULL; chan = chan->next)
+      for (chan = chanset; chan != NULL; chan = chan->next) {
+        fr.match = (FR_CHAN | FR_BOT);
+        get_user_flagrec(dcc[idx].user, &fr, chan->dname);
         if (channel_shared(chan) && (bot_chan(fr) || bot_global(fr)))
           ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, flags & MASKREC_STICKY);
+      }
     noshare = 0;
   }
 }
@@ -1285,8 +1287,7 @@ static void share_ufsend(int idx, char *par)
       fclose(f);
     } else {
       strlcpy(dcc[i].nick, "*users", sizeof(dcc[i].nick));
-      dcc[i].u.xfer->filename = nmalloc(strlen(s) + 1);
-      strcpy(dcc[i].u.xfer->filename, s);
+      dcc[i].u.xfer->filename = op_strdup(s);
       dcc[i].u.xfer->origname = dcc[i].u.xfer->filename;
       dcc[i].u.xfer->length = atoi(par);
       dcc[i].u.xfer->f = f;
@@ -1543,7 +1544,7 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
  */
 static void new_tbuf(char *bot)
 {
-  tandbuf *new = nmalloc(sizeof(tandbuf));
+  tandbuf *new = op_malloc(sizeof(tandbuf));
 
   strlcpy(new->bot, bot, sizeof new->bot);
   op_deque_init(&new->q, 8);
@@ -1565,11 +1566,11 @@ static void del_tbuf(tandbuf *goner)
         tbuf = t->next;
       while (!op_deque_empty(&t->q)) {
         struct share_msgq *qe = op_deque_pop_front(&t->q);
-        nfree(qe->msg);
+        op_free(qe->msg);
         op_bh_free(share_msgq_bh, qe);
       }
       op_deque_fini(&t->q);
-      nfree(t);
+      op_free(t);
       break;
     }
   }
@@ -1633,8 +1634,7 @@ static void q_push_msg(op_deque_t *q, struct chanset_t *chan, char *s)
     return;
   qe = op_bh_alloc(share_msgq_bh);
   qe->chan = chan;
-  qe->msg = nmalloc(strlen(s) + 1);
-  strlcpy(qe->msg, s, strlen(s) + 1);
+  qe->msg = op_strdup(s);
   op_deque_push_back(q, qe);
 }
 
@@ -1815,18 +1815,16 @@ static struct userrec *dup_userlist(int t)
           struct user_entry *nue;
 
           nue = alloc_user_entry();
-          nue->name = user_malloc(strlen(ue->name) + 1);
+          nue->name = op_strdup(ue->name);
           nue->type = NULL;
           nue->u.list = NULL;
-          strlcpy(nue->name, ue->name, sizeof(nue->name));
           list_insert((&nu->entries), nue);
           for (lt = ue->u.list; lt; lt = lt->next) {
             struct list_type *list;
 
             list = alloc_list_type();
             list->next = NULL;
-            list->extra = user_malloc(strlen(lt->extra) + 1);
-            strcpy(list->extra, lt->extra);
+            list->extra = op_strdup(lt->extra);
             egg_list_append((&nue->u.list), list);
           }
         } else {

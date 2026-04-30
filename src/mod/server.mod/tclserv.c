@@ -481,17 +481,17 @@ static int tcl_clearqueue STDVAR
     msgs = (int) (modeq.tot + mq.tot + hq.tot);
     for (q = modeq.head; q; q = qq) {
       qq = q->next;
-      nfree(q->msg);
+      op_free(q->msg);
       op_bh_free(msgq_node_bh, q);
     }
     for (q = mq.head; q; q = qq) {
       qq = q->next;
-      nfree(q->msg);
+      op_free(q->msg);
       op_bh_free(msgq_node_bh, q);
     }
     for (q = hq.head; q; q = qq) {
       qq = q->next;
-      nfree(q->msg);
+      op_free(q->msg);
       op_bh_free(msgq_node_bh, q);
     }
     modeq.tot = mq.tot = hq.tot = modeq.warned = mq.warned = hq.warned = 0;
@@ -504,7 +504,7 @@ static int tcl_clearqueue STDVAR
     msgs = mq.tot;
     for (q = mq.head; q; q = qq) {
       qq = q->next;
-      nfree(q->msg);
+      op_free(q->msg);
       op_bh_free(msgq_node_bh, q);
     }
     mq.tot = mq.warned = 0;
@@ -520,7 +520,7 @@ static int tcl_clearqueue STDVAR
     msgs = modeq.tot;
     for (q = modeq.head; q; q = qq) {
       qq = q->next;
-      nfree(q->msg);
+      op_free(q->msg);
       op_bh_free(msgq_node_bh, q);
     }
     if (mq.tot == 0)
@@ -534,7 +534,7 @@ static int tcl_clearqueue STDVAR
     msgs = hq.tot;
     for (q = hq.head; q; q = qq) {
       qq = q->next;
-      nfree(q->msg);
+      op_free(q->msg);
       op_bh_free(msgq_node_bh, q);
     }
     double_warned = 0;
@@ -775,7 +775,7 @@ static int tcl_ircxautoowner STDVAR
         prev->next = existing->next;
       else
         ircx_autoowner_list = existing->next;
-      nfree(existing);
+      op_free(existing);
       Tcl_AppendResult(irp, "removed", NULL);
     } else {
       Tcl_AppendResult(irp, "not found", NULL);
@@ -784,7 +784,7 @@ static int tcl_ircxautoowner STDVAR
   }
 
   if (!existing) {
-    existing = (ircx_autoowner_t *) nmalloc(sizeof(ircx_autoowner_t));
+    existing = (ircx_autoowner_t *) op_malloc(sizeof(ircx_autoowner_t));
     existing->next = ircx_autoowner_list;
     ircx_autoowner_list = existing;
   }

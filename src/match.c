@@ -440,8 +440,7 @@ int cron_match(const char *mask, const char *match)
   if (sscanf(match, "%d %d %d %d %d",
              &t[0], &t[1], &t[2], &t[3], &t[4]) < 5)
     return 0;
-  buf = nmalloc(strlen(mask) + 1);
-  strlcpy(buf, mask, sizeof(buf));
+  buf = op_strdup(mask);
   for (p = buf, i = 0; *p && i < 5; i++) {
     q = newsplit(&p);
     if (!strcmp(q, "*"))
@@ -453,6 +452,6 @@ int cron_match(const char *mask, const char *match)
     else if (!m || (i == 3 && d))
       break;
   }
-  nfree(buf);
+  op_free(buf);
   return m;
 }

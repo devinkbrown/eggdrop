@@ -40,7 +40,7 @@ int noshare = 1;                   /* don't send out to sharebots       */
 struct userrec *userlist = NULL;   /* user records are stored here      */
 
 /* libop balloc heaps for fixed-size user record structs.
- * Replaced nmalloc(sizeof(*x)) / nfree(x) with these wrappers everywhere
+ * Replaced op_malloc(sizeof(*x)) / op_free(x) with these wrappers everywhere
  * these structs are allocated or freed, giving O(1) slab alloc/free and
  * returning memory to the OS when the heaps are destroyed on shutdown. */
 static op_bh *userrec_heap     = NULL;
@@ -227,38 +227,28 @@ static void user_account_dict_rebuild(void)
         op_htab_set(user_account_dict, q->extra, u, NULL);
 }
 maskrec *global_bans = NULL, *global_exempts = NULL, *global_invites = NULL;
+op_htab *global_bans_ht = NULL, *global_exempts_ht = NULL, *global_invites_ht = NULL;
 struct igrec *global_ign = NULL;
 int cache_hit = 0, cache_miss = 0; /* temporary cache accounting        */
 int userfile_perm = 0600;          /* Userfile permissions
                                     * (default rw-------)               */
 char userfile[121];                /* where the user records are stored */
 
+/* ABI stubs — internal code uses op_malloc/op_realloc directly via the
+ * user_malloc/user_realloc macros (which now expand to op_malloc/op_realloc).
+ * These functions remain only so that global_table[39]/[229] resolve for
+ * externally compiled modules still calling the old slots.
+ */
 void *_user_malloc(int size, const char *file, int line)
 {
-#ifdef DEBUG_MEM
-  const char *p = strrchr(file, '/');
-  op_strbuf_t x;
-  op_strbuf_printf(&x, "userrec.c:%s", p ? p + 1 : file);
-  void *ret = n_malloc(size, op_strbuf_str(&x), line);
-  op_strbuf_free(&x);
-  return ret;
-#else
-  return nmalloc(size);
-#endif
+  (void)file; (void)line;
+  return op_malloc(size);
 }
 
 void *_user_realloc(void *ptr, int size, const char *file, int line)
 {
-#ifdef DEBUG_MEM
-  const char *p = strrchr(file, '/');
-  op_strbuf_t x;
-  op_strbuf_printf(&x, "userrec.c:%s", p ? p + 1 : file);
-  void *ret = n_realloc(ptr, size, op_strbuf_str(&x), line);
-  op_strbuf_free(&x);
-  return ret;
-#else
-  return nrealloc(ptr, size);
-#endif
+  (void)file; (void)line;
+  return op_realloc(ptr, size);
 }
 
 static int expmem_mask(struct maskrec *m)
@@ -279,63 +269,6 @@ static int expmem_mask(struct maskrec *m)
 
 /* Memory we should be using
  */
-int expmem_users(void)
-{
-  int tot;
-  struct userrec *u;
-  struct chanuserrec *ch;
-  struct chanset_t *chan;
-  struct user_entry *ue;
-  struct igrec *i;
-
-  tot = 0;
-  for (u = userlist; u; u = u->next) {
-    for (ch = u->chanrec; ch; ch = ch->next) {
-      tot += sizeof(struct chanuserrec);
-
-      if (ch->info != NULL)
-        tot += strlen(ch->info) + 1;
-    }
-    tot += sizeof(struct userrec);
-
-    for (ue = u->entries; ue; ue = ue->next) {
-      tot += sizeof(struct user_entry);
-
-      if (ue->name) {
-        tot += strlen(ue->name) + 1;
-        tot += list_type_expmem(ue->u.list);
-      } else
-        tot += ue->type->expmem(ue);
-    }
-  }
-  /* Account for each channel's masks */
-  for (chan = chanset; chan; chan = chan->next) {
-
-    /* Account for each channel's ban-list user */
-    tot += expmem_mask(chan->bans);
-
-    /* Account for each channel's exempt-list user */
-    tot += expmem_mask(chan->exempts);
-
-    /* Account for each channel's invite-list user */
-    tot += expmem_mask(chan->invites);
-  }
-
-  tot += expmem_mask(global_bans);
-  tot += expmem_mask(global_exempts);
-  tot += expmem_mask(global_invites);
-
-  for (i = global_ign; i; i = i->next) {
-    tot += sizeof(struct igrec);
-
-    tot += strlen(i->igmask) + 1;
-    if (i->user)
-      tot += strlen(i->user) + 1;
-    if (i->msg)
-      tot += strlen(i->msg) + 1;
-  }
-  return tot;
-}
 
 int count_users(struct userrec *bu)
 {
@@ -536,11 +469,11 @@ void clear_masks(maskrec *m)
   for (; m; m = temp) {
     temp = m->next;
     if (m->mask)
-      nfree(m->mask);
+      op_free(m->mask);
     if (m->user)
-      nfree(m->user);
+      op_free(m->user);
     if (m->desc)
-      nfree(m->desc);
+      op_free(m->desc);
     free_maskrec(m);
   }
 }
@@ -681,10 +614,10 @@ int u_pass_match(struct userrec *u, char *pass)
           if (remove_pass) { /* implicit e->u.extra != NULL */
             e = find_user_entry(&USERENTRY_PASS, u);
             explicit_bzero(e->u.extra, strlen(e->u.extra));
-            nfree(e->u.extra);
+            op_free(e->u.extra);
             e->u.extra = NULL;
             egg_list_delete((struct list_type **) &(u->entries), (struct list_type *) e);
-            nfree(e);
+            op_free(e);
           }
         }
       }
@@ -759,10 +692,10 @@ int write_ignores(FILE *f, int idx)
                 i->user ? i->user : botnetnick, added,
                 i->msg ? i->msg : "") == EOF) {
       if (mask)
-        nfree(mask);
+        op_free(mask);
       return 0;
     }
-    nfree(mask);
+    op_free(mask);
   }
   return 1;
 }
@@ -961,12 +894,12 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   set_user(&USERENTRY_PASS, u, pass);
   if (!noxtra) {
     xk = alloc_xtra_key();
-    xk->key = nmalloc(8);
+    xk->key = op_malloc(8);
     strlcpy(xk->key, "created", sizeof(xk->key));
     {
       op_strbuf_t ts;
       op_strbuf_printf(&ts, "%" PRId64, (int64_t) now);
-      xk->data = nstrdup(op_strbuf_str(&ts));
+      xk->data = op_strdup(op_strbuf_str(&ts));
       op_strbuf_free(&ts);
     }
     set_user(&USERENTRY_XTRA, u, xk);
@@ -1030,7 +963,7 @@ void freeuser(struct userrec *u)
     z = ch;
     ch = ch->next;
     if (z->info != NULL)
-      nfree(z->info);
+      op_free(z->info);
     free_chanuserrec(z);
   }
   u->chanrec = NULL;
@@ -1041,10 +974,10 @@ void freeuser(struct userrec *u)
 
       for (lt = ue->u.list; lt; lt = ltt) {
         ltt = lt->next;
-        nfree(lt->extra);
+        op_free(lt->extra);
         free_list_type(lt);
       }
-      nfree(ue->name);
+      op_free(ue->name);
       free_user_entry(ue);
     } else
       ue->type->kill(ue);
@@ -1115,8 +1048,8 @@ static int del_host_or_account(char *handle, char *host, int type)
         e = find_user_entry(&USERENTRY_HOSTS, u);
       }
       e->u.extra = q->next;
-      nfree(q->extra);
-      nfree(q);
+      op_free(q->extra);
+      op_free(q);
       i++;
       qprev = NULL;
       q = e->u.extra;
@@ -1131,8 +1064,8 @@ static int del_host_or_account(char *handle, char *host, int type)
           e->u.extra = q->next;
           qprev = NULL;
         }
-        nfree(q->extra);
-        nfree(q);
+        op_free(q->extra);
+        op_free(q);
         i++;
       } else
         qprev = q;
@@ -1211,11 +1144,10 @@ void touch_laston(struct userrec *u, char *where, time_t timeval)
       li = alloc_laston_info();
 
     else if (li->lastonplace)
-      nfree(li->lastonplace);
+      op_free(li->lastonplace);
     li->laston = timeval;
     if (where) {
-      li->lastonplace = nmalloc(strlen(where) + 1);
-      strlcpy(li->lastonplace, where, sizeof(li->lastonplace));
+      li->lastonplace = op_strdup(where);
     } else
       li->lastonplace = NULL;
     set_user(&USERENTRY_LASTON, u, li);
@@ -1265,7 +1197,7 @@ void user_del_chan(char *dname)
           u->chanrec = ch->next;
 
         if (ch->info)
-          nfree(ch->info);
+          op_free(ch->info);
         free_chanuserrec(ch);
         break;
       }

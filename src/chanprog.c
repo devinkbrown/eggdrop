@@ -56,6 +56,10 @@ static op_bh *timer_bh = NULL;
 uint64_t timer_id = 1;             /* Next timer of any sort will
                                     * have this number             */
 struct chanset_t *chanset = NULL;  /* Channel list                 */
+
+/* O(1) channel lookup by server name and display name. */
+static op_htab *chan_by_name  = NULL;
+static op_htab *chan_by_dname = NULL;
 char admin[121] = "";              /* Admin info                   */
 char origbotname[NICKLEN];
 char botname[NICKLEN];             /* Primary botname              */
@@ -90,19 +94,58 @@ memberlist *ismember(struct chanset_t *chan, char *nick)
 {
   memberlist *x;
 
+  if (chan->channel.member_ht) {
+    x = op_htab_get(chan->channel.member_ht, nick);
+    return x;
+  }
   for (x = chan->channel.member; x && x->nick[0]; x = x->next)
     if (!rfc_casecmp(x->nick, nick))
       return x;
   return NULL;
 }
 
+/* Initialise (or reinitialise) the channel hash tables. */
+void chan_htab_init(void)
+{
+  if (chan_by_name)
+    op_htab_destroy(chan_by_name, NULL, NULL);
+  if (chan_by_dname)
+    op_htab_destroy(chan_by_dname, NULL, NULL);
+  chan_by_name  = op_htab_create_istr("chan_name", 16);
+  chan_by_dname = op_htab_create_istr("chan_dname", 16);
+}
+
+/* Register a channel in the hash tables.  Safe to call repeatedly
+ * (e.g. after the server name changes on JOIN). */
+void chan_htab_add(struct chanset_t *chan)
+{
+  if (!chan_by_dname)
+    chan_htab_init();
+  op_htab_set(chan_by_dname, chan->dname, chan, NULL);
+  if (chan->name[0])
+    op_htab_set(chan_by_name, chan->name, chan, NULL);
+}
+
+/* Remove a channel from the hash tables. */
+void chan_htab_del(struct chanset_t *chan)
+{
+  if (chan_by_dname)
+    op_htab_del(chan_by_dname, chan->dname);
+  if (chan_by_name && chan->name[0])
+    op_htab_del(chan_by_name, chan->name);
+}
+
 /* Find a chanset by channel name as the server knows it (ie !ABCDEchannel)
  */
 struct chanset_t *findchan(const char *name)
 {
-  struct chanset_t *chan;
-
-  for (chan = chanset; chan; chan = chan->next)
+  if (chan_by_name) {
+    struct chanset_t *c = op_htab_get(chan_by_name, name);
+    if (c)
+      return c;
+  }
+  /* Fallback: linear scan (htab not yet initialised or name not indexed). */
+  for (struct chanset_t *chan = chanset; chan; chan = chan->next)
     if (!rfc_casecmp(chan->name, name))
       return chan;
   return NULL;
@@ -112,9 +155,12 @@ struct chanset_t *findchan(const char *name)
  */
 struct chanset_t *findchan_by_dname(const char *name)
 {
-  struct chanset_t *chan;
-
-  for (chan = chanset; chan; chan = chan->next)
+  if (chan_by_dname) {
+    struct chanset_t *c = op_htab_get(chan_by_dname, name);
+    if (c)
+      return c;
+  }
+  for (struct chanset_t *chan = chanset; chan; chan = chan->next)
     if (!rfc_casecmp(chan->dname, name))
       return chan;
   return NULL;
@@ -162,17 +208,6 @@ void clear_chanlist_member(const char *nick)
 
 /* Calculate the memory we should be using
  */
-int expmem_chanprog(void)
-{
-  int tot = 0;
-  tcl_timer_t *t;
-
-  for (t = timer; t; t = t->next)
-    tot += sizeof(tcl_timer_t) + strlen(t->cmd) + 1;
-  for (t = utimer; t; t = t->next)
-    tot += sizeof(tcl_timer_t) + strlen(t->cmd) + 1;
-  return tot;
-}
 
 float getcputime(void)
 {
@@ -232,9 +267,10 @@ void tell_verbose_status(int idx)
   op_strbuf_t s, s2;
 
   int i = count_users(userlist);
-  dprintf(idx, "I am %s, running %s: %d user%s (mem: %uk).\n",
-          botnetnick, ver, i, i == 1 ? "" : "s",
-          (int) (expected_memory() / 1024));
+  struct rusage ru;
+  getrusage(RUSAGE_SELF, &ru);
+  dprintf(idx, "I am %s, running %s: %d user%s (rss: %ldk).\n",
+          botnetnick, ver, i, i == 1 ? "" : "s", ru.ru_maxrss);
   op_strbuf_init(&s);
   if (now2 > 86400) {
     /* days */
@@ -431,11 +467,11 @@ void chanprog(void)
   for (int i = 0; i < max_logs; i++) {
     if (logs[i].flags & LF_EXPIRING) {
       if (logs[i].filename != NULL) {
-        nfree(logs[i].filename);
+        op_free(logs[i].filename);
         logs[i].filename = NULL;
       }
       if (logs[i].chname != NULL) {
-        nfree(logs[i].chname);
+        op_free(logs[i].chname);
         logs[i].chname = NULL;
       }
       if (logs[i].f != NULL) {
@@ -552,8 +588,40 @@ void rehash(void)
  *    Brief venture into timers
  */
 
-/* Add a timer
- */
+/* op_event callback: fires a Tcl timer, reschedules or removes. */
+static void egg_timer_fire(void *arg)
+{
+  tcl_timer_t *t = arg;
+
+  {
+    op_strbuf_t x;
+    op_strbuf_printf(&x, "timer%lu", t->id);
+#ifdef HAVE_TCL
+    do_tcl(op_strbuf_str(&x), t->cmd);
+#endif
+    op_strbuf_free(&x);
+  }
+
+  if (t->count == 1) {
+    /* Last firing — unlink from its list and free. */
+    tcl_timer_t **head = (t->secs_per_tick == 1) ? &utimer : &timer;
+    tcl_timer_t **pp = head;
+    while (*pp) {
+      if (*pp == t) { *pp = t->next; break; }
+      pp = &(*pp)->next;
+    }
+    op_free(t->cmd);
+    if (t->name) op_free(t->name);
+    op_bh_free(timer_bh, t);
+  } else {
+    if (t->count > 1) t->count--;
+    time_t when_secs = (time_t)t->interval * t->secs_per_tick;
+    t->fire_at = time(NULL) + when_secs;
+    t->ev = op_event_addonce(t->name, egg_timer_fire, t, when_secs);
+  }
+}
+
+/* Add a timer scheduled via op_event. */
 char * add_timer(tcl_timer_t ** stack, int elapse, int count,
                         char *cmd, char *name, unsigned long prev_id)
 {
@@ -563,16 +631,14 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
     timer_bh = op_bh_create(sizeof(tcl_timer_t), 16, "tcl_timer");
   *stack = op_bh_alloc(timer_bh);
   (*stack)->next = old;
-  (*stack)->mins = (*stack)->interval = elapse;
+  (*stack)->interval = elapse;
   (*stack)->count = count;
+  (*stack)->secs_per_tick = (stack == &utimer) ? 1 : 60;
   {
     size_t cmdlen = strlen(cmd) + 1;
-    (*stack)->cmd = nmalloc(cmdlen);
+    (*stack)->cmd = op_malloc(cmdlen);
     strlcpy((*stack)->cmd, cmd, cmdlen);
   }
-  /* If it's just being added back and already had an id,
-   * don't create a new one.
-   */
   if (prev_id > 0)
     (*stack)->id = prev_id;
   else
@@ -580,33 +646,41 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   if (name) {
     {
       size_t namelen = strlen(name) + 1;
-      (*stack)->name = nmalloc(namelen);
+      (*stack)->name = op_malloc(namelen);
       strlcpy((*stack)->name, name, namelen);
     }
   } else {
     op_strbuf_t name_buf;
     op_strbuf_printf(&name_buf, "timer%" PRIu64, (*stack)->id);
-    (*stack)->name = nstrdup(op_strbuf_str(&name_buf));
+    (*stack)->name = op_strdup(op_strbuf_str(&name_buf));
     op_strbuf_free(&name_buf);
+  }
+  /* Schedule via op_event. */
+  {
+    time_t when_secs = (time_t)elapse * (*stack)->secs_per_tick;
+    (*stack)->fire_at = time(NULL) + when_secs;
+    (*stack)->ev = op_event_addonce((*stack)->name, egg_timer_fire, *stack,
+                                    when_secs);
   }
   return (*stack)->name;
 }
 
-/* Remove timer from linked list */
+/* Remove timer from linked list and cancel its event. */
 void remove_timer_from_list(tcl_timer_t ** stack)
 {
   tcl_timer_t *old;
 
   old = *stack;
   *stack = ((*stack)->next);
-  nfree(old->cmd);
+  if (old->ev)
+    op_event_delete(old->ev);
+  op_free(old->cmd);
   if (old->name)
-    nfree(old->name);
+    op_free(old->name);
   op_bh_free(timer_bh, old);
 }
 
-/* Remove a timer (via name, not ID)
- */
+/* Remove a timer (via name, not ID). */
 int remove_timer(tcl_timer_t **stack, char *name)
 {
   int ok = 0;
@@ -622,48 +696,13 @@ int remove_timer(tcl_timer_t **stack, char *name)
   return ok;
 }
 
-/* Check timers, execute the ones that have expired.
- */
-void do_check_timers(tcl_timer_t ** stack)
+/* Fire any expired timers via op_event. */
+void do_check_timers([[maybe_unused]] tcl_timer_t ** stack)
 {
-  tcl_timer_t *mark = *stack, *old = NULL;
-
-  /* New timers could be added by a Tcl script inside a current timer
-   * so i'll just clear out the timer list completely, and add any
-   * unexpired timers back on.
-   */
-  *stack = NULL;
-  while (mark) {
-    if (mark->mins > 0)
-      mark->mins--;
-    old = mark;
-    mark = mark->next;
-    if (!old->mins) {
-      op_strbuf_t x;
-      op_strbuf_printf(&x, "timer%lu", old->id);
-#ifdef HAVE_TCL
-      do_tcl(op_strbuf_str(&x), old->cmd);
-#endif
-      op_strbuf_free(&x);
-      if (old->count == 1) {
-        nfree(old->cmd);
-        if (old->name)
-          nfree(old->name);
-        op_bh_free(timer_bh, old);
-        continue;
-      } else {
-        old->mins = old->interval;
-        if (old->count > 1)
-          old->count--;
-      }
-    }
-    old->next = *stack;
-    *stack = old;
-  }
+  op_event_run();
 }
 
-/* Wipe all timers.
- */
+/* Wipe all timers. */
 void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
 {
   tcl_timer_t *mark = *stack, *old;
@@ -671,42 +710,45 @@ void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
   while (mark) {
     old = mark;
     mark = mark->next;
-    nfree(old->cmd);
+    if (old->ev)
+      op_event_delete(old->ev);
+    op_free(old->cmd);
     if (old->name)
-      nfree(old->name);
+      op_free(old->name);
     op_bh_free(timer_bh, old);
   }
   *stack = NULL;
 }
 
-/* Return list of timers (only meaningful when Tcl is present)
- */
+/* Return list of timers (only meaningful when Tcl is present). */
 void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
 {
 #ifdef HAVE_TCL
   char *x;
   EGG_CONST char *argv[4];
   tcl_timer_t *mark;
+  time_t now_t = time(NULL);
 
   for (mark = stack; mark; mark = mark->next) {
-    op_strbuf_t mins, count;
-    op_strbuf_printf(&mins, "%u", mark->mins);
+    unsigned int remaining = (mark->fire_at > now_t)
+      ? (unsigned int)((mark->fire_at - now_t) / mark->secs_per_tick) : 0;
+    op_strbuf_t ticks, count;
+    op_strbuf_printf(&ticks, "%u", remaining);
     op_strbuf_printf(&count, "%u", mark->count);
-    argv[0] = op_strbuf_str(&mins);
+    argv[0] = op_strbuf_str(&ticks);
     argv[1] = mark->cmd;
     argv[2] = mark->name;
     argv[3] = op_strbuf_str(&count);
     x = Tcl_Merge(sizeof(argv)/sizeof(*argv), argv);
     Tcl_AppendElement(irp, x);
     Tcl_Free((char *) x);
-    op_strbuf_free(&mins);
+    op_strbuf_free(&ticks);
     op_strbuf_free(&count);
   }
 #endif /* HAVE_TCL */
 }
 
-/* Find a timer by name. Returns 1 if found, 0 if not
- */
+/* Find a timer by name. Returns 1 if found, 0 if not. */
 int find_timer(tcl_timer_t *stack, char *name)
 {
   tcl_timer_t *mark;

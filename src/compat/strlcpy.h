@@ -1,30 +1,18 @@
 /*
- * strlcpy.h
- *   prototypes for strlcpy.c
- */
-/*
- * Copyright (C) 2010 - 2025 Eggheads Development Team
+ * strlcpy.h — redirect to libop's op_strlcpy.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * The old compat/strlcpy.c fallback has been retired; op_strlcpy (from
+ * op_tools.h, pulled in via op_lib.h) is always available and is the
+ * canonical implementation for the entire tree.
  */
 
 #ifndef _EGG_COMPAT_STRLCPY_H_
 #define _EGG_COMPAT_STRLCPY_H_
 
-#ifndef HAVE_STRLCPY
-size_t strlcpy(char * __restrict, const char * __restrict, size_t);
-#endif /* HAVE_STRLCPY */
+/* op_strlcpy is declared in op_tools.h (included via op_lib.h → main.h).
+ * Redirect the bare name so that existing call sites keep compiling.
+ */
+#define strlcpy  op_strlcpy
+#define strlcat  op_strlcat
 
 #endif /* _EGG_COMPAT_STRLCPY_H_ */

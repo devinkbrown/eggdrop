@@ -183,6 +183,8 @@ void op_setselect(op_fde_t *, unsigned int type, PF * handler, void *client_data
 void op_init_netio(void);
 int op_select(long);
 int op_fd_ssl(const op_fde_t *F);
+void op_fde_set_ssl_ptr(op_fde_t *F, void *ssl);
+void *op_fde_get_ssl_ptr(const op_fde_t *F);
 op_platform_fd_t op_get_fd(const op_fde_t *F);
 const char *op_get_ssl_strerror(op_fde_t *F);
 int op_get_ssl_certfp(op_fde_t *F, uint8_t certfp[OP_SSL_CERTFP_LEN], int method);

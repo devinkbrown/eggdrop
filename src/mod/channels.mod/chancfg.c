@@ -16,7 +16,7 @@
 
 static void init_masklist(masklist *m)
 {
-  m->mask = nmalloc(1);
+  m->mask = op_malloc(1);
   m->mask[0] = 0;
   m->who = NULL;
   m->next = NULL;
@@ -36,28 +36,40 @@ static void init_channel(struct chanset_t *chan, int reset)
     chan->channel.members = 0;
     chan->channel.member = channel_malloc_member();
     /* channel_malloc_member zero-fills the allocation */
+    if (chan->channel.member_ht)
+      op_htab_destroy(chan->channel.member_ht, NULL, NULL);
+    chan->channel.member_ht = op_htab_create_istr("chan_members", 32);
   }
 
   if (flags & CHAN_RESETMODES) {
     chan->channel.mode = 0;
     chan->channel.maxmembers = 0;
     if (chan->channel.key)
-      nfree(chan->channel.key);
-    chan->channel.key = nmalloc(1);
+      op_free(chan->channel.key);
+    chan->channel.key = op_malloc(1);
     chan->channel.key[0] = 0;
   }
 
   if (flags & CHAN_RESETBANS) {
     chan->channel.ban = channel_malloc_mask();
     init_masklist(chan->channel.ban);
+    if (chan->channel.ban_ht)
+      op_htab_destroy(chan->channel.ban_ht, NULL, NULL);
+    chan->channel.ban_ht = op_htab_create_istr("chan_ban", 16);
   }
   if (flags & CHAN_RESETEXEMPTS) {
     chan->channel.exempt = channel_malloc_mask();
     init_masklist(chan->channel.exempt);
+    if (chan->channel.exempt_ht)
+      op_htab_destroy(chan->channel.exempt_ht, NULL, NULL);
+    chan->channel.exempt_ht = op_htab_create_istr("chan_exempt", 16);
   }
   if (flags & CHAN_RESETINVITED) {
     chan->channel.invite = channel_malloc_mask();
     init_masklist(chan->channel.invite);
+    if (chan->channel.invite_ht)
+      op_htab_destroy(chan->channel.invite_ht, NULL, NULL);
+    chan->channel.invite_ht = op_htab_create_istr("chan_invite", 16);
   }
   if (flags & CHAN_RESETTOPIC)
     chan->channel.topic = NULL;
@@ -70,9 +82,9 @@ static void clear_masklist(masklist *m)
   for (; m; m = temp) {
     temp = m->next;
     if (m->mask)
-      nfree(m->mask);
+      op_free(m->mask);
     if (m->who)
-      nfree(m->who);
+      op_free(m->who);
     channel_free_mask(m);
   }
 }
@@ -91,21 +103,37 @@ static void clear_channel(struct chanset_t *chan, int reset)
       else
         channel_free_member(m);
     }
+    if (!reset && chan->channel.member_ht) {
+      op_htab_destroy(chan->channel.member_ht, NULL, NULL);
+      chan->channel.member_ht = NULL;
+    }
   }
   if (flags & CHAN_RESETBANS) {
     clear_masklist(chan->channel.ban);
     chan->channel.ban = NULL;
+    if (chan->channel.ban_ht) {
+      op_htab_destroy(chan->channel.ban_ht, NULL, NULL);
+      chan->channel.ban_ht = NULL;
+    }
   }
   if (flags & CHAN_RESETEXEMPTS) {
     clear_masklist(chan->channel.exempt);
     chan->channel.exempt = NULL;
+    if (chan->channel.exempt_ht) {
+      op_htab_destroy(chan->channel.exempt_ht, NULL, NULL);
+      chan->channel.exempt_ht = NULL;
+    }
   }
   if (flags & CHAN_RESETINVITED) {
     clear_masklist(chan->channel.invite);
     chan->channel.invite = NULL;
+    if (chan->channel.invite_ht) {
+      op_htab_destroy(chan->channel.invite_ht, NULL, NULL);
+      chan->channel.invite_ht = NULL;
+    }
   }
   if ((flags & CHAN_RESETTOPIC) && chan->channel.topic)
-    nfree(chan->channel.topic);
+    op_free(chan->channel.topic);
   if (reset)
     init_channel(chan, reset);
 }
@@ -121,7 +149,7 @@ static int egg_split_list(const char *str, int *argc, char ***argv)
 {
   int n = 0, cap = 16;
   const char *p = str;
-  char **list = nmalloc(cap * sizeof(char *));
+  char **list = op_malloc(cap * sizeof(char *));
 
   while (*p) {
     const char *start;
@@ -146,9 +174,9 @@ static int egg_split_list(const char *str, int *argc, char ***argv)
 
     if (n >= cap) {
       cap *= 2;
-      list = nrealloc(list, cap * sizeof(char *));
+      list = op_realloc(list, cap * sizeof(char *));
     }
-    list[n] = nmalloc(len + 1);
+    list[n] = op_malloc(len + 1);
     memcpy(list[n], start, len);
     list[n][len] = '\0';
     n++;
@@ -161,8 +189,8 @@ static int egg_split_list(const char *str, int *argc, char ***argv)
 static void egg_free_list(int argc, char **argv)
 {
   for (int i = 0; i < argc; i++)
-    nfree(argv[i]);
-  nfree(argv);
+    op_free(argv[i]);
+  op_free(argv);
 }
 #endif /* !HAVE_TCL */
 
@@ -204,7 +232,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
         } else {
           char *sep = strchr(item[i + 1], ' ');
           if (sep) {
-            value = nmalloc(sep - item[i + 1] + 1);
+            value = op_malloc(sep - item[i + 1] + 1);
             strlcpy(value, item[i + 1], sep - item[i + 1] + 1);
             free_value = 1;
           } else {
@@ -213,14 +241,14 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
         }
         if (check_tcl_chanset(chan->dname, item[i], value)) {
           if (free_value)
-            nfree(value);
+            op_free(value);
           Tcl_ResetResult(irp);
           Tcl_AppendResult(irp, "Channel setting ", item[i], " to ", value,
                            " rejected by Tcl script", NULL);
           return TCL_ERROR;
         }
         if (free_value)
-          nfree(value);
+          op_free(value);
       }
     }
 #endif /* HAVE_TCL */
@@ -544,11 +572,11 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
           }
           val = (char *) getudef(ul->values, chan->dname);
           if (val)
-            nfree(val);
+            op_free(val);
           /* Get extra room for new braces, etc */
-          val = nmalloc(3 * strlen(item[i]) + 10);
+          val = op_malloc(3 * strlen(item[i]) + 10);
           convert_element(item[i], val);
-          val = nrealloc(val, strlen(val) + 1);
+          val = op_realloc(val, strlen(val) + 1);
           setudef(ul, chan->dname, (intptr_t) val);
           found = 1;
           break;
@@ -649,7 +677,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
     /* Already existing channel, maybe a reload of the channel file */
     chan->status &= ~CHAN_FLAGGED;      /* don't delete me! :) */
   } else {
-    chan = nmalloc(sizeof *chan);
+    chan = op_malloc(sizeof *chan);
 
     chan->flood_pub_thr = gfld_chan_thr;
     chan->flood_pub_time = gfld_chan_time;
@@ -676,8 +704,13 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
     strlcpy(chan->dname, newname, sizeof chan->dname);
 
     init_channel(chan, 0);
+    /* Persistent mask htabs (maskrec lists populated from userfile) */
+    chan->bans_ht = op_htab_create_istr("chan_bans", 16);
+    chan->exempts_ht = op_htab_create_istr("chan_exempts", 16);
+    chan->invites_ht = op_htab_create_istr("chan_invites", 16);
     egg_list_append((struct list_type **) &chanset,
                     (struct list_type *) chan);
+    chan_htab_add(chan);
     join = 1;
     /* Request user chanflags from other bots */
     shareout(NULL, "nc %s\n", chan->dname);

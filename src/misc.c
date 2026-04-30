@@ -74,20 +74,6 @@ static struct help_ref {
 
 /* Expected memory usage
  */
-int expmem_misc(void)
-{
-  struct help_ref *current;
-  struct help_list_t *item;
-  int tot = 0;
-
-  for (current = help_list; current; current = current->next) {
-    tot += sizeof(struct help_ref) + strlen(current->name) + 1;
-
-    for (item = current->first; item; item = item->next)
-      tot += sizeof(struct help_list_t) + strlen(item->name) + 1;
-  }
-  return tot + (max_logs * sizeof(log_t));
-}
 
 void init_misc(void)
 {
@@ -96,9 +82,9 @@ void init_misc(void)
   if (max_logs < 1)
     max_logs = 1;
   if (logs)
-    logs = nrealloc(logs, max_logs * sizeof(log_t));
+    logs = op_realloc(logs, max_logs * sizeof(log_t));
   else
-    logs = nmalloc(max_logs * sizeof(log_t));
+    logs = op_malloc(max_logs * sizeof(log_t));
   for (; last < max_logs; last++) {
     logs[last].filename = logs[last].chname = NULL;
     logs[last].mask = 0;
@@ -202,7 +188,7 @@ void splitc(char *first, char *rest, char divider)
   }
   *p = 0;
   if (first != NULL)
-    strlcpy(first, rest, sizeof(first));
+    strcpy(first, rest);
   if (first != rest)
     memmove(rest, p + 1, strlen(p + 1) + 1);
 }
@@ -347,7 +333,7 @@ void maskaddr(const char *s, char *nw, int type)
   *nw++ = '@';
 
   if (type >= 30) {
-    strlcpy(nw, "*", sizeof(nw));
+    strcpy(nw, "*");
     return;
   }
 
@@ -365,7 +351,7 @@ void maskaddr(const char *s, char *nw, int type)
       p = u;
     memcpy(nw, h, ++p - h);
     nw += p - h;
-    strlcpy(nw, "*", sizeof(nw));
+    strcpy(nw, "*");
   } else if (!p && !num && type >= 10) {
       /* we have a hostname and type
        requires us to replace numbers */
@@ -389,12 +375,12 @@ void maskaddr(const char *s, char *nw, int type)
     if (num) { /* IPv4 */
       memcpy(nw, h, p - h);
       nw += p - h;
-      strlcpy(nw, ".*", sizeof(nw));
+      strcpy(nw, ".*");
       return;
     }
     for (u = h, d = 0; (u = strchr(++u, '.')); d++);
     if (d < 2) { /* types < 2 don't mask the host */
-      strlcpy(nw, h, sizeof(nw));
+      strcpy(nw, h);
       return;
     }
     u = strchr(h, '.');
@@ -408,9 +394,9 @@ void maskaddr(const char *s, char *nw, int type)
     }
   } else if (!*h)
       /* take care if the mask is empty or contains only '@' */
-      strlcpy(nw, "*", sizeof(nw));
+      strcpy(nw, "*");
     else
-      strlcpy(nw, h, sizeof(nw));
+      strcpy(nw, h);
 }
 
 /* Dump a potentially super-long string of text.
@@ -724,7 +710,7 @@ static int colsofar = 0;
 static int blind = 0;
 static int subwidth = 70;
 
-/* op_vec_t of nstrdup'd column strings — replaces the \377-delimited colstr. */
+/* op_vec_t of op_strdup'd column strings — replaces the \377-delimited colstr. */
 static op_vec_t colstrings;
 static bool colstrings_ready = false;
 
@@ -734,7 +720,7 @@ static void colstrings_drain(void)
   void *p;
 
   OP_VEC_FOREACH(&colstrings, i, p)
-    nfree(p);
+    op_free(p);
   op_vec_clear(&colstrings, NULL, NULL);
 }
 
@@ -752,7 +738,7 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
 
   if (newcol[0] && newcol[0] != '\377') {
     colsofar++;
-    op_vec_push(&colstrings, nstrdup(newcol));
+    op_vec_push(&colstrings, op_strdup(newcol));
   }
 
   n = op_vec_size(&colstrings);
@@ -769,7 +755,7 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
           for (int i = (int) strlen(col); i < colwidth; i++)
             op_strbuf_append_cstr(&_b, " ");
         }
-        nfree(col);
+        op_free(col);
       }
       strlcpy(s, op_strbuf_str(&_b), sz);
       op_strbuf_free(&_b);
@@ -1049,7 +1035,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       s[HELP_BUF_LEN] = 0;
       return;
     }
-    strlcpy(writeidx, readidx, sizeof(writeidx));
+    strlcpy(writeidx, readidx, (s + HELP_BUF_LEN + 1) - writeidx);
   } else
     *writeidx = 0;
   if (center) {
@@ -1059,7 +1045,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       s[0] = 0;
       for (int j = 0; j < i; j++)
         s[j] = ' ';
-      strlcpy(s + i, xx, sizeof(s) - i);
+      strlcpy(s + i, xx, HELP_BUF_LEN + 1 - i);
     }
   }
   if (cols) {
@@ -1082,9 +1068,9 @@ static void scan_help_file(struct help_ref *current, const char *filename, int t
         q += 7;
         if ((p = strchr(q, '}'))) {
           *p = 0;
-          list = nmalloc(sizeof *list);
+          list = op_malloc(sizeof *list);
 
-          list->name = nmalloc(p - q + 1);
+          list->name = op_malloc(p - q + 1);
           strlcpy(list->name, q, (size_t)(p - q + 1));
           list->next = current->first;
           list->type = type;
@@ -1109,10 +1095,9 @@ void add_help_reference(char *file)
   for (current = help_list; current; current = current->next)
     if (!strcmp(current->name, file))
       return;                   /* Already exists, can't re-add :P */
-  current = nmalloc(sizeof *current);
+  current = op_malloc(sizeof *current);
 
-  current->name = nmalloc(strlen(file) + 1);
-  strcpy(current->name, file);
+  current->name = op_strdup(file);
   current->next = help_list;
   current->first = NULL;
   help_list = current;
@@ -1137,15 +1122,15 @@ void rem_help_reference(char *file)
     if (!strcmp(current->name, file)) {
       while ((item = current->first)) {
         current->first = item->next;
-        nfree(item->name);
-        nfree(item);
+        op_free(item->name);
+        op_free(item);
       }
-      nfree(current->name);
+      op_free(current->name);
       if (last)
         last->next = current->next;
       else
         help_list = current->next;
-      nfree(current);
+      op_free(current);
       return;
     }
 }
@@ -1159,13 +1144,13 @@ void reload_help_data(void)
   while (current) {
     while ((item = current->first)) {
       current->first = item->next;
-      nfree(item->name);
-      nfree(item);
+      op_free(item->name);
+      op_free(item);
     }
     add_help_reference(current->name);
-    nfree(current->name);
+    op_free(current->name);
     next = current->next;
-    nfree(current);
+    op_free(current);
     current = next;
   }
 }
@@ -1498,7 +1483,7 @@ char *str_escape(const char *str, const char div, const char mask)
 {
   const int len = strlen(str);
   int buflen = (2 * len), blen = 0;
-  char *buf = nmalloc(buflen + 1), *b = buf;
+  char *buf = op_malloc(buflen + 1), *b = buf;
   const char *s;
 
   if (!buf)
@@ -1507,7 +1492,7 @@ char *str_escape(const char *str, const char div, const char mask)
     /* Resize buffer. */
     if ((buflen - blen) <= 3) {
       buflen = (buflen * 2);
-      buf = nrealloc(buf, buflen + 1);
+      buf = op_realloc(buf, buflen + 1);
       if (!buf)
         return NULL;
       b = buf + blen;

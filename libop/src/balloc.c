@@ -463,6 +463,8 @@ op_bh_destroy(op_bh *bh)
 	}
 
 	pthread_mutex_destroy(&bh->lock);
+	if (bh->shmem_fd >= 0)
+		close(bh->shmem_fd);
 	op_free(bh->desc);
 	op_free(bh);
 	return 0;

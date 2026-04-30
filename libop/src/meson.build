@@ -91,9 +91,11 @@ fs = import('fs')
 thread_dep = dependency('threads', required: true)
 libm_dep   = meson.get_compiler('c').find_library('m', required: false)
 
-libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu23']
+libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu23',
+                '-Wno-stringop-overread']  # GCC false positive in sha1.c under LTO
 if have_ssl
-  libop_c_args += ['-DHAVE_WOLFSSL=1']
+  libop_c_args += ['-DHAVE_WOLFSSL=1',
+                   '-include', 'wolfssl/options.h']  # load system wolfSSL config
 endif
 
 _top_inc = include_directories('../..')
@@ -124,20 +126,20 @@ compat_sources_merged = files(
   '../../src/compat/explicit_bzero.c',
   '../../src/compat/in6.c',
   '../../src/compat/inet_aton.c',
-  '../../src/compat/strlcpy.c',
+  # strlcpy.c removed — all strlcpy calls redirect to libop's op_strlcpy
   '../../src/md5/md5c.c',
 )
 if fs.exists(meson.current_source_dir() / '../../src/compat/mbuf.c')
   compat_sources_merged += files('../../src/compat/mbuf.c')
 endif
-if not cdata.has('HAVE_ARC4RANDOM')
-  compat_sources_merged += files('../../src/compat/arc4random.c')
-endif
+# arc4random removed — libop/src/arc4random.c already provides it
 
 _libop_compat_obj = static_library('_op_compat',
   sources:             compat_sources_merged,
   include_directories: [libop_inc, _top_inc, _src_inc],
-  c_args:              ['-DHAVE_CONFIG_H', '-DCOMPILING_MEM'],
+  c_args:              ['-DHAVE_CONFIG_H', '-DCOMPILING_MEM']
+                         + (have_ssl ? ['-DHAVE_WOLFSSL=1',
+                                       '-include', 'wolfssl/options.h'] : []),
   dependencies:        have_ssl ? [wolfssl_dep] : [],
   pic:                 true,
 )

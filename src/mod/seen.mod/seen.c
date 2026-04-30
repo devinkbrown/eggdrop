@@ -597,7 +597,7 @@ static void wordshift(char *first, char *rest)
 
   do {
     p = newsplit(&q);
-    strlcpy(first, p, sizeof(first));
+    strcpy(first, p);
     memmove(rest, q, strlen(q) + 1);
   } while (!strcasecmp(first, "and") || !strcasecmp(first, "or"));
 }

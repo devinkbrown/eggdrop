@@ -39,6 +39,7 @@
 
 #include "main.h"
 #include "configtoml.h"
+#include <op_toml.h>
 #ifndef HAVE_TCL
 #  include "script.h"
 #  include "modules.h"
@@ -51,9 +52,6 @@ extern char moddir[121]; /* defined in modules.c */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* Maximum length of a single config line. */
-constexpr int TOML_LINE_MAX = 4096;
 
 /* Recognised top-level TOML sections. */
 typedef enum {
@@ -118,98 +116,6 @@ static void flush_chanset_ircx(void)
 /* Tcl interpreter declared in tcl.c and extern'd via main.h. */
 extern Tcl_Interp *interp;
 extern char origbotname[], owner[];
-
-/* -----------------------------------------------------------------------
- * String helpers
- * --------------------------------------------------------------------- */
-
-/* Trim leading and trailing ASCII whitespace in-place. */
-static char *trim(char *s)
-{
-  char *end;
-  while (*s && isspace((unsigned char)*s))
-    s++;
-  end = s + strlen(s);
-  while (end > s && isspace((unsigned char)*(end - 1)))
-    end--;
-  *end = '\0';
-  return s;
-}
-
-/*
- * Parse a TOML quoted string (single or double quotes).
- * src points at the opening quote character.
- * Writes at most dstlen-1 unescaped bytes to dst and NUL-terminates.
- * Returns pointer to the character after the closing quote, or NULL
- * on a parse error (unterminated string).
- */
-static const char *parse_quoted(const char *src, char *dst, size_t dstlen)
-{
-  size_t i = 0;
-
-  /* Triple-quoted strings: """...""" or '''...''' (may span multiple lines). */
-  if ((src[0] == '"' && src[1] == '"' && src[2] == '"') ||
-      (src[0] == '\'' && src[1] == '\'' && src[2] == '\'')) {
-    char q = src[0];
-    src += 3;
-    /* Per TOML spec: an immediate newline after the opening """ is trimmed. */
-    if (*src == '\n') src++;
-    while (*src) {
-      if (src[0] == q && src[1] == q && src[2] == q) {
-        src += 3;
-        break;
-      }
-      if (q == '"' && *src == '\\') {
-        src++;
-        switch (*src) {
-          case 'n':  if (i < dstlen - 1) dst[i++] = '\n'; break;
-          case 't':  if (i < dstlen - 1) dst[i++] = '\t'; break;
-          case 'r':  if (i < dstlen - 1) dst[i++] = '\r'; break;
-          case '"':  if (i < dstlen - 1) dst[i++] = '"';  break;
-          case '\\': if (i < dstlen - 1) dst[i++] = '\\'; break;
-          case '\n': /* line-ending backslash: skip whitespace */
-            while (*src && isspace((unsigned char)*src)) src++;
-            continue;
-          default:   if (i < dstlen - 1) dst[i++] = *src; break;
-        }
-      } else {
-        if (i < dstlen - 1)
-          dst[i++] = *src;
-      }
-      if (*src) src++;
-    }
-    dst[i] = '\0';
-    return src;
-  }
-
-  /* Single-character quote: " or ' */
-  char quote = *src++;
-
-  while (*src && *src != quote) {
-    if (*src == '\\' && quote == '"') {
-      /* Double-quoted strings support escape sequences. */
-      src++;
-      switch (*src) {
-        case 'n':  if (i < dstlen - 1) dst[i++] = '\n'; break;
-        case 't':  if (i < dstlen - 1) dst[i++] = '\t'; break;
-        case 'r':  if (i < dstlen - 1) dst[i++] = '\r'; break;
-        case '"':  if (i < dstlen - 1) dst[i++] = '"';  break;
-        case '\\': if (i < dstlen - 1) dst[i++] = '\\'; break;
-        default:   if (i < dstlen - 1) dst[i++] = *src; break;
-      }
-    } else {
-      if (i < dstlen - 1)
-        dst[i++] = *src;
-    }
-    src++;
-  }
-
-  if (*src != quote)
-    return NULL; /* unterminated string */
-
-  dst[i] = '\0';
-  return src + 1; /* advance past closing quote */
-}
 
 /*
  * Convert a TOML key to a Tcl variable name.
@@ -328,7 +234,7 @@ static void run_tcl_cmd(const char *cmd)
           }
         }
         if (!items) return;
-        item = nmalloc(items * sizeof(char *));
+        item = op_malloc(items * sizeof(char *));
         {
           const char *q = p;
           int j = 0;
@@ -347,7 +253,7 @@ static void run_tcl_cmd(const char *cmd)
               while (*q && *q != ' ' && *q != '\t') q++;
               len = q - start;
             }
-            item[j] = nmalloc(len + 1);
+            item[j] = op_malloc(len + 1);
             memcpy(item[j], start, len);
             item[j][len] = '\0';
             j++;
@@ -355,8 +261,8 @@ static void run_tcl_cmd(const char *cmd)
         }
         chan_mod(NULL, chan, items, item);
         for (i = 0; i < items; i++)
-          nfree(item[i]);
-        nfree(item);
+          op_free(item[i]);
+        op_free(item);
       }
     }
   }
@@ -373,7 +279,7 @@ static void run_tcl_cmd(const char *cmd)
         (void (*)(const char *)) me->funcs[55];
       /* Rebuild "HOST:PORT:PASS" from "server add HOST [PORT [PASS]]" */
       const char *p = cmd + 11;
-      char host[256], port[16], pass[128], entry[512];
+      char host[256], port[16], pass[128];
       host[0] = port[0] = pass[0] = '\0';
       while (*p == ' ') p++;
       {
@@ -420,111 +326,7 @@ static void run_tcl_cmd(const char *cmd)
 #endif
 }
 
-/* -----------------------------------------------------------------------
- * Inline-array parser
- * --------------------------------------------------------------------- */
-
 typedef void (*ArrayCb)(const char *item, void *ud);
-
-/*
- * Returns 1 if a triple-quoted string (which must begin with """ or ''')
- * contains its closing triple-quote.  Used to detect whether the value
- * spans multiple lines and needs further line accumulation.
- */
-static int triplestr_is_complete(const char *s)
-{
-  char q;
-  if (!s || (s[0] != '"' && s[0] != '\'') || s[1] != s[0] || s[2] != s[0])
-    return 1; /* not a triple-quoted string — treat as complete */
-  q = s[0];
-  s += 3;
-  /* Skip an immediate newline per TOML spec. */
-  if (*s == '\n') s++;
-  while (*s) {
-    if (s[0] == q && s[1] == q && s[2] == q)
-      return 1;
-    if (q == '"' && *s == '\\') s++; /* skip escaped char */
-    if (*s) s++;
-  }
-  return 0;
-}
-
-/*
- * Returns 1 if the string (which must begin with '[') contains a closing ']'
- * that is not inside a string or nested array.  Used to detect whether an
- * array value spans multiple lines and needs further accumulation.
- */
-static int array_is_complete(const char *s)
-{
-  int depth = 0;
-  while (*s) {
-    /* Triple-quoted strings */
-    if ((s[0] == '"' && s[1] == '"' && s[2] == '"') ||
-        (s[0] == '\'' && s[1] == '\'' && s[2] == '\'')) {
-      char q = s[0];
-      s += 3;
-      while (*s) {
-        if (s[0] == q && s[1] == q && s[2] == q) { s += 3; break; }
-        if (*s == '\\') s++;   /* skip escaped char */
-        if (*s) s++;
-      }
-      continue;
-    }
-    /* Single or double-quoted string */
-    if (*s == '"' || *s == '\'') {
-      char q = *s++;
-      while (*s && *s != q) {
-        if (*s == '\\') s++;
-        if (*s) s++;
-      }
-      if (*s) s++;
-      continue;
-    }
-    if (*s == '[')       depth++;
-    else if (*s == ']') { depth--; if (depth == 0) return 1; }
-    s++;
-  }
-  return 0;
-}
-
-/*
- * Parse a TOML inline string array: ["a", "b", …]
- * Calls cb(item, ud) for each string element found.
- * Returns 0 on success, -1 on parse error.
- */
-static int parse_string_array(const char *src, ArrayCb cb, void *ud)
-{
-  char item[TOML_LINE_MAX];
-
-  if (*src != '[')
-    return -1;
-  src++;
-
-  while (*src) {
-    while (*src && isspace((unsigned char)*src))
-      src++;
-    if (*src == ']' || !*src)
-      break;
-    /* TOML comment between array elements: skip to end of line. */
-    if (*src == '#') {
-      while (*src && *src != '\n')
-        src++;
-      continue;
-    }
-    if (*src == '"' || *src == '\'') {
-      src = parse_quoted(src, item, sizeof item);
-      if (!src)
-        return -1;
-      cb(item, ud);
-    }
-    /* Advance past comma or to closing bracket */
-    while (*src && *src != ',' && *src != ']' && *src != '\n')
-      src++;
-    if (*src == ',')
-      src++;
-  }
-  return 0;
-}
 
 /* -----------------------------------------------------------------------
  * Array callbacks for special sections
@@ -645,68 +447,6 @@ static void cb_tcl_eval(const char *cmd, [[maybe_unused]] void *ud)
 }
 
 /* -----------------------------------------------------------------------
- * Value parser
- * --------------------------------------------------------------------- */
-
-/*
- * Parse the raw string after '=' into a printable value.
- * Handles quoted strings, inline arrays (returned verbatim), bare
- * integers and booleans (true→"1", false→"0").
- * Returns 0 on success, -1 on error.
- */
-static int parse_value(const char *raw, char *out, size_t outlen)
-{
-  while (*raw && isspace((unsigned char)*raw))
-    raw++;
-
-  if (*raw == '"' || *raw == '\'')
-    return parse_quoted(raw, out, outlen) ? 0 : -1;
-
-  if (*raw == '[') {
-    /* Return the whole inline-array literal for array callbacks. */
-    strlcpy(out, raw, outlen);
-    return 0;
-  }
-
-  /* Bare value: integer, boolean, or unquoted word. */
-  strlcpy(out, raw, outlen);
-
-  /* Trim trailing whitespace and inline comment. */
-  char *p = out;
-  while (*p && !isspace((unsigned char)*p) && *p != '#')
-    p++;
-  *p = '\0';
-
-  /* Normalise booleans to Tcl-friendly 1/0. */
-  if (strcmp(out, "true")  == 0) { strlcpy(out, "1", outlen); return 0; }
-  if (strcmp(out, "false") == 0) { strlcpy(out, "0", outlen); return 0; }
-
-  return 0;
-}
-
-/* -----------------------------------------------------------------------
- * Section name → enum
- * --------------------------------------------------------------------- */
-
-static TomlSection section_from_name(const char *name)
-{
-  if (strcmp(name, "bot")      == 0) return SEC_BOT;
-  if (strcmp(name, "servers")  == 0) return SEC_SERVERS;
-  if (strcmp(name, "channels") == 0) return SEC_CHANNELS;
-  if (strcmp(name, "modules")  == 0) return SEC_MODULES;
-  if (strcmp(name, "paths")    == 0) return SEC_PATHS;
-  if (strcmp(name, "logging")  == 0) return SEC_LOGGING;
-  if (strcmp(name, "network")  == 0) return SEC_NETWORK;
-  if (strcmp(name, "security") == 0) return SEC_SECURITY;
-  if (strcmp(name, "scripts")  == 0) return SEC_SCRIPTS;
-  if (strcmp(name, "help")     == 0) return SEC_HELP;
-  if (strcmp(name, "tcl")      == 0) return SEC_TCL;
-  if (strcmp(name, "chanset")  == 0) return SEC_CHANSET;
-  if (strcmp(name, "ircx")     == 0) return SEC_OTHER; /* IRCX/Ophion — vars set via Tcl */
-  return SEC_OTHER;
-}
-
-/* -----------------------------------------------------------------------
  * Channel flag lookup
  * Names taken verbatim from tclchan.c tcl_channel_get/modify.
  * These are boolean: true/1 → +flag, false/0 → -flag.
@@ -761,58 +501,8 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
       }
       break;
 
-    case SEC_MODULES:
-      if (strcmp(key, "load") == 0 && *value == '[') {
-        parse_string_array(value, cb_loadmodule, NULL);
-        return;
-      }
-      break;
-
-    case SEC_SERVERS:
-      if (strcmp(key, "list") == 0 && *value == '[') {
-        parse_string_array(value, cb_server_add, NULL);
-        return;
-      }
-      break;
-
-    case SEC_CHANNELS:
-      if (strcmp(key, "list") == 0 && *value == '[') {
-        parse_string_array(value, cb_channel_add, NULL);
-        return;
-      }
-      break;
-
-    case SEC_LOGGING:
-      if (strcmp(key, "entries") == 0 && *value == '[') {
-        parse_string_array(value, cb_logfile, NULL);
-        return;
-      }
-      break;
-
-    case SEC_SCRIPTS:
-      if (strcmp(key, "load") == 0 && *value == '[') {
-        parse_string_array(value, cb_source, NULL);
-        return;
-      }
-      break;
-
-    case SEC_HELP:
-      if (strcmp(key, "load") == 0 && *value == '[') {
-        parse_string_array(value, cb_loadhelp, NULL);
-        return;
-      }
-      break;
-
     case SEC_TCL:
-      if (strcmp(key, "commands") == 0 && *value == '[') {
-        parse_string_array(value, cb_tcl_eval, NULL);
-        return;
-      }
-      /* [tcl] code = """..."""  — evaluate a multi-line Tcl script block.
-       * The value has already been unquoted by parse_value() / parse_quoted(),
-       * so we receive the raw Tcl text and can eval it directly.  This is
-       * more ergonomic than the commands array for proc definitions and other
-       * multi-statement code. */
+      /* [tcl] code = """..."""  — evaluate a multi-line Tcl script block. */
       if (strcmp(key, "code") == 0) {
         run_tcl_cmd(value);
         return;
@@ -877,244 +567,206 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
  * Public API
  * --------------------------------------------------------------------- */
 
-/* prescan_paths: single-pass pre-scan of [paths] for settings that must be
- * applied before the main config parse begins.
+/* prescan_paths: pre-scan [paths] for settings needed before the main parse.
  *
- *   lang_dir  — must be set before init_language(1) so language files are
- *               found on the very first add_lang_section("core") call.
- *   mod_path  — must be set before [modules] are loaded; if [modules] comes
- *               before [paths] in the config file the compiled-in EGG_MODDIR
- *               would otherwise be used and module loads would fail.
+ *   lang_dir  — must be set before init_language(1).
+ *   mod_path  — must be set before [modules] are loaded.
  *
- * Both values are written directly to their C variables rather than going
- * through the Tcl/notcl variable machinery (which isn't set up yet).
+ * Uses op_toml for proper parsing (handles quoted strings, multi-line, etc).
  */
 void prescan_paths(const char *fname)
 {
-  FILE *fp = fopen(fname, "r");
-  char line[TOML_LINE_MAX];
-  char value[TOML_LINE_MAX];
-  int in_paths = 0;
-
-  if (!fp)
+  char errbuf[256];
+  op_toml_table_t *root = op_toml_parse_file(fname, errbuf, sizeof errbuf);
+  if (!root)
     return;
 
-  while (fgets(line, sizeof line, fp)) {
-    char *p = trim(line);
-    if (!*p || *p == '#')
-      continue;
-    if (*p == '[') {
-      int is_aot = (p[1] == '[');
-      char *inner = p + 1 + (is_aot ? 1 : 0);
-      char *end = strchr(inner, ']');
-      if (!end)
-        continue;
-      *end = '\0';
-      in_paths = (strcmp(trim(inner), "paths") == 0);
-      continue;
-    }
-    if (!in_paths)
-      continue;
-    {
-      char *eq = strchr(p, '=');
-      if (!eq)
-        continue;
-      *eq = '\0';
-      char *k = trim(p);
-      char *v = trim(eq + 1);
-      if (parse_value(v, value, sizeof value) < 0)
-        continue;
-      if (strcmp(k, "lang_dir") == 0) {
-        set_lang_dir(value);
-      } else if (strcmp(k, "mod_path") == 0 && *value) {
-        /* Apply directly to moddir; append trailing '/' if missing. */
-        strlcpy(moddir, value, sizeof moddir);
-        {
-          size_t n = strlen(moddir);
-          if (n && moddir[n - 1] != '/' && n + 1 < sizeof moddir) {
-            moddir[n]     = '/';
-            moddir[n + 1] = '\0';
-          }
-        }
+  op_toml_table_t *paths = op_toml_table(root, "paths");
+  if (paths) {
+    const char *val;
+    if (op_toml_str(paths, "lang_dir", &val) == 1)
+      set_lang_dir(val);
+    if (op_toml_str(paths, "mod_path", &val) == 1 && *val) {
+      strlcpy(moddir, val, sizeof moddir);
+      size_t n = strlen(moddir);
+      if (n && moddir[n - 1] != '/' && n + 1 < sizeof moddir) {
+        moddir[n]     = '/';
+        moddir[n + 1] = '\0';
       }
     }
   }
-  fclose(fp);
+  op_toml_free(root);
 }
 
-/* Buffer for [paths] entries so they can be replayed after all modules load.
- * Module-registered variables (e.g. chanfile from channels.mod) are only
- * available after the module loads; if [paths] appears before [modules] in
- * the config file those variables would otherwise be silently discarded.
- * Replaying after the parse loop ensures every module-registered path is set
- * regardless of section ordering. */
+/* -----------------------------------------------------------------------
+ * op_toml walk helpers
+ * --------------------------------------------------------------------- */
+
+/* Buffer for [paths] entries so they can be replayed after all modules load. */
 constexpr int PATHS_BUF_MAX = 32;
-typedef struct { char key[256]; char val[TOML_LINE_MAX]; } PathsEntry;
+typedef struct { char key[256]; char val[4096]; } PathsEntry;
+
+/* Context for the op_toml_iter walk callback. */
+struct walk_ctx {
+  TomlSection sec;
+  const op_toml_table_t *tbl;
+  PathsEntry *paths_buf;
+  int        *paths_buf_n;
+};
+
+/* op_toml_iter callback: dispatch each key in a section table. */
+static void walk_key_cb(const char *key, void *ud)
+{
+  struct walk_ctx *ctx = ud;
+
+  /* Array keys: dispatch through the matching callback. */
+  op_toml_arr_t *arr = op_toml_arr(ctx->tbl, key);
+  if (arr) {
+    ArrayCb cb = NULL;
+    if (ctx->sec == SEC_MODULES  && strcmp(key, "load") == 0)     cb = cb_loadmodule;
+    if (ctx->sec == SEC_SERVERS  && strcmp(key, "list") == 0)     cb = cb_server_add;
+    if (ctx->sec == SEC_CHANNELS && strcmp(key, "list") == 0)     cb = cb_channel_add;
+    if (ctx->sec == SEC_LOGGING  && strcmp(key, "entries") == 0)  cb = cb_logfile;
+    if (ctx->sec == SEC_SCRIPTS  && strcmp(key, "load") == 0)     cb = cb_source;
+    if (ctx->sec == SEC_HELP     && strcmp(key, "load") == 0)     cb = cb_loadhelp;
+    if (ctx->sec == SEC_TCL      && strcmp(key, "commands") == 0) cb = cb_tcl_eval;
+    if (cb) {
+      for (int i = 0; i < op_toml_arr_len(arr); i++) {
+        const char *s;
+        if (op_toml_arr_str(arr, i, &s) == 1)
+          cb(s, NULL);
+      }
+    }
+    return;
+  }
+
+  /* Sub-table keys: skip (walked as separate sections). */
+  if (op_toml_table(ctx->tbl, key))
+    return;
+
+  /* Scalar: resolve to a string value for process_kv. */
+  const char *sval;
+  long ival;
+  int bval;
+  char buf[64];
+  const char *val = NULL;
+
+  if (op_toml_str(ctx->tbl, key, &sval) == 1)
+    val = sval;
+  else if (op_toml_int(ctx->tbl, key, &ival) == 1) {
+    snprintf(buf, sizeof buf, "%ld", ival);
+    val = buf;
+  } else if (op_toml_bool(ctx->tbl, key, &bval) == 1)
+    val = bval ? "1" : "0";
+
+  if (!val) return;
+
+  /* Buffer [paths] entries for replay after modules load. */
+  if (ctx->paths_buf && *ctx->paths_buf_n < PATHS_BUF_MAX) {
+    strlcpy(ctx->paths_buf[*ctx->paths_buf_n].key, key,
+            sizeof ctx->paths_buf[*ctx->paths_buf_n].key);
+    strlcpy(ctx->paths_buf[*ctx->paths_buf_n].val, val,
+            sizeof ctx->paths_buf[*ctx->paths_buf_n].val);
+    (*ctx->paths_buf_n)++;
+  }
+
+  process_kv(ctx->sec, key, val);
+}
+
+/* Walk a section table: iterate all keys in file order. */
+static void walk_section(TomlSection sec, const op_toml_table_t *tbl,
+                          PathsEntry *pbuf, int *pn)
+{
+  struct walk_ctx ctx = { .sec = sec, .tbl = tbl,
+                          .paths_buf = pbuf, .paths_buf_n = pn };
+  op_toml_iter(tbl, walk_key_cb, &ctx);
+}
+
+/* Known section names (checked to identify "unknown" sections). */
+static int is_known_section(const char *name)
+{
+  static const char *known[] = {
+    "bot", "network", "security", "paths", "modules",
+    "servers", "channels", "logging", "scripts", "help", "tcl",
+    "chanset", NULL
+  };
+  for (const char **k = known; *k; k++)
+    if (strcmp(name, *k) == 0) return 1;
+  return 0;
+}
+
+/* op_toml_iter callback on root: walk any unknown (pass-through) sections. */
+static void walk_unknown_cb(const char *key, void *ud)
+{
+  const op_toml_table_t *root = ud;
+  if (is_known_section(key)) return;
+  op_toml_table_t *t = op_toml_table(root, key);
+  if (!t) return;
+  walk_section(SEC_OTHER, t, NULL, NULL);
+}
+
+/* -----------------------------------------------------------------------
+ * readtomlconfig — parse with op_toml, dispatch in dependency order
+ * --------------------------------------------------------------------- */
 
 int readtomlconfig(const char *fname)
 {
-  FILE *fp;
-  char line[TOML_LINE_MAX];
-  /*
-   * ml_value: accumulation buffer for multi-line arrays.
-   * Sized for many triple-quoted Tcl proc definitions.
-   */
-  static char ml_value[TOML_LINE_MAX * 64];
-  char key[256], value[TOML_LINE_MAX];
-  char sec_name[128] = "";
-  TomlSection cur_sec = SEC_NONE;
-  int lineno = 0;
+  char errbuf[256];
+  op_toml_table_t *root = op_toml_parse_file(fname, errbuf, sizeof errbuf);
+  if (!root) {
+    putlog(LOG_MISC, "*", "TOML config: %s", errbuf);
+    return 0;
+  }
+
   int ok = 1;
   PathsEntry paths_buf[PATHS_BUF_MAX];
   int paths_buf_n = 0;
 
-  fp = fopen(fname, "r");
-  if (!fp) {
-    putlog(LOG_MISC, "*", "TOML config: cannot open '%s': %s",
-           fname, strerror(errno));
-    return 0;
+  /* Walk sections in dependency order.  Modules must load before paths
+   * replay and command-based sections (servers, channels, etc). */
+  static const struct { const char *name; TomlSection sec; } order[] = {
+    {"bot",      SEC_BOT},
+    {"network",  SEC_NETWORK},
+    {"security", SEC_SECURITY},
+    {"modules",  SEC_MODULES},      /* loads modules → registers vars/commands */
+    {"servers",  SEC_SERVERS},
+    {"channels", SEC_CHANNELS},
+    {"logging",  SEC_LOGGING},
+    {"scripts",  SEC_SCRIPTS},
+    {"help",     SEC_HELP},
+    {"tcl",      SEC_TCL},
+  };
+
+  for (size_t i = 0; i < sizeof order / sizeof order[0]; i++) {
+    op_toml_table_t *t = op_toml_table(root, order[i].name);
+    if (t) walk_section(order[i].sec, t, NULL, NULL);
   }
 
-  while (fgets(line, sizeof line, fp)) {
-    lineno++;
-    char *p = trim(line);
+  /* [paths] — buffer entries for replay after module vars are registered. */
+  {
+    op_toml_table_t *t = op_toml_table(root, "paths");
+    if (t) walk_section(SEC_PATHS, t, paths_buf, &paths_buf_n);
+  }
 
-    /* Skip blank lines and full-line comments. */
-    if (!*p || *p == '#')
-      continue;
-
-    /* Section header: [name] or [[name]] (TOML array-of-tables) */
-    if (*p == '[') {
-      int is_aot = (p[1] == '[');  /* array-of-tables: [[name]] */
-      char *inner = p + 1 + (is_aot ? 1 : 0);
-      char *end   = strchr(inner, ']');
-      if (!end) {
-        putlog(LOG_MISC, "*", "TOML config:%d: malformed section header",
-               lineno);
-        continue;
-      }
-      *end = '\0';
-      strlcpy(sec_name, trim(inner), sizeof sec_name);
-
-      /* Flush any pending [[chanset]] IRCX state before switching sections. */
-      if (cur_sec == SEC_CHANSET)
+  /* [[chanset]] array of tables — per-channel settings. */
+  {
+    op_toml_arr_t *arr = op_toml_arr(root, "chanset");
+    if (arr) {
+      for (int i = 0; i < op_toml_arr_len(arr); i++) {
+        op_toml_table_t *ct = op_toml_arr_table(arr, i);
+        if (!ct) continue;
+        reset_chanset_state();
+        walk_section(SEC_CHANSET, ct, NULL, NULL);
         flush_chanset_ircx();
-
-      if (is_aot) {
-        /* Only [[chanset]] array-of-tables is handled specially. */
-        if (strcmp(sec_name, "chanset") == 0) {
-          cur_sec = SEC_CHANSET;
-          reset_chanset_state();
-        } else {
-          cur_sec = SEC_OTHER;
-        }
-      } else {
-        cur_sec = section_from_name(sec_name);
-        /* [chanset] (non-array form) — reset state for a fresh block. */
-        if (cur_sec == SEC_CHANSET)
-          reset_chanset_state();
-      }
-      continue;
-    }
-
-    /* Key = value */
-    char *eq = strchr(p, '=');
-    if (!eq)
-      continue;
-
-    *eq = '\0';
-    char *k = trim(p);
-    char *v = trim(eq + 1);
-
-    /* Strip inline comment from bare values (not inside quotes/arrays). */
-    if (*v != '"' && *v != '\'' && *v != '[') {
-      char *hash = strchr(v, '#');
-      if (hash) {
-        *hash = '\0';
-        v = trim(v);
       }
     }
-
-    if (!*k)
-      continue;
-
-    strlcpy(key, k, sizeof key);
-
-    /*
-     * Multi-line value accumulation.
-     *
-     * Arrays: if the value starts with '[' but the closing ']' is not yet
-     * present, keep reading lines until the array is complete.  Required for
-     * [tcl] commands arrays that contain proc definitions.
-     *
-     * Triple-quoted strings: if the value starts with """ or ''' but the
-     * closing triple-quote is not yet present, accumulate lines likewise.
-     * Required for [tcl] code = """...""" multi-line Tcl script blocks.
-     */
-    {
-      int needs_accum = 0;
-      int is_array = (*v == '[');
-      int is_triplestr = (!is_array &&
-                         ((*v == '"' && v[1] == '"' && v[2] == '"') ||
-                          (*v == '\'' && v[1] == '\'' && v[2] == '\'')));
-      if (is_array && !array_is_complete(v))
-        needs_accum = 1;
-      if (is_triplestr && !triplestr_is_complete(v))
-        needs_accum = 1;
-
-      if (needs_accum) {
-        strlcpy(ml_value, v, sizeof ml_value);
-        for (;;) {
-          int done = is_array ? array_is_complete(ml_value)
-                              : triplestr_is_complete(ml_value);
-          if (done) break;
-          if (!fgets(line, sizeof line, fp)) break;
-          lineno++;
-          /*
-           * Append the raw line (newline stripped, but NOT leading '#').
-           * Tcl comments inside triple-quoted strings must not be discarded.
-           */
-          size_t llen = strlen(line);
-          while (llen > 0 && (line[llen-1] == '\n' || line[llen-1] == '\r'))
-            line[--llen] = '\0';
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "\n%s", line);
-            strlcat(ml_value, op_strbuf_str(&_b), sizeof ml_value);
-            op_strbuf_free(&_b);
-          }
-        }
-        v = ml_value;
-      }
-    }
-
-    if (parse_value(v, value, sizeof value) < 0) {
-      putlog(LOG_MISC, "*", "TOML config:%d: parse error for key '%s'",
-             lineno, key);
-      continue;
-    }
-
-    if (cur_sec == SEC_PATHS && paths_buf_n < PATHS_BUF_MAX) {
-      strlcpy(paths_buf[paths_buf_n].key, key,
-              sizeof paths_buf[paths_buf_n].key);
-      strlcpy(paths_buf[paths_buf_n].val, value,
-              sizeof paths_buf[paths_buf_n].val);
-      paths_buf_n++;
-    }
-    process_kv(cur_sec, key, value);
   }
 
-  fclose(fp);
+  /* Unknown sections — set keys as Tcl variables (pass-through). */
+  op_toml_iter(root, walk_unknown_cb, (void *)root);
 
-  /* Flush any [[chanset]] block that was still open at EOF. */
-  if (cur_sec == SEC_CHANSET)
-    flush_chanset_ircx();
-
-  /* Replay [paths] entries now that all modules have been loaded.  If [paths]
-   * appeared before [modules] in the config file, module-registered variables
-   * (like chanfile from channels.mod) were not yet available during the first
-   * pass.  Replaying is idempotent for already-set variables and correctly
-   * populates the module tables for any that were missed. */
+  /* Replay [paths] now that all modules have loaded and registered
+   * their variables (e.g. chanfile from channels.mod). */
   for (int i = 0; i < paths_buf_n; i++)
     process_kv(SEC_PATHS, paths_buf[i].key, paths_buf[i].val);
 
@@ -1124,8 +776,6 @@ int readtomlconfig(const char *fname)
     const char *nick_val  = Tcl_GetVar(interp, "nick",  TCL_GLOBAL_ONLY);
     const char *owner_val = Tcl_GetVar(interp, "owner", TCL_GLOBAL_ONLY);
 #else
-    /* In no-TCL builds Tcl_GetVar is unavailable; read the C buffers that
-     * notcl_setvar/process_kv write into directly. */
     const char *nick_val  = origbotname[0] ? origbotname : NULL;
     const char *owner_val = owner[0]       ? owner       : NULL;
 #endif
@@ -1147,9 +797,10 @@ int readtomlconfig(const char *fname)
              "the bot will not connect to IRC.");
       ok = 0;
     }
-    toml_server_count = 0;   /* reset for potential reload */
+    toml_server_count = 0;
   }
 
+  op_toml_free(root);
   return ok;
 }
 

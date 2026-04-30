@@ -50,6 +50,21 @@ static Function *global = NULL, *server_funcs = NULL;
 static p_tcl_bind_list H_ccht, H_cmsg, H_htgt, H_wspr, H_wspm, H_rmst, H_usst, H_usrntc;
 
 twitchchan_t *twitchchan = NULL;
+
+/* Check if word appears as a whole word in a space-separated list. */
+static int twitch_word_in_list(const char *list, const char *word)
+{
+  size_t wlen = strlen(word);
+  const char *p = list;
+
+  while ((p = strstr(p, word)) != NULL) {
+    if ((p == list || p[-1] == ' ') &&
+        (p[wlen] == '\0' || p[wlen] == ' '))
+      return 1;
+    p += wlen;
+  }
+  return 0;
+}
 static char cap_request[55];
 static op_bh *tchan_bh = NULL;
 
@@ -70,10 +85,10 @@ static op_bh *tchan_bh = NULL;
 /* Free one twitchchan node and its dynamically allocated fields. */
 static void twitch_free_tchan(twitchchan_t *tchan)
 {
-  nfree(tchan->mods);
-  nfree(tchan->vips);
-  nfree(tchan->userstate.badges);
-  nfree(tchan->userstate.emote_sets);
+  op_free(tchan->mods);
+  op_free(tchan->vips);
+  op_free(tchan->userstate.badges);
+  op_free(tchan->userstate.emote_sets);
   op_bh_free(tchan_bh, tchan);
 }
 
@@ -262,8 +277,8 @@ static int check_tcl_whisper(char *from, char *cmd, char *msg) {
 
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
-  get_user_flagrec(u, &fr, NULL);
   u = get_user_by_host(from);
+  get_user_flagrec(u, &fr, NULL);
   hand = (u ? u->handle : "*");
   Tcl_SetVar(interp, "_wspr1", nick, 0);
   Tcl_SetVar(interp, "_wspr2", uhost, 0);
@@ -289,8 +304,8 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
     op_strbuf_free(&_b);
   } else
     strlcpy(args, cmd, sizeof args);
-  get_user_flagrec(u, &fr, NULL);
   u = get_user_by_host(from);
+  get_user_flagrec(u, &fr, NULL);
   hand = (u ? u->handle : "*");
   Tcl_SetVar(interp, "_wspm1", nick, 0);
   Tcl_SetVar(interp, "_wspm2", uhost, 0);
@@ -389,14 +404,14 @@ static int gotnotice (char *from, char *msg, Tcl_Obj *tags) {
     modptr = msg + 36; /* Remove "The moderators of this channel are: " */
     remove_chars(modptr, ',');
     remove_chars(modptr, '.');
-    nfree(tchan->mods);
-    tchan->mods = nstrdup(modptr);
+    op_free(tchan->mods);
+    tchan->mods = op_strdup(modptr);
   } else if (!strcmp(msgid, "vips_success")) {
     vipptr = msg + 30; /* Remove "The VIPs of this channel are: " from str */
     remove_chars(vipptr, ',');
     remove_chars(vipptr, '.');
-    nfree(tchan->vips);
-    tchan->vips = nstrdup(vipptr);
+    op_free(tchan->vips);
+    tchan->vips = op_strdup(vipptr);
   }
   return 0;
 }
@@ -504,8 +519,8 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
         tchan->userstate.badge_info = n;
       } else if (!strcmp(k, "badges") && strcmp(tchan->userstate.badges ? tchan->userstate.badges : "", v)) {
         changed = 1;
-        nfree(tchan->userstate.badges);
-        tchan->userstate.badges = nstrdup(v);
+        op_free(tchan->userstate.badges);
+        tchan->userstate.badges = op_strdup(v);
       } else if (!strcmp(k, "color") && strcmp(tchan->userstate.color, v)) {
         changed = 1;
         strlcpy(tchan->userstate.color, v, sizeof tchan->userstate.color);
@@ -514,8 +529,8 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
         strlcpy(tchan->userstate.display_name, v, sizeof tchan->userstate.display_name);
       } else if (!strcmp(k, "emote-sets") && strcmp(tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "", v)) {
         changed = 1;
-        nfree(tchan->userstate.emote_sets);
-        tchan->userstate.emote_sets = nstrdup(v);
+        op_free(tchan->userstate.emote_sets);
+        tchan->userstate.emote_sets = op_strdup(v);
       } else if (!strcmp(k, "mod") && tchan->userstate.mod != n) {
         changed = 1;
         tchan->userstate.mod = n;
@@ -722,7 +737,7 @@ static int tcl_ismod STDVAR {
     return TCL_OK;
   }
   while (tchan && (thechan == NULL || thechan == tchan)) {
-    if (tchan->mods && strstr(tchan->mods, argv[1])) {
+    if (tchan->mods && twitch_word_in_list(tchan->mods, argv[1])) {
       Tcl_AppendResult(irp, "1", NULL);
       return TCL_OK;
     }
@@ -760,7 +775,7 @@ static int tcl_isvip STDVAR {
     return TCL_OK;
   }
   while (tchan && (thechan == NULL || thechan == tchan)) {
-    if (tchan->vips && strstr(tchan->vips, argv[1])) {
+    if (tchan->vips && twitch_word_in_list(tchan->vips, argv[1])) {
       Tcl_AppendResult(irp, "1", NULL);
       return TCL_OK;
     }
@@ -787,7 +802,7 @@ static int tcl_roomstate STDVAR {
   Tcl_DStringAppendElement(&rsdict, "followers-only");
   Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->followers_only));
   Tcl_DStringAppendElement(&rsdict, "r9k");
-  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->emote_only));
+  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->r9k));
   Tcl_DStringAppendElement(&rsdict, "slow");
   Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->slow));
   Tcl_DStringAppendElement(&rsdict, "subs-only");
@@ -975,7 +990,7 @@ static int twitch_ismod(char *nick, char *chan)
     tchan = twitchchan;
   }
   while (tchan && (thechan == NULL || thechan == tchan)) {
-    if (tchan->mods && strstr(tchan->mods, nick))
+    if (tchan->mods && twitch_word_in_list(tchan->mods, nick))
       return 1;
     tchan = tchan->next;
   }
@@ -997,7 +1012,7 @@ static int twitch_isvip(char *nick, char *chan)
     tchan = twitchchan;
   }
   while (tchan && (thechan == NULL || thechan == tchan)) {
-    if (tchan->vips && strstr(tchan->vips, nick))
+    if (tchan->vips && twitch_word_in_list(tchan->vips, nick))
       return 1;
     tchan = tchan->next;
   }

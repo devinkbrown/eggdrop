@@ -125,6 +125,7 @@ typedef struct maskrec {
   int flags;
 } maskrec;
 extern maskrec *global_bans, *global_exempts, *global_invites;
+extern op_htab *global_bans_ht, *global_exempts_ht, *global_invites_ht;
 
 constexpr int MASKREC_STICKY = 1;
 constexpr int MASKREC_PERM   = 2;
@@ -132,9 +133,13 @@ constexpr int MASKREC_PERM   = 2;
 /* For every channel i join */
 struct chan_t {
   memberlist *member;
+  op_htab *member_ht;
   masklist *ban;
   masklist *exempt;
   masklist *invite;
+  op_htab *ban_ht;
+  op_htab *exempt_ht;
+  op_htab *invite_ht;
   char *topic;
   char *key;
   unsigned int mode;
@@ -168,6 +173,9 @@ constexpr unsigned int CHANNOAMSG = 0x80000; /* T - QuakeNet's snircd    */
  * LIBOP_CIDR_TBL_H prevents a duplicate-typedef error when both are present. */
 #ifndef LIBOP_CIDR_TBL_H
 typedef struct op_cidr_tbl op_cidr_tbl_t;
+#endif
+#ifndef LIBOP_HTAB_H
+typedef struct op_htab op_htab;
 #endif
 
 struct chanset_t {
@@ -207,6 +215,9 @@ struct chanset_t {
   maskrec *bans,         /* temporary channel bans            */
           *exempts,      /* temporary channel exempts         */
           *invites;      /* temporary channel invites         */
+  op_htab *bans_ht;              /* exact-match ban fast path         */
+  op_htab *exempts_ht;           /* exact-match exempt fast path      */
+  op_htab *invites_ht;           /* exact-match invite fast path      */
   op_cidr_tbl_t *ban_ip_trie;    /* CIDR ban fast path (libop op_cidr_tbl)    */
   op_cidr_tbl_t *exempt_ip_trie; /* CIDR exempt fast path                     */
   op_cidr_tbl_t *invite_ip_trie; /* CIDR invite fast path                     */

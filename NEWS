@@ -1,5 +1,5 @@
 News
-Last revised: April 26, 2026
+Last revised: April 30, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -31,7 +31,22 @@ devinkbrown fork (based on v1.10.1):
     - libop synced from ophion: CIDR parsing helpers (op_cidr_parse_str /
       op_cidr_parse_addr) and C11 threads middle tier in thread_pool.c.
 
-
+ Python API — 43 new commands (pycmds.c + eggtools.py):
+    - Channel presence: onchan, handonchan, onchansplit, topic, validchan,
+      getchanjoin, botisowner, isowner.
+    - Channel modes/actions: getchanmode, pushmode, flushmode, putkick,
+      resetbans, resetexempts, resetinvites, resetchan, refreshchan.
+    - Ban/exempt/invite management: banlist, exemptlist, invitelist, newban,
+      killban, killchanban, newexempt, killexempt, newinvite, killinvite,
+      matchban, matchexempt, matchinvite, stickban, unstickban, isban,
+      isexempt, isinvite.
+    - User channel records: getchaninfo, setchaninfo, addchanrec, delchanrec,
+      haschanrec, setlaston.
+    - Server: jump.
+    - irc.mod: flush_mode exported at function table slot 29 for external
+      module access.
+    - eggtools.py: type-annotated wrappers for all new commands, plus
+      MaskEntry dataclass for ban/exempt/invite list entries.
 
  Tcl is now fully optional — no-Tcl builds are complete:
     - A no-Tcl build is now fully functional for core bot operation, not
@@ -106,6 +121,33 @@ devinkbrown fork (based on v1.10.1):
       of aborting, matching the existing n_malloc() behaviour.
     - Added n_strdup() / nstrdup() with DEBUG_MEM tracking. Modules
       gain nstrdup via global[329] with correct MODULE_NAME attribution.
+    - Consolidated all allocation to libop: nmalloc/nfree/nrealloc/nstrdup
+      now route to op_malloc/op_free/op_realloc/op_strdup across all 60+
+      source files (~750 call sites).  The legacy mem.c accounting module
+      is removed; expmem() functions deleted throughout.  Module ABI
+      preserved via thin wrappers at global_table slots 0, 1, 230, 329.
+    - O(1) Robin Hood hash tables (op_htab) wired through the bind system:
+      bind table lookup by name, bind mask lookup within each table, and
+      channel member lookup by nickname all use op_htab for exact-match
+      dispatch.  check_tcl_bind() fast-paths MATCH_EXACT via the hash
+      table, falling back to linear scan only for wildcard/partial matches.
+    - O(1) hash tables for ban/exempt/invite mask lists: both runtime
+      masklists (from IRC MODE) and persistent maskrecs (from userfile)
+      now carry per-channel op_htab indexes.  ismodeline(), u_equals_mask(),
+      u_sticky_mask(), newmask() duplicate check, got_unban/unexempt/
+      uninvite removal, and u_addban/delban/addexempt/delexempt/addinvite/
+      delinvite all use O(1) hash lookup instead of O(n) linear scan.
+      Wildcard-matching paths (ismasked, u_match_mask) remain linear.
+    - Unified Tcl/no-Tcl bind dispatch in tclhash.c: eliminated ~600 lines
+      of duplicated code by extracting 12 identical functions (memory
+      helpers, GC, table management, match/flag checking) into shared
+      unconditional code, unifying check_tcl_bind() with a DISPATCH macro
+      that routes to trigger_bind() (Tcl) or dispatch_native() (no-Tcl),
+      and adopting the Tcl-path check_tcl_* helpers for both builds (works
+      because lush.h maps Tcl_SetVar to egg_setvar in no-Tcl mode).  Fixed
+      several no-Tcl bind dispatch bugs uncovered during unification:
+      check_tcl_chjn matched on wrong field, check_tcl_chpt used wrong
+      match type, check_tcl_dcc was missing BIND_QUIT handling.
 
  twitch.mod changes:
     - Replaced fixed 8191-byte mods, vips, badges, and emote_sets

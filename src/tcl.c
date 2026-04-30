@@ -111,11 +111,6 @@ struct tcl_unicodesup_info {
 
 
 
-int expmem_tcl(void)
-{
-  return strtot;
-}
-
 /* Variable mapping tables — shared between Tcl and no-TCL builds so
  * that notcl_setvar/notcl_getvar can find all registered C variables.
  * (In Tcl builds these are also used by init_traces() to install trace
@@ -465,7 +460,7 @@ static int tcl_call_stringproc_cd(ClientData cd, Tcl_Interp *interp, int objc, T
   struct tcl_call_stringinfo *info = cd;
 
   /* The string API guarantees argv[argc] == NULL, unlike the obj API */
-  argv = nmalloc((objc + 1) * sizeof *argv);
+  argv = op_malloc((objc + 1) * sizeof *argv);
   for (int i = 0; i < objc; i++) {
     Tcl_IncrRefCount(objv[i]);
     argv[i] = Tcl_GetString(objv[i]);
@@ -475,7 +470,7 @@ static int tcl_call_stringproc_cd(ClientData cd, Tcl_Interp *interp, int objc, T
   for (int i = 0; i < objc; i++) {
     Tcl_DecrRefCount(objv[i]);
   }
-  nfree(argv);
+  op_free(argv);
   return ret;
 }
 
@@ -623,7 +618,7 @@ void tickle_FinalizeNotifier(ClientData cd)
 {
   struct threaddata *td = threaddata();
   if (td->socklist)
-    nfree(td->socklist);
+    op_free(td->socklist);
 }
 
 ClientData tickle_InitNotifier(void)
@@ -812,7 +807,7 @@ int decode_surrogates(const char *str, uint32_t *high, uint32_t *low)
 Tcl_Obj *egg_string_unicodesup_desurrogate(const char *oldstr, int len)
 {
   int stridx = 0, bufidx = 0;
-  char *buf = nmalloc(len);
+  char *buf = op_malloc(len);
   Tcl_Obj *o;
 
   while (stridx < len) {
@@ -836,7 +831,7 @@ Tcl_Obj *egg_string_unicodesup_desurrogate(const char *oldstr, int len)
   }
 
   o = Tcl_NewStringObj(buf, bufidx);
-  nfree(buf);
+  op_free(buf);
   return o;
 }
 
@@ -854,7 +849,7 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
     return Tcl_EvalObjv(interp, objc, orig_objv, 0);
   }
   /* new arguments to original Tcl string tolower/toupper/totitle */
-  new_objv = nmalloc(objc * sizeof *new_objv);
+  new_objv = op_malloc(objc * sizeof *new_objv);
 
   for (int i = 0; i < objc; i++) {
     if (i == 0) {
@@ -881,7 +876,7 @@ int egg_string_unicodesup(void *cd, Tcl_Interp *interp, int objc, Tcl_Obj *const
   for (int i = 0; i < objc; i++) {
     Tcl_DecrRefCount(new_objv[i]);
   }
-  nfree(new_objv);
+  op_free(new_objv);
   /* overwrite Tcl's result by replacing surrogates back to 4-byte utf-8 sequences*/
   if (ret == TCL_OK) {
     Tcl_Size len;
@@ -993,10 +988,6 @@ void init_tcl1(int argc, char **argv)
   /* Initialize the interpreter */
   interp = Tcl_CreateInterp();
 
-#ifdef DEBUG_MEM
-  /* Initialize Tcl's memory debugging if we want it */
-  Tcl_InitMemory(interp);
-#endif
 
   /* Set Tcl variable tcl_interactive to 0 */
   Tcl_SetVar(interp, "tcl_interactive", "0", TCL_GLOBAL_ONLY);

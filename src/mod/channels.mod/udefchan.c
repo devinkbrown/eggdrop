@@ -88,8 +88,7 @@ static void setudef(struct udef_struct *us, char *name, intptr_t value)
   if (!udef_chans_bh)
     udef_chans_bh = op_bh_create(sizeof(struct udef_chans), 32, "udef_chans");
   ul = op_bh_alloc(udef_chans_bh);
-  ul->chan = nmalloc(strlen(name) + 1);
-  strlcpy(ul->chan, name, sizeof(ul->chan));
+  ul->chan = op_strdup(name);
   ul->value = value;
   ul->next = NULL;
   if (ul_last)
@@ -118,8 +117,7 @@ static void initudef(int type, char *name, int defined)
   if (!udef_struct_bh)
     udef_struct_bh = op_bh_create(sizeof(struct udef_struct), 16, "udef_struct");
   ul = op_bh_alloc(udef_struct_bh);
-  ul->name = nmalloc(strlen(name) + 1);
-  strlcpy(ul->name, name, sizeof(ul->name));
+  ul->name = op_strdup(name);
   if (defined)
     ul->defined = 1;
   else
@@ -140,7 +138,7 @@ static void free_udef(struct udef_struct *ul)
   for (; ul; ul = ull) {
     ull = ul->next;
     free_udef_chans(ul->values, ul->type);
-    nfree(ul->name);
+    op_free(ul->name);
     op_bh_free(udef_struct_bh, ul);
   }
 }
@@ -152,8 +150,8 @@ static void free_udef_chans(struct udef_chans *ul, int type)
   for (; ul; ul = ull) {
     ull = ul->next;
     if (type == UDEF_STR && ul->value)
-      nfree((void *) ul->value);
-    nfree(ul->chan);
+      op_free((void *) ul->value);
+    op_free(ul->chan);
     op_bh_free(udef_chans_bh, ul);
   }
 }

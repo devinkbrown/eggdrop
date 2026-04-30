@@ -212,7 +212,7 @@ static int send_uptime(void)
 
   len = sizeof(upPack) + strlen(botnetnick) + strlen(servhost) +
         strlen(uptime_version);
-  mem = (PackUp *) nmalloc(len);
+  mem = (PackUp *) op_malloc(len);
   egg_bzero(mem, len); /* mem *should* be completely filled before it's
                              * sent to the server.  But belt-and-suspenders
                              * is always good.
@@ -230,7 +230,7 @@ static int send_uptime(void)
   sai.sin_port = htons(uptime_port);
   len = sendto(uptimesock, (void *) mem, len, 0, (struct sockaddr *) &sai,
                sizeof(sai));
-  nfree(mem);
+  op_free(mem);
   return len;
 }
 

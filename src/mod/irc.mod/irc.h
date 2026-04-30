@@ -64,11 +64,14 @@ static void refresh_who_chan(char *);
  * in order to reduce the code duplication. <cybah>
  */
 #define resetbans(chan)     resetmasks((chan), (chan)->channel.ban,          \
-                                       (chan)->bans, global_bans, 'b')
+                                       (chan)->bans, (chan)->bans_ht,       \
+                                       global_bans, global_bans_ht, 'b')
 #define resetexempts(chan)  resetmasks((chan), (chan)->channel.exempt,       \
-                                       (chan)->exempts, global_exempts, 'e')
+                                       (chan)->exempts, (chan)->exempts_ht, \
+                                       global_exempts, global_exempts_ht, 'e')
 #define resetinvites(chan)  resetmasks((chan), (chan)->channel.invite,       \
-                                       (chan)->invites, global_invites, 'I')
+                                       (chan)->invites, (chan)->invites_ht, \
+                                       global_invites, global_invites_ht, 'I')
 
 void reset_chan_info(struct chanset_t *, int, int);
 static void recheck_channel(struct chanset_t *, int);
@@ -77,7 +80,7 @@ static void set_key(struct chanset_t *, char *);
 static void maybe_revenge(struct chanset_t *, char *, char *, int);
 static int detect_chan_flood(char *, char *, char *, struct chanset_t *, int,
                              char *);
-static void newmask(masklist *, char *, char *);
+static void newmask(masklist *, op_htab *, char *, char *);
 [[nodiscard]] static char *quickban(struct chanset_t *, char *);
 static void got_op(struct chanset_t *chan, char *nick, char *from, char *who,
                    struct userrec *opu, struct flag_record *opper);
@@ -88,11 +91,12 @@ static int killmember(struct chanset_t *chan, char *nick);
 static void check_lonely_channel(struct chanset_t *chan);
 static int gotmode(char *, char *);
 
-#define newban(chan, mask, who)         newmask((chan)->channel.ban, mask, who)
-#define newexempt(chan, mask, who)      newmask((chan)->channel.exempt, mask, \
-                                                who)
-#define newinvite(chan, mask, who)      newmask((chan)->channel.invite, mask, \
-                                                who)
+#define newban(chan, mask, who)         newmask((chan)->channel.ban, \
+                                                (chan)->channel.ban_ht, mask, who)
+#define newexempt(chan, mask, who)      newmask((chan)->channel.exempt, \
+                                                (chan)->channel.exempt_ht, mask, who)
+#define newinvite(chan, mask, who)      newmask((chan)->channel.invite, \
+                                                (chan)->channel.invite_ht, mask, who)
 #else
 /* 4 - 7 */
 #define H_splt (*(p_tcl_bind_list*)(irc_funcs[4]))
@@ -122,11 +126,11 @@ static int gotmode(char *, char *);
 /* 24 - 27 */
 #define getchanmode ((char *(*)(struct chanset_t *))irc_funcs[24])
 #define reset_chan_info (*(void *)(irc_funcs[25]))
-#define H_invt (*(p_tcl_bind_list *)(irc_funcs[26])
+#define H_invt (*(p_tcl_bind_list *)(irc_funcs[26]))
 #define twitch (*(int *)(irc_funcs[27]))
 /* 28 - 31 */
-#define H_ircaway (*(p_tcl_bind_list *)(irc_funcs[28])
-/* Was H_monitor, moved to servr.mod in 1.10 */
+#define H_ircaway (*(p_tcl_bind_list *)(irc_funcs[28]))
+#define flush_mode ((void (*)(struct chanset_t *, int))irc_funcs[29])
 
 #endif /* MAKING_IRC */
 

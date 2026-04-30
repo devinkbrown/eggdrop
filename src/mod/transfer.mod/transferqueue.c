@@ -41,10 +41,10 @@ static void queue_file(char *dir, char *file, char *from, char *to)
   fileq = op_bh_alloc(fileq_bh);
   fileq->next = q;
   l = strlen(dir) + 1;
-  fileq->dir = nmalloc(l);
+  fileq->dir = op_malloc(l);
   strlcpy(fileq->dir, dir, l);
   l = strlen(file) + 1;
-  fileq->file = nmalloc(l);
+  fileq->file = op_malloc(l);
   strlcpy(fileq->file, file, l);
   strlcpy(fileq->nick, from, sizeof fileq->nick);
   strlcpy(fileq->to, to, sizeof fileq->to);
@@ -66,8 +66,8 @@ static void deq_this(fileq_t *this)
     last->next = q->next;
   else
     fileq = q->next;
-  nfree(q->dir);
-  nfree(q->file);
+  op_free(q->dir);
+  op_free(q->file);
   op_bh_free(fileq_bh, q);
 }
 
@@ -109,7 +109,7 @@ static void send_next_file(char *to)
   if (this->dir[0] == '*') { /* Absolute path */
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/%s", &this->dir[1], this->file);
-    s = nmalloc(op_strbuf_len(&_b) + 1);
+    s = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   } else {
@@ -127,7 +127,7 @@ static void send_next_file(char *to)
         op_strbuf_printf(&_b, "%s/%s", p, this->file);
       else
         op_strbuf_printf(&_b, "%s", this->file);
-      s = nmalloc(op_strbuf_len(&_b) + 1);
+      s = op_malloc(op_strbuf_len(&_b) + 1);
       strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
     }
@@ -136,7 +136,7 @@ static void send_next_file(char *to)
   if (this->dir[0] == '*') {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/%s", &this->dir[1], this->file);
-    s = nrealloc(s, op_strbuf_len(&_b) + 1);
+    s = op_realloc(s, op_strbuf_len(&_b) + 1);
     strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   } else {
@@ -145,7 +145,7 @@ static void send_next_file(char *to)
       op_strbuf_printf(&_b, "%s/%s", this->dir, this->file);
     else
       op_strbuf_printf(&_b, "%s", this->file);
-    s = nrealloc(s, op_strbuf_len(&_b) + 1);
+    s = op_realloc(s, op_strbuf_len(&_b) + 1);
     strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -176,7 +176,7 @@ static void send_next_file(char *to)
     }
     deq_this(this);
   }
-  nfree(s);
+  op_free(s);
 
   return;
 }
@@ -259,7 +259,7 @@ static void fileq_cancel(int idx, char *par)
             else
               op_strbuf_printf(&_b, "/%s", q->file);
           }
-          s = nrealloc(s, op_strbuf_len(&_b) + 1);
+          s = op_realloc(s, op_strbuf_len(&_b) + 1);
           strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
           op_strbuf_free(&_b);
         }
@@ -284,7 +284,7 @@ static void fileq_cancel(int idx, char *par)
   }
 
   if (s)
-    nfree(s);
+    op_free(s);
 
   for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type == &DCC_GET_PENDING || dcc[i].type == &DCC_GET) &&

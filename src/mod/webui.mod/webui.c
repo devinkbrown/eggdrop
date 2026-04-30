@@ -80,12 +80,12 @@ static void put_404(int idx) {
       "404 Not Found",
       stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
     i = (int) op_strbuf_len(&_b);
-    response = nmalloc(i + 1);
+    response = op_malloc(i + 1);
     memcpy(response, op_strbuf_str(&_b), i + 1);
     op_strbuf_free(&_b);
   }
   tputs(dcc[idx].sock, response, i);
-  nfree(response);
+  op_free(response);
   killsock(dcc[idx].sock);
   lostdcc(idx);
 }
@@ -119,7 +119,7 @@ static void put_file(int idx, int file_cache_index) {
       put_404(idx);
       return;
     }
-    f->data = nrealloc(f->data, sb.st_size);
+    f->data = op_realloc(f->data, sb.st_size);
     if (read(fd, f->data, sb.st_size) < 0) {
       putlog(LOG_MISC, "*", "WEBUI error: read(%s): %s", f->filename, strerror(errno));
       if ((fd = close(fd)) < 0)
@@ -146,13 +146,13 @@ static void put_file(int idx, int file_cache_index) {
       (intmax_t) sb.st_size, f->content_type,
       stealth_telnets ? "nginx/1.28.1" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH);
     i = (int) op_strbuf_len(&_b);
-    response = nmalloc(i + sb.st_size);
+    response = op_malloc(i + sb.st_size);
     memcpy(response, op_strbuf_str(&_b), i);
     op_strbuf_free(&_b);
   }
   memcpy(response + i, f->data, sb.st_size);
   tputs(dcc[idx].sock, response, i + sb.st_size);
-  nfree(response);
+  op_free(response);
 }
 
 static void webui_http_activity(int idx, char *buf, int len)
@@ -235,12 +235,12 @@ static void webui_http_activity(int idx, char *buf, int len)
         "Sec-WebSocket-Accept: %s\r\n"
         "\r\n", out);
       i = (int) op_strbuf_len(&_b);
-      response = nmalloc(i + 1);
+      response = op_malloc(i + 1);
       memcpy(response, op_strbuf_str(&_b), i + 1);
       op_strbuf_free(&_b);
     }
     tputs(dcc[idx].sock, response, i);
-    nfree(response);
+    op_free(response);
 
     sock_list* socklist_i = &socklist[findsock(dcc[idx].sock)];
     socklist_i->flags |= SOCK_WS;
@@ -306,7 +306,7 @@ static void webui_dcc_telnet_hostresolved(int idx, int listen_idx)
     dcc[idx].u.webui_listen_idx = listen_idx;
     sockoptions(dcc[idx].sock, EGG_OPTION_SET, SOCK_BINARY);
     sockoptions(dcc[idx].sock, EGG_OPTION_UNSET, SOCK_BUFFER);
-    // dcc[i].u.other = NULL; /* important, else nfree() error in lostdcc on eof */
+    // dcc[i].u.other = NULL; /* important, else op_free() error in lostdcc on eof */
 }
 
 static size_t escape_html(char *dst, size_t dst_size, char *src, size_t src_size) {
@@ -549,7 +549,7 @@ static char *webui_close(void)
   }
   for (idx = 0; idx < (int)(sizeof file_cache / sizeof file_cache[0]); idx++) {
     if (file_cache[idx].data) {
-      nfree(file_cache[idx].data);
+      op_free(file_cache[idx].data);
       file_cache[idx].data = NULL;
       file_cache[idx].st_mtim.tv_sec  = -1;
       file_cache[idx].st_mtim.tv_nsec = -1;

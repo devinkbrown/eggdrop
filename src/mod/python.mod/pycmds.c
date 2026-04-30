@@ -339,8 +339,8 @@ static PyObject *py_unbind(PyObject *self, PyObject *args) {
     PyDict_DelItemString(python_callbacks, bind->tclcmdname);
   Py_XDECREF(bind->callback);
   bind->callback = NULL;
-  if (bind->mask)  { nfree(bind->mask);  bind->mask  = NULL; }
-  if (bind->flags) { nfree(bind->flags); bind->flags = NULL; }
+  if (bind->mask)  { op_free(bind->mask);  bind->mask  = NULL; }
+  if (bind->flags) { op_free(bind->flags); bind->flags = NULL; }
 #endif
   Py_RETURN_NONE;
 }
@@ -350,8 +350,8 @@ void python_bind_destroyed(ClientData cd) {
   PythonBind *bind = cd;
 
   Py_DECREF(bind->callback);
-  nfree(bind->mask);
-  nfree(bind->flags);
+  op_free(bind->mask);
+  op_free(bind->flags);
   Py_DECREF((PyObject *)bind);
 }
 #endif /* HAVE_TCL */
@@ -383,8 +383,8 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   Py_INCREF(callback);
 
   bind = PyObject_New(PythonBind, &PythonBindType);
-  bind->mask = nstrdup(mask);
-  bind->flags = nstrdup(flags);
+  bind->mask = op_strdup(mask);
+  bind->flags = op_strdup(flags);
   bind->bindtable = tl;
   bind->callback = callback;
   hash = PyObject_Hash((PyObject *)bind);
@@ -2217,11 +2217,10 @@ static PyObject *py_stripcodes(PyObject *self, PyObject *args)
       PyErr_Format(PyExc_ValueError, "invalid strip flag: '%c'", *p);
       return NULL;
     }
-  buf = nmalloc(strlen(text) + 1);
-  strcpy(buf, text);
+  buf = op_strdup(text);
   strip_mirc_codes(flags, buf);
   result = PyUnicode_FromString(buf);
-  nfree(buf);
+  op_free(buf);
   return result;
 }
 
@@ -2279,6 +2278,902 @@ static PyObject *py_cap(PyObject *self, PyObject *args)
   }
   PyErr_SetString(PyExc_ValueError, "cap: action must be 'req' or 'raw'");
   return NULL;
+}
+
+/* ---- Channel presence queries ----------------------------------------- */
+
+/* onchan(nick[, channel]) — True if nick is on channel (or any channel) */
+static PyObject *py_onchan(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  struct chanset_t *ch, *thech = NULL;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  if (chan) {
+    thech = findchan_by_dname(chan);
+    if (!thech)
+      Py_RETURN_FALSE;
+    ch = thech;
+  } else
+    ch = chanset;
+  while (ch && (thech == NULL || thech == ch)) {
+    if (ismember(ch, nick))
+      Py_RETURN_TRUE;
+    ch = ch->next;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* handonchan(handle[, channel]) — True if handle's user is on channel */
+static PyObject *py_handonchan(PyObject *self, PyObject *args)
+{
+  char *handle, *chan = NULL;
+  struct chanset_t *ch, *thech = NULL;
+  struct userrec *u;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s|s", &handle, &chan))
+    return NULL;
+  if (chan) {
+    thech = findchan_by_dname(chan);
+    if (!thech)
+      Py_RETURN_FALSE;
+    ch = thech;
+  } else
+    ch = chanset;
+  while (ch && (thech == NULL || thech == ch)) {
+    for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
+      u = get_user_from_member(m);
+      if (u && !strcasecmp(u->handle, handle))
+        Py_RETURN_TRUE;
+    }
+    ch = ch->next;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* onchansplit(nick[, channel]) — True if nick is on a netsplit */
+static PyObject *py_onchansplit(PyObject *self, PyObject *args)
+{
+  char *nick, *chan = NULL;
+  struct chanset_t *ch, *thech = NULL;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
+    return NULL;
+  if (chan) {
+    thech = findchan_by_dname(chan);
+    if (!thech)
+      Py_RETURN_FALSE;
+    ch = thech;
+  } else
+    ch = chanset;
+  while (ch && (thech == NULL || thech == ch)) {
+    m = ismember(ch, nick);
+    if (m && chan_issplit(m))
+      Py_RETURN_TRUE;
+    ch = ch->next;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* topic(channel) — return channel topic string, or empty string */
+static PyObject *py_topic(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  return PyUnicode_FromString(ch->channel.topic ? ch->channel.topic : "");
+}
+
+/* validchan(channel) — True if channel is in the bot's channel list */
+static PyObject *py_validchan(PyObject *self, PyObject *args)
+{
+  char *chan;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  if (findchan_by_dname(chan))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* getchanjoin(nick, channel) — return join timestamp for nick on channel */
+static PyObject *py_getchanjoin(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  m = ismember(ch, nick);
+  if (!m) {
+    PyErr_Format(EggdropError, "%s is not on %s", nick, chan);
+    return NULL;
+  }
+  return PyLong_FromLongLong((long long)m->joined);
+}
+
+/* botisowner([channel]) — True if bot has channel owner (+q) status */
+static PyObject *py_botisowner(PyObject *self, PyObject *args)
+{
+  char *chan = NULL;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "|s", &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch)
+      Py_RETURN_FALSE;
+    m = ismember(ch, botname);
+    if (m && chan_hasowner(m))
+      Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+  }
+  for (ch = chanset; ch; ch = ch->next) {
+    m = ismember(ch, botname);
+    if (m && chan_hasowner(m))
+      Py_RETURN_TRUE;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* isowner(nick, channel) — True if nick has channel owner (+q) status */
+static PyObject *py_isowner(PyObject *self, PyObject *args)
+{
+  char *nick, *chan;
+  struct chanset_t *ch;
+  memberlist *m;
+
+  if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch)
+    Py_RETURN_FALSE;
+  m = ismember(ch, nick);
+  if (m && chan_hasowner(m))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* ---- Channel mode / action commands (require irc.mod) ------------------ */
+
+/* getchanmode(channel) — return mode string for channel */
+static PyObject *py_getchanmode(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  return PyUnicode_FromString(((char *(*)(struct chanset_t *))me->funcs[24])(ch));
+}
+
+/* pushmode(channel, mode[, arg]) — queue a mode change */
+static PyObject *py_pushmode(PyObject *self, PyObject *args)
+{
+  char *chan, *modestr, *arg = NULL;
+  struct chanset_t *ch;
+  char plus, mode;
+
+  if (!PyArg_ParseTuple(args, "ss|s", &chan, &modestr, &arg))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  plus = modestr[0];
+  mode = modestr[1];
+  if (plus != '+' && plus != '-') {
+    mode = plus;
+    plus = '+';
+  }
+  add_mode(ch, plus, mode, arg ? arg : "");
+  Py_RETURN_NONE;
+}
+
+/* flushmode(channel) — flush pending mode changes */
+static PyObject *py_flushmode(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  ((void (*)(struct chanset_t *, int))me->funcs[IRC_FLUSH_MODE])(ch, 0);
+  Py_RETURN_NONE;
+}
+
+/* putkick(channel, nicks, [comment]) — kick nick(s) from channel */
+static PyObject *py_putkick(PyObject *self, PyObject *args)
+{
+  char *chan, *nicks, *comment = "";
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "ss|s", &chan, &nicks, &comment))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  /* Send individual kicks for each comma-separated nick */
+  {
+    char buf[512];
+    strlcpy(buf, nicks, sizeof buf);
+    char *p = buf;
+    while (p) {
+      char *nick = p;
+      p = strchr(nick, ',');
+      if (p) *p++ = 0;
+      memberlist *m = ismember(ch, nick);
+      if (m) {
+        m->flags |= SENTKICK;
+        dprintf(DP_SERVER, "KICK %s %s :%s\n", ch->name, nick, comment);
+      }
+    }
+  }
+  Py_RETURN_NONE;
+}
+
+/* resetbans(channel) — reset channel bans to match the bot's internal list */
+static PyObject *py_resetbans(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0x08, 0);
+  Py_RETURN_NONE;
+}
+
+/* resetexempts(channel) — reset channel exempts */
+static PyObject *py_resetexempts(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0x10, 0);
+  Py_RETURN_NONE;
+}
+
+/* resetinvites(channel) — reset channel invites */
+static PyObject *py_resetinvites(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0x20, 0);
+  Py_RETURN_NONE;
+}
+
+/* resetchan(channel) — reset channel state (request fresh data from server) */
+static PyObject *py_resetchan(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0xFF, 1);
+  Py_RETURN_NONE;
+}
+
+/* refreshchan(channel) — refresh channel info from server without clearing */
+static PyObject *py_refreshchan(PyObject *self, PyObject *args)
+{
+  char *chan;
+  struct chanset_t *ch;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &chan))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  me = module_find("irc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "irc module not loaded");
+    return NULL;
+  }
+  ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0xFF, 0);
+  Py_RETURN_NONE;
+}
+
+/* ---- Ban / exempt / invite management (require channels.mod) ----------- */
+
+/* Helper: build a Python list of dicts from a maskrec chain */
+static PyObject *maskrec_to_list(maskrec *rec)
+{
+  PyObject *list = PyList_New(0);
+  if (!list)
+    return NULL;
+
+  for (; rec; rec = rec->next) {
+    PyObject *d = PyDict_New(), *val;
+    if (!d) {
+      Py_DECREF(list);
+      return NULL;
+    }
+#define SET_STR(key, s) do {                       \
+    val = PyUnicode_FromString(s);                 \
+    PyDict_SetItemString(d, key, val);             \
+    Py_DECREF(val);                                \
+  } while (0)
+#define SET_LL(key, n) do {                        \
+    val = PyLong_FromLongLong((long long)(n));      \
+    PyDict_SetItemString(d, key, val);             \
+    Py_DECREF(val);                                \
+  } while (0)
+    SET_STR("mask", rec->mask);
+    SET_STR("creator", rec->user ? rec->user : "");
+    SET_STR("comment", rec->desc ? rec->desc : "");
+    SET_LL("expire", rec->expire);
+    SET_LL("added", rec->added);
+    SET_LL("lastactive", rec->lastactive);
+    val = PyBool_FromLong(rec->flags & MASKREC_STICKY);
+    PyDict_SetItemString(d, "sticky", val);
+    Py_DECREF(val);
+#undef SET_STR
+#undef SET_LL
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* banlist([channel]) — return list of ban dicts (global or channel) */
+static PyObject *py_banlist(PyObject *self, PyObject *args)
+{
+  char *chan = NULL;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "|s", &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch) {
+      PyErr_SetString(EggdropError, "invalid channel");
+      return NULL;
+    }
+    return maskrec_to_list(ch->bans);
+  }
+  return maskrec_to_list(global_bans);
+}
+
+/* exemptlist([channel]) — return list of exempt dicts */
+static PyObject *py_exemptlist(PyObject *self, PyObject *args)
+{
+  char *chan = NULL;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "|s", &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch) {
+      PyErr_SetString(EggdropError, "invalid channel");
+      return NULL;
+    }
+    return maskrec_to_list(ch->exempts);
+  }
+  return maskrec_to_list(global_exempts);
+}
+
+/* invitelist([channel]) — return list of invite dicts */
+static PyObject *py_invitelist(PyObject *self, PyObject *args)
+{
+  char *chan = NULL;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "|s", &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch) {
+      PyErr_SetString(EggdropError, "invalid channel");
+      return NULL;
+    }
+    return maskrec_to_list(ch->invites);
+  }
+  return maskrec_to_list(global_invites);
+}
+
+/* newban(ban, creator, comment[, lifetime[, options]]) — add a global ban */
+static PyObject *py_newban(PyObject *self, PyObject *args)
+{
+  char *ban, *creator, *comment, *opts = NULL;
+  long lifetime = -1;
+  int sticky = 0;
+  time_t expire_time;
+  module_entry *me;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "sss|ls", &ban, &creator, &comment, &lifetime, &opts))
+    return NULL;
+  if (opts && !strcasecmp(opts, "sticky"))
+    sticky = 1;
+  if (lifetime < 0)
+    expire_time = global_ban_time ? now + 60 * global_ban_time : 0;
+  else if (lifetime == 0)
+    expire_time = 0;
+  else
+    expire_time = now + 60 * lifetime;
+  if (u_addban(NULL, ban, creator, comment, expire_time, sticky)) {
+    me = module_find("irc", 0, 0);
+    if (me)
+      for (ch = chanset; ch; ch = ch->next)
+        ((void (*)(struct chanset_t *, char *, int))me->funcs[IRC_CHECK_THIS_BAN])(ch, ban, sticky);
+  }
+  Py_RETURN_NONE;
+}
+
+/* killban(ban) — remove a global ban; returns True if found */
+static PyObject *py_killban(PyObject *self, PyObject *args)
+{
+  char *ban;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &ban))
+    return NULL;
+  if (u_delban(NULL, ban, 1) > 0) {
+    for (ch = chanset; ch; ch = ch->next)
+      add_mode(ch, '-', 'b', ban);
+    Py_RETURN_TRUE;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* killchanban(channel, ban) — remove a channel ban; returns True if found */
+static PyObject *py_killchanban(PyObject *self, PyObject *args)
+{
+  char *chan, *ban;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "ss", &chan, &ban))
+    return NULL;
+  ch = findchan_by_dname(chan);
+  if (!ch) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  if (u_delban(ch, ban, 1) > 0) {
+    add_mode(ch, '-', 'b', ban);
+    Py_RETURN_TRUE;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* newexempt(exempt, creator, comment[, lifetime[, options]]) — add global exempt */
+static PyObject *py_newexempt(PyObject *self, PyObject *args)
+{
+  char *exempt, *creator, *comment, *opts = NULL;
+  long lifetime = -1;
+  int sticky = 0;
+  time_t expire_time;
+
+  if (!PyArg_ParseTuple(args, "sss|ls", &exempt, &creator, &comment, &lifetime, &opts))
+    return NULL;
+  if (opts && !strcasecmp(opts, "sticky"))
+    sticky = 1;
+  if (lifetime < 0)
+    expire_time = global_exempt_time ? now + 60 * global_exempt_time : 0;
+  else if (lifetime == 0)
+    expire_time = 0;
+  else
+    expire_time = now + 60 * lifetime;
+  u_addexempt(NULL, exempt, creator, comment, expire_time, sticky);
+  Py_RETURN_NONE;
+}
+
+/* killexempt(exempt) — remove a global exempt; returns True if found */
+static PyObject *py_killexempt(PyObject *self, PyObject *args)
+{
+  char *exempt;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &exempt))
+    return NULL;
+  if (u_delexempt(NULL, exempt, 1) > 0) {
+    for (ch = chanset; ch; ch = ch->next)
+      add_mode(ch, '-', 'e', exempt);
+    Py_RETURN_TRUE;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* newinvite(invite, creator, comment[, lifetime[, options]]) — add global invite */
+static PyObject *py_newinvite(PyObject *self, PyObject *args)
+{
+  char *invite, *creator, *comment, *opts = NULL;
+  long lifetime = -1;
+  int sticky = 0;
+  time_t expire_time;
+
+  if (!PyArg_ParseTuple(args, "sss|ls", &invite, &creator, &comment, &lifetime, &opts))
+    return NULL;
+  if (opts && !strcasecmp(opts, "sticky"))
+    sticky = 1;
+  if (lifetime < 0)
+    expire_time = global_invite_time ? now + 60 * global_invite_time : 0;
+  else if (lifetime == 0)
+    expire_time = 0;
+  else
+    expire_time = now + 60 * lifetime;
+  u_addinvite(NULL, invite, creator, comment, expire_time, sticky);
+  Py_RETURN_NONE;
+}
+
+/* killinvite(invite) — remove a global invite; returns True if found */
+static PyObject *py_killinvite(PyObject *self, PyObject *args)
+{
+  char *invite;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s", &invite))
+    return NULL;
+  if (u_delinvite(NULL, invite, 1) > 0) {
+    for (ch = chanset; ch; ch = ch->next)
+      add_mode(ch, '-', 'I', invite);
+    Py_RETURN_TRUE;
+  }
+  Py_RETURN_FALSE;
+}
+
+/* matchban(mask) — True if mask matches a global ban */
+static PyObject *py_matchban(PyObject *self, PyObject *args)
+{
+  char *mask;
+
+  if (!PyArg_ParseTuple(args, "s", &mask))
+    return NULL;
+  if (u_match_mask(global_bans, mask))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* matchexempt(mask) — True if mask matches a global exempt */
+static PyObject *py_matchexempt(PyObject *self, PyObject *args)
+{
+  char *mask;
+
+  if (!PyArg_ParseTuple(args, "s", &mask))
+    return NULL;
+  if (u_match_mask(global_exempts, mask))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* matchinvite(mask) — True if mask matches a global invite */
+static PyObject *py_matchinvite(PyObject *self, PyObject *args)
+{
+  char *mask;
+
+  if (!PyArg_ParseTuple(args, "s", &mask))
+    return NULL;
+  if (u_match_mask(global_invites, mask))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* stickban(ban[, channel]) — make a ban sticky; returns True if found */
+static PyObject *py_stickban(PyObject *self, PyObject *args)
+{
+  char *ban, *chan = NULL;
+  struct chanset_t *ch = NULL;
+
+  if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch) {
+      PyErr_SetString(EggdropError, "invalid channel");
+      return NULL;
+    }
+  }
+  if (u_setsticky_ban(ch, ban, 1))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* unstickban(ban[, channel]) — make a ban non-sticky; returns True if found */
+static PyObject *py_unstickban(PyObject *self, PyObject *args)
+{
+  char *ban, *chan = NULL;
+  struct chanset_t *ch = NULL;
+
+  if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch) {
+      PyErr_SetString(EggdropError, "invalid channel");
+      return NULL;
+    }
+  }
+  if (u_setsticky_ban(ch, ban, 0))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* isban(ban[, channel]) — True if ban exists in the bot's ban list */
+static PyObject *py_isban(PyObject *self, PyObject *args)
+{
+  char *ban, *chan = NULL;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch)
+      Py_RETURN_FALSE;
+    if (u_equals_mask(ch->bans, ch->bans_ht, ban))
+      Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+  }
+  if (u_equals_mask(global_bans, global_bans_ht, ban))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* isexempt(exempt[, channel]) — True if exempt exists */
+static PyObject *py_isexempt(PyObject *self, PyObject *args)
+{
+  char *exempt, *chan = NULL;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s|s", &exempt, &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch)
+      Py_RETURN_FALSE;
+    if (u_equals_mask(ch->exempts, ch->exempts_ht, exempt))
+      Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+  }
+  if (u_equals_mask(global_exempts, global_exempts_ht, exempt))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* isinvite(invite[, channel]) — True if invite exists */
+static PyObject *py_isinvite(PyObject *self, PyObject *args)
+{
+  char *invite, *chan = NULL;
+  struct chanset_t *ch;
+
+  if (!PyArg_ParseTuple(args, "s|s", &invite, &chan))
+    return NULL;
+  if (chan) {
+    ch = findchan_by_dname(chan);
+    if (!ch)
+      Py_RETURN_FALSE;
+    if (u_equals_mask(ch->invites, ch->invites_ht, invite))
+      Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+  }
+  if (u_equals_mask(global_invites, global_invites_ht, invite))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* ---- User channel record management ----------------------------------- */
+
+/* getchaninfo(handle, channel) — return chaninfo string for user, or None */
+static PyObject *py_getchaninfo(PyObject *self, PyObject *args)
+{
+  char *handle, *chan;
+  char s[161];
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u || (u->flags & USER_BOT))
+    Py_RETURN_NONE;
+  s[0] = 0;
+  get_handle_chaninfo(handle, chan, s, sizeof s);
+  if (!s[0])
+    Py_RETURN_NONE;
+  return PyUnicode_FromString(s);
+}
+
+/* setchaninfo(handle, channel, info) — set chaninfo for user
+ * Pass "none" to clear. */
+static PyObject *py_setchaninfo(PyObject *self, PyObject *args)
+{
+  char *handle, *chan, *info;
+
+  if (!PyArg_ParseTuple(args, "sss", &handle, &chan, &info))
+    return NULL;
+  if (!findchan_by_dname(chan)) {
+    PyErr_SetString(EggdropError, "invalid channel");
+    return NULL;
+  }
+  if (!strcasecmp(info, "none"))
+    set_handle_chaninfo(userlist, handle, chan, NULL);
+  else
+    set_handle_chaninfo(userlist, handle, chan, info);
+  Py_RETURN_NONE;
+}
+
+/* addchanrec(handle, channel) — add a channel record for user; returns True if added */
+static PyObject *py_addchanrec(PyObject *self, PyObject *args)
+{
+  char *handle, *chan;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u || !findchan_by_dname(chan) || get_chanrec(u, chan))
+    Py_RETURN_FALSE;
+  add_chanrec(u, chan);
+  Py_RETURN_TRUE;
+}
+
+/* delchanrec(handle, channel) — delete a channel record for user; returns True if deleted */
+static PyObject *py_delchanrec(PyObject *self, PyObject *args)
+{
+  char *handle, *chan;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u || !get_chanrec(u, chan))
+    Py_RETURN_FALSE;
+  del_chanrec(u, chan);
+  Py_RETURN_TRUE;
+}
+
+/* haschanrec(handle, channel) — True if user has a channel record */
+static PyObject *py_haschanrec(PyObject *self, PyObject *args)
+{
+  char *handle, *chan;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (u && get_chanrec(u, chan))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* setlaston(handle[, channel[, timestamp]]) — set last-seen time for user */
+static PyObject *py_setlaston(PyObject *self, PyObject *args)
+{
+  char *handle, *chan = NULL;
+  long ts = -1;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "s|sl", &handle, &chan, &ts))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_Format(EggdropError, "no such user: %s", handle);
+    return NULL;
+  }
+  if (ts < 0)
+    ts = (long)now;
+  set_handle_laston(chan ? chan : "*", u, (time_t)ts);
+  Py_RETURN_NONE;
+}
+
+/* ---- Server / queue commands ------------------------------------------ */
+
+/* jump([server[, port[, password]]]) — disconnect and reconnect to a new server */
+static PyObject *py_jump(PyObject *self, PyObject *args)
+{
+  char *server = NULL, *pass = NULL;
+  int port = 0;
+
+  if (!PyArg_ParseTuple(args, "|sis", &server, &port, &pass))
+    return NULL;
+  if (server)
+    strlcpy(newserver, server, NEWSERVERMAX);
+  if (port > 0)
+    newserverport = port;
+  else if (server)
+    newserverport = default_port;
+  if (pass)
+    strlcpy(newserverpass, pass, NEWSERVERPASSMAX);
+  cycle_time = 0;
+  nuke_server(IRC_CHANGINGSERV);
+  Py_RETURN_NONE;
 }
 
 static PyMethodDef MyPyMethods[] = {
@@ -2394,6 +3289,53 @@ static PyMethodDef MyPyMethods[] = {
     {"ismod",       py_ismod,       METH_VARARGS, "True if nick is a Twitch mod: ismod(nick[, chan])"},
     {"isvip",       py_isvip,       METH_VARARGS, "True if nick is a Twitch VIP: isvip(nick[, chan])"},
     {"__displayhook__", py_displayhook, METH_O, "display hook for python expressions"},
+    /* Channel presence */
+    {"onchan",       py_onchan,       METH_VARARGS, "True if nick is on channel: onchan(nick[, chan])"},
+    {"handonchan",   py_handonchan,   METH_VARARGS, "True if handle is on channel: handonchan(handle[, chan])"},
+    {"onchansplit",  py_onchansplit,  METH_VARARGS, "True if nick is on netsplit: onchansplit(nick[, chan])"},
+    {"topic",        py_topic,        METH_VARARGS, "return topic for channel"},
+    {"validchan",    py_validchan,    METH_VARARGS, "True if channel is in the bot's channel list"},
+    {"getchanjoin",  py_getchanjoin,  METH_VARARGS, "return join timestamp: getchanjoin(nick, chan)"},
+    {"botisowner",   py_botisowner,   METH_VARARGS, "True if bot has +q owner: botisowner([chan])"},
+    {"isowner",      py_isowner,      METH_VARARGS, "True if nick has +q owner: isowner(nick, chan)"},
+    /* Channel mode / action */
+    {"getchanmode",  py_getchanmode,  METH_VARARGS, "return mode string for channel"},
+    {"pushmode",     py_pushmode,     METH_VARARGS, "queue a mode change: pushmode(chan, mode[, arg])"},
+    {"flushmode",    py_flushmode,    METH_VARARGS, "flush pending mode changes for channel"},
+    {"putkick",      py_putkick,      METH_VARARGS, "kick nick(s): putkick(chan, nicks[, comment])"},
+    {"resetbans",    py_resetbans,    METH_VARARGS, "request fresh ban list from server"},
+    {"resetexempts", py_resetexempts, METH_VARARGS, "request fresh exempt list from server"},
+    {"resetinvites", py_resetinvites, METH_VARARGS, "request fresh invite list from server"},
+    {"resetchan",    py_resetchan,    METH_VARARGS, "reset channel state (re-request from server)"},
+    {"refreshchan",  py_refreshchan,  METH_VARARGS, "refresh channel info without clearing"},
+    /* Ban / exempt / invite management */
+    {"banlist",      py_banlist,      METH_VARARGS, "list of ban dicts: banlist([chan])"},
+    {"exemptlist",   py_exemptlist,   METH_VARARGS, "list of exempt dicts: exemptlist([chan])"},
+    {"invitelist",   py_invitelist,   METH_VARARGS, "list of invite dicts: invitelist([chan])"},
+    {"newban",       py_newban,       METH_VARARGS, "add global ban: newban(ban, creator, comment[, lifetime[, 'sticky']])"},
+    {"killban",      py_killban,      METH_VARARGS, "remove global ban: killban(ban)"},
+    {"killchanban",  py_killchanban,  METH_VARARGS, "remove channel ban: killchanban(chan, ban)"},
+    {"newexempt",    py_newexempt,    METH_VARARGS, "add global exempt: newexempt(exempt, creator, comment[, lifetime[, 'sticky']])"},
+    {"killexempt",   py_killexempt,   METH_VARARGS, "remove global exempt: killexempt(exempt)"},
+    {"newinvite",    py_newinvite,    METH_VARARGS, "add global invite: newinvite(invite, creator, comment[, lifetime[, 'sticky']])"},
+    {"killinvite",   py_killinvite,   METH_VARARGS, "remove global invite: killinvite(invite)"},
+    {"matchban",     py_matchban,     METH_VARARGS, "True if mask matches a global ban"},
+    {"matchexempt",  py_matchexempt,  METH_VARARGS, "True if mask matches a global exempt"},
+    {"matchinvite",  py_matchinvite,  METH_VARARGS, "True if mask matches a global invite"},
+    {"stickban",     py_stickban,     METH_VARARGS, "make ban sticky: stickban(ban[, chan])"},
+    {"unstickban",   py_unstickban,   METH_VARARGS, "make ban non-sticky: unstickban(ban[, chan])"},
+    {"isban",        py_isban,        METH_VARARGS, "True if ban exists: isban(ban[, chan])"},
+    {"isexempt",     py_isexempt,     METH_VARARGS, "True if exempt exists: isexempt(exempt[, chan])"},
+    {"isinvite",     py_isinvite,     METH_VARARGS, "True if invite exists: isinvite(invite[, chan])"},
+    /* User channel records */
+    {"getchaninfo",  py_getchaninfo,  METH_VARARGS, "get chaninfo for user: getchaninfo(handle, chan)"},
+    {"setchaninfo",  py_setchaninfo,  METH_VARARGS, "set chaninfo: setchaninfo(handle, chan, info)"},
+    {"addchanrec",   py_addchanrec,   METH_VARARGS, "add channel record: addchanrec(handle, chan)"},
+    {"delchanrec",   py_delchanrec,   METH_VARARGS, "delete channel record: delchanrec(handle, chan)"},
+    {"haschanrec",   py_haschanrec,   METH_VARARGS, "True if user has channel record"},
+    {"setlaston",    py_setlaston,    METH_VARARGS, "set last-seen time: setlaston(handle[, chan[, ts]])"},
+    /* Server */
+    {"jump",         py_jump,         METH_VARARGS, "jump to new server: jump([server[, port[, pass]]])"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

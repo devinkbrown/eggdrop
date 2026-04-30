@@ -317,7 +317,7 @@ static int compress_file(char *filename, int mode_num)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", filename, rands);
-    temp_fn = nmalloc(op_strbuf_len(&_b) + 1);
+    temp_fn = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(temp_fn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -331,7 +331,7 @@ static int compress_file(char *filename, int mode_num)
   if (ret == COMPF_SUCCESS)
     movefile(temp_fn, filename);
 
-  nfree(temp_fn);
+  op_free(temp_fn);
   return ret;
 }
 
@@ -347,7 +347,7 @@ static int uncompress_file(char *filename)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", filename, rands);
-    temp_fn = nmalloc(op_strbuf_len(&_b) + 1);
+    temp_fn = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(temp_fn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -361,7 +361,7 @@ static int uncompress_file(char *filename)
   if (ret == COMPF_SUCCESS)
     movefile(temp_fn, filename);
 
-  nfree(temp_fn);
+  op_free(temp_fn);
   return ret;
 }
 

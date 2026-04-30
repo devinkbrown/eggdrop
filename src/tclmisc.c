@@ -45,20 +45,6 @@ extern int max_logs, cache_hit, cache_miss;
 extern log_t *logs;
 extern Tcl_Interp *interp;
 
-int expmem_tclmisc(void)
-{
-  int tot = 0;
-
-  for (int i = 0; i < max_logs; i++) {
-    if (logs[i].filename != NULL) {
-      tot += strlen(logs[i].filename) + 1;
-      tot += strlen(logs[i].chname) + 1;
-    }
-  }
-
-  return tot;
-}
-
 /*
  *      Logging
  */
@@ -103,11 +89,11 @@ static int tcl_logfile STDVAR
     if ((logs[i].filename != NULL) && (!strcmp(logs[i].filename, argv[3]))) {
       logs[i].flags &= ~LF_EXPIRING;
       logs[i].mask = logmodes(argv[1]);
-      nfree(logs[i].chname);
+      op_free(logs[i].chname);
       logs[i].chname = NULL;
       if (!logs[i].mask) {
         /* ending logfile */
-        nfree(logs[i].filename);
+        op_free(logs[i].filename);
         logs[i].filename = NULL;
         if (logs[i].f != NULL) {
           fclose(logs[i].f);
@@ -115,8 +101,7 @@ static int tcl_logfile STDVAR
         }
         logs[i].flags = 0;
       } else {
-        logs[i].chname = nmalloc(strlen(argv[2]) + 1);
-        strlcpy(logs[i].chname, argv[2], sizeof(logs[i].chname));
+        logs[i].chname = op_strdup(argv[2]);
       }
       Tcl_AppendResult(interp, argv[3], NULL);
       return TCL_OK;
@@ -131,10 +116,8 @@ static int tcl_logfile STDVAR
     if (logs[i].filename == NULL) {
       logs[i].flags = 0;
       logs[i].mask = logmodes(argv[1]);
-      logs[i].filename = nmalloc(strlen(argv[3]) + 1);
-      strlcpy(logs[i].filename, argv[3], sizeof(logs[i].filename));
-      logs[i].chname = nmalloc(strlen(argv[2]) + 1);
-      strlcpy(logs[i].chname, argv[2], sizeof(logs[i].chname));
+      logs[i].filename = op_strdup(argv[3]);
+      logs[i].chname = op_strdup(argv[2]);
       Tcl_AppendResult(interp, argv[3], NULL);
       return TCL_OK;
     }
@@ -785,8 +768,10 @@ static int tcl_status STDVAR
     op_strbuf_free(&cpu_buf);
   }
   if ((argc < 2) || !strcmp(argv[1], "mem")) {
-    Tcl_AppendElement(irp, "expmem");
-    Tcl_AppendElement(irp, int_to_base10(expected_memory()));
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
+    Tcl_AppendElement(irp, "rss_kb");
+    Tcl_AppendElement(irp, int_to_base10((int) ru.ru_maxrss));
   }
   if ((argc < 2) || !strcmp(argv[1], "ipv6")) {
     Tcl_AppendElement(irp, "ipv6");

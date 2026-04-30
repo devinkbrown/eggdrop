@@ -185,6 +185,27 @@ notifications).
 CIDR ban matching was O(n) per message.  A patricia trie provides O(k) lookup
 (k = address bits) for the common case of large ban lists.
 
+**Allocator consolidation:**  
+All `nmalloc`/`nrealloc`/`nfree` call sites (750+) were migrated to
+`op_malloc`/`op_realloc`/`op_free`.  `mem.c` was removed entirely.  In
+non-`DEBUG_MEM` builds these map directly to libop's allocator; in debug
+builds they use glibc with full leak tracking.
+
+**Hash tables for bind dispatch:**  
+Bind table lookup (`find_bind_table`) was O(n) over a linked list.  Each bind
+table now carries an `op_htab` mapping mask strings to `tcl_bind_mask_t`
+nodes, giving O(1) exact-match dispatch for the common case (`MATCH_EXACT`
+and `MATCH_CASE`).
+
+**Hash tables for mask lists:**  
+Ban, exempt, and invite mask lists in `channels.mod` each carry an `op_htab`
+for O(1) duplicate detection and `ismask()` queries instead of the previous
+O(n) linear scan.
+
+**Hash tables for channel member lookup:**  
+`ismember()` was O(n) over the member linked list.  Each channel now carries
+an `op_htab` mapping nick strings to `memberlist` pointers for O(1) lookup.
+
 ---
 
 ## 5. String safety
@@ -401,28 +422,56 @@ Making Tcl optional required changes across the entire codebase.
   pre-created global tables, so Python binds fire correctly
 
 **Python API coverage:**  
-30+ Python C API functions were added to `python.mod/pycmds.c` to cover the
-Tcl scripting surface area:
+90+ Python C API functions in `python.mod/pycmds.c` covering the majority of
+the Tcl scripting surface area:
 
 - Channel member status: `isop`, `ishalfop`, `isvoice`, `isaway`, `botisop`,
   `botishalfop`, `botisvoice`, `getaccount`
+- Channel presence: `onchan`, `handonchan`, `onchansplit`, `topic`, `validchan`,
+  `getchanjoin`, `botisowner`, `isowner`
+- Channel modes/actions: `getchanmode`, `pushmode`, `flushmode`, `putkick`,
+  `resetbans`, `resetexempts`, `resetinvites`, `resetchan`, `refreshchan`
+- Ban/exempt/invite management: `banlist`, `exemptlist`, `invitelist`, `newban`,
+  `killban`, `killchanban`, `newexempt`, `killexempt`, `newinvite`, `killinvite`,
+  `matchban`, `matchexempt`, `matchinvite`, `stickban`, `unstickban`, `isban`,
+  `isexempt`, `isinvite`
+- User channel records: `getchaninfo`, `setchaninfo`, `addchanrec`, `delchanrec`,
+  `haschanrec`, `setlaston`
 - Handle/nick resolution: `nick2hand`, `hand2nick`, `isbotnick`
 - User database: `countusers`, `validuser`, `finduser`, `userlist`
 - Miscellaneous: `rand`, `unixtime`, `duration`, `maskhost`
-- Server/network: `puthelp`, `tagmsg`, `cap`
+- Server/network: `puthelp`, `tagmsg`, `cap`, `jump`
 - IRCX/Ophion: `ircxprop`, `ircxaccess`, `ircxcreate`, `ircxnegotiate`
 - DNS: `dnsdot`
+
+**Module cross-references:**  
+`python.mod` now resolves `channels_funcs`, `irc_funcs`, and `server_funcs`
+at startup via `module_find()`, enabling direct access to channel, IRC, and
+server module function tables for ban management, mode flushing, and server
+commands.  `flush_mode()` was exported from `irc.mod` at function table
+slot 29 (`IRC_FLUSH_MODE`).
 
 **`eggtools.py`:**  
 A modern Python utility library replacing `alltools.tcl` for Python script
 authors.  Provides type-annotated wrappers, decorator-based bind registration
-(`@on_pub`, `@on_msg`, …), a `Member` dataclass, `every()` timer helper, and
-alltools.tcl-compatible aliases.
+(`@on_pub`, `@on_msg`, …), a `Member` dataclass, a `MaskEntry` dataclass for
+ban/exempt/invite entries, `every()` timer helper, and alltools.tcl-compatible
+aliases.
 
 **Python 3.14 compatibility:**  
 `PyErr_Fetch()` was removed in Python 3.14.  `python.mod` was updated to use
 the replacement API (`PyErr_GetRaisedException`).  `PyPreConfig` is used for
 UTF-8 mode setup.
+
+**tclhash dispatch unification:**  
+`tclhash.c` previously contained a massive `#ifdef HAVE_TCL` / `#else` split
+with ~800 lines of duplicated code for bind table management, garbage
+collection, match/flag checking, and all `check_tcl_*()` helper functions.
+The Tcl and no-Tcl paths were unified into a single implementation using
+a `DISPATCH` macro that routes to `trigger_bind()` (Tcl) or
+`dispatch_native()` (no-Tcl).  The Tcl-path versions of `check_tcl_*()`
+helpers work in both builds because `lush.h` maps `Tcl_SetVar()` to
+`egg_setvar()`.  File reduced from 2321 to 1713 lines (26% reduction).
 
 ---
 
@@ -502,6 +551,11 @@ throughout the codebase.
 | Module linking | Sequential | Parallel (`ninja`) |
 | LTO | Off | On by default (`-Db_lto=true`) |
 | Native CPU optimisation | Off | On by default (`-march=native`) |
+| Bind table lookup | O(n) linked list | O(1) `op_htab` hash map |
+| Bind mask dispatch | O(n) per mask list | O(1) `op_htab` exact match |
+| Channel member lookup | O(n) `ismember()` scan | O(1) `op_htab` hash map |
+| Ban/exempt/invite lookup | O(n) `ismask()` scan | O(1) `op_htab` hash map |
+| tclhash code duplication | 2321 lines (800 duplicated) | 1713 lines (unified) |
 
 ---
 
@@ -601,6 +655,10 @@ support was added:
 | Help system | `misc.c` | Help file scanning failed for non-standard installation paths. |
 | Channel cycling | `irc.mod` | Bot unnecessarily cycled channel when already holding IRCX `+q` owner. |
 | `b64_ntop` symbol | various | Modules depended on libresolv's private `__b64_ntop` symbol; replaced with libop base64. |
+| No-Tcl `check_tcl_chjn` | `tclhash.c` | Matched on `bot` with `MATCH_EXACT` instead of channel number with `MATCH_MASK`. |
+| No-Tcl `check_tcl_chpt` | `tclhash.c` | Same `MATCH_EXACT` vs `MATCH_MASK` mismatch as `check_tcl_chjn`. |
+| No-Tcl `check_tcl_dcc` | `tclhash.c` | Missing `BIND_QUIT` return handling — partyline `quit` bind never fired. |
+| No-Tcl `check_tcl_bind` | `tclhash.c` | Missing move-to-front optimisation for hot binds, causing O(n) on every dispatch. |
 
 ---
 

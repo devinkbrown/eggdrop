@@ -20,7 +20,9 @@
  * (at your option) any later version.
  */
 
+#ifndef COMPILING_MEM
 #define COMPILING_MEM
+#endif
 
 #include "main.h"
 #include "../eggdrop.h"
@@ -52,13 +54,13 @@ egg_mbuf_t *egg_mbuf_alloc(size_t capacity)
     if (capacity == 0)
         return NULL;
 
-    mb = nmalloc(sizeof(*mb));
+    mb = op_malloc(sizeof(*mb));
     if (mb == NULL)
         return NULL;
 
-    mb->buf = nmalloc(capacity);
+    mb->buf = op_malloc(capacity);
     if (mb->buf == NULL) {
-        nfree(mb);
+        op_free(mb);
         return NULL;
     }
 
@@ -74,8 +76,8 @@ void egg_mbuf_free(egg_mbuf_t *mb)
 {
     if (mb == NULL)
         return;
-    nfree(mb->buf);
-    nfree(mb);
+    op_free(mb->buf);
+    op_free(mb);
 }
 
 size_t egg_mbuf_append(egg_mbuf_t *mb, const char *data, size_t len)
@@ -206,7 +208,7 @@ int egg_mbuf_grow(egg_mbuf_t *mb, size_t new_cap)
     if (new_cap <= mb->cap)
         return 0;
 
-    new_buf = nmalloc(new_cap);
+    new_buf = op_malloc(new_cap);
     if (new_buf == NULL)
         return -1;
 
@@ -221,7 +223,7 @@ int egg_mbuf_grow(egg_mbuf_t *mb, size_t new_cap)
             memcpy(new_buf + first, mb->buf, rest);
     }
 
-    nfree(mb->buf);
+    op_free(mb->buf);
     mb->buf  = new_buf;
     mb->cap  = new_cap;
     mb->rpos = 0;

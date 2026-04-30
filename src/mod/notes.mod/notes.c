@@ -995,16 +995,15 @@ int get_note_ignores(struct userrec *u, char ***ignores)
     return 0;
 
   rmspace(xk->data);
-  buf = user_malloc(strlen(xk->data) + 1);
-  strlcpy(buf, xk->data, sizeof(buf));
+  buf = op_strdup(xk->data);
   p = buf;
 
   /* Split up the string into small parts */
-  *ignores = nmalloc(sizeof(char *) + 100);
+  *ignores = op_malloc(sizeof(char *) + 100);
   **ignores = p;
   ignoresn = 1;
   while ((p = strchr(p, ' ')) != NULL) {
-    *ignores = nrealloc(*ignores, sizeof(char *) * (ignoresn + 1));
+    *ignores = op_realloc(*ignores, sizeof(char *) * (ignoresn + 1));
     (*ignores)[ignoresn] = p + 1;
     ignoresn++;
     *p = 0;
@@ -1024,13 +1023,13 @@ int add_note_ignore(struct userrec *u, char *mask)
     /* Search for existing mask */
     for (int i = 0; i < ignoresn; i++)
       if (!strcmp(ignores[i], mask)) {
-        nfree(ignores[0]);      /* Free the string buffer       */
-        nfree(ignores);         /* Free the ptr array           */
+        op_free(ignores[0]);      /* Free the string buffer       */
+        op_free(ignores);         /* Free the ptr array           */
         /* The mask already exists, exit. */
         return 0;
       }
-    nfree(ignores[0]);          /* Free the string buffer       */
-    nfree(ignores);             /* Free the ptr array           */
+    op_free(ignores[0]);          /* Free the string buffer       */
+    op_free(ignores);             /* Free the ptr array           */
   }
 
   xk = getnotesentry(u);
@@ -1042,10 +1041,8 @@ int add_note_ignore(struct userrec *u, char *mask)
     if (!ue)
       return 0;
     mxk->next = 0;
-    mxk->data = user_malloc(strlen(mask) + 1);
-    strlcpy(mxk->data, mask, sizeof(mxk->data));
-    mxk->key = user_malloc(strlen(NOTES_IGNKEY) + 1);
-    strlcpy(mxk->key, NOTES_IGNKEY, sizeof(mxk->key));
+    mxk->data = op_strdup(mask);
+    mxk->key = op_strdup(NOTES_IGNKEY);
     xtra_set(u, ue, mxk);
   } else {                        /* ... else, we already have other entries. */
     {
@@ -1085,11 +1082,11 @@ int del_note_ignore(struct userrec *u, char *mask)
     } else
       foundit = 1;
   }
-  nfree(ignores[0]);            /* Free the string buffer       */
-  nfree(ignores);               /* Free the ptr array           */
+  op_free(ignores[0]);            /* Free the string buffer       */
+  op_free(ignores);               /* Free the ptr array           */
   /* Entry not found */
   if (!foundit) {
-    nfree(buf);
+    op_free(buf);
     return 0;
   }
   ue = find_user_entry(&USERENTRY_XTRA, u);
@@ -1100,12 +1097,12 @@ int del_note_ignore(struct userrec *u, char *mask)
   xk->next = 0;
 
   if (!buf[0]) {
-    nfree(buf);                 /* The allocated byte needs to be free'd too */
-    strlcpy(xk->key, NOTES_IGNKEY, sizeof(xk->key));
+    op_free(buf);                 /* The allocated byte needs to be free'd too */
+    strcpy(xk->key, NOTES_IGNKEY);
     xk->data = 0;
   } else {
     xk->data = buf;
-    strlcpy(xk->key, NOTES_IGNKEY, sizeof(xk->key));
+    strcpy(xk->key, NOTES_IGNKEY);
   }
   xtra_set(u, ue, xk);
   return 1;
@@ -1124,12 +1121,12 @@ int match_note_ignore(struct userrec *u, char *from)
     return 0;
   for (int i = 0; i < ignoresn; i++)
     if (wild_match(ignores[i], from)) {
-      nfree(ignores[0]);
-      nfree(ignores);
+      op_free(ignores[0]);
+      op_free(ignores);
       return 1;
     }
-  nfree(ignores[0]);            /* Free the string buffer       */
-  nfree(ignores);               /* Free the ptr array           */
+  op_free(ignores[0]);            /* Free the string buffer       */
+  op_free(ignores);               /* Free the ptr array           */
   return 0;
 }
 

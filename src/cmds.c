@@ -583,14 +583,12 @@ static void cmd_status(struct userrec *u, int idx, char *par)
     }
     putlog(LOG_CMDS, "*", "#%s# status all", dcc[idx].nick);
     tell_verbose_status(idx);
-    tell_mem_status_dcc(idx);
     dprintf(idx, "\n");
     tell_settings(idx);
     do_module_report(idx, 1, NULL);
   } else {
     putlog(LOG_CMDS, "*", "#%s# status", dcc[idx].nick);
     tell_verbose_status(idx);
-    tell_mem_status_dcc(idx);
     do_module_report(idx, 0, NULL);
   }
 }
@@ -910,8 +908,7 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
 #ifdef TLS
   bi->ssl = 0;
 #endif
-  bi->address = user_malloc(strlen(addr) + 1);
-  strlcpy(bi->address, addr, sizeof(bi->address));
+  bi->address = op_strdup(addr);
 
   if (!port) {
     bi->telnet_port = 3333;
@@ -1262,8 +1259,7 @@ static void cmd_chaddr(struct userrec *u, int idx, char *par)
     memmove(addr, addr + 1, strlen(addr));
   }
   bi = user_malloc(sizeof(struct bot_addr));
-  bi->address = user_malloc(strlen(addr) + 1);
-  strlcpy(bi->address, addr, sizeof(bi->address));
+  bi->address = op_strdup(addr);
 
   if (!port) {
     bi->telnet_port = telnet_port;
@@ -1393,7 +1389,7 @@ static void cmd_debug(struct userrec *u, int idx, char *par)
     debug_help(idx);
   } else {
     putlog(LOG_CMDS, "*", "#%s# debug", dcc[idx].nick);
-    debug_mem_to_dcc(idx);
+    dprintf(idx, "Memory debugging has been removed.\n");
   }
 }
 
@@ -1615,7 +1611,7 @@ int check_dcc_attrs(struct userrec *u, int oatr)
           struct chat_info *ci;
 
           ci = dcc[i].u.file->chat;
-          nfree(dcc[i].u.file);
+          op_free(dcc[i].u.file);
           dcc[i].u.chat = ci;
           dcc[i].status &= (~STAT_CHAT);
           dcc[i].type = &DCC_CHAT;
@@ -2105,7 +2101,7 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
     } else if (arg && !strpbrk(chg, "&|")) {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "|%s", chg);
-      tmpchg = nmalloc(op_strbuf_len(&_b) + 1);
+      tmpchg = op_malloc(op_strbuf_len(&_b) + 1);
       strlcpy(tmpchg, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
       chg = tmpchg;
@@ -2119,14 +2115,14 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
   if (!chan && !glob_botmast(user)) {
     dprintf(idx, "You do not have Bot Master privileges.\n");
     if (tmpchg)
-      nfree(tmpchg);
+      op_free(tmpchg);
     return;
   }
   if (chan && !glob_master(user) && !chan_master(user)) {
     dprintf(idx, "You do not have channel master privileges for channel %s.\n",
             par);
     if (tmpchg)
-      nfree(tmpchg);
+      op_free(tmpchg);
     return;
   }
   user.match &= fl;
@@ -2225,7 +2221,7 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
     ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(hand, 0, NULL);
   }
   if (tmpchg)
-    nfree(tmpchg);
+    op_free(tmpchg);
 }
 
 static void cmd_botattr(struct userrec *u, int idx, char *par)
@@ -2302,7 +2298,7 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
     } else if (arg && !strpbrk(chg, "&|")) {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "|%s", chg);
-      tmpchg = nmalloc(op_strbuf_len(&_b) + 1);
+      tmpchg = op_malloc(op_strbuf_len(&_b) + 1);
       strlcpy(tmpchg, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
       chg = tmpchg;
@@ -2315,7 +2311,7 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
   if (!glob_botmast(user)) {
     dprintf(idx, "You do not have Bot Master privileges.\n");
     if (tmpchg)
-      nfree(tmpchg);
+      op_free(tmpchg);
     return;
   }
   if (chg) {
@@ -2374,7 +2370,7 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
       dprintf(idx, "There are no bot flags for %s on %s.\n", hand, chan->dname);
   }
   if (tmpchg)
-    nfree(tmpchg);
+    op_free(tmpchg);
 }
 
 static void cmd_chat(struct userrec *u, int idx, char *par)
@@ -2738,11 +2734,11 @@ static void cmd_su(struct userrec *u, int idx, char *par)
          * their password right ;)
          */
         if (dcc[idx].u.chat->away != NULL)
-          nfree(dcc[idx].u.chat->away);
+          op_free(dcc[idx].u.chat->away);
         dcc[idx].u.chat->away = get_data_ptr(strlen(dcc[idx].nick) + 1);
-        strlcpy(dcc[idx].u.chat->away, dcc[idx].nick, sizeof(dcc[idx].u.chat->away));
+        strcpy(dcc[idx].u.chat->away, dcc[idx].nick);
         dcc[idx].u.chat->su_nick = get_data_ptr(strlen(dcc[idx].nick) + 1);
-        strlcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick, sizeof(dcc[idx].u.chat->su_nick));
+        strcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick);
         dcc[idx].user = u;
         strlcpy(dcc[idx].nick, par, sizeof(dcc[idx].nick));
         /* Display password prompt and turn off echo (send IAC WILL ECHO). */
@@ -2764,7 +2760,7 @@ static void cmd_su(struct userrec *u, int idx, char *par)
         if (atr & USER_MASTER)
           dcc[idx].u.chat->con_flags = conmask;
         dcc[idx].u.chat->su_nick = get_data_ptr(strlen(dcc[idx].nick) + 1);
-        strlcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick, sizeof(dcc[idx].u.chat->su_nick));
+        strcpy(dcc[idx].u.chat->su_nick, dcc[idx].nick);
         dcc[idx].user = u;
         strlcpy(dcc[idx].nick, par, sizeof dcc[idx].nick);
         dcc_chatter(idx);

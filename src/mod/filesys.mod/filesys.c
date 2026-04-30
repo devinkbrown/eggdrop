@@ -446,7 +446,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
       op_strbuf_printf(&_b, "%s%s/%s", dccdir, dir, fn);
     else
       op_strbuf_printf(&_b, "%s%s", dccdir, fn);
-    s = nmalloc(op_strbuf_len(&_b) + 1);
+    s = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -491,7 +491,7 @@ static int builtin_fil STDVAR
 
   CHECKVALIDITY(builtin_fil);
   idx = findanyidx(atoi(argv[2]));
-  if (idx < 0 && dcc[idx].type != &DCC_FILES) {
+  if (idx < 0 || dcc[idx].type != &DCC_FILES) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
     return TCL_ERROR;
   }
@@ -629,9 +629,8 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
     text[j] = ' ';
   }
 
-  buf = nmalloc(strlen(text) + 1);
+  buf = op_strdup(text);
   msg = buf;
-  strlcpy(buf, text, sizeof(buf));
   param = newsplit(&msg);
   if (!(atr & USER_XFER)) {
     putlog(LOG_FILES, "*", "Refused DCC SEND %s (no access): %s!%s", param,
@@ -685,7 +684,7 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
       strlcpy(dcc[i].nick, nick, sizeof dcc[i].nick);
       strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
       dcc[i].u.dns->cbuf = get_data_ptr(strlen(param) + 1);
-      strlcpy(dcc[i].u.dns->cbuf, param, sizeof(dcc[i].u.dns->cbuf));
+      strcpy(dcc[i].u.dns->cbuf, param);
       dcc[i].u.dns->ibuf = atoi(msg);
       dcc[i].u.dns->dns_type = RES_HOSTBYIP;
       dcc[i].u.dns->dns_success = filesys_dcc_send_hostresolved;
@@ -716,12 +715,12 @@ static char *mktempfile(char *filename)
   if ((l + MKTEMPFILE_TOT) > NAME_MAX) {
     fn[NAME_MAX - MKTEMPFILE_TOT] = 0;
     l = NAME_MAX - MKTEMPFILE_TOT;
-    fn = nmalloc(l + 1);
+    fn = op_malloc(l + 1);
     strlcpy(fn, filename, l + 1);
   }
   {
     size_t tlen = l + MKTEMPFILE_TOT + 1;
-    tempname = nmalloc(tlen);
+    tempname = op_malloc(tlen);
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
@@ -745,18 +744,17 @@ static void filesys_dcc_send_hostresolved(int i)
     lostdcc(i);
     return;
   }
-  param = nmalloc(strlen(dcc[i].u.dns->cbuf) + 1);
-  strlcpy(param, dcc[i].u.dns->cbuf, sizeof(param));
+  param = op_strdup(dcc[i].u.dns->cbuf);
 
   changeover_dcc(i, &DCC_FORK_SEND, sizeof(struct xfer_info));
   if (param[0] == '.')
     param[0] = '_';
   /* Save the original filename */
   dcc[i].u.xfer->origname = get_data_ptr(strlen(param) + 1);
-  strlcpy(dcc[i].u.xfer->origname, param, sizeof(dcc[i].u.xfer->origname));
+  strcpy(dcc[i].u.xfer->origname, param);
   tempf = mktempfile(param);
   dcc[i].u.xfer->filename = get_data_ptr(strlen(tempf) + 1);
-  strlcpy(dcc[i].u.xfer->filename, tempf, sizeof(dcc[i].u.xfer->filename));
+  strcpy(dcc[i].u.xfer->filename, tempf);
   /* We don't need the temporary buffers anymore */
   my_free(tempf);
   my_free(param);
@@ -777,7 +775,7 @@ static void filesys_dcc_send_hostresolved(int i)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
-    s1 = nmalloc(op_strbuf_len(&_b) + 1);
+    s1 = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }

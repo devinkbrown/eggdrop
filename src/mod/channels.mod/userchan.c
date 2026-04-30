@@ -192,10 +192,9 @@ static void set_handle_chaninfo(struct userrec *bu, char *handle,
   if (!ch)
     return;
   if (ch->info != NULL)
-    nfree(ch->info);
+    op_free(ch->info);
   if (info && info[0]) {
-    ch->info = (char *) user_malloc(strlen(info) + 1);
-    strlcpy(ch->info, info, sizeof(ch->info));
+    ch->info = op_strdup(info);
   } else
     ch->info = NULL;
   cst = findchan_by_dname(chname);
@@ -216,7 +215,7 @@ static void del_chanrec(struct userrec *u, char *chname)
       else
         lst->next = ch->next;
       if (ch->info != NULL)
-        nfree(ch->info);
+        op_free(ch->info);
       free_chanuserrec(ch);
       if (!noshare && !(u->flags & USER_UNSHARED))
         shareout(findchan_by_dname(chname), "-cr %s %s\n", u->handle, chname);
@@ -242,8 +241,12 @@ static void set_handle_laston(char *chan, struct userrec *u, time_t n)
 
 /* Is this mask sticky?
  */
-static int u_sticky_mask(maskrec *u, char *uhost)
+static int u_sticky_mask(maskrec *u, op_htab *ht, char *uhost)
 {
+  if (ht) {
+    maskrec *m = op_htab_get(ht, uhost);
+    return m ? (m->flags & MASKREC_STICKY) : 0;
+  }
   for (; u; u = u->next)
     if (!rfc_casecmp(u->mask, uhost))
       return (u->flags & MASKREC_STICKY);
@@ -273,11 +276,9 @@ static int u_setsticky_mask(struct chanset_t *chan, maskrec *u, char *uhost,
         u->flags &= ~MASKREC_STICKY;
       else /* We don't actually want to change, just skip over */
         return 0;
-      if (!j)
-        strlcpy(uhost, u->mask, sizeof(uhost));
-
       if (!noshare)
-        shareout(chan, "%s %s %d %s\n", botcmd, uhost, sticky,
+        shareout(chan, "%s %s %d %s\n", botcmd,
+                 (!j) ? u->mask : uhost, sticky,
                  (chan) ? chan->dname : "");
       return 1;
     }
@@ -298,8 +299,14 @@ static int u_setsticky_mask(struct chanset_t *chan, maskrec *u, char *uhost,
  *   1       temporary ban
  *   2       perm ban
  */
-static int u_equals_mask(maskrec *u, char *mask)
+static int u_equals_mask(maskrec *u, op_htab *ht, char *mask)
 {
+  if (ht) {
+    maskrec *m = op_htab_get(ht, mask);
+    if (!m)
+      return 0;
+    return (m->flags & MASKREC_PERM) ? 2 : 1;
+  }
   for (; u; u = u->next)
     if (!rfc_casecmp(u->mask, mask)) {
       if (u->flags & MASKREC_PERM)
@@ -376,21 +383,25 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
           shareout(c, "-bc %s %s\n", c->dname, mask);
         else
           shareout(NULL, "-b %s\n", mask);
-        nfree(mask);
+        op_free(mask);
       }
     }
-    /* Remove from CIDR trie before freeing the node */
+    /* Remove from hash table and CIDR trie before freeing the node */
+    {
+      op_htab *ht = c ? c->bans_ht : global_bans_ht;
+      if (ht)
+        op_htab_del(ht, (*u)->mask);
+    }
     if (c)
       ip_trie_del(c->ban_ip_trie, (*u)->mask);
     if (lastdeletedmask)
-      nfree(lastdeletedmask);
-    lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strlcpy(lastdeletedmask, (*u)->mask, strlen((*u)->mask) + 1);
-    nfree((*u)->mask);
+      op_free(lastdeletedmask);
+    lastdeletedmask = op_strdup((*u)->mask);
+    op_free((*u)->mask);
     if ((*u)->desc)
-      nfree((*u)->desc);
+      op_free((*u)->desc);
     if ((*u)->user)
-      nfree((*u)->user);
+      op_free((*u)->user);
     t = *u;
     *u = (*u)->next;
     free_maskrec(t);
@@ -434,20 +445,24 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
           shareout(c, "-ec %s %s\n", c->dname, mask);
         else
           shareout(NULL, "-e %s\n", mask);
-        nfree(mask);
+        op_free(mask);
       }
+    }
+    {
+      op_htab *ht = c ? c->exempts_ht : global_exempts_ht;
+      if (ht)
+        op_htab_del(ht, (*u)->mask);
     }
     if (c)
       ip_trie_del(c->exempt_ip_trie, (*u)->mask);
     if (lastdeletedmask)
-      nfree(lastdeletedmask);
-    lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strlcpy(lastdeletedmask, (*u)->mask, strlen((*u)->mask) + 1);
-    nfree((*u)->mask);
+      op_free(lastdeletedmask);
+    lastdeletedmask = op_strdup((*u)->mask);
+    op_free((*u)->mask);
     if ((*u)->desc)
-      nfree((*u)->desc);
+      op_free((*u)->desc);
     if ((*u)->user)
-      nfree((*u)->user);
+      op_free((*u)->user);
     t = *u;
     *u = (*u)->next;
     free_maskrec(t);
@@ -492,20 +507,24 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
           shareout(c, "-invc %s %s\n", c->dname, mask);
         else
           shareout(NULL, "-inv %s\n", mask);
-        nfree(mask);
+        op_free(mask);
       }
+    }
+    {
+      op_htab *ht = c ? c->invites_ht : global_invites_ht;
+      if (ht)
+        op_htab_del(ht, (*u)->mask);
     }
     if (c)
       ip_trie_del(c->invite_ip_trie, (*u)->mask);
     if (lastdeletedmask)
-      nfree(lastdeletedmask);
-    lastdeletedmask = nmalloc(strlen((*u)->mask) + 1);
-    strlcpy(lastdeletedmask, (*u)->mask, strlen((*u)->mask) + 1);
-    nfree((*u)->mask);
+      op_free(lastdeletedmask);
+    lastdeletedmask = op_strdup((*u)->mask);
+    op_free((*u)->mask);
     if ((*u)->desc)
-      nfree((*u)->desc);
+      op_free((*u)->desc);
     if ((*u)->user)
-      nfree((*u)->user);
+      op_free((*u)->user);
     t = *u;
     *u = (*u)->next;
     free_maskrec(t);
@@ -581,21 +600,23 @@ static int u_addban(struct chanset_t *chan, char *ban, char *from, char *note,
     p->next = *u;
     *u = p;
   } else {
-    nfree(p->mask);
-    nfree(p->user);
-    nfree(p->desc);
+    op_free(p->mask);
+    op_free(p->user);
+    op_free(p->desc);
   }
   p->expire = expire_time;
   p->added = now;
   p->lastactive = 0;
   p->flags = flags;
-  p->mask = user_malloc(strlen(host) + 1);
-  strlcpy(p->mask, host, sizeof(p->mask));
-  p->user = user_malloc(strlen(from) + 1);
-  strlcpy(p->user, from, sizeof(p->user));
-  p->desc = user_malloc(strlen(note) + 1);
-  strlcpy(p->desc, note, sizeof(p->desc));
-  /* Maintain CIDR fast-path trie for channel bans */
+  p->mask = op_strdup(host);
+  p->user = op_strdup(from);
+  p->desc = op_strdup(note);
+  /* Maintain exact-match htab and CIDR fast-path trie */
+  {
+    op_htab *ht = chan ? chan->bans_ht : global_bans_ht;
+    if (ht)
+      op_htab_set(ht, p->mask, p, NULL);
+  }
   if (chan)
     ip_trie_add(&chan->ban_ip_trie, host, p);
   if (!noshare) {
@@ -610,7 +631,7 @@ static int u_addban(struct chanset_t *chan, char *ban, char *from, char *note,
         shareout(chan, "+bc %s %li %s %s%s %s %s\n", mask, expire_time - now,
                  chan->dname, (flags & MASKREC_STICKY) ? "s" : "",
                  (flags & MASKREC_PERM) ? "p" : "-", from, note);
-      nfree(mask);
+      op_free(mask);
     }
   }
   return 1;
@@ -648,21 +669,23 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
     p->next = *u;
     *u = p;
   } else {
-    nfree(p->mask);
-    nfree(p->user);
-    nfree(p->desc);
+    op_free(p->mask);
+    op_free(p->user);
+    op_free(p->desc);
   }
   p->expire = expire_time;
   p->added = now;
   p->lastactive = 0;
   p->flags = flags;
-  p->mask = user_malloc(strlen(host) + 1);
-  strlcpy(p->mask, host, sizeof(p->mask));
-  p->user = user_malloc(strlen(from) + 1);
-  strlcpy(p->user, from, sizeof(p->user));
-  p->desc = user_malloc(strlen(note) + 1);
-  strlcpy(p->desc, note, sizeof(p->desc));
-  /* Maintain CIDR fast-path trie for channel invites */
+  p->mask = op_strdup(host);
+  p->user = op_strdup(from);
+  p->desc = op_strdup(note);
+  /* Maintain exact-match htab and CIDR fast-path trie */
+  {
+    op_htab *ht = chan ? chan->invites_ht : global_invites_ht;
+    if (ht)
+      op_htab_set(ht, p->mask, p, NULL);
+  }
   if (chan)
     ip_trie_add(&chan->invite_ip_trie, host, p);
   if (!noshare) {
@@ -677,7 +700,7 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
         shareout(chan, "+invc %s %li %s %s%s %s %s\n", mask, expire_time - now,
                  chan->dname, (flags & MASKREC_STICKY) ? "s" : "",
                  (flags & MASKREC_PERM) ? "p" : "-", from, note);
-      nfree(mask);
+      op_free(mask);
     }
   }
   return 1;
@@ -715,21 +738,23 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
     p->next = *u;
     *u = p;
   } else {
-    nfree(p->mask);
-    nfree(p->user);
-    nfree(p->desc);
+    op_free(p->mask);
+    op_free(p->user);
+    op_free(p->desc);
   }
   p->expire = expire_time;
   p->added = now;
   p->lastactive = 0;
   p->flags = flags;
-  p->mask = user_malloc(strlen(host) + 1);
-  strlcpy(p->mask, host, sizeof(p->mask));
-  p->user = user_malloc(strlen(from) + 1);
-  strlcpy(p->user, from, sizeof(p->user));
-  p->desc = user_malloc(strlen(note) + 1);
-  strlcpy(p->desc, note, sizeof(p->desc));
-  /* Maintain CIDR fast-path trie for channel exempts */
+  p->mask = op_strdup(host);
+  p->user = op_strdup(from);
+  p->desc = op_strdup(note);
+  /* Maintain exact-match htab and CIDR fast-path trie */
+  {
+    op_htab *ht = chan ? chan->exempts_ht : global_exempts_ht;
+    if (ht)
+      op_htab_set(ht, p->mask, p, NULL);
+  }
   if (chan)
     ip_trie_add(&chan->exempt_ip_trie, host, p);
   if (!noshare) {
@@ -744,7 +769,7 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
         shareout(chan, "+ec %s %li %s %s%s %s %s\n", mask, expire_time - now,
                  chan->dname, (flags & MASKREC_STICKY) ? "s" : "",
                  (flags & MASKREC_PERM) ? "p" : "-", from, note);
-      nfree(mask);
+      op_free(mask);
     }
   }
   return 1;
@@ -964,8 +989,8 @@ static void tell_bans(int idx, int show_inact, char *match)
       int min, sec;
 
       for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
-        if ((!u_equals_mask(global_bans, b->mask)) &&
-            (!u_equals_mask(chan->bans, b->mask))) {
+        if ((!u_equals_mask(global_bans, global_bans_ht, b->mask)) &&
+            (!u_equals_mask(chan->bans, chan->bans_ht, b->mask))) {
           op_strbuf_t fill;
           strlcpy(s, b->who, sizeof(s));
           s2 = s;
@@ -1055,8 +1080,8 @@ static void tell_exempts(int idx, int show_inact, char *match)
       int min, sec;
 
       for (e = chan->channel.exempt; e && e->mask[0]; e = e->next) {
-        if ((!u_equals_mask(global_exempts, e->mask)) &&
-            (!u_equals_mask(chan->exempts, e->mask))) {
+        if ((!u_equals_mask(global_exempts, global_exempts_ht, e->mask)) &&
+            (!u_equals_mask(chan->exempts, chan->exempts_ht, e->mask))) {
           op_strbuf_t fill;
           strlcpy(s, e->who, sizeof(s));
           s2 = s;
@@ -1145,8 +1170,8 @@ static void tell_invites(int idx, int show_inact, char *match)
       int min, sec;
 
       for (i = chan->channel.invite; i && i->mask[0]; i = i->next) {
-        if ((!u_equals_mask(global_invites, i->mask)) &&
-            (!u_equals_mask(chan->invites, i->mask))) {
+        if ((!u_equals_mask(global_invites, global_invites_ht, i->mask)) &&
+            (!u_equals_mask(chan->invites, chan->invites_ht, i->mask))) {
           op_strbuf_t fill;
           strlcpy(s, i->who, sizeof(s));
           s2 = s;
@@ -1197,10 +1222,10 @@ static int write_bans(FILE *f, int idx)
                 (long) b->lastactive, b->user ? b->user : botnetnick,
                 b->desc ? b->desc : "requested") == EOF) {
       if (mask)
-        nfree(mask);
+        op_free(mask);
       return 0;
     }
-    nfree(mask);
+    op_free(mask);
   }
   for (chan = chanset; chan; chan = chan->next)
     if ((idx < 0) || (chan->status & CHAN_SHARED)) {
@@ -1224,10 +1249,10 @@ static int write_bans(FILE *f, int idx)
                       (long) b->lastactive, b->user ? b->user : botnetnick,
                       b->desc ? b->desc : "requested") == EOF) {
             if (mask)
-              nfree(mask);
+              op_free(mask);
             return 0;
           }
-          nfree(mask);
+          op_free(mask);
         }
       }
     }
@@ -1257,10 +1282,10 @@ static int write_exempts(FILE *f, int idx)
                 (long) e->lastactive, e->user ? e->user : botnetnick,
                 e->desc ? e->desc : "requested") == EOF) {
       if (mask)
-        nfree(mask);
+        op_free(mask);
       return 0;
     }
-    nfree(mask);
+    op_free(mask);
   }
   for (chan = chanset; chan; chan = chan->next)
     if ((idx < 0) || (chan->status & CHAN_SHARED)) {
@@ -1284,10 +1309,10 @@ static int write_exempts(FILE *f, int idx)
                       (long) e->lastactive, e->user ? e->user : botnetnick,
                       e->desc ? e->desc : "requested") == EOF) {
             if (mask)
-              nfree(mask);
+              op_free(mask);
             return 0;
           }
-          nfree(mask);
+          op_free(mask);
         }
       }
     }
@@ -1317,10 +1342,10 @@ static int write_invites(FILE *f, int idx)
                 (long) ir->lastactive, ir->user ? ir->user : botnetnick,
                 ir->desc ? ir->desc : "requested") == EOF) {
       if (mask)
-        nfree(mask);
+        op_free(mask);
       return 0;
     }
-    nfree(mask);
+    op_free(mask);
   }
   for (chan = chanset; chan; chan = chan->next)
     if ((idx < 0) || (chan->status & CHAN_SHARED)) {
@@ -1344,10 +1369,10 @@ static int write_invites(FILE *f, int idx)
                       (long) ir->lastactive, ir->user ? ir->user : botnetnick,
                       ir->desc ? ir->desc : "requested") == EOF) {
             if (mask)
-              nfree(mask);
+              op_free(mask);
             return 0;
           }
-          nfree(mask);
+          op_free(mask);
         }
       }
     }

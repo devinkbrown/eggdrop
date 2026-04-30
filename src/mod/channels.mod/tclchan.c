@@ -216,7 +216,7 @@ static int tcl_isban STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_equals_mask(chan->bans, argv[1]))
+    if (u_equals_mask(chan->bans, chan->bans_ht, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -227,7 +227,7 @@ static int tcl_isban STDVAR
       return TCL_ERROR;
     }
   }
-  if (u_equals_mask(global_bans, argv[1]) && chanarg)
+  if (u_equals_mask(global_bans, global_bans_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -249,7 +249,7 @@ static int tcl_isexempt STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_equals_mask(chan->exempts, argv[1]))
+    if (u_equals_mask(chan->exempts, chan->exempts_ht, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -260,7 +260,7 @@ static int tcl_isexempt STDVAR
       return TCL_ERROR;
     }
   }
-  if (u_equals_mask(global_exempts, argv[1]) && chanarg)
+  if (u_equals_mask(global_exempts, global_exempts_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -282,7 +282,7 @@ static int tcl_isinvite STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_equals_mask(chan->invites, argv[1]))
+    if (u_equals_mask(chan->invites, chan->invites_ht, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -293,7 +293,7 @@ static int tcl_isinvite STDVAR
       return TCL_ERROR;
     }
   }
-  if (u_equals_mask(global_invites, argv[1]) && chanarg)
+  if (u_equals_mask(global_invites, global_invites_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -316,7 +316,7 @@ static int tcl_isbansticky STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_sticky_mask(chan->bans, argv[1]))
+    if (u_sticky_mask(chan->bans, chan->bans_ht, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -327,7 +327,7 @@ static int tcl_isbansticky STDVAR
       return TCL_ERROR;
     }
   }
-  if (u_sticky_mask(global_bans, argv[1]) && chanarg)
+  if (u_sticky_mask(global_bans, global_bans_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -349,7 +349,7 @@ static int tcl_isexemptsticky STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_sticky_mask(chan->exempts, argv[1]))
+    if (u_sticky_mask(chan->exempts, chan->exempts_ht, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -360,7 +360,7 @@ static int tcl_isexemptsticky STDVAR
       return TCL_ERROR;
     }
   }
-  if (u_sticky_mask(global_exempts, argv[1]) && chanarg)
+  if (u_sticky_mask(global_exempts, global_exempts_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -382,7 +382,7 @@ static int tcl_isinvitesticky STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_sticky_mask(chan->invites, argv[1]))
+    if (u_sticky_mask(chan->invites, chan->invites_ht, argv[1]))
       ok = 1;
   }
   if (argc == 4) {
@@ -393,7 +393,7 @@ static int tcl_isinvitesticky STDVAR
       return TCL_ERROR;
     }
   }
-  if (u_sticky_mask(global_invites, argv[1]) && chanarg)
+  if (u_sticky_mask(global_invites, global_invites_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -415,7 +415,7 @@ static int tcl_ispermban STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_equals_mask(chan->bans, argv[1]) == 2)
+    if (u_equals_mask(chan->bans, chan->bans_ht, argv[1]) == 2)
       ok = 1;
   }
   if (argc == 4) {
@@ -426,7 +426,7 @@ static int tcl_ispermban STDVAR
       return TCL_ERROR;
     }
   }
-  if ((u_equals_mask(global_bans, argv[1]) == 2) && chanarg)
+  if ((u_equals_mask(global_bans, global_bans_ht, argv[1]) == 2) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -448,7 +448,7 @@ static int tcl_ispermexempt STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_equals_mask(chan->exempts, argv[1]) == 2)
+    if (u_equals_mask(chan->exempts, chan->exempts_ht, argv[1]) == 2)
       ok = 1;
   }
   if (argc == 4) {
@@ -459,7 +459,7 @@ static int tcl_ispermexempt STDVAR
       return TCL_ERROR;
     }
   }
-  if ((u_equals_mask(global_exempts, argv[1]) == 2) && chanarg)
+  if ((u_equals_mask(global_exempts, global_exempts_ht, argv[1]) == 2) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -481,7 +481,7 @@ static int tcl_isperminvite STDVAR
       Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
       return TCL_ERROR;
     }
-    if (u_equals_mask(chan->invites, argv[1]) == 2)
+    if (u_equals_mask(chan->invites, chan->invites_ht, argv[1]) == 2)
       ok = 1;
   }
   if (argc == 4) {
@@ -492,7 +492,7 @@ static int tcl_isperminvite STDVAR
       return TCL_ERROR;
     }
   }
-  if ((u_equals_mask(global_invites, argv[1]) == 2) && chanarg)
+  if ((u_equals_mask(global_invites, global_invites_ht, argv[1]) == 2) && chanarg)
     ok = 1;
   if (ok)
     Tcl_AppendResult(irp, "1", NULL);
@@ -1605,9 +1605,8 @@ static int tcl_renudef STDVAR
   }
   for (ul = udef; ul; ul = ul->next) {
     if (ul->type == type && !strcasecmp(ul->name, argv[2])) {
-      nfree(ul->name);
-      ul->name = nmalloc(strlen(argv[3]) + 1);
-      strlcpy(ul->name, argv[3], sizeof(ul->name));
+      op_free(ul->name);
+      ul->name = op_strdup(argv[3]);
       found = 1;
     }
   }
@@ -1642,18 +1641,18 @@ static int tcl_deludef STDVAR
       break;
     if (ull->type == type && !strcasecmp(ull->name, argv[2])) {
       ul->next = ull->next;
-      nfree(ull->name);
+      op_free(ull->name);
       free_udef_chans(ull->values, ull->type);
-      nfree(ull);
+      op_free(ull);
       found = 1;
     }
   }
   if (udef) {
     if (udef->type == type && !strcasecmp(udef->name, argv[2])) {
       ul = udef->next;
-      nfree(udef->name);
+      op_free(udef->name);
       free_udef_chans(udef->values, udef->type);
-      nfree(udef);
+      op_free(udef);
       udef = ul;
       found = 1;
     }

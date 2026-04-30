@@ -111,7 +111,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   bufcount(&out2, &restlen, ret);
   out2[0] = '$';
   bufcount(&out2, &restlen, 1);
-  buf = nmalloc(digestlen);
+  buf = op_malloc(digestlen);
   ret = getrusage(RUSAGE_SELF, &ru1);
   if (!PKCS5_PBKDF2_HMAC(pass, strlen(pass), salt, saltlen, rounds, digest,
                          digestlen, buf)) {
@@ -119,7 +119,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
     explicit_bzero(out, outlen);
     putlog(LOG_MISC, "*", "PBKDF2 key derivation error: %s.",
            ERR_error_string(ERR_get_error(), NULL));
-    nfree(buf);
+    op_free(buf);
     return NULL;
   }
   if (!ret && !getrusage(RUSAGE_SELF, &ru2)) {
@@ -136,10 +136,10 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   if (b64_ntop_without_padding(buf, digestlen, out2, restlen) < 0) {
     explicit_bzero(out, outlen);
     putlog(LOG_MISC, "*", "PBKDF2 error: b64_ntop(hash).");
-    nfree(buf);
+    op_free(buf);
     return NULL;
   }
-  nfree(buf);
+  op_free(buf);
   return out;
 }
 

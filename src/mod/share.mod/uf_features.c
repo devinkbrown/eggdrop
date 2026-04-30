@@ -243,7 +243,7 @@ static void uf_features_parse(int idx, char *par)
 
   op_strbuf_init(&_sb);
   size_t par_sz = strlen(par) + 1;
-  p = s = buf = nmalloc(par_sz);        /* Allocate temp buffer */
+  p = s = buf = op_malloc(par_sz);        /* Allocate temp buffer */
   strlcpy(buf, par, par_sz);
 
   /* Clear all currently set features. */
@@ -263,7 +263,7 @@ static void uf_features_parse(int idx, char *par)
     }
     p = ++s;
   }
-  nfree(buf);
+  op_free(buf);
 
   /* Send response string                                               */
   if (op_strbuf_len(&_sb))
@@ -296,7 +296,7 @@ static int uf_features_check(int idx, char *par)
   uff_list_t *ul;
 
   size_t par_sz = strlen(par) + 1;
-  p = s = buf = nmalloc(par_sz);        /* Allocate temp buffer */
+  p = s = buf = op_malloc(par_sz);        /* Allocate temp buffer */
   strlcpy(buf, par, par_sz);
 
   /* Clear all currently set features. */
@@ -322,12 +322,12 @@ static int uf_features_check(int idx, char *par)
       dprintf(idx, "s e Attempt to use an unsupported feature\n");
       zapfbot(idx);
 
-      nfree(buf);
+      op_free(buf);
       return 0;
     }
     p = ++s;
   }
-  nfree(buf);
+  op_free(buf);
   return 1;
 }
 

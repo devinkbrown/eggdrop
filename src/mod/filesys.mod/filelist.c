@@ -28,7 +28,7 @@ static filelist_t *filelist_new(void)
 {
   filelist_t *flist;
 
-  flist = nmalloc(sizeof(filelist_t));
+  flist = op_malloc(sizeof(filelist_t));
   flist->tot = 0;
   flist->elements = NULL;
   return flist;
@@ -53,9 +53,8 @@ static void filelist_free(filelist_t *flist)
 static void filelist_add(filelist_t *flist, char *filename)
 {
   flist->tot++;
-  flist->elements = nrealloc(flist->elements, flist->tot * sizeof(filelist_t));
-  FILELIST_LE(flist).fn = nmalloc(strlen(filename) + 1);
-  strcpy(FILELIST_LE(flist).fn, filename);
+  flist->elements = op_realloc(flist->elements, flist->tot * sizeof(filelist_t));
+  FILELIST_LE(flist).fn = op_strdup(filename);
   FILELIST_LE(flist).output = NULL;
 }
 
@@ -66,12 +65,12 @@ static void filelist_addout(filelist_t *flist, char *desc)
   if (FILELIST_LE(flist).output) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", FILELIST_LE(flist).output, desc);
-    FILELIST_LE(flist).output = nrealloc(FILELIST_LE(flist).output, op_strbuf_len(&_b) + 1);
+    FILELIST_LE(flist).output = op_realloc(FILELIST_LE(flist).output, op_strbuf_len(&_b) + 1);
     strlcpy(FILELIST_LE(flist).output, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   } else {
     size_t desc_sz = strlen(desc) + 1;
-    FILELIST_LE(flist).output = nmalloc(desc_sz);
+    FILELIST_LE(flist).output = op_malloc(desc_sz);
     strlcpy(FILELIST_LE(flist).output, desc, desc_sz);
   }
 }

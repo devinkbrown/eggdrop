@@ -48,7 +48,7 @@
 #include "modules.h"
 #include "bg.h"
 #include "configtoml.h"
-#include "io_thread.h"
+#include "egg_commio.h"
 
 #ifdef HAVE_GETRANDOM
 #  include <sys/random.h>
@@ -117,7 +117,7 @@ char quit_msg[1024];                  /* Quit message                           
 unsigned char cliflags = 0;
 
 
-/* Traffic stats — atomic 64-bit counters; written from io_thread, read from main */
+/* Traffic stats — atomic 64-bit counters */
 #include <stdatomic.h>
 _Atomic uint64_t otraffic_irc = 0;
 _Atomic uint64_t otraffic_irc_today = 0;
@@ -149,8 +149,6 @@ extern char last_bind_called[];
 void fatal(const char *s, int recoverable)
 {
   putlog(LOG_MISC, "*", "* %s", s);
-  /* Stop io_thread before closing sockets so it can't race on dying fds. */
-  io_thread_stop();
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
       killsock(dcc[i].sock);
@@ -162,43 +160,6 @@ void fatal(const char *s, int recoverable)
     bg_send_quit(BG_ABORT);
     exit(!recoverable);
   }
-}
-
-int expmem_chanprog(void);
-int expmem_users(void);
-int expmem_misc(void);
-int expmem_dccutil(void);
-int expmem_botnet(void);
-int expmem_tcl(void);
-int expmem_tclhash(void);
-int expmem_net(void);
-int expmem_language(void);
-#ifdef HAVE_TCL
-int expmem_tcldcc(void);
-int expmem_tclmisc(void);
-#endif
-int expmem_dns(void);
-#ifdef TLS
-int expmem_tls(void);
-#endif
-
-/* For mem.c : calculate memory we SHOULD be using
- */
-int expected_memory(void)
-{
-  int tot;
-
-  tot = expmem_chanprog() + expmem_users() + expmem_misc() + expmem_dccutil() +
-        expmem_botnet() + expmem_tcl() + expmem_tclhash() + expmem_net() +
-        expmem_modules(0) + expmem_language() +
-#ifdef HAVE_TCL
-        expmem_tcldcc() + expmem_tclmisc() +
-#endif
-        expmem_dns();
-#ifdef TLS
-  tot += expmem_tls();
-#endif
-  return tot;
 }
 
 static void check_expired_dcc(void)
@@ -319,7 +280,6 @@ static void write_debug(void)
     dprintf(-x, "Last bind (may not be related): %s\n", last_bind_called);
     tell_dcc(-x);
     dprintf(-x, "\n");
-    debug_mem_to_dcc(-x);
     killsock(x);
     close(x);
     putlog(LOG_MISC, "*", "* Wrote DEBUG");
@@ -574,7 +534,6 @@ static void core_secondly(void)
       tell_verbose_status(DP_STDOUT);
       do_module_report(DP_STDOUT, 0, "server");
       do_module_report(DP_STDOUT, 0, "channels");
-      tell_mem_status_dcc(DP_STDOUT);
     }
   }
   nowmins = now / 60;
@@ -626,22 +585,22 @@ static void core_secondly(void)
       if (!keep_all_logs) {
         if (quiet_save < 3)
           putlog(LOG_MISC, "*", "%s", MISC_LOGSWITCH);
-        for (int i = 0; i < max_logs; i++)
-          if (logs[i].filename) {
+        for (int li = 0; li < max_logs; li++)
+          if (logs[li].filename) {
             char s[1024];
 
-            if (logs[i].f) {
-              fclose(logs[i].f);
-              logs[i].f = NULL;
+            if (logs[li].f) {
+              fclose(logs[li].f);
+              logs[li].f = NULL;
             }
             {
               op_strbuf_t _b;
-              op_strbuf_printf(&_b, "%s.yesterday", logs[i].filename);
+              op_strbuf_printf(&_b, "%s.yesterday", logs[li].filename);
               strlcpy(s, op_strbuf_str(&_b), sizeof s);
               op_strbuf_free(&_b);
             }
             unlink(s);
-            movefile(logs[i].filename, s);
+            movefile(logs[li].filename, s);
           }
       }
 #ifdef TLS
@@ -724,7 +683,6 @@ void check_static(char *, char *(*)(void));
 #include "mod/static.h"
 #endif
 void init_threaddata(int);
-int init_mem(void);
 int init_userent(void);
 int init_misc(void);
 void userrec_heaps_init(void);
@@ -783,7 +741,7 @@ static void mainloop(int toplevel)
 
     if (idx >= 0) {
       if (dcc[idx].type && dcc[idx].type->activity) {
-        /* Traffic stats — atomic_fetch_add for thread safety with io_thread */
+        /* Traffic stats — atomic counters */
         if (dcc[idx].type->name) {
           size_t _nb = strlen(buf) + 1;
           if (!strncmp(dcc[idx].type->name, "BOT", 3))
@@ -1062,9 +1020,11 @@ int main(int arg_c, char **arg_v)
   /* Initialize variables and stuff */
   now = time(NULL);
   chanset = NULL;
+  chan_htab_init();
   lastmin = now / 60;
   init_random();
-  init_mem();
+  op_event_init();
+  egg_commio_init();
   if (argc > 1)
     do_arg();
   /* Pre-scan the config for [paths] settings (lang_dir, mod_path) so language
@@ -1093,7 +1053,7 @@ int main(int arg_c, char **arg_v)
 #endif
 #ifdef EGG_TDNS
   /* initialize dns_thread_head before chanprog() */
-  dns_thread_head = nmalloc(sizeof(struct dns_thread_node));
+  dns_thread_head = op_malloc(sizeof(struct dns_thread_node));
   dns_thread_head->next = NULL;
 #endif
   ctime_r(&now, s);
@@ -1240,13 +1200,6 @@ int main(int arg_c, char **arg_v)
   add_hook(HOOK_LOADED, (Function) event_loaded);
 
   call_hook(HOOK_LOADED);
-
-  /* Start the dedicated I/O reader thread.  All non-TCL, non-TLS socket
-   * reads will happen in the io_thread from this point on; the main thread
-   * only drains the pre-filled inbufs via sockgets(). */
-  if (io_thread_start() < 0)
-    putlog(LOG_MISC, "*", "WARNING: io_thread could not start (%s) — falling back to single-threaded I/O.",
-           strerror(errno));
 
   debug0("main: entering loop");
   while (1) {

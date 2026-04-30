@@ -139,8 +139,7 @@ static char *replace_spaces(char *fn)
 {
   char *ret, *p;
 
-  p = ret = nmalloc(strlen(fn) + 1);
-  strlcpy(ret, fn, sizeof(ret));
+  p = ret = op_strdup(fn);
   while ((p = strchr(p, ' ')) != NULL)
     *p = '_';
   return ret;
@@ -262,7 +261,7 @@ static uint64_t pump_file_to_sock(FILE *file, long sock,
     unsigned long actual_size, r;
     const unsigned long buf_len = pending_data >= PMAX_SIZE ?
                         PMAX_SIZE : pending_data;
-    char *bf = nmalloc(buf_len);
+    char *bf = op_malloc(buf_len);
 
     if (bf) {
       do {
@@ -273,7 +272,7 @@ static uint64_t pump_file_to_sock(FILE *file, long sock,
         tputs(sock, bf, r);
         pending_data -= r;
       } while (!sock_has_data(SOCK_DATA_OUTGOING, sock) && pending_data != 0);
-      nfree(bf);
+      op_free(bf);
     }
   }
   return pending_data;
@@ -333,7 +332,7 @@ static void eof_dcc_send(int idx)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
-      nfn = nmalloc(op_strbuf_len(&_b) + 1);
+      nfn = op_malloc(op_strbuf_len(&_b) + 1);
       strlcpy(nfn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
     }
@@ -363,7 +362,7 @@ static void eof_dcc_send(int idx)
       stats_add_upload(u, dcc[idx].u.xfer->length);
       check_tcl_sentrcvd(u, dcc[idx].nick, nfn, H_rcvd);
     }
-    nfree(nfn);
+    op_free(nfn);
 
     ok = 0;
     if (!strcmp(dcc[idx].nick, "*users")) {
@@ -839,13 +838,13 @@ static void kill_dcc_xfer(int idx, void *x)
   struct xfer_info *p = (struct xfer_info *) x;
 
   if (p->filename)
-    nfree(p->filename);
+    op_free(p->filename);
   /* We need to check if origname points to filename before
    * attempting to free the memory.
    */
   if (p->origname && p->origname != p->filename)
-    nfree(p->origname);
-  nfree(x);
+    op_free(p->origname);
+  op_free(x);
 }
 
 static void out_dcc_xfer(int idx, char *buf, void *x)
@@ -1064,16 +1063,19 @@ static int raw_dcc_resend_send(char *filename, char *nick, char *from,
   f = tmpfile();
   if (!f) {
     debug1("transfer: raw_dcc_resend_send(): tmpfile(): error: %s", strerror(errno));
+    killsock(zz);
     return DCCSEND_BADFN;
   }
   if (copyfilef(filename, f)) {
     fclose(f);
+    killsock(zz);
     return DCCSEND_FCOPY;
   }
 
   int i = new_dcc(&DCC_GET_PENDING, sizeof(struct xfer_info));
   if (i == -1) {
     fclose(f);
+    killsock(zz);
     return DCCSEND_FULL;
   }
 
@@ -1108,7 +1110,7 @@ static int raw_dcc_resend_send(char *filename, char *nick, char *from,
   }
 
   if (buf)
-    nfree(buf);
+    op_free(buf);
 
   return DCCSEND_OK;
 }

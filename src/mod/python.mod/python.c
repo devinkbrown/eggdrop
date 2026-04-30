@@ -38,6 +38,8 @@
 #include <Python.h>
 #include <datetime.h>
 #include "src/mod/server.mod/server.h"
+#include "src/mod/channels.mod/channels.h"
+#include "src/mod/irc.mod/irc.h"
 #include "python.h"
 #ifndef HAVE_TCL
 #  include "src/script.h"
@@ -46,7 +48,8 @@
 static PyObject *pirp, *pglobals;
 
 #undef global
-static Function *global = NULL;
+static Function *global = NULL, *channels_funcs = NULL, *irc_funcs = NULL,
+                *server_funcs = NULL;
 static PyThreadState *_pythreadsave;
 #include "pycmds.c"
 #include "tclpython.c"
@@ -246,6 +249,23 @@ char *python_start(Function *global_funcs)
     }
     if ((s = init_python()))
       return s;
+  }
+
+  /* Require channels and server modules — the Python API exposes their
+   * functions via macros that dereference these tables directly. */
+  if (!(channels_funcs = module_depend(MODULE_NAME, "channels", 1, 1))) {
+    module_undepend(MODULE_NAME);
+    return "This module requires channels module 1.1 or later.";
+  }
+  if (!(server_funcs = module_depend(MODULE_NAME, "server", 1, 5))) {
+    module_undepend(MODULE_NAME);
+    return "This module requires server module 1.5 or later.";
+  }
+  {
+    module_entry *me;
+    me = module_find("irc", 0, 0);
+    if (me)
+      irc_funcs = me->funcs;
   }
 
   /* Add command table to bind list */

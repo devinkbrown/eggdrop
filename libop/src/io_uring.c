@@ -110,7 +110,7 @@ typedef struct
 static uring_cq_ring_t   uring_cq_ring __attribute__((aligned(64)));
 static int               uring_notify_fd    = -1;
 static pthread_t         uring_poll_tid;
-static volatile int      uring_thread_stop  = 0;
+static atomic_int        uring_thread_stop  = 0;
 static int               uring_thread_active = 0;
 
 /* Forward declaration — defined after op_select_uring. */

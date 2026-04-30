@@ -77,6 +77,9 @@ unsigned int server_key_len;
 
 static void sasl_error(const char *msg)
 {
+#if defined(TLS) && OPENSSL_VERSION_NUMBER >= 0x10000000L
+  step = 0;
+#endif
   putlog(LOG_SERV, "*", "SASL: error: %s", msg);
   dprintf(DP_MODE, "CAP END\n");
   sasl_timeout_time = 0;

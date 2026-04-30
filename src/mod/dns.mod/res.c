@@ -132,15 +132,21 @@ static inline void res_dlinkDelete(res_dlink_node *m, res_dlink_list *list) {
   if (m->next) m->next->prev = m->prev; else list->tail = m->prev;
   list->length--;
 }
+#undef op_dlinkAdd
 #define op_dlinkAdd(data, node, list)    res_dlinkAdd(data, node, list)
+#undef op_dlinkDelete
 #define op_dlinkDelete(node, list)       res_dlinkDelete(node, list)
+#undef OP_DLINK_FOREACH
 #define OP_DLINK_FOREACH(n, head)        for ((n) = (head); (n); (n) = (n)->next)
+#undef OP_DLINK_FOREACH_SAFE
 #define OP_DLINK_FOREACH_SAFE(n, nt, head) \
   for ((n) = (head); (n) && ((nt) = (n)->next, 1); (n) = (nt))
 
-/* Memory */
-#define op_malloc(n)    nmalloc(n)
-#define op_free(p)      nfree(p)
+/* Memory — already routed through libop via op_malloc/op_free */
+#undef op_malloc
+#define op_malloc(n)    op_malloc(n)
+#undef op_free
+#define op_free(p)      op_free(p)
 
 /* Logging */
 #define iwarn(fmt, ...)      putlog(LOG_MISC, "*", "DNS: " fmt, ##__VA_ARGS__)
@@ -193,6 +199,7 @@ const char *res_inet_ntop_sock(const struct sockaddr *sa,
 #define op_inet_ntop_sock(sa, buf, len) \
   res_inet_ntop_sock((const struct sockaddr *)(sa), buf, len)
 
+#undef GET_SS_FAMILY
 #define GET_SS_FAMILY(ss)  (((const struct sockaddr *)(ss))->sa_family)
 
 /* SS_LEN: portable sockaddr length */
@@ -203,7 +210,9 @@ static inline socklen_t res_ss_len(const struct sockaddr_storage *ss) {
 #endif
   return sizeof(struct sockaddr_storage);
 }
+#undef GET_SS_LEN
 #define GET_SS_LEN(ss)      res_ss_len(ss)
+#undef SET_SS_LEN
 #define SET_SS_LEN(ss, l)   /* length is implicit in family */
 
 /* Random ID generation — uses getrandom(2) (Linux ≥ 3.17) with a

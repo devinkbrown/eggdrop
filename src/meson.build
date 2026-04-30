@@ -26,11 +26,10 @@ core_sources = files(
   'dccutil.c',
   'dns.c',
   'flags.c',
-  'io_thread.c',
+  'egg_commio.c',
   'language.c',
   'main.c',
   'match.c',
-  'mem.c',
   'misc.c',
   'misc_file.c',
   'script.c',
@@ -64,11 +63,12 @@ core_cargs = [
   '-Wno-incompatible-pointer-types',
 ]
 
-# -DDEBUG_MEM is eggdrop-specific (memory tracking); the generic -DDEBUG/-g
-# flags are applied globally via add_project_arguments() in the top meson.build.
-if opt_debug
-  core_cargs += ['-DDEBUG_MEM']
+if have_tls
+  core_cargs += ['-include', 'wolfssl/options.h']  # load system wolfSSL config
 endif
+
+# Generic -DDEBUG/-g flags are applied globally via add_project_arguments()
+# in the top meson.build.
 
 # -------------------------------------------------------------------------
 # All link dependencies for the main binary

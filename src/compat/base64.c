@@ -231,7 +231,7 @@ b64_pton(const char *src, uint8_t *target, size_t targsize)
 		if (ch == Pad64)
 			break;
 
-		pos = strchr(Base64, ch);
+		pos = (char *)strchr(Base64, ch);
 		if (pos == NULL)		/* A non-base64 character. */
 			return (-1);
 

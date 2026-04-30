@@ -52,7 +52,7 @@ static _Atomic(int) log_pending = 0;
 /* ---- writer thread state ------------------------------------------------- */
 
 static pthread_t      log_tid;
-static volatile int   log_stop    = 0;
+static atomic_int     log_stop    = 0;
 static _Atomic(int)   log_active  = 0;
 
 /* The log callback to invoke from the writer thread.

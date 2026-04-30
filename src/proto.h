@@ -113,6 +113,9 @@ void add_hq_user(void);
 void rehash(void);
 void reload(void);
 void chanprog(void);
+void chan_htab_init(void);
+void chan_htab_add(struct chanset_t *);
+void chan_htab_del(struct chanset_t *);
 void check_timers(void);
 void check_utimers(void);
 void rmspace(char *s);
@@ -195,10 +198,8 @@ int exist_lang_section(char *);
 
 /* main.c */
 void fatal(const char *, int);
-int expected_memory(void);
 void eggAssert(const char *, int, const char *);
 void backup_userfile(void);
-int expmem_modules(int);
 
 /* match.c */
 int casecharcmp(unsigned char, unsigned char);
@@ -223,15 +224,6 @@ int cron_match(const char *, const char *);
 #define match_useraddr(a,b) addr_match((char *)(a),(char *)(b),1,0)
 #define cmp_masks(a,b) addr_match((char *)(a),(char *)(b),0,1)
 #define cmp_usermasks(a,b) addr_match((char *)(a),(char *)(b),1,1)
-
-/* mem.c */
-[[nodiscard]] void *n_malloc(int, const char *, int);
-[[nodiscard]] void *n_realloc(void *, int, const char *, int);
-void                n_free(void *, const char *, int);
-[[nodiscard]] char *n_strdup(const char *, const char *, int);
-void tell_mem_status(char *);
-void tell_mem_status_dcc(int);
-void debug_mem_to_dcc(int);
 
 /* misc.c */
 int egg_strcatn(char *, const char *, size_t);

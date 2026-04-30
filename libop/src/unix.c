@@ -168,23 +168,18 @@ op_gettimeofday(struct timeval *tv, void *tz __attribute__((unused)))
 void
 op_sleep(unsigned int seconds, unsigned int useconds)
 {
-	struct timespec rem = {
-		.tv_sec  = seconds,
-		.tv_nsec = (long)useconds * 1000L,
-	};
-
 #if defined(HAVE_CLOCK_NANOSLEEP)
 	/* CLOCK_MONOTONIC sleep is immune to NTP wall-clock adjustments.
 	 * Pass TIMER_ABSTIME=0 (relative), loop on EINTR with remaining. */
 	int rc;
-	struct timespec next = rem;
+	struct timespec next = { .tv_sec = seconds, .tv_nsec = (long)useconds * 1000L };
 	while ((rc = clock_nanosleep(CLOCK_MONOTONIC, 0, &next, &next)) != 0)
 	{
 		if (rc != EINTR)
 			break;
 	}
 #elif defined(HAVE_NANOSLEEP)
-	struct timespec next = rem;
+	struct timespec next = { .tv_sec = seconds, .tv_nsec = (long)useconds * 1000L };
 	while (nanosleep(&next, &next) == -1)
 	{
 		if (errno != EINTR)

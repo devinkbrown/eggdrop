@@ -115,7 +115,10 @@ static const char op_default_ciphers[] = ""
 	"!aNULL";
 
 /* X25519 is always available with our wolfSSL build requirement. */
+#if (defined(OPENSSL_EXTRA) || defined(HAVE_CURL)) && \
+    (defined(HAVE_ECC) || defined(HAVE_CURVE25519) || defined(HAVE_CURVE448))
 static char op_default_curves[] = "X25519:P-521:P-384:P-256";
+#endif
 
 typedef enum
 {
@@ -255,7 +258,7 @@ tls_client_send_cb(WOLFSSL *ssl, char *buf, int sz, void *ctx_arg)
 	while (r < 0 && errno == EINTR);
 
 	if (r < 0) {
-		if (errno == EAGAIN || errno == EWOULDBLOCK)
+		if (errno == EAGAIN)
 			return WOLFSSL_CBIO_ERR_WANT_WRITE;
 		if (errno == ECONNRESET)
 			return WOLFSSL_CBIO_ERR_CONN_RST;
@@ -1273,8 +1276,7 @@ op_ssl_read_or_write(const int r_or_w, op_fde_t *const F, void *const rbuf, cons
 		 * A write stall must return OP_RW_SSL_NEED_WRITE so the caller arms
 		 * OP_SELECT_WRITE; returning NEED_READ instead causes the event loop
 		 * to wait in the wrong direction and the connection appears frozen. */
-		int is_eagain = (saved_errno == EAGAIN  || saved_errno == EWOULDBLOCK
-		              || post_errno  == EAGAIN  || post_errno  == EWOULDBLOCK);
+		int is_eagain = (saved_errno == EAGAIN || post_errno == EAGAIN);
 		ssize_t need_rw = (r_or_w == 0) ? OP_RW_SSL_NEED_READ
 		                                 : OP_RW_SSL_NEED_WRITE;
 

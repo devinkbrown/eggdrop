@@ -1530,6 +1530,21 @@ op_fd_ssl(const op_fde_t *F)
 	return 0;
 }
 
+void
+op_fde_set_ssl_ptr(op_fde_t *F, void *ssl)
+{
+	if (F != NULL)
+		F->ssl = ssl;
+}
+
+void *
+op_fde_get_ssl_ptr(const op_fde_t *F)
+{
+	if (F == NULL)
+		return NULL;
+	return F->ssl;
+}
+
 op_platform_fd_t
 op_get_fd(const op_fde_t *F)
 {

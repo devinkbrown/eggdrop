@@ -232,22 +232,10 @@ typedef struct WOLFSSL_CTX SSL_CTX;
 /*
  *    Handy aliases for memory tracking and core dumps.
  *
- *    DEBUG_MEM: route through mem.c's tracking table (n_malloc / n_free).
- *    Release:   route through libop's OOM-safe allocators (op_malloc / op_free).
- *               op_malloc() calls calloc(1, size) so memory is always zeroed;
- *               op_free() is a no-op on NULL.
+ *    All allocations route through libop's OOM-safe allocators.
+ *    op_malloc() calls calloc(1, size) so memory is always zeroed;
+ *    op_free() is a no-op on NULL.
  */
-#ifdef DEBUG_MEM
-#  define nmalloc(x)    n_malloc((x),__FILE__,__LINE__)
-#  define nrealloc(x,y) n_realloc((x),(y),__FILE__,__LINE__)
-#  define nfree(x)      n_free((x),__FILE__,__LINE__)
-#  define nstrdup(x)    n_strdup((x),__FILE__,__LINE__)
-#else
-#  define nmalloc(x)    op_malloc((size_t)(x))
-#  define nrealloc(x,y) op_realloc((x),(size_t)(y))
-#  define nfree(x)      op_free((x))
-#  define nstrdup(x)    op_strdup((x))
-#endif
 
 #ifdef DEBUG_ASSERT
 #  define Assert(expr) do {                                             \
@@ -693,9 +681,6 @@ typedef struct {
 /* Ring-buffer for outgoing socket data (eliminates memmove on partial write) */
 #include "compat/mbuf.h"
 
-/* stdatomic.h for _Atomic used by sock_handler.inbuf_lock */
-#include <stdatomic.h>
-
 /* These are used by the net module to keep track of sockets and what's
  * queued on them
  */
@@ -703,43 +688,7 @@ struct sock_handler {
   char *inbuf;
   egg_mbuf_t *outbuf;           /* ring buffer for pending outgoing data */
   size_t inbuflen;              /* Inbuf could be binary data   */
-  /* inbuf_lock: spinlock protecting inbuf/inbuflen from concurrent access
-   * by the io_thread (reads) and the main thread (drains).
-   * Using _Atomic int rather than a mutex so the struct is safe to realloc
-   * (pthread_mutex_t contains internal pointers; mtx_t is implementation-
-   * defined — neither survives memcpy).  Contention is minimal (io_thread
-   * holds it only for a single recv() + buffer append).
-   * 0 = unlocked, 1 = locked. */
-  _Atomic int inbuf_lock;
-#ifdef HAVE_LIBURING
-  char *recv_buf;               /* kernel-filled async recv buffer (READMAX+2 bytes) */
-  int   recv_len;               /* bytes ready: -1=none, 0=EOF, >0=data available   */
-#endif
 };
-
-/* Spinlock helpers for sock_handler.inbuf_lock.
- * These are header-inline so net.c and io_thread.c share the same
- * implementation without an extra translation unit. */
-static inline void egg_spin_init(_Atomic int *lock)
-{
-  atomic_store_explicit(lock, 0, memory_order_relaxed);
-}
-
-static inline void egg_spin_lock(_Atomic int *lock)
-{
-  int expected = 0;
-  while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1,
-             memory_order_acquire, memory_order_relaxed))
-    expected = 0;   /* reset after failed CAS */
-}
-
-static inline void egg_spin_unlock(_Atomic int *lock)
-{
-  atomic_store_explicit(lock, 0, memory_order_release);
-}
-
-/* egg_spin_destroy: no-op (spinlock has no OS resources to free). */
-static inline void egg_spin_destroy([[maybe_unused]] _Atomic int *lock) {}
 
 struct tclsock_handler {
   int mask;                     /* desired events               */
@@ -753,6 +702,7 @@ typedef struct sock_list {
   SSL *ssl;
 #endif
   short flags;
+  uint8_t commio_ready;           /* set by commio read/write callbacks       */
   union {
     struct sock_handler sock;
     struct tclsock_handler tclsock;

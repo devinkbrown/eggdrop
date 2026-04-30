@@ -66,10 +66,10 @@ op_realloc(void *x, size_t y)
 static inline char *
 op_strndup(const char *x, size_t y)
 {
-	char *ret = malloc(y);
+	char *ret = malloc(y + 1);
 	if (op_unlikely(ret == NULL))
 		op_outofmemory();
-	op_strlcpy(ret, x, y);
+	op_strlcpy(ret, x, y + 1);
 	return (ret);
 }
 

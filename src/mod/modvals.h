@@ -87,6 +87,7 @@ constexpr int IRC_DO_CHANNEL_PART       = 19;
 constexpr int IRC_CHECK_THIS_BAN        = 20;
 constexpr int IRC_CHECK_THIS_USER       = 21;
 constexpr int IRC_RESET_CHAN_INFO       = 25;
+constexpr int IRC_FLUSH_MODE           = 29;
 /* Notes */
 constexpr int NOTES_CMD_NOTE  = 4;
 /* Console */
@@ -124,9 +125,26 @@ typedef struct _module_entry {
 #  endif
 #endif /* STATIC */
   Function *funcs;
-#ifdef DEBUG_MEM
-  uint64_t mem_work;
-#endif /* DEBUG_MEM */
 } module_entry;
+
+/* -----------------------------------------------------------------------
+ * Versioned API struct — wraps the legacy global_table with metadata.
+ *
+ * Old modules use Function *global unchanged.  New modules can verify
+ * ABI compatibility via version/count before calling through the table.
+ * The struct is append-only: new fields go after 'funcs', count grows
+ * monotonically, and version bumps only on incompatible layout changes.
+ * ----------------------------------------------------------------------- */
+#define EGG_API_VERSION  1
+
+typedef struct eggdrop_api {
+  uint32_t  version;   /* EGG_API_VERSION                              */
+  uint32_t  count;     /* number of entries in the function table       */
+  Function *funcs;     /* points to global_table[]                      */
+} eggdrop_api_t;
+
+/* Slot in global_table that holds a pointer to the eggdrop_api_t.
+ * New modules: egg_api->version / egg_api->count for ABI checks. */
+#define EGG_API_SLOT 335
 
 #endif /* _EGG_MOD_MODVALS_H */

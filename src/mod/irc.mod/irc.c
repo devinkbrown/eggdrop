@@ -272,14 +272,13 @@ static void maybe_revenge(struct chanset_t *chan, char *whobad,
  */
 static void set_key(struct chanset_t *chan, char *k)
 {
-  nfree(chan->channel.key);
+  op_free(chan->channel.key);
   if (k == NULL) {
     chan->channel.key = (char *) channel_malloc(1);
     chan->channel.key[0] = 0;
     return;
   }
-  chan->channel.key = (char *) channel_malloc(strlen(k) + 1);
-  strlcpy(chan->channel.key, k, sizeof(chan->channel.key));
+  chan->channel.key = op_strdup(k);
 }
 
 static int hand_on_chan(struct chanset_t *chan, struct userrec *u)
@@ -309,26 +308,29 @@ static void refresh_who_chan(char *channame)
 /* Adds a ban, exempt or invite mask to the list
  * m should be chan->channel.(exempt|invite|ban)
  */
-static void newmask(masklist *m, char *s, char *who)
+static void newmask(masklist *m, op_htab *ht, char *s, char *who)
 {
-  for (; m && m->mask[0] && rfc_casecmp(m->mask, s); m = m->next);
+  /* O(1) duplicate check via hash table */
+  if (ht && op_htab_get(ht, s))
+    return;                     /* Already existent mask */
+
+  /* Linear fallback to find sentinel (mask[0]==0) */
+  for (; m && m->mask[0]; m = m->next);
   if (!m) {
     fatal("newmask: missing sentinel in mask list", 0);
     abort();
   }
-  if (m->mask[0])
-    return;                     /* Already existent mask */
 
   m->next = (masklist *) channel_malloc_mask();
   m->next->next = NULL;
   m->next->mask = (char *) channel_malloc(1);
   m->next->mask[0] = 0;
-  nfree(m->mask);
-  m->mask = (char *) channel_malloc(strlen(s) + 1);
-  strlcpy(m->mask, s, sizeof(m->mask));
-  m->who = (char *) channel_malloc(strlen(who) + 1);
-  strlcpy(m->who, who, sizeof(m->who));
+  op_free(m->mask);
+  m->mask = op_strdup(s);
+  m->who = op_strdup(who);
   m->timer = now;
+  if (ht)
+    op_htab_set(ht, m->mask, m, NULL);
 }
 
 /* Removes a nick from the channel member list (returns 1 if successful)
@@ -346,6 +348,8 @@ static int killmember(struct chanset_t *chan, char *nick)
         putlog(LOG_MISC, "*", "(!) killmember(%s) -> nonexistent", nick);
     return 0;
   }
+  if (chan->channel.member_ht && x->nick[0])
+    op_htab_del(chan->channel.member_ht, x->nick);
   if (old)
     old->next = x->next;
   else
@@ -480,7 +484,7 @@ void reset_chan_info(struct chanset_t *chan, int reset, int do_reset)
   if (reset & CHAN_RESETMODES) {
     /* done here to keep expmem happy, as this is accounted in
        irc.mod, not channels.mod where clear_channel() resides */
-    nfree(chan->channel.key);
+    op_free(chan->channel.key);
     chan->channel.key = (char *) channel_malloc(1);
     chan->channel.key[0] = 0;
     chan->status &= ~CHAN_ASKEDMODES;
@@ -648,8 +652,8 @@ static void check_expired_chanstuff(void)
           for (b = chan->channel.ban; b->mask[0]; b = b->next)
             if (b->mask[0] != '$' && /* skip extended bans ($a:, $z:, etc.) */
                 now - b->timer > 60 * chan->ban_time &&
-                !u_sticky_mask(chan->bans, b->mask) &&
-                !u_sticky_mask(global_bans, b->mask) &&
+                !u_sticky_mask(chan->bans, chan->bans_ht, b->mask) &&
+                !u_sticky_mask(global_bans, global_bans_ht, b->mask) &&
                 expired_mask(chan, b->who)) {
               putlog(LOG_MODES, chan->dname,
                      "(%s) Channel ban on %s expired.", chan->dname, b->mask);
@@ -660,8 +664,8 @@ static void check_expired_chanstuff(void)
         if (use_exempts && channel_dynamicexempts(chan) && chan->exempt_time)
           for (e = chan->channel.exempt; e->mask[0]; e = e->next)
             if (now - e->timer > 60 * chan->exempt_time &&
-                !u_sticky_mask(chan->exempts, e->mask) &&
-                !u_sticky_mask(global_exempts, e->mask) &&
+                !u_sticky_mask(chan->exempts, chan->exempts_ht, e->mask) &&
+                !u_sticky_mask(global_exempts, global_exempts_ht, e->mask) &&
                 expired_mask(chan, e->who)) {
               /* Check to see if it matches a ban */
               int match = 0;
@@ -691,8 +695,8 @@ static void check_expired_chanstuff(void)
             chan->invite_time && !(chan->channel.mode & CHANINV))
           for (b = chan->channel.invite; b->mask[0]; b = b->next)
             if (now - b->timer > 60 * chan->invite_time &&
-                !u_sticky_mask(chan->invites, b->mask) &&
-                !u_sticky_mask(global_invites, b->mask) &&
+                !u_sticky_mask(chan->invites, chan->invites_ht, b->mask) &&
+                !u_sticky_mask(global_invites, global_invites_ht, b->mask) &&
                 expired_mask(chan, b->who)) {
               putlog(LOG_MODES, chan->dname,
                      "(%s) Channel invitation on %s expired.",
@@ -1481,7 +1485,7 @@ static Function irc_table[] = {
   (Function) & twitch,          /* int                          */
   /* 28 - 31 */
   (Function) & H_ircaway,       /* p_tcl_bind_list              */
-  (Function) NULL,              /* Was H_monitor                */
+  (Function) flush_mode,        /* 29: flush pending mode queue */
   (Function) & H_chghost        /* p_tcl_bind_list              */
 };
 

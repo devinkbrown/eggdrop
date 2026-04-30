@@ -111,7 +111,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     postsize -= egg_strcatn(post, chan->key, sizeof(post));
     postsize -= egg_strcatn(post, " ", sizeof(post));
 
-    nfree(chan->key), chan->key = NULL;
+    op_free(chan->key), chan->key = NULL;
   }
 
   /* max +l is signed 2^32 on IRCnet at least... so make sure we've got at least
@@ -147,7 +147,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     postsize -= egg_strcatn(post, chan->rmkey, sizeof(post));
     postsize -= egg_strcatn(post, " ", sizeof(post));
 
-    nfree(chan->rmkey), chan->rmkey = NULL;
+    op_free(chan->rmkey), chan->rmkey = NULL;
   }
 
   /* Do -{b,e,I} before +{b,e,I} to avoid the server ignoring overlaps */
@@ -166,7 +166,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
       postsize -= egg_strcatn(post, chan->cmode[i].op, sizeof(post));
       postsize -= egg_strcatn(post, " ", sizeof(post));
 
-      nfree(chan->cmode[i].op), chan->cmode[i].op = NULL;
+      op_free(chan->cmode[i].op), chan->cmode[i].op = NULL;
       chan->cmode[i].type = 0;
     }
   }
@@ -187,7 +187,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
       postsize -= egg_strcatn(post, chan->cmode[i].op, sizeof(post));
       postsize -= egg_strcatn(post, " ", sizeof(post));
 
-      nfree(chan->cmode[i].op), chan->cmode[i].op = NULL;
+      op_free(chan->cmode[i].op), chan->cmode[i].op = NULL;
       chan->cmode[i].type = 0;
     }
   }
@@ -337,7 +337,7 @@ static void real_add_mode(struct chanset_t *chan,
         chan->cmode[i].type = type;
         chan->cmode[i].op = (char *) channel_malloc(l);
         chan->bytes += l;       /* Add 1 for safety */
-        strlcpy(chan->cmode[i].op, op, sizeof(chan->cmode[i].op));
+        strlcpy(chan->cmode[i].op, op, l);
         break;
       }
   }
@@ -345,18 +345,14 @@ static void real_add_mode(struct chanset_t *chan,
   /* +k ? store key */
   else if (plus == '+' && mode == 'k') {
     if (chan->key)
-      nfree(chan->key);
-    chan->key = (char *) channel_malloc(strlen(op) + 1);
-    if (chan->key)
-      strlcpy(chan->key, op, sizeof(chan->key));
+      op_free(chan->key);
+    chan->key = op_strdup(op);
   }
   /* -k ? store removed key */
   else if (plus == '-' && mode == 'k') {
     if (chan->rmkey)
-      nfree(chan->rmkey);
-    chan->rmkey = (char *) channel_malloc(strlen(op) + 1);
-    if (chan->rmkey)
-      strlcpy(chan->rmkey, op, sizeof(chan->rmkey));
+      op_free(chan->rmkey);
+    chan->rmkey = op_strdup(op);
   }
   /* +l ? store limit */
   else if (plus == '+' && mode == 'l')
@@ -733,7 +729,7 @@ static void got_dehalfop(struct chanset_t *chan, char *nick, char *from,
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);
 
-  had_halfop = chan_hasop(m);
+  had_halfop = chan_hashalfop(m);
   /* Flags need to be set correctly right from the beginning now, so that
    * add_mode() doesn't get irritated.
    */
@@ -960,7 +956,8 @@ static void got_ban(struct chanset_t *chan, char *nick, char *from, char *who,
              match_my_nick(nick) ? 0 : 1);
   }
   if (!nick[0] && (bounce_bans || bounce_modes) &&
-      (!u_equals_mask(global_bans, who) || !u_equals_mask(chan->bans, who)))
+      (!u_equals_mask(global_bans, global_bans_ht, who) ||
+       !u_equals_mask(chan->bans, chan->bans_ht, who)))
     add_mode(chan, '-', 'b', who);
 }
 
@@ -973,12 +970,14 @@ static void got_unban(struct chanset_t *chan, char *nick, char *from,
   for (b = chan->channel.ban; b->mask[0] && rfc_casecmp(b->mask, who);
        old = b, b = b->next);
   if (b->mask[0]) {
+    if (chan->channel.ban_ht)
+      op_htab_del(chan->channel.ban_ht, who);
     if (old)
       old->next = b->next;
     else
       chan->channel.ban = b->next;
-    nfree(b->mask);
-    nfree(b->who);
+    op_free(b->mask);
+    op_free(b->who);
     channel_free_mask(b);
   }
   check_tcl_mode(nick, from, u, chan->dname, "-b", who);
@@ -988,8 +987,10 @@ static void got_unban(struct chanset_t *chan, char *nick, char *from,
   if (channel_pending(chan))
     return;
 
-  if ((u_sticky_mask(chan->bans, who) || u_sticky_mask(global_bans, who)) ||
-      ((u_equals_mask(global_bans, who) || u_equals_mask(chan->bans, who)) &&
+  if ((u_sticky_mask(chan->bans, chan->bans_ht, who) ||
+       u_sticky_mask(global_bans, global_bans_ht, who)) ||
+      ((u_equals_mask(global_bans, global_bans_ht, who) ||
+        u_equals_mask(chan->bans, chan->bans_ht, who)) &&
       !channel_dynamicbans(chan) && ((!glob_bot(user) ||
       !(bot_flags(u) & BOT_SHARE)) && ((!glob_op(user) || chan_deop(user)) &&
       !chan_op(user)) && ((!glob_halfop(user) || chan_dehalfop(user)) &&
@@ -1026,8 +1027,8 @@ static void got_exempt(struct chanset_t *chan, char *nick, char *from,
       reversing = 1;
   }
   if (reversing || (bounce_exempts && !nick[0] &&
-      (!u_equals_mask(global_exempts, who) ||
-      !u_equals_mask(chan->exempts, who))))
+      (!u_equals_mask(global_exempts, global_exempts_ht, who) ||
+      !u_equals_mask(chan->exempts, chan->exempts_ht, who))))
     add_mode(chan, '-', 'e', who);
 }
 
@@ -1043,12 +1044,14 @@ static void got_unexempt(struct chanset_t *chan, char *nick, char *from,
     e = e->next;
   }
   if (e && e->mask[0]) {
+    if (chan->channel.exempt_ht)
+      op_htab_del(chan->channel.exempt_ht, who);
     if (old)
       old->next = e->next;
     else
       chan->channel.exempt = e->next;
-    nfree(e->mask);
-    nfree(e->who);
+    op_free(e->mask);
+    op_free(e->who);
     channel_free_mask(e);
   }
   check_tcl_mode(nick, from, u, chan->dname, "-e", who);
@@ -1058,7 +1061,8 @@ static void got_unexempt(struct chanset_t *chan, char *nick, char *from,
   if (channel_pending(chan))
     return;
 
-  if (u_sticky_mask(chan->exempts, who) || u_sticky_mask(global_exempts, who))
+  if (u_sticky_mask(chan->exempts, chan->exempts_ht, who) ||
+      u_sticky_mask(global_exempts, global_exempts_ht, who))
     add_mode(chan, '+', 'e', who);
 
   /* If exempt was removed by master then leave it else check for bans */
@@ -1072,8 +1076,8 @@ static void got_unexempt(struct chanset_t *chan, char *nick, char *from,
         b = b->next;
     }
   }
-  if ((u_equals_mask(global_exempts, who) ||
-      u_equals_mask(chan->exempts, who)) && me_op(chan) &&
+  if ((u_equals_mask(global_exempts, global_exempts_ht, who) ||
+      u_equals_mask(chan->exempts, chan->exempts_ht, who)) && me_op(chan) &&
       !channel_dynamicexempts(chan) && (!glob_bot(user) ||
       !(bot_flags(u) & BOT_SHARE)))
     add_mode(chan, '+', 'e', who);
@@ -1108,8 +1112,8 @@ static void got_invite(struct chanset_t *chan, char *nick, char *from,
       reversing = 1;
   }
   if (reversing || (bounce_invites && (!nick[0]) &&
-      (!u_equals_mask(global_invites, who) ||
-      !u_equals_mask(chan->invites, who))))
+      (!u_equals_mask(global_invites, global_invites_ht, who) ||
+      !u_equals_mask(chan->invites, chan->invites_ht, who))))
     add_mode(chan, '-', 'I', who);
 }
 
@@ -1123,12 +1127,14 @@ static void got_uninvite(struct chanset_t *chan, char *nick, char *from,
     inv = inv->next;
   }
   if (inv->mask[0]) {
+    if (chan->channel.invite_ht)
+      op_htab_del(chan->channel.invite_ht, who);
     if (old)
       old->next = inv->next;
     else
       chan->channel.invite = inv->next;
-    nfree(inv->mask);
-    nfree(inv->who);
+    op_free(inv->mask);
+    op_free(inv->who);
     channel_free_mask(inv);
   }
   check_tcl_mode(nick, from, u, chan->dname, "-I", who);
@@ -1138,13 +1144,14 @@ static void got_uninvite(struct chanset_t *chan, char *nick, char *from,
   if (channel_pending(chan))
     return;
 
-  if (u_sticky_mask(chan->invites, who) || u_sticky_mask(global_invites, who))
+  if (u_sticky_mask(chan->invites, chan->invites_ht, who) ||
+      u_sticky_mask(global_invites, global_invites_ht, who))
     add_mode(chan, '+', 'I', who);
   if (!nick[0] && glob_bot(user) && !glob_master(user) && !chan_master(user) &&
       (chan->channel.mode & CHANINV))
     add_mode(chan, '+', 'I', who);
-  if ((u_equals_mask(global_invites, who) ||
-      u_equals_mask(chan->invites, who)) && me_op(chan) &&
+  if ((u_equals_mask(global_invites, global_invites_ht, who) ||
+      u_equals_mask(chan->invites, chan->invites_ht, who)) && me_op(chan) &&
       !channel_dynamicinvites(chan) && (!glob_bot(user) ||
       !(bot_flags(u) & BOT_SHARE)))
     add_mode(chan, '+', 'I', who);

@@ -93,38 +93,13 @@ constexpr int IOT_MAX_EVENTS = 64;
 constexpr int IOT_RBUF_SIZE = READMAX + 2;
 
 /* =========================================================================
- * Helper: open an eventfd or pipe pair
- * ====================================================================== */
-
-static int iot_open_notify(int *write_end_out)
-{
-#ifdef HAVE_EVENTFD
-  int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-  if (fd < 0)
-    return -1;
-  if (write_end_out)
-    *write_end_out = fd;   /* eventfd: same fd for read and write */
-  return fd;
-#else
-  int fds[2];
-  if (pipe(fds) < 0)
-    return -1;
-  fcntl(fds[0], F_SETFL, O_NONBLOCK);
-  fcntl(fds[1], F_SETFL, O_NONBLOCK);
-  if (write_end_out)
-    *write_end_out = fds[1];
-  return fds[0];
-#endif
-}
-
-/* =========================================================================
  * Inbuf append helper (called from io_thread, under inbuf_lock)
  * ====================================================================== */
 
 static void iot_append_inbuf(struct sock_handler *h, const char *data, int len)
 {
   size_t newlen = h->inbuflen + (size_t)len;
-  char *newbuf = nrealloc(h->inbuf, newlen + 1);
+  char *newbuf = op_realloc(h->inbuf, newlen + 1);
   if (!newbuf)
     return;   /* OOM: silently drop; main thread will see no progress */
   memcpy(newbuf + h->inbuflen, data, (size_t)len);
@@ -200,7 +175,7 @@ static int iot_thread_fn([[maybe_unused]] void *arg)
       ssize_t ret = recv(fd, rbuf, sizeof rbuf - 1, 0);
 
       if (ret < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        if (errno == EAGAIN)
           continue;
         /* Real error: mark the socket so sockgets() triggers EOF handling. */
         egg_spin_lock(&sl->handler.sock.inbuf_lock);

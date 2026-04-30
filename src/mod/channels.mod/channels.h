@@ -73,11 +73,11 @@ static void get_handle_chaninfo(char *handle, char *chname, char *s, size_t slen
 static void set_handle_chaninfo(struct userrec *bu, char *handle,
                                 char *chname, char *info);
 static void set_handle_laston(char *chan, struct userrec *u, time_t n);
-static int u_sticky_mask(maskrec *u, char *uhost);
+static int u_sticky_mask(maskrec *u, op_htab *ht, char *uhost);
 static int u_setsticky_mask(struct chanset_t *chan, maskrec *m, char *uhost,
                             int sticky, char *botcmd);
 
-static int u_equals_mask(maskrec *u, char *uhost);
+static int u_equals_mask(maskrec *u, op_htab *ht, char *uhost);
 static int u_match_mask(struct maskrec *rec, char *mask);
 static int u_match_mask_trie(struct maskrec *rec, op_cidr_tbl_t *ip_trie, char *mask);
 static int u_delexempt(struct chanset_t *c, char *who, int doit);
@@ -104,7 +104,7 @@ static void clear_channel(struct chanset_t *, int);
 static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz);
 static void set_mode_protect(struct chanset_t *chan, char *set);
 static int ismasked(masklist *m, char *user);
-static int ismodeline(masklist *m, char *user);
+static int ismodeline(masklist *m, op_htab *ht, char *user);
 static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                               int items, char **item);
 static int tcl_channel_add(Tcl_Interp *irp, char *, char *);
@@ -137,9 +137,9 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define del_chanrec ((void (*)(struct userrec *, char *))channels_funcs[10])
 #define set_handle_chaninfo ((void (*)(struct userrec *, char *, char *, char *))channels_funcs[11])
 /* 12 - 15 */
-#define channel_malloc(x) ((void *(*)(int, char *, int))channels_funcs[12])(x,__FILE__,__LINE__)
+#define channel_malloc(x) op_malloc(x)
 #define u_match_mask ((int (*)(maskrec *, char *))channels_funcs[13])
-#define u_equals_mask ((int (*)(maskrec *, char *))channels_funcs[14])
+#define u_equals_mask ((int (*)(maskrec *, op_htab *, char *))channels_funcs[14])
 #define clear_channel ((void (*)(struct chanset_t *, int))channels_funcs[15])
 /* 16 - 19 */
 #define set_handle_laston ((void (*)(char *,struct userrec *,time_t))channels_funcs[16])
@@ -147,7 +147,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define use_info (*(int *)(channels_funcs[18]))
 #define get_handle_chaninfo ((void (*)(char *, char *, char *, size_t))channels_funcs[19])
 /* 20 - 23 */
-#define u_sticky_mask ((int (*)(maskrec *, char *))channels_funcs[20])
+#define u_sticky_mask ((int (*)(maskrec *, op_htab *, char *))channels_funcs[20])
 #define ismasked ((int (*)(masklist *, char *))channels_funcs[21])
 #define add_chanrec_by_handle ((void (*)(struct userrec *, char *, char *))channels_funcs[22])
 /* *HOLE* channels_funcs[23] used to be isexempted() <cybah> */
@@ -173,7 +173,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define write_exempts ((int (*)(FILE *, int))channels_funcs[39])
 /* 40 - 43 */
 #define write_invites ((int (*)(FILE *, int))channels_funcs[40])
-#define ismodeline ((int(*)(masklist *, char *))channels_funcs[41])
+#define ismodeline ((int(*)(masklist *, op_htab *, char *))channels_funcs[41])
 #define initudef ((void(*)(int, char *,int))channels_funcs[42])
 #define ngetudef ((int(*)(char *, char *))channels_funcs[43])
 /* 44 - 47 */
@@ -184,7 +184,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 /* 48 - 52 */
 #define global_invite_time (*(int *)(channels_funcs[48]))
 /* Slab-backed typed allocators for the two most allocation-intensive objects.
- * Use these instead of channel_malloc/nfree for memberlist and masklist nodes. */
+ * Use these instead of channel_malloc/op_free for memberlist and masklist nodes. */
 #define channel_malloc_member() ((void *(*)(void))channels_funcs[49])()
 #define channel_free_member(x)  ((void (*)(void *))channels_funcs[50])(x)
 #define channel_malloc_mask()   ((void *(*)(void))channels_funcs[51])()
@@ -201,9 +201,9 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define isexempted(chan, user)  ismasked((chan)->channel.exempt, user)
 #define isinvited(chan, user)   ismasked((chan)->channel.invite, user)
 
-#define ischanban(chan, user)    ismodeline((chan)->channel.ban, user)
-#define ischanexempt(chan, user) ismodeline((chan)->channel.exempt, user)
-#define ischaninvite(chan, user) ismodeline((chan)->channel.invite, user)
+#define ischanban(chan, user)    ismodeline((chan)->channel.ban, (chan)->channel.ban_ht, user)
+#define ischanexempt(chan, user) ismodeline((chan)->channel.exempt, (chan)->channel.exempt_ht, user)
+#define ischaninvite(chan, user) ismodeline((chan)->channel.invite, (chan)->channel.invite_ht, user)
 
 #define u_setsticky_ban(chan, host, sticky)     u_setsticky_mask(chan, ((struct chanset_t *)chan) ? ((struct chanset_t *)chan)->bans : global_bans, host, sticky, "s")
 #define u_setsticky_exempt(chan, host, sticky)  u_setsticky_mask(chan, ((struct chanset_t *)chan) ? ((struct chanset_t *)chan)->exempts : global_exempts, host, sticky, "se")

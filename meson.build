@@ -568,6 +568,7 @@ foreach _w : [
   '-Wduplicated-cond',       # if (a) … else if (a) — always same branch
   '-Wlogical-op',            # logical operators where bitwise was likely intended
   '-Wvla',                   # variable-length arrays (stack size uncontrolled)
+  '-Wno-stringop-overread',  # GCC false positive in sha1.c under LTO
   # Note: -Wformat=2 includes -Wformat-nonliteral which triggers 238 false positives
   # from eggdrop's intentional pattern of passing language-file strings as format args.
   # -Wformat-security (included in -Wall) covers the genuine security case.
@@ -603,6 +604,11 @@ else
   if cc.has_argument('-fomit-frame-pointer')
     add_project_arguments('-fomit-frame-pointer', language: 'c')
   endif
+endif
+
+# LTO re-analyses warnings at link time; pass through suppression flags.
+if cc.has_argument('-Wno-stringop-overread')
+  add_project_link_arguments('-Wno-stringop-overread', language: 'c')
 endif
 
 # -------------------------------------------------------------------------

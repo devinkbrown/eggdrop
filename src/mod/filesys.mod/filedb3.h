@@ -82,7 +82,7 @@ typedef struct {
 
 #define my_free(ptr)                                                    \
   if (ptr) {                                                            \
-    nfree(ptr);                                                         \
+    op_free(ptr);                                                         \
     ptr = NULL;                                                         \
   }
 
@@ -93,7 +93,7 @@ typedef struct {
 #define malloc_strcpy(target, entry)                                    \
 do {                                                                    \
   if (entry) {                                                          \
-    (target) = nrealloc((target), strlen(entry) + 1);                   \
+    (target) = op_realloc((target), strlen(entry) + 1);                   \
     strcpy((target), (entry));                                          \
   } else                                                                \
     my_free(target);                                                    \
@@ -101,7 +101,7 @@ do {                                                                    \
 
 #define malloc_strcpy_nocheck(target, entry)                            \
 do {                                                                    \
-  (target) = nrealloc((target), strlen(entry) + 1);                     \
+  (target) = op_realloc((target), strlen(entry) + 1);                     \
   strcpy((target), (entry));                                            \
 } while (0)
 

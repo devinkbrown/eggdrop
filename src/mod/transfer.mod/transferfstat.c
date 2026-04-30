@@ -65,7 +65,7 @@ static int fstat_pack(struct userrec *u, struct user_entry *e)
   }
   l->next = NULL;
   e->u.list = l;
-  nfree(fs);
+  op_free(fs);
 
   return 1;
 }
@@ -89,7 +89,7 @@ static int fstat_set(struct userrec *u, struct user_entry *e, void *buf)
 
   if (e->u.extra != fs) {
     if (e->u.extra)
-      nfree(e->u.extra);
+      op_free(e->u.extra);
     e->u.extra = fs;
   } else if (!fs) /* e->u.extra == NULL && fs == NULL */
     return 1;
@@ -134,7 +134,7 @@ static int fstat_tcl_format(char *d, size_t max, struct filesys_stats *fs, char 
         op_strbuf_printf(&_b, "%u %u", fs->dnloads, fs->dnload_ks);
         break;
       default:
-        op_strbuf_printf(&_b, "");
+        op_strbuf_init(&_b);
         break;
       }
     strlcpy(d, op_strbuf_str(&_b), max);
@@ -178,7 +178,7 @@ static int fstat_tcl_append(Tcl_Interp *irp, struct userrec *u, struct user_entr
 static int fstat_kill(struct user_entry *e)
 {
   if (e->u.extra)
-    nfree(e->u.extra);
+    op_free(e->u.extra);
   free_user_entry(e);
 
   return 1;

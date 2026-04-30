@@ -278,9 +278,6 @@ void failed_link(int idx)
   strlcpy(nick, dcc[idx].nick, sizeof nick);
   lostdcc(idx);
   autolink_cycle(nick);       /* Check for more auto-connections */
-  killsock(dcc[idx].sock);
-  dcc[idx].timeval = now;
-  return;
 }
 
 static void cont_link(int idx, char *buf, int i)
@@ -458,7 +455,7 @@ static void free_dcc_bot_(int n, void *x)
     unvia(n, findbot(dcc[n].nick));
     rembot(dcc[n].nick);
   }
-  nfree(x);
+  op_free(x);
 }
 
 static void out_dcc_bot(int idx, char *buf, void *x)
@@ -470,7 +467,7 @@ static void out_dcc_bot(int idx, char *buf, void *x)
     char *p = buf, *fnd = NULL;
     if (len && buf[len - 1] == '\n') {
       /* Make a copy as buf could be const */
-      fnd = nmalloc(len);
+      fnd = op_malloc(len);
       memcpy(fnd, buf, len - 1);
       fnd[len - 1] = 0;
       p = fnd;
@@ -480,7 +477,7 @@ static void out_dcc_bot(int idx, char *buf, void *x)
     else
       putlog(LOG_BOTNETOUT, "*", "[b->%s] %s", dcc[idx].nick, p);
     if (fnd)
-      nfree(fnd);
+      op_free(fnd);
   }
   tputs(dcc[idx].sock, buf, len);
 }
@@ -703,7 +700,7 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
   /* Check for MD5 digest from remote _bot_. <cybah> */
   if ((atr & USER_BOT) && !strncasecmp(buf, "digest ", 7)) {
     if (dcc_bot_check_digest(idx, buf + 7)) {
-      nfree(dcc[idx].u.chat);
+      op_free(dcc[idx].u.chat);
       dcc[idx].type = &DCC_BOT_NEW;
       dcc[idx].u.bot = get_data_ptr(sizeof(struct bot_info));
       dcc[idx].status = STAT_CALLED;
@@ -735,7 +732,7 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
   if (u_pass_match(dcc[idx].user, buf)) {
 #endif
     if (atr & USER_BOT) {
-      nfree(dcc[idx].u.chat);
+      op_free(dcc[idx].u.chat);
       dcc[idx].type = &DCC_BOT_NEW;
       dcc[idx].u.bot = get_data_ptr(sizeof(struct bot_info));
 
@@ -747,7 +744,7 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
       putlog(LOG_MISC, "*", DCC_LOGGEDIN, dcc[idx].nick,
              dcc[idx].host, dcc[idx].port);
       if (dcc[idx].u.chat->away) {
-        nfree(dcc[idx].u.chat->away);
+        op_free(dcc[idx].u.chat->away);
         dcc[idx].u.chat->away = NULL;
       }
       dcc[idx].type = &DCC_CHAT;
@@ -776,8 +773,8 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
         tputs(dcc[idx].sock, TLN_IAC_C TLN_WONT_C TLN_ECHO_C "\n", 4);
       dcc[idx].user = get_user_by_handle(userlist, dcc[idx].u.chat->away);
       strlcpy(dcc[idx].nick, dcc[idx].u.chat->away, sizeof dcc[idx].nick);
-      nfree(dcc[idx].u.chat->away);
-      nfree(dcc[idx].u.chat->su_nick);
+      op_free(dcc[idx].u.chat->away);
+      op_free(dcc[idx].u.chat->su_nick);
       dcc[idx].u.chat->away = NULL;
       dcc[idx].u.chat->su_nick = NULL;
       dcc[idx].type = &DCC_CHAT;
@@ -844,14 +841,14 @@ static void kill_dcc_general(int idx, void *x)
 
       for (r = dcc[idx].u.chat->buffer; r; r = q) {
         q = r->next;
-        nfree(r->msg);
-        nfree(r);
+        op_free(r->msg);
+        op_free(r);
       }
     }
     if (p->away) {
-      nfree(p->away);
+      op_free(p->away);
     }
-    nfree(p);
+    op_free(p);
   }
 }
 
@@ -954,8 +951,8 @@ static void append_line(int idx, char *line)
     /* They're probably trying to fill up the bot nuke the sods :) */
     for (p = c->buffer; p; p = q) {
       q = p->next;
-      nfree(p->msg);
-      nfree(p);
+      op_free(p->msg);
+      op_free(p);
     }
     c->buffer = 0;
     dcc[idx].status &= ~STAT_PAGE;
@@ -1134,7 +1131,7 @@ static void dcc_chat(int idx, char *buf, int i)
             dcc[idx].type = &DCC_CHAT;
             dprintf(idx, "Returning to real nick %s!\n",
                     dcc[idx].u.chat->su_nick);
-            nfree(dcc[idx].u.chat->su_nick);
+            op_free(dcc[idx].u.chat->su_nick);
             dcc[idx].u.chat->su_nick = NULL;
             dcc_chatter(idx);
             if (dcc[idx].u.chat->channel < GLOBAL_CHANS &&
@@ -1566,7 +1563,7 @@ static void kill_dupwait(int idx, void *x)
   if (p) {
     if (p->chat && DCC_CHAT.kill)
       DCC_CHAT.kill(idx, p->chat);
-    nfree(p);
+    op_free(p);
   }
 }
 
@@ -1816,7 +1813,7 @@ static void dcc_telnet_pass(int idx, int atr)
   ok = false;
   if (dcc[idx].type == &DCC_DUPWAIT) {
     struct chat_info *ci = dcc[idx].u.dupwait->chat;
-    nfree(dcc[idx].u.dupwait);
+    op_free(dcc[idx].u.dupwait);
     dcc[idx].u.chat = ci;
   }
   dcc[idx].type = &DCC_CHAT_PASS;
@@ -2129,7 +2126,7 @@ static void dcc_script(int idx, char *buf, int len)
 
     old_other = dcc[idx].u.script->u.other;
     dcc[idx].type = dcc[idx].u.script->type;
-    nfree(dcc[idx].u.script);
+    op_free(dcc[idx].u.script);
     dcc[idx].u.other = old_other;
     if (dcc[idx].type == &DCC_SOCKET) {
       /* Kill the whole thing off */
@@ -2165,7 +2162,7 @@ static void eof_dcc_script(int idx)
   dcc[idx].type->flags = oldflags;
   old = dcc[idx].u.script->u.other;
   dcc[idx].type = dcc[idx].u.script->type;
-  nfree(dcc[idx].u.script);
+  op_free(dcc[idx].u.script);
   dcc[idx].u.other = old;
   /* Then let it fall thru to the real one */
   if (dcc[idx].type && dcc[idx].type->eof)
@@ -2198,7 +2195,7 @@ static void kill_dcc_script(int idx, void *x)
 
   if (p->type && p->u.other)
     p->type->kill(idx, p->u.other);
-  nfree(p);
+  op_free(p);
 }
 
 static void out_dcc_script(int idx, char *buf, void *x)

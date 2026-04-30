@@ -577,13 +577,13 @@ static int tcl_maskhost STDVAR
 
   BADARGS(2, 3, " nick!user@host ?type?");
 
-  new = nmalloc(strlen(argv[1]) + 5);
+  new = op_malloc(strlen(argv[1]) + 5);
   if (argc == 3)
     maskaddr(argv[1], new, atoi(argv[2]));
   else
     maskban(argv[1], new);
   Tcl_AppendResult(irp, new, NULL);
-  nfree(new);
+  op_free(new);
   return TCL_OK;
 }
 

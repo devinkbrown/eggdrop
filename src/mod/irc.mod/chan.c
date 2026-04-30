@@ -70,6 +70,8 @@ static void sync_members(struct chanset_t *chan)
   for (m = chan->channel.member, prev = 0; m && m->nick[0]; m = next) {
     next = m->next;
     if (!chan_whosynced(m)) {
+      if (chan->channel.member_ht && m->nick[0])
+        op_htab_del(chan->channel.member_ht, m->nick);
       if (prev)
         prev->next = next;
       else
@@ -680,7 +682,8 @@ static void recheck_invites(struct chanset_t *chan)
 /* Resets the masks on the channel.
  */
 static void resetmasks(struct chanset_t *chan, masklist *m, maskrec *mrec,
-                       maskrec *global_masks, char mode)
+                       op_htab *mrec_ht, maskrec *global_masks,
+                       op_htab *global_masks_ht, char mode)
 {
   if (!me_op(chan) && (!me_halfop(chan) ||
       (strchr(NOHALFOPS_MODES, 'b') != NULL) ||
@@ -690,7 +693,8 @@ static void resetmasks(struct chanset_t *chan, masklist *m, maskrec *mrec,
 
   /* Remove masks we didn't put there */
   for (; m && m->mask[0]; m = m->next) {
-    if (!u_equals_mask(global_masks, m->mask) && !u_equals_mask(mrec, m->mask))
+    if (!u_equals_mask(global_masks, global_masks_ht, m->mask) &&
+        !u_equals_mask(mrec, mrec_ht, m->mask))
       add_mode(chan, '-', mode, m->mask);
   }
 
@@ -941,6 +945,7 @@ static void check_this_user(char *hand, int delete, char *host)
 
   for (chan = chanset; chan; chan = chan->next)
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
+      snprintf(s, sizeof s, "%s!%s", m->nick, m->userhost);
       u = get_user_from_member(m);
       if ((u && !strcasecmp(u->handle, hand) && delete < 2) ||
           (!u && delete == 2 && match_addr(host, s))) {
@@ -1129,6 +1134,8 @@ static int got352or4(struct chanset_t *chan, char *user, char *host,
     m->last = now;              /* Last time I saw him */
   }
   strlcpy(m->nick, nick, sizeof m->nick);        /* Store the nick in list */
+  if (chan->channel.member_ht)
+    op_htab_set(chan->channel.member_ht, m->nick, m, NULL);
   /* Store the userhost */
   {
     op_strbuf_t _b;
@@ -1841,7 +1848,7 @@ static int got475(char *from, char *msg)
   if (chan) {
     putlog(LOG_JOIN, chan->dname, IRC_BADCHANKEY, chan->dname);
     if (chan->channel.key[0]) {
-      nfree(chan->channel.key);
+      op_free(chan->channel.key);
       chan->channel.key = (char *) channel_malloc(1);
       chan->channel.key[0] = 0;
 
@@ -1914,10 +1921,9 @@ static int gotinvite(char *from, char *msg)
 static void set_topic(struct chanset_t *chan, char *k)
 {
   if (chan->channel.topic)
-    nfree(chan->channel.topic);
+    op_free(chan->channel.topic);
   if (k && k[0]) {
-    chan->channel.topic = (char *) channel_malloc(strlen(k) + 1);
-    strlcpy(chan->channel.topic, k, sizeof(chan->channel.topic));
+    chan->channel.topic = op_strdup(k);
   } else
     chan->channel.topic = NULL;
 }
@@ -2075,7 +2081,7 @@ static int gotjoin(char *from, char *channame)
     int l_chname = strlen(chname);
 
     if (l_chname > (CHANNEL_ID_LEN + 1)) {
-      ch_dname = nmalloc(l_chname + 1);
+      ch_dname = op_malloc(l_chname + 1);
       if (ch_dname) {
         {
           op_strbuf_t _b;
@@ -2178,6 +2184,8 @@ static int gotjoin(char *from, char *channame)
         m->last = now;
         m->delay = 0L;
         strlcpy(m->nick, nick, sizeof m->nick);
+        if (chan->channel.member_ht)
+          op_htab_set(chan->channel.member_ht, m->nick, m, NULL);
         strlcpy(m->userhost, uhost, sizeof m->userhost);
         m->user = u;
         m->flags |= STOPWHO;
@@ -2206,7 +2214,9 @@ static int gotjoin(char *from, char *channame)
           /* It was me joining! Need to update the channel record with the
            * unique name for the channel (as the server see's it). <cybah>
            */
+          chan_htab_del(chan);
           strlcpy(chan->name, chname, sizeof chan->name);
+          chan_htab_add(chan);
           chan->status &= ~CHAN_JUPED;
 
           /* ... and log us joining. Using chan->dname for the channel is
@@ -2352,7 +2362,7 @@ static int gotjoin(char *from, char *channame)
 
 exit:
   if (ch_dname)
-    nfree(ch_dname);
+    op_free(ch_dname);
   return 0;
 }
 
@@ -2497,7 +2507,8 @@ static int gotkick(char *from, char *origmsg)
       u2 = get_user_from_member(m);
       set_handle_laston(chan->dname, u2, now);
       maybe_revenge(chan, from, s1, REVENGE_KICK);
-    }
+    } else
+      strlcpy(s1, nick, sizeof s1);
     putlog(LOG_MODES, chan->dname, "%s kicked from %s by %s: %s", s1,
            chan->dname, from, msg);
     /* Kicked ME?!? the sods! */
@@ -2566,7 +2577,11 @@ static int gotnick(char *from, char *msg)
         strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
         op_strbuf_free(&_b);
       }
+      if (chan->channel.member_ht && m->nick[0])
+        op_htab_del(chan->channel.member_ht, m->nick);
       strlcpy(m->nick, msg, sizeof m->nick);
+      if (chan->channel.member_ht)
+        op_htab_set(chan->channel.member_ht, m->nick, m, NULL);
       detect_chan_flood(msg, uhost, from, chan, FLOOD_NICK, NULL);
 
       if (!findchan_by_dname(chname)) {
@@ -2869,7 +2884,7 @@ static int gotnotice(char *from, char *msg)
     if (*p == 1) {
       *p = 0;
       ctcp = buf2;
-      strlcpy(ctcp, p1, sizeof(ctcp));
+      strlcpy(ctcp, p1, sizeof(buf2));
       memmove(p1 - 1, p + 1, strlen(p + 1) + 1);
       p = strchr(msg, 1);
       detect_chan_flood(nick, uhost, from, chan,

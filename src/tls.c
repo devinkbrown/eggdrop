@@ -27,7 +27,7 @@
 /* egg_tls.h includes wolfSSL before Tcl to avoid mp_int typedef conflict.
  * COMPILING_MEM suppresses eggdrop.h's malloc→dont_use_old_malloc macro so
  * that wolfssl's stdlib.h inclusion and our local malloc calls compile cleanly.
- * We use nmalloc/nfree below via proto.h, except in the two static helpers that
+ * We use op_malloc/op_free below via proto.h, except in the two static helpers that
  * must use plain malloc (because OPENSSL_free → free). */
 #define COMPILING_MEM
 #ifdef HAVE_CONFIG_H
@@ -35,6 +35,7 @@
 #endif
 #include "egg_tls.h"
 #include "main.h"
+#include "egg_commio.h"
 
 #ifdef TLS
 
@@ -119,8 +120,11 @@ static unsigned char *egg_hexstr2buf(const char *str, long *outlen)
   return out;
 }
 
+#undef OPENSSL_buf2hexstr
 #define OPENSSL_buf2hexstr(buf, len) egg_buf2hexstr((buf), (len))
+#undef OPENSSL_hexstr2buf
 #define OPENSSL_hexstr2buf(str, plen) egg_hexstr2buf((str), (plen))
+#undef OPENSSL_free
 #define OPENSSL_free(p)              free(p)
 
 extern int dcc_total, stealth_telnets, tls_vfydcc;
@@ -142,18 +146,6 @@ char tls_ciphers[2049] = "";  /* A list of ciphers for SSL to use             */
 /* Count allocated memory for SSL. This excludes memory allocated by OpenSSL's
  * family of malloc functions.
  */
-int expmem_tls(void)
-{
-  int tot = 0;
-  struct threaddata *td = threaddata();
-
-  /* currently it's only the appdata structs allocated by ssl_handshake() */
-  for (int i = 0; i < td->MAXSOCKS; i++)
-    if (!(td->socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)))
-      if (td->socklist[i].ssl && SSL_get_app_data(td->socklist[i].ssl))
-        tot += sizeof(ssl_appdata);
-  return tot;
-}
 
 /* Seeds the PRNG
  *
@@ -531,7 +523,7 @@ char *ssl_fpconv(char *in, char *out)
     fp = OPENSSL_buf2hexstr(sha1, len);
     if (fp) {
       out = user_realloc(out, strlen(fp) + 1);
-      strlcpy(out, fp, sizeof(out));
+      strcpy(out, fp);
       OPENSSL_free(sha1);
       OPENSSL_free(fp);
       return out;
@@ -710,11 +702,11 @@ static int ssl_verifycn(X509 *cert, ssl_appdata *data)
 }
 
 /* Extract a human readable version of a X509_NAME and put the result
- * into a nmalloc'd buffer.
+ * into a op_malloc'd buffer.
  * The X509_NAME structure is used for example in certificate subject
  * and issuer names.
  *
- * You need to nfree() the returned pointer.
+ * You need to op_free() the returned pointer.
  */
 static char *ssl_printname(X509_NAME *name)
 {
@@ -726,24 +718,24 @@ static char *ssl_printname(X509_NAME *name)
      the manual discourages it's usage, so let's not be lazy ;) */
   if (!bio) {
     debug0("TLS: ssl_printname(): BIO_new(): error");
-    buf = nmalloc(1);
+    buf = op_malloc(1);
     *buf = 0;
     return buf;
   }
   if (X509_NAME_print_ex(bio, name, 0, XN_FLAG_ONELINE & ~XN_FLAG_SPC_EQ)) {
     len = BIO_get_mem_data(bio, &data);
     if (len > 0) {
-      buf = nmalloc(len + 1);
+      buf = op_malloc(len + 1);
       memcpy(buf, data, len); /* don't strlcpy() for it would read data[len] */
       buf[len] = 0;
     } else {
       debug0("TLS: ssl_printname(): BIO_get_mem_data(): error");
-      buf = nmalloc(1);
+      buf = op_malloc(1);
       *buf = 0;
     }
   } else {
     debug0("TLS: ssl_printname(): X509_NAME_print_ex(): error");
-    buf = nmalloc(1);
+    buf = op_malloc(1);
     *buf = 0;
   }
   BIO_free(bio);
@@ -751,11 +743,11 @@ static char *ssl_printname(X509_NAME *name)
 }
 
 /* Print the time from a ASN1_UTCTIME object in standard format i.e.
- * Nov 21 23:59:00 1996 GMT and store it in a nmalloc'd buffer.
+ * Nov 21 23:59:00 1996 GMT and store it in a op_malloc'd buffer.
  * The ASN1_UTCTIME structure is what's used for example with
  * certificate validity dates.
  *
- * You need to nfree() the returned pointer.
+ * You need to op_free() the returned pointer.
  */
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
 static char *ssl_printtime(const ASN1_UTCTIME *t)
@@ -769,19 +761,19 @@ static char *ssl_printtime(ASN1_UTCTIME *t)
 
   if (!bio) {
     debug0("TLS: ssl_printtime(): BIO_new(): error");
-    buf = nmalloc(1);
+    buf = op_malloc(1);
     *buf = 0;
     return buf;
   }
   ASN1_UTCTIME_print(bio, t);
   len = BIO_get_mem_data(bio, &data);
   if (len > 0) {
-    buf = nmalloc(len + 1);
+    buf = op_malloc(len + 1);
     memcpy(buf, data, len); /* don't strlcpy() for it would read data[len] */
     buf[len] = 0;
   } else {
     debug0("TLS: ssl_printtime(): BIO_get_mem_data(): error");
-    buf = nmalloc(1);
+    buf = op_malloc(1);
     *buf = 0;
   }
   BIO_free(bio);
@@ -792,7 +784,7 @@ static char *ssl_printtime(ASN1_UTCTIME *t)
  * A typical use for this is to display certificate serial numbers.
  * As usual, we use a memory BIO.
  *
- * You need to nfree() the returned pointer.
+ * You need to op_free() the returned pointer.
  * Only called from the HAVE_TCL tls info command.
  */
 #ifdef HAVE_TCL
@@ -804,19 +796,19 @@ static char *ssl_printnum(ASN1_INTEGER *i)
 
   if (!bio) {
     debug0("TLS: ssl_printnum(): BIO_new(): error");
-    buf = nmalloc(1);
+    buf = op_malloc(1);
     *buf = 0;
     return buf;
   }
   i2a_ASN1_INTEGER(bio, i);
   len = BIO_get_mem_data(bio, &data);
   if (len > 0) {
-    buf = nmalloc(len + 1);
+    buf = op_malloc(len + 1);
     memcpy(buf, data, len); /* don't strlcpy() for it would read data[len] */
     buf[len] = 0;
   } else {
     debug0("TLS: ssl_printnum(): BIO_get_mem_data(): error");
-    buf = nmalloc(1);
+    buf = op_malloc(1);
     *buf = 0;
   }
   BIO_free(bio);
@@ -838,13 +830,13 @@ static void ssl_showcert(X509 *cert, const int loglev)
   if ((name = X509_get_subject_name(cert))) {
     buf = ssl_printname(name);
     putlog(loglev, "*", "TLS: certificate subject: %s", buf);
-    nfree(buf);
+    op_free(buf);
   } else
     putlog(loglev, "*", "TLS: cannot get subject name from certificate!");
   if ((name = X509_get_issuer_name(cert))) {
     buf = ssl_printname(name);
     putlog(loglev, "*", "TLS: certificate issuer: %s", buf);
-    nfree(buf);
+    op_free(buf);
   } else
     putlog(loglev, "*", "TLS: cannot get issuer name from certificate!");
 
@@ -870,8 +862,8 @@ static void ssl_showcert(X509 *cert, const int loglev)
   to = ssl_printtime(X509_get_notAfter(cert));
 #endif
   putlog(loglev, "*", "TLS: certificate valid from %s to %s", from, to);
-  nfree(from);
-  nfree(to);
+  op_free(from);
+  op_free(to);
 }
 
 /* Certificate validation callback
@@ -987,7 +979,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
     if ((cert = SSL_get0_peer_certificate(ssl))) {
       ssl_showcert(cert, LOG_DEBUG);
 #else
-    if ((cert = SSL_get_peer_certificate(ssl))) {
+    if ((cert = SSL_get_peer_certificate((SSL *)ssl))) {
       ssl_showcert(cert, LOG_DEBUG);
       X509_free(cert);
 #endif
@@ -996,7 +988,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
       putlog(data->loglevel, "*", "TLS: peer did not present a certificate");
 
     /* Display cipher information */
-    cipher = SSL_get_current_cipher(ssl);
+    cipher = SSL_get_current_cipher((SSL *)ssl);
     processed = SSL_CIPHER_get_bits(cipher, &secret);
     putlog(LOG_DEBUG, "*", "TLS: cipher used: %s, %d of %d secret bits used for cipher, %s",
            SSL_CIPHER_get_name(cipher), processed, secret, SSL_get_version(ssl));
@@ -1043,7 +1035,7 @@ static void ssl_info(const SSL *ssl, int where, int ret)
       putlog(data->loglevel, "*", "TLS: failed in: %s.",
              SSL_state_string_long(ssl));
     } else if (ret < 0) {
-      int err = SSL_get_error(ssl, ret);
+      int err = SSL_get_error((SSL *)ssl, ret);
       /* However we still check <0 as man example does so too */
       if (err & (SSL_ERROR_WANT_READ | SSL_ERROR_WANT_WRITE)) {
         /* Errors to be ignored for non-blocking */
@@ -1115,9 +1107,12 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
            ERR_error_string(ERR_get_error(), 0));
     return -3;
   }
+  /* Sync the WOLFSSL pointer onto the commio FDE so op_ssl_read/write
+   * can operate on it. */
+  egg_commio_set_ssl(td->socklist[i].sock, td->socklist[i].ssl);
 
   /* Prepare a ssl appdata struct for the verify callback */
-  data = nmalloc(sizeof(ssl_appdata));
+  data = op_malloc(sizeof(ssl_appdata));
   data->flags = flags & (TLS_LISTEN | TLS_CONNECT);
   data->verify = verify;
   /* Invert these flags as their corresponding configuration values express
@@ -1138,8 +1133,8 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
    */
   SSL_set_verify_depth(td->socklist[i].ssl, tls_maxdepth + 1);
 
-  SSL_set_mode(td->socklist[i].ssl, SSL_MODE_ENABLE_PARTIAL_WRITE |
-               SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+  (void)SSL_set_mode(td->socklist[i].ssl, SSL_MODE_ENABLE_PARTIAL_WRITE |
+                     SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
   if (data->flags & TLS_CONNECT) {
     SSL_set_verify(td->socklist[i].ssl, SSL_VERIFY_PEER, ssl_verify);
     /* Introduce 1ms lag so an unpatched hub has time to setup the ssl handshake */
@@ -1194,7 +1189,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           "\r\n%s", strlen(body),
           stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
           body);
-        response = nmalloc(op_strbuf_len(&_r) + 1);
+        response = op_malloc(op_strbuf_len(&_r) + 1);
         strlcpy(response, op_strbuf_str(&_r), op_strbuf_len(&_r) + 1);
         op_strbuf_free(&_r);
       }
@@ -1206,7 +1201,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
        * will free the SSL structures safely since the handshake never
        * completed.
        */
-      nfree(response);
+      op_free(response);
     } else {
       putlog(data->loglevel, "*",
              "TLS: handshake failed due to the following error: %s",
@@ -1221,7 +1216,8 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   SSL_shutdown(td->socklist[i].ssl);
   SSL_free(td->socklist[i].ssl);
   td->socklist[i].ssl = NULL;
-  nfree(data);
+  egg_commio_set_ssl(td->socklist[i].sock, NULL);
+  op_free(data);
   return -4;
 }
 
@@ -1320,11 +1316,11 @@ static int tcl_tlsstatus STDVAR
     p = ssl_printname(X509_get_subject_name(cert));
     Tcl_DStringAppendElement(&ds, "subject");
     Tcl_DStringAppendElement(&ds, p);
-    nfree(p);
+    op_free(p);
     p = ssl_printname(X509_get_issuer_name(cert));
     Tcl_DStringAppendElement(&ds, "issuer");
     Tcl_DStringAppendElement(&ds, p);
-    nfree(p);
+    op_free(p);
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0 */
     p = ssl_printtime(X509_get0_notBefore(cert));
 #else
@@ -1332,7 +1328,7 @@ static int tcl_tlsstatus STDVAR
 #endif
     Tcl_DStringAppendElement(&ds, "notBefore");
     Tcl_DStringAppendElement(&ds, p);
-    nfree(p);
+    op_free(p);
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0 */
     p = ssl_printtime(X509_get0_notAfter(cert));
 #else
@@ -1340,11 +1336,11 @@ static int tcl_tlsstatus STDVAR
 #endif
     Tcl_DStringAppendElement(&ds, "notAfter");
     Tcl_DStringAppendElement(&ds, p);
-    nfree(p);
+    op_free(p);
     p = ssl_printnum(X509_get_serialNumber(cert));
     Tcl_DStringAppendElement(&ds, "serial");
     Tcl_DStringAppendElement(&ds, p);
-    nfree(p);
+    op_free(p);
 #if OPENSSL_VERSION_NUMBER < 0x30000000L /* 3.0.0 */
     X509_free(cert);
 #endif

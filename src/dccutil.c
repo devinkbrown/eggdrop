@@ -103,9 +103,9 @@ int increase_socks_max(void)
     td->MAXSOCKS = max_socks;
 
   if (td->socklist)
-    td->socklist = nrealloc(td->socklist, sizeof(sock_list) * td->MAXSOCKS);
+    td->socklist = op_realloc(td->socklist, sizeof(sock_list) * td->MAXSOCKS);
   else
-    td->socklist = nmalloc(sizeof(sock_list) * td->MAXSOCKS);
+    td->socklist = op_malloc(sizeof(sock_list) * td->MAXSOCKS);
   for (; osock < td->MAXSOCKS; osock++)
     td->socklist[osock].flags = SOCK_UNUSED;
 
@@ -120,25 +120,13 @@ int increase_socks_max(void)
         return -1;
     }
     if (dcc)
-      dcc = nrealloc(dcc, sizeof(struct dcc_t) * max_dcc);
+      dcc = op_realloc(dcc, sizeof(struct dcc_t) * max_dcc);
     else
-      dcc = nmalloc(sizeof(struct dcc_t) * max_dcc);
+      dcc = op_malloc(sizeof(struct dcc_t) * max_dcc);
     socklist = td->socklist;
   }
 
   return 0;
-}
-
-int expmem_dccutil(void)
-{
-  int tot = sizeof(struct dcc_t) * max_dcc;
-  tot += sizeof(sock_list) * threaddata()->MAXSOCKS;
-
-  for (int i = 0; i < dcc_total; i++) {
-    if (dcc[i].type && dcc[i].type->expmem)
-      tot += dcc[i].type->expmem(dcc[i].u.other);
-  }
-  return tot;
 }
 
 int findidx(int z)
@@ -397,7 +385,7 @@ void lostdcc(int n)
   if (dcc[n].type && dcc[n].type->kill)
     dcc[n].type->kill(n, dcc[n].u.other);
   else if (dcc[n].u.other)
-    nfree(dcc[n].u.other);
+    op_free(dcc[n].u.other);
   egg_bzero(&dcc[n], sizeof(struct dcc_t));
 
   dcc[n].sock = -1;
@@ -416,7 +404,7 @@ void removedcc(int n)
   if (dcc[n].type && dcc[n].type->kill)
     dcc[n].type->kill(n, dcc[n].u.other);
   else if (dcc[n].u.other)
-    nfree(dcc[n].u.other);
+    op_free(dcc[n].u.other);
   dcc_map_clear(dcc[n].sock);
   dcc_total--;
   if (n < dcc_total) {
@@ -521,7 +509,7 @@ void not_away(int idx)
     }
   }
   dprintf(idx, "You're not away any more.\n");
-  nfree(dcc[idx].u.chat->away);
+  op_free(dcc[idx].u.chat->away);
   dcc[idx].u.chat->away = NULL;
   check_tcl_away(botnetnick, dcc[idx].sock, NULL);
 }
@@ -537,9 +525,8 @@ void set_away(int idx, char *s)
     return;
   }
   if (dcc[idx].u.chat->away != NULL)
-    nfree(dcc[idx].u.chat->away);
-  dcc[idx].u.chat->away = nmalloc(strlen(s) + 1);
-  strcpy(dcc[idx].u.chat->away, s);
+    op_free(dcc[idx].u.chat->away);
+  dcc[idx].u.chat->away = op_strdup(s);
   if (dcc[idx].u.chat->channel >= 0) {
     chanout_but(-1, dcc[idx].u.chat->channel,
                 "*** %s is now away: %s\n", dcc[idx].nick, s);
@@ -551,21 +538,9 @@ void set_away(int idx, char *s)
   check_tcl_away(botnetnick, dcc[idx].sock, s);
 }
 
-/* This helps the memory debugging
- */
 void *_get_data_ptr(int size, char *file, int line)
 {
-  char *p;
-#ifdef DEBUG_MEM
-  op_strbuf_t _b;
-
-  p = strrchr(file, '/');
-  op_strbuf_printf(&_b, "dccutil.c:%s", p ? p + 1 : file);
-  p = n_malloc(size, op_strbuf_str(&_b), line);
-  op_strbuf_free(&_b);
-#else
-  p = nmalloc(size);
-#endif
+  char *p = op_malloc(size);
   egg_bzero(p, size);
   return p;
 }
@@ -585,9 +560,9 @@ void flush_lines(int idx, struct chat_info *ci)
   while (p && c < (ci->max_line)) {
     ci->current_lines--;
     tputs(dcc[idx].sock, p->msg, p->len);
-    nfree(p->msg);
+    op_free(p->msg);
     o = p->next;
-    nfree(p);
+    op_free(p);
     p = o;
     c++;
   }
@@ -612,7 +587,7 @@ int new_dcc(struct dcc_table *type, int xtra_size)
 
   dcc[i].type = type;
   if (xtra_size) {
-    dcc[i].u.other = nmalloc(xtra_size);
+    dcc[i].u.other = op_malloc(xtra_size);
   }
   return i;
 }
@@ -625,11 +600,11 @@ void changeover_dcc(int i, struct dcc_table *type, int xtra_size)
   if (dcc[i].type && dcc[i].type->kill)
     dcc[i].type->kill(i, dcc[i].u.other);
   else if (dcc[i].u.other)
-    nfree(dcc[i].u.other);
+    op_free(dcc[i].u.other);
 
   dcc[i].type = type;
   if (xtra_size) {
-    dcc[i].u.other = nmalloc(xtra_size);
+    dcc[i].u.other = op_malloc(xtra_size);
   } else
     dcc[i].u.other = NULL;
 }

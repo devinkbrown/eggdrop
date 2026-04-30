@@ -104,10 +104,10 @@ static void kill_dcc_dnswait(int idx, void *x)
 
   if (p) {
     if (p->host)
-      nfree(p->host);
+      op_free(p->host);
     if (p->cbuf)
-      nfree(p->cbuf);
-    nfree(p);
+      op_free(p->cbuf);
+    op_free(p);
   }
 }
 
@@ -153,7 +153,7 @@ static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
 #endif
     {
       if (dcc[idx].u.dns->host)
-        nfree(dcc[idx].u.dns->host);
+        op_free(dcc[idx].u.dns->host);
       dcc[idx].u.dns->host = get_data_ptr(strlen(hostn) + 1);
       strcpy(dcc[idx].u.dns->host, hostn);
       if (ok)
@@ -226,8 +226,7 @@ void dcc_dnsipbyhost(char *hostn)
 
   de->type = &DNS_DCCEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
-  de->res_data.hostname = nmalloc(strlen(hostn) + 1);
-  strcpy(de->res_data.hostname, hostn);
+  de->res_data.hostname = op_strdup(hostn);
 
   /* Send request. */
   dns_ipbyhost(hostn);
@@ -305,9 +304,9 @@ static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other
   Tcl_DStringFree(&list);
 #endif /* HAVE_TCL */
 
-  nfree(tclinfo->proc);
+  op_free(tclinfo->proc);
   if (tclinfo->paras)
-    nfree(tclinfo->paras);
+    op_free(tclinfo->paras);
   op_bh_free(tclinfo_bh, tclinfo);
 }
 
@@ -355,18 +354,15 @@ static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
 
   de->type = &DNS_TCLEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
-  de->res_data.hostname = nmalloc(strlen(hostn) + 1);
-  strcpy(de->res_data.hostname, hostn);
+  de->res_data.hostname = op_strdup(hostn);
 
   /* Store additional data. */
   if (!tclinfo_bh)
     tclinfo_bh = op_bh_create(sizeof(devent_tclinfo_t), 8, "dns_tclinfo");
   tclinfo = op_bh_alloc(tclinfo_bh);
-  tclinfo->proc = nmalloc(strlen(proc) + 1);
-  strlcpy(tclinfo->proc, proc, sizeof(tclinfo->proc));
+  tclinfo->proc = op_strdup(proc);
   if (paras) {
-    tclinfo->paras = nmalloc(strlen(paras) + 1);
-    strlcpy(tclinfo->paras, paras, sizeof(tclinfo->paras));
+    tclinfo->paras = op_strdup(paras);
   } else
     tclinfo->paras = NULL;
   de->other = tclinfo;
@@ -400,11 +396,9 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   if (!tclinfo_bh)
     tclinfo_bh = op_bh_create(sizeof(devent_tclinfo_t), 8, "dns_tclinfo");
   tclinfo = op_bh_alloc(tclinfo_bh);
-  tclinfo->proc = nmalloc(strlen(proc) + 1);
-  strlcpy(tclinfo->proc, proc, sizeof(tclinfo->proc));
+  tclinfo->proc = op_strdup(proc);
   if (paras) {
-    tclinfo->paras = nmalloc(strlen(paras) + 1);
-    strlcpy(tclinfo->paras, paras, sizeof(tclinfo->paras));
+    tclinfo->paras = op_strdup(paras);
   } else
     tclinfo->paras = NULL;
   de->other = tclinfo;
@@ -485,7 +479,7 @@ void call_ipbyhost(char *hostn, sockname_t *ip, int ok)
                (de->type && de->type->name) ? de->type->name : "<empty>");
 
       if (de->res_data.hostname)
-        nfree(de->res_data.hostname);
+        op_free(de->res_data.hostname);
       op_bh_free(devent_bh, de);
       de = ode;
     }
@@ -547,11 +541,6 @@ void core_dns_ipbyhost(char *host)
 /*
  *   Misc functions
  */
-
-int expmem_dns(void)
-{
-  return dnsevent_expmem();
-}
 
 
 #ifdef HAVE_TCL

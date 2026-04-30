@@ -198,13 +198,13 @@ static int burst;
 #include "tclserv.c"
 
 static void write_to_server(char *s, unsigned int len) {
-  char *s2 = nmalloc(len + 2);
+  char *s2 = op_malloc(len + 2);
 
   memcpy(s2, s, len);
   s2[len] = '\r';
   s2[len + 1] = '\n';
   tputs(serv, s2, len + 2);
-  nfree(s2);
+  op_free(s2);
 }
 
 /*
@@ -257,7 +257,7 @@ static void deq_msg(void)
       modeq.tot--;
       last_time += calc_penalty(modeq.head->msg);
       q = modeq.head->next;
-      nfree(modeq.head->msg);
+      op_free(modeq.head->msg);
       op_bh_free(msgq_node_bh, modeq.head);
       modeq.head = q;
       burst++;
@@ -287,7 +287,7 @@ static void deq_msg(void)
     mq.tot--;
     last_time += calc_penalty(mq.head->msg);
     q = mq.head->next;
-    nfree(mq.head->msg);
+    op_free(mq.head->msg);
     op_bh_free(msgq_node_bh, mq.head);
     mq.head = q;
     if (!mq.head)
@@ -314,7 +314,7 @@ static void deq_msg(void)
   hq.tot--;
   last_time += calc_penalty(hq.head->msg);
   q = hq.head->next;
-  nfree(hq.head->msg);
+  op_free(hq.head->msg);
   op_bh_free(msgq_node_bh, hq.head);
   hq.head = q;
   if (!hq.head)
@@ -554,8 +554,8 @@ static int fast_deq(int which)
       m->next = nm->next;
       if (!nm->next)
         h->last = m;
-      nfree(nm->msg);
-      nfree(nm);
+      op_free(nm->msg);
+      op_free(nm);
       h->tot--;
     } else
       m = m->next;
@@ -584,8 +584,8 @@ static int fast_deq(int which)
       }
     }
     m = h->head->next;
-    nfree(h->head->msg);
-    nfree(h->head);
+    op_free(h->head->msg);
+    op_free(h->head);
     h->head = m;
     if (!h->head)
       h->last = 0;
@@ -657,17 +657,16 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
           q->head = m->next;
         else
           lm->next = m->next;
-        nfree(m->msg);
+        op_free(m->msg);
         op_bh_free(msgq_node_bh, m);
         m = lm;
         q->tot--;
         if (!q->head)
           q->last = 0;
       } else {
-        nfree(m->msg);
-        m->msg = nmalloc(strlen(newmsg) + 1);
+        op_free(m->msg);
+        m->msg = op_strdup(newmsg);
         m->len = strlen(newmsg);
-        strlcpy(m->msg, newmsg, sizeof(m->msg));
       }
     }
     lm = m;
@@ -726,23 +725,22 @@ static void purge_kicks(struct msgq_head *q)
             q->head = m->next;
           else
             lm->next = m->next;
-          nfree(m->msg);
+          op_free(m->msg);
           op_bh_free(msgq_node_bh, m);
           m = lm;
           q->tot--;
           if (!q->head)
             q->last = 0;
         } else {
-          nfree(m->msg);
+          op_free(m->msg);
           {
             op_strbuf_t _b;
             op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, reason);
             strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
             op_strbuf_free(&_b);
           }
-          m->msg = nmalloc(strlen(newmsg) + 1);
+          m->msg = op_strdup(newmsg);
           m->len = strlen(newmsg);
-          strlcpy(m->msg, newmsg, sizeof(m->msg));
         }
       }
     }
@@ -840,23 +838,22 @@ static int deq_kick(int which)
             h->head->next = m->next;
           else
             lm->next = m->next;
-          nfree(m->msg);
+          op_free(m->msg);
           op_bh_free(msgq_node_bh, m);
           m = lm;
           h->tot--;
           if (!h->head)
             h->last = 0;
         } else {
-          nfree(m->msg);
+          op_free(m->msg);
           {
             op_strbuf_t _b;
             op_strbuf_printf(&_b, "KICK %s %s %s", chan2, newnicks2 + 1, reason);
             strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
             op_strbuf_free(&_b);
           }
-          m->msg = nmalloc(strlen(newmsg) + 1);
+          m->msg = op_strdup(newmsg);
           m->len = strlen(newmsg);
-          strlcpy(m->msg, newmsg, sizeof(m->msg));
         }
       }
     }
@@ -891,7 +888,7 @@ static int deq_kick(int which)
   h->tot--;
   last_time += calc_penalty(newmsg);
   m = h->head->next;
-  nfree(h->head->msg);
+  op_free(h->head->msg);
   op_bh_free(msgq_node_bh, h->head);
   h->head = m;
   if (!h->head)
@@ -1022,7 +1019,7 @@ static void queue_server(int which, char *msg, int len)
     }
 
     q->len = len;
-    q->msg = nmalloc(len + 1);
+    q->msg = op_malloc(len + 1);
     memcpy(q->msg, buf, len);
     q->msg[len] = 0;
     h->tot++;
@@ -1108,7 +1105,7 @@ static int add_server(const char *name, const char *port, const char *pass)
   }
 #endif
 
-  x = nmalloc(sizeof(struct server_list));
+  x = op_malloc(sizeof(struct server_list));
   x->next = 0;
   x->realname = 0;
   x->port = default_port;
@@ -1117,11 +1114,9 @@ static int add_server(const char *name, const char *port, const char *pass)
   else
     serverlist = x;
 
-  x->name = nmalloc(strlen(name) + 1);
-  strcpy(x->name, name);
+  x->name = op_strdup(name);
   if (pass[0]) {
-    x->pass = nmalloc(strlen(pass) + 1);
-    strcpy(x->pass, pass);
+    x->pass = op_strdup(pass);
   } else
     x->pass = NULL;
   if (port[0])
@@ -1218,12 +1213,12 @@ static int del_server(const char *name, const char *port)
 /* Free a single removed server from server link list */
 static void free_server(struct server_list *z) {
   if (z->name)
-    nfree(z->name);
+    op_free(z->name);
   if (z->pass)
-    nfree(z->pass);
+    op_free(z->pass);
   if (z->realname)
-    nfree(z->realname);
-  nfree(z);
+    op_free(z->realname);
+  op_free(z);
   return;
 }
 
@@ -1237,12 +1232,12 @@ static void clearq(struct server_list *xx)
   while (xx) {
     x = xx->next;
     if (xx->name)
-      nfree(xx->name);
+      op_free(xx->name);
     if (xx->pass)
-      nfree(xx->pass);
+      op_free(xx->pass);
     if (xx->realname)
-      nfree(xx->realname);
-    nfree(xx);
+      op_free(xx->realname);
+    op_free(xx);
     xx = x;
   }
 }
@@ -1278,16 +1273,14 @@ static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port
       i++;
     }
     /* Gotta add it: */
-    x = nmalloc(sizeof(struct server_list));
+    x = op_malloc(sizeof(struct server_list));
 
     x->next = 0;
     x->realname = 0;
-    x->name = nmalloc(strlen(serv) + 1);
-    strcpy(x->name, serv);
+    x->name = op_strdup(serv);
     x->port = *port ? *port : default_port;
     if (pass && pass[0]) {
-      x->pass = nmalloc(strlen(pass) + 1);
-      strcpy(x->pass, pass);
+      x->pass = op_strdup(pass);
     } else
       x->pass = NULL;
 #ifdef TLS
@@ -1881,7 +1874,7 @@ static void ircx_free_access_list(void)
   ircx_access_t *a, *next;
   for (a = ircx_access_list; a; a = next) {
     next = a->next;
-    nfree(a);
+    op_free(a);
   }
   ircx_access_list = NULL;
 }
@@ -1892,7 +1885,7 @@ static void ircx_free_autoowner_list(void)
   ircx_autoowner_t *ao, *next;
   for (ao = ircx_autoowner_list; ao; ao = next) {
     next = ao->next;
-    nfree(ao);
+    op_free(ao);
   }
   ircx_autoowner_list = NULL;
 }
@@ -2384,7 +2377,7 @@ static void msgq_clear(struct msgq_head *qh)
 
   for (q = qh->head; q; q = qq) {
     qq = q->next;
-    nfree(q->msg);
+    op_free(q->msg);
     op_bh_free(msgq_node_bh, q);
   }
   qh->head = qh->last = NULL;

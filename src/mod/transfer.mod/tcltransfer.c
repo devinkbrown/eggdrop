@@ -47,12 +47,12 @@ static int tcl_dccsend STDVAR
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "*%s", argv[1]);
-        sys = nmalloc(op_strbuf_len(&_b) + 1);
+        sys = op_malloc(op_strbuf_len(&_b) + 1);
         strlcpy(sys, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
         op_strbuf_free(&_b);
       }
       queue_file(sys, nfn, "(script)", argv[2]);
-      nfree(sys);
+      op_free(sys);
     }
     Tcl_AppendResult(irp, "4", NULL);
     return TCL_OK;
@@ -81,7 +81,7 @@ static int tcl_getfileq STDVAR
           else
             op_strbuf_printf(&_b, "%s /%s", q->to, q->file);
         }
-        s = nrealloc(s, op_strbuf_len(&_b) + 1);
+        s = op_realloc(s, op_strbuf_len(&_b) + 1);
         strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
         op_strbuf_free(&_b);
       }
@@ -89,7 +89,7 @@ static int tcl_getfileq STDVAR
     }
   }
   if (s)
-    nfree(s);
+    op_free(s);
   return TCL_OK;
 }
 

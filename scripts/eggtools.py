@@ -759,7 +759,7 @@ def getchanidle(nick: str, channel: str) -> int:
     return eggdrop.getchanidle(nick, channel)
 
 
-def topic(channel: str) -> Optional[str]:
+def get_topic(channel: str) -> Optional[str]:
     """Return the current topic of channel, or None if unknown."""
     return eggdrop.getchan_topic(channel)
 
@@ -800,6 +800,318 @@ def hand2nicks(handle: str, channel: Optional[str] = None) -> List[str]:
     if channel:
         return eggdrop.hand2nicks(handle, channel)
     return eggdrop.hand2nicks(handle)
+
+
+def onchan(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if nick is on channel (or any channel if omitted)."""
+    if channel:
+        return bool(eggdrop.onchan(nick, channel))
+    return bool(eggdrop.onchan(nick))
+
+
+def handonchan(handle: str, channel: Optional[str] = None) -> bool:
+    """Return True if handle's user is on channel (or any channel)."""
+    if channel:
+        return bool(eggdrop.handonchan(handle, channel))
+    return bool(eggdrop.handonchan(handle))
+
+
+def onchansplit(nick: str, channel: Optional[str] = None) -> bool:
+    """Return True if nick is on a netsplit."""
+    if channel:
+        return bool(eggdrop.onchansplit(nick, channel))
+    return bool(eggdrop.onchansplit(nick))
+
+
+def validchan(channel: str) -> bool:
+    """Return True if channel is in the bot's channel list."""
+    return bool(eggdrop.validchan(channel))
+
+
+def getchanjoin(nick: str, channel: str) -> int:
+    """Return the join timestamp for nick on channel."""
+    return eggdrop.getchanjoin(nick, channel)
+
+
+def botisowner(channel: Optional[str] = None) -> bool:
+    """Return True if the bot has channel owner (+q) status."""
+    if channel:
+        return bool(eggdrop.botisowner(channel))
+    return bool(eggdrop.botisowner())
+
+
+def isowner(nick: str, channel: str) -> bool:
+    """Return True if nick has channel owner (+q) status."""
+    return bool(eggdrop.isowner(nick, channel))
+
+
+def getchanmode(channel: str) -> str:
+    """Return the current mode string for channel."""
+    return eggdrop.getchanmode(channel)
+
+
+def pushmode(channel: str, mode: str, arg: str = "") -> None:
+    """Queue a mode change for channel.
+
+    mode should be '+o', '-b', etc.  arg is the mode argument (nick, mask).
+    """
+    if arg:
+        eggdrop.pushmode(channel, mode, arg)
+    else:
+        eggdrop.pushmode(channel, mode)
+
+
+def flushmode(channel: str) -> None:
+    """Flush pending mode changes for channel to the server."""
+    eggdrop.flushmode(channel)
+
+
+def putkick(channel: str, nicks: str, comment: str = "") -> None:
+    """Kick nick(s) from channel.
+
+    nicks may be comma-separated for multi-kick.
+    """
+    if comment:
+        eggdrop.putkick(channel, nicks, comment)
+    else:
+        eggdrop.putkick(channel, nicks)
+
+
+def resetbans(channel: str) -> None:
+    """Request a fresh ban list from the server for *channel*."""
+    eggdrop.resetbans(channel)
+
+
+def resetexempts(channel: str) -> None:
+    """Request a fresh exempt list from the server for *channel*."""
+    eggdrop.resetexempts(channel)
+
+
+def resetinvites(channel: str) -> None:
+    """Request a fresh invite list from the server for *channel*."""
+    eggdrop.resetinvites(channel)
+
+
+def resetchan(channel: str) -> None:
+    """Reset channel state and re-request data from the server."""
+    eggdrop.resetchan(channel)
+
+
+def refreshchan(channel: str) -> None:
+    """Refresh channel info from server without clearing local state."""
+    eggdrop.refreshchan(channel)
+
+
+# ---------------------------------------------------------------------------
+# Ban / exempt / invite management
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MaskEntry:
+    """A ban, exempt, or invite entry from the bot's internal list."""
+    mask: str
+    creator: str = ""
+    comment: str = ""
+    expire: int = 0
+    added: int = 0
+    lastactive: int = 0
+    sticky: bool = False
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "MaskEntry":
+        return cls(
+            mask=d.get("mask", ""),
+            creator=d.get("creator", ""),
+            comment=d.get("comment", ""),
+            expire=d.get("expire", 0),
+            added=d.get("added", 0),
+            lastactive=d.get("lastactive", 0),
+            sticky=d.get("sticky", False),
+        )
+
+
+def banlist(channel: Optional[str] = None) -> List[MaskEntry]:
+    """Return the bot's internal ban list (global or per-channel)."""
+    if channel:
+        return [MaskEntry.from_dict(d) for d in eggdrop.banlist(channel)]
+    return [MaskEntry.from_dict(d) for d in eggdrop.banlist()]
+
+
+def exemptlist(channel: Optional[str] = None) -> List[MaskEntry]:
+    """Return the bot's internal exempt list."""
+    if channel:
+        return [MaskEntry.from_dict(d) for d in eggdrop.exemptlist(channel)]
+    return [MaskEntry.from_dict(d) for d in eggdrop.exemptlist()]
+
+
+def invitelist(channel: Optional[str] = None) -> List[MaskEntry]:
+    """Return the bot's internal invite list."""
+    if channel:
+        return [MaskEntry.from_dict(d) for d in eggdrop.invitelist(channel)]
+    return [MaskEntry.from_dict(d) for d in eggdrop.invitelist()]
+
+
+def newban(ban: str, creator: str, comment: str,
+           lifetime: Optional[int] = None, sticky: bool = False) -> None:
+    """Add a global ban."""
+    opts = "sticky" if sticky else None
+    if lifetime is not None and opts:
+        eggdrop.newban(ban, creator, comment, lifetime, opts)
+    elif lifetime is not None:
+        eggdrop.newban(ban, creator, comment, lifetime)
+    else:
+        eggdrop.newban(ban, creator, comment)
+
+
+def killban(ban: str) -> bool:
+    """Remove a global ban.  Returns True if found."""
+    return bool(eggdrop.killban(ban))
+
+
+def killchanban(channel: str, ban: str) -> bool:
+    """Remove a channel ban.  Returns True if found."""
+    return bool(eggdrop.killchanban(channel, ban))
+
+
+def newexempt(exempt: str, creator: str, comment: str,
+              lifetime: Optional[int] = None, sticky: bool = False) -> None:
+    """Add a global exempt."""
+    opts = "sticky" if sticky else None
+    if lifetime is not None and opts:
+        eggdrop.newexempt(exempt, creator, comment, lifetime, opts)
+    elif lifetime is not None:
+        eggdrop.newexempt(exempt, creator, comment, lifetime)
+    else:
+        eggdrop.newexempt(exempt, creator, comment)
+
+
+def killexempt(exempt: str) -> bool:
+    """Remove a global exempt.  Returns True if found."""
+    return bool(eggdrop.killexempt(exempt))
+
+
+def newinvite(invite: str, creator: str, comment: str,
+              lifetime: Optional[int] = None, sticky: bool = False) -> None:
+    """Add a global invite."""
+    opts = "sticky" if sticky else None
+    if lifetime is not None and opts:
+        eggdrop.newinvite(invite, creator, comment, lifetime, opts)
+    elif lifetime is not None:
+        eggdrop.newinvite(invite, creator, comment, lifetime)
+    else:
+        eggdrop.newinvite(invite, creator, comment)
+
+
+def killinvite(invite: str) -> bool:
+    """Remove a global invite.  Returns True if found."""
+    return bool(eggdrop.killinvite(invite))
+
+
+def matchban(mask: str) -> bool:
+    """Return True if mask matches a global ban."""
+    return bool(eggdrop.matchban(mask))
+
+
+def matchexempt(mask: str) -> bool:
+    """Return True if mask matches a global exempt."""
+    return bool(eggdrop.matchexempt(mask))
+
+
+def matchinvite(mask: str) -> bool:
+    """Return True if mask matches a global invite."""
+    return bool(eggdrop.matchinvite(mask))
+
+
+def stickban(ban: str, channel: Optional[str] = None) -> bool:
+    """Make a ban sticky.  Returns True if found."""
+    if channel:
+        return bool(eggdrop.stickban(ban, channel))
+    return bool(eggdrop.stickban(ban))
+
+
+def unstickban(ban: str, channel: Optional[str] = None) -> bool:
+    """Make a ban non-sticky.  Returns True if found."""
+    if channel:
+        return bool(eggdrop.unstickban(ban, channel))
+    return bool(eggdrop.unstickban(ban))
+
+
+def isban(ban: str, channel: Optional[str] = None) -> bool:
+    """Return True if ban exists in the bot's ban list."""
+    if channel:
+        return bool(eggdrop.isban(ban, channel))
+    return bool(eggdrop.isban(ban))
+
+
+def isexempt(exempt: str, channel: Optional[str] = None) -> bool:
+    """Return True if exempt exists."""
+    if channel:
+        return bool(eggdrop.isexempt(exempt, channel))
+    return bool(eggdrop.isexempt(exempt))
+
+
+def isinvite(invite: str, channel: Optional[str] = None) -> bool:
+    """Return True if invite exists."""
+    if channel:
+        return bool(eggdrop.isinvite(invite, channel))
+    return bool(eggdrop.isinvite(invite))
+
+
+# ---------------------------------------------------------------------------
+# User channel records
+# ---------------------------------------------------------------------------
+
+def getchaninfo(handle: str, channel: str) -> Optional[str]:
+    """Return the chaninfo string for handle on channel, or None."""
+    return eggdrop.getchaninfo(handle, channel)
+
+
+def setchaninfo(handle: str, channel: str, info: str) -> None:
+    """Set chaninfo for handle on channel.  Pass 'none' to clear."""
+    eggdrop.setchaninfo(handle, channel, info)
+
+
+def addchanrec(handle: str, channel: str) -> bool:
+    """Add a channel record for handle.  Returns True if added."""
+    return bool(eggdrop.addchanrec(handle, channel))
+
+
+def delchanrec(handle: str, channel: str) -> bool:
+    """Delete a channel record for handle.  Returns True if deleted."""
+    return bool(eggdrop.delchanrec(handle, channel))
+
+
+def haschanrec(handle: str, channel: str) -> bool:
+    """Return True if handle has a channel record for channel."""
+    return bool(eggdrop.haschanrec(handle, channel))
+
+
+def setlaston(handle: str, channel: Optional[str] = None,
+              timestamp: Optional[int] = None) -> None:
+    """Set the last-seen time for handle."""
+    if channel and timestamp is not None:
+        eggdrop.setlaston(handle, channel, timestamp)
+    elif channel:
+        eggdrop.setlaston(handle, channel)
+    else:
+        eggdrop.setlaston(handle)
+
+
+# ---------------------------------------------------------------------------
+# Server commands
+# ---------------------------------------------------------------------------
+
+def jump(server: Optional[str] = None, port: int = 0,
+         password: str = "") -> None:
+    """Disconnect and reconnect to a new server."""
+    if server is not None and password:
+        eggdrop.jump(server, port, password)
+    elif server is not None and port:
+        eggdrop.jump(server, port)
+    elif server is not None:
+        eggdrop.jump(server)
+    else:
+        eggdrop.jump()
 
 
 # ---------------------------------------------------------------------------
@@ -901,7 +1213,7 @@ def gethosts(handle: str) -> List[str]:
     return eggdrop.gethosts(handle)
 
 
-def getaccount(handle: str) -> Optional[str]:
+def getaccount_handle(handle: str) -> Optional[str]:
     """Return the IRC account name stored in the userdb for *handle*, or None."""
     return eggdrop.getaccount_str(handle)
 

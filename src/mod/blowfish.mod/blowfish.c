@@ -206,17 +206,17 @@ static void blowfish_init(uint8_t *key, int keybytes)
         lowest = box[i].lastuse;
         bx = i;
       }
-    nfree(box[bx].P);
+    op_free(box[bx].P);
     for (int i = 0; i < 4; i++)
-      nfree(box[bx].S[i]);
-    nfree(box[bx].S);
+      op_free(box[bx].S[i]);
+    op_free(box[bx].S);
   }
   /* Initialize new buffer */
   /* uh... this is over 4k */
-  box[bx].P = nmalloc((bf_N + 2) * sizeof(uint32_t));
-  box[bx].S = nmalloc(4 * sizeof(uint32_t *));
+  box[bx].P = op_malloc((bf_N + 2) * sizeof(uint32_t));
+  box[bx].S = op_malloc(4 * sizeof(uint32_t *));
   for (int i = 0; i < 4; i++)
-    box[bx].S[i] = nmalloc(256 * sizeof(uint32_t));
+    box[bx].S[i] = op_malloc(256 * sizeof(uint32_t));
   bf_P = box[bx].P;
   bf_S = box[bx].S;
   box[bx].keybytes = keybytes;
@@ -324,12 +324,12 @@ static char *encrypt_string_ecb(char *key, char *str)
   char *s, *dest, *d;
 
   /* Pad fake string with 8 bytes to make sure there's enough */
-  s = nmalloc(strlen(str) + 9);
-  strlcpy(s, str, sizeof(s));
+  s = op_malloc(strlen(str) + 9);
+  strcpy(s, str);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s;
-  dest = nmalloc((strlen(str) + 9) * 2);
+  dest = op_malloc((strlen(str) + 9) * 2);
   while (*p)
     p++;
   for (int i = 0; i < 8; i++)
@@ -357,7 +357,7 @@ static char *encrypt_string_ecb(char *key, char *str)
     }
   }
   *d = 0;
-  nfree(s);
+  op_free(s);
   return dest;
 }
 
@@ -373,11 +373,11 @@ static char *encrypt_string_cbc(char *key, char *str)
   /* Pad fake string with 8 bytes to make sure there's enough
    * and prepend with 8 byte IV */
   slen = strlen(str) + 8;
-  s = nmalloc(slen + 9);
+  s = op_malloc(slen + 9);
   for (int i = 0; i < 8; ++i) {
     s[i] = (char) (random() % 256);
   }
-  strlcpy(s + 8, str, sizeof(s) - 8);
+  strcpy(s + 8, str);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s + slen;
@@ -423,7 +423,7 @@ static char *encrypt_string_cbc(char *key, char *str)
 
   /* base64 encoded string won't be longer than double the size,
    * plus 2 for the * prefix and NULL suffix */
-  dest = nmalloc(slen * 2 + 2);
+  dest = op_malloc(slen * 2 + 2);
   dest[0] = '*';
 
   /* base64 encode */
@@ -449,7 +449,7 @@ static char *encrypt_string_cbc(char *key, char *str)
   }
   *p = 0;
 
-  nfree(s);
+  op_free(s);
 
   return dest;
 }
@@ -484,12 +484,12 @@ static char *decrypt_string_ecb(char *key, char *str)
   char *p, *s, *dest, *d;
 
   /* Pad encoded string with 0 bits in case it's bogus */
-  s = nmalloc(strlen(str) + 12);
-  strlcpy(s, str, sizeof(s));
+  s = op_malloc(strlen(str) + 12);
+  strcpy(s, str);
   if ((!key) || (!key[0]))
     return s;
   p = s;
-  dest = nmalloc(strlen(str) + 12);
+  dest = op_malloc(strlen(str) + 12);
   while (*p)
     p++;
   for (int i = 0; i < 12; i++)
@@ -511,7 +511,7 @@ static char *decrypt_string_ecb(char *key, char *str)
       *d++ = (right & (0xff << ((3 - i) * 8))) >> ((3 - i) * 8);
   }
   *d = 0;
-  nfree(s);
+  op_free(s);
   return dest;
 }
 
@@ -525,8 +525,8 @@ static char *decrypt_string_cbc(char *key, char *str)
   int slen, dlen;
 
   slen = strlen(str);
-  s = nmalloc(slen + 1);
-  strlcpy(s, str, sizeof(s));
+  s = op_malloc(slen + 1);
+  strcpy(s, str);
   s[slen] = 0;
   if ((!key) || (!key[0]) || (slen % 4))
     return s;
@@ -535,7 +535,7 @@ static char *decrypt_string_cbc(char *key, char *str)
 
   /* base64 decode */
   dlen = (slen >> 2) * 3;
-  dest = nmalloc(dlen + 1);
+  dest = op_malloc(dlen + 1);
   p = (unsigned char *) dest;
   /* '=' will/should return 64 */
   for (int i = 0; i < slen; i += 4) {
@@ -595,9 +595,9 @@ static char *decrypt_string_cbc(char *key, char *str)
   }
 
   /* cut off IV */
-  strlcpy(s, dest + 8, sizeof(s));
+  memcpy(s, dest + 8, dlen - 8);
   s[dlen - 8] = 0;
-  nfree(dest);
+  op_free(dest);
 
   return s;
 }
@@ -639,7 +639,7 @@ static int tcl_encrypt STDVAR
 
   p = encrypt_string(argv[1], argv[2]);
   Tcl_AppendResult(irp, p, NULL);
-  nfree(p);
+  op_free(p);
   return TCL_OK;
 }
 
@@ -651,7 +651,7 @@ static int tcl_decrypt STDVAR
 
   p = decrypt_string(argv[1], argv[2]);
   Tcl_AppendResult(irp, p, NULL);
-  nfree(p);
+  op_free(p);
   return TCL_OK;
 }
 

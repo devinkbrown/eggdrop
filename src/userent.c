@@ -62,7 +62,7 @@ void list_type_kill(struct list_type *t)
   while (t) {
     u = t->next;
     if (t->extra)
-      nfree(t->extra);
+      op_free(t->extra);
     free_list_type(t);
     t = u;
   }
@@ -102,7 +102,7 @@ int def_pack(struct userrec *u, struct user_entry *e)
 
 int def_kill(struct user_entry *e)
 {
-  nfree(e->u.string);
+  op_free(e->u.string);
   free_user_entry(e);
   return 1;
 }
@@ -142,7 +142,7 @@ int def_set(struct userrec *u, struct user_entry *e, void *buf)
       if ((unsigned int) *i < 32 && !strchr("\002\003\026\037", *i))
         *i = '?';
   } else {
-    nfree(e->u.string);
+    op_free(e->u.string);
     e->u.string = NULL;
   }
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED))) {
@@ -256,11 +256,10 @@ int pass2_set(struct userrec *u, struct user_entry *e, void *new)
 {
   if (e->u.extra) {
     explicit_bzero(e->u.extra, strlen(e->u.extra));
-    nfree(e->u.extra);
+    op_free(e->u.extra);
   }
   if (new) { /* set PASS2 */
-    e->u.extra = user_malloc(strlen(new) + 1);
-    strlcpy(e->u.extra, new, sizeof(e->u.extra));
+    e->u.extra = op_strdup(new);
   }
   else /* remove PASS2 */
     e->u.extra = NULL;
@@ -308,7 +307,7 @@ int pass_set(struct userrec *u, struct user_entry *e, void *buf)
    */
   if (encrypt_pass && e->u.extra) {
     explicit_bzero(e->u.extra, strlen(e->u.extra));
-    nfree(e->u.extra);
+    op_free(e->u.extra);
   }
   if (!pass || !pass[0] || (pass[0] == '-')) {
     /* empty string or '-' means remove passwords */
@@ -358,8 +357,7 @@ int pass_set(struct userrec *u, struct user_entry *e, void *buf)
      */
     if (encrypt_pass && (!encrypt_pass2 || !remove_pass)) {
       /* set PASS */
-      e->u.extra = user_malloc(strlen(new) + 1);
-      strlcpy(e->u.extra, new, sizeof(e->u.extra));
+      e->u.extra = op_strdup(new);
     }
     if (new2) { /* implicit encrypt_pass2 && */
       /* set PASS2 */
@@ -435,9 +433,8 @@ static int laston_unpack(struct userrec *u, struct user_entry *e)
   if (!par[0])
     par = "???";
   li = alloc_laston_info();
-  li->lastonplace = user_malloc(strlen(par) + 1);
+  li->lastonplace = op_strdup(par);
   li->laston = atoi(arg);
-  strlcpy(li->lastonplace, par, sizeof(li->lastonplace));
   list_type_kill(e->u.list);
   e->u.extra = li;
   return 1;
@@ -461,7 +458,7 @@ static int laston_pack(struct userrec *u, struct user_entry *e)
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
   strlcpy(e->u.list->extra, work, l + 1);
-  nfree(li->lastonplace);
+  op_free(li->lastonplace);
   free_laston_info(li);
   return 1;
 }
@@ -481,7 +478,7 @@ static int laston_kill(struct user_entry *e)
 {
   struct laston_info *li = e->u.extra;
   if (li->lastonplace)
-    nfree(li->lastonplace);
+    op_free(li->lastonplace);
   free_laston_info(li);
   free_user_entry(e);
   return 1;
@@ -493,7 +490,7 @@ static int laston_set(struct userrec *u, struct user_entry *e, void *buf)
 
   if (li != buf) {
     if (li) {
-      nfree(li->lastonplace);
+      op_free(li->lastonplace);
       free_laston_info(li);
     }
 
@@ -578,11 +575,9 @@ static int laston_tcl_set(Tcl_Interp * irp, struct userrec *u,
   li = alloc_laston_info();
 
   if (argc == 5) {
-    li->lastonplace = user_malloc(strlen(argv[4]) + 1);
-    strlcpy(li->lastonplace, argv[4], sizeof(li->lastonplace));
+    li->lastonplace = op_strdup(argv[4]);
   } else {
-    li->lastonplace = user_malloc(1);
-    li->lastonplace[0] = 0;
+    li->lastonplace = op_strdup("");
   }
   li->laston = atoi(argv[3]);
   set_user(&USERENTRY_LASTON, u, li);
@@ -607,8 +602,7 @@ static int laston_dupuser(struct userrec *new, struct userrec *old,
     li2 = alloc_laston_info();
 
     li2->laston = li->laston;
-    li2->lastonplace = user_malloc(strlen(li->lastonplace) + 1);
-    strlcpy(li2->lastonplace, li->lastonplace, sizeof(li2->lastonplace));
+    li2->lastonplace = op_strdup(li->lastonplace);
     return set_user(&USERENTRY_LASTON, new, li2);
   }
   return 0;
@@ -640,11 +634,9 @@ static int botaddr_unpack(struct userrec *u, struct user_entry *e)
   egg_bzero(bi, sizeof(struct bot_addr));
 
   if (!(q = strchr((p = e->u.list->extra), ':'))) {
-    bi->address = user_malloc(strlen(p) + 1);
-    strlcpy(bi->address, p, sizeof(bi->address));
+    bi->address = op_strdup(p);
   } else {
-    bi->address = user_malloc((q - p) + 1);
-    strlcpy(bi->address, p, (size_t)(q - p) + 1);
+    bi->address = op_strndup(p, (size_t)(q - p));
     q++;
 #ifdef TLS
     if (*q == '+')
@@ -711,15 +703,15 @@ static int botaddr_pack(struct userrec *u, struct user_entry *e)
   e->u.list->next = NULL;
   e->u.list->extra = user_malloc(l + 1);
   strlcpy(e->u.list->extra, work, l + 1);
-  nfree(bi->address);
-  nfree(bi);
+  op_free(bi->address);
+  op_free(bi);
   return 1;
 }
 
 static int botaddr_kill(struct user_entry *e)
 {
-  nfree(((struct bot_addr *) (e->u.extra))->address);
-  nfree(e->u.extra);
+  op_free(((struct bot_addr *) (e->u.extra))->address);
+  op_free(e->u.extra);
   free_user_entry(e);
   return 1;
 }
@@ -732,7 +724,7 @@ static int botaddr_write_userfile(FILE *f, struct userrec *u,
   struct bot_addr *bi = (struct bot_addr *) e->u.extra;
 
   p = bi->address;
-  addr = user_malloc(strlen(bi->address) + 1);
+  addr = op_malloc(strlen(bi->address) + 1);
   for (q = addr; *p; p++)
     if (*p == ':')
       *q++ = ';';
@@ -748,7 +740,7 @@ static int botaddr_write_userfile(FILE *f, struct userrec *u,
       bi->telnet_port, bi->relay_port) == EOF)
 #endif
     ret = 0;
-  nfree(addr);
+  op_free(addr);
   return ret;
 }
 
@@ -760,8 +752,8 @@ static int botaddr_set(struct userrec *u, struct user_entry *e, void *buf)
     return 1;
   if (bi != buf) {
     if (bi) {
-      nfree(bi->address);
-      nfree(bi);
+      op_free(bi->address);
+      op_free(bi);
     }
     bi = e->u.extra = buf;
   }
@@ -847,9 +839,8 @@ static int botaddr_tcl_set(Tcl_Interp * irp, struct userrec *u,
       bi = user_malloc(sizeof(struct bot_addr));
       egg_bzero(bi, sizeof(struct bot_addr));
     } else
-      nfree(bi->address);
-    bi->address = user_malloc(strlen(argv[3]) + 1);
-    strlcpy(bi->address, argv[3], sizeof(bi->address));
+      op_free(bi->address);
+    bi->address = op_strdup(argv[3]);
     if (argc > 4) {
 #ifdef TLS
       /* If no user port set, use bot port for both entries */
@@ -920,8 +911,7 @@ static int botaddr_gotshare(struct userrec *u, struct user_entry *e,
 
   egg_bzero(bi, sizeof(struct bot_addr));
   arg = newsplit(&buf);
-  bi->address = user_malloc(strlen(arg) + 1);
-  strlcpy(bi->address, arg, sizeof(bi->address));
+  bi->address = op_strdup(arg);
   arg = newsplit(&buf);
 #ifdef TLS
   if (*arg == '+')
@@ -954,8 +944,7 @@ static int botaddr_dupuser(struct userrec *new, struct userrec *old,
 #ifdef TLS
       bi2->ssl = bi->ssl;
 #endif
-      bi2->address = user_malloc(strlen(bi->address) + 1);
-      strlcpy(bi2->address, bi->address, sizeof(bi2->address));
+      bi2->address = op_strdup(bi->address);
       return set_user(&USERENTRY_BOTADDR, new, bi2);
     }
   }
@@ -992,9 +981,9 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
   }
   if (!old && (!new->data || !new->data[0])) {
     /* Delete non-existent entry -- doh ++rtc */
-    nfree(new->key);
+    op_free(new->key);
     if (new->data)
-      nfree(new->data);
+      op_free(new->data);
     free_xtra_key(new);
     return TCL_OK;
   }
@@ -1007,8 +996,8 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
              new->data ? new->data : "");
   if ((old && old != new) || !new->data || !new->data[0]) {
     egg_list_delete(&e->u.list, (struct list_type *) old);
-    nfree(old->key);
-    nfree(old->data);
+    op_free(old->key);
+    op_free(old->data);
     if (old == e->u.extra)
       e->u.extra = NULL;
     free_xtra_key(old);
@@ -1020,8 +1009,8 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
       list_insert((&e->u.extra), new)  /* do not add a ';' here */
     else {
       if (new->data)
-        nfree(new->data);
-      nfree(new->key);
+        op_free(new->data);
+      op_free(new->key);
       free_xtra_key(new);
     }
   }
@@ -1073,10 +1062,8 @@ int xtra_unpack(struct userrec *u, struct user_entry *e)
     data = curr->extra;
     key = newsplit(&data);
     if (data[0]) {
-      t->key = user_malloc(strlen(key) + 1);
-      strlcpy(t->key, key, sizeof(t->key));
-      t->data = user_malloc(strlen(data) + 1);
-      strlcpy(t->data, data, sizeof(t->data));
+      t->key = op_strdup(key);
+      t->data = op_strdup(data);
       list_insert((&e->u.extra), t);
     }
     curr = curr->next;
@@ -1104,8 +1091,8 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
     }
     list_insert((&e->u.list), t);
     next = curr->next;
-    nfree(curr->key);
-    nfree(curr->data);
+    op_free(curr->key);
+    op_free(curr->data);
     free_xtra_key(curr);
     curr = next;
   }
@@ -1173,10 +1160,8 @@ static int xtra_dupuser(struct userrec *new, struct userrec *old,
   for (x1 = e->u.extra; x1; x1 = x1->next) {
     x2 = alloc_xtra_key();
 
-    x2->key = user_malloc(strlen(x1->key) + 1);
-    strlcpy(x2->key, x1->key, sizeof(x2->key));
-    x2->data = user_malloc(strlen(x1->data) + 1);
-    strlcpy(x2->data, x1->data, sizeof(x2->data));
+    x2->key = op_strdup(x1->key);
+    x2->data = op_strdup(x1->data);
     set_user(&USERENTRY_XTRA, new, x2);
   }
   return 1;
@@ -1199,8 +1184,8 @@ int xtra_kill(struct user_entry *e)
 
   for (x = e->u.extra; x; x = y) {
     y = x->next;
-    nfree(x->key);
-    nfree(x->data);
+    op_free(x->key);
+    op_free(x->data);
     free_xtra_key(x);
   }
   free_user_entry(e);
@@ -1395,7 +1380,7 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
         lt = *t;
         *t = (*t)->next;
         if (lt->extra)
-          nfree(lt->extra);
+          op_free(lt->extra);
         free_list_type(lt);
       } else
         t = &((*t)->next);
@@ -1493,7 +1478,7 @@ int fprint_unpack(struct userrec *u, struct user_entry *e)
   char *tmp;
 
   tmp = ssl_fpconv(e->u.list->extra, NULL);
-  nfree(e->u.list->extra);
+  op_free(e->u.list->extra);
   e->u.list->extra = NULL;
   list_type_kill(e->u.list);
   e->u.string = tmp;
@@ -1506,7 +1491,7 @@ int fprint_set(struct userrec *u, struct user_entry *e, void *buf)
 
   if (!fp || !fp[0] || (fp[0] == '-')) {
     if (e->u.string) {
-      nfree(e->u.string);
+      op_free(e->u.string);
       e->u.string = NULL;
     }
   } else {
@@ -1613,7 +1598,7 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
         lt = *t;
         *t = (*t)->next;
         if (lt->extra)
-          nfree(lt->extra);
+          op_free(lt->extra);
         free_list_type(lt);
       } else
         t = &((*t)->next);
@@ -1745,7 +1730,7 @@ int add_entry_type(struct user_entry_type *type)
       e->type = type;
 
       e->type->unpack(u, e);
-      nfree(e->name);
+      op_free(e->name);
       e->name = NULL;
     }
   }
@@ -1761,8 +1746,7 @@ int del_entry_type(struct user_entry_type *type)
 
     if (e && !e->name) {
       e->type->pack(u, e);
-      e->name = user_malloc(strlen(e->type->name) + 1);
-      strlcpy(e->name, e->type->name, sizeof(e->name));
+      e->name = op_strdup(e->type->name);
       e->type = NULL;
     }
   }

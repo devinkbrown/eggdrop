@@ -58,17 +58,6 @@ extern _Atomic uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
 static struct portmap *root = NULL;
 
 
-int expmem_tcldcc(void)
-{
-  int tot = 0;
-  struct portmap *pmap;
-
-  for (pmap = root; pmap; pmap = pmap->next)
-    tot += sizeof(struct portmap);
-
-  return tot;
-}
-
 static int tcl_putdcc STDVAR
 {
   int j;
@@ -1103,7 +1092,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
         pold->next = pmap->next;
       else
         root = pmap->next;
-      nfree(pmap);
+      op_free(pmap);
     }
     /* Remove */
     if (idx < 0) {
@@ -1192,7 +1181,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host));
   Tcl_AppendResult(irp, int_to_base10(port), NULL);
   if (!pmap) {
-    pmap = nmalloc(sizeof(struct portmap));
+    pmap = op_malloc(sizeof(struct portmap));
     pmap->next = root;
     root = pmap;
   }

@@ -48,8 +48,10 @@ _shm_fd_create(size_t sz)
 static int
 _shm_fd_create(size_t sz)
 {
+	static atomic_uint shm_seq = 0;
 	char name[64];
-	snprintf(name, sizeof(name), "/op_shm_%d", (int)getpid());
+	snprintf(name, sizeof(name), "/op_shm_%d_%u", (int)getpid(),
+	         atomic_fetch_add(&shm_seq, 1));
 	int fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0600);
 	if (fd < 0)
 		return -1;

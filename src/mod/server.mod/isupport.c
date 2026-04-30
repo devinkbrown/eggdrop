@@ -68,14 +68,14 @@ static int check_tcl_isupport(struct isupport *data, const char *key,
 /*** Utility functions ***/
 
 static char *strrangedup(const char *value, size_t len) {
-  char *str = nmalloc(len + 1);
+  char *str = op_malloc(len + 1);
   memcpy(str, value, len);
   str[len] = '\0';
   return str;
 }
 
 static char *strrangedup_toupper(const char *value, size_t len) {
-  char *str = nmalloc(len + 1);
+  char *str = op_malloc(len + 1);
 
   int i = 0;
   for (; i < len; i++) {
@@ -141,11 +141,11 @@ int isupport_parseint(const char *key, const char *value, int min, int max, int 
 /*** isupport key record managing functions ***/
 
 static void isupport_free(struct isupport *data) {
-  nfree(data->key);
+  op_free(data->key);
   if (data->value)
-    nfree(data->value);
+    op_free(data->value);
   if (data->defaultvalue)
-    nfree(data->defaultvalue);
+    op_free(data->defaultvalue);
   op_bh_free(isupport_bh, data);
 }
 
@@ -232,16 +232,16 @@ static void isupport_set_value(const char *key, size_t keylen, const char *value
     if (!data->defaultvalue && !data->value) {
       del_record(data);
     }
-    nfree(new);
+    op_free(new);
   } else {
     if (setdefault) {
       if (data->defaultvalue) {
-        nfree(data->defaultvalue);
+        op_free(data->defaultvalue);
       }
       data->defaultvalue = new;
     } else {
       if (data->value) {
-        nfree(data->value);
+        op_free(data->value);
       }
       data->value = new;
     }
@@ -270,7 +270,7 @@ void isupport_unset(const char *key, size_t keylen)
     int ret = check_tcl_isupport(data, data->key, NULL);
     if (!ret) {
       if (data->defaultvalue) {
-        nfree(data->value);
+        op_free(data->value);
         data->value = NULL;
       } else {
         del_record(data);
@@ -284,7 +284,7 @@ void isupport_unset(const char *key, size_t keylen)
 static int isupport_hex2chr(const char *seq, size_t digits) {
   int result = 0;
   int digit;
-  while (--digits) {
+  while (digits--) {
     result *=  16;
     digit = hexdigit2dec[(int)(unsigned char)*seq++];
     if (digit == -1)
@@ -404,11 +404,11 @@ void isupport_clear_values(int cleardefaultvalues) {
       if (cleardefaultvalues && data->value) {
         /* no bind trigger, value > defaultvalue, this does not change the effective value */
         /* and the bind should never be allowed to prevent changing default values */
-        nfree(data->defaultvalue);
+        op_free(data->defaultvalue);
         data->defaultvalue = NULL;
       } else if (!cleardefaultvalues && data->defaultvalue) {
         if (!strcmp(data->value, data->defaultvalue) || !check_tcl_isupport(data, data->key, data->defaultvalue)) {
-          nfree(data->value);
+          op_free(data->value);
           data->value = NULL;
         }
       } else {

@@ -526,8 +526,8 @@ static void cmd_mns_ban(struct userrec *u, int idx, char *par)
     }
     i = 0;
     for (b = chan->channel.ban; b && b->mask && b->mask[0]; b = b->next) {
-      if ((!u_equals_mask(global_bans, b->mask)) &&
-          (!u_equals_mask(chan->bans, b->mask))) {
+      if ((!u_equals_mask(global_bans, global_bans_ht, b->mask)) &&
+          (!u_equals_mask(chan->bans, chan->bans_ht, b->mask))) {
         i++;
         if (i == -j) {
           add_mode(chan, '-', 'b', b->mask);
@@ -637,8 +637,8 @@ static void cmd_mns_exempt(struct userrec *u, int idx, char *par)
     }
     i = 0;
     for (e = chan->channel.exempt; e && e->mask && e->mask[0]; e = e->next) {
-      if (!u_equals_mask(global_exempts, e->mask) &&
-          !u_equals_mask(chan->exempts, e->mask)) {
+      if (!u_equals_mask(global_exempts, global_exempts_ht, e->mask) &&
+          !u_equals_mask(chan->exempts, chan->exempts_ht, e->mask)) {
         i++;
         if (i == -j) {
           add_mode(chan, '-', 'e', e->mask);
@@ -750,8 +750,8 @@ static void cmd_mns_invite(struct userrec *u, int idx, char *par)
     i = 0;
     for (inv = chan->channel.invite; inv && inv->mask && inv->mask[0];
          inv = inv->next) {
-      if (!u_equals_mask(global_invites, inv->mask) &&
-          !u_equals_mask(chan->invites, inv->mask)) {
+      if (!u_equals_mask(global_invites, global_invites_ht, inv->mask) &&
+          !u_equals_mask(chan->invites, chan->invites_ht, inv->mask)) {
         i++;
         if (i == -j) {
           add_mode(chan, '-', 'I', inv->mask);
@@ -1541,7 +1541,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
     if (all)
       chan = chanset;
     bak = par;
-    buf = nmalloc(strlen(par) + 1);
+    buf = op_malloc(strlen(par) + 1);
     while (chan) {
       chname = chan->dname;
       strcpy(buf, bak);
@@ -1555,7 +1555,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
                 !(isowner(dcc[idx].nick))) {
               dprintf(idx, "Only permanent owners can modify the static flag.\n");
               op_strbuf_free(&answers);
-              nfree(buf);
+              op_free(buf);
               return;
             }
           if (tcl_channel_modify(0, chan, 1, list) == TCL_OK) {
@@ -1577,15 +1577,14 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
               must_be_owner) {
             dprintf(idx, "Due to security concerns, only permanent owners can set these modes.\n");
             op_strbuf_free(&answers);
-            nfree(buf);
+            op_free(buf);
             return;
           }
           list[1] = par;
           /* Par gets modified in tcl_channel_modify under some
            * circumstances, so save it now.
            */
-          parcpy = nmalloc(strlen(par) + 1);
-          strcpy(parcpy, par);
+          parcpy = op_strdup(par);
           irp = Tcl_CreateInterp();
           if (tcl_channel_modify(irp, chan, 2, list) == TCL_OK) {
             op_strbuf_appendf(&answers, "%s { %s }", list[0], parcpy);
@@ -1594,7 +1593,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
                     list[0], all ? "all channels" : chname, Tcl_GetStringResult(irp));
           Tcl_ResetResult(irp);
           Tcl_DeleteInterp(irp);
-          nfree(parcpy);
+          op_free(parcpy);
         }
         break;
       }
@@ -1614,7 +1613,7 @@ static void cmd_chanset(struct userrec *u, int idx, char *par)
               op_strbuf_str(&answers));
       putlog(LOG_CMDS, "*", "#%s# chanset * %s", dcc[idx].nick, op_strbuf_str(&answers));
     }
-    nfree(buf);
+    op_free(buf);
   }
   op_strbuf_free(&answers);
 }

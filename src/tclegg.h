@@ -99,12 +99,14 @@ constexpr int BIND_QUIT      = 5; /* CMD_LEAVE 'quit' from partyline or filesys 
  */
 typedef struct timer_str {
   struct timer_str *next;
-  unsigned int mins;            /* Time remaining                       */
-  unsigned int count;           /* Number of repeats                    */
-  unsigned int interval;        /* Time to elapse                       */
+  time_t fire_at;               /* Absolute wall-clock fire time        */
+  unsigned int count;           /* Number of repeats (0 = infinite)     */
+  unsigned int interval;        /* Original elapse in ticks             */
+  int secs_per_tick;            /* 1 = utimer (seconds), 60 = timer (minutes) */
   char *cmd;                    /* Command linked to                    */
   unsigned long id;             /* Used to remove timers                */
   char *name;                   /* User-specified name for timer        */
+  struct ev_entry *ev;          /* op_event handle                      */
 } tcl_timer_t;
 
 

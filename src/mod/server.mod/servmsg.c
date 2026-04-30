@@ -390,14 +390,12 @@ static int got001(char *from, char *msg)
       putlog(LOG_MISC, "*", "Invalid server list (curserv=%d)!", curserv);
     } else {
       if (x->realname)
-        nfree(x->realname);
-      x->realname = nmalloc(strlen(from) + 1);
-      strcpy(x->realname, from);
+        op_free(x->realname);
+      x->realname = op_strdup(from);
     }
     if (realservername)
-      nfree(realservername);
-    realservername = nmalloc(strlen(from) + 1);
-    strcpy(realservername, from);
+      op_free(realservername);
+    realservername = op_strdup(from);
   } else
     putlog(LOG_MISC, "*", "No server list when receiving 001!");
 
@@ -1152,7 +1150,7 @@ static void disconnect_server(int idx)
   }
   server_online = 0;
   if (realservername)
-    nfree(realservername);
+    op_free(realservername);
   realservername = 0;
   /* $::server should be empty for this, so isupport binds can ignore it */
   isupport_clear_values(0);
@@ -1228,7 +1226,7 @@ static char *encode_msgtag_value(char *value)
   }
   buf[written++] = '=';
 
-  while (*value && written < sizeof buf - 1) {
+  while (*value && written < sizeof buf - 2) {
     if (*value == ';' || *value == ' ' || *value == '\\' || *value == '\r' || *value == '\n') {
       buf[written++] = '\\';
     }
@@ -1840,7 +1838,7 @@ static int gotcap(char *from, char *msg) {
       /* Add any custom capes the user listed */
       {
         char *saveptr = NULL;
-        char *cap_copy = nstrdup(cap_request);
+        char *cap_copy = op_strdup(cap_request);
         if ((p = strtok_r(cap_copy, " ", &saveptr))) {
           while (p != NULL) {
             if (!strcmp(current->name, p) && (!current->enabled)) {
@@ -1849,7 +1847,7 @@ static int gotcap(char *from, char *msg) {
             p = strtok_r(NULL, " ", &saveptr);
           }
         }
-        nfree(cap_copy);
+        op_free(cap_copy);
       }
       current=current->next;
     }

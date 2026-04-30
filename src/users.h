@@ -117,12 +117,15 @@ struct filesys_stats {
   int dnload_ks;
 };
 
+/* Legacy user_malloc/user_realloc are thin wrappers around libop's
+ * op_malloc/op_realloc.
+ */
 void *_user_malloc(int size, const char *file, int line);
 void *_user_realloc(void *ptr, int size, const char *file, int line);
 
 #ifndef MAKING_MODS
-#  define user_malloc(x)     _user_malloc(x, __FILE__, __LINE__)
-#  define user_realloc(x, y) _user_realloc(x, y, __FILE__, __LINE__)
+#  define user_malloc(x)     op_malloc(x)
+#  define user_realloc(x, y) op_realloc(x, y)
 #endif
 
 int add_entry_type(struct user_entry_type *);

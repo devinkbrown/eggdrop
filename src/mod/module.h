@@ -42,9 +42,6 @@
  * held responsible for mental break-downs caused by this file <G>
  */
 
-#undef nmalloc
-#undef nfree
-#undef nrealloc
 #undef feof
 #undef user_malloc
 #undef dprintf
@@ -54,7 +51,6 @@
 #undef wild_match_partial_case
 #undef maskhost
 #undef maskban
-#undef user_realloc
 #undef Context
 #undef ContextNote
 #undef Assert
@@ -84,8 +80,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 /* Redefine for module-relevance */
 
 /* 0 - 3 */
-#define nmalloc(x) (((void *(*)(int, const char *, const char *, int))global[0])((x),MODULE_NAME,__FILE__,__LINE__))
-#define nfree(x) (((void (*)(const void *, const char *, const char *, int))global[1])((x),MODULE_NAME,__FILE__,__LINE__))
+/* slots 0-1: mod_malloc/mod_free ABI stubs — modules now call op_malloc/op_free directly */
 #define Context do {} while (0) /* For backward compatibility only */
 #define module_rename ((int (*)(char *, char *))global[3])
 /* 4 - 7 */
@@ -130,9 +125,9 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define nextbot ((int (*)(char *))global[35])
 /* 36 - 39 */
 #define zapfbot ((void (*)(int))global[36])
-#define n_free ((void (*)(void *,char *, int))global[37])
+/* slot 37: removed (was n_free) */
 #define u_pass_match ((int (*)(struct userrec *,char *))global[38])
-#define user_malloc(x) ((void *(*)(int, const char *, int))global[39])(x,__FILE__,__LINE__)
+#define user_malloc(x) op_malloc(x)
 /* 40 - 43 */
 #define get_user ((void *(*)(struct user_entry_type *,struct userrec *))global[40])
 #define set_user ((int(*)(struct user_entry_type *,struct userrec *,void *))global[41])
@@ -281,7 +276,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define xtra_kill ((void (*)(struct user_entry *))global[144])
 #define xtra_unpack ((void (*)(struct userrec *, struct user_entry *))global[145])
 #define movefile ((int (*) (char *, char *))global[146])
-#define copyfile ((int (*) (char *, char *))global[147])
+#define copyfile ((int (*) (const char *, const char *))global[147])
 /* 148 - 151 */
 #define do_tcl ((void (*)(char *, char *))global[148])
 #define readtclprog ((int (*)(const char *))global[149])
@@ -308,8 +303,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define detect_dcc_flood ((int (*) (time_t *,struct chat_info *,int))global[166])
 #define flush_lines ((void(*)(int,struct chat_info*))global[167])
 /* 168 - 171 */
-#define expected_memory ((int(*)(void))global[168])
-#define tell_mem_status ((void(*)(char *))global[169])
+/* 168-169: removed (was expected_memory / tell_mem_status) */
 #define do_restart (*(volatile sig_atomic_t *)(global[170]))
 #define check_tcl_filt ((const char *(*)(int, const char *))global[171])
 /* 172 - 175 */
@@ -384,8 +378,9 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define force_expire (*(int *)(global[227]))    /* Rufus */
 /* 228 - 231 */
 #define add_lang_section ((void(*)(char *))global[228])
-#define user_realloc(x,y) ((void *(*)(void *,int,char *,int))global[229])((x),(y),__FILE__,__LINE__)
-#define nrealloc(x,y) (((void *(*)(void *, int, const char *, const char *, int))global[230])((x),(y),MODULE_NAME,__FILE__,__LINE__))
+#undef user_realloc
+#define user_realloc(x,y) op_realloc(x,y)
+/* slot 230: mod_realloc ABI stub — modules now call op_realloc directly */
 #define xtra_set ((int(*)(struct userrec *,struct user_entry *, void *))global[231])
 /* 232 - 235 */
 #define ContextNote(note) do {} while (0) /* For backward compatibility only */
@@ -454,8 +449,11 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define parties (*(int *)global[275])
 /* 276 - 279 */
 #define tell_bottree ((void (*)(int, int))global[276])
+#undef MD5_Init
 #define MD5_Init ((void (*)(MD5_CTX *))global[277])
+#undef MD5_Update
 #define MD5_Update ((void (*)(MD5_CTX *, void *, unsigned long))global[278])
+#undef MD5_Final
 #define MD5_Final ((void (*)(unsigned char *, MD5_CTX *))global[279])
 /* 280 - 283 */
 #define wild_match_per ((int (*)(const char *, const char *))global[280])
@@ -525,8 +523,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define findsock ((int(*)(int))global[327])
 /* 328 - 331 */
 #define stealth_telnets (*(int *)(global[328]))
-#undef nstrdup
-#define nstrdup(x) (((char *(*)(const char *, const char *, const char *, int))global[329])((x),MODULE_NAME,__FILE__,__LINE__))
+/* slot 329: mod_strdup ABI stub — modules now call op_strdup directly */
 #undef free_user_entry
 #define free_user_entry(e) ((void (*)(struct user_entry *))global[330])(e)
 #undef alloc_user_entry
@@ -540,6 +537,26 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #undef free_xtra_key
 #define free_xtra_key(xk) ((void (*)(struct xtra_key *))global[334])(xk)
 
+
+/* 335: versioned API struct.
+ * Only usable inside module code where 'global' is in scope. */
+#define egg_api ((eggdrop_api_t *)(global[EGG_API_SLOT]))
+/* 336 - 337 */
+#define chan_htab_add ((void (*)(struct chanset_t *))global[336])
+#define chan_htab_del ((void (*)(struct chanset_t *))global[337])
+
+/* Check ABI compatibility.  Call early in _start() after setting global.
+ * Returns NULL on success, or an error string on mismatch.
+ * Pass 'global' explicitly so this compiles in any translation unit. */
+static inline const char *egg_check_api(Function *g, unsigned int need_count)
+{
+  eggdrop_api_t *api = (eggdrop_api_t *)(g[EGG_API_SLOT]);
+  if (!api || api->version < EGG_API_VERSION)
+    return "This module requires a newer eggdrop (API version mismatch).";
+  if (api->count < need_count)
+    return "This module requires a newer eggdrop (missing API entries).";
+  return NULL;
+}
 
 /* hostmasking */
 #define maskhost(a,b) maskaddr((a),(b),3)

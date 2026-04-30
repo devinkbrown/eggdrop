@@ -126,16 +126,9 @@ static void channel_free_mask(void *ptr)
   op_bh_free(masklist_heap, ptr);
 }
 
-/* General-purpose allocator for variable-length objects (strings etc.). */
 static void *channel_malloc(int size, char *file, int line)
 {
-  char *p;
-
-#ifdef DEBUG_MEM
-  p = ((void *) (global[0] (size, MODULE_NAME, file, line)));
-#else
-  p = nmalloc(size);
-#endif
+  char *p = op_malloc(size);
   egg_bzero(p, size);
   return p;
 }
@@ -352,8 +345,10 @@ int check_tcl_chanset(const char *chan, const char *setting, const char *value)
 
 /* Returns true if this is one of the channel masks
  */
-static int ismodeline(masklist *m, char *user)
+static int ismodeline(masklist *m, op_htab *ht, char *user)
 {
+  if (ht)
+    return op_htab_get(ht, user) != NULL;
   for (; m && m->mask[0]; m = m->next)
     if (!rfc_casecmp(m->mask, user))
       return 1;
@@ -399,6 +394,7 @@ static void remove_channel(struct chanset_t *chan)
 
   /* Remove the channel from the list, so that no one can pull it
    * away from under our feet during the check_tcl_part() call. */
+  chan_htab_del(chan);
   (void) chanset_unlink(chan);
 
   if ((me = module_find("irc", 1, 3)) != NULL)
@@ -415,6 +411,19 @@ static void remove_channel(struct chanset_t *chan)
   /* Remove channel-invites */
   while (chan->invites)
     u_delinvite(chan, chan->invites->mask, 1);
+  /* Destroy exact-match hash tables for persistent masks */
+  if (chan->bans_ht) {
+    op_htab_destroy(chan->bans_ht, NULL, NULL);
+    chan->bans_ht = NULL;
+  }
+  if (chan->exempts_ht) {
+    op_htab_destroy(chan->exempts_ht, NULL, NULL);
+    chan->exempts_ht = NULL;
+  }
+  if (chan->invites_ht) {
+    op_htab_destroy(chan->invites_ht, NULL, NULL);
+    chan->invites_ht = NULL;
+  }
   /* Destroy any remaining CIDR trie structures */
   ip_trie_destroy(&chan->ban_ip_trie);
   ip_trie_destroy(&chan->exempt_ip_trie);
@@ -422,14 +431,14 @@ static void remove_channel(struct chanset_t *chan)
   /* Remove channel specific user flags */
   user_del_chan(chan->dname);
   noshare = 0;
-  nfree(chan->channel.key);
+  op_free(chan->channel.key);
   for (int i = 0; i < MODES_PER_LINE_MAX && chan->cmode[i].op; i++)
-    nfree(chan->cmode[i].op);
+    op_free(chan->cmode[i].op);
   if (chan->key)
-    nfree(chan->key);
+    op_free(chan->key);
   if (chan->rmkey)
-    nfree(chan->rmkey);
-  nfree(chan);
+    op_free(chan->rmkey);
+  op_free(chan);
 }
 
 /* Bind this to chon and *if* the users console channel == ***
@@ -975,11 +984,15 @@ static char *channels_close(void)
 {
   write_channels();
   channel_bh_destroy();
+  /* Destroy global mask htabs */
+  if (global_bans_ht)    { op_htab_destroy(global_bans_ht, NULL, NULL);    global_bans_ht = NULL; }
+  if (global_exempts_ht) { op_htab_destroy(global_exempts_ht, NULL, NULL); global_exempts_ht = NULL; }
+  if (global_invites_ht) { op_htab_destroy(global_invites_ht, NULL, NULL); global_invites_ht = NULL; }
   free_udef(udef);
   if (udef_struct_bh) { op_bh_destroy(udef_struct_bh); udef_struct_bh = NULL; }
   if (udef_chans_bh)  { op_bh_destroy(udef_chans_bh);  udef_chans_bh  = NULL; }
   if (lastdeletedmask)
-    nfree(lastdeletedmask);
+    op_free(lastdeletedmask);
   rem_builtins(H_chon, my_chon);
   rem_builtins(H_dcc, C_dcc_irc);
 #ifdef HAVE_TCL
@@ -1086,6 +1099,14 @@ char *channels_start(Function *global_funcs)
 {
   global = global_funcs;
   channel_bh_init();
+
+  /* Global mask exact-match hash tables */
+  if (!global_bans_ht)
+    global_bans_ht = op_htab_create_istr("global_bans", 64);
+  if (!global_exempts_ht)
+    global_exempts_ht = op_htab_create_istr("global_exempts", 32);
+  if (!global_invites_ht)
+    global_invites_ht = op_htab_create_istr("global_invites", 32);
 
   gfld_chan_thr = 15;
   gfld_chan_time = 60;

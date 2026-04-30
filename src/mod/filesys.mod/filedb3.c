@@ -97,16 +97,7 @@ static void free_fdbe(filedb_entry ** fdbe)
  */
 static filedb_entry *_malloc_fdbe(char *file, int line)
 {
-  filedb_entry *fdbe = NULL;
-
-#ifdef DEBUG_MEM
-  /* This is a hack to access the nmalloc function with
-   * special file and line information
-   */
-  fdbe = (((void *(*)())global[0])(sizeof(filedb_entry),MODULE_NAME,file,line));
-#else
-  fdbe = nmalloc(sizeof(filedb_entry));
-#endif
+  filedb_entry *fdbe = op_malloc(sizeof(filedb_entry));
   egg_bzero(fdbe, sizeof(filedb_entry));
 
   /* Mark as new, will be overwritten if necessary. */
@@ -411,11 +402,11 @@ static int _filedb_addfile(FILE *fdb, filedb_entry *fdbe, char *file, int line)
 #define filedb_read(fdb, entry, len)            \
 {                                               \
   if ((len) > 0) {                              \
-    (entry) = nmalloc((len));                   \
+    (entry) = op_malloc((len));                   \
     if (feof((fdb)) ||                          \
         !fread((entry), (len), 1, (fdb)) ||     \
         ferror((fdb))) {                         \
-      nfree(entry);                             \
+      op_free(entry);                             \
       return NULL;                              \
     }                                           \
   }                                             \
@@ -658,7 +649,7 @@ static void filedb_update(char *path, FILE *fdb, int sort)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s/%s", path, name);
-        s = nmalloc(op_strbuf_len(&_b) + 1);
+        s = op_malloc(op_strbuf_len(&_b) + 1);
         strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
         op_strbuf_free(&_b);
         stat(s, &st);
@@ -701,7 +692,7 @@ static void filedb_update(char *path, FILE *fdb, int sort)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s/%s", path, fdbe->filename);
-        s = nmalloc(op_strbuf_len(&_b) + 1);
+        s = op_malloc(op_strbuf_len(&_b) + 1);
         strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
         op_strbuf_free(&_b);
       }
@@ -756,7 +747,7 @@ static FILE *filedb_open(char *path, int sort)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", dccdir, path);
-    npath = nmalloc(op_strbuf_len(&_b) + 1);
+    npath = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(npath, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -765,14 +756,14 @@ static FILE *filedb_open(char *path, int sort)
     char *s2 = make_point_path(path);
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%sfiledb.%s", filedb_path, s2);
-    s = nmalloc(op_strbuf_len(&_b) + 1);
+    s = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
     my_free(s2);
   } else {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/.filedb", npath);
-    s = nmalloc(op_strbuf_len(&_b) + 1);
+    s = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -930,7 +921,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
           /* Display the filename on its own line. */
           op_strbuf_t _b;
           op_strbuf_printf(&_b, "%s/\n", fdbe->filename);
-          s2 = nmalloc(op_strbuf_len(&_b) + 1);
+          s2 = op_malloc(op_strbuf_len(&_b) + 1);
           strlcpy(s2, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
           op_strbuf_free(&_b);
           filelist_addout(flist, s2);
@@ -938,11 +929,11 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         } else {
           op_strbuf_t _b;
           op_strbuf_printf(&_b, "%s/", fdbe->filename);
-          s2 = nmalloc(op_strbuf_len(&_b) + 1);
+          s2 = op_malloc(op_strbuf_len(&_b) + 1);
           strlcpy(s2, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
           op_strbuf_free(&_b);
         }
-        /* Note: You have to keep the sprintf and the nmalloc statements
+        /* Note: You have to keep the sprintf and the op_malloc statements
          *       in sync, i.e. always check that you allocate enough
          *       memory.
          */
@@ -1001,7 +992,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         if (strlen(fdbe->filename) > 30) {
           op_strbuf_t _b;
           op_strbuf_printf(&_b, "%s\n", fdbe->filename);
-          s3 = nmalloc(op_strbuf_len(&_b) + 1);
+          s3 = op_malloc(op_strbuf_len(&_b) + 1);
           strlcpy(s3, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
           op_strbuf_free(&_b);
           filelist_addout(flist, s3);
@@ -1026,7 +1017,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
           {
             op_strbuf_t _b;
             op_strbuf_printf(&_b, "   --> %s\n", fdbe->sharelink);
-            s4 = nmalloc(op_strbuf_len(&_b) + 1);
+            s4 = op_malloc(op_strbuf_len(&_b) + 1);
             strlcpy(s4, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
             op_strbuf_free(&_b);
           }
@@ -1044,7 +1035,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
             {
               op_strbuf_t _b;
               op_strbuf_printf(&_b, "   %s\n", fdbe->desc);
-              sd = nmalloc(op_strbuf_len(&_b) + 1);
+              sd = op_malloc(op_strbuf_len(&_b) + 1);
               strlcpy(sd, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
               op_strbuf_free(&_b);
             }
@@ -1060,7 +1051,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
           {
             op_strbuf_t _b;
             op_strbuf_printf(&_b, "   %s\n", fdbe->desc);
-            sd = nmalloc(op_strbuf_len(&_b) + 1);
+            sd = op_malloc(op_strbuf_len(&_b) + 1);
             strlcpy(sd, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
             op_strbuf_free(&_b);
             filelist_addout(flist, sd);
@@ -1122,7 +1113,7 @@ static void remote_filereq(int idx, char *from, char *file)
             op_strbuf_printf(&_b, "%s%s/%s", dccdir, dir, what);
           else
             op_strbuf_printf(&_b, "%s%s", dccdir, what);
-          s1 = nmalloc(op_strbuf_len(&_b) + 1);
+          s1 = op_malloc(op_strbuf_len(&_b) + 1);
           strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
           op_strbuf_free(&_b);
         }
@@ -1138,7 +1129,7 @@ static void remote_filereq(int idx, char *from, char *file)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s:%s/%s", botnetnick, dir, what);
-    s1 = nmalloc(op_strbuf_len(&_b) + 1);
+    s1 = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -1178,8 +1169,7 @@ static void filedb_getdesc(char *dir, char *fn, char **desc)
   fdbe = filedb_getentry(dir, fn);
   if (fdbe) {
     if (fdbe->desc) {
-      *desc = nmalloc(strlen(fdbe->desc) + 1);
-      strlcpy(*desc, fdbe->desc, strlen(fdbe->desc) + 1);
+      *desc = op_strdup(fdbe->desc);
     }
     free_fdbe(&fdbe);
   } else
@@ -1192,8 +1182,7 @@ static void filedb_getowner(char *dir, char *fn, char **owner)
 
   fdbe = filedb_getentry(dir, fn);
   if (fdbe) {
-    *owner = nmalloc(strlen(fdbe->uploader) + 1);
-    strlcpy(*owner, fdbe->uploader, strlen(fdbe->uploader) + 1);
+    *owner = op_strdup(fdbe->uploader);
     free_fdbe(&fdbe);
   } else
     *owner = NULL;

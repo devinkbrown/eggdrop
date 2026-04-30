@@ -99,8 +99,8 @@ extern sock_list *socklist;
 extern const char *argv0;
 
 
-int xtra_kill();
-int xtra_unpack();
+int xtra_kill(struct user_entry *e);
+int xtra_unpack(struct userrec *u, struct user_entry *e);
 static int module_rename(char *name, char *newname);
 
 #ifndef STATIC
@@ -116,10 +116,9 @@ struct static_list {
 
 void check_static(char *name, char *(*func) ())
 {
-  struct static_list *p = nmalloc(sizeof(struct static_list));
+  struct static_list *p = op_malloc(sizeof(struct static_list));
 
-  p->name = nmalloc(strlen(name) + 1);
-  strcpy(p->name, name);
+  p->name = op_strdup(name);
   p->func = func;
   p->next = static_modules;
   static_modules = p;
@@ -182,6 +181,9 @@ void (*webui_unframe) (int, char *, int *) = 0;
 module_entry *module_list;
 dependancy *dependancy_list = NULL;
 
+/* Forward declaration so global_table can reference it. */
+static eggdrop_api_t eggdrop_api;
+
 /* The horrible global lookup table for functions
  * BUT it makes the whole thing *much* more portable than letting each
  * OS screw up the symbols their own special way :/
@@ -234,7 +236,7 @@ Function global_table[] = {
   (Function) nextbot,
   /* 36 - 39 */
   (Function) zapfbot,
-  (Function) n_free,
+  (Function) NULL,                   /* was: n_free (removed)               */
   (Function) u_pass_match,
   (Function) _user_malloc,
   /* 40 - 43 */
@@ -415,8 +417,8 @@ Function global_table[] = {
   (Function) detect_dcc_flood,
   (Function) flush_lines,
   /* 168 - 171 */
-  (Function) expected_memory,
-  (Function) tell_mem_status,
+  (Function) NULL,                   /* was: expected_memory (removed)      */
+  (Function) NULL,                   /* was: tell_mem_status (removed)      */
   (Function) & do_restart,        /* volatile sig_atomic_t               */
   (Function) check_tcl_filt,
   /* 172 - 175 */
@@ -637,7 +639,18 @@ Function global_table[] = {
   (Function) alloc_user_entry,     /* struct user_entry *(void)           */
   (Function) alloc_chanuserrec,    /* struct chanuserrec *(void)          */
   (Function) alloc_xtra_key,       /* struct xtra_key *(void)             */
-  (Function) free_xtra_key         /* void (struct xtra_key *)            */
+  (Function) free_xtra_key,        /* void (struct xtra_key *)            */
+/* 335: versioned API struct pointer */
+  (Function) & eggdrop_api,
+/* 336 - 337: channel hash table helpers */
+  (Function) chan_htab_add,
+  (Function) chan_htab_del
+};
+
+static eggdrop_api_t eggdrop_api = {
+  .version = EGG_API_VERSION,
+  .count   = sizeof(global_table) / sizeof(Function),
+  .funcs   = global_table
 };
 
 void init_modules(void)
@@ -645,7 +658,7 @@ void init_modules(void)
   module_entry_bh = op_bh_create(sizeof(module_entry), 16, "module_entry");
   dependancy_bh   = op_bh_create(sizeof(dependancy),   16, "module_dep");
   module_list = op_bh_alloc(module_entry_bh);
-  module_list->name = nmalloc(8);
+  module_list->name = op_malloc(8);
   strlcpy(module_list->name, "eggdrop", strlen("eggdrop") + 1);
   module_list->major = (egg_numver) / 10000;
   module_list->minor = (egg_numver / 100) % 100;
@@ -656,35 +669,6 @@ void init_modules(void)
   module_list->funcs = NULL;
   for (int i = 0; i < REAL_HOOKS; i++)
     op_vec_init(&hook_list[i], 2);
-}
-
-int expmem_modules(int y)
-{
-  int c = 0;
-  module_entry *p;
-  dependancy *d;
-  Function *f;
-#ifdef STATIC
-  struct static_list *s;
-
-  for (s = static_modules; s; s = s->next)
-    c += sizeof(struct static_list) + strlen(s->name) + 1;
-#endif
-
-  for (int i = 0; i < REAL_HOOKS; i++)
-    c += (int)(op_vec_size(&hook_list[i]) * sizeof(void *));
-
-  for (d = dependancy_list; d; d = d->next)
-    c += sizeof(dependancy);
-
-  for (p = module_list; p; p = p->next) {
-    c += sizeof(module_entry);
-    c += strlen(p->name) + 1;
-    f = p->funcs;
-    if (f && f[MODCALL_EXPMEM] && !y)
-      c += (int) (f[MODCALL_EXPMEM] ());
-  }
-  return c;
 }
 
 int module_register(char *name, Function *funcs, int major, int minor)
@@ -889,8 +873,7 @@ const char *module_load(char *name)
 #endif /* STATIC */
 
   p = op_bh_alloc(module_entry_bh);
-  p->name = nmalloc(strlen(name) + 1);
-  strcpy(p->name, name);
+  p->name = op_strdup(name);
   p->major = 0;
   p->minor = 0;
 #ifndef STATIC
@@ -902,7 +885,7 @@ const char *module_load(char *name)
   e = ((char *(*)(Function *)) f)(global_table);
   if (e) {
     module_list = module_list->next;
-    nfree(p->name);
+    op_free(p->name);
     op_bh_free(module_entry_bh, p);
     return e;
   }
@@ -953,7 +936,7 @@ char *module_unload(char *name, char *user)
 #  endif
 #endif /* !STATIC */
       }
-      nfree(p->name);
+      op_free(p->name);
       if (o == NULL)
         module_list = p->next;
       else
@@ -992,9 +975,8 @@ static int module_rename(char *name, char *newname)
 
   for (p = module_list; p && p->name; p = p->next) {
     if (!strcasecmp(name, p->name)) {
-      nfree(p->name);
-      p->name = nmalloc(strlen(newname) + 1);
-      strcpy(p->name, newname);
+      op_free(p->name);
+      p->name = op_strdup(newname);
       return 1;
     }
   }
@@ -1056,59 +1038,24 @@ int module_undepend(char *name1)
 
 void *mod_malloc(int size, const char *modname, const char *filename, int line)
 {
-#ifdef DEBUG_MEM
-  const char *p = strrchr(filename, '/');
-  op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
-  op_strbuf_truncate(&_b, 19);
-  void *result = n_malloc(size, op_strbuf_str(&_b), line);
-  op_strbuf_free(&_b);
-  return result;
-#else
-  return nmalloc(size);
-#endif
+  return op_malloc((size_t) size);
 }
 
 void *mod_realloc(void *ptr, int size, const char *modname,
                   const char *filename, int line)
 {
-#ifdef DEBUG_MEM
-  const char *p = strrchr(filename, '/');
-  op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
-  op_strbuf_truncate(&_b, 19);
-  void *result = n_realloc(ptr, size, op_strbuf_str(&_b), line);
-  op_strbuf_free(&_b);
-  return result;
-#else
-  return nrealloc(ptr, size);
-#endif
+  return op_realloc(ptr, (size_t) size);
 }
 
 void mod_free(void *ptr, const char *modname, const char *filename, int line)
 {
-  const char *p = strrchr(filename, '/');
-  op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
-  op_strbuf_truncate(&_b, 19);
-  n_free(ptr, op_strbuf_str(&_b), line);
-  op_strbuf_free(&_b);
+  op_free(ptr);
 }
 
 char *mod_strdup(const char *str, const char *modname,
                  const char *filename, int line)
 {
-#ifdef DEBUG_MEM
-  const char *p = strrchr(filename, '/');
-  op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s:%s", modname, p ? p + 1 : filename);
-  op_strbuf_truncate(&_b, 19);
-  char *result = n_strdup(str, op_strbuf_str(&_b), line);
-  op_strbuf_free(&_b);
-  return result;
-#else
-  return nstrdup(str);
-#endif
+  return op_strdup(str);
 }
 
 /* Hooks, various tables of functions to call on certain events

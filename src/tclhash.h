@@ -69,6 +69,7 @@ typedef struct tcl_bind_list_b {
   IntFunc func;                 /* Function used as the Tcl calling interface
                                  * for procs actually representing C functions. */
   tcl_bind_mask_t *first;       /* Pointer to registered binds for this list. */
+  op_htab *mask_ht;             /* O(1) exact-match lookup by mask string. */
 } tcl_bind_list_t, *p_tcl_bind_list;
 
 
@@ -78,7 +79,6 @@ void garbage_collect_tclhash(void);
 
 void init_bind(void);
 void kill_bind(void);
-int expmem_tclhash(void);
 
 tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func);
 void del_bind_table(tcl_bind_list_t *tl_which);

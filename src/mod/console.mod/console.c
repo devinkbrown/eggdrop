@@ -51,8 +51,7 @@ static int console_unpack(struct userrec *u, struct user_entry *e)
 
   par = e->u.list->extra;
   arg = newsplit(&par);
-  ci->channel = user_malloc(strlen(arg) + 1);
-  strlcpy(ci->channel, arg, sizeof(ci->channel));
+  ci->channel = op_strdup(arg);
   arg = newsplit(&par);
   ci->conflags = logmodes(arg);
   arg = newsplit(&par);
@@ -92,8 +91,8 @@ static int console_pack(struct userrec *u, struct user_entry *e)
   e->u.list->extra = user_malloc(l + 1);
   strlcpy(e->u.list->extra, work, l + 1);
 
-  nfree(ci->channel);
-  nfree(ci);
+  op_free(ci->channel);
+  op_free(ci);
   return 1;
 }
 
@@ -101,8 +100,8 @@ static int console_kill(struct user_entry *e)
 {
   struct console_info *i = e->u.extra;
 
-  nfree(i->channel);
-  nfree(i);
+  op_free(i->channel);
+  op_free(i);
   free_user_entry(e);
   return 1;
 }
@@ -129,8 +128,8 @@ static int console_set(struct userrec *u, struct user_entry *e, void *buf)
 
   if (ci != buf) {
     if (ci) {
-      nfree(ci->channel);
-      nfree(ci);
+      op_free(ci->channel);
+      op_free(ci);
     }
     e->u.extra = buf;
   }
@@ -184,7 +183,7 @@ static int console_tcl_set(Tcl_Interp *irp, struct userrec *u,
     egg_bzero(i, sizeof(struct console_info));
   }
   if (i->channel)
-    nfree(i->channel);
+    op_free(i->channel);
   l = strlen(argv[3]);
   if (l > 80)
     l = 80;
@@ -241,8 +240,7 @@ static int console_dupuser(struct userrec *new, struct userrec *old,
   j = user_malloc(sizeof(struct console_info));
   memcpy(j, i, sizeof(struct console_info));
 
-  j->channel = user_malloc(strlen(i->channel) + 1);
-  strlcpy(j->channel, i->channel, sizeof(j->channel));
+  j->channel = op_strdup(i->channel);
   return set_user(e->type, new, j);
 }
 
@@ -336,9 +334,8 @@ static int console_store(struct userrec *u, int idx, char *par)
     egg_bzero(i, sizeof(struct console_info));
   }
   if (i->channel)
-    nfree(i->channel);
-  i->channel = user_malloc(strlen(dcc[idx].u.chat->con_chan) + 1);
-  strlcpy(i->channel, dcc[idx].u.chat->con_chan, sizeof(i->channel));
+    op_free(i->channel);
+  i->channel = op_strdup(dcc[idx].u.chat->con_chan);
   i->conflags = dcc[idx].u.chat->con_flags;
   i->stripflags = dcc[idx].u.chat->strip_flags;
   i->echoflags = (dcc[idx].status & STAT_ECHO) ? 1 : 0;

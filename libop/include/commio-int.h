@@ -32,7 +32,7 @@
 
 #define FD_DESC_SZ 128		/* hostlen + comment */
 
-#define op_hash_fd(x) ((x ^ (x >> OP_FD_HASH_BITS) ^ (x >> (OP_FD_HASH_BITS * 2))) & OP_FD_HASH_MASK)
+#define op_hash_fd(x) (((x) ^ ((x) >> OP_FD_HASH_BITS) ^ ((x) >> (OP_FD_HASH_BITS * 2))) & OP_FD_HASH_MASK)
 
 #ifdef HAVE_WRITEV
 #ifndef UIO_MAXIOV
@@ -82,9 +82,9 @@ struct acceptdata
 /* Internal per-fd flags */
 #define FLAG_OPEN       0x1   /* fd is live */
 #define FLAG_ZEROCOPY   0x2   /* SO_ZEROCOPY set; use MSG_ZEROCOPY for sends */
-#define IsFDOpen(F)     (F->flags & FLAG_OPEN)
-#define SetFDOpen(F)    (F->flags |= FLAG_OPEN)
-#define ClearFDOpen(F)  (F->flags &= ~FLAG_OPEN)
+#define IsFDOpen(F)     ((F)->flags & FLAG_OPEN)
+#define SetFDOpen(F)    ((F)->flags |= FLAG_OPEN)
+#define ClearFDOpen(F)  ((F)->flags &= ~FLAG_OPEN)
 
 #if !defined(SHUT_RDWR) && defined(_WIN32)
 # define SHUT_RDWR SD_BOTH

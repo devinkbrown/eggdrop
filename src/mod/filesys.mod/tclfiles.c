@@ -321,7 +321,7 @@ static int tcl_mkdir STDVAR
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
-      t = nmalloc(op_strbuf_len(&_b) + 1);
+      t = op_malloc(op_strbuf_len(&_b) + 1);
       strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
     }
@@ -414,17 +414,17 @@ static int tcl_rmdir STDVAR
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s/%s/.filedb", dccdir, d, p);
-    t = nmalloc(op_strbuf_len(&_b) + 1);
+    t = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
     unlink(t);
     op_strbuf_printf(&_b, "%s%s/%s/.files", dccdir, d, p);
-    t = nrealloc(t, op_strbuf_len(&_b) + 1);
+    t = op_realloc(t, op_strbuf_len(&_b) + 1);
     strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
     unlink(t);
     op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
-    t = nrealloc(t, op_strbuf_len(&_b) + 1);
+    t = op_realloc(t, op_strbuf_len(&_b) + 1);
     strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -550,7 +550,7 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
           op_strbuf_printf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
         else
           op_strbuf_printf(&_b, "%s%s", dccdir, fdbe_old->filename);
-        s = nmalloc(op_strbuf_len(&_b) + 1);
+        s = op_malloc(op_strbuf_len(&_b) + 1);
         strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
         op_strbuf_free(&_b);
         const char *newfn_eff = newfn[0] ? newfn : fdbe_old->filename;
@@ -558,7 +558,7 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
           op_strbuf_printf(&_b, "%s%s/%s", dccdir, newpath, newfn_eff);
         else
           op_strbuf_printf(&_b, "%s%s", dccdir, newfn_eff);
-        s1 = nmalloc(op_strbuf_len(&_b) + 1);
+        s1 = op_malloc(op_strbuf_len(&_b) + 1);
         strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
         op_strbuf_free(&_b);
       }

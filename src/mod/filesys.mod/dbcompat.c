@@ -44,7 +44,7 @@ static int convert_old_files(char *path, char *newfiledb)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/.files", path);
-    s1 = nmalloc(op_strbuf_len(&_b) + 1);
+    s1 = op_malloc(op_strbuf_len(&_b) + 1);
     strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
     op_strbuf_free(&_b);
   }
@@ -81,13 +81,13 @@ static int convert_old_files(char *path, char *newfiledb)
             {
               op_strbuf_t _b;
               op_strbuf_printf(&_b, "%s\n%s", fdbe->desc, s);
-              fdbe->desc = nrealloc(fdbe->desc, op_strbuf_len(&_b) + 1);
+              fdbe->desc = op_realloc(fdbe->desc, op_strbuf_len(&_b) + 1);
               strlcpy(fdbe->desc, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
               op_strbuf_free(&_b);
             }
           } else {
             size_t desc_sz = strlen(s) + 1;
-            fdbe->desc = nmalloc(desc_sz);
+            fdbe->desc = op_malloc(desc_sz);
             strlcpy(fdbe->desc, s, desc_sz);
           }
         }
@@ -247,7 +247,7 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s-tmp", filedb);
-      tempdb = nmalloc(op_strbuf_len(&_b) + 1);
+      tempdb = op_malloc(op_strbuf_len(&_b) + 1);
       strlcpy(tempdb, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
     }

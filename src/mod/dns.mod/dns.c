@@ -151,7 +151,7 @@ static char *dns_change(ClientData cdata, Tcl_Interp *irp,
                MAXNS);
         break;
       }
-      if ((p = strchr(list[i], ':'))) {
+      if ((p = (char *)strchr(list[i], ':'))) {
         *p++ = 0;
         /* allow non-standard ports */
         port = atoi(p);
@@ -185,8 +185,8 @@ static void dns_free_cache(void)
   for (rp = expireresolves; rp; rp = rpnext) {
     rpnext = rp->next;
     if (rp->hostn)
-      nfree(rp->hostn);
-    nfree(rp);
+      op_free(rp->hostn);
+    op_free(rp);
   }
   expireresolves = NULL;
 }

@@ -832,9 +832,10 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! STATUS", nick, host, u->handle);
 
   int i = count_users(userlist);
-  dprintf(DP_HELP, "NOTICE %s :I am %s, running %s: %d user%s  (mem: %uk).\n",
-          nick, botnetnick, ver, i, i == 1 ? "" : "s",
-         (int) (expected_memory() / 1024));
+  struct rusage ru;
+  getrusage(RUSAGE_SELF, &ru);
+  dprintf(DP_HELP, "NOTICE %s :I am %s, running %s: %d user%s  (rss: %ldk).\n",
+          nick, botnetnick, ver, i, i == 1 ? "" : "s", ru.ru_maxrss);
 
   {
     op_strbuf_t _up;
@@ -907,7 +908,12 @@ static int msg_memory(char *nick, char *host, struct userrec *u, char *par)
     return 1;
   }
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! MEMORY", nick, host, u->handle);
-  tell_mem_status(nick);
+  {
+    struct rusage ru;
+
+    getrusage(RUSAGE_SELF, &ru);
+    dprintf(DP_HELP, "NOTICE %s :RSS: %ld kB\n", nick, ru.ru_maxrss);
+  }
   return 1;
 }
 
