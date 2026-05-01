@@ -166,19 +166,19 @@ int findanyidx(int z)
   return -1;
 }
 
-/* Replace \n with \r\n */
-char *add_cr(char *buf)
+/* Send buf to sock, inserting \r before each \n (telnet line endings). */
+static void tputs_cr(int sock, char *buf, int len)
 {
-  static char WBUF[1024];
-  char *p, *q;
+  op_strbuf_t sb;
 
-  for (p = buf, q = WBUF; *p; p++, q++) {
-    if (*p == '\n')
-      *q++ = '\r';
-    *q = *p;
+  op_strbuf_init(&sb);
+  for (int i = 0; i < len; i++) {
+    if (buf[i] == '\n')
+      op_strbuf_appendc(&sb, '\r');
+    op_strbuf_appendc(&sb, buf[i]);
   }
-  *q = *p;
-  return WBUF;
+  tputs(sock, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
+  op_strbuf_free(&sb);
 }
 
 extern void (*qserver) (int, char *, int);
@@ -242,9 +242,7 @@ void dprint(int idx, char *buf, int len)
       len = LOGLINEMAX-10;
     }
     if (dcc[idx].type && ((long) (dcc[idx].type->output) == 1)) {
-      char *p = add_cr(buf);
-
-      tputs(dcc[idx].sock, p, strlen(p));
+      tputs_cr(dcc[idx].sock, buf, len);
     } else if (dcc[idx].type && dcc[idx].type->output)
       dcc[idx].type->output(idx, buf, dcc[idx].u.other);
     else
@@ -255,49 +253,37 @@ void dprint(int idx, char *buf, int len)
 ATTRIBUTE_FORMAT(printf,1,2)
 void chatout(const char *format, ...)
 {
-  int len;
-  char s[601];
+  op_strbuf_t sb;
   va_list va;
 
   va_start(va, format);
-
-  vsnprintf(s, 511, format, va);
+  op_strbuf_vprintf(&sb, format, va);
   va_end(va);
-  len = strlen(s);
-  if (len > 511)
-    len = 511;
-  s[len + 1] = 0;
 
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT)
       if (dcc[i].u.chat->channel >= 0)
-        dprintf(i, "%s", s);
+        dprint(i, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
 
+  op_strbuf_free(&sb);
 }
 
-/* Print to all on this channel but one.
- */
 ATTRIBUTE_FORMAT(printf,3,4)
 void chanout_but(int x, int chan, const char *format, ...)
 {
-  int len;
-  char s[601];
+  op_strbuf_t sb;
   va_list va;
 
   va_start(va, format);
-
-  vsnprintf(s, 511, format, va);
+  op_strbuf_vprintf(&sb, format, va);
   va_end(va);
-  len = strlen(s);
-  if (len > 511)
-    len = 511;
-  s[len + 1] = 0;
 
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT) && (i != x))
       if (dcc[i].u.chat->channel == chan)
-        dprintf(i, "%s", s);
+        dprint(i, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
 
+  op_strbuf_free(&sb);
 }
 
 void dcc_chatter(int idx)
@@ -626,17 +612,12 @@ int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
       dprintf(idx, "*** FLOOD: %s.\n", IRC_GOODBYE);
       /* Evil assumption here that flags&DCT_CHAT implies chat type */
       if ((dcc[idx].type->flags & DCT_CHAT) && (chat->channel >= 0)) {
-        char x[1024];
-
-        {
-          op_strbuf_t boot_buf;
-          op_strbuf_printf(&boot_buf, DCC_FLOODBOOT, dcc[idx].nick);
-          strlcpy(x, op_strbuf_str(&boot_buf), sizeof x);
-          op_strbuf_free(&boot_buf);
-        }
-        chanout_but(idx, chat->channel, "*** %s", x);
+        op_strbuf_t sb;
+        op_strbuf_printf(&sb, DCC_FLOODBOOT, dcc[idx].nick);
+        chanout_but(idx, chat->channel, "*** %s", op_strbuf_str(&sb));
         if (chat->channel < GLOBAL_CHANS)
-          botnet_send_part_idx(idx, x);
+          botnet_send_part_idx(idx, (char *) op_strbuf_str(&sb));
+        op_strbuf_free(&sb);
       }
       check_tcl_chof(dcc[idx].nick, dcc[idx].sock);
       if ((dcc[idx].sock != STDOUT) || backgrd) {
@@ -665,18 +646,13 @@ void do_boot(int idx, char *by, char *reason)
   /* Horrible assumption that DCT_CHAT using structure uses same format
    * as DCC_CHAT */
   if ((dcc[idx].type->flags & DCT_CHAT) && (dcc[idx].u.chat->channel >= 0)) {
-    char x[1024];
-
-    {
-      op_strbuf_t boot_buf;
-      op_strbuf_printf(&boot_buf, DCC_BOOTED3, by, dcc[idx].nick,
-                       reason[0] ? ": " : "", reason);
-      strlcpy(x, op_strbuf_str(&boot_buf), sizeof x);
-      op_strbuf_free(&boot_buf);
-    }
-    chanout_but(idx, dcc[idx].u.chat->channel, "*** %s.\n", x);
+    op_strbuf_t sb;
+    op_strbuf_printf(&sb, DCC_BOOTED3, by, dcc[idx].nick,
+                     reason[0] ? ": " : "", reason);
+    chanout_but(idx, dcc[idx].u.chat->channel, "*** %s.\n", op_strbuf_str(&sb));
     if (dcc[idx].u.chat->channel < GLOBAL_CHANS)
-      botnet_send_part_idx(idx, x);
+      botnet_send_part_idx(idx, (char *) op_strbuf_str(&sb));
+    op_strbuf_free(&sb);
   }
   check_tcl_chof(dcc[idx].nick, dcc[idx].sock);
   if ((dcc[idx].sock != STDOUT) || backgrd) {

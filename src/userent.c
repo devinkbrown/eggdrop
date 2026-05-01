@@ -418,22 +418,13 @@ static int laston_unpack(struct userrec *u, struct user_entry *e)
 
 static int laston_pack(struct userrec *u, struct user_entry *e)
 {
-  char work[1024];
-  struct laston_info *li;
-  int l;
+  struct laston_info *li = (struct laston_info *) e->u.extra;
+  op_strbuf_t sb;
 
-  li = (struct laston_info *) e->u.extra;
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
-    l = (int) op_strbuf_len(&_b);
-    strlcpy(work, op_strbuf_str(&_b), sizeof work);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&sb, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
-  e->u.list->extra = user_malloc(l + 1);
-  strlcpy(e->u.list->extra, work, l + 1);
+  e->u.list->extra = op_strbuf_steal(&sb);
   op_free(li->lastonplace);
   free_laston_info(li);
   return 1;
@@ -634,39 +625,22 @@ static int botaddr_unpack(struct userrec *u, struct user_entry *e)
 
 static int botaddr_pack(struct userrec *u, struct user_entry *e)
 {
-  char work[1024], *p, *q = work;
-  struct bot_addr *bi;
-  int l;
+  struct bot_addr *bi = (struct bot_addr *) e->u.extra;
+  op_strbuf_t sb;
 
-  bi = (struct bot_addr *) e->u.extra;
-  for (p = bi->address; *p; p++)
-    if (*p == ':')
-      *q++ = ';';
-    else
-      *q++ = *p;
+  op_strbuf_init(&sb);
+  for (char *p = bi->address; *p; p++)
+    op_strbuf_appendc(&sb, (*p == ':') ? ';' : *p);
 #ifdef TLS
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, ":%s%u/%s%u",
-                     (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
-                     (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
-    l = (int) op_strbuf_len(&_b);
-    strlcat(work, op_strbuf_str(&_b), sizeof work);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_appendf(&sb, ":%s%u/%s%u",
+                    (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
+                    (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
 #else
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, ":%u/%u", bi->telnet_port, bi->relay_port);
-    l = (int) op_strbuf_len(&_b);
-    strlcat(work, op_strbuf_str(&_b), sizeof work);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_appendf(&sb, ":%u/%u", bi->telnet_port, bi->relay_port);
 #endif
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
-  e->u.list->extra = user_malloc(l + 1);
-  strlcpy(e->u.list->extra, work, l + 1);
+  e->u.list->extra = op_strbuf_steal(&sb);
   op_free(bi->address);
   op_free(bi);
   return 1;
@@ -1257,35 +1231,25 @@ static int hosts_expmem(struct user_entry *e)
 
 static void hosts_display(int idx, struct user_entry *e)
 {
-  char s[1024];
+  op_strbuf_t sb;
   struct list_type *q;
 
-  strlcpy(s, "  HOSTS: ", sizeof s);
+  op_strbuf_init(&sb);
+  op_strbuf_append_cstr(&sb, "  HOSTS: ");
   for (q = e->u.list; q; q = q->next) {
-    if (s[0] && !s[9]) {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s%s", s, q->extra);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
-    } else if (strlen(s) + strlen(q->extra) + 2 > 65) {
-      dprintf(idx, "%s\n", s);
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "         %s", q->extra);
-        strlcpy(s, op_strbuf_str(&_b), sizeof s);
-        op_strbuf_free(&_b);
-      }
+    if (op_strbuf_len(&sb) <= 9) {
+      op_strbuf_append_cstr(&sb, q->extra);
+    } else if (op_strbuf_len(&sb) + strlen(q->extra) + 2 > 65) {
+      dprintf(idx, "%s\n", op_strbuf_str(&sb));
+      op_strbuf_clear(&sb);
+      op_strbuf_appendf(&sb, "         %s", q->extra);
     } else {
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s, %s", s, q->extra);
-        strlcpy(s, op_strbuf_str(&_b), sizeof s);
-        op_strbuf_free(&_b);
-      }
+      op_strbuf_appendf(&sb, ", %s", q->extra);
     }
   }
-  if (s[0])
-    dprintf(idx, "%s\n", s);
+  if (!op_strbuf_empty(&sb))
+    dprintf(idx, "%s\n", op_strbuf_str(&sb));
+  op_strbuf_free(&sb);
 }
 
 static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
@@ -1458,33 +1422,25 @@ struct user_entry_type USERENTRY_FPRINT = {
 
 static void account_display(int idx, struct user_entry *e)
 {
-  char s[1024];
+  op_strbuf_t sb;
   struct list_type *q;
 
-  strlcpy(s, "  ACCOUNTS: ", sizeof s);
+  op_strbuf_init(&sb);
+  op_strbuf_append_cstr(&sb, "  ACCOUNTS: ");
   for (q = e->u.list; q; q = q->next) {
-    if (s[0] && !s[12]) {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s%s", s, q->extra);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
-    } else if (strlen(s) + strlen(q->extra) + 2 > 65) {
-      dprintf(idx, "%s\n", s);
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "         %s", q->extra);
-        strlcpy(s, op_strbuf_str(&_b), sizeof s);
-        op_strbuf_free(&_b);
-      }
+    if (op_strbuf_len(&sb) <= 12) {
+      op_strbuf_append_cstr(&sb, q->extra);
+    } else if (op_strbuf_len(&sb) + strlen(q->extra) + 2 > 65) {
+      dprintf(idx, "%s\n", op_strbuf_str(&sb));
+      op_strbuf_clear(&sb);
+      op_strbuf_appendf(&sb, "         %s", q->extra);
     } else {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s, %s", s, q->extra);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
+      op_strbuf_appendf(&sb, ", %s", q->extra);
     }
   }
-  if (s[0])
-    dprintf(idx, "%s\n", s);
+  if (!op_strbuf_empty(&sb))
+    dprintf(idx, "%s\n", op_strbuf_str(&sb));
+  op_strbuf_free(&sb);
 }
 
 static int account_set(struct userrec *u, struct user_entry *e, void *buf)
