@@ -2091,11 +2091,9 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
         return;
       }
     } else if (arg && !strpbrk(chg, "&|")) {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "|%s", chg);
-      tmpchg = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(tmpchg, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      op_strbuf_t sb;
+      op_strbuf_printf(&sb, "|%s", chg);
+      tmpchg = op_strbuf_steal(&sb);
       chg = tmpchg;
     }
   }
@@ -2288,11 +2286,9 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
         return;
       }
     } else if (arg && !strpbrk(chg, "&|")) {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "|%s", chg);
-      tmpchg = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(tmpchg, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      op_strbuf_t sb;
+      op_strbuf_printf(&sb, "|%s", chg);
+      tmpchg = op_strbuf_steal(&sb);
       chg = tmpchg;
     }
   }
@@ -2582,22 +2578,23 @@ const char *stripmasktype(int x)
 static char *stripmaskname(int x)
 {
   static char s[128];
-  op_strbuf_t _b;
+  op_strbuf_t sb;
 
-  op_strbuf_init(&_b);
-  if (x & STRIP_COLOR)     op_strbuf_append_cstr(&_b, "color, ");
-  if (x & STRIP_BOLD)      op_strbuf_append_cstr(&_b, "bold, ");
-  if (x & STRIP_REVERSE)   op_strbuf_append_cstr(&_b, "reverse, ");
-  if (x & STRIP_UNDERLINE) op_strbuf_append_cstr(&_b, "underline, ");
-  if (x & STRIP_ANSI)      op_strbuf_append_cstr(&_b, "ansi, ");
-  if (x & STRIP_BELLS)     op_strbuf_append_cstr(&_b, "bells, ");
-  if (x & STRIP_ORDINARY)  op_strbuf_append_cstr(&_b, "ordinary, ");
-  if (x & STRIP_ITALICS)   op_strbuf_append_cstr(&_b, "italics, ");
-  if (op_strbuf_len(&_b))
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) - 1);
+  op_strbuf_init(&sb);
+  if (x & STRIP_COLOR)     op_strbuf_append_cstr(&sb, "color, ");
+  if (x & STRIP_BOLD)      op_strbuf_append_cstr(&sb, "bold, ");
+  if (x & STRIP_REVERSE)   op_strbuf_append_cstr(&sb, "reverse, ");
+  if (x & STRIP_UNDERLINE) op_strbuf_append_cstr(&sb, "underline, ");
+  if (x & STRIP_ANSI)      op_strbuf_append_cstr(&sb, "ansi, ");
+  if (x & STRIP_BELLS)     op_strbuf_append_cstr(&sb, "bells, ");
+  if (x & STRIP_ORDINARY)  op_strbuf_append_cstr(&sb, "ordinary, ");
+  if (x & STRIP_ITALICS)   op_strbuf_append_cstr(&sb, "italics, ");
+  if (!op_strbuf_empty(&sb))
+    op_strbuf_truncate(&sb, op_strbuf_len(&sb) - 2);  /* strip trailing ", " */
   else
-    strlcpy(s, "none", sizeof s);
-  op_strbuf_free(&_b);
+    op_strbuf_append_cstr(&sb, "none");
+  strlcpy(s, op_strbuf_str(&sb), sizeof s);
+  op_strbuf_free(&sb);
   return s;
 }
 
@@ -2901,7 +2898,7 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
   }
 
   int code;
-  char s[512], *result;
+  char *result;
   Tcl_DString dstr;
 
   if (!isowner(dcc[idx].nick) && must_be_owner) {
@@ -2915,12 +2912,11 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
     return;
   }
   {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "set %s", msg);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
+    op_strbuf_t sb;
+    op_strbuf_printf(&sb, "set %s", msg);
+    code = Tcl_Eval(interp, (char *) op_strbuf_str(&sb));
+    op_strbuf_free(&sb);
   }
-  code = Tcl_Eval(interp, s);
 
   /* properly convert string to system encoding. */
   Tcl_DStringInit(&dstr);
@@ -3338,17 +3334,10 @@ static char *btos(uint64_t bytes)
     unit = "TBytes";
     xbytes = xbytes / 1024.0;
   }
-  if (bytes > 1024) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%.2f %s", xbytes, unit);
-    strlcpy(traffictxt, op_strbuf_str(&_b), sizeof traffictxt);
-    op_strbuf_free(&_b);
-  } else {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%" PRIu64 " Bytes", bytes);
-    strlcpy(traffictxt, op_strbuf_str(&_b), sizeof traffictxt);
-    op_strbuf_free(&_b);
-  }
+  if (bytes > 1024)
+    snprintf(traffictxt, sizeof traffictxt, "%.2f %s", xbytes, unit);
+  else
+    snprintf(traffictxt, sizeof traffictxt, "%" PRIu64 " Bytes", bytes);
   return traffictxt;
 }
 

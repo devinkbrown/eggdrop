@@ -588,20 +588,16 @@ static void core_secondly(void)
           putlog(LOG_MISC, "*", "%s", MISC_LOGSWITCH);
         for (int li = 0; li < max_logs; li++)
           if (logs[li].filename) {
-            char s[1024];
+            op_strbuf_t sb;
 
             if (logs[li].f) {
               fclose(logs[li].f);
               logs[li].f = NULL;
             }
-            {
-              op_strbuf_t _b;
-              op_strbuf_printf(&_b, "%s.yesterday", logs[li].filename);
-              strlcpy(s, op_strbuf_str(&_b), sizeof s);
-              op_strbuf_free(&_b);
-            }
-            unlink(s);
-            movefile(logs[li].filename, s);
+            op_strbuf_printf(&sb, "%s.yesterday", logs[li].filename);
+            unlink(op_strbuf_str(&sb));
+            movefile(logs[li].filename, (char *) op_strbuf_str(&sb));
+            op_strbuf_free(&sb);
           }
       }
 #ifdef TLS
@@ -952,23 +948,13 @@ int main(int arg_c, char **arg_v)
 
   /* Version info! */
 #ifdef EGG_PATCH
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
-    strlcpy(egg_version, op_strbuf_str(&_b), sizeof egg_version);
-    op_strbuf_free(&_b);
-  }
+  snprintf(egg_version, sizeof egg_version, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
   strlcpy(ver, "eggdrop v" EGG_STRINGVER "+" EGG_PATCH, sizeof ver);
   strlcpy(version,
           "Eggdrop v" EGG_STRINGVER "+" EGG_PATCH " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
           sizeof version);
 #else
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %u", EGG_STRINGVER, egg_numver);
-    strlcpy(egg_version, op_strbuf_str(&_b), sizeof egg_version);
-    op_strbuf_free(&_b);
-  }
+  snprintf(egg_version, sizeof egg_version, "%s %u", EGG_STRINGVER, egg_numver);
   strlcpy(ver, "eggdrop v" EGG_STRINGVER, sizeof ver);
   strlcpy(version,
           "Eggdrop v" EGG_STRINGVER " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
@@ -1095,12 +1081,8 @@ int main(int arg_c, char **arg_v)
 #endif
   cache_miss = 0;
   cache_hit = 0;
-  if (!pid_file[0]) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "pid.%s", botnetnick);
-    strlcpy(pid_file, op_strbuf_str(&_b), sizeof pid_file);
-    op_strbuf_free(&_b);
-  }
+  if (!pid_file[0])
+    snprintf(pid_file, sizeof pid_file, "pid.%s", botnetnick);
 
   /* Check for pre-existing eggdrop! */
   f = fopen(pid_file, "r");

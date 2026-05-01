@@ -652,23 +652,17 @@ static int proxy_connect(int sock, sockname_t *addr)
       if (!(socklist[i].flags & SOCK_UNUSED) && socklist[i].sock == sock)
         socklist[i].flags |= SOCK_PROXYWAIT;    /* drummer */
     memcpy(host, &addr->addr.s4.sin_addr.s_addr, 4);
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "\004\001%c%c%c%c%c%c%s", (port >> 8) & 0xFF,
-                       port & 0xFF, host[0], host[1], host[2], host[3], botuser);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
-    }
-    tputs(sock, s, strlen(botuser) + 9);        /* drummer */
+    s[0] = '\004'; s[1] = '\001';
+    s[2] = (port >> 8) & 0xFF; s[3] = port & 0xFF;
+    s[4] = host[0]; s[5] = host[1]; s[6] = host[2]; s[7] = host[3];
+    strlcpy(s + 8, botuser, sizeof s - 8);
+    tputs(sock, s, strlen(botuser) + 9);
   } else if (proxy == PROXY_SUN) {
+    op_strbuf_t sb;
     inet_ntop(AF_INET, &addr->addr.s4.sin_addr, host, sizeof host);
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s %d\n", host, port);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
-    }
-    tputs(sock, s, strlen(s));  /* drummer */
+    op_strbuf_printf(&sb, "%s %d\n", host, port);
+    tputs(sock, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
+    op_strbuf_free(&sb);
   }
   return sock;
 }
@@ -978,12 +972,7 @@ int getdccfamilyaddr(sockname_t *addr, char *s, size_t l, int restrict_af)
         strlcpy(s, nat_ip_string, l);
       else {
         memcpy(&ip, r->addr.s6.sin6_addr.s6_addr + 12, sizeof ip);
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%" PRIu32, ntohl(ip));
-          strlcpy(s, op_strbuf_str(&_b), l);
-          op_strbuf_free(&_b);
-        }
+        snprintf(s, l, "%" PRIu32, ntohl(ip));
       }
     } else
       inet_ntop(AF_INET6, &r->addr.s6.sin6_addr, s, l);
@@ -993,12 +982,7 @@ int getdccfamilyaddr(sockname_t *addr, char *s, size_t l, int restrict_af)
     if (*nat_ip_string)
       strlcpy(s, nat_ip_string, l);
     else
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%" PRIu32, ntohl(r->addr.s4.sin_addr.s_addr));
-        strlcpy(s, op_strbuf_str(&_b), l);
-        op_strbuf_free(&_b);
-      }
+      snprintf(s, l, "%" PRIu32, ntohl(r->addr.s4.sin_addr.s_addr));
   }
   return 1;
 }
@@ -1989,12 +1973,7 @@ char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
       putlog(LOG_MISC, "*", "ERROR: inet_pton(): nat-ip %s", value);
       return strerror(errno);
     }
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%" PRIu32, ntohl(ia.s_addr));
-      strlcpy(nat_ip_string, op_strbuf_str(&_b), sizeof nat_ip_string);
-      op_strbuf_free(&_b);
-    }
+    snprintf(nat_ip_string, sizeof nat_ip_string, "%" PRIu32, ntohl(ia.s_addr));
   } else
     *nat_ip_string = '\0';
   return NULL;
