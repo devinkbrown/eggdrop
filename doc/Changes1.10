@@ -4,6 +4,31 @@ __________________________________________
 
 devinkbrown fork (based on v1.10.1):
 
+  2026-05-01 * python: added 26 new Python API commands bringing total to
+               174/197 (88% Tcl parity).  Botnet: link, unlink, valididx,
+               botlist, setdccaway, getchan, setchan.  Logging: putloglev,
+               putcmdlog.  Utils: matchaddr, rfcequal, binds.  Channel
+               management: ischanban/exempt/invite, newchanban/exempt/invite,
+               killchanexempt/invite, stick/unstick/stickexempt/stickinvite
+               and their un- variants.
+               [Patch by: devinkbrown]
+
+  2026-05-01 * config: TOML [scripts] section now auto-detects .py files and
+               routes them to the Python engine even in Tcl builds.
+               [Patch by: devinkbrown]
+
+  2026-05-01 * net: replaced char *inbuf (realloc + memmove) with ophion's
+               op_linebuf — slab-allocated CRLF-aware line framing with
+               zero-memmove extraction.  Binary/SOCK_BUFFER modes preserved.
+               Outbound egg_mbuf_t path unchanged.
+               [Patch by: devinkbrown]
+
+  2026-05-01 * tclhash: unified init_bind() and check_tcl_listen() across
+               Tcl/no-Tcl builds.  Fixed missing H_time/H_cron/H_note tables
+               in no-Tcl builds (time/cron/note binds were silently no-op).
+               HAVE_TCL directives reduced from 6 to 5.
+               [Patch by: devinkbrown]
+
   2026-05-01 * source: complete Tcl decoupling — removed all #ifdef HAVE_TCL
                guards from every application source file (58 files changed).
                Functions previously compiled only in Tcl builds now compile

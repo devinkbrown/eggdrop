@@ -414,6 +414,12 @@ static void cb_logfile(const char *entry, [[maybe_unused]] void *ud)
 
 static void cb_source(const char *path, [[maybe_unused]] void *ud)
 {
+  /* Route .py files to the script engine (Python) regardless of Tcl. */
+  const char *ext = strrchr(path, '.');
+  if (ext && !strcasecmp(ext, ".py")) {
+    script_load(path);
+    return;
+  }
   if (interp) {
     op_strbuf_t cmd;
     op_strbuf_printf(&cmd, "source %s", path);

@@ -5,8 +5,8 @@
  * select), replacing net.c's inline backend dispatch and io_thread.c.
  *
  * Each eggdrop socket gets an op_fde_t registered with commio.  The commio
- * read callback fills socklist[].handler.sock.inbuf exactly as the old
- * sockread()/io_thread did, so sockgets() and all consumers are unaffected.
+ * read callback sets commio_ready so sockread() dispatches the socket;
+ * incoming data is framed via op_linebuf into socklist[].handler.sock.recvbuf.
  *
  * Copyright (C) 2026 Eggheads Development Team
  * SPDX-License-Identifier: GPL-2.0-only
@@ -31,7 +31,7 @@ void egg_commio_init(void);
  * ---------------------------------------------------------------------- */
 
 /* Register a socket with commio after allocsock().
- * Installs a read callback that fills socklist inbuf.
+ * Installs a read callback that sets commio_ready.
  * slist_idx: index in socklist[] for this socket. */
 void egg_commio_add(int sock, int slist_idx, int flags);
 
@@ -50,8 +50,8 @@ void egg_commio_set_ssl(int sock, void *ssl);
 
 /* Run one commio poll cycle.  timeout_ms: max ms to block.
  * Returns number of events dispatched (callbacks fired), or -1 on error.
- * After this returns, any received data is in socklist inbufs, ready for
- * sockgets() to drain. */
+ * After this returns, commio_ready flags are set on sockets with events,
+ * ready for sockgets() to drain. */
 int egg_commio_poll(int timeout_ms);
 
 /* -------------------------------------------------------------------------

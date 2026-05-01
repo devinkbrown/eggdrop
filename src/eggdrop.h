@@ -685,9 +685,8 @@ typedef struct {
  * queued on them
  */
 struct sock_handler {
-  char *inbuf;
+  buf_head_t recvbuf;           /* linebuf for incoming data    */
   egg_mbuf_t *outbuf;           /* ring buffer for pending outgoing data */
-  size_t inbuflen;              /* Inbuf could be binary data   */
 };
 
 struct tclsock_handler {

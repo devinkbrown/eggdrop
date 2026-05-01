@@ -83,6 +83,9 @@ void egg_commio_init(void)
    * heapsize=256: slab allocator page count for op_fde_t. */
   op_fdlist_init(0, 1024, 256);
   op_init_netio();
+  /* Initialize the linebuf slab allocator for incoming socket data.
+   * 64 slabs is generous for eggdrop's typical socket count. */
+  op_linebuf_init(64);
 }
 
 /* =========================================================================

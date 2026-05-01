@@ -1260,19 +1260,10 @@ void check_tcl_listen(const char *cmd, int idx)
   op_strbuf_t s;
   op_strbuf_printf(&s, "%d", idx);
 
-  if (interp) {
-    int x;
-
-    Tcl_SetVar(interp, "_n", op_strbuf_str(&s), 0);
-    x = Tcl_VarEval(interp, cmd, " $_n", NULL);
-    if (x == TCL_ERROR)
-      putlog(LOG_MISC, "*", "error on listen: %s", tcl_resultstring());
-  } else {
-    Tcl_SetVar(interp, "_listen1", (char *) cmd, 0);
-    Tcl_SetVar(interp, "_listen2", op_strbuf_str(&s), 0);
-    check_tcl_bind(find_bind_table("listen"), cmd, 0,
-                   " $_listen1 $_listen2", MATCH_EXACT | BIND_STACKABLE);
-  }
+  Tcl_SetVar(interp, "_listen1", (char *) cmd, 0);
+  Tcl_SetVar(interp, "_listen2", op_strbuf_str(&s), 0);
+  check_tcl_bind(find_bind_table("listen"), cmd, 0,
+                 " $_listen1 $_listen2", MATCH_EXACT | BIND_STACKABLE);
   op_strbuf_free(&s);
 }
 
@@ -1570,36 +1561,8 @@ void init_bind(void)
   bind_table_list = NULL;
   bind_table_ht   = op_htab_create_istr("bind_tables", 32);
 
-#ifdef HAVE_TCL
-  add_cd_tcl_cmds(cd_cmd_table);
-  H_unld = add_bind_table("unld", HT_STACKABLE, builtin_char);
-  H_time = add_bind_table("time", HT_STACKABLE, builtin_5int);
-  H_cron = add_bind_table("cron", HT_STACKABLE, builtin_cron);
-  H_note = add_bind_table("note", 0, builtin_3char);
-  H_nkch = add_bind_table("nkch", HT_STACKABLE, builtin_2char);
-  H_load = add_bind_table("load", HT_STACKABLE, builtin_char);
-  H_link = add_bind_table("link", HT_STACKABLE, builtin_2char);
-  H_filt = add_bind_table("filt", HT_STACKABLE, builtin_idxchar);
-  H_disc = add_bind_table("disc", HT_STACKABLE, builtin_char);
-  H_dcc = add_bind_table("dcc", 0, builtin_dcc);
-  H_chpt = add_bind_table("chpt", HT_STACKABLE, builtin_chpt);
-  H_chon = add_bind_table("chon", HT_STACKABLE, builtin_charidx);
-  H_chof = add_bind_table("chof", HT_STACKABLE, builtin_charidx);
-  H_chjn = add_bind_table("chjn", HT_STACKABLE, builtin_chjn);
-  H_chat = add_bind_table("chat", HT_STACKABLE, builtin_chat);
-  H_bot = add_bind_table("bot", 0, builtin_3char);
-  H_bcst = add_bind_table("bcst", HT_STACKABLE, builtin_chat);
-  H_away = add_bind_table("away", HT_STACKABLE, builtin_chat);
-  H_act = add_bind_table("act", HT_STACKABLE, builtin_chat);
-  H_event = add_bind_table("evnt", HT_STACKABLE, builtin_evnt);
-  H_die = add_bind_table("die", HT_STACKABLE, builtin_char);
-  H_log = add_bind_table("log", HT_STACKABLE, builtin_log);
-#ifdef TLS
-  H_tls = add_bind_table("tls", HT_STACKABLE, builtin_idx);
-#endif
-#else /* !HAVE_TCL */
-  /* Core tables (with native trampolines where applicable) */
-  H_dcc   = add_bind_table("dcc",   0,            (IntFunc) native_dcc_call);
+  /* Core bind tables — created once, Tcl builds attach validators after. */
+  H_dcc   = add_bind_table("dcc",   0,            NULL);
   H_filt  = add_bind_table("filt",  HT_STACKABLE, NULL);
   H_unld  = add_bind_table("unld",  HT_STACKABLE, NULL);
   H_load  = add_bind_table("load",  HT_STACKABLE, NULL);
@@ -1618,11 +1581,46 @@ void init_bind(void)
   H_event = add_bind_table("evnt",  HT_STACKABLE, NULL);
   H_log   = add_bind_table("log",   HT_STACKABLE, NULL);
   H_die   = add_bind_table("die",   HT_STACKABLE, NULL);
+  H_time  = add_bind_table("time",  HT_STACKABLE, NULL);
+  H_cron  = add_bind_table("cron",  HT_STACKABLE, NULL);
+  H_note  = add_bind_table("note",  0,            NULL);
+#ifdef TLS
+  H_tls   = add_bind_table("tls",   HT_STACKABLE, NULL);
+#endif
+
+#ifdef HAVE_TCL
+  add_cd_tcl_cmds(cd_cmd_table);
+  H_dcc->func   = builtin_dcc;
+  H_filt->func  = builtin_idxchar;
+  H_unld->func  = builtin_char;
+  H_load->func  = builtin_char;
+  H_link->func  = builtin_2char;
+  H_disc->func  = builtin_char;
+  H_nkch->func  = builtin_2char;
+  H_away->func  = builtin_chat;
+  H_chat->func  = builtin_chat;
+  H_act->func   = builtin_chat;
+  H_bcst->func  = builtin_chat;
+  H_chon->func  = builtin_charidx;
+  H_chof->func  = builtin_charidx;
+  H_chpt->func  = builtin_chpt;
+  H_chjn->func  = builtin_chjn;
+  H_bot->func   = builtin_3char;
+  H_event->func = builtin_evnt;
+  H_log->func   = builtin_log;
+  H_die->func   = builtin_char;
+  H_time->func  = builtin_5int;
+  H_cron->func  = builtin_cron;
+  H_note->func  = builtin_3char;
+#ifdef TLS
+  H_tls->func   = builtin_idx;
+#endif
+#else
+  H_dcc->func   = (IntFunc) native_dcc_call;
 #endif /* HAVE_TCL */
 
   /* Module bind tables — pre-created so find_bind_table() succeeds before
-   * modules are loaded and register their own tables.  In Tcl builds,
-   * add_bind_table returns the existing table if already created above. */
+   * modules are loaded and register their own tables. */
   add_bind_table("msg",      0,            NULL);
   add_bind_table("msgm",     HT_STACKABLE, NULL);
   add_bind_table("pub",      0,            NULL);
@@ -1641,9 +1639,6 @@ void init_bind(void)
   add_bind_table("ctcr",     HT_STACKABLE, NULL);
   add_bind_table("flud",     HT_STACKABLE, NULL);
   add_bind_table("wall",     HT_STACKABLE, NULL);
-  add_bind_table("note",     0,            NULL);
-  add_bind_table("time",     HT_STACKABLE, NULL);
-  add_bind_table("cron",     HT_STACKABLE, NULL);
   add_bind_table("invt",     HT_STACKABLE, NULL);
   add_bind_table("need",     HT_STACKABLE, NULL);
   add_bind_table("splt",     HT_STACKABLE, NULL);

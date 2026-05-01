@@ -371,9 +371,8 @@ int allocsock(int sock, int options)
     if (td->socklist[i].flags & SOCK_UNUSED) {
       /* yay!  there is table space */
       if (!(options & SOCK_TCL)) {
-        td->socklist[i].handler.sock.inbuf = NULL;
+        op_linebuf_newbuf(&td->socklist[i].handler.sock.recvbuf);
         td->socklist[i].handler.sock.outbuf = NULL;
-        td->socklist[i].handler.sock.inbuflen = 0;
       }
       td->socklist[i].flags = options;
       td->socklist[i].sock = sock;
@@ -535,11 +534,7 @@ void killsock(int sock)
         egg_commio_del(sock);
         egg_closesocket(td->socklist[i].sock);
 
-        if (td->socklist[i].handler.sock.inbuf != NULL) {
-          op_free(td->socklist[i].handler.sock.inbuf);
-          td->socklist[i].handler.sock.inbuf = NULL;
-        }
-        td->socklist[i].handler.sock.inbuflen = 0;
+        op_linebuf_donebuf(&td->socklist[i].handler.sock.recvbuf);
 
         if (td->socklist[i].handler.sock.outbuf != NULL) {
           egg_mbuf_free(td->socklist[i].handler.sock.outbuf);
@@ -1359,57 +1354,32 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
  */
 int sockgets(char *s, int *len)
 {
-  char xx[READMAX + 2], *p, *px, *p2;
-  int ret, data = 0;
-  size_t len2;
+  char xx[READMAX + 2];
+  int ret, got;
   struct threaddata *td = threaddata();
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if (socklist[i].flags & (SOCK_UNUSED | SOCK_TCL | SOCK_BUFFER))
       continue;
 
-    if (socklist[i].handler.sock.inbuf != NULL) {
+    if (op_linebuf_len(&socklist[i].handler.sock.recvbuf) > 0) {
       if (!(socklist[i].flags & SOCK_BINARY)) {
-        p = strpbrk(socklist[i].handler.sock.inbuf, "\r\n");
-        if (p != NULL) {
-          p2 = p;
-          if (*p == '\r')
-            p++;
-          if (*p == '\n')
-            p++;
-          *p2 = 0;
-
-          strlcpy(s, socklist[i].handler.sock.inbuf, READMAX + 1);
-          if (*p) {
-            len2 = strlen(p) + 1;
-            px = op_malloc(len2);
-            memcpy(px, p, len2);
-            op_free(socklist[i].handler.sock.inbuf);
-            socklist[i].handler.sock.inbuf = px;
-          } else {
-            op_free(socklist[i].handler.sock.inbuf);
-            socklist[i].handler.sock.inbuf = NULL;
-          }
-          *len = strlen(s);
+        /* Text socket: extract the next complete CRLF-terminated line. */
+        got = op_linebuf_get(&socklist[i].handler.sock.recvbuf, s,
+                             READMAX + 1, 0, 0);
+        if (got > 0) {
+          *len = got;
           return socklist[i].sock;
         }
       } else {
-        /* Handling buffered binary data (must have been SOCK_BUFFER before). */
-        if (socklist[i].handler.sock.inbuflen <= READMAX) {
-          *len = socklist[i].handler.sock.inbuflen;
-          memcpy(s, socklist[i].handler.sock.inbuf, socklist[i].handler.sock.inbuflen);
-          op_free(socklist[i].handler.sock.inbuf);
-          socklist[i].handler.sock.inbuf = NULL;
-          socklist[i].handler.sock.inbuflen = 0;
-        } else {
-          /* Split up into chunks of READMAX bytes. */
-          *len = READMAX;
-          memcpy(s, socklist[i].handler.sock.inbuf, *len);
-          memcpy(socklist[i].handler.sock.inbuf, socklist[i].handler.sock.inbuf + *len, *len);
-          socklist[i].handler.sock.inbuflen -= *len;
-          socklist[i].handler.sock.inbuf = op_realloc(socklist[i].handler.sock.inbuf, socklist[i].handler.sock.inbuflen);
+        /* Binary socket with buffered data (was SOCK_BUFFER before).
+         * Return one partial chunk via op_linebuf_get in raw+partial mode. */
+        got = op_linebuf_get(&socklist[i].handler.sock.recvbuf, s,
+                             READMAX + 1, 1, 1);
+        if (got > 0) {
+          *len = got;
+          return socklist[i].sock;
         }
-        return socklist[i].sock;
       }
     }
 
@@ -1438,10 +1408,10 @@ int sockgets(char *s, int *len)
   if (socklist[ret].flags & SOCK_CONNECT) {
     if (socklist[ret].flags & SOCK_STRONGCONN) {
       socklist[ret].flags &= ~SOCK_STRONGCONN;
-      socklist[ret].handler.sock.inbuflen = *len;
-      socklist[ret].handler.sock.inbuf = op_malloc(*len + 1);
-      memcpy(socklist[ret].handler.sock.inbuf, xx, *len);
-      socklist[ret].handler.sock.inbuf[*len] = 0;
+      /* Stash initial connect data into recvbuf (raw mode preserves bytes). */
+      if (*len > 0)
+        op_linebuf_parse(&socklist[ret].handler.sock.recvbuf, xx,
+                         (ssize_t)*len, LINEBUF_RAW);
     }
     socklist[ret].flags &= ~SOCK_CONNECT;
     s[0] = 0;
@@ -1452,83 +1422,36 @@ int sockgets(char *s, int *len)
     return socklist[ret].sock;
   }
   if (socklist[ret].flags & SOCK_BUFFER) {
-    socklist[ret].handler.sock.inbuf = op_realloc(socklist[ret].handler.sock.inbuf,
-                                            socklist[ret].handler.sock.inbuflen + *len + 1);
-    memcpy(socklist[ret].handler.sock.inbuf + socklist[ret].handler.sock.inbuflen, xx, *len);
-    socklist[ret].handler.sock.inbuflen += *len;
-    socklist[ret].handler.sock.inbuf[socklist[ret].handler.sock.inbuflen] = 0;
+    /* Accumulate data without processing (raw mode). */
+    op_linebuf_parse(&socklist[ret].handler.sock.recvbuf, xx,
+                     (ssize_t)*len, LINEBUF_RAW);
     return -4;                  /* Ignore this one. */
   }
-  /* Might be necessary to prepend stored-up data! */
-  if (socklist[ret].handler.sock.inbuf != NULL) {
-    p = socklist[ret].handler.sock.inbuf;
-    len2 = strlen(p);
-    socklist[ret].handler.sock.inbuf = op_malloc(len2 + strlen(xx) + 1);
-    memcpy(socklist[ret].handler.sock.inbuf, p, len2);
-    memcpy(socklist[ret].handler.sock.inbuf + len2, xx, strlen(xx) + 1);
-    op_free(p);
-    if (strlen(socklist[ret].handler.sock.inbuf) < READMAX + 2) {
-      strlcpy(xx, socklist[ret].handler.sock.inbuf, sizeof(xx));
-      op_free(socklist[ret].handler.sock.inbuf);
-      socklist[ret].handler.sock.inbuf = NULL;
-      socklist[ret].handler.sock.inbuflen = 0;
-    } else {
-      p = socklist[ret].handler.sock.inbuf;
-      socklist[ret].handler.sock.inbuflen = strlen(p) - READMAX;
-      socklist[ret].handler.sock.inbuf = op_malloc(socklist[ret].handler.sock.inbuflen + 1);
-      strcpy(socklist[ret].handler.sock.inbuf, p + READMAX);
-      *(p + READMAX) = 0;
-      strlcpy(xx, p, sizeof(xx));
-      op_free(p);
-    }
-  }
-  /* Look for EOL marker; if it's there, i have something to show */
-  for (p = xx; *p != 0 ; p++) {
-    if ((*p == '\r') || (*p == '\n')) {
-      memcpy(s, xx, p - xx);
-      s[p - xx] = 0;
-      for (p++; (*p == '\r') || (*p == '\n'); p++);
-      memmove(xx, p, strlen(p) + 1);
-      data = 1; /* DCC_CHAT may now need to process a blank line */
-      break;
-    }
-  }
-  if (!data) {
-    s[0] = 0;
-    if (strlen(xx) >= READMAX) {
-      /* String is too long, so just insert fake \n */
-      strlcpy(s, xx, sizeof(s));
-      xx[0] = 0;
-      data = 1;
-    }
-  }
-  *len = strlen(s);
-  /* Anything left that needs to be saved? */
-  if (!xx[0]) {
-    if (data)
-      return socklist[ret].sock;
-    else
-      return -3;
-  }
-  /* Prepend old data back */
-  if (socklist[ret].handler.sock.inbuf != NULL) {
-    p = socklist[ret].handler.sock.inbuf;
-    len2 = strlen(xx);
-    socklist[ret].handler.sock.inbuflen = len2 + strlen(p);
-    socklist[ret].handler.sock.inbuf = op_malloc(socklist[ret].handler.sock.inbuflen + 1);
-    memcpy(socklist[ret].handler.sock.inbuf, xx, len2);
-    memcpy(socklist[ret].handler.sock.inbuf + len2, p, strlen(p) + 1);
-    op_free(p);
-  } else {
-    socklist[ret].handler.sock.inbuflen = strlen(xx);
-    len2 = socklist[ret].handler.sock.inbuflen + 1;
-    socklist[ret].handler.sock.inbuf = op_malloc(len2);
-    memcpy(socklist[ret].handler.sock.inbuf, xx, len2);
-  }
-  if (data)
+  /* Feed new data into linebuf for CRLF framing. */
+  op_linebuf_parse(&socklist[ret].handler.sock.recvbuf, xx,
+                   (ssize_t)*len, LINEBUF_PARSED);
+
+  /* Try to extract a complete line. */
+  got = op_linebuf_get(&socklist[ret].handler.sock.recvbuf, s,
+                       READMAX + 1, 0, 0);
+  if (got > 0) {
+    *len = got;
     return socklist[ret].sock;
-  else
-    return -3;
+  }
+
+  /* No complete line yet — check for overlong partial that needs flushing. */
+  if (op_linebuf_len(&socklist[ret].handler.sock.recvbuf) >= READMAX) {
+    got = op_linebuf_get(&socklist[ret].handler.sock.recvbuf, s,
+                         READMAX + 1, 1, 0);
+    if (got > 0) {
+      *len = got;
+      return socklist[ret].sock;
+    }
+  }
+
+  s[0] = 0;
+  *len = 0;
+  return -3;
 }
 
 /* Dump something to a socket
@@ -1741,9 +1664,9 @@ void tell_netdebug(int idx)
       if (socklist[i].flags & SOCK_TCL)
         op_strbuf_append_cstr(&s, " (tcl)");
       if (!(socklist[i].flags & SOCK_TCL)) {
-        if (socklist[i].handler.sock.inbuf != NULL)
-          op_strbuf_appendf(&s, " (inbuf: %04X)",
-                            (unsigned int) strlen(socklist[i].handler.sock.inbuf));
+        if (op_linebuf_len(&socklist[i].handler.sock.recvbuf) > 0)
+          op_strbuf_appendf(&s, " (inbuf: %04zX)",
+                            op_linebuf_len(&socklist[i].handler.sock.recvbuf));
         if (socklist[i].handler.sock.outbuf != NULL)
           op_strbuf_appendf(&s, " (outbuf: %06zX)",
                             egg_mbuf_len(socklist[i].handler.sock.outbuf));
@@ -1859,7 +1782,7 @@ int sock_has_data(int type, int sock)
       ret = (socklist[i].handler.sock.outbuf != NULL);
       break;
     case SOCK_DATA_INCOMING:
-      ret = (socklist[i].handler.sock.inbuf != NULL);
+      ret = (op_linebuf_len(&socklist[i].handler.sock.recvbuf) > 0);
       break;
     }
   } else
@@ -1879,21 +1802,33 @@ int sock_has_data(int type, int sock)
  */
 int flush_inbuf(int idx)
 {
-  char *inbuf;
   struct threaddata *td = threaddata();
 
   Assert((idx >= 0) && (idx < dcc_total));
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if ((dcc[idx].sock == socklist[i].sock) &&
         !(socklist[i].flags & SOCK_UNUSED)) {
-      int len = socklist[i].handler.sock.inbuflen;
-      if ((len > 0) && socklist[i].handler.sock.inbuf) {
+      size_t total = op_linebuf_len(&socklist[i].handler.sock.recvbuf);
+      if (total > 0) {
         if (dcc[idx].type && dcc[idx].type->activity) {
-          inbuf = socklist[i].handler.sock.inbuf;
-          socklist[i].handler.sock.inbuf = NULL;
-          dcc[idx].type->activity(idx, inbuf, len);
+          /* Extract all buffered data into a flat buffer and deliver it.
+           * Drain line-by-line in raw+partial mode since there may be
+           * multiple linebuf nodes. */
+          char *inbuf = op_malloc(total + 1);
+          size_t off = 0;
+          int got;
+          while ((got = op_linebuf_get(&socklist[i].handler.sock.recvbuf,
+                                       inbuf + off, total - off + 1,
+                                       1, 1)) > 0)
+            off += (size_t)got;
+          if (off == 0) {
+            op_free(inbuf);
+            return 0;
+          }
+          inbuf[off] = '\0';
+          dcc[idx].type->activity(idx, inbuf, (int)off);
           op_free(inbuf);
-          return len;
+          return (int)off;
         } else
           return -2;
       } else

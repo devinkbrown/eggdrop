@@ -18,6 +18,39 @@ Last revised: May 01, 2026
 
 devinkbrown fork (based on v1.10.1):
 
+ Wave 76 — Python API parity, linebuf port, tclhash unification:
+
+  Python API — 26 new commands (pycmds.c), total now 174/197 (88% parity):
+    - Botnet/DCC (7): link, unlink, valididx, botlist, setdccaway, getchan,
+      setchan.
+    - Logging (2): putloglev, putcmdlog.
+    - Matching/Utils (3): matchaddr, rfcequal, binds.
+    - Channel management (14): ischanban, ischanexempt, ischaninvite,
+      newchanban, newchanexempt, newchaninvite, killchanexempt,
+      killchaninvite, stick, unstick, stickexempt, unstickexempt,
+      stickinvite, unstickinvite.
+
+  Python auto-source:
+    - TOML [scripts] section now auto-detects .py files and routes them to
+      the Python script engine, even in Tcl builds.  Previously .py files
+      required the pysource Tcl command.
+
+  linebuf port (net.c):
+    - Replaced simple char *inbuf (realloc + memmove) with ophion's
+      op_linebuf (slab-allocated, CRLF-aware line framing).  Inbound socket
+      data is now parsed into buf_head_t via op_linebuf_parse(), with
+      zero-memmove line extraction via op_linebuf_get().
+    - Binary and SOCK_BUFFER modes preserved; outbound path (egg_mbuf_t)
+      unchanged.
+
+  tclhash.c unification:
+    - Unified init_bind(): single table creation block with conditional func
+      attachment, down from two near-identical 20-line blocks.
+    - Unified check_tcl_listen(): single check_tcl_bind path for both builds.
+    - Fixed bug: H_time, H_cron, H_note tables now created in no-Tcl builds
+      (were previously missing, making time/cron/note binds silently no-op).
+    - HAVE_TCL directives: 6 → 5.
+
  Wave 75 — Tcl decoupling, Python API expansion, zero-warning build:
 
   Tcl decoupling — complete HAVE_TCL removal:
