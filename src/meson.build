@@ -26,7 +26,6 @@ core_sources = files(
   'dccutil.c',
   'dns.c',
   'flags.c',
-  'egg_commio.c',
   'language.c',
   'main.c',
   'match.c',

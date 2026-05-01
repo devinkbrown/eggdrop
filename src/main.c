@@ -48,7 +48,7 @@
 #include "modules.h"
 #include "bg.h"
 #include "configtoml.h"
-#include "egg_commio.h"
+#include <op_commio.h>
 
 #ifdef HAVE_GETRANDOM
 #  include <sys/random.h>
@@ -1021,7 +1021,9 @@ int main(int arg_c, char **arg_v)
   lastmin = now / 60;
   init_random();
   op_event_init();
-  egg_commio_init();
+  op_fdlist_init(0, 1024, 256);
+  op_init_netio();
+  op_linebuf_init(64);
   if (argc > 1)
     do_arg();
   /* Pre-scan the config for [paths] settings (lang_dir, mod_path) so language

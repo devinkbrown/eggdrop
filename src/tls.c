@@ -35,7 +35,7 @@
 #endif
 #include "egg_tls.h"
 #include "main.h"
-#include "egg_commio.h"
+#include <op_commio.h>
 
 #ifdef TLS
 
@@ -1106,7 +1106,11 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   }
   /* Sync the WOLFSSL pointer onto the commio FDE so op_ssl_read/write
    * can operate on it. */
-  egg_commio_set_ssl(td->socklist[i].sock, td->socklist[i].ssl);
+  {
+    op_fde_t *F = op_get_fde(td->socklist[i].sock);
+    if (F)
+      op_fde_set_ssl_ptr(F, td->socklist[i].ssl);
+  }
 
   /* Prepare a ssl appdata struct for the verify callback */
   data = op_malloc(sizeof(ssl_appdata));
@@ -1213,7 +1217,11 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   SSL_shutdown(td->socklist[i].ssl);
   SSL_free(td->socklist[i].ssl);
   td->socklist[i].ssl = NULL;
-  egg_commio_set_ssl(td->socklist[i].sock, NULL);
+  {
+    op_fde_t *F = op_get_fde(td->socklist[i].sock);
+    if (F)
+      op_fde_set_ssl_ptr(F, NULL);
+  }
   op_free(data);
   return -4;
 }

@@ -39,7 +39,7 @@
 #include <stdatomic.h>
 #include "main.h"
 #include "modules.h"
-#include "egg_commio.h"
+#include <op_commio.h>
 #include <commio-ssl.h>
 
 /* POSIX select(2) type macros — used only for TCL socket handling. */
@@ -69,9 +69,45 @@
 #endif
 
 /* -----------------------------------------------------------------------
- * I/O multiplexing is handled by libop's commio subsystem.
- * See egg_commio.c for the bridge layer.
+ * I/O multiplexing — libop commio callbacks
+ *
+ * These are fired by op_select() when a socket becomes readable or writable.
+ * They set commio_ready so sockread()'s dispatch loop processes the socket.
  * ----------------------------------------------------------------------- */
+
+extern sock_list *socklist;
+
+static void commio_read_cb(op_fde_t *F, void *data)
+{
+  int slist_idx = (int)(intptr_t)data;
+  struct threaddata *td = threaddata();
+
+  (void)F;
+  if (slist_idx < 0 || slist_idx >= td->MAXSOCKS)
+    return;
+
+  sock_list *sl = &socklist[slist_idx];
+  if (sl->flags & SOCK_UNUSED)
+    return;
+
+  sl->commio_ready = 1;
+}
+
+static void commio_write_cb(op_fde_t *F, void *data)
+{
+  int slist_idx = (int)(intptr_t)data;
+  struct threaddata *td = threaddata();
+
+  (void)F;
+  if (slist_idx < 0 || slist_idx >= td->MAXSOCKS)
+    return;
+
+  sock_list *sl = &socklist[slist_idx];
+  if (sl->flags & SOCK_UNUSED)
+    return;
+
+  sl->commio_ready = 1;
+}
 
 /* Platform socket shims */
 #ifdef EGG_NATIVE_WIN32
@@ -381,7 +417,16 @@ int allocsock(int sock, int options)
 #endif
       /* Register with commio for I/O multiplexing. */
       td->socklist[i].commio_ready = 0;
-      egg_commio_add(sock, i, options);
+      if (sock >= 0 && !(options & (SOCK_NONSOCK | SOCK_VIRTUAL))) {
+        op_fde_t *F = op_open(sock, OP_FD_SOCKET, "eggdrop");
+        if (F) {
+          op_setselect(F, OP_SELECT_READ, commio_read_cb,
+                       (void *)(intptr_t)i);
+          if (options & SOCK_CONNECT)
+            op_setselect(F, OP_SELECT_WRITE, commio_write_cb,
+                         (void *)(intptr_t)i);
+        }
+      }
       return i;
     }
   }
@@ -522,8 +567,10 @@ void killsock(int sock)
       if (!(td->socklist[i].flags & SOCK_TCL)) { /* nothing to free for tclsocks */
 #ifdef TLS
         if (td->socklist[i].ssl) {
-          /* Clear the FDE ssl pointer before egg_commio_del frees the FDE. */
-          egg_commio_set_ssl(sock, NULL);
+          /* Clear the FDE ssl pointer before op_close frees the FDE. */
+          op_fde_t *F_ssl = op_get_fde(sock);
+          if (F_ssl)
+            op_fde_set_ssl_ptr(F_ssl, NULL);
           SSL_shutdown(td->socklist[i].ssl);
           op_free(SSL_get_app_data(td->socklist[i].ssl));
           SSL_free(td->socklist[i].ssl);
@@ -531,7 +578,11 @@ void killsock(int sock)
         }
 #endif
         /* Deregister from commio BEFORE closing the fd. */
-        egg_commio_del(sock);
+        {
+          op_fde_t *F_del = op_get_fde(sock);
+          if (F_del)
+            op_close(F_del);
+        }
         egg_closesocket(td->socklist[i].sock);
 
         op_linebuf_donebuf(&td->socklist[i].handler.sock.recvbuf);
@@ -1080,7 +1131,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     {
       int timeout_ms = (int)(t.tv_sec * 1000 + (int)(t.tv_usec / 1000));
       call_hook(HOOK_PRE_SELECT);
-      x = egg_commio_poll(timeout_ms);
+      x = op_select((long)timeout_ms);
       call_hook(HOOK_POST_SELECT);
       if (x < 0)
         x = (errno == EINTR) ? 0 : -1;
@@ -1559,8 +1610,39 @@ void dequeue_sockets(void)
   int x;
   struct threaddata *td = threaddata();
 
-  /* Use commio to detect write-readiness for sockets with pending outbufs */
-  egg_commio_flush_outbufs();
+  /* Arm WRITE interest on sockets with pending outbufs, do a zero-timeout
+   * poll to check write-readiness, then disarm to avoid spinning. */
+  {
+    int any_pending = 0;
+    for (int j = 0; j < td->MAXSOCKS; j++) {
+      if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+          socklist[j].handler.sock.outbuf != NULL
+#ifdef TLS
+          && !(socklist[j].ssl && !SSL_is_init_finished(socklist[j].ssl))
+#endif
+         ) {
+        op_fde_t *F = op_get_fde(socklist[j].sock);
+        if (F) {
+          socklist[j].commio_ready = 0;
+          op_setselect(F, OP_SELECT_WRITE, commio_write_cb,
+                       (void *)(intptr_t)j);
+          any_pending = 1;
+        }
+      }
+    }
+    if (any_pending) {
+      op_select(0);
+      for (int j = 0; j < td->MAXSOCKS; j++) {
+        if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+            socklist[j].handler.sock.outbuf != NULL &&
+            !(socklist[j].flags & SOCK_CONNECT)) {
+          op_fde_t *F = op_get_fde(socklist[j].sock);
+          if (F)
+            op_setselect(F, OP_SELECT_WRITE, NULL, NULL);
+        }
+      }
+    }
+  }
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
