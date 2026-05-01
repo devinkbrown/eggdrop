@@ -28,11 +28,6 @@
 
 #include <ctype.h>
 
-/*
- * If you're *only* going to link to new version bots (1.3.0 or higher)
- * then you can safely define this.
- */
-#undef NO_OLD_BOTNET
 
 /* DEBUG_CONTEXT is now set in config.h by configure */
 

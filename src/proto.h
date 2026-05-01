@@ -95,7 +95,6 @@ int getparty(char *, int);
 /* botmsg.c */
 int add_note(char *, char *, char *, int, int);
 int simple_sprintf(char *buf, const char *formatt, ...);
-void tandout_but(int, const char *format, ...) ATTRIBUTE_FORMAT(printf,2,3);
 [[nodiscard]] char *int_to_base10(int);
 [[nodiscard]] char *unsigned_int_to_base10(unsigned int);
 [[nodiscard]] char *int_to_base64(unsigned int);

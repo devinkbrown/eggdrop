@@ -360,12 +360,6 @@ void unvia(int idx, tand_t *who)
     } else
       bot = bot->next;
   }
-#ifndef NO_OLD_BOTNET
-  /* Every bot unvia's bots behind anyway, so why send msg's for
-   * EVERY one? - will this break things?!
-   */
-  tandout_but(idx, "unlinked %s\n", who->bot);
-#endif
 }
 
 /* Return index into dcc list of the bot that connects us to bot <x>
@@ -744,15 +738,6 @@ void dump_links(int z)
 {
   for (tand_t *bot = tandbot; bot; bot = bot->next) {
     char *p = (bot->uplink == (tand_t *) 1) ? botnetnick : bot->uplink->bot;
-#ifndef NO_OLD_BOTNET
-    if (b_numver(z) < NEAT_BOTNET) {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "nlinked %s %s %c%d\n", bot->bot,
-                       p, bot->share, bot->ver);
-      dprint(z, (char *)op_strbuf_str(&_b), (int) op_strbuf_len(&_b));
-      op_strbuf_free(&_b);
-    } else
-#endif
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "n %s %s %c%s\n", bot->bot, p,
@@ -767,29 +752,6 @@ void dump_links(int z)
       if (dcc[i].type == &DCC_CHAT) {
         if ((dcc[i].u.chat->channel >= 0) &&
             (dcc[i].u.chat->channel < GLOBAL_CHANS)) {
-#ifndef NO_OLD_BOTNET
-          if (b_numver(z) < NEAT_BOTNET) {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "join %s %s %d %c%ld %s\n",
-                             botnetnick, dcc[i].nick,
-                             dcc[i].u.chat->channel, geticon(i),
-                             dcc[i].sock, dcc[i].host);
-            dprint(z, (char *)op_strbuf_str(&_b), (int) op_strbuf_len(&_b));
-            op_strbuf_free(&_b);
-            if (dcc[i].u.chat->away) {
-              op_strbuf_t _ba;
-              op_strbuf_printf(&_ba, "away %s %ld %s\n", botnetnick,
-                               dcc[i].sock, dcc[i].u.chat->away);
-              dprint(z, (char *)op_strbuf_str(&_ba), (int) op_strbuf_len(&_ba));
-              op_strbuf_free(&_ba);
-            }
-            op_strbuf_t _bi;
-            op_strbuf_printf(&_bi, "idle %s %ld %" PRId64 "\n", botnetnick,
-                             dcc[i].sock, (int64_t) (now - dcc[i].timeval));
-            dprint(z, (char *)op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
-            op_strbuf_free(&_bi);
-          } else
-#endif
           {
             char b64_chan[12], b64_sock[12], b64_idle[12];
             strlcpy(b64_chan, int_to_base64(dcc[i].u.chat->channel), sizeof b64_chan);
@@ -813,31 +775,6 @@ void dump_links(int z)
       }
     }
     for (int i = 0; i < parties; i++) {
-#ifndef NO_OLD_BOTNET
-      if (b_numver(z) < NEAT_BOTNET) {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "join %s %s %d %c%d %s\n",
-                         party[i].bot, party[i].nick,
-                         party[i].chan, party[i].flag,
-                         party[i].sock, party[i].from);
-        dprint(z, (char *)op_strbuf_str(&_b), (int) op_strbuf_len(&_b));
-        op_strbuf_free(&_b);
-        if ((party[i].status & PLSTAT_AWAY) || (party[i].timer != 0)) {
-          if (party[i].status & PLSTAT_AWAY) {
-            op_strbuf_t _ba;
-            op_strbuf_printf(&_ba, "away %s %d %s\n", party[i].bot,
-                             party[i].sock, party[i].away);
-            dprint(z, (char *)op_strbuf_str(&_ba), (int) op_strbuf_len(&_ba));
-            op_strbuf_free(&_ba);
-          }
-          op_strbuf_t _bi;
-          op_strbuf_printf(&_bi, "idle %s %d %" PRId64 "\n", party[i].bot,
-                           party[i].sock, (int64_t) (now - party[i].timer));
-          dprint(z, (char *)op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
-          op_strbuf_free(&_bi);
-        }
-      } else
-#endif
       {
         char b64_chan[12], b64_sock[12];
         strlcpy(b64_chan, int_to_base64(party[i].chan), sizeof b64_chan);

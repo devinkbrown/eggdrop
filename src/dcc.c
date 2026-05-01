@@ -177,11 +177,6 @@ static void greet_new_bot(int idx)
   if (bfl & BOT_LEAF)
     dcc[idx].status |= STAT_LEAF;
   dcc[idx].status |= STAT_LINKING;
-#ifndef NO_OLD_BOTNET
-  dprintf(idx, "version %d %d %s <%s>\n", egg_numver, HANDLEN, ver, network);
-#else
-  dprintf(idx, "v %d %d %s <%s>\n", egg_numver, HANDLEN, ver, network);
-#endif
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_FORK_BOT) {
       killsock(dcc[i].sock);
@@ -210,37 +205,18 @@ static void bot_version(int idx, char *par)
   } else
     dcc[idx].u.bot->numver = 0;
 
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET) {
-#if HANDLEN != 9
-    putlog(LOG_BOTS, "*", "Non-matching handle lengths with %s, they use 9 "
-           "characters.", dcc[idx].nick);
-    dprintf(idx, "error Non-matching handle length: mine %d, yours 9\n",
-            HANDLEN);
+  dprintf(idx, "tb %s\n", botnetnick);
+  l = atoi(newsplit(&par));
+  if (l != HANDLEN) {
+    putlog(LOG_BOTS, "*", "Non-matching handle lengths with %s, they use %d "
+           "characters.", dcc[idx].nick, l);
+    dprintf(idx, "error Non-matching handle length: mine %d, yours %d\n",
+            HANDLEN, l);
     dprintf(idx, "bye %s\n", "bad handlen");
     killsock(dcc[idx].sock);
     lostdcc(idx);
     return;
-#else
-    dprintf(idx, "thisbot %s\n", botnetnick);
-#endif
-  } else {
-#endif
-    dprintf(idx, "tb %s\n", botnetnick);
-    l = atoi(newsplit(&par));
-    if (l != HANDLEN) {
-      putlog(LOG_BOTS, "*", "Non-matching handle lengths with %s, they use %d "
-             "characters.", dcc[idx].nick, l);
-      dprintf(idx, "error Non-matching handle length: mine %d, yours %d\n",
-              HANDLEN, l);
-      dprintf(idx, "bye %s\n", "bad handlen");
-      killsock(dcc[idx].sock);
-      lostdcc(idx);
-      return;
-    }
-#ifndef NO_OLD_BOTNET
   }
-#endif
   strlcpy(dcc[idx].u.bot->version, par, sizeof dcc[idx].u.bot->version);
   putlog(LOG_BOTS, "*", DCC_LINKED, dcc[idx].nick);
   botnet_send_nlinked(idx, dcc[idx].nick, botnetnick, '!',
@@ -688,11 +664,7 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
       dcc[idx].status = STAT_CALLED;
       dprintf(idx, "*hello!\n");
       greet_new_bot(idx);
-#ifdef NO_OLD_BOTNET
       dprintf(idx, "h %s\n", pass);
-#else
-      dprintf(idx, "handshake %s\n", pass);
-#endif
       explicit_bzero(pass, sizeof pass);
       return;
     }

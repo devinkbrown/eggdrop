@@ -82,12 +82,6 @@ static void fake_alert(int idx, char *item, char *extra)
   static time_t lastfake; /* The last time fake_alert was used */
 
   if (now - lastfake > 10) {
-#ifndef NO_OLD_BOTNET
-    if (b_numver(idx) < NEAT_BOTNET)
-      dprintf(idx, "chat %s NOTICE: %s (%s != %s).\n",
-              botnetnick, NET_FAKEREJECT, item, extra);
-    else
-#endif
       dprintf(idx, "ct %s NOTICE: %s (%s != %s).\n",
               botnetnick, NET_FAKEREJECT, item, extra);
     putlog(LOG_BOTS, "*", "%s %s (%s != %s).", dcc[idx].nick, NET_FAKEREJECT,
@@ -104,11 +98,7 @@ static void bot_chan2(int idx, char *msg)
     return;
   char *from = newsplit(&msg);
   char *p = newsplit(&msg);
-#ifndef NO_OLD_BOTNET
-  int chan = b_numver(idx) < NEAT_BOTNET ? atoi(p) : base64_to_int(p);
-#else
   int chan = base64_to_int(p);
-#endif
   /* Strip annoying control chars in-place */
   {
     char *dst = from, *src = from;
@@ -201,11 +191,7 @@ static void bot_actchan(int idx, char *par)
     return;
   }
   p = newsplit(&par);
-#ifndef NO_OLD_BOTNET
-  int chan = b_numver(idx) < NEAT_BOTNET ? atoi(p) : base64_to_int(p);
-#else
   int chan = base64_to_int(p);
-#endif
   /* Strip annoying control chars in-place */
   {
     char *dst = from, *src = from;
@@ -450,11 +436,7 @@ static void bot_who(int idx, char *par)
   char *to = newsplit(&par);
   if (!strcasecmp(to, botnetnick))
     to[0] = 0;
-#ifndef NO_OLD_BOTNET
-  int chan = b_numver(idx) < NEAT_BOTNET ? atoi(par) : base64_to_int(par);
-#else
   int chan = base64_to_int(par);
-#endif
   if (to[0]) {
     int i = nextbot(to);
     if (i >= 0)
@@ -606,11 +588,7 @@ static void bot_update(int idx, char *par)
   char  x   = par[0];
   if (x)
     par++;
-#ifndef NO_OLD_BOTNET
-  int vnum = b_numver(idx) < NEAT_BOTNET ? atoi(par) : base64_to_int(par);
-#else
   int vnum = base64_to_int(par);
-#endif
   if (in_chain(bot))
     updatebot(idx, bot, x, vnum);
 }
@@ -629,11 +607,6 @@ static void bot_nlinked(int idx, char *par)
            dcc[idx].nick);
     op_strbuf_printf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
              MISC_INVALIDBOT);
-#ifndef NO_OLD_BOTNET
-    if (b_numver(idx) < NEAT_BOTNET)
-      dprintf(idx, "error invalid eggnet protocol for 'nlinked'\n");
-    else
-#endif
       dprintf(idx, "e invalid eggnet protocol for 'nlinked'\n");
   } else if ((in_chain(newbot)) || (!strcasecmp(newbot, botnetnick))) {
     /* Loop! */
@@ -641,11 +614,6 @@ static void bot_nlinked(int idx, char *par)
            BOT_LOOPDETECT, dcc[idx].nick, newbot);
     op_strbuf_printf(&s, "%s %s: disconnecting %s", MISC_LOOP, newbot,
              dcc[idx].nick);
-#ifndef NO_OLD_BOTNET
-    if (b_numver(idx) < NEAT_BOTNET)
-      dprintf(idx, "error Loop (%s)\n", newbot);
-    else
-#endif
       dprintf(idx, "e Loop (%s)\n", newbot);
   }
   int bogus = 0;
@@ -662,11 +630,6 @@ static void bot_nlinked(int idx, char *par)
            next, newbot);
     op_strbuf_reset(&s, "%s: %s %s", BOT_BOGUSLINK, dcc[idx].nick,
              MISC_DISCONNECTED);
-#ifndef NO_OLD_BOTNET
-    if (b_numver(idx) < NEAT_BOTNET)
-      dprintf(idx, "error %s (%s -> %s)\n", BOT_BOGUSLINK, next, newbot);
-    else
-#endif
       dprintf(idx, "e %s (%s -> %s)\n", BOT_BOGUSLINK, next, newbot);
   }
   if (bot_flags(dcc[idx].user) & BOT_LEAF) {
@@ -674,11 +637,6 @@ static void bot_nlinked(int idx, char *par)
            BOT_DISCONNLEAF, dcc[idx].nick, newbot, BOT_LINKEDTO);
     op_strbuf_reset(&s, "%s %s (to %s): %s",
              BOT_ILLEGALLINK, dcc[idx].nick, newbot, MISC_DISCONNECTED);
-#ifndef NO_OLD_BOTNET
-    if (b_numver(idx) < NEAT_BOTNET)
-      dprintf(idx, "error %s\n", BOT_YOUREALEAF);
-    else
-#endif
       dprintf(idx, "e %s\n", BOT_YOUREALEAF);
   }
   if (!op_strbuf_empty(&s)) {
@@ -697,11 +655,6 @@ static void bot_nlinked(int idx, char *par)
   else
     x = '-';
   int i;
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET)
-    i = atoi(par);
-  else
-#endif
     i = base64_to_int(par);
   botnet_send_nlinked(idx, newbot, next, x, i);
   if (x == '!') {
@@ -722,25 +675,6 @@ static void bot_nlinked(int idx, char *par)
   }
 }
 
-#ifndef NO_OLD_BOTNET
-static void bot_linked(int idx, char *par)
-{
-  int bots  = bots_in_subtree(findbot(dcc[idx].nick));
-  int users = users_in_subtree(findbot(dcc[idx].nick));
-  putlog(LOG_BOTS, "*", "%s", BOT_OLDBOT);
-  {
-    op_strbuf_t s;
-    op_strbuf_printf(&s, "%s %s (%s) (lost %d bot%s and %d user%s",
-             MISC_DISCONNECTED, dcc[idx].nick, MISC_OUTDATED,
-             bots, (bots != 1) ? "s" : "", users, (users != 1) ? "s" : "");
-    putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&s));
-    botnet_send_unlinked(idx, dcc[idx].nick, op_strbuf_str(&s));
-    op_strbuf_free(&s);
-  }
-  killsock(dcc[idx].sock);
-  lostdcc(idx);
-}
-#endif /* !NO_OLD_BOTNET */
 
 static void bot_unlinked(int idx, char *par)
 {
@@ -1136,12 +1070,6 @@ static void bot_nickchange(int idx, char *par)
   if (bot_flags(dcc[idx].user) & BOT_ISOLATE)
     return;
   char *bot = newsplit(&par);
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET) {
-    fake_alert(idx, "botversion", "NEAT_BOTNET");
-    return;
-  }
-#endif
   int i = nextbot(bot);
   if (i != idx) {
     fake_alert(idx, "direction", bot);
@@ -1168,9 +1096,6 @@ static void bot_join(int idx, char *par)
     return;
   int linking = 0;
   char *bot = newsplit(&par);
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) >= NEAT_BOTNET)
-#endif
     if (bot[0] == '!') {
       linking = 1;
       bot++;
@@ -1180,11 +1105,6 @@ static void bot_join(int idx, char *par)
   char *nick = newsplit(&par);
   char *x    = newsplit(&par);
   int chan;
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET)
-    chan = atoi(x);
-  else
-#endif
     chan = base64_to_int(x);
   char *y = newsplit(&par);
   if ((chan < 0) || !y[0])
@@ -1195,11 +1115,6 @@ static void bot_join(int idx, char *par)
     y[0] = '-';
     sock = 0;
   } else {
-#ifndef NO_OLD_BOTNET
-    if (b_numver(idx) < NEAT_BOTNET)
-      sock = atoi(y + 1);
-    else
-#endif
       sock = base64_to_int(y + 1);
   }
   /* 1.1 bots always send a sock#, even on a channel change
@@ -1255,12 +1170,6 @@ static void bot_part(int idx, char *par)
   char *nick = newsplit(&par);
   char *etc  = newsplit(&par);
   int sock;
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET) {
-    sock = atoi(etc);
-    silent = 1;
-  } else
-#endif
     sock = base64_to_int(etc);
   if (sock == 0)
     sock = partysock(bot, nick);
@@ -1299,9 +1208,6 @@ static void bot_away(int idx, char *par)
     return;
   int linking = 0;
   char *bot = newsplit(&par);
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) >= NEAT_BOTNET)
-#endif
     if (bot[0] == '!') {
       linking = 1;
       bot++;
@@ -1310,11 +1216,6 @@ static void bot_away(int idx, char *par)
     linking = 1;
   char *etc = newsplit(&par);
   int sock;
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET)
-    sock = atoi(etc);
-  else
-#endif
     sock = base64_to_int(etc);
   if (sock == 0)
     sock = partysock(bot, etc);
@@ -1353,21 +1254,11 @@ static void bot_idle(int idx, char *par)
   char *bot  = newsplit(&par);
   char *work = newsplit(&par);
   int sock;
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET)
-    sock = atoi(work);
-  else
-#endif
     sock = base64_to_int(work);
   if (sock == 0)
     sock = partysock(bot, work);
   work = newsplit(&par);
   int idle;
-#ifndef NO_OLD_BOTNET
-  if (b_numver(idx) < NEAT_BOTNET)
-    idle = atoi(work);
-  else
-#endif
     idle = base64_to_int(work);
   partysetidle(bot, sock, idle);
   if (par[0]) {
@@ -1377,23 +1268,6 @@ static void bot_idle(int idx, char *par)
   botnet_send_idle(idx, bot, sock, idle, par);
 }
 
-#ifndef NO_OLD_BOTNET
-
-static void bot_ufno(int idx, char *par)
-{
-  putlog(LOG_BOTS, "*", "%s %s: %s", USERF_REJECTED, dcc[idx].nick, par);
-  dcc[idx].status &= ~STAT_OFFERED;
-  if (!(dcc[idx].status & STAT_GETTING))
-    dcc[idx].status &= ~STAT_SHARE;
-}
-
-static void bot_old_userfile(int idx, char *par)
-{
-  putlog(LOG_BOTS, "*", "%s %s", USERF_OLDSHARE, dcc[idx].nick);
-  dprintf(idx, "uf-no %s\n", USERF_ANTIQUESHARE);
-}
-
-#endif /* !NO_OLD_BOTNET */
 
 void bot_share(int idx, char *par)
 {
@@ -1464,77 +1338,29 @@ static void bot_starttls(int idx, char *par)
 botcmd_t C_bot[] =
 {
   {"a",          (IntFunc) bot_actchan},
-#ifndef NO_OLD_BOTNET
-  {"actchan",    (IntFunc) bot_actchan},
-#endif
   {"aw",         (IntFunc) bot_away},
   {"away",       (IntFunc) bot_away},
   {"bye",        (IntFunc) bot_bye},
   {"c",          (IntFunc) bot_chan2},
-#ifndef NO_OLD_BOTNET
-  {"chan",       (IntFunc) bot_chan2},
-  {"chat",       (IntFunc) bot_chat},
-#endif
   {"ct",         (IntFunc) bot_chat},
   {"e",          (IntFunc) bot_error},
   {"el",         (IntFunc) bot_endlink},
-#ifndef NO_OLD_BOTNET
-  {"error",      (IntFunc) bot_error},
-#endif
   {"f!",         (IntFunc) bot_filereject},
-#ifndef NO_OLD_BOTNET
-  {"filereject", (IntFunc) bot_filereject},
-  {"filereq",    (IntFunc) bot_filereq},
-  {"filesend",   (IntFunc) bot_filesend},
-#endif
   {"fr",         (IntFunc) bot_filereq},
   {"fs",         (IntFunc) bot_filesend},
   {"h",          (IntFunc) bot_handshake},
-#ifndef NO_OLD_BOTNET
-  {"handshake",  (IntFunc) bot_handshake},
-#endif
   {"i",          (IntFunc) bot_idle},
   {"i?",         (IntFunc) bot_infoq},
-#ifndef NO_OLD_BOTNET
-  {"idle",       (IntFunc) bot_idle},
-  {"info?",      (IntFunc) bot_infoq},
-#endif
   {"j",          (IntFunc) bot_join},
-#ifndef NO_OLD_BOTNET
-  {"join",       (IntFunc) bot_join},
-#endif
   {"l",          (IntFunc) bot_link},
-#ifndef NO_OLD_BOTNET
-  {"link",       (IntFunc) bot_link},
-  {"linked",     (IntFunc) bot_linked},
-#endif
   {"m",          (IntFunc) bot_motd},
-#ifndef NO_OLD_BOTNET
-  {"motd",       (IntFunc) bot_motd},
-#endif
   {"n",          (IntFunc) bot_nlinked},
   {"nc",         (IntFunc) bot_nickchange},
-#ifndef NO_OLD_BOTNET
-  {"nlinked",    (IntFunc) bot_nlinked},
-#endif
   {"p",          (IntFunc) bot_priv},
-#ifndef NO_OLD_BOTNET
-  {"part",       (IntFunc) bot_part},
-#endif
   {"pi",         (IntFunc) bot_ping},
-#ifndef NO_OLD_BOTNET
-  {"ping",       (IntFunc) bot_ping},
-#endif
   {"po",         (IntFunc) bot_pong},
-#ifndef NO_OLD_BOTNET
-  {"pong",       (IntFunc) bot_pong},
-  {"priv",       (IntFunc) bot_priv},
-#endif
   {"pt",         (IntFunc) bot_part},
   {"r",          (IntFunc) bot_reject},
-#ifndef NO_OLD_BOTNET
-  {"reject",     (IntFunc) bot_reject},
-#endif
   {"s",          (IntFunc) bot_share},
 #ifdef TLS
   {"starttls",   (IntFunc) bot_starttls},
@@ -1542,34 +1368,12 @@ botcmd_t C_bot[] =
   {"t",          (IntFunc) bot_trace},
   {"tb",         (IntFunc) bot_thisbot},
   {"td",         (IntFunc) bot_traced},
-#ifndef NO_OLD_BOTNET
-  {"thisbot",    (IntFunc) bot_thisbot},
-  {"trace",      (IntFunc) bot_trace},
-  {"traced",     (IntFunc) bot_traced},
-#endif
   {"u",          (IntFunc) bot_update},
-#ifndef NO_OLD_BOTNET
-  {"uf-no",      (IntFunc) bot_ufno},
-#endif
   {"ul",         (IntFunc) bot_unlink},
   {"un",         (IntFunc) bot_unlinked},
-#ifndef NO_OLD_BOTNET
-  {"unaway",     (IntFunc) bot_away},
-  {"unlink",     (IntFunc) bot_unlink},
-  {"unlinked",   (IntFunc) bot_unlinked},
-  {"update",     (IntFunc) bot_update},
-  {"userfile?",  (IntFunc) bot_old_userfile},
-#endif
   {"v",          (IntFunc) bot_versions},
   {"w",          (IntFunc) bot_who},
-#ifndef NO_OLD_BOTNET
-  {"who",        (IntFunc) bot_who},
-#endif
   {"z",          (IntFunc) bot_zapf},
-#ifndef NO_OLD_BOTNET
-  {"zapf",       (IntFunc) bot_zapf},
-  {"zapf-broad", (IntFunc) bot_zapfbroad},
-#endif
   {"zb",         (IntFunc) bot_zapfbroad},
   {NULL,         NULL}
 };
