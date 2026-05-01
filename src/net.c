@@ -1702,48 +1702,6 @@ void dequeue_sockets(void)
  *      Debugging stuff
  */
 
-void tell_netdebug(int idx)
-{
-  struct threaddata *td = threaddata();
-
-  dprintf(idx, "Open sockets:");
-  for (int i = 0; i < td->MAXSOCKS; i++) {
-    if (!(socklist[i].flags & SOCK_UNUSED)) {
-      op_strbuf_t s;
-      op_strbuf_printf(&s, " %s", int_to_base10(socklist[i].sock));
-      if (socklist[i].flags & SOCK_BINARY)
-        op_strbuf_append_cstr(&s, " (binary)");
-      if (socklist[i].flags & SOCK_LISTEN)
-        op_strbuf_append_cstr(&s, " (listen)");
-      if (socklist[i].flags & SOCK_PASS)
-        op_strbuf_append_cstr(&s, " (passed on)");
-      if (socklist[i].flags & SOCK_CONNECT)
-        op_strbuf_append_cstr(&s, " (connecting)");
-      if (socklist[i].flags & SOCK_STRONGCONN)
-        op_strbuf_append_cstr(&s, " (strong)");
-      if (socklist[i].flags & SOCK_NONSOCK)
-        op_strbuf_append_cstr(&s, " (file)");
-#ifdef TLS
-      if (socklist[i].ssl)
-        op_strbuf_append_cstr(&s, " (TLS)");
-#endif
-      if (socklist[i].flags & SOCK_TCL)
-        op_strbuf_append_cstr(&s, " (tcl)");
-      if (!(socklist[i].flags & SOCK_TCL)) {
-        if (op_linebuf_len(&socklist[i].handler.sock.recvbuf) > 0)
-          op_strbuf_appendf(&s, " (inbuf: %04zX)",
-                            op_linebuf_len(&socklist[i].handler.sock.recvbuf));
-        if (socklist[i].handler.sock.outbuf != NULL)
-          op_strbuf_appendf(&s, " (outbuf: %06zX)",
-                            egg_mbuf_len(socklist[i].handler.sock.outbuf));
-      }
-      op_strbuf_append_cstr(&s, ",");
-      dprintf(idx, "%s", op_strbuf_str(&s));
-      op_strbuf_free(&s);
-    }
-  }
-  dprintf(idx, " done.\n");
-}
 
 /* Security-flavoured sanity checking on DCC connections of all sorts can be
  * done with this routine.  Feed it the proper information from your DCC
