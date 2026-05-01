@@ -18,8 +18,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers for transfer module. In non-Tcl builds these compile
+ * but are never registered (add_tcl_commands is a no-op). */
 
 static int tcl_dccsend STDVAR
 {
@@ -57,7 +57,7 @@ static int tcl_dccsend STDVAR
     Tcl_AppendResult(irp, "4", NULL);
     return TCL_OK;
   }
-  int i = raw_dcc_send(argv[1], argv[2], "*");
+  __attribute__((unused)) int i = raw_dcc_send(argv[1], argv[2], "*");
   Tcl_AppendResult(irp, int_to_base10(i), NULL);
   return TCL_OK;
 }
@@ -122,5 +122,3 @@ static tcl_cmds mytcls[] = {
   {"getfilesendtime", tcl_getfilesendtime},
   {NULL,                             NULL}
 };
-
-#endif /* HAVE_TCL */

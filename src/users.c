@@ -462,11 +462,9 @@ static void tell_user(int idx, struct userrec *u)
   fr.udef_global = u->flags_udef;
   build_flags(s, &fr, NULL);
   if (module_find("notes", 0, 0)) {
-#ifdef HAVE_TCL
     Tcl_SetVar(interp, "_user", u->handle, 0);
     if (Tcl_VarEval(interp, "notes ", "$_user", NULL) == TCL_OK)
       n = tcl_resultint();
-#endif /* HAVE_TCL */
   }
   li = get_user(&USERENTRY_LASTON, u);
   if (!li || !li->laston)
@@ -1099,7 +1097,6 @@ void autolink_cycle(char *start)
 
 char *traced_remove_pass(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1, EGG_CONST char *name2, int flags)
 {
-#ifdef HAVE_TCL
   const char *value;
 
   value = Tcl_GetVar2(irp, name1, name2, TCL_GLOBAL_ONLY);
@@ -1108,7 +1105,4 @@ char *traced_remove_pass(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1, 
     Tcl_UntraceVar(interp, "remove-pass", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES, traced_remove_pass, NULL);
   }
   return NULL;
-#else
-  return NULL;
-#endif /* HAVE_TCL */
 }

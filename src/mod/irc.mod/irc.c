@@ -67,9 +67,7 @@ static int include_lk = 1;      /* For correct calculation in real_add_mode. */
 
 static char opchars[8];         /* the chars in a /who reply meaning op */
 
-#ifdef HAVE_TCL
 static Tcl_Obj *tcl_account;
-#endif /* HAVE_TCL */
 
 #include "chan.c"
 #include "mode.c"
@@ -743,10 +741,9 @@ static void check_expired_chanstuff(void)
   }
 }
 
-#ifdef HAVE_TCL
 static int channels_6char STDVAR
 {
-  Function F = (Function) cd;
+  __attribute__((unused)) Function F = (Function) cd;
 
   BADARGS(7, 7, " nick user@host handle desto/chan keyword/nick text");
 
@@ -798,7 +795,6 @@ static int invite_4char STDVAR
   ((void (*)(char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4]);
   return TCL_OK;
 }
-#endif /* HAVE_TCL */
 
 static int check_tcl_chghost(char *nick, char *from, char *mask, struct userrec *u,
                              char *chan, char *ident, char * host)
@@ -1361,8 +1357,8 @@ static void do_nettype(void)
   add_hook(HOOK_RFC_CASECMP, (Function) (intptr_t) rfc_compliant);
 }
 
-#ifdef HAVE_TCL
-static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
+static __attribute__((unused)) char *traced_nettype(ClientData cdata,
+                            Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
@@ -1370,7 +1366,8 @@ static char *traced_nettype(ClientData cdata, Tcl_Interp *irp,
   return NULL;
 }
 
-static char *traced_rfccompliant(ClientData cdata, Tcl_Interp *irp,
+static __attribute__((unused)) char *traced_rfccompliant(ClientData cdata,
+                                 Tcl_Interp *irp,
                                  EGG_CONST char *name1,
                                  EGG_CONST char *name2, int flags)
 {
@@ -1381,7 +1378,6 @@ static char *traced_rfccompliant(ClientData cdata, Tcl_Interp *irp,
   add_hook(HOOK_RFC_CASECMP, (Function) (intptr_t) rfc_compliant);
   return NULL;
 }
-#endif /* HAVE_TCL */
 
 static int irc_expmem(void)
 {
@@ -1397,7 +1393,6 @@ static char *irc_close(void)
 
   for (chan = chanset; chan; chan = chan->next)
     clear_channel(chan, CHAN_RESETALL);
-#ifdef HAVE_TCL
   del_bind_table(H_topc);
   del_bind_table(H_splt);
   del_bind_table(H_sign);
@@ -1414,33 +1409,26 @@ static char *irc_close(void)
   del_bind_table(H_ircaway);
   del_bind_table(H_account);
   del_bind_table(H_chghost);
-#endif /* HAVE_TCL */
   rem_tcl_strings(mystrings);
   rem_tcl_ints(myints);
   rem_builtins(H_dcc, irc_dcc);
   rem_builtins(H_msg, C_msg);
   rem_builtins(H_raw, irc_raw);
   rem_builtins(H_rawt, irc_rawt);
-#ifdef HAVE_TCL
   Tcl_DecrRefCount(tcl_account);
-#endif
   rem_builtins(H_isupport, irc_isupport_binds);
-#ifdef HAVE_TCL
   rem_tcl_commands(tclchan_cmds);
-#endif
   rem_help_reference("irc.help");
   del_hook(HOOK_MINUTELY, (Function) check_expired_chanstuff);
   del_hook(HOOK_5MINUTELY, (Function) status_log);
   del_hook(HOOK_ADD_MODE, (Function) real_add_mode);
   del_hook(HOOK_IDLE, (Function) flush_modes);
-#ifdef HAVE_TCL
   Tcl_UntraceVar(interp, "rfc-compliant",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_rfccompliant, NULL);
   Tcl_UntraceVar(interp, "net-type",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_nettype, NULL);
-#endif
   module_undepend(MODULE_NAME);
   return NULL;
 }
@@ -1524,31 +1512,24 @@ char *irc_start(Function *global_funcs)
   add_hook(HOOK_5MINUTELY, (Function) status_log);
   add_hook(HOOK_ADD_MODE, (Function) real_add_mode);
   add_hook(HOOK_IDLE, (Function) flush_modes);
-#ifdef HAVE_TCL
   Tcl_TraceVar(interp, "net-type",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_nettype, NULL);
   Tcl_TraceVar(interp, "rfc-compliant",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_rfccompliant, NULL);
-#endif
   strlcpy(opchars, "@", sizeof(opchars));
   add_tcl_strings(mystrings);
   add_tcl_ints(myints);
   add_builtins(H_dcc, irc_dcc);
   add_builtins(H_msg, C_msg);
   add_builtins(H_raw, irc_raw);
-#ifdef HAVE_TCL
   tcl_account = Tcl_NewStringObj("account", -1);
   Tcl_IncrRefCount(tcl_account);
-#endif
   add_builtins(H_rawt, irc_rawt);
   add_builtins(H_isupport, irc_isupport_binds);
-#ifdef HAVE_TCL
   add_tcl_commands(tclchan_cmds);
-#endif
   add_help_reference("irc.help");
-#ifdef HAVE_TCL
   H_topc = add_bind_table("topc", HT_STACKABLE, channels_5char);
   H_splt = add_bind_table("splt", HT_STACKABLE, channels_4char);
   H_sign = add_bind_table("sign", HT_STACKABLE, channels_5char);
@@ -1565,24 +1546,6 @@ char *irc_start(Function *global_funcs)
   H_ircaway = add_bind_table("ircaway", HT_STACKABLE, channels_5char);
   H_account = add_bind_table("account", HT_STACKABLE, channels_5char);
   H_chghost = add_bind_table("chghost", HT_STACKABLE, channels_5char);
-#else /* !HAVE_TCL — look up pre-created tables from init_bind() */
-  H_topc    = find_bind_table("topc");
-  H_splt    = find_bind_table("splt");
-  H_sign    = find_bind_table("sign");
-  H_rejn    = find_bind_table("rejn");
-  H_part    = find_bind_table("part");
-  H_nick    = find_bind_table("nick");
-  H_mode    = find_bind_table("mode");
-  H_kick    = find_bind_table("kick");
-  H_invt    = find_bind_table("invt");
-  H_join    = find_bind_table("join");
-  H_pubm    = find_bind_table("pubm");
-  H_pub     = find_bind_table("pub");
-  H_need    = find_bind_table("need");
-  H_ircaway = find_bind_table("ircaway");
-  H_account = find_bind_table("account");
-  H_chghost = find_bind_table("chghost");
-#endif
   do_nettype();
   return NULL;
 }

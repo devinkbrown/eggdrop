@@ -37,7 +37,6 @@ static FILE *filedb_open(char *, int);
 static void filedb_close(FILE *);
 static void filedb_add(FILE *, char *, char *);
 static void filedb_ls(FILE *, int, char *, int);
-#ifdef HAVE_TCL
 static void filedb_getowner(char *, char *, char **);
 static void filedb_setowner(char *, char *, char *);
 static void filedb_getdesc(char *, char *, char **);
@@ -48,13 +47,10 @@ static void filedb_getlink(char *, char *, char **);
 static void filedb_getfiles(Tcl_Interp *, char *);
 static void filedb_getdirs(Tcl_Interp *, char *);
 static void filedb_change(char *, char *, int);
-#endif /* HAVE_TCL */
 static void tell_file_stats(int, char *);
 static int do_dcc_send(int, char *, char *, char *, int);
-#ifdef HAVE_TCL
 static int files_reget(int, char *, char *, int);
 static void files_setpwd(int, char *);
-#endif /* HAVE_TCL */
 static int resolve_dir(char *, char *, char **, int);
 
 #else

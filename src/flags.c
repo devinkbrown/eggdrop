@@ -1420,7 +1420,6 @@ static int botfl_set(struct userrec *u, struct user_entry *e, void *buf)
 static int botfl_tcl_get(Tcl_Interp *interp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   char x[100];
   struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
 
@@ -1428,15 +1427,11 @@ static int botfl_tcl_get(Tcl_Interp *interp, struct userrec *u,
   build_flags(x, &fr, NULL);
   Tcl_SetResult(interp, x, TCL_STATIC);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int botfl_tcl_set(Tcl_Interp *irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
 
   BADARGS(4, 4, " handle BOTFL flags");
@@ -1447,9 +1442,6 @@ static int botfl_tcl_set(Tcl_Interp *irp, struct userrec *u,
     botfl_set(u, e, (void *) fr.bot);
   }
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int botfl_expmem(struct user_entry *e)

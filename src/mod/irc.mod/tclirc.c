@@ -22,8 +22,7 @@
 
 /* Streamlined by answer.
  */
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl APIs are stubbed by src/lush.h in non-Tcl builds. */
 
 #include <inttypes.h>
 
@@ -500,7 +499,7 @@ static int tcl_isircbot STDVAR
 static int tcl_accounttracking STDVAR
 {
   struct capability *current =0;
-  int extjoin = 0, acctnotify = 0;
+  __attribute__((unused)) int extjoin = 0, acctnotify = 0;
 
   current = find_capability("extended-join");
   if (current->enabled) {
@@ -591,7 +590,7 @@ static int tcl_getchanidle STDVAR
 {
   memberlist *m;
   struct chanset_t *chan;
-  int x;
+  __attribute__((unused)) int x;
 
   BADARGS(3, 3, " nickname channel");
 
@@ -989,8 +988,8 @@ static int tcl_account2nicks STDVAR
 {
   memberlist *m;
   struct chanset_t *chan, *thechan = NULL;
-  Tcl_Obj *nicks;
-  Tcl_Obj **nicksv = NULL;
+  __attribute__((unused)) Tcl_Obj *nicks;
+  __attribute__((unused)) Tcl_Obj **nicksv = NULL;
   Tcl_Size nicksc = 0, i;
   int found;
 
@@ -1036,8 +1035,8 @@ static int tcl_hand2nicks STDVAR
   memberlist *m;
   struct chanset_t *chan, *thechan = NULL;
   struct userrec *u;
-  Tcl_Obj *nicks;
-  Tcl_Obj **nicksv = NULL;
+  __attribute__((unused)) Tcl_Obj *nicks;
+  __attribute__((unused)) Tcl_Obj **nicksv = NULL;
   Tcl_Size nicksc = 0, i;
   int found;
 
@@ -1113,7 +1112,7 @@ static int tcl_nick2hand STDVAR
 {
   memberlist *m;
   struct chanset_t *chan, *thechan = NULL;
-  struct userrec *u;
+  __attribute__((unused)) struct userrec *u;
 
   BADARGS(2, 3, " nick ?channel?");
 
@@ -1313,4 +1312,3 @@ static tcl_cmds tclchan_cmds[] = {
   {NULL,             NULL}
 };
 
-#endif /* HAVE_TCL */

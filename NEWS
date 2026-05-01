@@ -1,5 +1,5 @@
 News
-Last revised: April 30, 2026
+Last revised: May 01, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -18,6 +18,68 @@ Last revised: April 30, 2026
 
 devinkbrown fork (based on v1.10.1):
 
+ Wave 75 — Tcl decoupling, Python API expansion, zero-warning build:
+
+  Tcl decoupling — complete HAVE_TCL removal:
+    - All #ifdef HAVE_TCL guards removed from every application source file
+      (58 files).  Functions that were previously compiled only in Tcl builds
+      now compile unconditionally using lush.h stub macros (no-Tcl) or the
+      real Tcl API (Tcl builds).  Dead-code paths from stubs are optimised
+      away by the compiler.
+    - Added 12 new lush.h stubs: Tcl_WideInt, Tcl_NewWideIntObj, Tcl_Alloc,
+      Tcl_Concat, Tcl_GlobalEval, Tcl_InterpDeleted, Tcl_ServiceAll,
+      Tcl_TraceVar2, Tcl_UntraceVar2, Tcl_UtfToExternalDString, and
+      Tcl_VarTraceProc typedef.
+    - notcl_setvar/notcl_getvar made available in both build configurations:
+      in Tcl builds they delegate to Tcl_SetVar/Tcl_GetVar; in no-Tcl builds
+      they walk the registered variable tables directly.  configtoml.c now
+      uses these exclusively, removing its last Tcl dependency.
+    - Runtime `if (interp)` checks replace compile-time #ifdef in the few
+      places where Tcl-specific behaviour must be preserved (cmd_tcl,
+      cmd_set, tell_verbose_status, main startup).
+    - Remaining HAVE_TCL markers (19 total) are all structural/irreducible:
+      lush.h (4), tcl.c (7), tclegg.h (2), tclhash.c (6).  python.mod
+      retains 28 markers for the Tcl-Python bridge.
+
+  Python API — 33 new commands (pycmds.c):
+    - 8 timer commands: utimer, timer, killtimer, killutimer, timers,
+      utimers, timerexists, utimerexists.
+    - 25 general commands:
+      User/Module: getuser, setuser, setpass, encpass, addbot, botattr,
+        loadmodule, unloadmodule, modules, backup.
+      DCC/Partyline: whom, dccbroadcast, boot, console, echo, dccputchan,
+        getdccidle, getdccaway.
+      Misc: strftime, ctime, myip, callevent, md5, dccsimul, traffic.
+
+  Code quality — zero-warning build:
+    - Eliminated all ~80 compiler warnings across 20+ files.  The build now
+      compiles 134 compilation units with zero warnings on GCC 15.
+    - Fixed lush.h macro stubs that generated -Wunused-value and
+      -Wstatement-with-no-effect warnings: Tcl_ListObjAppendElement,
+      Tcl_ListObjLength, Tcl_ListObjGetElements, Tcl_ListObjIndex,
+      Tcl_DictObjPut, Tcl_GetStringFromObj, Tcl_ScanElement, Tcl_SplitList.
+    - Added __attribute__((unused)) to Tcl trace handler functions across
+      irc.mod, server.mod, dns.mod, and core source that are registered
+      via Tcl_TraceVar (no-op in non-Tcl builds) but must exist for the
+      function pointer tables.
+    - Fixed -Wdiscarded-qualifiers in isupport.c (8 instances of const
+      char * passed to op_free).
+    - Fixed -Wcomment in chan_handlers.c (unclosed block comment).
+    - Suppressed unused variable warnings in all Tcl command stubs across
+      tcldcc.c, tclmisc.c, tcluser.c, tclfiles.c, tcltransfer.c,
+      tclserv.c, tclisupport.c, tclirc.c.
+
+  Feature improvements:
+    - .status output now shows: scripting engines (Tcl/Python), loaded
+      module count, and RSS memory usage (via getrusage).
+    - Startup banner now logs: active scripting engines, feature flags
+      (TLS, IPv6), and build date/time.
+    - TOML config: improved error messages for missing nick/owner, warning
+      when no modules are configured, config path logged on successful load.
+    - .python partyline command stub (requires owner flag).
+    - .set command now works in non-Tcl builds using notcl_getvar/setvar to
+      read and write registered C variables directly.
+
  Code quality — C23 modernisation:
     - Entire codebase compiled as -std=gnu23 with -Wshadow=local enforced.
     - Loop counters and single-use variables moved to point of first use
@@ -31,7 +93,7 @@ devinkbrown fork (based on v1.10.1):
     - libop synced from ophion: CIDR parsing helpers (op_cidr_parse_str /
       op_cidr_parse_addr) and C11 threads middle tier in thread_pool.c.
 
- Python API — 43 new commands (pycmds.c + eggtools.py):
+ Python API — 43 earlier commands (pycmds.c + eggtools.py):
     - Channel presence: onchan, handonchan, onchansplit, topic, validchan,
       getchanjoin, botisowner, isowner.
     - Channel modes/actions: getchanmode, pushmode, flushmode, putkick,

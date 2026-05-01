@@ -38,6 +38,7 @@ extern struct dcc_t *dcc;
 extern struct userrec *userlist;
 extern log_t *logs;
 extern Tcl_Interp *interp;
+extern module_entry *module_list;
 extern char ver[], botnetnick[], firewall[], motdfile[], userfile[], helpdir[],
             moddir[], notify_new[], configfile[];
 extern time_t now, online_since;
@@ -321,23 +322,38 @@ void tell_verbose_status(int idx)
     dprintf(idx, "OS: %s\n", sysrel);
   dprintf(idx, "Process ID: %d (parent %d)\n", getpid(), getppid());
 
-#ifdef HAVE_TCL
-  /* info library */
-  dprintf(idx, "%s %s\n", MISC_TCLLIBRARY,
-          ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
-          tcl_resultstring() : "*unknown*");
+  if (interp) {
+    /* info library */
+    dprintf(idx, "%s %s\n", MISC_TCLLIBRARY,
+            ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
+            tcl_resultstring() : "*unknown*");
 
-  /* info tclversion/patchlevel */
-  dprintf(idx, "%s %s (%s %s)\n", MISC_TCLVERSION,
-          ((interp) && (Tcl_Eval(interp, "info patchlevel") == TCL_OK)) ?
-          tcl_resultstring() : (Tcl_Eval(interp, "info tclversion") == TCL_OK) ?
-          tcl_resultstring() : "*unknown*", MISC_HEADERVERSION, TCL_PATCH_LEVEL);
+    /* info tclversion/patchlevel */
+    dprintf(idx, "%s %s (%s %s)\n", MISC_TCLVERSION,
+            ((interp) && (Tcl_Eval(interp, "info patchlevel") == TCL_OK)) ?
+            tcl_resultstring() : (Tcl_Eval(interp, "info tclversion") == TCL_OK) ?
+            tcl_resultstring() : "*unknown*", MISC_HEADERVERSION, TCL_PATCH_LEVEL);
 
-  if (tcl_threaded())
-    dprintf(idx, "Tcl is threaded.\n");
-#else
-  dprintf(idx, "Tcl scripting: disabled\n");
-#endif /* HAVE_TCL */
+    if (tcl_threaded())
+      dprintf(idx, "Tcl is threaded.\n");
+  } else {
+    dprintf(idx, "Tcl scripting: disabled\n");
+  }
+  dprintf(idx, "Scripting engines:");
+  if (interp) dprintf(idx, " Tcl");
+  if (module_find("python", 0, 0)) dprintf(idx, " Python");
+  dprintf(idx, "\n");
+  {
+    int modcount = 0;
+    module_entry *p;
+    for (p = module_list; p; p = p->next) modcount++;
+    dprintf(idx, "Loaded modules: %d\n", modcount);
+  }
+  {
+    struct rusage ru2;
+    if (!getrusage(RUSAGE_SELF, &ru2))
+      dprintf(idx, "Memory (RSS): %ld KB\n", ru2.ru_maxrss);
+  }
 #ifdef TLS
   dprintf(idx, "TLS support is enabled.\n"
                "TLS library: wolfSSL %s (%s)\n",
@@ -444,21 +460,21 @@ void chanprog(void)
     if (cflen >= 5 && strcmp(configfile + cflen - 5, ".toml") == 0)
       ok = readtomlconfig(configfile);
     else {
-#ifdef HAVE_TCL
-      putlog(LOG_MISC, "*",
-             "NOTE: Loading '%s' as a Tcl config script. "
-             "Consider migrating to TOML: run 'eggdrop --setup' to generate "
-             "a modern eggdrop.toml with no Tcl knowledge required.",
-             configfile);
-      ok = readtclprog(configfile);
-#else
-      putlog(LOG_MISC, "*",
-             "ERROR: Config file '%s' appears to be a Tcl script, but this "
-             "eggdrop was built without Tcl support. "
-             "Please use a TOML config file (run 'eggdrop --setup' to generate one).",
-             configfile);
-      ok = 0;
-#endif /* HAVE_TCL */
+      if (interp) {
+        putlog(LOG_MISC, "*",
+               "NOTE: Loading '%s' as a Tcl config script. "
+               "Consider migrating to TOML: run 'eggdrop --setup' to generate "
+               "a modern eggdrop.toml with no Tcl knowledge required.",
+               configfile);
+        ok = readtclprog(configfile);
+      } else {
+        putlog(LOG_MISC, "*",
+               "ERROR: Config file '%s' appears to be a Tcl script, but this "
+               "eggdrop was built without Tcl support. "
+               "Please use a TOML config file (run 'eggdrop --setup' to generate one).",
+               configfile);
+        ok = 0;
+      }
     }
     if (!ok)
       fatal(MISC_NOCONFIGFILE, 0);
@@ -596,9 +612,7 @@ static void egg_timer_fire(void *arg)
   {
     op_strbuf_t x;
     op_strbuf_printf(&x, "timer%lu", t->id);
-#ifdef HAVE_TCL
     do_tcl(op_strbuf_str(&x), t->cmd);
-#endif
     op_strbuf_free(&x);
   }
 
@@ -723,7 +737,6 @@ void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
 /* Return list of timers (only meaningful when Tcl is present). */
 void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
 {
-#ifdef HAVE_TCL
   char *x;
   EGG_CONST char *argv[4];
   tcl_timer_t *mark;
@@ -745,7 +758,6 @@ void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
     op_strbuf_free(&ticks);
     op_strbuf_free(&count);
   }
-#endif /* HAVE_TCL */
 }
 
 /* Find a timer by name. Returns 1 if found, 0 if not. */

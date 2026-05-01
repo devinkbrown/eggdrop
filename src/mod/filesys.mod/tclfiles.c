@@ -21,8 +21,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers for filesys module. In non-Tcl builds these compile
+ * but are never registered (add_tcl_commands is a no-op). */
 
 static int tcl_getdesc STDVAR
 {
@@ -78,7 +78,7 @@ static int tcl_getgots STDVAR
 {
   BADARGS(3, 3, " dir file");
 
-  int i = filedb_getgots(argv[1], argv[2]);
+  __attribute__((unused)) int i = filedb_getgots(argv[1], argv[2]);
   Tcl_AppendResult(irp, int_to_base10(i), NULL);
   return TCL_OK;
 }
@@ -697,5 +697,3 @@ static tcl_cmds mytcls[] = {
   {"setflags",   tcl_setflags},
   {NULL,         NULL}
 };
-
-#endif /* HAVE_TCL */

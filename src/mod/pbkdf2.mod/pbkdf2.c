@@ -309,9 +309,7 @@ char *pbkdf2_start(Function *global_funcs)
     }
     add_hook(HOOK_ENCRYPT_PASS2, (Function) pbkdf2_encrypt);
     add_hook(HOOK_VERIFY_PASS2, (Function) pbkdf2_verify);
-#ifdef HAVE_TCL
     add_tcl_commands(my_tcl_cmds);
-#endif
     add_tcl_ints(my_tcl_ints);
     add_tcl_strings(my_tcl_strings);
   }

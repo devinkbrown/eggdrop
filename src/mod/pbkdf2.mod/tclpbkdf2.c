@@ -7,9 +7,9 @@
  * Copyright (C) 2017 - 2025 Eggheads Development Team
  */
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
-/* wolfssl already included via egg_tls.h in pbkdf2.c before module.h */
+/* Tcl command handlers for pbkdf2 module. In non-Tcl builds these compile
+ * but are never registered (add_tcl_commands is a no-op).
+ * wolfssl already included via egg_tls.h in pbkdf2.c before module.h */
 
 static char *pbkdf2_encrypt(const char *);
 
@@ -71,5 +71,3 @@ static tcl_cmds my_tcl_cmds[] = {
   {"pbkdf2",   tcl_pbkdf2},
   {NULL,       NULL}
 };
-
-#endif /* HAVE_TCL */

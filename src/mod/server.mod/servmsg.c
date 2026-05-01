@@ -25,10 +25,8 @@
 #include "../channels.mod/channels.h"
 #include <errno.h>
 #include "server.h"
-#ifdef HAVE_TCL
 char *encode_msgtags(Tcl_Obj *msgtagdict);
 static char *encode_msgtag(char *key, char *value);
-#endif /* HAVE_TCL */
 static int del_capabilities(char *);
 static int del_capability(char *name);
 static time_t last_ctcp = (time_t) 0L;
@@ -39,11 +37,9 @@ struct capability *find_capability(char *capname);
 static op_bh *capability_bh  = NULL;
 static op_bh *cap_values_bh  = NULL;
 static int monitor_add(char * nick, int send);
-#ifdef HAVE_TCL
 static int monitor_del (char *nick);
 static int monitor_show(Tcl_Obj *mlist, int mode, char *nick);
 static void monitor_clear(void);
-#endif /* HAVE_TCL */
 int account_notify = 1, extended_join = 1, account_tag = 0;
 
 /* Account name from the IRCv3 'account' message tag for the message
@@ -221,7 +217,6 @@ static int check_tcl_raw(char *from, char *code, char *msg)
 }
 
 /* tagstr is the string value of a Tcl dictionary (flat key/value list) */
-#ifdef HAVE_TCL
 static int check_tcl_rawt(char *from, char *code, char *msg, char *tagdict)
 {
   int x;
@@ -234,7 +229,6 @@ static int check_tcl_rawt(char *from, char *code, char *msg, char *tagdict)
                     MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
   return (x == BIND_EXEC_LOG);
 }
-#endif /* HAVE_TCL */
 
 static int check_tcl_ctcpr(char *nick, char *uhost, struct userrec *u,
                            char *dest, char *keyword, char *args,
@@ -345,10 +339,9 @@ static int match_my_nick(char *nick)
 }
 
 char *encode_msgtags(Tcl_Obj *msgtagdict) {
-#ifdef HAVE_TCL
   int done = 0;
-  Tcl_DictSearch s;
-  Tcl_Obj *value, *key;
+  __attribute__((unused)) Tcl_DictSearch s;
+  __attribute__((unused)) Tcl_Obj *value, *key;
   static Tcl_DString ds;
   static int ds_initialized = 0;
 
@@ -368,9 +361,6 @@ char *encode_msgtags(Tcl_Obj *msgtagdict) {
   }
 
   return Tcl_DStringValue(&ds);
-#else
-  return "";
-#endif
 }
 
 /* 001: welcome to IRC (use it to fix the server name) */
@@ -1214,7 +1204,6 @@ static struct dcc_table SERVER_SOCKET = {
   NULL
 };
 
-#ifdef HAVE_TCL
 static char *encode_msgtag_value(char *value)
 {
   static char buf[TOTALTAGMAX+1];
@@ -1260,9 +1249,7 @@ static int msgtag_key_valid(const char *key)
   }
   return 1;
 }
-#endif /* HAVE_TCL */
 
-#ifdef HAVE_TCL
 static char *encode_msgtag(char *key, char *value)
 {
   static char buf[TOTALTAGMAX+1];
@@ -1280,10 +1267,8 @@ static char *encode_msgtag(char *key, char *value)
   }
   return buf;
 }
-#endif /* HAVE_TCL */
 
-#ifdef HAVE_TCL
-static char *decode_msgtag_value(char *value, char **endptr)
+static __attribute__((unused)) char *decode_msgtag_value(char *value, char **endptr)
 {
   static char valuebuf[TOTALTAGMAX+1];
   char *tmp, *decoded = valuebuf;
@@ -1317,25 +1302,20 @@ static char *decode_msgtag_value(char *value, char **endptr)
   *decoded = '\0';
   return valuebuf;
 }
-#endif /* HAVE_TCL */
 
 static void server_activity(int idx, char *tagmsg, int len)
 {
   char *from, *code, *msgptr;
   char rawmsg[RECVLINEMAX+7];
   [[maybe_unused]] int ret;
-#ifdef HAVE_TCL
-  Tcl_Obj *tagdict = Tcl_NewDictObj();
-#endif
+  __attribute__((unused)) Tcl_Obj *tagdict = Tcl_NewDictObj();
 
   /* Sanitize incoming IRC messages: replace invalid UTF-8 bytes with '?'.
    * Modern IRC servers and clients use UTF-8; malformed sequences could cause
    * issues in Tcl's string handling (which is internally UTF-8). */
   utf8_sanitize(tagmsg);
 
-#ifdef HAVE_TCL
   Tcl_IncrRefCount(tagdict);
-#endif
   if (trying_server) {
     strlcpy(dcc[idx].nick, "(server)", sizeof(dcc[idx].nick));
     putlog(LOG_SERV, "*", "Connected to %s", dcc[idx].host);
@@ -1347,7 +1327,6 @@ static void server_activity(int idx, char *tagmsg, int len)
   msgptr = tagmsg;
   strlcpy(rawmsg, tagmsg, TOTALTAGMAX+1);
   if (*tagmsg == '@') {
-#ifdef HAVE_TCL
     char *key, *value, *lastendptr = tagmsg;
 
     do {
@@ -1355,22 +1334,16 @@ static void server_activity(int idx, char *tagmsg, int len)
       value = key + strcspn(key, "=; ");
 
       if (*value == '=') {
-        Tcl_DictObjPut(interp, tagdict, Tcl_NewStringObj(key, value - key), Tcl_NewStringObj(decode_msgtag_value(value + 1, &lastendptr), -1));
+        Tcl_DictObjPut(interp, tagdict, Tcl_NewStringObj(key, value - key),
+                       Tcl_NewStringObj(decode_msgtag_value(value + 1, &lastendptr), -1));
       } else {
-        Tcl_DictObjPut(interp, tagdict, Tcl_NewStringObj(key, value - key), Tcl_NewStringObj("", -1));
+        Tcl_DictObjPut(interp, tagdict, Tcl_NewStringObj(key, value - key),
+                       Tcl_NewStringObj("", -1));
         lastendptr = value;
       }
     } while (*lastendptr && *lastendptr != ' ');
 
     msgptr = lastendptr + (*lastendptr != '\0');
-#else
-    /* Skip tags prefix without parsing; advance msgptr to the actual message */
-    msgptr = strchr(tagmsg, ' ');
-    if (msgptr)
-      msgptr++;
-    else
-      msgptr = tagmsg + strlen(tagmsg);
-#endif
   }
   from = "";
   if (*msgptr == ':') {
@@ -1382,10 +1355,9 @@ static void server_activity(int idx, char *tagmsg, int len)
       !match_ignore(from))) {
     putlog(LOG_RAW, "*", "[@] %s", rawmsg);
   }
-#ifdef HAVE_TCL
   /* Extract IRCv3 'account' tag so handlers can use it for user lookup. */
   {
-    Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
+    __attribute__((unused)) Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
     Tcl_Obj *acctval = NULL;
     Tcl_IncrRefCount(acctkey);
     if (Tcl_DictObjGet(interp, tagdict, acctkey, &acctval) == TCL_OK && acctval)
@@ -1396,7 +1368,6 @@ static void server_activity(int idx, char *tagmsg, int len)
   }
   /* Check both raw and rawt, to allow backwards compatibility with older
    * scripts. If rawt returns 1 (blocking), don't process raw binds.*/
-  /* Tcl_GetString() must not be modified, so we have to copy because string C API is not const char* */
   strlcpy(rawmsg, Tcl_GetString(tagdict), sizeof rawmsg);
   ret = check_tcl_rawt(from, code, msgptr, rawmsg);
   if (!ret) {
@@ -1404,10 +1375,6 @@ static void server_activity(int idx, char *tagmsg, int len)
   }
   current_msgtag_account[0] = '\0';
   Tcl_DecrRefCount(tagdict);
-#else
-  current_msgtag_account[0] = '\0';
-  check_tcl_raw(from, code, msgptr);
-#endif
 }
 
 static int gotping(char *from, char *msg)

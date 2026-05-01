@@ -31,8 +31,9 @@
 #  include <wolfssl/version.h>   /* LIBWOLFSSL_VERSION_STRING — no mp_int conflict */
 #endif
 
-/* This entire file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers. In non-Tcl builds these compile as dead code
+ * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+ */
 
 extern p_tcl_bind_list bind_table_list;
 extern tcl_timer_t *timer, *utimer;
@@ -444,7 +445,7 @@ static int tcl_myip STDVAR
 static int tcl_rand STDVAR
 {
   long i;
-  uint64_t x;
+  __attribute__((unused)) uint64_t x;
 
   BADARGS(2, 2, " limit");
 
@@ -694,7 +695,7 @@ static int tcl_stripcodes STDVAR
 
 static int tcl_md5 STDVAR
 {
-  char digest_string[33];
+  __attribute__((unused)) char digest_string[33];
   unsigned char digest[16];
   BADARGS(2, 2, " string");
 
@@ -853,5 +854,3 @@ tcl_cmds tclmisc_cmds[] = {
   {"md5",                   tcl_md5},
   {NULL,                       NULL}
 };
-
-#endif /* HAVE_TCL */

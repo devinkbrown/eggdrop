@@ -48,7 +48,12 @@ static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
   char x[1024];
   int idx2;
 
-  simple_sprintf(x, "assoc %D %s %s", chan, nick, buf);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64(chan), nick, buf);
+    strlcpy(x, op_strbuf_str(&_b), sizeof x);
+    op_strbuf_free(&_b);
+  }
   for (idx2 = 0; idx2 < dcc_total; idx2++)
     if ((dcc[idx2].type == &DCC_BOT) && (idx2 != idx) &&
         (b_numver(idx2) >= NEAT_BOTNET) &&
@@ -76,8 +81,13 @@ static void link_assoc(char *bot, char *via)
 
     if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
       for (a = assoc; a && a->name[0]; a = a->next) {
-        simple_sprintf(x, "assoc %D %s %s", (int) a->channel, botnetnick,
-                       a->name);
+        {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
+                            botnetnick, a->name);
+          strlcpy(x, op_strbuf_str(&_b), sizeof x);
+          op_strbuf_free(&_b);
+        }
         botnet_send_zapf(idx, botnetnick, dcc[idx].nick, x);
       }
     }
@@ -256,7 +266,6 @@ static int cmd_assoc(struct userrec *u, int idx, char *par)
   return 0;
 }
 
-#ifdef HAVE_TCL
 static int tcl_killassoc STDVAR
 {
   int chan;
@@ -319,7 +328,6 @@ static tcl_cmds mytcl[] = {
   {"killassoc", tcl_killassoc},
   {NULL,                 NULL}
 };
-#endif /* HAVE_TCL */
 
 static void zapf_assoc(char *botnick, char *code, char *par)
 {
@@ -398,9 +406,7 @@ static char *assoc_close(void)
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_bot, mybot);
   rem_builtins(H_link, mylink);
-#ifdef HAVE_TCL
   rem_tcl_commands(mytcl);
-#endif
   rem_help_reference("assoc.help");
   del_lang_section("assoc");
   module_undepend(MODULE_NAME);
@@ -414,6 +420,11 @@ static Function assoc_table[] = {
   (Function) assoc_close,
   (Function) assoc_expmem,
   (Function) assoc_report,
+  /* 4 */ (Function) get_assoc,
+  /* 5 */ (Function) get_assoc_name,
+  /* 6 */ (Function) add_assoc,
+  /* 7 */ (Function) kill_assoc,
+  /* 8 */ (Function) kill_all_assoc,
 };
 
 char *assoc_start(Function *global_funcs)
@@ -430,9 +441,7 @@ char *assoc_start(Function *global_funcs)
   add_builtins(H_bot, mybot);
   add_builtins(H_link, mylink);
   add_lang_section("assoc");
-#ifdef HAVE_TCL
   add_tcl_commands(mytcl);
-#endif
   add_help_reference("assoc.help");
   return NULL;
 }

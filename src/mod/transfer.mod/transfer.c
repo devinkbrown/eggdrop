@@ -146,7 +146,6 @@ static char *replace_spaces(char *fn)
 }
 
 
-#ifdef HAVE_TCL
 static int builtin_sentrcvd STDVAR
 {
   Function F = (Function) cd;
@@ -168,7 +167,6 @@ static int builtin_toutlost STDVAR
   ((void (*)(char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5]);
   return TCL_OK;
 }
-#endif /* HAVE_TCL */
 
 static void check_tcl_sentrcvd(struct userrec *u, char *nick, char *path,
                                p_tcl_bind_list h)
@@ -1227,9 +1225,7 @@ static char *transfer_close(void)
   rem_builtins(H_load, transfer_load);
   if ((H_ctcp = find_bind_table("ctcp"))) /* Try to remove our CTCP bindings */
     rem_builtins(H_ctcp, transfer_ctcps);
-#ifdef HAVE_TCL
   rem_tcl_commands(mytcls);
-#endif
   rem_tcl_ints(myints);
   rem_help_reference("transfer.help");
   del_lang_section("transfer");
@@ -1299,19 +1295,15 @@ char *transfer_start(Function *global_funcs)
     return "This module requires Eggdrop 1.8.0 or later.";
   }
 
-#ifdef HAVE_TCL
   add_tcl_commands(mytcls);
-#endif
   add_tcl_ints(myints);
   add_builtins(H_load, transfer_load);
   server_transfer_setup(NULL);
   add_help_reference("transfer.help");
-#ifdef HAVE_TCL
   H_rcvd = add_bind_table("rcvd", HT_STACKABLE, builtin_sentrcvd);
   H_sent = add_bind_table("sent", HT_STACKABLE, builtin_sentrcvd);
   H_lost = add_bind_table("lost", HT_STACKABLE, builtin_toutlost);
   H_tout = add_bind_table("tout", HT_STACKABLE, builtin_toutlost);
-#endif
 
   USERENTRY_FSTAT.get = def_get;
   add_entry_type(&USERENTRY_FSTAT);

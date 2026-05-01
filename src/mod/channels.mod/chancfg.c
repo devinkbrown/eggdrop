@@ -144,7 +144,6 @@ static void clear_channel(struct chanset_t *chan, int reset)
  * Splits whitespace-separated tokens and handles Tcl-style brace quoting
  * ({...}) so the format produced by write_channels() can be read back.
  * ----------------------------------------------------------------------- */
-#ifndef HAVE_TCL
 static int egg_split_list(const char *str, int *argc, char ***argv)
 {
   int n = 0, cap = 16;
@@ -192,14 +191,45 @@ static void egg_free_list(int argc, char **argv)
     op_free(argv[i]);
   op_free(argv);
 }
-#endif /* !HAVE_TCL */
+
+/* -----------------------------------------------------------------------
+ * Unified list splitting / freeing.
+ *
+ * In Tcl builds, Tcl_SplitList handles full Tcl quoting (backslash escapes,
+ * nested braces, etc.).  In non-Tcl builds the stub sets lc=0, lv=NULL which
+ * is useless, so we fall back to egg_split_list.  *tcl_alloc is set to 1
+ * when Tcl_SplitList succeeded, 0 when egg_split_list was used, so the
+ * caller frees with the right function.
+ * ----------------------------------------------------------------------- */
+static int chan_split_list(const char *str, int *argc, char ***argv,
+                           int *tcl_alloc)
+{
+  Tcl_Size tc;
+  EGG_CONST char **tv;
+  if (Tcl_SplitList(NULL, str, &tc, &tv) == TCL_OK && tc > 0) {
+    *argc = (int) tc;
+    *argv = (char **) tv;
+    *tcl_alloc = 1;
+    return TCL_OK;
+  }
+  /* Tcl_SplitList stub returns lc=0 in non-Tcl builds — use native parser. */
+  *tcl_alloc = 0;
+  return egg_split_list(str, argc, argv);
+}
+
+static void chan_free_list(int argc, char **argv, int tcl_alloc)
+{
+  if (tcl_alloc)
+    Tcl_Free((char *) argv);
+  else
+    egg_free_list(argc, argv);
+}
 
 /* -----------------------------------------------------------------------
  * tcl_channel_modify — apply a list of channel option tokens to chan.
  *
  * The Tcl_Interp * is used only for error reporting via Tcl_AppendResult /
  * Tcl_ResetResult, which are no-ops in no-Tcl builds (lush.h stubs).
- * check_tcl_chanset() calls are guarded with #ifdef HAVE_TCL.
  * ----------------------------------------------------------------------- */
 static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                               int items, char **item)
@@ -213,7 +243,6 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
   module_entry *me;
 
   for (int i = 0; i < items; i++) {
-#ifdef HAVE_TCL
     if (item[i][0] == '+' || item[i][0] == '-') {
       if (check_tcl_chanset(chan->dname, item[i] + 1,
                             item[i][0] == '+' ? "1" : "0")) {
@@ -251,7 +280,6 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
           op_free(value);
       }
     }
-#endif /* HAVE_TCL */
     if (!strcmp(item[i], "need-op")) {
       i++;
       if (i >= items) {
@@ -635,6 +663,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
   Tcl_Size items;
   int ret = TCL_OK;
   int join = 0;
+  int tcl_alloc = 0;
   char buf2[256];
   char **item;
   struct chanset_t *chan;
@@ -654,23 +683,10 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
   op_strbuf_printf(&_b, "chanmode %s %s%s", buf2, glob_chanset, options);
   const char *buf = op_strbuf_str(&_b);
 
-#ifdef HAVE_TCL
-  {
-    EGG_CONST char **tcl_item;
-    Tcl_Size tcl_items;
-    if (Tcl_SplitList(NULL, buf, &tcl_items, &tcl_item) != TCL_OK) {
-      op_strbuf_free(&_b);
-      return TCL_ERROR;
-    }
-    items = tcl_items;
-    item = (char **) tcl_item;
-  }
-#else
-  if (egg_split_list(buf, (int *) &items, &item) != TCL_OK) {
+  if (chan_split_list(buf, (int *) &items, &item, &tcl_alloc) != TCL_OK) {
     op_strbuf_free(&_b);
     return TCL_ERROR;
   }
-#endif
   op_strbuf_free(&_b);
 
   if ((chan = findchan_by_dname(newname))) {
@@ -724,11 +740,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
     ret = TCL_ERROR;
   }
 
-#ifdef HAVE_TCL
-  Tcl_Free((char *) item);
-#else
-  egg_free_list((int) items, item);
-#endif
+  chan_free_list((int) items, item, tcl_alloc);
 
   if (ret == TCL_OK) {
     if (join && !channel_inactive(chan) && module_find("irc", 0, 0)) {
@@ -760,7 +772,10 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
  *
  * Only compiled in no-Tcl builds; Tcl builds use readtclprog() as usual.
  * ----------------------------------------------------------------------- */
-#ifndef HAVE_TCL
+/* In Tcl builds readtclprog() handles the channel file via the Tcl
+ * interpreter; this native parser is the fallback (and sole path in
+ * non-Tcl builds).  Always compiled so read_channels() can call it.
+ */
 static int read_chanfile_native(const char *fname)
 {
   FILE *f;
@@ -853,4 +868,3 @@ static int read_chanfile_native(const char *fname)
   fclose(f);
   return 1;
 }
-#endif /* !HAVE_TCL */

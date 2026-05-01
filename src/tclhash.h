@@ -32,12 +32,11 @@ typedef struct tcl_cmd_b {
   char *func_name;              /* Proc name (Tcl cmd or script key). */
   uint8_t attributes;           /* Flags for this entry. TC_* */
   unsigned int hits;            /* Number of times this proc was triggered. */
-#ifndef HAVE_TCL
-  /* No-Tcl native dispatch: trampoline called as fn(cd, argv, argc).
-   * Set by add_builtins() for C handlers; NULL for script-engine callbacks. */
+  /* Native dispatch: trampoline called as fn(cd, argv, argc).
+   * Set by add_builtins() for C handlers; NULL for script-engine callbacks.
+   * In Tcl builds, dispatch goes through Tcl_VarEval instead; these are unused. */
   IntFunc  native_fn;
   void    *native_cd;
-#endif
 } tcl_cmd_t;
 
 struct threaddata {

@@ -6,9 +6,8 @@
  * we can include tcl.h by its canonical name.
  *
  * When Tcl is not available (HAVE_TCL not defined) this header provides
- * minimal type stubs so the rest of the codebase compiles cleanly.  Any
- * function that actually calls into the Tcl API must be guarded with
- * #ifdef HAVE_TCL in its own translation unit.
+ * comprehensive type and function stubs so the entire codebase compiles
+ * cleanly without any #ifdef HAVE_TCL guards in application code.
  */
 #ifndef _LUSH_H
 #define _LUSH_H
@@ -22,8 +21,8 @@
  * These let declarations such as
  *   extern Tcl_Interp *interp;
  *   void foo(Tcl_Interp *irp, ...);
- * compile without the real tcl.h.  Actual calls to Tcl_* functions are
- * guarded by #ifdef HAVE_TCL in their respective translation units.
+ * compile without the real tcl.h.  All Tcl API calls become safe no-ops
+ * that return neutral values (NULL, 0, TCL_ERROR, etc.).
  * ----------------------------------------------------------------------- */
 #  include <limits.h>   /* INT_MAX */
 
@@ -92,27 +91,29 @@ const char *egg_getvar(const char *name);
 #  define Tcl_NewDictObj()                 ((Tcl_Obj *)NULL)
 #  define Tcl_NewObj()                     ((Tcl_Obj *)NULL)
 #  define Tcl_GetString(o)                 ((char *)"")
-#  define Tcl_GetStringFromObj(o,l)        ((const char *)"")
+#  define Tcl_GetStringFromObj(o,l)        (*(l) = 0, (const char *)"")
 #  define Tcl_IncrRefCount(o)              ((void)0)
 #  define Tcl_DecrRefCount(o)              ((void)0)
-#  define Tcl_DictObjPut(irp,d,k,v)       TCL_ERROR
+#  define Tcl_DictObjPut(irp,d,k,v)       ((void)TCL_ERROR)
 #  define Tcl_DictObjFirst(irp,d,s,k,v,done) ((void)(*(done) = 1))
 #  define Tcl_DictObjNext(s,k,v,d)        ((void)0)
 #  define Tcl_DictObjDone(s)               ((void)0)
-#  define Tcl_ListObjAppendElement(...)    TCL_ERROR
-#  define Tcl_ListObjLength(...)           TCL_ERROR
-#  define Tcl_ListObjGetElements(...)      TCL_ERROR
-#  define Tcl_ListObjIndex(...)            TCL_ERROR
+#  define Tcl_ListObjAppendElement(...)    ((void)TCL_ERROR)
+#  define Tcl_ListObjLength(...)           ((void)TCL_ERROR)
+#  define Tcl_ListObjGetElements(...)      ((void)TCL_ERROR)
+#  define Tcl_ListObjIndex(...)            ((void)TCL_ERROR)
 #  define Tcl_GetObjResult(irp)            ((Tcl_Obj *)NULL)
 #  define Tcl_FindCommand(irp,n,ns,fl)     ((void *)NULL)
 #  define Tcl_CreateObjCommand(...)        ((void *)NULL)
 #  define Tcl_DeleteCommand(irp,n)         ((void)0)
-#  define Tcl_ScanElement(s,fl)            ((int)strlen(s))
+#  define Tcl_ScanElement(s,fl)            ((void)(s), *(fl) = 0)
 #  define Tcl_ConvertElement(s,d,fl)       ((void)strcpy(d, s))
 #  define Tcl_DStringInit(ds)              ((ds)->length = 0, (ds)->string = (ds)->staticSpace, (ds)->staticSpace[0] = '\0')
 #  define Tcl_DStringFree(ds)              ((void)0)
 #  define Tcl_DStringAppend(ds,s,l)        ((void)0)
 #  define Tcl_DStringAppendElement(ds,s)   ((void)0)
+#  define Tcl_DStringStartSublist(ds)      ((void)0)
+#  define Tcl_DStringEndSublist(ds)        ((void)0)
 #  define Tcl_DStringValue(ds)             ((ds)->string ? (ds)->string : "")
 #  define Tcl_DStringLength(ds)            ((ds)->length)
 #  define Tcl_BackgroundError(irp)         ((void)0)
@@ -120,12 +121,53 @@ const char *egg_getvar(const char *name);
 #  define Tcl_TraceVar(irp,n,fl,fn,cd)   ((void)0)
 #  define Tcl_UntraceVar(irp,n,fl,fn,cd) ((void)0)
 #  define Tcl_ExprLong(irp,s,lp)         (*(lp) = 0, TCL_OK)
-#  define Tcl_SplitList(irp,s,lc,lv)     (*(lc) = 0, *(lv) = NULL, TCL_OK)
+#  define Tcl_SplitList(irp,s,lc,lv)     ({(void)(irp); (void)(s); *(lc) = 0; *(lv) = NULL; TCL_OK;})
 #  define Tcl_Free(p)                     ((void)(p))
 #  define Tcl_CreateInterp()              ((Tcl_Interp *)NULL)
 #  define Tcl_DeleteInterp(irp)           ((void)0)
 #  define Tcl_AppendElement(irp,s)        ((void)0)
 /* BADARGS: argument-count check used by Tcl command handlers. */
 #  define BADARGS(nl,nh,example)          ((void)0)
+/* STDVAR: Tcl command handler function parameter list. */
+#  define STDVAR (ClientData cd, Tcl_Interp *irp, int argc, char *argv[])
+/* CHECKVALIDITY: verify a builtin command's function pointer. */
+#  define CHECKVALIDITY(a) do {                                    \
+        if (!check_validity(argv[0], (a))) {                       \
+                Tcl_AppendResult(irp, "bad builtin command call!", \
+                                 NULL);                            \
+                return TCL_ERROR;                                  \
+        }                                                          \
+} while (0)
+#  define TCL_BREAK          3
+#  define Tcl_Merge(c,v)     ((void)(c), (void)(v), (char *)"")
+#  define Tcl_NewByteArrayObj(b,l) ((Tcl_Obj *)NULL)
+#  define Tcl_SetObjResult(irp,o)  ((void)0)
+#  define Tcl_NewIntObj(i)            ((Tcl_Obj *)NULL)
+#  define Tcl_AppendObjToObj(a,b)     ((void)0)
+#  define Tcl_AppendStringsToObj(...) ((void)0)
+#  define Tcl_DictObjSize(irp,d,sp)   (*(sp) = 0, TCL_OK)
+#  define Tcl_WrongNumArgs(irp,objc,objv,msg) ((void)0)
+#  define Tcl_DStringSetLength(ds,l)  ((ds)->length = (l))
+#  define Tcl_GetIntFromObj(irp,obj,ptr) (*(ptr) = 0, TCL_ERROR)
+/* Tcl_ObjCmdProc: function type for Tcl object-based commands */
+typedef int (Tcl_ObjCmdProc)(ClientData, Tcl_Interp *, int, Tcl_Obj *const[]);
+/* STDOBJVAR: Tcl object command handler function parameter list. */
+#  define STDOBJVAR (ClientData cd, Tcl_Interp *irp, int objc, Tcl_Obj *const objv[])
+/* BADOBJARGS: argument-count check for Tcl object command handlers. */
+#  define BADOBJARGS(nl,nh,prefix,example) ((void)0)
+/* Tcl_WideInt: 64-bit integer type */
+typedef long long Tcl_WideInt;
+#  define Tcl_NewWideIntObj(w)     ((Tcl_Obj *)NULL)
+#  define Tcl_Alloc(n)            ((char *)op_malloc(n))
+#  define Tcl_Concat(c,v)         ((void)(c), (void)(v), (char *)"")
+#  define Tcl_GlobalEval(irp,s)   TCL_ERROR
+#  define Tcl_InterpDeleted(irp)  0
+#  define Tcl_ServiceAll()        ((void)0)
+#  define Tcl_TraceVar2(irp,n1,n2,fl,fn,cd)   ((void)0)
+#  define Tcl_UntraceVar2(irp,n1,n2,fl,fn,cd) ((void)0)
+#  define Tcl_UtfToExternalDString(enc,src,len,ds) \
+     (Tcl_DStringInit(ds), (char *)"")
+/* Tcl_VarTraceProc: trace callback function type */
+typedef char *(Tcl_VarTraceProc)(ClientData, Tcl_Interp *, const char *, const char *, int);
 #endif /* HAVE_TCL */
 #endif /* _LUSH_H */

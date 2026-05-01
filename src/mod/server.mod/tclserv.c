@@ -19,8 +19,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers for server.mod.
+ * In non-Tcl builds lush.h provides no-op stubs for all Tcl APIs.
+ */
 
 static int tcl_isbotnick STDVAR
 {
@@ -276,7 +277,7 @@ static int tcl_cap STDVAR {
   int found = 0;
   struct capability *current;
   struct cap_values *currentvalue;
-  Tcl_Obj *capes, *values;
+  __attribute__((unused)) Tcl_Obj *capes, *values;
   BADARGS(2, 3, " sub-cmd ?arg?");
 
   capes = Tcl_NewListObj(0, NULL);
@@ -473,7 +474,7 @@ static int tcl_jump STDVAR
 static int tcl_clearqueue STDVAR
 {
   struct msgq *q, *qq;
-  int msgs = 0;
+  __attribute__((unused)) int msgs = 0;
 
   BADARGS(2, 2, " queue");
 
@@ -550,7 +551,7 @@ static int tcl_clearqueue STDVAR
 
 static int tcl_queuesize STDVAR
 {
-  int x;
+  __attribute__((unused)) int x;
 
   BADARGS(1, 2, " ?queue?");
 
@@ -581,7 +582,7 @@ static int tcl_server STDVAR {
   int ret;
   char s[7];
   struct server_list *z;
-  Tcl_Obj *server;
+  __attribute__((unused)) Tcl_Obj *server;
 
   BADARGS(2, 5, " subcommand ?host ?port? ?password?");
   if (!strcmp(argv[1], "add")) {
@@ -612,7 +613,7 @@ static int tcl_server STDVAR {
     }
     ret = del_server(argv[2], argc >= 4 && argv[3] ? argv[3] : "");
   } else if (!strcmp(argv[1], "list")) {
-    Tcl_Obj *servers = Tcl_NewListObj(0, NULL);
+    __attribute__((unused)) Tcl_Obj *servers = Tcl_NewListObj(0, NULL);
     z = serverlist;
     while(z != NULL) {
       server = Tcl_NewListObj(0, NULL);
@@ -865,5 +866,3 @@ static tcl_cmds my_tcl_cmds[] = {
   {"ircxnegotiate", tcl_ircxnegotiate},
   {NULL,         NULL}
 };
-
-#endif /* HAVE_TCL */

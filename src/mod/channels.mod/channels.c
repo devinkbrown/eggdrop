@@ -35,9 +35,7 @@ static Function *global = NULL;
 static char chanfile[121], glob_chanmode[65];
 static char *lastdeletedmask;
 
-#ifdef HAVE_TCL
 static p_tcl_bind_list H_chanset;
-#endif /* HAVE_TCL */
 
 static struct udef_struct *udef;
 
@@ -318,7 +316,6 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
   op_strbuf_free(&s1);
 }
 
-#ifdef HAVE_TCL
 static int builtin_chanset STDVAR
 {
   Function F = (Function) cd;
@@ -329,9 +326,7 @@ static int builtin_chanset STDVAR
   ((void (*)(char *, char *, char *)) F)(argv[1], argv[2], argv[3]);
   return TCL_OK;
 }
-#endif /* HAVE_TCL */
 
-#ifdef HAVE_TCL
 int check_tcl_chanset(const char *chan, const char *setting, const char *value)
 {
   Tcl_SetVar(interp, "_chanset1", (char *) chan, 0);
@@ -341,7 +336,6 @@ int check_tcl_chanset(const char *chan, const char *setting, const char *value)
   return BIND_EXEC_LOG == check_tcl_bind(H_chanset, setting, 0, " $_chanset1 $_chanset2 $_chanset3",
                      MATCH_MASK | BIND_STACKABLE | BIND_STACKRET | BIND_WANTRET);
 }
-#endif /* HAVE_TCL */
 
 /* Returns true if this is one of the channel masks
  */
@@ -482,10 +476,9 @@ static int channels_chon(char *handle, int idx)
   return 0;
 }
 
-#ifdef HAVE_TCL
 static char *convert_element(char *src, char *dst)
 {
-  int flags;
+  __attribute__((unused)) int flags;
 
   Tcl_ScanElement(src, &flags);
 /* Work around Tcl bug 3371644 (only present in 8.5.10) */
@@ -495,13 +488,6 @@ static char *convert_element(char *src, char *dst)
   Tcl_ConvertElement(src, dst, flags);
   return dst;
 }
-#else
-static char *convert_element(char *src, char *dst)
-{
-  strlcpy(dst, src, strlen(src) + 1);
-  return dst;
-}
-#endif /* HAVE_TCL */
 
 #define PLSMNS(x) (x ? '+' : '-')
 
@@ -646,11 +632,11 @@ static void read_channels(int create, int reload)
       chan->status |= CHAN_FLAGGED;
 
   chan_hack = 1;
-#ifdef HAVE_TCL
-  if (!readtclprog(chanfile) && create)
-#else
-  if (!read_chanfile_native(chanfile) && create)
-#endif
+  /* readtclprog returns 0 (failure) in non-Tcl builds, so we fall back to
+   * the native channel-file parser which handles the write_channels() format
+   * without a Tcl interpreter.
+   */
+  if (!readtclprog(chanfile) && !read_chanfile_native(chanfile) && create)
   {
     FILE *f;
 
@@ -881,14 +867,17 @@ static int channels_expmem(void)
   return tot;
 }
 
-#ifdef HAVE_TCL
-static char *traced_globchanset(ClientData cdata, Tcl_Interp *irp,
+/* In non-Tcl builds, Tcl_TraceVar is a no-op so this callback is never
+ * invoked, but it must still compile so the TraceVar call below resolves.
+ */
+static __attribute__((unused)) char *traced_globchanset(ClientData cdata, Tcl_Interp *irp,
                                 EGG_CONST char *name1,
                                 EGG_CONST char *name2, int flags)
 {
   Tcl_Size i, items;
   char *t, *s;
-  EGG_CONST char **item, *s2;
+  EGG_CONST char **item;
+  __attribute__((unused)) EGG_CONST char *s2;
 
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     Tcl_SetVar2(interp, name1, name2, glob_chanset, TCL_GLOBAL_ONLY);
@@ -925,7 +914,6 @@ static char *traced_globchanset(ClientData cdata, Tcl_Interp *irp,
   }
   return NULL;
 }
-#endif /* HAVE_TCL */
 
 static tcl_ints my_tcl_ints[] = {
   {"use-info",                 &use_info,                0},
@@ -995,9 +983,7 @@ static char *channels_close(void)
     op_free(lastdeletedmask);
   rem_builtins(H_chon, my_chon);
   rem_builtins(H_dcc, C_dcc_irc);
-#ifdef HAVE_TCL
   rem_tcl_commands(channels_cmds);
-#endif /* HAVE_TCL */
   rem_tcl_strings(my_tcl_strings);
   rem_tcl_ints(my_tcl_ints);
   rem_tcl_coups(mychan_tcl_coups);
@@ -1008,14 +994,12 @@ static char *channels_close(void)
   del_hook(HOOK_MINUTELY, (Function) check_expired_bans);
   del_hook(HOOK_MINUTELY, (Function) check_expired_exempts);
   del_hook(HOOK_MINUTELY, (Function) check_expired_invites);
-#ifdef HAVE_TCL
   Tcl_UntraceVar(interp, "global-chanset",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_globchanset, NULL); /* keep for backward compatibility */
   Tcl_UntraceVar(interp, "default-chanset",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_globchanset, NULL);
-#endif /* HAVE_TCL */
   rem_help_reference("channels.help");
   rem_help_reference("chaninfo.help");
   module_undepend(MODULE_NAME);
@@ -1175,7 +1159,6 @@ char *channels_start(Function *global_funcs)
   add_hook(HOOK_BACKUP, (Function) backup_chanfile);
   add_hook(HOOK_REHASH, (Function) channels_rehash);
   add_hook(HOOK_PRE_REHASH, (Function) channels_prerehash);
-#ifdef HAVE_TCL
   Tcl_TraceVar(interp, "global-chanset",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_globchanset, NULL); /* keep for backward compatibility */
@@ -1183,12 +1166,9 @@ char *channels_start(Function *global_funcs)
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_globchanset, NULL);
   H_chanset = add_bind_table("chanset", HT_STACKABLE, builtin_chanset);
-#endif /* HAVE_TCL */
   add_builtins(H_chon, my_chon);
   add_builtins(H_dcc, C_dcc_irc);
-#ifdef HAVE_TCL
   add_tcl_commands(channels_cmds);
-#endif /* HAVE_TCL */
   add_tcl_strings(my_tcl_strings);
   add_help_reference("channels.help");
   add_help_reference("chaninfo.help");

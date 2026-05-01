@@ -222,6 +222,47 @@ static tcl_coups def_tcl_coups[] = {
 
 #ifdef HAVE_TCL  /* ---- All Tcl-API-dependent code below ---- */
 
+/* Locale → Tcl encoding mapping table; used during interpreter init.
+ * From Tcl's tclUnixInit.c */
+typedef struct LocaleTable {
+  const char *lang;
+  const char *encoding;
+} LocaleTable;
+
+static const LocaleTable localeTable[] = {
+  {"ja_JP.SJIS",    "shiftjis"},
+  {"ja_JP.EUC",       "euc-jp"},
+  {"ja_JP.JIS",   "iso2022-jp"},
+  {"ja_JP.mscode",  "shiftjis"},
+  {"ja_JP.ujis",      "euc-jp"},
+  {"ja_JP",           "euc-jp"},
+  {"Ja_JP",         "shiftjis"},
+  {"Jp_JP",         "shiftjis"},
+  {"japan",           "euc-jp"},
+#ifdef hpux
+  {"japanese",      "shiftjis"},
+  {"ja",            "shiftjis"},
+#else
+  {"japanese",        "euc-jp"},
+  {"ja",              "euc-jp"},
+#endif
+  {"japanese.sjis", "shiftjis"},
+  {"japanese.euc",    "euc-jp"},
+  {"japanese-sjis", "shiftjis"},
+  {"japanese-ujis",   "euc-jp"},
+  {"ko",              "euc-kr"},
+  {"ko_KR",           "euc-kr"},
+  {"ko_KR.EUC",       "euc-kr"},
+  {"ko_KR.euc",       "euc-kr"},
+  {"ko_KR.eucKR",     "euc-kr"},
+  {"korean",          "euc-kr"},
+  {"ru",           "iso8859-5"},
+  {"ru_RU",        "iso8859-5"},
+  {"ru_SU",        "iso8859-5"},
+  {"zh",               "cp936"},
+  {NULL,                  NULL}
+};
+
 static void botnet_change(char *new)
 {
   if (strcasecmp(botnetnick, new)) {
@@ -1306,6 +1347,26 @@ time_t get_expire_time(Tcl_Interp * irp, const char *s) {
     return -1;
   }
   return now + 60 * expire_foo;
+}
+
+/* notcl_setvar / notcl_getvar: in Tcl builds, delegate to the interpreter
+ * which handles variable traces (e.g. writing "nick" fires the trace that
+ * copies to origbotname).  This lets configtoml.c and other callers use a
+ * single code path without #ifdef HAVE_TCL.
+ */
+void notcl_setvar(const char *name, const char *value)
+{
+  Tcl_SetVar(interp, name, value, TCL_GLOBAL_ONLY);
+}
+
+const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
+{
+  const char *v = Tcl_GetVar(interp, name, TCL_GLOBAL_ONLY);
+  if (v && buf) {
+    strlcpy(buf, v, bufsz);
+    return buf;
+  }
+  return v;
 }
 
 #else /* !HAVE_TCL — no-op stubs so the rest of the codebase links cleanly */

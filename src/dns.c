@@ -274,7 +274,6 @@ void dcc_dnshostbyip(sockname_t *ip)
 static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other)
 {
   devent_tclinfo_t *tclinfo = (devent_tclinfo_t *) other;
-#ifdef HAVE_TCL
   Tcl_DString list;
 
   Tcl_DStringInit(&list);
@@ -302,7 +301,6 @@ static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other
   }
 
   Tcl_DStringFree(&list);
-#endif /* HAVE_TCL */
 
   op_free(tclinfo->proc);
   if (tclinfo->paras)
@@ -337,7 +335,9 @@ devent_type DNS_TCLEVENT_IPBYHOST = {
   dns_tcl_iporhostres
 };
 
-#ifdef HAVE_TCL
+/* Tcl command handlers. In non-Tcl builds these compile as dead code
+ * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+ */
 static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
 {
   devent_t *de;
@@ -406,14 +406,13 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   /* Send request. */
   dns_hostbyip(ip);
 }
-#endif /* HAVE_TCL */
 
 
 /*
  *    Event functions
  */
 
-static int dnsevent_expmem(void)
+static __attribute__((unused)) int dnsevent_expmem(void)
 {
   devent_t *de;
   int tot = 0;
@@ -543,11 +542,6 @@ void core_dns_ipbyhost(char *host)
  */
 
 
-#ifdef HAVE_TCL
-/*
- *   Tcl functions
- */
-
 /* dnslookup <ip-address> <proc> */
 static int tcl_dnslookup STDVAR
 {
@@ -586,4 +580,3 @@ tcl_cmds tcldns_cmds[] = {
   {"dnslookup", (IntFunc) tcl_dnslookup},
   {NULL,                          NULL}
 };
-#endif /* HAVE_TCL */

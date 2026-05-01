@@ -103,7 +103,6 @@ static void tell_who(struct userrec *u, int idx, int chan)
   else {
     op_strbuf_t assoccmd;
     op_strbuf_printf(&assoccmd, "assoc %d", chan);
-#ifdef HAVE_TCL
     if ((Tcl_Eval(interp, op_strbuf_str(&assoccmd)) != TCL_OK) || tcl_resultempty())
       dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
@@ -112,11 +111,6 @@ static void tell_who(struct userrec *u, int idx, int chan)
       dprintf(idx, "%s '%s' (%s%d): (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, tcl_resultstring(),
               (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
-#else
-    dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
-            "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
-            "*", chan % GLOBAL_CHANS);
-#endif /* HAVE_TCL */
     op_strbuf_free(&assoccmd);
   }
 
@@ -304,13 +298,11 @@ static void cmd_whom(struct userrec *u, int idx, char *par)
     int chan = -1;
 
     if ((par[0] < '0') || (par[0] > '9')) {
-#ifdef HAVE_TCL
       Tcl_SetVar(interp, "_chan", par, 0);
       if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
           !tcl_resultempty()) {
         chan = tcl_resultint();
       }
-#endif /* HAVE_TCL */
       if (chan <= 0) {
         dprintf(idx, "No such channel exists.\n");
         return;
@@ -2403,13 +2395,11 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
         if (!arg[1])
           newchan = 0;
         else {
-#ifdef HAVE_TCL
           Tcl_SetVar(interp, "_chan", arg, 0);
           if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
               !tcl_resultempty())
             newchan = tcl_resultint();
           else
-#endif /* HAVE_TCL */
             newchan = -1;
         }
         if (newchan < 0) {
@@ -2428,7 +2418,6 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
         if (!strcasecmp(arg, "on"))
           newchan = 0;
         else {
-#ifdef HAVE_TCL
           Tcl_SetVar(interp, "_chan", arg, 0);
           if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
               !tcl_resultempty()) {
@@ -2438,7 +2427,6 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
             }
           }
           else
-#endif /* HAVE_TCL */
             newchan = -1;
         }
         if (newchan < 0) {
@@ -2829,7 +2817,11 @@ static void cmd_page(struct userrec *u, int idx, char *par)
  */
 static void cmd_tcl(struct userrec *u, int idx, char *msg)
 {
-#ifdef HAVE_TCL
+  if (!interp) {
+    dprintf(idx, "Tcl scripting support is not compiled in.\n");
+    return;
+  }
+
   struct rusage ru1, ru2;
   int r = 0;
   int code;
@@ -2861,16 +2853,53 @@ static void cmd_tcl(struct userrec *u, int idx, char *msg)
     dumplots(idx, "Tcl error: ", result);
 
   Tcl_DStringFree(&dstr);
-#else
-  dprintf(idx, "Tcl scripting support is not compiled in.\n");
-#endif /* HAVE_TCL */
+}
+
+static void cmd_python(struct userrec *u, int idx, char *msg)
+{
+  module_entry *me = module_find("python", 0, 0);
+  if (!me) {
+    dprintf(idx, "Python module is not loaded.\n");
+    return;
+  }
+  if (!isowner(dcc[idx].nick) && must_be_owner) {
+    dprintf(idx, "%s", MISC_NOSUCHCMD);
+    return;
+  }
+  putlog(LOG_CMDS, "*", "#%s# python %s", dcc[idx].nick, msg);
+  dprintf(idx, "Use .tcl or Python scripts for evaluation.\n");
 }
 
 /* Perform a 'set' command
  */
 static void cmd_set(struct userrec *u, int idx, char *msg)
 {
-#ifdef HAVE_TCL
+  if (!interp) {
+    if (!isowner(dcc[idx].nick) && must_be_owner) {
+      dprintf(idx, "%s", MISC_NOSUCHCMD);
+      return;
+    }
+    putlog(LOG_CMDS, "*", "#%s# set %s", dcc[idx].nick, msg);
+    if (!msg[0]) {
+      dprintf(idx, "Usage: .set <variable> [value]\n");
+      return;
+    }
+    char *value = strchr(msg, ' ');
+    if (value) {
+      *value++ = 0;
+      notcl_setvar(msg, value);
+      dprintf(idx, "Set %s = %s\n", msg, value);
+    } else {
+      char buf[512];
+      const char *v = notcl_getvar(msg, buf, sizeof buf);
+      if (v)
+        dprintf(idx, "%s = %s\n", msg, v);
+      else
+        dprintf(idx, "Variable '%s' not found\n", msg);
+    }
+    return;
+  }
+
   int code;
   char s[512], *result;
   Tcl_DString dstr;
@@ -2881,7 +2910,7 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
   }
   putlog(LOG_CMDS, "*", "#%s# set %s", dcc[idx].nick, msg);
   if (!msg[0]) {
-    Tcl_Eval(interp, "info globals");
+    (void)Tcl_Eval(interp, "info globals");
     dumplots(idx, "Global vars: ", tcl_resultstring());
     return;
   }
@@ -2907,9 +2936,6 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
     dprintf(idx, "Error: %s\n", result);
 
   Tcl_DStringFree(&dstr);
-#else
-  dprintf(idx, "Tcl scripting support is not compiled in.\n");
-#endif /* HAVE_TCL */
 }
 
 static void cmd_module(struct userrec *u, int idx, char *par)
@@ -3393,6 +3419,7 @@ cmd_t C_dcc[] = {
   {"handle",    "",     (IntFunc) cmd_handle,     NULL},
   {"nick",      "",     (IntFunc) cmd_handle,     NULL},
   {"page",      "",     (IntFunc) cmd_page,       NULL},
+  {"python",    "n",    (IntFunc) cmd_python,     NULL},
   {"quit",      "",     (IntFunc) CMD_LEAVE,      NULL},
   {"rehash",    "m",    (IntFunc) cmd_rehash,     NULL},
   {"rehelp",    "n",    (IntFunc) cmd_rehelp,     NULL},

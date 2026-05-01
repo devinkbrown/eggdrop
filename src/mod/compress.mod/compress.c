@@ -429,9 +429,7 @@ static int compress_report(int idx, int details)
 static char *compress_close(void)
 {
   rem_help_reference("compress.help");
-#ifdef HAVE_TCL
   rem_tcl_commands(my_tcl_cmds);
-#endif
   rem_tcl_ints(my_tcl_ints);
   uff_deltable(compress_uff_table);
 
@@ -479,9 +477,7 @@ char *compress_start(Function *global_funcs)
 
   uff_addtable(compress_uff_table);
   add_tcl_ints(my_tcl_ints);
-#ifdef HAVE_TCL
   add_tcl_commands(my_tcl_cmds);
-#endif
   add_help_reference("compress.help");
   return NULL;
 }

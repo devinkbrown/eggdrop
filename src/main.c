@@ -234,23 +234,23 @@ static void write_debug(void)
     dprintf(-x, "STATICALLY LINKED\n");
 #endif
 
-#ifdef HAVE_TCL
-    /* info library */
-    dprintf(-x, "Tcl library: %s\n",
-            ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
-            tcl_resultstring() : "*unknown*");
+    if (interp) {
+      /* info library */
+      dprintf(-x, "Tcl library: %s\n",
+              ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
+              tcl_resultstring() : "*unknown*");
 
-    /* info tclversion/patchlevel */
-    dprintf(-x, "Tcl version: %s (header version " TCL_PATCH_LEVEL ")\n",
-            ((interp) && (Tcl_Eval(interp, "info patchlevel") == TCL_OK)) ?
-            tcl_resultstring() : (Tcl_Eval(interp, "info tclversion") == TCL_OK) ?
-            tcl_resultstring() : "*unknown*");
+      /* info tclversion/patchlevel */
+      dprintf(-x, "Tcl version: %s (header version " TCL_PATCH_LEVEL ")\n",
+              ((interp) && (Tcl_Eval(interp, "info patchlevel") == TCL_OK)) ?
+              tcl_resultstring() : (Tcl_Eval(interp, "info tclversion") == TCL_OK) ?
+              tcl_resultstring() : "*unknown*");
 
-    if (tcl_threaded())
-      dprintf(-x, "Tcl is threaded\n");
-#else
-    dprintf(-x, "Tcl scripting: disabled\n");
-#endif /* HAVE_TCL */
+      if (tcl_threaded())
+        dprintf(-x, "Tcl is threaded\n");
+    } else {
+      dprintf(-x, "Tcl scripting: disabled\n");
+    }
 #ifdef IPV6
     dprintf(-x, "Compiled with IPv6 support\n");
 #else
@@ -407,6 +407,7 @@ static void show_ver(void) {
   printf("Threaded DNS core, ");
 #endif
   printf("handlen=%d\n", HANDLEN);
+  printf("Build: %s %s\n", __DATE__, __TIME__);
   bg_send_quit(BG_ABORT);
 }
 
@@ -859,10 +860,8 @@ static void mainloop(int toplevel)
         putlog(LOG_MISC, "*", "%s", MOD_STAGNANT);
       }
 
-#ifdef HAVE_TCL
       kill_tcl();
       init_tcl1(argc, argv);
-#endif
       init_language(0);
 
       /* this resets our modules which we didn't unload (encryption and uptime) */
@@ -889,10 +888,8 @@ static void mainloop(int toplevel)
   }
 
   if (!eggbusy) {
-#ifdef HAVE_TCL
     /* Process all pending Tcl events */
     Tcl_ServiceAll();
-#endif
   }
 }
 
@@ -1071,6 +1068,21 @@ int main(int arg_c, char **arg_v)
   int j = count_users(userlist);
   putlog(LOG_MISC, "*", "=== %s: %d channel%s, %d user%s.",
          botnetnick, i, (i == 1) ? "" : "s", j, (j == 1) ? "" : "s");
+  putlog(LOG_MISC, "*", "Scripting: %s%s",
+         interp ? "Tcl " : "",
+         module_find("python", 0, 0) ? "Python" : "");
+  putlog(LOG_MISC, "*", "Features:%s%s%s",
+#ifdef TLS
+         " TLS",
+#else
+         "",
+#endif
+#ifdef IPV6
+         " IPv6",
+#else
+         "",
+#endif
+         interp ? " Tcl" : "");
   if ((cliflags & CLI_N) && (cliflags & CLI_T)) {
     printf("\n");
     printf("NOTE: The -n flag is no longer used, it is as effective as Han\n");

@@ -50,7 +50,6 @@ static int hexdigit2dec[128] = {
   -1, -1, -1, -1, -1, -1, -1, -1          /* 120 - 127 */
 };
 
-#ifdef HAVE_TCL
 int tcl_isupport STDOBJVAR;
 int isupport_bind STDVAR;
 int check_tcl_isupport(struct isupport *data, const char *key, const char *value);
@@ -60,10 +59,6 @@ static tcl_cmds my_tcl_objcmds[] = {
   {"isupport", tcl_isupport},
   {NULL,       NULL        }
 };
-#else /* !HAVE_TCL */
-static int check_tcl_isupport(struct isupport *data, const char *key,
-                               const char *value) { return 0; }
-#endif /* HAVE_TCL */
 
 /*** Utility functions ***/
 
@@ -141,11 +136,11 @@ int isupport_parseint(const char *key, const char *value, int min, int max, int 
 /*** isupport key record managing functions ***/
 
 static void isupport_free(struct isupport *data) {
-  op_free(data->key);
+  op_free((void *)data->key);
   if (data->value)
-    op_free(data->value);
+    op_free((void *)data->value);
   if (data->defaultvalue)
-    op_free(data->defaultvalue);
+    op_free((void *)data->defaultvalue);
   op_bh_free(isupport_bh, data);
 }
 
@@ -236,12 +231,12 @@ static void isupport_set_value(const char *key, size_t keylen, const char *value
   } else {
     if (setdefault) {
       if (data->defaultvalue) {
-        op_free(data->defaultvalue);
+        op_free((void *)data->defaultvalue);
       }
       data->defaultvalue = new;
     } else {
       if (data->value) {
-        op_free(data->value);
+        op_free((void *)data->value);
       }
       data->value = new;
     }
@@ -270,7 +265,7 @@ void isupport_unset(const char *key, size_t keylen)
     int ret = check_tcl_isupport(data, data->key, NULL);
     if (!ret) {
       if (data->defaultvalue) {
-        op_free(data->value);
+        op_free((void *)data->value);
         data->value = NULL;
       } else {
         del_record(data);
@@ -404,11 +399,11 @@ void isupport_clear_values(int cleardefaultvalues) {
       if (cleardefaultvalues && data->value) {
         /* no bind trigger, value > defaultvalue, this does not change the effective value */
         /* and the bind should never be allowed to prevent changing default values */
-        op_free(data->defaultvalue);
+        op_free((void *)data->defaultvalue);
         data->defaultvalue = NULL;
       } else if (!cleardefaultvalues && data->defaultvalue) {
         if (!strcmp(data->value, data->defaultvalue) || !check_tcl_isupport(data, data->key, data->defaultvalue)) {
-          op_free(data->value);
+          op_free((void *)data->value);
           data->value = NULL;
         }
       } else {
@@ -430,37 +425,27 @@ void isupport_clear_values(int cleardefaultvalues) {
  * this is not necessary before each connect, just before the very first one to trigger default binds
  */
 void isupport_preconnect(void) {
-#ifdef HAVE_TCL
   const char *def = Tcl_GetVar(interp, "isupport-default", TCL_GLOBAL_ONLY);
   if (!def)
     def = isupport_default;
-#else
-  const char *def = isupport_default;
-#endif
   isupport_parse(def, isupport_setdefault);
 }
 
 void isupport_init(void) {
-#ifdef HAVE_TCL
   H_isupport = add_bind_table("isupport", HT_STACKABLE, isupport_bind);
   /* Must be added after reading, if the variable was set before loading mod. */
   Tcl_TraceVar(interp, "isupport-default",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_isupport, NULL);
   add_tcl_objcommands(my_tcl_objcmds);
-#else
-  H_isupport = find_bind_table("isupport");
-#endif
 }
 
 void isupport_fini(void) {
-#ifdef HAVE_TCL
   del_bind_table(H_isupport);
   Tcl_UntraceVar(interp, "isupport-default",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_isupport, NULL);
   rem_tcl_commands(my_tcl_objcmds);
-#endif
   isupport_clear();
   if (isupport_bh) {
     op_bh_destroy(isupport_bh);

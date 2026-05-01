@@ -25,8 +25,8 @@
 
 #define NEXT_ARG { curr_arg++; argc--; }
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers for compress module. In non-Tcl builds these compile
+ * but are never registered (add_tcl_commands is a no-op). */
 
 static int tcl_compress_file STDVAR
 {
@@ -117,5 +117,3 @@ static tcl_cmds my_tcl_cmds[] = {
   {"iscompressed",      tcl_iscompressed},
   {NULL,                            NULL}
 };
-
-#endif /* HAVE_TCL */

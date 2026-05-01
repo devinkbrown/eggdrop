@@ -163,36 +163,24 @@ int def_gotshare(struct userrec *u, struct user_entry *e, char *data, int idx)
 int def_tcl_get(Tcl_Interp * interp, struct userrec *u,
                 struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   Tcl_AppendResult(interp, e->u.string, NULL);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 int def_tcl_append(Tcl_Interp * interp, struct userrec *u,
                    struct user_entry *e)
 {
-#ifdef HAVE_TCL
   Tcl_AppendElement(interp, e->u.string);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 int def_tcl_set(Tcl_Interp * irp, struct userrec *u,
                 struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   BADARGS(4, 4, " handle type setting");
 
   e->type->set(u, e, argv[3]);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 int def_expmem(struct user_entry *e)
@@ -269,12 +257,8 @@ int pass2_set(struct userrec *u, struct user_entry *e, void *new)
 static int def_tcl_null(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   Tcl_AppendResult(irp, "Please use PASS instead.", NULL);
   return TCL_ERROR;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 struct user_entry_type USERENTRY_PASS2 = {
@@ -377,7 +361,6 @@ int pass_set(struct userrec *u, struct user_entry *e, void *buf)
 static int pass_tcl_get(Tcl_Interp * interp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   char *pass = 0;
 
   if (encrypt_pass2)
@@ -387,22 +370,15 @@ static int pass_tcl_get(Tcl_Interp * interp, struct userrec *u,
   Tcl_AppendResult(interp, pass, NULL);
 
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int pass_tcl_set(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   BADARGS(3, 4, " handle PASS ?newpass?");
 
   pass_set(u, e, argc == 3 ? NULL : argv[3]);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 struct user_entry_type USERENTRY_PASS = {
@@ -503,7 +479,6 @@ static int laston_set(struct userrec *u, struct user_entry *e, void *buf)
 static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
                           struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct laston_info *li = (struct laston_info *) e->u.extra;
   char number[22];
   struct chanuserrec *cr;
@@ -529,15 +504,11 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
     Tcl_AppendResult(irp, number, li->lastonplace, NULL);
   }
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int laston_tcl_append(Tcl_Interp *irp, struct userrec *u,
                              struct user_entry *e)
 {
-#ifdef HAVE_TCL
   Tcl_DString ds;
   struct chanuserrec *cr;
 
@@ -549,15 +520,11 @@ static int laston_tcl_append(Tcl_Interp *irp, struct userrec *u,
   Tcl_AppendElement(irp, Tcl_DStringValue(&ds));
   Tcl_DStringFree(&ds);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int laston_tcl_set(Tcl_Interp * irp, struct userrec *u,
                           struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct laston_info *li;
   struct chanuserrec *cr;
 
@@ -582,9 +549,6 @@ static int laston_tcl_set(Tcl_Interp * irp, struct userrec *u,
   li->laston = atoi(argv[3]);
   set_user(&USERENTRY_LASTON, u, li);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int laston_expmem(struct user_entry *e)
@@ -770,7 +734,6 @@ static int botaddr_set(struct userrec *u, struct user_entry *e, void *buf)
   return 1;
 }
 
-#ifdef HAVE_TCL
 static int botaddr_tcl_dstring(Tcl_DString *ds, struct user_entry *e)
 {
   struct bot_addr *bi = (struct bot_addr *)e->u.extra;
@@ -791,12 +754,10 @@ static int botaddr_tcl_dstring(Tcl_DString *ds, struct user_entry *e)
   Tcl_DStringAppend(ds, int_to_base10(bi->relay_port), -1);
   return TCL_OK;
 }
-#endif /* HAVE_TCL */
 
 static int botaddr_tcl_get(Tcl_Interp * interp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   Tcl_DString ds;
   Tcl_DStringInit(&ds);
   botaddr_tcl_dstring(&ds, e);
@@ -804,15 +765,11 @@ static int botaddr_tcl_get(Tcl_Interp * interp, struct userrec *u,
   Tcl_AppendResult(interp, Tcl_DStringValue(&ds), NULL);
   Tcl_DStringFree(&ds);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int botaddr_tcl_append(Tcl_Interp * interp, struct userrec *u,
                            struct user_entry *e)
 {
-#ifdef HAVE_TCL
   Tcl_DString ds;
   Tcl_DStringInit(&ds);
   botaddr_tcl_dstring(&ds, e);
@@ -820,15 +777,11 @@ static int botaddr_tcl_append(Tcl_Interp * interp, struct userrec *u,
   Tcl_AppendElement(interp, Tcl_DStringValue(&ds));
   Tcl_DStringFree(&ds);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int botaddr_tcl_set(Tcl_Interp * irp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct bot_addr *bi = (struct bot_addr *) e->u.extra;
 
   BADARGS(4, 6, " handle type address ?telnetport ?relayport??");
@@ -878,9 +831,6 @@ static int botaddr_tcl_set(Tcl_Interp * irp, struct userrec *u,
     botaddr_set(u, e, bi);
   }
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int botaddr_expmem(struct user_entry *e)
@@ -1020,7 +970,6 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
 static int xtra_tcl_set(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct xtra_key *xk;
   int l;
 
@@ -1043,9 +992,6 @@ static int xtra_tcl_set(Tcl_Interp * irp, struct userrec *u,
   }
   xtra_set(u, e, xk);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 int xtra_unpack(struct userrec *u, struct user_entry *e)
@@ -1101,7 +1047,6 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
 
 static void xtra_display(int idx, struct user_entry *e)
 {
-#ifdef HAVE_TCL
   int code;
   Tcl_Size lc, j;
   EGG_CONST char **list;
@@ -1119,7 +1064,6 @@ static void xtra_display(int idx, struct user_entry *e)
     }
   }
   Tcl_Free((char *) list);
-#endif /* HAVE_TCL */
 }
 
 static int xtra_gotshare(struct userrec *u, struct user_entry *e,
@@ -1192,7 +1136,6 @@ int xtra_kill(struct user_entry *e)
   return 1;
 }
 
-#ifdef HAVE_TCL
 static int xtra_tcl_dstring(Tcl_DString *ds, int sublist, struct user_entry *e)
 {
   struct xtra_key *x;
@@ -1207,12 +1150,10 @@ static int xtra_tcl_dstring(Tcl_DString *ds, int sublist, struct user_entry *e)
   }
   return TCL_OK;
 }
-#endif /* HAVE_TCL */
 
 static int xtra_tcl_get(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct xtra_key *x;
 
   BADARGS(3, 4, " handle XTRA ?key?");
@@ -1231,24 +1172,17 @@ static int xtra_tcl_get(Tcl_Interp * irp, struct userrec *u,
       return TCL_OK;
     }
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int xtra_tcl_append(Tcl_Interp *irp, struct userrec *u,
                            struct user_entry *e)
 {
-#ifdef HAVE_TCL
   Tcl_DString ds;
   Tcl_DStringInit(&ds);
   xtra_tcl_dstring(&ds, 0, e);
   Tcl_AppendElement(irp, Tcl_DStringValue(&ds));
   Tcl_DStringFree(&ds);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int xtra_expmem(struct user_entry *e)
@@ -1400,7 +1334,6 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
 static int hosts_tcl_get(Tcl_Interp * irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct list_type *x;
 
   BADARGS(3, 3, " handle HOSTS");
@@ -1408,15 +1341,11 @@ static int hosts_tcl_get(Tcl_Interp * irp, struct userrec *u,
   for (x = e->u.list; x; x = x->next)
     Tcl_AppendElement(irp, x->extra);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int hosts_tcl_append(Tcl_Interp *irp, struct userrec *u,
                             struct user_entry *e)
 {
-#ifdef HAVE_TCL
   Tcl_DString ds;
   struct list_type *x;
 
@@ -1426,15 +1355,11 @@ static int hosts_tcl_append(Tcl_Interp *irp, struct userrec *u,
   Tcl_AppendElement(irp, Tcl_DStringValue(&ds));
   Tcl_DStringFree(&ds);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int hosts_tcl_set(Tcl_Interp * irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   BADARGS(3, 4, " handle HOSTS ?host?");
 
   if (argc == 4)
@@ -1442,9 +1367,6 @@ static int hosts_tcl_set(Tcl_Interp * irp, struct userrec *u,
   else
     addhost_by_handle(u->handle, "none");       /* drummer */
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int hosts_gotshare(struct userrec *u, struct user_entry *e,
@@ -1509,14 +1431,10 @@ int fprint_set(struct userrec *u, struct user_entry *e, void *buf)
 static int fprint_tcl_set(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   BADARGS(3, 4, " handle FPRINT ?new-fingerprint?");
 
   fprint_set(u, e, argc == 3 ? NULL : argv[3]);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 struct user_entry_type USERENTRY_FPRINT = {
@@ -1639,7 +1557,6 @@ static int account_dupuser(struct userrec *new, struct userrec *old,
 static int account_tcl_get(Tcl_Interp * irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   struct list_type *x;
 
   BADARGS(3, 3, " handle ACCOUNT");
@@ -1647,15 +1564,11 @@ static int account_tcl_get(Tcl_Interp * irp, struct userrec *u,
   for (x = e->u.list; x; x = x->next)
     Tcl_AppendElement(irp, x->extra);
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static int account_tcl_set(Tcl_Interp * irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-#ifdef HAVE_TCL
   BADARGS(3, 4, " handle ACCOUNT ?account?");
 
   if (argc == 4)
@@ -1668,9 +1581,6 @@ static int account_tcl_set(Tcl_Interp * irp, struct userrec *u,
   else
     addaccount_by_handle(u->handle, "none");       /* drummer */
   return TCL_OK;
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 struct user_entry_type USERENTRY_ACCOUNT = {

@@ -20,8 +20,10 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers — in non-Tcl builds these compile (STDVAR, BADARGS,
+ * and all Tcl_* calls are stubbed by lush.h) but are never registered via
+ * add_tcl_commands (which is itself a no-op in non-Tcl builds).
+ */
 
 static int tcl_killban STDVAR
 {
@@ -1834,5 +1836,3 @@ static tcl_cmds channels_cmds[] = {
   {"haschanrec",         tcl_haschanrec},
   {NULL,                           NULL}
 };
-
-#endif /* HAVE_TCL */

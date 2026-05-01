@@ -57,9 +57,7 @@ p_tcl_bind_list H_chat, H_act, H_bcst, H_chon, H_chof, H_load, H_unld, H_link,
 p_tcl_bind_list H_tls = NULL;
 #endif
 
-#ifndef HAVE_TCL
 #include "script.h"
-#endif
 
 
 /* ===================================================================
@@ -383,6 +381,28 @@ static int check_bind_flags(struct flag_record *flags, struct flag_record *atr,
       return (flagrec_eq(flags, atr));
   }
   return 1;
+}
+
+
+/* Build argv[] from the param string (e.g. " $_dcc1 $_dcc2 $_dcc3").
+ * Each "$_varname" token is looked up in egg_vars[].
+ * Returns the number of args placed into argv[]. */
+static int build_argv(const char *param, const char **argv, int maxargc)
+{
+  char pbuf[2048];
+  char *tok, *brkt;
+  int argc = 0;
+
+  if (!param || !*param)
+    return 0;
+  strlcpy(pbuf, param, sizeof pbuf);
+  tok = strtok_r(pbuf, " ", &brkt);
+  while (tok && argc < maxargc) {
+    if (tok[0] == '$' && tok[1] == '_')
+      argv[argc++] = egg_getvar(tok + 1);   /* skip leading '$' */
+    tok = strtok_r(NULL, " ", &brkt);
+  }
+  return argc;
 }
 
 
@@ -840,27 +860,6 @@ static int dispatch_native(tcl_cmd_t *tc, const char **argv, int argc)
   return x > 0 ? BIND_EXEC_LOG : BIND_EXECUTED;
 }
 
-/* Build argv[] from the param string (e.g. " $_dcc1 $_dcc2 $_dcc3").
- * Each "$_varname" token is looked up in egg_vars[].
- * Returns the number of args placed into argv[]. */
-static int build_argv(const char *param, const char **argv, int maxargc)
-{
-  char pbuf[2048];
-  char *tok, *brkt;
-  int argc = 0;
-
-  if (!param || !*param)
-    return 0;
-  strlcpy(pbuf, param, sizeof pbuf);
-  tok = strtok_r(pbuf, " ", &brkt);
-  while (tok && argc < maxargc) {
-    if (tok[0] == '$' && tok[1] == '_')
-      argv[argc++] = egg_getvar(tok + 1);   /* skip leading '$' */
-    tok = strtok_r(NULL, " ", &brkt);
-  }
-  return argc;
-}
-
 int check_validity(char *fn, IntFunc func)
 {
   return 1;
@@ -937,24 +936,20 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
                    struct flag_record *atr, const char *param, int match_type)
 {
   int x, result = 0, cnt = 0, finish = 0;
-  char *mask = NULL;
+  __attribute__((unused)) char *mask = NULL;
   tcl_bind_mask_t *tm, *tm_last = NULL, *tm_p = NULL;
   tcl_cmd_t *tc, *htc = NULL;
-#ifdef HAVE_TCL
   char *str, *varName, *brkt;
-#else
   const char *argv[16];
   int argc;
-#endif
 
   if (!tl)
     return BIND_NOMATCH;
 
-#ifndef HAVE_TCL
-  /* Reconstruct argv from param string (reads egg_vars populated by
-   * Tcl_SetVar stubs before this call). */
+  /* Reconstruct argv from param string.  In Tcl builds the DISPATCH macro
+   * ignores argv/argc (it calls trigger_bind instead), but build_argv is
+   * harmless and keeps the code path unified. */
   argc = build_argv(param, argv, 16);
-#endif
 
   /* Fast path: O(1) lookup for MATCH_EXACT via mask_ht. */
   if ((match_type & 0x07) == MATCH_EXACT && tl->mask_ht) {
@@ -1103,7 +1098,6 @@ exact_miss:
   x = DISPATCH(htc, param, mask, argv, argc);
 
 finally:
-#ifdef HAVE_TCL
   str = op_strdup(param);
 
   for (varName = strtok_r(str,  " $:", &brkt);
@@ -1114,7 +1108,6 @@ finally:
   }
 
   op_free(str);
-#endif
   return x;
 }
 
@@ -1227,7 +1220,6 @@ void check_tcl_loadunld(const char *mod, tcl_bind_list_t *tl)
 
 const char *check_tcl_filt(int idx, const char *text)
 {
-#ifdef HAVE_TCL
   int x;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
@@ -1240,21 +1232,13 @@ const char *check_tcl_filt(int idx, const char *text)
   x = check_tcl_bind(H_filt, text, &fr, " $_filt1 $_filt2",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE |
                      BIND_WANTRET | BIND_ALTER_ARGS);
-  if (x == BIND_EXECUTED || x == BIND_EXEC_LOG) {
+  if ((x == BIND_EXECUTED || x == BIND_EXEC_LOG) && interp) {
     if (tcl_resultempty())
       return "";
     else
       return tcl_resultstring();
-  } else
-    return text;
-#else
-  /* No-Tcl: filter binds cannot modify text (no Tcl result string). */
-  Tcl_SetVar(interp, "_filt1", int_to_base10(idx), 0);
-  Tcl_SetVar(interp, "_filt2", (char *) text, 0);
-  check_tcl_bind(H_filt, text, 0, " $_filt1 $_filt2",
-                 MATCH_MASK | BIND_STACKABLE);
+  }
   return text;
-#endif
 }
 
 int check_tcl_note(const char *from, const char *to, const char *text)
@@ -1273,22 +1257,23 @@ int check_tcl_note(const char *from, const char *to, const char *text)
 
 void check_tcl_listen(const char *cmd, int idx)
 {
-#ifdef HAVE_TCL
-  int x;
-
   op_strbuf_t s;
   op_strbuf_printf(&s, "%d", idx);
-  Tcl_SetVar(interp, "_n", op_strbuf_str(&s), 0);
+
+  if (interp) {
+    int x;
+
+    Tcl_SetVar(interp, "_n", op_strbuf_str(&s), 0);
+    x = Tcl_VarEval(interp, cmd, " $_n", NULL);
+    if (x == TCL_ERROR)
+      putlog(LOG_MISC, "*", "error on listen: %s", tcl_resultstring());
+  } else {
+    Tcl_SetVar(interp, "_listen1", (char *) cmd, 0);
+    Tcl_SetVar(interp, "_listen2", op_strbuf_str(&s), 0);
+    check_tcl_bind(find_bind_table("listen"), cmd, 0,
+                   " $_listen1 $_listen2", MATCH_EXACT | BIND_STACKABLE);
+  }
   op_strbuf_free(&s);
-  x = Tcl_VarEval(interp, cmd, " $_n", NULL);
-  if (x == TCL_ERROR)
-    putlog(LOG_MISC, "*", "error on listen: %s", tcl_resultstring());
-#else
-  Tcl_SetVar(interp, "_listen1", (char *) cmd, 0);
-  Tcl_SetVar(interp, "_listen2", int_to_base10(idx), 0);
-  check_tcl_bind(find_bind_table("listen"), cmd, 0,
-                 " $_listen1 $_listen2", MATCH_EXACT | BIND_STACKABLE);
-#endif
 }
 
 void check_tcl_chjn(const char *bot, const char *nick, int chan,
@@ -1426,13 +1411,13 @@ void check_tcl_die(const char *reason)
 
 void check_tcl_log(int lv, char *chan, char *msg)
 {
-#ifdef HAVE_TCL
-  Tcl_Obj* prev_result;
+  __attribute__((unused)) Tcl_Obj* prev_result;
 
-  /* We have to store the old result, as check_tcl_bind may override it */
+  /* We have to store the old result, as check_tcl_bind may override it.
+   * In no-Tcl builds the Tcl_*RefCount / Tcl_*ObjResult calls are no-ops. */
   prev_result = Tcl_GetObjResult(interp);
   Tcl_IncrRefCount(prev_result);
-#endif
+
   op_strbuf_t mask;
   op_strbuf_printf(&mask, "%s %s", chan, msg);
   Tcl_SetVar(interp, "_log1", masktype(lv), TCL_GLOBAL_ONLY);
@@ -1441,10 +1426,9 @@ void check_tcl_log(int lv, char *chan, char *msg)
   check_tcl_bind(H_log, op_strbuf_str(&mask), 0, " $::_log1 $::_log2 $::_log3",
                  MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&mask);
-#ifdef HAVE_TCL
+
   Tcl_SetObjResult(interp, prev_result);
   Tcl_DecrRefCount(prev_result);
-#endif
 }
 
 #ifdef TLS
@@ -1628,13 +1612,17 @@ void init_bind(void)
   H_bcst  = add_bind_table("bcst",  HT_STACKABLE, NULL);
   H_chon  = add_bind_table("chon",  HT_STACKABLE, NULL);
   H_chof  = add_bind_table("chof",  HT_STACKABLE, NULL);
+  H_chpt  = add_bind_table("chpt",  HT_STACKABLE, NULL);
+  H_chjn  = add_bind_table("chjn",  HT_STACKABLE, NULL);
   H_bot   = add_bind_table("bot",   0,            NULL);
   H_event = add_bind_table("evnt",  HT_STACKABLE, NULL);
   H_log   = add_bind_table("log",   HT_STACKABLE, NULL);
   H_die   = add_bind_table("die",   HT_STACKABLE, NULL);
+#endif /* HAVE_TCL */
 
   /* Module bind tables — pre-created so find_bind_table() succeeds before
-   * modules are loaded and register their own H_pub etc.     */
+   * modules are loaded and register their own tables.  In Tcl builds,
+   * add_bind_table returns the existing table if already created above. */
   add_bind_table("msg",      0,            NULL);
   add_bind_table("msgm",     HT_STACKABLE, NULL);
   add_bind_table("pub",      0,            NULL);
@@ -1681,9 +1669,7 @@ void init_bind(void)
   add_bind_table("rmst",     HT_STACKABLE, NULL);
   add_bind_table("usst",     HT_STACKABLE, NULL);
   add_bind_table("usrntc",   HT_STACKABLE, NULL);
-  add_bind_table("chpt",     HT_STACKABLE, NULL);
-  add_bind_table("chjn",     HT_STACKABLE, NULL);
-#endif /* HAVE_TCL */
+  add_bind_table("listen",   HT_STACKABLE, NULL);
   add_builtins(H_dcc, C_dcc);
 }
 

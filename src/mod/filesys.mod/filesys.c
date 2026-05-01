@@ -138,11 +138,9 @@ static int check_tcl_fil(char *cmd, int idx, char *args)
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.file->chat->con_chan);
-#ifdef HAVE_TCL
   Tcl_SetVar(interp, "_fil1", dcc[idx].nick, 0);
   Tcl_SetVar(interp, "_fil2", int_to_base10((int) dcc[idx].sock), 0);
   Tcl_SetVar(interp, "_fil3", args, 0);
-#endif /* HAVE_TCL */
   x = check_tcl_bind(H_fil, cmd, &fr, " $_fil1 $_fil2 $_fil3",
                      MATCH_PARTIAL | BIND_USE_ATTR | BIND_HAS_BUILTINS);
   if (x == BIND_AMBIGUOUS) {
@@ -481,7 +479,6 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   return x;
 }
 
-#ifdef HAVE_TCL
 static int builtin_fil STDVAR
 {
   int idx;
@@ -504,7 +501,6 @@ static int builtin_fil STDVAR
   Tcl_ResetResult(irp);
   return TCL_OK;
 }
-#endif /* HAVE_TCL */
 
 static void tout_dcc_files_pass(int i)
 {
@@ -968,9 +964,7 @@ static char *filesys_close(void)
       killsock(dcc[i].sock);
       lostdcc(i);
     }
-#ifdef HAVE_TCL
   rem_tcl_commands(mytcls);
-#endif /* HAVE_TCL */
   rem_tcl_strings(mystrings);
   rem_tcl_ints(myints);
   rem_builtins(H_dcc, mydcc);
@@ -1016,14 +1010,10 @@ char *filesys_start(Function *global_funcs)
     module_undepend(MODULE_NAME);
     return "This module requires transfer module 2.0 or later.";
   }
-#ifdef HAVE_TCL
   add_tcl_commands(mytcls);
-#endif /* HAVE_TCL */
   add_tcl_strings(mystrings);
   add_tcl_ints(myints);
-#ifdef HAVE_TCL
   H_fil = add_bind_table("fil", 0, builtin_fil);
-#endif /* HAVE_TCL */
   add_builtins(H_dcc, mydcc);
   add_builtins(H_fil, myfiles);
   add_builtins(H_load, myload);

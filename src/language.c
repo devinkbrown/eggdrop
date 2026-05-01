@@ -676,8 +676,10 @@ static cmd_t langdcc[] = {
   {NULL,       NULL, NULL,               NULL}
 };
 
-#ifdef HAVE_TCL
-/* Compatibility function to allow scripts to use the old command.
+/* Tcl command handlers. In non-Tcl builds these compile as dead code
+ * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+ *
+ * Compatibility function to allow scripts to use the old command.
  */
 static int tcl_language STDVAR
 {
@@ -760,7 +762,6 @@ static tcl_cmds langtcls[] = {
   {"relang",                 tcl_relang},
   {NULL,                           NULL}
 };
-#endif /* HAVE_TCL */
 
 void init_language(int flag)
 {
@@ -777,9 +778,7 @@ void init_language(int flag)
       add_lang(deflang);
     add_lang_section("core");
   } else {
-#ifdef HAVE_TCL
     add_tcl_commands(langtcls);
-#endif
     add_builtins(H_dcc, langdcc);
   }
 }

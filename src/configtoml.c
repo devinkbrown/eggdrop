@@ -40,10 +40,8 @@
 #include "main.h"
 #include "configtoml.h"
 #include <op_toml.h>
-#ifndef HAVE_TCL
-#  include "script.h"
-#  include "modules.h"
-#endif
+#include "script.h"
+#include "modules.h"
 
 extern char moddir[121]; /* defined in modules.c */
 
@@ -139,20 +137,18 @@ static void set_tcl_var(const char *key, const char *value)
 {
   char tclvar[256];
   key_to_tclvar(key, tclvar, sizeof tclvar);
-#ifdef HAVE_TCL
-  Tcl_SetVar(interp, tclvar, value, TCL_GLOBAL_ONLY);
-#else
   notcl_setvar(tclvar, value);
-#endif
 }
 
 static void run_tcl_cmd(const char *cmd)
 {
-#ifdef HAVE_TCL
-  if (Tcl_Eval(interp, cmd) != TCL_OK)
-    putlog(LOG_MISC, "*", "TOML config: Tcl error running '%s': %s",
-           cmd, Tcl_GetStringResult(interp));
-#else
+  if (interp) {
+    if (Tcl_Eval(interp, cmd) != TCL_OK)
+      putlog(LOG_MISC, "*", "TOML config: Tcl error running '%s': %s",
+             cmd, Tcl_GetStringResult(interp));
+    return;
+  }
+
   /* No-TCL: dispatch known channel commands natively via the channels module
    * function table.  All other commands are silently ignored (they require
    * Tcl scripting and cannot work without it).
@@ -323,7 +319,6 @@ static void run_tcl_cmd(const char *cmd)
     return;
   }
   /* All other commands require Tcl and are silently skipped in no-TCL builds. */
-#endif
 }
 
 typedef void (*ArrayCb)(const char *item, void *ud);
@@ -334,23 +329,22 @@ typedef void (*ArrayCb)(const char *item, void *ud);
 
 /* Count of servers added during the current readtomlconfig() call. */
 static int toml_server_count = 0;
+/* Count of modules loaded during the current readtomlconfig() call. */
+static int toml_module_count = 0;
 
 static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
 {
-#ifdef HAVE_TCL
-  {
+  if (interp) {
     op_strbuf_t cmd;
     op_strbuf_printf(&cmd, "loadmodule %s", name);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
-  }
-#else
-  {
+  } else {
     const char *err = module_load((char *) name);
     if (err && strcmp(err, "Already loaded."))
       putlog(LOG_MISC, "*", "TOML config: loadmodule %s: %s", name, err);
   }
-#endif
+  toml_module_count++;
 }
 
 /*
@@ -420,16 +414,14 @@ static void cb_logfile(const char *entry, [[maybe_unused]] void *ud)
 
 static void cb_source(const char *path, [[maybe_unused]] void *ud)
 {
-#ifdef HAVE_TCL
-  {
+  if (interp) {
     op_strbuf_t cmd;
     op_strbuf_printf(&cmd, "source %s", path);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
+  } else {
+    script_load(path);
   }
-#else
-  script_load(path);
-#endif
 }
 
 static void cb_loadhelp(const char *file, [[maybe_unused]] void *ud)
@@ -772,23 +764,18 @@ int readtomlconfig(const char *fname)
 
   /* ---- Validate required settings ---- */
   {
-#ifdef HAVE_TCL
-    const char *nick_val  = Tcl_GetVar(interp, "nick",  TCL_GLOBAL_ONLY);
-    const char *owner_val = Tcl_GetVar(interp, "owner", TCL_GLOBAL_ONLY);
-#else
-    const char *nick_val  = origbotname[0] ? origbotname : NULL;
-    const char *owner_val = owner[0]       ? owner       : NULL;
-#endif
+    char nick_buf[256], owner_buf[256];
+    const char *nick_val  = notcl_getvar("nick", nick_buf, sizeof nick_buf);
+    const char *owner_val = notcl_getvar("owner", owner_buf, sizeof owner_buf);
 
     if (!nick_val || !*nick_val) {
       putlog(LOG_MISC, "*",
-             "TOML config: 'nick' is not set in [bot] — bot will not function.");
+             "ERROR: 'nick' is required in [bot] section of %s", fname);
       ok = 0;
     }
     if (!owner_val || !*owner_val) {
       putlog(LOG_MISC, "*",
-             "TOML config: 'owner' is not set in [security] — no one can "
-             "control this bot.");
+             "ERROR: 'owner' is required in [security] section of %s", fname);
       ok = 0;
     }
     if (toml_server_count == 0) {
@@ -798,7 +785,15 @@ int readtomlconfig(const char *fname)
       ok = 0;
     }
     toml_server_count = 0;
+    if (toml_module_count == 0)
+      putlog(LOG_MISC, "*",
+             "WARNING: No modules configured in %s — bot may not function correctly",
+             fname);
+    toml_module_count = 0;
   }
+
+  if (ok)
+    putlog(LOG_MISC, "*", "Config loaded: %s", fname);
 
   op_toml_free(root);
   return ok;

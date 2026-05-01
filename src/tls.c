@@ -785,9 +785,7 @@ static char *ssl_printtime(ASN1_UTCTIME *t)
  * As usual, we use a memory BIO.
  *
  * You need to op_free() the returned pointer.
- * Only called from the HAVE_TCL tls info command.
  */
-#ifdef HAVE_TCL
 static char *ssl_printnum(ASN1_INTEGER *i)
 {
   long len;
@@ -814,7 +812,6 @@ static char *ssl_printnum(ASN1_INTEGER *i)
   BIO_free(bio);
   return buf;
 }
-#endif /* HAVE_TCL */
 
 /* Show the user all relevant information about a certificate: subject,
  * issuer, validity dates and fingerprints.
@@ -1221,8 +1218,9 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   return -4;
 }
 
-/* Tcl functions — only compiled when Tcl support is present */
-#ifdef HAVE_TCL
+/* Tcl command handlers. In non-Tcl builds these compile as dead code
+ * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+ */
 
 /* Is the connection secure? */
 static int tcl_istls STDVAR
@@ -1368,5 +1366,4 @@ tcl_cmds tcltls_cmds[] = {
   {NULL,                 NULL}
 };
 
-#endif /* HAVE_TCL */
 #endif /* TLS */

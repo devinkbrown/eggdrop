@@ -496,36 +496,36 @@ struct dcc_table DCC_BOT_NEW = {
   NULL
 };
 
-/* Hash function for tandem bot commands */
+/* O(1) hash dispatch for tandem bot commands */
 extern botcmd_t C_bot[];
+static op_htab *botcmd_ht = NULL;
+
+static void botcmd_init(void)
+{
+  botcmd_ht = op_htab_create_istr("botcmd", 64);
+  for (int i = 0; C_bot[i].name; i++)
+    op_htab_set(botcmd_ht, C_bot[i].name, (void *) C_bot[i].func, NULL);
+}
 
 static void dcc_bot(int idx, char *code, int i)
 {
-  char *msg;
-  int f;
-
   if (raw_log) {
     if (!strncmp(code, "s ", 2))
       putlog(LOG_BOTSHRIN, "*", "{b<-%s} %s", dcc[idx].nick, code + 2);
     else
       putlog(LOG_BOTNETIN, "*", "[b<-%s] %s", dcc[idx].nick, code);
   }
-  msg = strchr(code, ' ');
+  char *msg = strchr(code, ' ');
   if (msg) {
     *msg = 0;
     msg++;
   } else
     msg = "";
-  for (f = i = 0; C_bot[i].name && !f; i++) {
-    int y = strcasecmp(code, C_bot[i].name);
-
-    if (!y) {
-      /* Found a match */
-      ((int (*)(int, char *)) C_bot[i].func)(idx, msg);
-      f = 1;
-    } else if (y < 0)
-      return;
-  }
+  if (!botcmd_ht)
+    botcmd_init();
+  IntFunc fn = (IntFunc) op_htab_get(botcmd_ht, code);
+  if (fn)
+    ((int (*)(int, char *)) fn)(idx, msg);
 }
 
 static void eof_dcc_bot(int idx)
@@ -2088,7 +2088,6 @@ struct dcc_table DCC_TELNET_PW = {
 
 static int call_tcl_func(char *name, int idx, char *args)
 {
-#ifdef HAVE_TCL
   op_strbuf_t s;
   op_strbuf_printf(&s, "%d", idx);
   Tcl_SetVar(interp, "_n", op_strbuf_str(&s), 0);
@@ -2100,9 +2099,6 @@ static int call_tcl_func(char *name, int idx, char *args)
     return -1;
   }
   return tcl_resultint();
-#else
-  return 0;
-#endif /* HAVE_TCL */
 }
 
 static void dcc_script(int idx, char *buf, int len)

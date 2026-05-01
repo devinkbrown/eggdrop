@@ -24,8 +24,9 @@
 #include "main.h"
 #include "modules.h"
 
-/* This entire file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers. In non-Tcl builds these compile as dead code
+ * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+ */
 
 extern Tcl_Interp *interp;
 extern struct userrec *userlist;
@@ -54,7 +55,7 @@ static int tcl_validuser STDVAR
 
 static int tcl_finduser STDVAR
 {
-  struct userrec *u;
+  __attribute__((unused)) struct userrec *u;
 
   BADARGS(2, 3, " ?-account? searchString");
 
@@ -74,7 +75,7 @@ static int tcl_finduser STDVAR
 
 static int tcl_passwdOk STDVAR
 {
-  struct userrec *u;
+  __attribute__((unused)) struct userrec *u;
 
   BADARGS(3, 3, " handle passwd");
 
@@ -253,7 +254,7 @@ static int tcl_matchattr STDVAR
 {
   struct userrec *u;
   struct flag_record plus = {0}, minus = {0}, user = {0};
-  bool ok = false, nom = false;
+  __attribute__((unused)) bool ok = false, nom = false;
 
   BADARGS(3, 4, " handle flags ?channel?");
 
@@ -760,5 +761,3 @@ tcl_cmds tcluser_cmds[] = {
   {"setuser",             tcl_setuser},
   {NULL,                         NULL}
 };
-
-#endif /* HAVE_TCL */

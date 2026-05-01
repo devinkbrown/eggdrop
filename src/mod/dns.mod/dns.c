@@ -109,8 +109,7 @@ static tcl_strings dnsstrings[] = {
   {NULL,          NULL,          0,           0}
 };
 
-#ifdef HAVE_TCL
-static char *dns_change(ClientData cdata, Tcl_Interp *irp,
+static __attribute__((unused)) char *dns_change(ClientData cdata, Tcl_Interp *irp,
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
 {
@@ -171,7 +170,6 @@ static char *dns_change(ClientData cdata, Tcl_Interp *irp,
   }
   return NULL;
 }
-#endif /* HAVE_TCL */
 
 
 /*

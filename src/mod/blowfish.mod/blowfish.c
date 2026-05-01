@@ -630,7 +630,6 @@ static char *decrypt_string(char *key, char *str)
   return decrypt_string_cbc(key, str + 1);
 }
 
-#ifdef HAVE_TCL
 static int tcl_encrypt STDVAR
 {
   char *p;
@@ -680,7 +679,6 @@ static tcl_strings my_tcl_strings[] = {
   {"blowfish-use-mode", bf_mode, 3, 0},
   {NULL,                NULL,    0, 0}
 };
-#endif /* HAVE_TCL */
 
 static char *blowfish_close(void)
 {
@@ -731,10 +729,8 @@ char *blowfish_start(Function *global_funcs)
 
   /* ECB by default for now, change at v1.9.0! */
   strlcpy(bf_mode, "ecb", sizeof bf_mode);
-#ifdef HAVE_TCL
   add_tcl_commands(mytcls);
   add_tcl_strings(my_tcl_strings);
-#endif
   add_help_reference("blowfish.help");
   return NULL;
 }

@@ -22,6 +22,8 @@
 #define PY_SSIZE_T_CLEAN
 #include <stdint.h>
 #include <inttypes.h>
+#include <stdatomic.h>
+#include "md5/md5.h"
 
 #ifdef HAVE_TCL
 typedef struct {
@@ -45,6 +47,19 @@ static PyTypeObject PythonBindType;
 static int eval_idx = -1;
 
 static PyObject *EggdropError;      //create static Python Exception object
+
+extern tcl_timer_t *timer, *utimer;
+extern char listen_ip[];
+extern module_entry *module_list;
+extern void do_boot(int, char *, char *);
+extern _Atomic uint64_t otraffic_irc, otraffic_irc_today,
+                         otraffic_bn, otraffic_bn_today,
+                         otraffic_dcc, otraffic_dcc_today,
+                         otraffic_trans, otraffic_trans_today,
+                         itraffic_irc, itraffic_irc_today,
+                         itraffic_bn, itraffic_bn_today,
+                         itraffic_dcc, itraffic_dcc_today,
+                         itraffic_trans, itraffic_trans_today;
 
 #ifndef HAVE_TCL
 /* Dict mapping tclcmdname → PythonBind object for no-Tcl dispatch.
@@ -3153,6 +3168,137 @@ static PyObject *py_setlaston(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* ---- Encryption commands ---------------------------------------------- */
+
+/* encrypt(key, string) — blowfish encrypt a string */
+static PyObject *py_encrypt(PyObject *self, PyObject *args)
+{
+  char *key, *str, *result;
+  module_entry *me;
+  char *(*fn)(char *, char *);
+
+  if (!PyArg_ParseTuple(args, "ss", &key, &str))
+    return NULL;
+  me = module_find("blowfish", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "blowfish module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *, char *))me->funcs[4];
+  result = fn(key, str);
+  if (!result)
+    Py_RETURN_NONE;
+  PyObject *ret = PyUnicode_FromString(result);
+  op_free(result);
+  return ret;
+}
+
+/* decrypt(key, string) — blowfish decrypt a string */
+static PyObject *py_decrypt(PyObject *self, PyObject *args)
+{
+  char *key, *str, *result;
+  module_entry *me;
+  char *(*fn)(char *, char *);
+
+  if (!PyArg_ParseTuple(args, "ss", &key, &str))
+    return NULL;
+  me = module_find("blowfish", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "blowfish module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *, char *))me->funcs[5];
+  result = fn(key, str);
+  if (!result)
+    Py_RETURN_NONE;
+  PyObject *ret = PyUnicode_FromString(result);
+  op_free(result);
+  return ret;
+}
+
+/* ---- Notes / assoc commands ------------------------------------------- */
+
+/* storenote(from, to, msg) — store a note for a user, returns NOTE_OK etc. */
+static PyObject *py_storenote(PyObject *self, PyObject *args)
+{
+  char *from, *to, *msg;
+
+  if (!PyArg_ParseTuple(args, "sss", &from, &to, &msg))
+    return NULL;
+  return PyLong_FromLong(add_note(to, from, msg, -1, 0));
+}
+
+/* notes(handle) — return number of notes for handle, or -1 if no notefile */
+static PyObject *py_notes(PyObject *self, PyObject *args)
+{
+  char *handle;
+  module_entry *me;
+  int (*fn)(char *);
+
+  if (!PyArg_ParseTuple(args, "s", &handle))
+    return NULL;
+  if (!get_user_by_handle(userlist, handle)) {
+    PyErr_Format(EggdropError, "no such user: %s", handle);
+    return NULL;
+  }
+  me = module_find("notes", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "notes module not loaded");
+    return NULL;
+  }
+  fn = (int (*)(char *))me->funcs[5];
+  return PyLong_FromLong(fn(handle));
+}
+
+/* assoc(chan) or assoc(name) — look up channel association */
+static PyObject *py_assoc(PyObject *self, PyObject *args)
+{
+  char *arg;
+  module_entry *me;
+
+  if (!PyArg_ParseTuple(args, "s", &arg))
+    return NULL;
+  me = module_find("assoc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "assoc module not loaded");
+    return NULL;
+  }
+  if (arg[0] >= '0' && arg[0] <= '9') {
+    /* Numeric — look up channel name */
+    char *(*fn)(int) = (char *(*)(int))me->funcs[5];
+    char *name = fn(atoi(arg));
+    if (!name)
+      Py_RETURN_NONE;
+    return PyUnicode_FromString(name);
+  } else {
+    /* Name — look up channel number */
+    int (*fn)(char *) = (int (*)(char *))me->funcs[4];
+    int chan = fn(arg);
+    if (chan == -1)
+      Py_RETURN_NONE;
+    return PyLong_FromLong(chan);
+  }
+}
+
+/* killassoc(chan) — remove a channel association */
+static PyObject *py_killassoc(PyObject *self, PyObject *args)
+{
+  int chan;
+  module_entry *me;
+  void (*fn)(int);
+
+  if (!PyArg_ParseTuple(args, "i", &chan))
+    return NULL;
+  me = module_find("assoc", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "assoc module not loaded");
+    return NULL;
+  }
+  fn = (void (*)(int))me->funcs[7];
+  fn(chan);
+  Py_RETURN_NONE;
+}
+
 /* ---- Server / queue commands ------------------------------------------ */
 
 /* jump([server[, port[, password]]]) — disconnect and reconnect to a new server */
@@ -3174,6 +3320,688 @@ static PyObject *py_jump(PyObject *self, PyObject *args)
   cycle_time = 0;
   nuke_server(IRC_CHANGINGSERV);
   Py_RETURN_NONE;
+}
+
+/* ---- Timer commands ----------------------------------------------------- */
+
+/* utimer(seconds, command[, count]) — create a second-based timer */
+static PyObject *py_utimer(PyObject *self, PyObject *args)
+{
+  int seconds, count = 1;
+  const char *cmd;
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "is|i", &seconds, &cmd, &count))
+    return NULL;
+  result = add_timer(&utimer, 1, seconds, (char *)cmd, (char *)cmd, 0);
+  if (result) {
+    tcl_timer_t *t;
+    for (t = utimer; t; t = t->next)
+      if (!strcmp(t->name, result)) { t->count = count; break; }
+  }
+  return result ? PyUnicode_FromString(result) : Py_NewRef(Py_None);
+}
+
+/* timer(minutes, command[, count]) — create a minute-based timer */
+static PyObject *py_timer(PyObject *self, PyObject *args)
+{
+  int minutes, count = 1;
+  const char *cmd;
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "is|i", &minutes, &cmd, &count))
+    return NULL;
+  result = add_timer(&timer, 60, minutes, (char *)cmd, (char *)cmd, 0);
+  if (result) {
+    tcl_timer_t *t;
+    for (t = timer; t; t = t->next)
+      if (!strcmp(t->name, result)) { t->count = count; break; }
+  }
+  return result ? PyUnicode_FromString(result) : Py_NewRef(Py_None);
+}
+
+/* killtimer(name) — remove a minute-based timer */
+static PyObject *py_killtimer(PyObject *self, PyObject *args)
+{
+  const char *name;
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  if (remove_timer(&timer, (char *)name))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* killutimer(name) — remove a second-based timer */
+static PyObject *py_killutimer(PyObject *self, PyObject *args)
+{
+  const char *name;
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  if (remove_timer(&utimer, (char *)name))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* timers() — list active minute-based timers */
+static PyObject *py_timers(PyObject *self, PyObject *args)
+{
+  PyObject *list = PyList_New(0);
+  tcl_timer_t *t;
+  time_t now_t = time(NULL);
+
+  for (t = timer; t; t = t->next) {
+    unsigned int remaining = (t->fire_at > now_t)
+      ? (unsigned int)((t->fire_at - now_t) / t->secs_per_tick) : 0;
+    PyObject *d = Py_BuildValue("{s:s, s:s, s:I, s:I}",
+      "name", t->name, "cmd", t->cmd,
+      "remaining", remaining, "count", t->count);
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* utimers() — list active second-based timers */
+static PyObject *py_utimers(PyObject *self, PyObject *args)
+{
+  PyObject *list = PyList_New(0);
+  tcl_timer_t *t;
+  time_t now_t = time(NULL);
+
+  for (t = utimer; t; t = t->next) {
+    unsigned int remaining = (t->fire_at > now_t)
+      ? (unsigned int)((t->fire_at - now_t) / t->secs_per_tick) : 0;
+    PyObject *d = Py_BuildValue("{s:s, s:s, s:I, s:I}",
+      "name", t->name, "cmd", t->cmd,
+      "remaining", remaining, "count", t->count);
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* timerexists(name) — True if a minute-based timer with that name exists */
+static PyObject *py_timerexists(PyObject *self, PyObject *args)
+{
+  const char *name;
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  if (find_timer(timer, (char *)name))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* utimerexists(name) — True if a second-based timer with that name exists */
+static PyObject *py_utimerexists(PyObject *self, PyObject *args)
+{
+  const char *name;
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  if (find_timer(utimer, (char *)name))
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+/* ---- New API commands ------------------------------------------------- */
+
+/* getuser(handle, entry_type) — get a user entry value by type string */
+static PyObject *py_getuser(PyObject *self, PyObject *args)
+{
+  char *handle, *etype;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &etype))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  if (!strcasecmp(etype, "HOSTS")) {
+    struct user_entry *e;
+    struct list_type *x;
+    PyObject *list, *s;
+
+    list = PyList_New(0);
+    e = find_user_entry(&USERENTRY_HOSTS, u);
+    if (!e)
+      return list;
+    for (x = e->u.list; x; x = x->next) {
+      s = PyUnicode_FromString(x->extra);
+      PyList_Append(list, s);
+      Py_DECREF(s);
+    }
+    return list;
+  } else if (!strcasecmp(etype, "INFO")) {
+    char *info = (char *)get_user(&USERENTRY_INFO, u);
+    if (!info || !info[0])
+      Py_RETURN_NONE;
+    return PyUnicode_FromString(info);
+  } else if (!strcasecmp(etype, "COMMENT")) {
+    char *comment = (char *)get_user(&USERENTRY_COMMENT, u);
+    if (!comment || !comment[0])
+      Py_RETURN_NONE;
+    return PyUnicode_FromString(comment);
+  } else if (!strcasecmp(etype, "LASTON")) {
+    struct laston_info *li = (struct laston_info *)get_user(&USERENTRY_LASTON, u);
+    PyObject *d;
+    if (!li)
+      Py_RETURN_NONE;
+    d = PyDict_New();
+    PyDict_SetItemString(d, "laston", PyLong_FromLong((long)li->laston));
+    PyDict_SetItemString(d, "channel",
+      PyUnicode_FromString(li->lastonplace ? li->lastonplace : ""));
+    return d;
+  } else if (!strcasecmp(etype, "PASS")) {
+    char *pass = (char *)get_user(&USERENTRY_PASS, u);
+    if (pass && pass[0])
+      Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+  } else if (!strcasecmp(etype, "BOTFL")) {
+    long fl = (long)get_user(&USERENTRY_BOTFL, u);
+    struct flag_record fr = {FR_BOT, 0, 0, 0, 0, 0};
+    char work[100];
+    fr.bot = fl;
+    build_flags(work, &fr, NULL);
+    return PyUnicode_FromString(work);
+  }
+  Py_RETURN_NONE;
+}
+
+/* setuser(handle, entry_type, value) — set a user entry by type string */
+static PyObject *py_setuser(PyObject *self, PyObject *args)
+{
+  char *handle, *etype, *value;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "sss", &handle, &etype, &value))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  if (!strcasecmp(etype, "INFO")) {
+    set_user(&USERENTRY_INFO, u, value[0] ? value : NULL);
+  } else if (!strcasecmp(etype, "COMMENT")) {
+    set_user(&USERENTRY_COMMENT, u, value[0] ? value : NULL);
+  } else if (!strcasecmp(etype, "HOSTS")) {
+    addhost_by_handle(handle, value);
+  } else if (!strcasecmp(etype, "PASS")) {
+    set_user(&USERENTRY_PASS, u, value[0] ? value : NULL);
+  } else {
+    PyErr_SetString(EggdropError, "unknown entry type");
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+/* setpass(handle, password) — set user password, empty string clears it */
+static PyObject *py_setpass(PyObject *self, PyObject *args)
+{
+  char *handle, *pass;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &pass))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u) {
+    PyErr_SetString(EggdropError, "no such user");
+    return NULL;
+  }
+  set_user(&USERENTRY_PASS, u, pass[0] ? pass : NULL);
+  Py_RETURN_NONE;
+}
+
+/* encpass(password) — encrypt a password using blowfish module */
+static PyObject *py_encpass(PyObject *self, PyObject *args)
+{
+  char *pass, *result;
+  module_entry *me;
+  char *(*fn)(char *, char *);
+
+  if (!PyArg_ParseTuple(args, "s", &pass))
+    return NULL;
+  me = module_find("blowfish", 0, 0);
+  if (!me) {
+    PyErr_SetString(EggdropError, "blowfish module not loaded");
+    return NULL;
+  }
+  fn = (char *(*)(char *, char *))me->funcs[4];
+  result = fn(pass, "");
+  if (!result)
+    Py_RETURN_NONE;
+  PyObject *ret = PyUnicode_FromString(result);
+  op_free(result);
+  return ret;
+}
+
+/* addbot(handle, address) — add a bot user to the userlist */
+static PyObject *py_addbot(PyObject *self, PyObject *args)
+{
+  const char *handle, *address;
+  struct userrec *u;
+
+  if (!PyArg_ParseTuple(args, "ss", &handle, &address))
+    return NULL;
+  u = get_user_by_handle(userlist, (char *)handle);
+  if (u) {
+    PyErr_SetString(PyExc_ValueError, "user already exists");
+    return NULL;
+  }
+  userlist = adduser(userlist, (char *)handle, "none", "-", USER_BOT);
+  u = get_user_by_handle(userlist, (char *)handle);
+  if (u && address[0]) {
+    struct bot_addr *bi = user_malloc(sizeof(struct bot_addr));
+    egg_bzero(bi, sizeof(struct bot_addr));
+    bi->address = op_strdup(address);
+    bi->telnet_port = 3333;
+    bi->relay_port = 3333;
+#ifdef TLS
+    bi->ssl = 0;
+#endif
+    set_user(&USERENTRY_BOTADDR, u, bi);
+  }
+  Py_RETURN_TRUE;
+}
+
+/* botattr(handle[, changes]) — get/set bot flags */
+static PyObject *py_botattr(PyObject *self, PyObject *args)
+{
+  char *handle, *chg = NULL;
+  struct flag_record pls = {0}, mns = {0}, user = {0};
+  struct userrec *u;
+  char work[100];
+
+  if (!PyArg_ParseTuple(args, "s|s", &handle, &chg))
+    return NULL;
+  u = get_user_by_handle(userlist, handle);
+  if (!u || handle[0] == '*')
+    Py_RETURN_NONE;
+  user.match = FR_BOT;
+  get_user_flagrec(u, &user, NULL);
+  if (chg) {
+    pls.match = FR_BOT;
+    break_down_flags(chg, &pls, &mns);
+    user.bot = (user.bot | pls.bot) & ~mns.bot;
+    set_user_flagrec(u, &user, NULL);
+  }
+  build_flags(work, &user, NULL);
+  return PyUnicode_FromString(work);
+}
+
+/* loadmodule(name) — load a module */
+static PyObject *py_loadmodule(PyObject *self, PyObject *args)
+{
+  const char *name;
+  const char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  result = module_load((char *)name);
+  if (result) {
+    PyErr_SetString(PyExc_RuntimeError, result);
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+/* unloadmodule(name) — unload a module */
+static PyObject *py_unloadmodule(PyObject *self, PyObject *args)
+{
+  const char *name;
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  result = module_unload((char *)name, botnetnick);
+  if (result) {
+    PyErr_SetString(PyExc_RuntimeError, result);
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+/* modules() — list loaded modules */
+static PyObject *py_modules(PyObject *self, PyObject *args)
+{
+  module_entry *me;
+  PyObject *list, *d;
+
+  list = PyList_New(0);
+  for (me = module_list; me; me = me->next) {
+    if (!me->name)
+      continue;
+    d = PyDict_New();
+    PyDict_SetItemString(d, "name", PyUnicode_FromString(me->name));
+    PyDict_SetItemString(d, "version_major", PyLong_FromLong(me->major));
+    PyDict_SetItemString(d, "version_minor", PyLong_FromLong(me->minor));
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* backup() — write userfile to disk */
+static PyObject *py_backup(PyObject *self, PyObject *args)
+{
+  write_userfile(-1);
+  Py_RETURN_NONE;
+}
+
+/* whom([chan]) — list partyline users */
+static PyObject *py_whom(PyObject *self, PyObject *args)
+{
+  int chan = -1;
+  PyObject *list, *d;
+
+  if (!PyArg_ParseTuple(args, "|i", &chan))
+    return NULL;
+  list = PyList_New(0);
+  /* Local DCC_CHAT users */
+  for (int i = 0; i < dcc_total; i++) {
+    if (!dcc[i].type || dcc[i].type != &DCC_CHAT)
+      continue;
+    if (!dcc[i].u.chat)
+      continue;
+    if (chan >= 0 && dcc[i].u.chat->channel != chan)
+      continue;
+    d = PyDict_New();
+    PyDict_SetItemString(d, "nick", PyUnicode_FromString(dcc[i].nick));
+    PyDict_SetItemString(d, "host", PyUnicode_FromString(dcc[i].host));
+    PyDict_SetItemString(d, "chan", PyLong_FromLong(dcc[i].u.chat->channel));
+    PyDict_SetItemString(d, "idle",
+      PyLong_FromLong((long)(now - dcc[i].timeval)));
+    PyDict_SetItemString(d, "away",
+      dcc[i].u.chat->away ? PyUnicode_FromString(dcc[i].u.chat->away)
+                          : Py_NewRef(Py_None));
+    PyDict_SetItemString(d, "bot", PyUnicode_FromString(botnetnick));
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  /* Remote users from party[] array */
+  for (int i = 0; i < parties; i++) {
+    if (chan >= 0 && party[i].chan != chan)
+      continue;
+    d = PyDict_New();
+    PyDict_SetItemString(d, "nick", PyUnicode_FromString(party[i].nick));
+    PyDict_SetItemString(d, "host",
+      PyUnicode_FromString(party[i].from ? party[i].from : ""));
+    PyDict_SetItemString(d, "chan", PyLong_FromLong(party[i].chan));
+    PyDict_SetItemString(d, "idle",
+      PyLong_FromLong((long)(now - party[i].timer)));
+    PyDict_SetItemString(d, "away",
+      party[i].away ? PyUnicode_FromString(party[i].away)
+                    : Py_NewRef(Py_None));
+    PyDict_SetItemString(d, "bot", PyUnicode_FromString(party[i].bot));
+    PyList_Append(list, d);
+    Py_DECREF(d);
+  }
+  return list;
+}
+
+/* dccbroadcast(msg) — broadcast to all partyline users */
+static PyObject *py_dccbroadcast(PyObject *self, PyObject *args)
+{
+  const char *msg;
+
+  if (!PyArg_ParseTuple(args, "s", &msg))
+    return NULL;
+  chatout("*** %s\n", msg);
+  Py_RETURN_NONE;
+}
+
+/* boot(handle[, reason]) — boot a user from the partyline */
+static PyObject *py_boot(PyObject *self, PyObject *args)
+{
+  char *handle, *reason = NULL;
+
+  if (!PyArg_ParseTuple(args, "s|s", &handle, &reason))
+    return NULL;
+  for (int i = 0; i < dcc_total; i++) {
+    if ((dcc[i].type->flags & DCT_CANBOOT) &&
+        !strcasecmp(dcc[i].nick, handle)) {
+      do_boot(i, botnetnick, reason ? reason : "");
+      Py_RETURN_TRUE;
+    }
+  }
+  Py_RETURN_FALSE;
+}
+
+/* console(idx) — get console settings for a DCC user */
+static PyObject *py_console(PyObject *self, PyObject *args)
+{
+  long sock;
+  PyObject *d;
+
+  if (!PyArg_ParseTuple(args, "l", &sock))
+    return NULL;
+  for (int i = 0; i < dcc_total; i++) {
+    if (dcc[i].sock == sock && dcc[i].type == &DCC_CHAT && dcc[i].u.chat) {
+      d = PyDict_New();
+      PyDict_SetItemString(d, "channel",
+        PyUnicode_FromString(dcc[i].u.chat->con_chan));
+      PyDict_SetItemString(d, "flags",
+        PyLong_FromLong(dcc[i].u.chat->con_flags));
+      PyDict_SetItemString(d, "strip_flags",
+        PyLong_FromLong(dcc[i].u.chat->strip_flags));
+      return d;
+    }
+  }
+  PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
+  return NULL;
+}
+
+/* echo(idx[, value]) — get/set echo for DCC */
+static PyObject *py_echo(PyObject *self, PyObject *args)
+{
+  long sock;
+  int val = -1;
+
+  if (!PyArg_ParseTuple(args, "l|i", &sock, &val))
+    return NULL;
+  for (int i = 0; i < dcc_total; i++) {
+    if (dcc[i].sock == sock && dcc[i].type == &DCC_CHAT) {
+      if (val >= 0) {
+        if (val)
+          dcc[i].status |= STAT_ECHO;
+        else
+          dcc[i].status &= ~STAT_ECHO;
+      }
+      return PyBool_FromLong(dcc[i].status & STAT_ECHO);
+    }
+  }
+  PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
+  return NULL;
+}
+
+/* dccputchan(chan, msg) — send to a partyline channel */
+static PyObject *py_dccputchan(PyObject *self, PyObject *args)
+{
+  int chan;
+  const char *msg;
+
+  if (!PyArg_ParseTuple(args, "is", &chan, &msg))
+    return NULL;
+  chanout_but(-1, chan, "*** %s\n", msg);
+  Py_RETURN_NONE;
+}
+
+/* getdccidle(idx) — get idle time for DCC connection in seconds */
+static PyObject *py_getdccidle(PyObject *self, PyObject *args)
+{
+  long sock;
+
+  if (!PyArg_ParseTuple(args, "l", &sock))
+    return NULL;
+  for (int i = 0; i < dcc_total; i++) {
+    if (dcc[i].sock == sock)
+      return PyLong_FromLong((long)(now - dcc[i].timeval));
+  }
+  PyErr_SetString(EggdropError, "invalid idx");
+  return NULL;
+}
+
+/* getdccaway(idx) — get away message for DCC connection, or None */
+static PyObject *py_getdccaway(PyObject *self, PyObject *args)
+{
+  long sock;
+
+  if (!PyArg_ParseTuple(args, "l", &sock))
+    return NULL;
+  for (int i = 0; i < dcc_total; i++) {
+    if (dcc[i].sock == sock && dcc[i].type == &DCC_CHAT && dcc[i].u.chat) {
+      if (dcc[i].u.chat->away)
+        return PyUnicode_FromString(dcc[i].u.chat->away);
+      Py_RETURN_NONE;
+    }
+  }
+  PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
+  return NULL;
+}
+
+/* strftime(format[, time]) — format a time string */
+static PyObject *py_strftime(PyObject *self, PyObject *args)
+{
+  const char *fmt;
+  long ts = (long)time(NULL);
+  char buf[512];
+  struct tm *tm1;
+
+  if (!PyArg_ParseTuple(args, "s|l", &fmt, &ts))
+    return NULL;
+  tm1 = localtime((time_t *)&ts);
+  if (!tm1) {
+    PyErr_SetString(EggdropError, "invalid time value");
+    return NULL;
+  }
+  strftime(buf, sizeof buf, fmt, tm1);
+  return PyUnicode_FromString(buf);
+}
+
+/* ctime([time]) — convert time to readable string */
+static PyObject *py_ctime(PyObject *self, PyObject *args)
+{
+  long ts = (long)time(NULL);
+  char *result;
+  size_t len;
+
+  if (!PyArg_ParseTuple(args, "|l", &ts))
+    return NULL;
+  result = ctime((time_t *)&ts);
+  if (!result)
+    Py_RETURN_NONE;
+  len = strlen(result);
+  /* Strip trailing newline from ctime() */
+  if (len > 0 && result[len - 1] == '\n')
+    len--;
+  return PyUnicode_FromStringAndSize(result, (Py_ssize_t)len);
+}
+
+/* myip() — get bot's listen IP address */
+static PyObject *py_myip(PyObject *self, PyObject *args)
+{
+  if (listen_ip[0])
+    return PyUnicode_FromString(listen_ip);
+  return PyUnicode_FromString("0.0.0.0");
+}
+
+/* callevent(event) — trigger a bind event */
+static PyObject *py_callevent(PyObject *self, PyObject *args)
+{
+  const char *event;
+
+  if (!PyArg_ParseTuple(args, "s", &event))
+    return NULL;
+  check_tcl_event(event);
+  Py_RETURN_NONE;
+}
+
+/* md5(string) — compute MD5 hash, return hex string */
+static PyObject *py_md5(PyObject *self, PyObject *args)
+{
+  const char *input;
+  Py_ssize_t len;
+  MD5_CTX ctx;
+  unsigned char digest[16];
+  char hex[33];
+
+  if (!PyArg_ParseTuple(args, "s#", &input, &len))
+    return NULL;
+  MD5_Init(&ctx);
+  MD5_Update(&ctx, (void *)input, (unsigned long)len);
+  MD5_Final(digest, &ctx);
+  for (int i = 0; i < 16; i++)
+    snprintf(hex + i * 2, 3, "%02x", digest[i]);
+  hex[32] = '\0';
+  return PyUnicode_FromString(hex);
+}
+
+/* dccsimul(idx, text) — simulate DCC input from a user */
+static PyObject *py_dccsimul(PyObject *self, PyObject *args)
+{
+  long sock;
+  char *text;
+
+  if (!PyArg_ParseTuple(args, "ls", &sock, &text))
+    return NULL;
+  for (int i = 0; i < dcc_total; i++) {
+    if (dcc[i].sock == sock) {
+      if (!(dcc[i].type->flags & DCT_SIMUL)) {
+        PyErr_SetString(EggdropError, "this connection type cannot be simulated");
+        return NULL;
+      }
+      if (dcc[i].type->activity)
+        dcc[i].type->activity(i, text, (int)strlen(text));
+      Py_RETURN_NONE;
+    }
+  }
+  PyErr_SetString(EggdropError, "invalid idx");
+  return NULL;
+}
+
+/* traffic() — get traffic statistics */
+static PyObject *py_traffic(PyObject *self, PyObject *args)
+{
+  PyObject *d = PyDict_New();
+
+  PyDict_SetItemString(d, "irc_out",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&otraffic_irc, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&otraffic_irc_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "irc_in",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&itraffic_irc, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&itraffic_irc_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "bn_out",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&otraffic_bn, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&otraffic_bn_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "bn_in",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&itraffic_bn, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&itraffic_bn_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "dcc_out",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&otraffic_dcc, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&otraffic_dcc_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "dcc_in",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&itraffic_dcc, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&itraffic_dcc_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "trans_out",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&otraffic_trans, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&otraffic_trans_today, memory_order_relaxed)));
+  PyDict_SetItemString(d, "trans_in",
+    PyLong_FromUnsignedLongLong(
+      (unsigned long long)atomic_load_explicit(&itraffic_trans, memory_order_relaxed) +
+      (unsigned long long)atomic_load_explicit(&itraffic_trans_today, memory_order_relaxed)));
+  return d;
 }
 
 static PyMethodDef MyPyMethods[] = {
@@ -3334,8 +4162,54 @@ static PyMethodDef MyPyMethods[] = {
     {"delchanrec",   py_delchanrec,   METH_VARARGS, "delete channel record: delchanrec(handle, chan)"},
     {"haschanrec",   py_haschanrec,   METH_VARARGS, "True if user has channel record"},
     {"setlaston",    py_setlaston,    METH_VARARGS, "set last-seen time: setlaston(handle[, chan[, ts]])"},
+    /* Encryption */
+    {"encrypt",      py_encrypt,      METH_VARARGS, "blowfish encrypt: encrypt(key, string)"},
+    {"decrypt",      py_decrypt,      METH_VARARGS, "blowfish decrypt: decrypt(key, string)"},
+    /* Notes */
+    {"storenote",    py_storenote,    METH_VARARGS, "store a note: storenote(from, to, msg)"},
+    {"notes",        py_notes,        METH_VARARGS, "return note count for handle: notes(handle)"},
+    /* Assoc */
+    {"assoc",        py_assoc,        METH_VARARGS, "look up channel association: assoc(chan_or_name)"},
+    {"killassoc",    py_killassoc,    METH_VARARGS, "remove channel association: killassoc(chan)"},
     /* Server */
     {"jump",         py_jump,         METH_VARARGS, "jump to new server: jump([server[, port[, pass]]])"},
+    /* Timers */
+    {"utimer",       py_utimer,       METH_VARARGS, "create second-based timer: utimer(secs, cmd[, count])"},
+    {"timer",        py_timer,        METH_VARARGS, "create minute-based timer: timer(mins, cmd[, count])"},
+    {"killtimer",    py_killtimer,    METH_VARARGS, "remove a minute-based timer: killtimer(name)"},
+    {"killutimer",   py_killutimer,   METH_VARARGS, "remove a second-based timer: killutimer(name)"},
+    {"timers",       py_timers,       METH_NOARGS,  "list active minute-based timers"},
+    {"utimers",      py_utimers,      METH_NOARGS,  "list active second-based timers"},
+    {"timerexists",  py_timerexists,  METH_VARARGS, "True if minute-based timer exists: timerexists(name)"},
+    {"utimerexists", py_utimerexists, METH_VARARGS, "True if second-based timer exists: utimerexists(name)"},
+    /* User/module extended */
+    {"getuser",      py_getuser,      METH_VARARGS, "get user entry: getuser(handle, type)"},
+    {"setuser",      py_setuser,      METH_VARARGS, "set user entry: setuser(handle, type, value)"},
+    {"setpass",      py_setpass,      METH_VARARGS, "set password: setpass(handle, pass)"},
+    {"encpass",      py_encpass,      METH_VARARGS, "encrypt password: encpass(pass)"},
+    {"addbot",       py_addbot,       METH_VARARGS, "add bot user: addbot(handle, address)"},
+    {"botattr",      py_botattr,      METH_VARARGS, "get/set bot flags: botattr(handle[, changes])"},
+    {"loadmodule",   py_loadmodule,   METH_VARARGS, "load module: loadmodule(name)"},
+    {"unloadmodule", py_unloadmodule, METH_VARARGS, "unload module: unloadmodule(name)"},
+    {"modules",      py_modules,      METH_NOARGS,  "list loaded modules"},
+    {"backup",       py_backup,       METH_NOARGS,  "write userfile to disk"},
+    /* DCC/partyline extended */
+    {"whom",         py_whom,         METH_VARARGS, "list partyline users: whom([chan])"},
+    {"dccbroadcast", py_dccbroadcast, METH_VARARGS, "broadcast to partyline: dccbroadcast(msg)"},
+    {"boot",         py_boot,         METH_VARARGS, "boot from partyline: boot(handle[, reason])"},
+    {"console",      py_console,      METH_VARARGS, "get console settings: console(idx)"},
+    {"echo",         py_echo,         METH_VARARGS, "get/set echo: echo(idx[, on])"},
+    {"dccputchan",   py_dccputchan,   METH_VARARGS, "send to party channel: dccputchan(chan, msg)"},
+    {"getdccidle",   py_getdccidle,   METH_VARARGS, "get idle time: getdccidle(idx)"},
+    {"getdccaway",   py_getdccaway,   METH_VARARGS, "get away msg: getdccaway(idx)"},
+    /* Misc extended */
+    {"strftime",     py_strftime,     METH_VARARGS, "format time: strftime(fmt[, time])"},
+    {"ctime",        py_ctime,        METH_VARARGS, "readable time: ctime([time])"},
+    {"myip",         py_myip,         METH_NOARGS,  "get bot IP address"},
+    {"callevent",    py_callevent,    METH_VARARGS, "trigger event: callevent(event)"},
+    {"md5",          py_md5,          METH_VARARGS, "MD5 hash: md5(string)"},
+    {"dccsimul",     py_dccsimul,     METH_VARARGS, "simulate input: dccsimul(idx, text)"},
+    {"traffic",      py_traffic,      METH_NOARGS,  "traffic statistics"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

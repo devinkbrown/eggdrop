@@ -21,8 +21,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* This file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl object command handlers for isupport.
+ * In non-Tcl builds lush.h provides no-op stubs for all Tcl APIs.
+ */
 
 int tcl_isupport STDOBJVAR;
 static int tcl_isupport_get STDOBJVAR;
@@ -37,7 +38,7 @@ static struct {
 };
 
 #define TCL_ERR_NOTSET(irp, keyobj) do {                                 \
-  Tcl_Obj *_tclobj = Tcl_NewStringObj("key \"", -1);                     \
+  __attribute__((unused)) Tcl_Obj *_tclobj = Tcl_NewStringObj("key \"", -1); \
   Tcl_AppendObjToObj(_tclobj, (keyobj));                                 \
   Tcl_AppendStringsToObj(_tclobj, "\" is not set", NULL);                \
   Tcl_SetObjResult((irp), _tclobj);                                      \
@@ -47,7 +48,7 @@ static struct {
 int tcl_isupport STDOBJVAR
 {
   const char *subcmd;
-  Tcl_Obj *str;
+  __attribute__((unused)) Tcl_Obj *str;
 
   BADOBJARGS(2, -1, 1, "subcommand ?args?");
 
@@ -69,7 +70,7 @@ static int tcl_isupport_get STDOBJVAR
 {
   Tcl_Size keylen;
   const char *key, *value;
-  Tcl_Obj *tclres;
+  __attribute__((unused)) Tcl_Obj *tclres;
 
   BADOBJARGS(2, 3, 2, "?setting?");
   if (objc == 2) {
@@ -96,7 +97,7 @@ static int tcl_isupport_get STDOBJVAR
 static int tcl_isupport_isset STDOBJVAR
 {
   Tcl_Size keylen;
-  const char *key, *value;
+  __attribute__((unused)) const char *key, *value;
 
   BADOBJARGS(3, 3, 2, "setting");
   key = Tcl_GetStringFromObj(objv[2], &keylen);
@@ -111,7 +112,7 @@ char *traced_isupport(ClientData cdata, Tcl_Interp *irp,
 {
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     Tcl_SetVar2(interp, name1, name2, isupport_default, TCL_GLOBAL_ONLY);
-    const char *value;
+    __attribute__((unused)) const char *value;
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
 
@@ -160,5 +161,3 @@ int check_tcl_isupport(struct isupport *data, const char *key, const char *value
   return BIND_EXEC_LOG == check_tcl_bind(H_isupport, key, 0, " $_isupport1 $_isupport2 $_isupport3",
       MATCH_MASK | BIND_STACKABLE | BIND_WANTRET);
 }
-
-#endif /* HAVE_TCL */

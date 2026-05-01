@@ -28,8 +28,9 @@
 #include <errno.h>
 #include <signal.h>
 
-/* This entire file requires Tcl — skip compilation when Tcl is disabled. */
-#ifdef HAVE_TCL
+/* Tcl command handlers. In non-Tcl builds these compile as dead code
+ * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+ */
 
 extern Tcl_Interp *interp;
 extern tcl_timer_t *timer, *utimer;
@@ -164,7 +165,7 @@ static int tcl_getchan STDVAR
     return TCL_ERROR;
   }
 
-  int chan = (dcc[idx].type == &DCC_SCRIPT)
+  __attribute__((unused)) int chan = (dcc[idx].type == &DCC_SCRIPT)
     ? dcc[idx].u.script->u.chat->channel
     : dcc[idx].u.chat->channel;
   Tcl_SetObjResult(irp, Tcl_NewIntObj(chan));
@@ -618,9 +619,9 @@ static void build_dcc_list(Tcl_Interp *irp, const char *idxstr, const char *nick
 static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, const char *idxstr,
             const char *nick, const char *host, const char *ip, int port, int secure,
             const char *type, const char *other, const char *timestamp) {
-  EGG_CONST char *val[] = {"idx", "handle", "host", "ip", "port", "secure",
-                           "type", "info", "time"};
-  Tcl_Obj *thelist = Tcl_NewListObj(0, NULL);
+  __attribute__((unused)) EGG_CONST char *val[] = {"idx", "handle", "host",
+                           "ip", "port", "secure", "type", "info", "time"};
+  __attribute__((unused)) Tcl_Obj *thelist = Tcl_NewListObj(0, NULL);
 
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[0], -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(idxstr, -1));
@@ -824,7 +825,7 @@ static int tcl_dccused STDVAR
 
 static int tcl_getdccidle STDVAR
 {
-  int x, idx;
+  __attribute__((unused)) int x, idx;
 
   BADARGS(2, 2, " idx");
 
@@ -878,7 +879,7 @@ static int tcl_setdccaway STDVAR
 
 static int tcl_link STDVAR
 {
-  int x;
+  __attribute__((unused)) int x;
   char bot[HANDLEN + 1], bot2[HANDLEN + 1];
 
   BADARGS(2, 3, " ?via-bot? bot");
@@ -907,7 +908,7 @@ static int tcl_unlink STDVAR
 
   strlcpy(bot, argv[1], sizeof bot);
   int i = nextbot(bot);
-  int x;
+  __attribute__((unused)) int x;
   if (i < 0)
     x = 0;
   else {
@@ -1454,5 +1455,3 @@ tcl_cmds tcldcc_cmds[] = {
   {"traffic",           tcl_traffic},
   {NULL,                       NULL}
 };
-
-#endif /* HAVE_TCL */

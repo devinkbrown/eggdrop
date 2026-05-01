@@ -399,7 +399,6 @@ int allocsock(int sock, int options)
  */
 int alloctclsock(int sock, int mask, Tcl_FileProc *proc, ClientData cd)
 {
-#ifdef HAVE_TCL
   int f = -1;
   struct threaddata *td = threaddata();
 
@@ -426,9 +425,6 @@ int alloctclsock(int sock, int mask, Tcl_FileProc *proc, ClientData cd)
     return -1;
   else
     return alloctclsock(sock, mask, proc, cd);
-#else
-  return -1;
-#endif /* HAVE_TCL */
 }
 
 /* Request a normal socket for i/o
@@ -1928,7 +1924,6 @@ int findsock(int sock)
  */
 char *traced_myiphostname(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1, EGG_CONST char *name2, int flags)
 {
-#ifdef HAVE_TCL
   const char *value;
 
   if (Tcl_InterpDeleted(irp))
@@ -1948,15 +1943,11 @@ char *traced_myiphostname(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   putlog(LOG_MISC, "*", "    More information on this subject can be found in the eggdrop/doc/IPV6 file, or\n");
   putlog(LOG_MISC, "*", "    in the comments above those settings in the example eggdrop.conf that is included with Eggdrop.\n");
   return NULL;
-#else
-  return NULL;
-#endif /* HAVE_TCL */
 }
 
 char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
                    EGG_CONST char *name2, int flags)
 {
-#ifdef HAVE_TCL
   const char *value;
   int r;
   struct in_addr ia;
@@ -1990,7 +1981,4 @@ char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   } else
     *nat_ip_string = '\0';
   return NULL;
-#else
-  return NULL;
-#endif /* HAVE_TCL */
 }

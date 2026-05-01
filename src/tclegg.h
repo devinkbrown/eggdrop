@@ -203,63 +203,12 @@ int fork_before_tcl(void);
  */
 time_t get_expire_time(Tcl_Interp *, const char *);
 
-#ifndef HAVE_TCL
-/* Variable registry helpers available only in no-TCL builds. */
+/* Variable registry helpers — write/read C globals through the
+ * registered tcl_strings/ints/coups tables.  In Tcl builds these
+ * delegate to Tcl_SetVar/Tcl_GetVar; in no-Tcl builds they walk
+ * the tables directly.  Always available so callers need no ifdefs.
+ */
 void notcl_setvar(const char *name, const char *value);
 const char *notcl_getvar(const char *name, char *buf, size_t bufsz);
-#endif
-
-#ifdef HAVE_TCL
-/* Locale → Tcl encoding mapping table; only used by tcl.c during
- * interpreter initialisation when Tcl is present.
- *
- * From Tcl's tclUnixInit.c
- * The following table is used to map from Unix locale strings to
- * encoding files.
- */
-typedef struct LocaleTable {
-  const char *lang;
-  const char *encoding;
-} LocaleTable;
-
-static const LocaleTable localeTable[] = {
-  {"ja_JP.SJIS",    "shiftjis"},
-  {"ja_JP.EUC",       "euc-jp"},
-  {"ja_JP.JIS",   "iso2022-jp"},
-  {"ja_JP.mscode",  "shiftjis"},
-  {"ja_JP.ujis",      "euc-jp"},
-  {"ja_JP",           "euc-jp"},
-  {"Ja_JP",         "shiftjis"},
-  {"Jp_JP",         "shiftjis"},
-  {"japan",           "euc-jp"},
-#ifdef hpux
-  {"japanese",      "shiftjis"},
-  {"ja",            "shiftjis"},
-#else
-  {"japanese",        "euc-jp"},
-  {"ja",              "euc-jp"},
-#endif
-  {"japanese.sjis", "shiftjis"},
-  {"japanese.euc",    "euc-jp"},
-  {"japanese-sjis", "shiftjis"},
-  {"japanese-ujis",   "euc-jp"},
-
-  {"ko",              "euc-kr"},
-  {"ko_KR",           "euc-kr"},
-  {"ko_KR.EUC",       "euc-kr"},
-  {"ko_KR.euc",       "euc-kr"},
-  {"ko_KR.eucKR",     "euc-kr"},
-  {"korean",          "euc-kr"},
-
-  {"ru",           "iso8859-5"},
-  {"ru_RU",        "iso8859-5"},
-  {"ru_SU",        "iso8859-5"},
-
-  {"zh",               "cp936"},
-
-  {NULL,                  NULL}
-};
-
-#endif /* HAVE_TCL */
 
 #endif /* _EGG_TCLEGG_H */
