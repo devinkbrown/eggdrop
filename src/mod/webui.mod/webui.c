@@ -277,12 +277,9 @@ static void webui_http_activity(int idx, char *buf, int len)
            (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
 }
 
-static void webui_http_display(int idx, char *buf)
+static void webui_http_display(int idx, op_strbuf_t *buf)
 {
-  if (!dcc[idx].ssl)
-    strlcpy(buf, "webui http", 160);
-  else
-    strlcpy(buf, "webui https", 160);
+  op_strbuf_append_cstr(buf, dcc[idx].ssl ? "webui https" : "webui http");
 }
 
 static struct dcc_table DCC_WEBUI_HTTP = {

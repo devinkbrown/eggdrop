@@ -324,7 +324,7 @@ struct dcc_table {
   void (*activity) (int, char *, int);
   int *timeout_val;
   void (*timeout) (int);
-  void (*display) (int, char *);
+  void (*display) (int, op_strbuf_t *);
   int (*expmem) (void *);
   void (*kill) (int, void *);
   void (*output) (int, char *, void *);

@@ -1158,9 +1158,9 @@ static void eof_server(int idx)
   lostdcc(idx);
 }
 
-static void display_server(int idx, char *buf)
+static void display_server(int idx, op_strbuf_t *buf)
 {
-  snprintf(buf, 160, "%s  (lag: %d)", trying_server ? "conn" : "serv", server_lag);
+  op_strbuf_appendf(buf, "%s  (lag: %d)", trying_server ? "conn" : "serv", server_lag);
 }
 
 static void connect_server(void);

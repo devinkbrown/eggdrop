@@ -76,10 +76,9 @@ static void dns_socket(int idx, char *buf, int len)
   dns_ack();
 }
 
-static void display_dns_socket(int idx, char *buf)
+static void display_dns_socket(int idx, op_strbuf_t *buf)
 {
-  /* buf is the 160-byte display buffer from dccutil.c / tcldcc.c */
-  snprintf(buf, 160, "dns   (ready)");
+  op_strbuf_append_cstr(buf, "dns   (ready)");
 }
 
 static struct dcc_table DCC_DNS = {

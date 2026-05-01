@@ -87,9 +87,9 @@ static void ident_activity(int idx, char *buf, int len)
   ident_builtin_off();
 }
 
-static void ident_display(int idx, char *buf)
+static void ident_display(int idx, op_strbuf_t *buf)
 {
-  strlcpy(buf, "ident (ready)", sizeof(buf));
+  op_strbuf_append_cstr(buf, "ident (ready)");
 }
 
 static struct dcc_table DCC_IDENTD = {

@@ -647,7 +647,6 @@ static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, const char *id
 
 /* Gather information for dcclist or socklist */
 static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
-  char other[160];
   char s[EGG_INET_ADDRSTRLEN];
   socklen_t namelen;
   struct sockaddr_storage ss;
@@ -659,18 +658,15 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
   for (int i = 0; i < dcc_total; i++) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
         !strcasecmp(dcc[i].type->name, type)))) {
-      op_strbuf_t idxstr, timestamp;
+      op_strbuf_t idxstr, timestamp, other;
       op_strbuf_printf(&idxstr, "%ld", dcc[i].sock);
       op_strbuf_printf(&timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
+      op_strbuf_init(&other);
       if (dcc[i].type && dcc[i].type->display)
-        dcc[i].type->display(i, other);
+        dcc[i].type->display(i, &other);
       else {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "?:%lX  !! ERROR !!", (long) dcc[i].type);
-          strlcpy(other, op_strbuf_str(&_b), sizeof other);
-          op_strbuf_free(&_b);
-        }
+        op_strbuf_appendf(&other, "?:%lX  !! ERROR !!", (long) dcc[i].type);
+        op_strbuf_free(&other);
         op_strbuf_free(&idxstr);
         op_strbuf_free(&timestamp);
         break;
@@ -686,7 +682,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
         build_dcc_list(irp, op_strbuf_str(&idxstr), dcc[i].nick,
             (dcc[i].host[0] == '\0') ? iptostr(&dcc[i].sockname.addr.sa) : dcc[i].host,
             op_strbuf_str(&portstring), dcc[i].type ? dcc[i].type->name : "*UNKNOWN*",
-            other, op_strbuf_str(&timestamp));
+            op_strbuf_str(&other), op_strbuf_str(&timestamp));
         op_strbuf_free(&portstring);
       /* If this came from socklist... */
       } else {
@@ -710,9 +706,10 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
 #else
             0,
 #endif
-            dcc[i].type ? dcc[i].type->name : "*UNKNOWN*", other,
+            dcc[i].type ? dcc[i].type->name : "*UNKNOWN*", op_strbuf_str(&other),
             op_strbuf_str(&timestamp));
       }
+      op_strbuf_free(&other);
       op_strbuf_free(&idxstr);
       op_strbuf_free(&timestamp);
     }

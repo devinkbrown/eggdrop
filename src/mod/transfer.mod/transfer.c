@@ -788,31 +788,31 @@ static void tout_dcc_send(int idx)
   lostdcc(idx);
 }
 
-static void display_dcc_get(int idx, char *buf)
+static void display_dcc_get(int idx, op_strbuf_t *buf)
 {
   if (dcc[idx].status == dcc[idx].u.xfer->length)
-    snprintf(buf, 160, TRANSFER_SEND, dcc[idx].u.xfer->acked,
+    op_strbuf_appendf(buf, TRANSFER_SEND, dcc[idx].u.xfer->acked,
             dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
   else
-    snprintf(buf, 160, TRANSFER_SEND, dcc[idx].status,
+    op_strbuf_appendf(buf, TRANSFER_SEND, dcc[idx].status,
             dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
 }
 
-static void display_dcc_get_p(int idx, char *buf)
+static void display_dcc_get_p(int idx, op_strbuf_t *buf)
 {
-  snprintf(buf, 160, TRANSFER_SEND_WAITED, now - dcc[idx].timeval,
+  op_strbuf_appendf(buf, TRANSFER_SEND_WAITED, now - dcc[idx].timeval,
           dcc[idx].u.xfer->origname);
 }
 
-static void display_dcc_send(int idx, char *buf)
+static void display_dcc_send(int idx, op_strbuf_t *buf)
 {
-  snprintf(buf, 160, TRANSFER_SEND, dcc[idx].status,
+  op_strbuf_appendf(buf, TRANSFER_SEND, dcc[idx].status,
           dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
 }
 
-static void display_dcc_fork_send(int idx, char *buf)
+static void display_dcc_fork_send(int idx, op_strbuf_t *buf)
 {
-  strlcpy(buf, TRANSFER_CONN_SEND, 160);
+  op_strbuf_append_cstr(buf, TRANSFER_CONN_SEND);
 }
 
 static int expmem_dcc_xfer(void *x)

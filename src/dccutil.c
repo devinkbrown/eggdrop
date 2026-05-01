@@ -421,7 +421,6 @@ void dcc_remove_lost(void)
 void tell_dcc(int zidx)
 {
   int j, nicklen = 0;
-  char other[160];
   char format[81];
 
   /* calculate max nicklen */
@@ -438,44 +437,34 @@ void tell_dcc(int zidx)
   if (j > 40)
     j = 40;
 
-  {
-    op_strbuf_t fmt_buf;
-    op_strbuf_printf(&fmt_buf, "%%-3s %%-%u.%us %%-6s %%-%u.%us %%s\n",
-                     j, j, nicklen, nicklen);
-    strlcpy(format, op_strbuf_str(&fmt_buf), sizeof format);
-    op_strbuf_free(&fmt_buf);
-  }
+  snprintf(format, sizeof format, "%%-3s %%-%d.%ds %%-6s %%-%d.%ds %%s\n",
+           j, j, nicklen, nicklen);
   dprintf(zidx, format, "IDX", "ADDR", "+ PORT", "NICK", "TYPE  INFO");
   dprintf(zidx, format, "---",
           "------------------------------------------------------", "------",
           "--------------------------------", "----- ---------");
-  {
-    op_strbuf_t fmt_buf;
-    op_strbuf_printf(&fmt_buf, "%%-3d %%-%u.%us %%c%%5d %%-%u.%us %%s\n",
-                     j, j, nicklen, nicklen);
-    strlcpy(format, op_strbuf_str(&fmt_buf), sizeof format);
-    op_strbuf_free(&fmt_buf);
-  }
+  snprintf(format, sizeof format, "%%-3d %%-%d.%ds %%c%%5d %%-%d.%ds %%s\n",
+           j, j, nicklen, nicklen);
 
-  /* Show server */
   for (int i = 0; i < dcc_total; i++) {
+    op_strbuf_t sb;
+    op_strbuf_init(&sb);
     if (dcc[i].type && dcc[i].type->display)
-      dcc[i].type->display(i, other);
+      dcc[i].type->display(i, &sb);
     else {
-      {
-        op_strbuf_t err_buf;
-        op_strbuf_printf(&err_buf, "?:%lX  !! ERROR !!", (long) dcc[i].type);
-        strlcpy(other, op_strbuf_str(&err_buf), sizeof other);
-        op_strbuf_free(&err_buf);
-      }
+      op_strbuf_appendf(&sb, "?:%lX  !! ERROR !!", (long) dcc[i].type);
+      dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
+              ' ', dcc[i].port, dcc[i].nick, op_strbuf_str(&sb));
+      op_strbuf_free(&sb);
       break;
     }
-      dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
+    dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
 #ifdef TLS
-              dcc[i].ssl ? '+' : ' ', dcc[i].port, dcc[i].nick, other);
+            dcc[i].ssl ? '+' : ' ', dcc[i].port, dcc[i].nick, op_strbuf_str(&sb));
 #else
-              ' ', dcc[i].port, dcc[i].nick, other);
+            ' ', dcc[i].port, dcc[i].nick, op_strbuf_str(&sb));
 #endif
+    op_strbuf_free(&sb);
   }
 }
 
