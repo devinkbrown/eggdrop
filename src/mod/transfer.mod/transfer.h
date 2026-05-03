@@ -108,7 +108,7 @@ enum dccsend_types {
 /* Was copy_to_tmp (moved to core) <Wcc[01/20/03]>. */
 #define fileq_cancel(a,b) (((void (*) (int,char *))transfer_funcs[7])(a,b))
 /* 8 - 11 */
-#define queue_file(a,b,c,d) (((void (*)(char *,char *,char *,char *))transfer_funcs[8])(a,b,c,d))
+#define queue_file(a,b,c,d) (((void (*)(const char *,const char *,const char *,const char *))transfer_funcs[8])(a,b,c,d))
 #define raw_dcc_send(a,b,c) (((int (*) (char *,char *,char *))transfer_funcs[9])(a,b,c))
 #define show_queued_files(a) (((void (*) (int))transfer_funcs[10])(a))
 #define wild_match_file(a,b) (((int (*)(char *, char *))transfer_funcs[11])(a,b))
@@ -133,7 +133,7 @@ static void dcc_fork_send(int, char *, int);
 static void stats_add_dnload(struct userrec *, uint64_t);
 static void stats_add_upload(struct userrec *, uint64_t);
 static void dcc_get_pending(int, char *, int);
-static void queue_file(char *, char *, char *, char *);
+static void queue_file(const char *, const char *, const char *, const char *);
 static int raw_dcc_resend(char *, char *, char *);
 static int raw_dcc_send(char *, char *, char *);
 static int at_limit(char *);

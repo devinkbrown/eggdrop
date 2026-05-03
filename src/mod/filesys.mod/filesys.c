@@ -85,7 +85,7 @@ static char filedb_path[121] = "";
 static int is_valid(void);
 static void eof_dcc_files(int idx);
 static void dcc_files(int idx, char *buf, int i);
-static void disp_dcc_files(int idx, char *buf);
+static void disp_dcc_files(int idx, op_strbuf_t *buf);
 static int expmem_dcc_files(void *x);
 static void kill_dcc_files(int idx, void *x);
 static void out_dcc_files(int idx, char *buf, void *x);
@@ -444,9 +444,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
       op_strbuf_printf(&_b, "%s%s/%s", dccdir, dir, fn);
     else
       op_strbuf_printf(&_b, "%s%s", dccdir, fn);
-    s = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    s = op_strbuf_steal(&_b);
   }
 
   if (!file_readable(s)) {
@@ -461,15 +459,10 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
     nick = dcc[idx].nick;
   /* Already have too many transfers active for this user?  queue it */
   if (at_limit(nick)) {
-    char xxx[1024];
-
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
-      strlcpy(xxx, op_strbuf_str(&_b), sizeof xxx);
-      op_strbuf_free(&_b);
-    }
-    queue_file(xxx, fn, dcc[idx].nick, nick);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
+    queue_file(op_strbuf_str(&_b), fn, dcc[idx].nick, nick);
+    op_strbuf_free(&_b);
     dprintf(idx, "Queued: %s to %s\n", fn, nick);
     my_free(s);
     return 1;
@@ -511,9 +504,9 @@ static void tout_dcc_files_pass(int i)
   lostdcc(i);
 }
 
-static void disp_dcc_files(int idx, char *buf)
+static void disp_dcc_files(int idx, op_strbuf_t *buf)
 {
-  snprintf(buf, 160, "file  flags: %c%c%c%c%c",
+  op_strbuf_appendf(buf, "file  flags: %c%c%c%c%c",
           dcc[idx].status & STAT_CHAT ? 'C' : 'c',
           dcc[idx].status & STAT_PARTY ? 'P' : 'p',
           dcc[idx].status & STAT_TELNET ? 'T' : 't',
@@ -521,9 +514,9 @@ static void disp_dcc_files(int idx, char *buf)
           dcc[idx].status & STAT_PAGE ? 'P' : 'p');
 }
 
-static void disp_dcc_files_pass(int idx, char *buf)
+static void disp_dcc_files_pass(int idx, op_strbuf_t *buf)
 {
-  snprintf(buf, 160, "fpas  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  op_strbuf_appendf(buf, "fpas  waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static void kill_dcc_files(int idx, void *x)
@@ -715,14 +708,9 @@ static char *mktempfile(char *filename)
     strlcpy(fn, filename, l + 1);
   }
   {
-    size_t tlen = l + MKTEMPFILE_TOT + 1;
-    tempname = op_malloc(tlen);
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
-      strlcpy(tempname, op_strbuf_str(&_b), tlen);
-      op_strbuf_free(&_b);
-    }
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
+    tempname = op_strbuf_steal(&_b);
   }
   if (fn != filename)
     my_free(fn);
@@ -771,9 +759,7 @@ static void filesys_dcc_send_hostresolved(int i)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
-    s1 = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    s1 = op_strbuf_steal(&_b);
   }
 
   if (file_readable(s1)) {

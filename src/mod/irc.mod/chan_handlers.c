@@ -122,10 +122,9 @@ static int got324(char *from, char *msg)
 }
 
 
-static int got352or4(struct chanset_t *chan, char *user, char *host,
-                     char *nick, char *flags, char *account)
+static int got352or4(struct chanset_t *chan, char *user, const char *host,
+                     char *nick, const char *flags, char *account)
 {
-  char userhost[NICKMAX + UHOSTLEN + 1];
   memberlist *m;
 
   m = ismember(chan, nick);     /* In my channel list copy? */
@@ -143,12 +142,6 @@ static int got352or4(struct chanset_t *chan, char *user, char *host,
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s@%s", user, host);
     strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
-    op_strbuf_free(&_b);
-  }
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s!%s", nick, m->userhost);
-    strlcpy(userhost, op_strbuf_str(&_b), sizeof userhost);
     op_strbuf_free(&_b);
   }
   /* Combine n!u@h */
@@ -235,7 +228,6 @@ static int got352(char *from, char *msg)
 static int gottwitch366(char *from, char *msg) {
   char *nick, *chname;
   struct chanset_t *chan;
-  char host[UHOSTLEN];
   char fakemsg[NICKLEN + UHOSTLEN + 15];
 
   if (net_type_int != NETT_TWITCH) {   /* Seriously- this is only for twitch */
@@ -252,10 +244,10 @@ static int gottwitch366(char *from, char *msg) {
    */
     chan->status |= CHAN_PEND; /* Channel needs to be PENDING for 1st join */
     {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s.tmi.twitch.tv", nick);
-      strlcpy(host, op_strbuf_str(&_b), sizeof host);
-      op_strbuf_free(&_b);
+      op_strbuf_t _bhost;
+      op_strbuf_printf(&_bhost, "%s.tmi.twitch.tv", nick);
+      got352or4(chan, nick, op_strbuf_str(&_bhost), nick, "H", NULL);
+      op_strbuf_free(&_bhost);
     }
     {
       op_strbuf_t _b;
@@ -263,7 +255,6 @@ static int gottwitch366(char *from, char *msg) {
       strlcpy(fakemsg, op_strbuf_str(&_b), sizeof fakemsg);
       op_strbuf_free(&_b);
     }
-    got352or4(chan, nick, host, nick, "H", NULL); /* Send fake 352 for bot*/
     got315(from, fakemsg);  /* Send end of WHO, to get chan to ACTIVE state */
   }
   return 0;
@@ -309,7 +300,7 @@ static int gotchghost(char *from, char *msg) {
   struct userrec *u;
   struct chanset_t *chan;
   memberlist *m;
-  char mask[1024], *nick, *ident, buf[MSGMAX], *s1=buf, *chname;
+  char *nick, *ident, buf[MSGMAX], *s1=buf, *chname;
 
   strlcpy(s1, from, sizeof buf);
   nick = splitnick(&s1);
@@ -338,10 +329,9 @@ static int gotchghost(char *from, char *msg) {
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s %s!%s@%s", chname, nick, ident, msg);
-        strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+        check_tcl_chghost(nick, from, op_strbuf_str(&_b), u, chname, ident, msg);
         op_strbuf_free(&_b);
       }
-      check_tcl_chghost(nick, from, mask, u, chname, ident, msg);
       get_user_flagrec(u, &fr, chan->dname);
       check_this_member(chan, m->nick, &fr);
     }
@@ -505,7 +495,7 @@ static int gotaway(char *from, char *msg)
   struct userrec *u;
   struct chanset_t *chan;
   memberlist *m;
-  char mask[1024], buf[MSGMAX], *nick, *s1 = buf, *chname;
+  char buf[MSGMAX], *nick, *s1 = buf, *chname;
 
   strlcpy(s1, from, sizeof buf);
   nick = splitnick(&s1);
@@ -518,10 +508,9 @@ static int gotaway(char *from, char *msg)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s %s", chname, from);
-        strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
+        check_tcl_ircaway(nick, from, op_strbuf_str(&_b), u, chname, msg);
         op_strbuf_free(&_b);
       }
-      check_tcl_ircaway(nick, from, mask, u, chname, msg);
       if (strlen(msg)) {
         m->flags |= IRCAWAY;
         fixcolon(msg);
@@ -1030,14 +1019,12 @@ static int gotjoin(char *from, char *channame)
     int l_chname = strlen(chname);
 
     if (l_chname > (CHANNEL_ID_LEN + 1)) {
-      ch_dname = op_malloc(l_chname + 1);
+      {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "!%s", chname + (CHANNEL_ID_LEN + 1));
+        ch_dname = op_strbuf_steal(&_b);
+      }
       if (ch_dname) {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "!%s", chname + (CHANNEL_ID_LEN + 1));
-          strlcpy(ch_dname, op_strbuf_str(&_b), l_chname + 2);
-          op_strbuf_free(&_b);
-        }
         chan = findchan_by_dname(ch_dname);
         if (!chan) {
           /* Hmm.. okay. Maybe the admin's a genius and doesn't know the
@@ -1391,7 +1378,7 @@ static int gotpart(char *from, char *msg)
  */
 static int gotkick(char *from, char *origmsg)
 {
-  char *nick, *whodid, *chname, s1[NICKMAX + UHOSTLEN + 1], buf[UHOSTLEN], *uhost;
+  char *nick, *whodid, *chname, buf[UHOSTLEN], *uhost;
   char buf2[511], *msg, *key;
   memberlist *m;
   struct chanset_t *chan;
@@ -1444,22 +1431,26 @@ static int gotkick(char *from, char *origmsg)
       return 0;
 
     m = ismember(chan, nick);
-    if (m) {
-      struct userrec *u2;
+    {
+      op_strbuf_t _bk;
+      const char *kicked;
 
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
-        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-        op_strbuf_free(&_b);
+      if (m) {
+        struct userrec *u2;
+
+        op_strbuf_printf(&_bk, "%s!%s", m->nick, m->userhost);
+        kicked = op_strbuf_str(&_bk);
+        u2 = get_user_from_member(m);
+        set_handle_laston(chan->dname, u2, now);
+        maybe_revenge(chan, from, kicked, REVENGE_KICK);
+      } else {
+        op_strbuf_init(&_bk);
+        kicked = nick;
       }
-      u2 = get_user_from_member(m);
-      set_handle_laston(chan->dname, u2, now);
-      maybe_revenge(chan, from, s1, REVENGE_KICK);
-    } else
-      strlcpy(s1, nick, sizeof s1);
-    putlog(LOG_MODES, chan->dname, "%s kicked from %s by %s: %s", s1,
-           chan->dname, from, msg);
+      putlog(LOG_MODES, chan->dname, "%s kicked from %s by %s: %s", kicked,
+             chan->dname, from, msg);
+      op_strbuf_free(&_bk);
+    }
     /* Kicked ME?!? the sods! */
     if (match_my_nick(nick) && !channel_inactive(chan)) {
       chan->status &= ~(CHAN_ACTIVE | CHAN_PEND);
@@ -1691,7 +1682,7 @@ static int gotmsg(char *from, char *msg)
   ignoring = match_ignore(from);
 
   /* Check for CTCP: */
-  ctcp_reply[0] = 0;
+  op_strbuf_clear(&ctcp_reply);
   p = strchr(msg, 1);
   while (p && *p) {
     p++;
@@ -1745,15 +1736,15 @@ static int gotmsg(char *from, char *msg)
   }
 
   /* Send out possible ctcp responses. */
-  if (ctcp_reply[0]) {
+  if (!op_strbuf_empty(&ctcp_reply)) {
     if (ctcp_mode != 2) {
-      dprintf(DP_HELP, "NOTICE %s :%s\n", nick, ctcp_reply);
+      dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&ctcp_reply));
     } else {
       if (now - last_ctcp > flud_ctcp_time) {
-        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, ctcp_reply);
+        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&ctcp_reply));
         count_ctcp = 1;
       } else if (count_ctcp < flud_ctcp_thr) {
-        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, ctcp_reply);
+        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&ctcp_reply));
         count_ctcp++;
       }
       last_ctcp = now;

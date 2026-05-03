@@ -281,6 +281,23 @@ static int python_script_load(const char *fname)
   putlog(LOG_MISC, "*", "Loaded Python script: %s", fname);
   return 0;
 }
+
+/* Called by egg_eval() when no Tcl interpreter is present.
+ * Executes the script as Python code and returns 0 on success. */
+static int python_script_eval(const char *script)
+{
+  PyObject *result;
+
+  if (!script || !script[0])
+    return 0;
+  result = PyRun_String(script, Py_file_input, pglobals, pglobals);
+  if (!result) {
+    PyErr_Print();
+    return 1; /* TCL_ERROR */
+  }
+  Py_DECREF(result);
+  return 0;
+}
 #endif /* HAVE_TCL */
 
 #ifdef HAVE_TCL
@@ -911,7 +928,7 @@ static PyObject *py_getaccount(PyObject *self, PyObject *args)
 /* nick2hand(nick, chan) — return eggdrop handle for nick on chan, or None */
 static PyObject *py_nick2hand(PyObject *self, PyObject *args)
 {
-  char *nick, *chan, hostbuf[UHOSTLEN + NICKLEN + 2];
+  char *nick, *chan;
   struct chanset_t *ch;
   memberlist *m;
   struct userrec *u;
@@ -927,10 +944,9 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
-    strlcpy(hostbuf, op_strbuf_str(&_b), sizeof hostbuf);
+    u = get_user_by_host(op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  u = get_user_by_host(hostbuf);
   if (!u)
     Py_RETURN_NONE;
   return PyUnicode_FromString(u->handle);
@@ -939,7 +955,7 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
 /* hand2nick(handle, chan) — return nick of user with handle on chan, or None */
 static PyObject *py_hand2nick(PyObject *self, PyObject *args)
 {
-  char *handle, *chan, hostbuf[UHOSTLEN + NICKLEN + 2];
+  char *handle, *chan;
   struct chanset_t *ch;
   memberlist *m;
   struct userrec *u;
@@ -953,10 +969,9 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
-      strlcpy(hostbuf, op_strbuf_str(&_b), sizeof hostbuf);
+      u = get_user_by_host(op_strbuf_str(&_b));
       op_strbuf_free(&_b);
     }
-    u = get_user_by_host(hostbuf);
     if (u && !strcasecmp(u->handle, handle))
       return PyUnicode_FromString(m->nick);
   }
@@ -1220,21 +1235,19 @@ static PyObject *py_ircxnegotiate(PyObject *self, PyObject *args)
 /* die([reason]) — shut down the bot with optional quit message */
 static PyObject *py_die(PyObject *self, PyObject *args)
 {
-  char *reason = NULL, s[1024];
+  char *reason = NULL;
+  op_strbuf_t s;
 
   if (!PyArg_ParseTuple(args, "|s", &reason))
     return NULL;
   if (reason && reason[0]) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "BOT SHUTDOWN (%s)", reason);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
+    op_strbuf_printf(&s, "BOT SHUTDOWN (%s)", reason);
     strlcpy(quit_msg, reason, 1024);
   } else {
-    strlcpy(s, "BOT SHUTDOWN (No reason)", sizeof s);
+    op_strbuf_printf(&s, "BOT SHUTDOWN (No reason)");
     quit_msg[0] = 0;
   }
-  kill_bot(s, quit_msg[0] ? quit_msg : "EXIT");
+  kill_bot(op_strbuf_str(&s), quit_msg[0] ? quit_msg : "EXIT");
   Py_RETURN_NONE;
 }
 
@@ -2497,7 +2510,7 @@ static PyObject *py_getchanmode(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "irc module not loaded");
     return NULL;
   }
-  return PyUnicode_FromString(((char *(*)(struct chanset_t *))me->funcs[24])(ch));
+  return PyUnicode_FromString(((const char *(*)(struct chanset_t *))me->funcs[24])(ch));
 }
 
 /* pushmode(channel, mode[, arg]) — queue a mode change */
@@ -4912,9 +4925,10 @@ static PyObject *py_monitor(PyObject *self, PyObject *args)
   }
   /* +nick or -nick: send raw MONITOR command */
   if (action[0] == '+' || action[0] == '-') {
-    char buf[512];
-    snprintf(buf, sizeof buf, "MONITOR %c %s", action[0], action + 1);
-    dprintf(DP_SERVER, "%s\n", buf);
+    op_strbuf_t buf;
+    op_strbuf_printf(&buf, "MONITOR %c %s", action[0], action + 1);
+    dprintf(DP_SERVER, "%s\n", op_strbuf_str(&buf));
+    op_strbuf_free(&buf);
     Py_RETURN_TRUE;
   }
   PyErr_SetString(EggdropError, "monitor: use +nick, -nick, 'list', or 'status'");
@@ -5070,16 +5084,71 @@ static PyObject *py_matchchanattr(PyObject *self, PyObject *args)
   return PyBool_FromLong(flagrec_ok(&want, &fr));
 }
 
+/* -------------------------------------------------------------------------
+ * Configuration variable access — full parity with Tcl's `set` command.
+ * getvar(name) / setvar(name, value)
+ * These read/write the same C variables that Tcl traces bind to.
+ * ------------------------------------------------------------------------- */
+
+/* getvar(name) — return current value of an eggdrop config variable */
+static PyObject *py_getvar(PyObject *self, PyObject *args)
+{
+  const char *name;
+  char buf[1024];
+
+  if (!PyArg_ParseTuple(args, "s", &name))
+    return NULL;
+  const char *v = notcl_getvar(name, buf, sizeof buf);
+  if (!v) {
+    PyErr_Format(PyExc_KeyError, "no such variable: %s", name);
+    return NULL;
+  }
+  return PyUnicode_FromString(v);
+}
+
+/* setvar(name, value) — write an eggdrop config variable */
+static PyObject *py_setvar(PyObject *self, PyObject *args)
+{
+  const char *name, *value;
+
+  if (!PyArg_ParseTuple(args, "ss", &name, &value))
+    return NULL;
+  notcl_setvar(name, value);
+  Py_RETURN_NONE;
+}
+
+/* eval(script) — evaluate a script through the unified eval layer */
+static PyObject *py_eval(PyObject *self, PyObject *args)
+{
+  const char *script;
+
+  if (!PyArg_ParseTuple(args, "s", &script))
+    return NULL;
+  int rc = egg_eval(script);
+  if (rc != 0) {
+    const char *err = tcl_resultstring();
+    if (err && err[0])
+      return PyUnicode_FromString(err);
+    Py_RETURN_NONE;
+  }
+  const char *result = tcl_resultstring();
+  if (result && result[0])
+    return PyUnicode_FromString(result);
+  Py_RETURN_NONE;
+}
+
 /* unames() — return OS uname info as string */
 static PyObject *py_unames(PyObject *self, PyObject *args)
 {
   struct utsname un;
   if (uname(&un) < 0)
     return PyUnicode_FromString("unknown");
-  char buf[512];
-  snprintf(buf, sizeof buf, "%s %s %s %s %s", un.sysname, un.nodename,
-           un.release, un.version, un.machine);
-  return PyUnicode_FromString(buf);
+  op_strbuf_t buf;
+  op_strbuf_printf(&buf, "%s %s %s %s %s", un.sysname, un.nodename,
+                   un.release, un.version, un.machine);
+  PyObject *result = PyUnicode_FromString(op_strbuf_str(&buf));
+  op_strbuf_free(&buf);
+  return result;
 }
 
 /* savechannels() — save channel data to file */
@@ -5587,6 +5656,10 @@ static PyMethodDef MyPyMethods[] = {
     {"resetchanjoin",   py_resetchanjoin,    METH_VARARGS, "reset join time: resetchanjoin([nick,] chan)"},
     {"checkmodule",     py_checkmodule,      METH_VARARGS, "True if module is loaded: checkmodule(name)"},
     {"dumpfile",        py_dumpfile,         METH_VARARGS, "send file to user: dumpfile(nick, filename)"},
+    /* Configuration variable access and script evaluation */
+    {"getvar",          py_getvar,           METH_VARARGS, "read a bot config variable: getvar(name)"},
+    {"setvar",          py_setvar,           METH_VARARGS, "write a bot config variable: setvar(name, value)"},
+    {"eval",            py_eval,             METH_VARARGS, "evaluate a script: eval(script)"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

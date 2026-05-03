@@ -661,7 +661,7 @@ static int proxy_connect(int sock, sockname_t *addr)
     op_strbuf_t sb;
     inet_ntop(AF_INET, &addr->addr.s4.sin_addr, host, sizeof host);
     op_strbuf_printf(&sb, "%s %d\n", host, port);
-    tputs(sock, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
+    tputs(sock, op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
     op_strbuf_free(&sb);
   }
   return sock;
@@ -1491,10 +1491,10 @@ int sockgets(char *s, int *len)
 
 /* Dump something to a socket
  */
-void tputs(int z, char *s, unsigned int len)
+void tputs(int z, const char *s, unsigned int len)
 {
   int x, idx;
-  char *s2 = 0;
+  const char *s2 = 0;
   static int inhere = 0;
   struct threaddata *td = threaddata();
 

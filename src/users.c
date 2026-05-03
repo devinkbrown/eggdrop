@@ -32,6 +32,7 @@
 #include "main.h"
 #include "modules.h"
 #include "tandem.h"
+#include "script.h"
 
 #include <errno.h>
 #include <arpa/inet.h>
@@ -141,39 +142,29 @@ void addignore(const char *ign, char *from, char *mnote, time_t expire_time)
 /* take host entry from ignore list and display it ignore-style */
 static void display_ignore(int idx, int number, struct igrec *ignore)
 {
-  char when[41], expire[41];
+  op_strbuf_t when, expire;
 
-  if (ignore->added) {
-    char ago[29];
-    daysago(now, ignore->added, ago);
-    op_strbuf_t _d;
-    op_strbuf_printf(&_d, "Started %s", ago);
-    strlcpy(when, op_strbuf_str(&_d), sizeof when);
-    op_strbuf_free(&_d);
-  } else
-    when[0] = 0;
+  op_strbuf_init(&when);
+  if (ignore->added)
+    op_strbuf_printf(&when, "Started %s", daysago(now, ignore->added));
 
-  if (ignore->flags & IGREC_PERM) {
-    strlcpy(expire, "(perm)", sizeof expire);
-  } else {
-    char d[29];
-    days(ignore->expire, now, d);
-    op_strbuf_t _e;
-    op_strbuf_printf(&_e, "(expires %s)", d);
-    strlcpy(expire, op_strbuf_str(&_e), sizeof expire);
-    op_strbuf_free(&_e);
-  }
+  if (ignore->flags & IGREC_PERM)
+    op_strbuf_printf(&expire, "(perm)");
+  else
+    op_strbuf_printf(&expire, "(expires %s)", days(ignore->expire, now));
 
   if (number >= 0)
-    dprintf(idx, "  [%3d] %s %s\n", number, ignore->igmask, expire);
+    dprintf(idx, "  [%3d] %s %s\n", number, ignore->igmask, op_strbuf_str(&expire));
   else
-    dprintf(idx, "IGNORE: %s %s\n", ignore->igmask, expire);
+    dprintf(idx, "IGNORE: %s %s\n", ignore->igmask, op_strbuf_str(&expire));
   if (ignore->msg && ignore->msg[0])
     dprintf(idx, "        %s: %s\n", ignore->user, ignore->msg);
   else
     dprintf(idx, "        %s %s\n", MODES_PLACEDBY, ignore->user);
-  if (when[0])
-    dprintf(idx, "        %s\n", when);
+  if (!op_strbuf_empty(&when))
+    dprintf(idx, "        %s\n", op_strbuf_str(&when));
+  op_strbuf_free(&when);
+  op_strbuf_free(&expire);
 }
 
 /* list the ignores and how long they've been active */
@@ -462,9 +453,11 @@ static void tell_user(int idx, struct userrec *u)
   fr.udef_global = u->flags_udef;
   build_flags(s, &fr, NULL);
   if (module_find("notes", 0, 0)) {
-    Tcl_SetVar(interp, "_user", u->handle, 0);
-    if (Tcl_VarEval(interp, "notes ", "$_user", NULL) == TCL_OK)
+    op_strbuf_t cmd;
+    op_strbuf_printf(&cmd, "notes {%s}", u->handle);
+    if (!egg_eval(op_strbuf_str(&cmd)))
       n = tcl_resultint();
+    op_strbuf_free(&cmd);
   }
   li = get_user(&USERENTRY_LASTON, u);
   if (!li || !li->laston)
@@ -666,12 +659,12 @@ int readuserfile(char *file, struct userrec **ret)
   FILE *f;
   struct userrec *bu, *u = NULL;
   struct chanset_t *cst = NULL;
-  char ignored[LOGLINEMAX]; /* putlog() will truncate anything larger anyway */
+  op_strbuf_t ignored;
   struct flag_record fr;
   struct chanuserrec *cr;
 
   bu = (*ret);
-  ignored[0] = 0;
+  op_strbuf_init(&ignored);
   if (bu == userlist) {
     clear_chanlist();
     lastuser = NULL;
@@ -785,8 +778,8 @@ int readuserfile(char *file, struct userrec **ret)
             {
               op_strbuf_t _b;
               op_strbuf_printf(&_b, "%s ", lasthand);
-              if (strstr(ignored, op_strbuf_str(&_b)) == NULL)
-                strlcat(ignored, op_strbuf_str(&_b), sizeof ignored);
+              if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
+                op_strbuf_appendf(&ignored, "%s ", lasthand);
               op_strbuf_free(&_b);
             }
             lasthand[0] = 0;
@@ -812,8 +805,8 @@ int readuserfile(char *file, struct userrec **ret)
             {
               op_strbuf_t _b;
               op_strbuf_printf(&_b, "%s ", lasthand);
-              if (strstr(ignored, op_strbuf_str(&_b)) == NULL)
-                strlcat(ignored, op_strbuf_str(&_b), sizeof ignored);
+              if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
+                op_strbuf_appendf(&ignored, "%s ", lasthand);
               op_strbuf_free(&_b);
             }
             lasthand[0] = 0;
@@ -841,8 +834,8 @@ int readuserfile(char *file, struct userrec **ret)
             {
               op_strbuf_t _b;
               op_strbuf_printf(&_b, "%s ", lasthand);
-              if (strstr(ignored, op_strbuf_str(&_b)) == NULL)
-                strlcat(ignored, op_strbuf_str(&_b), sizeof ignored);
+              if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
+                op_strbuf_appendf(&ignored, "%s ", lasthand);
               op_strbuf_free(&_b);
             }
             lasthand[0] = 0;
@@ -947,9 +940,10 @@ int readuserfile(char *file, struct userrec **ret)
   }
   fclose(f);
   (*ret) = bu;
-  if (ignored[0]) {
-    putlog(LOG_MISC, "*", "%s %s", USERF_IGNBANS, ignored);
+  if (!op_strbuf_empty(&ignored)) {
+    putlog(LOG_MISC, "*", "%s %s", USERF_IGNBANS, op_strbuf_str(&ignored));
   }
+  op_strbuf_free(&ignored);
   putlog(LOG_MISC, "*", "Userfile loaded, unpacking...");
   for (u = bu; u; u = u->next) {
     struct user_entry *e;

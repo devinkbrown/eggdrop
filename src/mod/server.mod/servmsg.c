@@ -26,7 +26,7 @@
 #include <errno.h>
 #include "server.h"
 char *encode_msgtags(Tcl_Obj *msgtagdict);
-static char *encode_msgtag(char *key, char *value);
+static const char *encode_msgtag(const char *key, const char *value);
 static int del_capabilities(char *);
 static int del_capability(char *name);
 static time_t last_ctcp = (time_t) 0L;
@@ -333,7 +333,7 @@ static int check_tcl_monitor(char *nick, int online)
   return (x == BIND_EXEC_LOG);
 }
 
-static int match_my_nick(char *nick)
+static int match_my_nick(const char *nick)
 {
   return (!rfc_casecmp(nick, botname));
 }
@@ -509,7 +509,7 @@ static inline struct userrec *lookup_msg_user(char *nick, char *from)
       from);
 }
 
-static char ctcp_reply[1024] = "";
+static op_strbuf_t ctcp_reply;
 
 static int lastmsgs[FLOOD_GLOBAL_MAX];
 static char lastmsghost[FLOOD_GLOBAL_MAX][81];
@@ -584,7 +584,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     op_strbuf_t h;
     op_strbuf_printf(&h, "*!*@%s", p);
     putlog(LOG_MISC, "*", IRC_FLOODIGNORE1, p);
-    addignore((char *) op_strbuf_str(&h), botnetnick, (which == FLOOD_CTCP) ? "CTCP flood" :
+    addignore(op_strbuf_str(&h), botnetnick, (which == FLOOD_CTCP) ? "CTCP flood" :
               "MSG/NOTICE flood", now + (60 * ignore_time));
     op_strbuf_free(&h);
   }
@@ -616,7 +616,7 @@ static int gotmsg(char *from, char *msg)
     nick = uhost;
 
   /* Check for CTCP: */
-  ctcp_reply[0] = 0;
+  op_strbuf_clear(&ctcp_reply);
   p = strchr(msg, 1);
   while ((p != NULL) && (*p)) {
     p++;
@@ -683,15 +683,15 @@ static int gotmsg(char *from, char *msg)
     }
   }
   /* Send out possible ctcp responses */
-  if (ctcp_reply[0]) {
+  if (!op_strbuf_empty(&ctcp_reply)) {
     if (ctcp_mode != 2) {
-      dprintf(DP_HELP, "NOTICE %s :%s\n", nick, ctcp_reply);
+      dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&ctcp_reply));
     } else {
       if (now - last_ctcp > flud_ctcp_time) {
-        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, ctcp_reply);
+        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&ctcp_reply));
         count_ctcp = 1;
       } else if (count_ctcp < flud_ctcp_thr) {
-        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, ctcp_reply);
+        dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&ctcp_reply));
         count_ctcp++;
       }
       last_ctcp = now;
@@ -1204,7 +1204,7 @@ static struct dcc_table SERVER_SOCKET = {
   NULL
 };
 
-static char *encode_msgtag_value(char *value)
+static const char *encode_msgtag_value(const char *value)
 {
   static char buf[TOTALTAGMAX+1];
   size_t written = 0;
@@ -1250,22 +1250,17 @@ static int msgtag_key_valid(const char *key)
   return 1;
 }
 
-static char *encode_msgtag(char *key, char *value)
+static const char *encode_msgtag(const char *key, const char *value)
 {
-  static char buf[TOTALTAGMAX+1];
+  static op_strbuf_t sb;
 
   if (!msgtag_key_valid(key)) {
     putlog(LOG_SERV, "*", "Dropping message tag with invalid key: %s", key);
-    buf[0] = '\0';
-    return buf;
+    op_strbuf_clear(&sb);
+    return op_strbuf_str(&sb);
   }
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s", key, encode_msgtag_value(value));
-    strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
-    op_strbuf_free(&_b);
-  }
-  return buf;
+  op_strbuf_reset(&sb, "%s%s", key, encode_msgtag_value(value));
+  return op_strbuf_str(&sb);
 }
 
 static __attribute__((unused)) char *decode_msgtag_value(char *value, char **endptr)
@@ -1624,13 +1619,14 @@ static int del_capabilities(char *msg) {
 /* Add server capabilities to the linked list
  * msg is in format "multi-prefix sasl=PLAIN,EXTERNAL server-time"
  */
-static int add_capabilities(char *msg) {
+static int add_capabilities(const char *msg) {
+  char *msgcopy = op_strdup(msg);
   char *capptr, *valptr, *val, *saveptr1 = NULL, *saveptr2 = NULL;
   struct capability *newcap, **capdstptr, *z;
   struct cap_values *newvalue, **nextvaldstptr;
   int found;
 
-  for (capptr = strtok_r(msg, " ", &saveptr1); capptr; capptr = strtok_r(NULL, " ", &saveptr1)) {
+  for (capptr = strtok_r(msgcopy, " ", &saveptr1); capptr; capptr = strtok_r(NULL, " ", &saveptr1)) {
     valptr = strchr(capptr, '=');
     if (valptr) {
       *valptr++ = '\0';
@@ -1674,6 +1670,7 @@ static int add_capabilities(char *msg) {
       }
     }
   }
+  op_free(msgcopy);
   return 0;
 }
 
@@ -2256,7 +2253,7 @@ static int gotwhisper(char *from, char *msg)
     struct userrec *u;
     op_strbuf_t hostbuf;
     op_strbuf_printf(&hostbuf, "%s!%s", nick, from);
-    u = get_user_by_host((char *) op_strbuf_str(&hostbuf));
+    u = get_user_by_host(op_strbuf_str(&hostbuf));
     op_strbuf_free(&hostbuf);
     check_tcl_msg("whisper", nick, from, u, msg);
   }

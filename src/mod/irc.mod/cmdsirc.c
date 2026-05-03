@@ -708,7 +708,7 @@ static void cmd_invite(struct userrec *u, int idx, char *par)
 
 static void cmd_channel(struct userrec *u, int idx, char *par)
 {
-  char handle[HANDLEN + 1], s[UHOSTLEN], s1[UHOSTLEN], atrflag, chanflag;
+  char handle[HANDLEN + 1], s[UHOSTLEN], atrflag, chanflag;
   struct chanset_t *chan;
   memberlist *m;
   int maxnicklen, maxhandlen;
@@ -717,7 +717,6 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
   if (!chan || !has_oporhalfop(idx, chan))
     return;
   putlog(LOG_CMDS, "*", "#%s# (%s) channel", dcc[idx].nick, chan->dname);
-  strlcpy(s, getchanmode(chan), sizeof s);
   {
     op_strbuf_t _s1;
     const char *state = channel_pending(chan) ? IRC_PROCESSINGCHAN
@@ -725,7 +724,8 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
                                                : IRC_DESIRINGCHAN;
     op_strbuf_printf(&_s1, "%s %s", state, chan->dname);
     dprintf(idx, "%s, %d member%s, mode %s:\n", op_strbuf_str(&_s1),
-            chan->channel.members, chan->channel.members == 1 ? "" : "s", s);
+            chan->channel.members, chan->channel.members == 1 ? "" : "s",
+            getchanmode(chan));
     op_strbuf_free(&_s1);
   }
   if (chan->channel.topic)
@@ -848,32 +848,22 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
                 m->account, s, atrflag);
       } else {
         /* Determine idle time */
-        if (now - (m->last) > 86400) {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
-          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-          op_strbuf_free(&_b);
-        } else if (now - (m->last) > 3600) {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%2" PRId64 "h", ((int64_t) (now - m->last)) / 3600);
-          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-          op_strbuf_free(&_b);
-        } else if (now - (m->last) > 180) {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
-          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-          op_strbuf_free(&_b);
-        } else
-          strlcpy(s1, "   ", sizeof s1);
         {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s%s", s1, chan_ircaway(m) ? " (away)" : "       ");
-          strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-          op_strbuf_free(&_b);
+          op_strbuf_t idle;
+          if (now - (m->last) > 86400)
+            op_strbuf_printf(&idle, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
+          else if (now - (m->last) > 3600)
+            op_strbuf_printf(&idle, "%2" PRId64 "h", ((int64_t) (now - m->last)) / 3600);
+          else if (now - (m->last) > 180)
+            op_strbuf_printf(&idle, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
+          else
+            op_strbuf_printf(&idle, "   ");
+          op_strbuf_append_cstr(&idle, chan_ircaway(m) ? " (away)" : "       ");
+          dprintf(idx, "%c%-*s %-*s %-*s %-6s %c %s  %s\n", chanflag, maxnicklen,
+                m->nick, maxhandlen, handle, maxnicklen, m->account, s, atrflag,
+                op_strbuf_str(&idle), m->userhost);
+          op_strbuf_free(&idle);
         }
-        dprintf(idx, "%c%-*s %-*s %-*s %-6s %c %s  %s\n", chanflag, maxnicklen,
-              m->nick, maxhandlen, handle, maxnicklen, m->account, s, atrflag,
-              s1, m->userhost);
       }
       if (chan_fakeop(m))
         dprintf(idx, "    (%s)\n", IRC_FAKECHANOP);
@@ -970,7 +960,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   char *nick, *hand;
   struct chanset_t *chan;
   memberlist *m = NULL;
-  char s[NICKLEN + UHOSTLEN], s1[UHOSTLEN];
+  char s1[UHOSTLEN];
   int atr = u ? u->flags : 0;
   int statichost = 0;
   char *p1 = s1;
@@ -1017,27 +1007,27 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   }
   if (strlen(hand) > HANDLEN)
     hand[HANDLEN] = 0;
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_t _bs;
+  op_strbuf_printf(&_bs, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
   if (u) {
     dprintf(idx, "%s is already known as %s.\n", nick, u->handle);
+    op_strbuf_free(&_bs);
     return;
   }
   u = get_user_by_handle(userlist, hand);
   if (u && (u->flags & (USER_OWNER | USER_MASTER)) &&
       !(atr & USER_OWNER) && strcasecmp(dcc[idx].nick, hand)) {
     dprintf(idx, "You can't add hostmasks to the bot owner/master.\n");
+    op_strbuf_free(&_bs);
     return;
   }
-  if (!statichost)
-    maskhost(s, s1);
-  else {
-    strlcpy(s1, s, sizeof s1);
+  if (!statichost) {
+    maskhost(op_strbuf_str(&_bs), s1);
+    op_strbuf_free(&_bs);
+  } else {
+    strlcpy(s1, op_strbuf_str(&_bs), sizeof s1);
+    op_strbuf_free(&_bs);
     p1 = strchr(s1, '!');
     if (strchr("~^+=-", p1[1])) {
       p1[1] = '?';

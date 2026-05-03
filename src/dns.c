@@ -28,6 +28,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include "dns.h"
+#include "script.h"
 #include <setjmp.h>
 
 extern struct dcc_t *dcc;
@@ -78,9 +79,9 @@ static void eof_dcc_dnswait(int idx)
   lostdcc(idx);
 }
 
-static void display_dcc_dnswait(int idx, char *buf)
+static void display_dcc_dnswait(int idx, op_strbuf_t *buf)
 {
-  snprintf(buf, 1024, "dns   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
+  op_strbuf_appendf(buf, "dns   waited %" PRId64 "s", (int64_t) (now - dcc[idx].timeval));
 }
 
 static int expmem_dcc_dnswait(void *x)
@@ -274,33 +275,19 @@ void dcc_dnshostbyip(sockname_t *ip)
 static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other)
 {
   devent_tclinfo_t *tclinfo = (devent_tclinfo_t *) other;
-  Tcl_DString list;
+  op_strbuf_t sb;
 
-  Tcl_DStringInit(&list);
-  Tcl_DStringAppendElement(&list, tclinfo->proc);
-  Tcl_DStringAppendElement(&list, iptostr(&ip->addr.sa));
-  Tcl_DStringAppendElement(&list, hostn);
-  Tcl_DStringAppendElement(&list, ok ? "1" : "0");
+  /* Build the command: proc ip host ok ?paras? */
+  op_strbuf_printf(&sb, "%s {%s} {%s} %s",
+                   tclinfo->proc,
+                   iptostr(&ip->addr.sa),
+                   hostn,
+                   ok ? "1" : "0");
+  if (tclinfo->paras)
+    op_strbuf_appendf(&sb, " %s", tclinfo->paras);
 
-  if (tclinfo->paras) {
-    EGG_CONST char *argv[2];
-    char *output;
-
-    argv[0] = Tcl_DStringValue(&list);
-    argv[1] = tclinfo->paras;
-    output = Tcl_Concat(2, argv);
-
-    if (Tcl_Eval(interp, output) == TCL_ERROR) {
-      putlog(LOG_MISC, "*", DCC_TCLERROR, tclinfo->proc, tcl_resultstring());
-      Tcl_BackgroundError(interp);
-    }
-    Tcl_Free(output);
-  } else if (Tcl_Eval(interp, Tcl_DStringValue(&list)) == TCL_ERROR) {
-    putlog(LOG_MISC, "*", DCC_TCLERROR, tclinfo->proc, tcl_resultstring());
-    Tcl_BackgroundError(interp);
-  }
-
-  Tcl_DStringFree(&list);
+  egg_eval_log(tclinfo->proc, op_strbuf_str(&sb));
+  op_strbuf_free(&sb);
 
   op_free(tclinfo->proc);
   if (tclinfo->paras)

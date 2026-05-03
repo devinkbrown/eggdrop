@@ -567,7 +567,7 @@ static int tcl_unames STDVAR
 static int tcl_modules STDVAR
 {
   int i;
-  char *p, s[24], s2[24];
+  char *p;
   EGG_CONST char *list[100], *list2[2];
   dependancy *dep;
   module_entry *current;
@@ -576,29 +576,23 @@ static int tcl_modules STDVAR
 
   for (current = module_list; current; current = current->next) {
     list[0] = current->name;
-    {
-      op_strbuf_t t;
-      op_strbuf_printf(&t, "%d.%d", current->major, current->minor);
-      strlcpy(s, op_strbuf_str(&t), sizeof s);
-      op_strbuf_free(&t);
-    }
-    list[1] = s;
+    op_strbuf_t ver;
+    op_strbuf_printf(&ver, "%d.%d", current->major, current->minor);
+    list[1] = op_strbuf_str(&ver);
     i = 2;
     for (dep = dependancy_list; dep && (i < 100); dep = dep->next) {
       if (dep->needing == current) {
         list2[0] = dep->needed->name;
-        {
-          op_strbuf_t t;
-          op_strbuf_printf(&t, "%d.%d", dep->major, dep->minor);
-          strlcpy(s2, op_strbuf_str(&t), sizeof s2);
-          op_strbuf_free(&t);
-        }
-        list2[1] = s2;
+        op_strbuf_t depver;
+        op_strbuf_printf(&depver, "%d.%d", dep->major, dep->minor);
+        list2[1] = op_strbuf_str(&depver);
         list[i] = Tcl_Merge(2, list2);
+        op_strbuf_free(&depver);
         i++;
       }
     }
     p = Tcl_Merge(i, list);
+    op_strbuf_free(&ver);
     Tcl_AppendElement(irp, p);
     Tcl_Free((char *) p);
     while (i > 2) {

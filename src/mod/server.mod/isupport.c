@@ -485,14 +485,11 @@ static void isupport_stringify(int idx, char *buf, size_t bufsize, size_t *len,
       return;
     }
   }
-  {
-    op_strbuf_t _b;
-    if (!value || !value[0])
-      op_strbuf_printf(&_b, " %s", key);
-    else
-      op_strbuf_printf(&_b, " %s=%s", key, value);
-    strlcat(buf + *len, op_strbuf_str(&_b), bufsize - *len);
-    op_strbuf_free(&_b);
+  strlcat(buf + *len, " ", bufsize - *len);
+  strlcat(buf + *len, key, bufsize - *len);
+  if (value && value[0]) {
+    strlcat(buf + *len, "=", bufsize - *len);
+    strlcat(buf + *len, value, bufsize - *len);
   }
   *len = strlen(buf);
 }

@@ -33,6 +33,8 @@
 #include <sys/utsname.h>
 #include "modules.h"
 #include "configtoml.h"
+#include "egg_store.h"
+#include "script.h"
 
 extern struct dcc_t *dcc;
 extern struct userrec *userlist;
@@ -91,7 +93,7 @@ void rmspace(char *s)
 
 /* Returns memberfields if the nick is in the member list.
  */
-memberlist *ismember(struct chanset_t *chan, char *nick)
+memberlist *ismember(struct chanset_t *chan, const char *nick)
 {
   memberlist *x;
 
@@ -325,14 +327,13 @@ void tell_verbose_status(int idx)
   if (interp) {
     /* info library */
     dprintf(idx, "%s %s\n", MISC_TCLLIBRARY,
-            ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
-            tcl_resultstring() : "*unknown*");
+            !egg_eval("info library") ? tcl_resultstring() : "*unknown*");
 
     /* info tclversion/patchlevel */
     dprintf(idx, "%s %s (%s %s)\n", MISC_TCLVERSION,
-            ((interp) && (Tcl_Eval(interp, "info patchlevel") == TCL_OK)) ?
-            tcl_resultstring() : (Tcl_Eval(interp, "info tclversion") == TCL_OK) ?
-            tcl_resultstring() : "*unknown*", MISC_HEADERVERSION, TCL_PATCH_LEVEL);
+            !egg_eval("info patchlevel") ? tcl_resultstring() :
+            !egg_eval("info tclversion") ? tcl_resultstring() : "*unknown*",
+            MISC_HEADERVERSION, TCL_PATCH_LEVEL);
 
     if (tcl_threaded())
       dprintf(idx, "Tcl is threaded.\n");
@@ -508,6 +509,9 @@ void chanprog(void)
 
   if (!botnetnick[0])
     fatal("I don't have a botnet nick!!\n", 0);
+
+  /* Initialize the storage backend (LMDB or flat). */
+  egg_store_init();
 
   if (!userfile[0])
     fatal(MISC_NOUSERFILE2, 0);

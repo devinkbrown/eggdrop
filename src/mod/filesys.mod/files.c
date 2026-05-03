@@ -250,17 +250,14 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s%s", s, elem);
-        work = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(work, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        work = op_strbuf_steal(&_b);
       }
       malloc_strcpy(*real, work);
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s%s", dccdir, *real);
-        s = op_realloc(s, op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        op_free(s);
+        s = op_strbuf_steal(&_b);
       }
     }
     p = strchr(new, '/');
@@ -274,9 +271,8 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", dccdir, *real);
-    s = op_realloc(s, op_strbuf_len(&_b) + 1);
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    op_free(s);
+    s = op_strbuf_steal(&_b);
   }
   dir = opendir(s);
   my_free(s);
@@ -514,9 +510,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
           {
             op_strbuf_t _b;
             op_strbuf_printf(&_b, "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
-            s = op_malloc(op_strbuf_len(&_b) + 1);
-            strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-            op_strbuf_free(&_b);
+            s = op_strbuf_steal(&_b);
           }
           botnet_send_filereq(i, s, bot, fdbe->sharelink);
           dprintf(idx, FILES_REQUESTED, fdbe->sharelink, bot);
@@ -525,9 +519,8 @@ static void cmd_reget_get(int idx, char *par, int resend)
           {
             op_strbuf_t _b;
             op_strbuf_printf(&_b, "%s:%s", bot, fdbe->sharelink);
-            s = op_realloc(s, op_strbuf_len(&_b) + 1);
-            strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-            op_strbuf_free(&_b);
+            op_free(s);
+            s = op_strbuf_steal(&_b);
           }
           malloc_strcpy(fdbe->sharelink, s);
           filedb_updatefile(fdb, fdbe->pos, fdbe, UPDATE_ALL);
@@ -573,9 +566,7 @@ static void cmd_file_help(int idx, char *par)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "filesys/%s", par);
-      s = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      s = op_strbuf_steal(&_b);
     }
     tellhelp(idx, s, &fr, 0);
     my_free(s);
@@ -839,10 +830,7 @@ static void cmd_desc(int idx, char *par)
   /* Fix up desc */
   op_strbuf_t _desc_b;
   op_strbuf_printf(&_desc_b, "%s|", par);
-  size_t desc_sz = op_strbuf_len(&_desc_b) + 1;
-  desc = op_malloc(desc_sz);
-  strlcpy(desc, op_strbuf_str(&_desc_b), desc_sz);
-  op_strbuf_free(&_desc_b);
+  desc = op_strbuf_steal(&_desc_b);
   /* Replace | with linefeeds, limit 5 lines */
   lin = 0;
   q = desc;
@@ -957,9 +945,7 @@ static void cmd_rm(int idx, char *par)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, fdbe->filename);
-        s = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s = op_strbuf_steal(&_b);
       }
       ok++;
       filedb_delfile(fdb, fdbe->pos);
@@ -1032,9 +1018,7 @@ static void cmd_mkdir(int idx, char *par)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, name);
-        s = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s = op_strbuf_steal(&_b);
       }
       if (mkdir(s, 0755) != 0) {
         dprintf(idx, "%s", MISC_FAILED);
@@ -1118,19 +1102,11 @@ static void cmd_rmdir(int idx, char *par)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s%s/%s/.filedb", dccdir, dcc[idx].u.file->dir, name);
-      s = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
-      unlink(s);
-      op_strbuf_printf(&_b, "%s%s/%s/.files", dccdir, dcc[idx].u.file->dir, name);
-      s = op_realloc(s, op_strbuf_len(&_b) + 1);
-      strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
-      unlink(s);
-      op_strbuf_printf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, name);
-      s = op_realloc(s, op_strbuf_len(&_b) + 1);
-      strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      unlink(op_strbuf_str(&_b));
+      op_strbuf_reset(&_b, "%s%s/%s/.files", dccdir, dcc[idx].u.file->dir, name);
+      unlink(op_strbuf_str(&_b));
+      op_strbuf_reset(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, name);
+      s = op_strbuf_steal(&_b);
     }
     if (rmdir(s) == 0) {
       dprintf(idx, "%s /%s%s%s\n", FILES_REMDIR, dcc[idx].u.file->dir,
@@ -1272,17 +1248,13 @@ static void cmd_mv_cp(int idx, char *par, int copy)
           op_strbuf_printf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
         else
           op_strbuf_printf(&_b, "%s%s", dccdir, fdbe_old->filename);
-        s = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s = op_strbuf_steal(&_b);
         const char *newfn_eff = newfn[0] ? newfn : fdbe_old->filename;
         if (newpath[0])
           op_strbuf_printf(&_b, "%s%s/%s", dccdir, newpath, newfn_eff);
         else
           op_strbuf_printf(&_b, "%s%s", dccdir, newfn_eff);
-        s1 = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s1 = op_strbuf_steal(&_b);
       }
       if (!strcmp(s, s1)) {
         dprintf(idx, "%s /%s%s%s %s\n", FILES_SKIPSTUPID,
@@ -1527,9 +1499,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
-        s = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s = op_strbuf_steal(&_b);
       }
       botnet_send_filereq(i, s, bot, fdbe->sharelink);
       dprintf(idx, FILES_REQUESTED, fdbe->sharelink, bot);
@@ -1538,9 +1508,8 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s:%s", bot, fdbe->sharelink);
-        s = op_realloc(s, op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        op_free(s);
+        s = op_strbuf_steal(&_b);
       }
       malloc_strcpy(fdbe->sharelink, s);
       filedb_updatefile(fdb, fdbe->pos, fdbe, UPDATE_ALL);

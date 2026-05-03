@@ -143,9 +143,7 @@ static void set_tcl_var(const char *key, const char *value)
 static void run_tcl_cmd(const char *cmd)
 {
   if (interp) {
-    if (Tcl_Eval(interp, cmd) != TCL_OK)
-      putlog(LOG_MISC, "*", "TOML config: Tcl error running '%s': %s",
-             cmd, Tcl_GetStringResult(interp));
+    egg_eval_log(cmd, cmd);
     return;
   }
 
@@ -646,18 +644,22 @@ static void walk_key_cb(const char *key, void *ud)
   const char *sval;
   long ival;
   int bval;
-  char buf[64];
+  op_strbuf_t _b;
+  op_strbuf_init(&_b);
   const char *val = NULL;
 
   if (op_toml_str(ctx->tbl, key, &sval) == 1)
     val = sval;
   else if (op_toml_int(ctx->tbl, key, &ival) == 1) {
-    snprintf(buf, sizeof buf, "%ld", ival);
-    val = buf;
+    op_strbuf_printf(&_b, "%ld", ival);
+    val = op_strbuf_str(&_b);
   } else if (op_toml_bool(ctx->tbl, key, &bval) == 1)
     val = bval ? "1" : "0";
 
-  if (!val) return;
+  if (!val) {
+    op_strbuf_free(&_b);
+    return;
+  }
 
   /* Buffer [paths] entries for replay after modules load. */
   if (ctx->paths_buf && *ctx->paths_buf_n < PATHS_BUF_MAX) {
@@ -669,6 +671,7 @@ static void walk_key_cb(const char *key, void *ud)
   }
 
   process_kv(ctx->sec, key, val);
+  op_strbuf_free(&_b);
 }
 
 /* Walk a section table: iterate all keys in file order. */
@@ -1129,24 +1132,13 @@ int run_setup_wizard(const char *outfile)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s.user", nick);
-    strlcpy(tmp, op_strbuf_str(&_b), sizeof tmp);
+    prompt("User file", op_strbuf_str(&_b), userfile, sizeof userfile);
+    op_strbuf_reset(&_b, "%s.chan", nick);
+    prompt("Chan file", op_strbuf_str(&_b), chanfile, sizeof chanfile);
+    op_strbuf_reset(&_b, "%s.log", nick);
+    prompt("Log file", op_strbuf_str(&_b), logfile, sizeof logfile);
     op_strbuf_free(&_b);
   }
-  prompt("User file", tmp, userfile, sizeof userfile);
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s.chan", nick);
-    strlcpy(tmp, op_strbuf_str(&_b), sizeof tmp);
-    op_strbuf_free(&_b);
-  }
-  prompt("Chan file", tmp, chanfile, sizeof chanfile);
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s.log", nick);
-    strlcpy(tmp, op_strbuf_str(&_b), sizeof tmp);
-    op_strbuf_free(&_b);
-  }
-  prompt("Log file", tmp, logfile, sizeof logfile);
 
   /* ── Step 5/6: Listen ports ──────────────────────────── */
   step_header(5, 6, "Listen ports");

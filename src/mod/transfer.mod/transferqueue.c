@@ -31,7 +31,7 @@ static int expmem_fileq(void)
   return tot;
 }
 
-static void queue_file(char *dir, char *file, char *from, char *to)
+static void queue_file(const char *dir, const char *file, const char *from, const char *to)
 {
   fileq_t *q = fileq;
   size_t l;
@@ -109,9 +109,7 @@ static void send_next_file(char *to)
   if (this->dir[0] == '*') { /* Absolute path */
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/%s", &this->dir[1], this->file);
-    s = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    s = op_strbuf_steal(&_b);
   } else {
     char *p = strchr(this->dir, '*');
 
@@ -127,27 +125,23 @@ static void send_next_file(char *to)
         op_strbuf_printf(&_b, "%s/%s", p, this->file);
       else
         op_strbuf_printf(&_b, "%s", this->file);
-      s = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      s = op_strbuf_steal(&_b);
     }
     strlcpy(this->dir, &(p[atoi(this->dir)]), sizeof(this->dir));
   }
   if (this->dir[0] == '*') {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/%s", &this->dir[1], this->file);
-    s = op_realloc(s, op_strbuf_len(&_b) + 1);
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    op_free(s);
+    s = op_strbuf_steal(&_b);
   } else {
     op_strbuf_t _b;
     if (this->dir[0])
       op_strbuf_printf(&_b, "%s/%s", this->dir, this->file);
     else
       op_strbuf_printf(&_b, "%s", this->file);
-    s = op_realloc(s, op_strbuf_len(&_b) + 1);
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    op_free(s);
+    s = op_strbuf_steal(&_b);
   }
   x = raw_dcc_send(s, this->to, this->nick);
   if (x == DCCSEND_OK) {
@@ -259,9 +253,8 @@ static void fileq_cancel(int idx, char *par)
             else
               op_strbuf_printf(&_b, "/%s", q->file);
           }
-          s = op_realloc(s, op_strbuf_len(&_b) + 1);
-          strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-          op_strbuf_free(&_b);
+          op_free(s);
+          s = op_strbuf_steal(&_b);
         }
         if (wild_match_file(par, s)) {
           dprintf(idx, TRANSFER_CANCELLED, s, q->to);

@@ -28,6 +28,7 @@
 
 #include "main.h"
 #include "tandem.h"
+#include "script.h"
 
 extern int dcc_total, backgrd, connect_timeout, max_dcc, egg_numver;
 extern struct userrec *userlist;
@@ -408,7 +409,7 @@ void answer_local_whom(int idx, int chan)
     {
       op_strbuf_t tcl_cmd;
       op_strbuf_printf(&tcl_cmd, "assoc %d", chan);
-      if ((Tcl_Eval(interp, op_strbuf_str(&tcl_cmd)) != TCL_OK) || tcl_resultempty())
+      if (egg_eval(op_strbuf_str(&tcl_cmd)) || tcl_resultempty())
         dprintf(idx, "%s %s%d:\n", BOT_USERSONCHAN,
                 (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
       else
@@ -549,7 +550,6 @@ void tell_bots(int idx)
  */
 void tell_bottree(int idx, int showver)
 {
-  char s[161];
   char c = '-';
   tand_t *last[20], *this, *bot, *bot2 = NULL, *lastbot = NULL;
   int lev = 0, more = 1, mark[20], cnt, i, imark;
@@ -561,23 +561,21 @@ void tell_bottree(int idx, int showver)
     dprintf(idx, "%s\n", BOT_NOBOTSLINKED);
     return;
   }
-  s[0] = 0;
-  i = 0;
+  op_strbuf_t _unlinked;
+  op_strbuf_init(&_unlinked);
 
   for (bot = tandbot; bot; bot = bot->next) {
     if (!bot->uplink) {
-      if (i) {
-        s[i++] = ',';
-        s[i++] = ' ';
-      }
-      strlcpy(s + i, bot->bot, sizeof(s) - i);
-      i += strlen(bot->bot);
+      if (!op_strbuf_empty(&_unlinked))
+        op_strbuf_append_cstr(&_unlinked, ", ");
+      op_strbuf_append_cstr(&_unlinked, bot->bot);
     }
   }
   dprintf(idx, "- Link    = Encrypted link    + Userfile Sharing\n");
   dprintf(idx, "------------------------------------------------\n");
-  if (s[0])
-    dprintf(idx, "(%s %s)\n", BOT_NOTRACEINFO, s);
+  if (!op_strbuf_empty(&_unlinked))
+    dprintf(idx, "(%s %s)\n", BOT_NOTRACEINFO, op_strbuf_str(&_unlinked));
+  op_strbuf_free(&_unlinked);
   if (showver)
     dprintf(idx, "%s (%d.%d.%d.%d)\n", botnetnick,
             egg_numver / 1000000,
@@ -620,11 +618,11 @@ void tell_bottree(int idx, int showver)
           strlcpy(work + imark, "  `-", sizeof(work) - imark);
         }
       }
-      s[0] = 0;
+      op_strbuf_t line;
+      op_strbuf_init(&line);
       bot = tandbot;
-      while (!s[0]) {
+      while (op_strbuf_empty(&line)) {
         if (bot->uplink == this) {
-          op_strbuf_t line;
           if (bot->ver) {
             if ((bot->share=='-') && (bot->ssl)) {
               c = '=';
@@ -639,12 +637,11 @@ void tell_bottree(int idx, int showver)
                       bot->ver % 10000 / 100, bot->ver % 100);
           } else
             op_strbuf_printf(&line, "-%s", bot->bot);
-          strlcpy(s, op_strbuf_str(&line), sizeof(s));
-          op_strbuf_free(&line);
         } else
           bot = bot->next;
       }
-      dprintf(idx, "%s%s\n", work, s);
+      dprintf(idx, "%s%s\n", work, op_strbuf_str(&line));
+      op_strbuf_free(&line);
       if (cnt > 1)
         mark[lev] = 1;
       else
@@ -662,6 +659,8 @@ void tell_bottree(int idx, int showver)
           return;
         }
         ok = false;
+        op_strbuf_t line;
+        op_strbuf_init(&line);
         for (bot = tandbot; bot; bot = bot->next) {
           if (bot->uplink == last[lev - 1]) {
             if (this == bot)
@@ -669,7 +668,6 @@ void tell_bottree(int idx, int showver)
             else if (ok) {
               cnt++;
               if (cnt == 1) {
-                op_strbuf_t line;
                 bot2 = bot;
                 if (bot->ver) {
                   if ((bot->share=='-') && (bot->ssl)) {
@@ -685,8 +683,6 @@ void tell_bottree(int idx, int showver)
                             bot->ver % 10000 / 100, bot->ver % 100);
                 } else
                   op_strbuf_printf(&line, "-%s", bot->bot);
-                strlcpy(s, op_strbuf_str(&line), sizeof(s));
-                op_strbuf_free(&line);
               }
             }
           }
@@ -703,16 +699,20 @@ void tell_bottree(int idx, int showver)
           }
           more = 1;
           if (cnt > 1)
-            dprintf(idx, "%s  |%s%s\n", work, lastbot->ssl ? "=" : "-", s);
+            dprintf(idx, "%s  |%s%s\n", work, lastbot->ssl ? "=" : "-",
+                    op_strbuf_str(&line));
           else
-            dprintf(idx, "%s  `%s%s\n", work, lastbot->ssl ? "=" : "-", s);
+            dprintf(idx, "%s  `%s%s\n", work, lastbot->ssl ? "=" : "-",
+                    op_strbuf_str(&line));
           this = bot2;
           work[0] = 0;
           if (cnt > 1)
             mark[lev - 1] = 1;
           else
             mark[lev - 1] = 0;
-        } else {
+        }
+        op_strbuf_free(&line);
+        if (!cnt) {
           /* This was the last child */
           lev--;
           if (lev == 0) {
@@ -742,7 +742,7 @@ void dump_links(int z)
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "n %s %s %c%s\n", bot->bot, p,
                         bot->share, int_to_base64(bot->ver));
-      dprint(z, (char *) op_strbuf_str(&_b), (int) op_strbuf_len(&_b));
+      dprint(z, op_strbuf_str(&_b), (int) op_strbuf_len(&_b));
       op_strbuf_free(&_b);
     }
   }
@@ -761,14 +761,14 @@ void dump_links(int z)
                               botnetnick, dcc[i].nick,
                               b64_chan, geticon(i),
                               b64_sock, dcc[i].host);
-            dprint(z, (char *) op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
+            dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
             op_strbuf_free(&_bj);
             strlcpy(b64_idle, int_to_base64(now - dcc[i].timeval), sizeof b64_idle);
             op_strbuf_t _bi;
             op_strbuf_printf(&_bi, "i %s %s %s %s\n", botnetnick,
                               b64_sock, b64_idle,
                               dcc[i].u.chat->away ? dcc[i].u.chat->away : "");
-            dprint(z, (char *) op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
+            dprint(z, op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
             op_strbuf_free(&_bi);
           }
         }
@@ -784,7 +784,7 @@ void dump_links(int z)
                           party[i].bot, party[i].nick,
                           b64_chan, party[i].flag,
                           b64_sock, party[i].from);
-        dprint(z, (char *) op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
+        dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
         op_strbuf_free(&_bj);
         if ((party[i].status & PLSTAT_AWAY) || (party[i].timer != 0)) {
           char b64_idle[12];
@@ -793,7 +793,7 @@ void dump_links(int z)
           op_strbuf_printf(&_bi, "i %s %s %s %s\n", party[i].bot,
                             b64_sock, b64_idle,
                             party[i].away ? party[i].away : "");
-          dprint(z, (char *) op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
+          dprint(z, op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
           op_strbuf_free(&_bi);
         }
       }
@@ -935,7 +935,7 @@ int botunlink(int idx, char *nick, char *reason, char *from)
         check_tcl_chpt(party[parties].bot, party[parties].nick, party[parties].sock,
                        party[parties].chan);
     }
-    (void)Tcl_Eval(interp, "killassoc &");
+    (void)egg_eval("killassoc &");
   }
   return 0;
 }
@@ -1499,24 +1499,24 @@ static void dcc_relaying(int idx, char *buf, int j)
   lostdcc(j);
 }
 
-static void display_relay(int i, char *other)
+static void display_relay(int i, op_strbuf_t *buf)
 {
-  snprintf(other, 160, "rela  -> sock %d", dcc[i].u.relay->sock);
+  op_strbuf_appendf(buf, "rela  -> sock %d", dcc[i].u.relay->sock);
 }
 
-static void display_relaying(int i, char *other)
+static void display_relaying(int i, op_strbuf_t *buf)
 {
-  snprintf(other, 160, ">rly  -> sock %d", dcc[i].u.relay->sock);
+  op_strbuf_appendf(buf, ">rly  -> sock %d", dcc[i].u.relay->sock);
 }
 
-static void display_tandem_relay(int i, char *other)
+static void display_tandem_relay(int i, op_strbuf_t *buf)
 {
-  strlcpy(other, "other  rela", 160);
+  op_strbuf_append_cstr(buf, "other  rela");
 }
 
-static void display_pre_relay(int i, char *other)
+static void display_pre_relay(int i, op_strbuf_t *buf)
 {
-  strlcpy(other, "other  >rly", 160);
+  op_strbuf_append_cstr(buf, "other  >rly");
 }
 
 static int expmem_relay(void *x)

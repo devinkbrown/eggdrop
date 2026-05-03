@@ -306,7 +306,7 @@ static void webui_dcc_telnet_hostresolved(int idx, int listen_idx)
     // dcc[i].u.other = NULL; /* important, else op_free() error in lostdcc on eof */
 }
 
-static size_t escape_html(char *dst, size_t dst_size, char *src, size_t src_size) {
+static size_t escape_html(char *dst, size_t dst_size, const char *src, size_t src_size) {
   char *d = dst;
 
   for (int i = 0; i < src_size; i++) {
@@ -436,7 +436,7 @@ static size_t escape_html(char *dst, size_t dst_size, char *src, size_t src_size
   return d - dst;
 }
 
-static size_t webui_frame(char **dst, char *src, size_t len) {
+static size_t webui_frame(const char **dst, const char *src, size_t len) {
   static char buf[LOGLINELEN];
   uint16_t len2;
 

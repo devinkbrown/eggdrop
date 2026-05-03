@@ -429,9 +429,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
   for (int i = 0; i < ndirs; i++) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
-    langfile = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(langfile, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    langfile = op_strbuf_steal(&_b);
     if (file_readable(langfile)) {
       /* Save language used for this section */
       sec->lang = op_realloc(sec->lang, strlen(language) + 1);
@@ -598,7 +596,7 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
   return 0;
 }
 
-static char text[512];
+static op_strbuf_t text;
 char *get_language(int idx)
 {
   lang_tab *l;
@@ -608,13 +606,8 @@ char *get_language(int idx)
   for (l = langtab[idx & 63]; l; l = l->next)
     if (idx == l->idx)
       return l->text;
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "MSG%03X", idx);
-    strlcpy(text, op_strbuf_str(&_b), sizeof text);
-    op_strbuf_free(&_b);
-  }
-  return text;
+  op_strbuf_reset(&text, "MSG%03X", idx);
+  return (char *) op_strbuf_str(&text);
 }
 
 /* A report on the module status - only for debugging purposes

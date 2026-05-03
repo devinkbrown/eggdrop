@@ -40,7 +40,7 @@ static void truncate_mask_hostname(char *s) {
 
 static void cmd_pls_ban(struct userrec *u, int idx, char *par)
 {
-  char *chname, *who, s[UHOSTLEN], s1[UHOSTLEN], *p, *p_expire;
+  char *chname, *who, s[UHOSTLEN], *p, *p_expire;
   long expire_foo;
   uint64_t expire_time = 0;
   int sticky = 0;
@@ -137,14 +137,12 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
       op_strbuf_free(&_b);
     }
     if ((me = module_find("server", 0, 0)) && me->funcs) {
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
-                         (char *) me->funcs[SERVER_BOTUSERHOST]);
-        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-        op_strbuf_free(&_b);
-      }
-      if (match_addr(s, s1)) {
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
+                       (char *) me->funcs[SERVER_BOTUSERHOST]);
+      int selfban = match_addr(s, op_strbuf_str(&_b));
+      op_strbuf_free(&_b);
+      if (selfban) {
         dprintf(idx, "I'm not going to ban myself.\n");
         putlog(LOG_CMDS, "*", "#%s# attempted +ban %s", dcc[idx].nick, s);
         return;

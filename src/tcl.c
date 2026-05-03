@@ -72,6 +72,7 @@ extern char tls_capath[], tls_cafile[], tls_certfile[], tls_keyfile[],
 
 extern struct dcc_t *dcc;
 extern tcl_timer_t *timer, *utimer;
+extern char store_backend[], store_path[];
 
 #ifdef HAVE_TCL
 Tcl_Interp *interp;
@@ -156,6 +157,8 @@ static tcl_strings def_tcl_strings[] = {
   {"configureargs",   EGG_AC_ARGS,    0,             STR_PROTECT},
   {"stealth-prompt",  stealth_prompt, 80,                      0},
   {"language",        language,       64,            STR_PROTECT},
+  {"store-backend",   store_backend,  15,            STR_PROTECT},
+  {"store-path",      store_path,     120,           STR_PROTECT},
   {NULL,              NULL,           0,                       0}
 };
 
@@ -303,7 +306,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
-  char *s, s1[41];
+  char *s;
   coupletinfo *cp = (coupletinfo *) cdata;
 
   if (flags & TCL_TRACE_WRITES) {
@@ -325,10 +328,9 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%d:%d", *(cp->left), *(cp->right));
-      strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
+      Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
       op_strbuf_free(&_b);
     }
-    Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS)
       Tcl_TraceVar(interp, name1,
                    TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -359,12 +361,7 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
       fr.udef_global = default_uflags;
       build_flags(s1, &fr, 0);
     } else if ((int *) ii->var == &userfile_perm) {
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "0%o", userfile_perm);
-        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-        op_strbuf_free(&_b);
-      }
+      snprintf(s1, sizeof s1, "0%o", userfile_perm);
     } else
       strlcpy(s1, int_to_base10(*(int *) ii->var), sizeof s1);
     Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
@@ -428,15 +425,10 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
 
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     if ((st->str == firewall) && (firewall[0])) {
-      char s1[127];
-
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s:%d", firewall, firewallport);
-        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-        op_strbuf_free(&_b);
-      }
-      Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
+      op_strbuf_t _b;
+      op_strbuf_printf(&_b, "%s:%d", firewall, firewallport);
+      Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
+      op_strbuf_free(&_b);
     } else
       Tcl_SetVar2(interp, name1, name2, st->str, TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS) {

@@ -186,11 +186,11 @@ constexpr int IGREC_PERM = 2;
  */
 
 [[nodiscard]] struct userrec *get_user_by_handle(struct userrec *, char *);
-[[nodiscard]] struct userrec *get_user_by_host(char *);
-[[nodiscard]] struct userrec *get_user_by_account(char *);
+[[nodiscard]] struct userrec *get_user_by_host(const char *);
+[[nodiscard]] struct userrec *get_user_by_account(const char *);
 [[nodiscard]] struct userrec *get_user_by_nick(char *);
 [[nodiscard]] struct userrec *get_user_from_member(memberlist *);
-[[nodiscard]] struct userrec *lookup_user_record(memberlist *, char *, char *);
+[[nodiscard]] struct userrec *lookup_user_record(memberlist *, const char *, const char *);
 [[nodiscard]] struct userrec *check_chanlist(const char *);
 [[nodiscard]] memberlist *find_member_from_nick(char *);
 

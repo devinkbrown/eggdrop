@@ -1142,20 +1142,55 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
     strlcpy(s, int_to_base10(chan->exempt_time), sizeof s);
   else if (!strcmp(setting, "invite-time"))
     strlcpy(s, int_to_base10(chan->invite_time), sizeof s);
-  else if (!strcmp(setting, "flood-chan"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
-  else if (!strcmp(setting, "flood-ctcp"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
-  else if (!strcmp(setting, "flood-join"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
-  else if (!strcmp(setting, "flood-kick"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
-  else if (!strcmp(setting, "flood-deop"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
-  else if (!strcmp(setting, "flood-nick"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
-  else if (!strcmp(setting, "aop-delay"))
-    { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->aop_min, chan->aop_max); strlcpy(s, op_strbuf_str(&t), sizeof s); op_strbuf_free(&t); }
+  else if (!strcmp(setting, "flood-chan")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
+  else if (!strcmp(setting, "flood-ctcp")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
+  else if (!strcmp(setting, "flood-join")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
+  else if (!strcmp(setting, "flood-kick")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
+  else if (!strcmp(setting, "flood-deop")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
+  else if (!strcmp(setting, "flood-nick")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
+  else if (!strcmp(setting, "aop-delay")) {
+    op_strbuf_t t;
+    op_strbuf_printf(&t, "%d %d", chan->aop_min, chan->aop_max);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    op_strbuf_free(&t);
+    return TCL_OK;
+  }
   else if CHKFLAG_POS(CHAN_ENFORCEBANS, "enforcebans", chan->status)
   else if CHKFLAG_POS(CHAN_DYNAMICBANS, "dynamicbans", chan->status)
   else if CHKFLAG_NEG(CHAN_NOUSERBANS, "userbans", chan->status)

@@ -157,7 +157,7 @@ static void notes_change(char *oldnick, char *newnick)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s~new", notefile);
-    movefile((char *) op_strbuf_str(&_b), notefile);
+    movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
   putlog(LOG_MISC, "*", NOTES_SWITCHED_NOTES, tot, tot == 1 ? "" : "s",
@@ -216,7 +216,7 @@ static void expire_notes(void)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s~new", notefile);
-    movefile((char *) op_strbuf_str(&_b), notefile);
+    movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
   if (tot > 0)
@@ -299,7 +299,7 @@ static int tcl_storenote STDVAR
                             argv[3]);
           p = argv[1];
         }
-        if ((add_note(fwd, p, (char *)op_strbuf_str(&note_sb), idx, 0) == NOTE_OK)
+        if ((add_note(fwd, p, op_strbuf_str(&note_sb), idx, 0) == NOTE_OK)
             && (idx >= 0))
           dprintf(idx, NOTES_FORWARD_NOTONLINE, f1);
         op_strbuf_free(&note_sb);
@@ -461,7 +461,7 @@ static int tcl_erasenotes STDVAR
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s~new", notefile);
-    movefile((char *) op_strbuf_str(&_b), notefile);
+    movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
   return TCL_OK;
@@ -674,7 +674,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s~new", notefile);
-    movefile((char *) op_strbuf_str(&_b), notefile);
+    movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
   if ((er == 0) && (in > 1)) {

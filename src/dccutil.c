@@ -167,7 +167,7 @@ int findanyidx(int z)
 }
 
 /* Send buf to sock, inserting \r before each \n (telnet line endings). */
-static void tputs_cr(int sock, char *buf, int len)
+static void tputs_cr(int sock, const char *buf, int len)
 {
   op_strbuf_t sb;
 
@@ -177,11 +177,11 @@ static void tputs_cr(int sock, char *buf, int len)
       op_strbuf_appendc(&sb, '\r');
     op_strbuf_appendc(&sb, buf[i]);
   }
-  tputs(sock, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
+  tputs(sock, op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
   op_strbuf_free(&sb);
 }
 
-extern void (*qserver) (int, char *, int);
+extern void (*qserver) (int, const char *, int);
 
 ATTRIBUTE_FORMAT(printf,2,3)
 void dprintf(int idx, const char *format, ...)
@@ -210,7 +210,7 @@ void dprintf(int idx, const char *format, ...)
 }
 
 ATTRIBUTE_NOINLINE
-void dprint(int idx, char *buf, int len)
+void dprint(int idx, const char *buf, int len)
 {
   if (idx < 0) {
     tputs(-idx, buf, len);
@@ -237,14 +237,17 @@ void dprint(int idx, char *buf, int len)
     return;
   } else {
     if (len > LOGLINEMAX-11) {            /* Truncate to fit */
-      buf[LOGLINEMAX-11] = '\n';
-      buf[LOGLINEMAX-10] = 0;
+      char truncbuf[LOGLINEMAX-10+1];
+      memcpy(truncbuf, buf, LOGLINEMAX-11);
+      truncbuf[LOGLINEMAX-11] = '\n';
+      truncbuf[LOGLINEMAX-10] = 0;
       len = LOGLINEMAX-10;
+      buf = truncbuf;
     }
     if (dcc[idx].type && ((long) (dcc[idx].type->output) == 1)) {
       tputs_cr(dcc[idx].sock, buf, len);
     } else if (dcc[idx].type && dcc[idx].type->output)
-      dcc[idx].type->output(idx, buf, dcc[idx].u.other);
+      dcc[idx].type->output(idx, (char *) buf, dcc[idx].u.other);
     else
       tputs(dcc[idx].sock, buf, len);
   }
@@ -263,7 +266,7 @@ void chatout(const char *format, ...)
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT)
       if (dcc[i].u.chat->channel >= 0)
-        dprint(i, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
+        dprint(i, op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
 
   op_strbuf_free(&sb);
 }
@@ -281,7 +284,7 @@ void chanout_but(int x, int chan, const char *format, ...)
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT) && (i != x))
       if (dcc[i].u.chat->channel == chan)
-        dprint(i, (char *) op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
+        dprint(i, op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
 
   op_strbuf_free(&sb);
 }
@@ -421,7 +424,7 @@ void dcc_remove_lost(void)
 void tell_dcc(int zidx)
 {
   int j, nicklen = 0;
-  char format[81];
+  op_strbuf_t fmt;
 
   /* calculate max nicklen */
   for (int i = 0; i < dcc_total; i++) {
@@ -437,14 +440,14 @@ void tell_dcc(int zidx)
   if (j > 40)
     j = 40;
 
-  snprintf(format, sizeof format, "%%-3s %%-%d.%ds %%-6s %%-%d.%ds %%s\n",
-           j, j, nicklen, nicklen);
-  dprintf(zidx, format, "IDX", "ADDR", "+ PORT", "NICK", "TYPE  INFO");
-  dprintf(zidx, format, "---",
+  op_strbuf_printf(&fmt, "%%-3s %%-%d.%ds %%-6s %%-%d.%ds %%s\n",
+                   j, j, nicklen, nicklen);
+  dprintf(zidx, op_strbuf_str(&fmt), "IDX", "ADDR", "+ PORT", "NICK", "TYPE  INFO");
+  dprintf(zidx, op_strbuf_str(&fmt), "---",
           "------------------------------------------------------", "------",
           "--------------------------------", "----- ---------");
-  snprintf(format, sizeof format, "%%-3d %%-%d.%ds %%c%%5d %%-%d.%ds %%s\n",
-           j, j, nicklen, nicklen);
+  op_strbuf_reset(&fmt, "%%-3d %%-%d.%ds %%c%%5d %%-%d.%ds %%s\n",
+                  j, j, nicklen, nicklen);
 
   for (int i = 0; i < dcc_total; i++) {
     op_strbuf_t sb;
@@ -453,12 +456,12 @@ void tell_dcc(int zidx)
       dcc[i].type->display(i, &sb);
     else {
       op_strbuf_appendf(&sb, "?:%lX  !! ERROR !!", (long) dcc[i].type);
-      dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
+      dprintf(zidx, op_strbuf_str(&fmt), dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
               ' ', dcc[i].port, dcc[i].nick, op_strbuf_str(&sb));
       op_strbuf_free(&sb);
       break;
     }
-    dprintf(zidx, format, dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
+    dprintf(zidx, op_strbuf_str(&fmt), dcc[i].sock, iptostr(&dcc[i].sockname.addr.sa),
 #ifdef TLS
             dcc[i].ssl ? '+' : ' ', dcc[i].port, dcc[i].nick, op_strbuf_str(&sb));
 #else
@@ -466,6 +469,7 @@ void tell_dcc(int zidx)
 #endif
     op_strbuf_free(&sb);
   }
+  op_strbuf_free(&fmt);
 }
 
 /* Mark someone on dcc chat as no longer away
@@ -605,7 +609,7 @@ int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
         op_strbuf_printf(&sb, DCC_FLOODBOOT, dcc[idx].nick);
         chanout_but(idx, chat->channel, "*** %s", op_strbuf_str(&sb));
         if (chat->channel < GLOBAL_CHANS)
-          botnet_send_part_idx(idx, (char *) op_strbuf_str(&sb));
+          botnet_send_part_idx(idx, op_strbuf_str(&sb));
         op_strbuf_free(&sb);
       }
       check_tcl_chof(dcc[idx].nick, dcc[idx].sock);
@@ -640,7 +644,7 @@ void do_boot(int idx, char *by, char *reason)
                      reason[0] ? ": " : "", reason);
     chanout_but(idx, dcc[idx].u.chat->channel, "*** %s.\n", op_strbuf_str(&sb));
     if (dcc[idx].u.chat->channel < GLOBAL_CHANS)
-      botnet_send_part_idx(idx, (char *) op_strbuf_str(&sb));
+      botnet_send_part_idx(idx, op_strbuf_str(&sb));
     op_strbuf_free(&sb);
   }
   check_tcl_chof(dcc[idx].nick, dcc[idx].sock);

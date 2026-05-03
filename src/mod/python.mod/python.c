@@ -88,7 +88,6 @@ static int python_gil_lock() {
 
 static char *init_python() {
   const char *venv;
-  char venvpython[PATH_MAX];
   PyObject *pmodule;
   PyStatus status;
   PyConfig config;
@@ -117,12 +116,9 @@ static char *init_python() {
   config.install_signal_handlers = 0;
   config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s/bin/python3", venv);
-      strlcpy(venvpython, op_strbuf_str(&_b), sizeof venvpython);
-      op_strbuf_free(&_b);
-    }
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s/bin/python3", venv);
+    const char *venvpython = op_strbuf_str(&_b);
     /* Validate the venv executable exists and is runnable before telling
      * Python to use it.  Py_InitializeFromConfig() issues a fatal (not just
      * exception) status for a missing executable, which internally calls
@@ -131,10 +127,12 @@ static char *init_python() {
     if (access(venvpython, X_OK) == 0) {
       status = PyConfig_SetBytesString(&config, &config.executable, venvpython);
       if (PyStatus_Exception(status)) {
+        op_strbuf_free(&_b);
         PyConfig_Clear(&config);
         return "Python: Fatal error: Could not set venv executable";
       }
     }
+    op_strbuf_free(&_b);
     /* else: venv executable is missing or broken; fall back to system Python */
   }
   status = PyConfig_SetBytesString(&config, &config.program_name, argv0);
@@ -275,6 +273,7 @@ char *python_start(Function *global_funcs)
 #else
   /* Register as the default script engine for no-Tcl builds */
   script_register(python_script_call, python_script_load);
+  script_register_eval(python_script_eval);
   python_callbacks = PyDict_New();
 #endif
   add_hook(HOOK_PRE_SELECT, (Function)python_gil_unlock);

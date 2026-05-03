@@ -25,6 +25,7 @@
 #include "main.h"
 #include "tandem.h"
 #include "modules.h"
+#include "script.h"
 #include <signal.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -49,7 +50,7 @@ extern char botnetnick[], origbotname[], ver[], network[], owner[], quit_msg[];
 extern time_t now, online_since;
 extern module_entry *module_list;
 
-static char *btos(uint64_t);
+static const char *btos(uint64_t);
 
 /* Define some characters not allowed in address/port string
  */
@@ -71,7 +72,7 @@ static int add_bot_hostmask(int idx, char *nick)
         struct userrec *u;
 
         op_strbuf_printf(&s, "%s!%s", m->nick, m->userhost);
-        u = get_user_by_host((char *) op_strbuf_str(&s));
+        u = get_user_by_host(op_strbuf_str(&s));
         if (u) {
           op_strbuf_free(&s);
           dprintf(idx, "(Can't add hostmask for %s because it matches %s)\n",
@@ -83,7 +84,7 @@ static int add_bot_hostmask(int idx, char *nick)
         else
           op_strbuf_reset(&s, "*!%s", m->userhost);
         dprintf(idx, "(Added hostmask for %s from %s)\n", nick, chan->dname);
-        addhost_by_handle(nick, (char *) op_strbuf_str(&s));
+        addhost_by_handle(nick, op_strbuf_str(&s));
         op_strbuf_free(&s);
         return 1;
       }
@@ -103,7 +104,7 @@ static void tell_who(struct userrec *u, int idx, int chan)
   else {
     op_strbuf_t assoccmd;
     op_strbuf_printf(&assoccmd, "assoc %d", chan);
-    if ((Tcl_Eval(interp, op_strbuf_str(&assoccmd)) != TCL_OK) || tcl_resultempty())
+    if (egg_eval(op_strbuf_str(&assoccmd)) || tcl_resultempty())
       dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
               "*", chan % GLOBAL_CHANS);
@@ -298,11 +299,11 @@ static void cmd_whom(struct userrec *u, int idx, char *par)
     int chan = -1;
 
     if ((par[0] < '0') || (par[0] > '9')) {
-      Tcl_SetVar(interp, "_chan", par, 0);
-      if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
-          !tcl_resultempty()) {
+      op_strbuf_t assoc_cmd;
+      op_strbuf_printf(&assoc_cmd, "assoc {%s}", par);
+      if (!egg_eval(op_strbuf_str(&assoc_cmd)) && !tcl_resultempty())
         chan = tcl_resultint();
-      }
+      op_strbuf_free(&assoc_cmd);
       if (chan <= 0) {
         dprintf(idx, "No such channel exists.\n");
         return;
@@ -2391,12 +2392,13 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
         if (!arg[1])
           newchan = 0;
         else {
-          Tcl_SetVar(interp, "_chan", arg, 0);
-          if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
-              !tcl_resultempty())
+          op_strbuf_t assoc_cmd;
+          op_strbuf_printf(&assoc_cmd, "assoc {%s}", arg);
+          if (!egg_eval(op_strbuf_str(&assoc_cmd)) && !tcl_resultempty())
             newchan = tcl_resultint();
           else
             newchan = -1;
+          op_strbuf_free(&assoc_cmd);
         }
         if (newchan < 0) {
           dprintf(idx, "No channel exists by that name.\n");
@@ -2414,9 +2416,9 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
         if (!strcasecmp(arg, "on"))
           newchan = 0;
         else {
-          Tcl_SetVar(interp, "_chan", arg, 0);
-          if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) == TCL_OK) &&
-              !tcl_resultempty()) {
+          op_strbuf_t assoc_cmd;
+          op_strbuf_printf(&assoc_cmd, "assoc {%s}", arg);
+          if (!egg_eval(op_strbuf_str(&assoc_cmd)) && !tcl_resultempty()) {
             newchan = tcl_resultint();
             if ((newchan >= GLOBAL_CHANS) && (newchan <= 199999)) {
               localchan = 1;
@@ -2424,6 +2426,7 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
           }
           else
             newchan = -1;
+          op_strbuf_free(&assoc_cmd);
         }
         if (newchan < 0) {
           dprintf(idx, "No channel exists by that name.\n");
@@ -2575,12 +2578,11 @@ const char *stripmasktype(int x)
   return s;
 }
 
-static char *stripmaskname(int x)
+static const char *stripmaskname(int x)
 {
-  static char s[128];
-  op_strbuf_t sb;
+  static op_strbuf_t sb;
 
-  op_strbuf_init(&sb);
+  op_strbuf_clear(&sb);
   if (x & STRIP_COLOR)     op_strbuf_append_cstr(&sb, "color, ");
   if (x & STRIP_BOLD)      op_strbuf_append_cstr(&sb, "bold, ");
   if (x & STRIP_REVERSE)   op_strbuf_append_cstr(&sb, "reverse, ");
@@ -2593,9 +2595,7 @@ static char *stripmaskname(int x)
     op_strbuf_truncate(&sb, op_strbuf_len(&sb) - 2);  /* strip trailing ", " */
   else
     op_strbuf_append_cstr(&sb, "none");
-  strlcpy(s, op_strbuf_str(&sb), sizeof s);
-  op_strbuf_free(&sb);
-  return s;
+  return op_strbuf_str(&sb);
 }
 
 static void cmd_strip(struct userrec *u, int idx, char *par)
@@ -2731,7 +2731,7 @@ static void cmd_su(struct userrec *u, int idx, char *par)
           op_strbuf_t buf;
           op_strbuf_printf(&buf, "Enter password for %s" TLN_IAC_C TLN_WILL_C
                            TLN_ECHO_C "\r\n", par);
-          tputs(dcc[idx].sock, (char *) op_strbuf_str(&buf), op_strbuf_len(&buf));
+          tputs(dcc[idx].sock, op_strbuf_str(&buf), op_strbuf_len(&buf));
           op_strbuf_free(&buf);
         } else
           dprintf(idx, "Enter password for %s\n", par);
@@ -2822,8 +2822,6 @@ static void cmd_tcl(struct userrec *u, int idx, char *msg)
   struct rusage ru1, ru2;
   int r = 0;
   int code;
-  char *result;
-  Tcl_DString dstr;
 
   if (!isowner(dcc[idx].nick) && must_be_owner) {
     dprintf(idx, "%s", MISC_NOSUCHCMD);
@@ -2831,7 +2829,7 @@ static void cmd_tcl(struct userrec *u, int idx, char *msg)
   }
   debug1("tcl: evaluating .tcl %s", msg);
   r = getrusage(RUSAGE_SELF, &ru1);
-  code = Tcl_GlobalEval(interp, msg);
+  code = egg_eval(msg);
   if (!r && !getrusage(RUSAGE_SELF, &ru2))
     debug3("tcl: evaluated .tcl %s, user %.3fms sys %.3fms", msg,
            (double) (ru2.ru_utime.tv_usec - ru1.ru_utime.tv_usec) / 1000 +
@@ -2839,17 +2837,10 @@ static void cmd_tcl(struct userrec *u, int idx, char *msg)
            (double) (ru2.ru_stime.tv_usec - ru1.ru_stime.tv_usec) / 1000 +
            (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
 
-  /* properly convert string to system encoding. */
-  Tcl_DStringInit(&dstr);
-  Tcl_UtfToExternalDString(NULL, tcl_resultstring(), -1, &dstr);
-  result = Tcl_DStringValue(&dstr);
-
   if (code == TCL_OK)
-    dumplots(idx, "Tcl: ", result);
+    dumplots(idx, "Tcl: ", tcl_resultstring());
   else
-    dumplots(idx, "Tcl error: ", result);
-
-  Tcl_DStringFree(&dstr);
+    dumplots(idx, "Tcl error: ", tcl_resultstring());
 }
 
 static void cmd_python(struct userrec *u, int idx, char *msg)
@@ -2898,8 +2889,6 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
   }
 
   int code;
-  char *result;
-  Tcl_DString dstr;
 
   if (!isowner(dcc[idx].nick) && must_be_owner) {
     dprintf(idx, "%s", MISC_NOSUCHCMD);
@@ -2907,31 +2896,24 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
   }
   putlog(LOG_CMDS, "*", "#%s# set %s", dcc[idx].nick, msg);
   if (!msg[0]) {
-    (void)Tcl_Eval(interp, "info globals");
+    (void)egg_eval("info globals");
     dumplots(idx, "Global vars: ", tcl_resultstring());
     return;
   }
   {
     op_strbuf_t sb;
     op_strbuf_printf(&sb, "set %s", msg);
-    code = Tcl_Eval(interp, (char *) op_strbuf_str(&sb));
+    code = egg_eval(op_strbuf_str(&sb));
     op_strbuf_free(&sb);
   }
 
-  /* properly convert string to system encoding. */
-  Tcl_DStringInit(&dstr);
-  Tcl_UtfToExternalDString(NULL, tcl_resultstring(), -1, &dstr);
-  result = Tcl_DStringValue(&dstr);
-
   if (code == TCL_OK) {
     if (!strchr(msg, ' '))
-      dumplots(idx, "Currently: ", result);
+      dumplots(idx, "Currently: ", tcl_resultstring());
     else
       dprintf(idx, "Ok, set.\n");
   } else
-    dprintf(idx, "Error: %s\n", result);
-
-  Tcl_DStringFree(&dstr);
+    dprintf(idx, "Error: %s\n", tcl_resultstring());
 }
 
 static void cmd_module(struct userrec *u, int idx, char *par)
@@ -3311,9 +3293,9 @@ static void cmd_traffic(struct userrec *u, int idx, char *par)
   putlog(LOG_CMDS, "*", "#%s# traffic", dcc[idx].nick);
 }
 
-static char traffictxt[20];
-static char *btos(uint64_t bytes)
+static const char *btos(uint64_t bytes)
 {
+  static op_strbuf_t sb;
   const char *unit;
   float xbytes;
 
@@ -3335,10 +3317,10 @@ static char *btos(uint64_t bytes)
     xbytes = xbytes / 1024.0;
   }
   if (bytes > 1024)
-    snprintf(traffictxt, sizeof traffictxt, "%.2f %s", xbytes, unit);
+    op_strbuf_reset(&sb, "%.2f %s", xbytes, unit);
   else
-    snprintf(traffictxt, sizeof traffictxt, "%" PRIu64 " Bytes", bytes);
-  return traffictxt;
+    op_strbuf_reset(&sb, "%" PRIu64 " Bytes", bytes);
+  return op_strbuf_str(&sb);
 }
 
 static void cmd_whoami(struct userrec *u, int idx, char *par)

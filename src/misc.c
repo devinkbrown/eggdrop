@@ -33,6 +33,7 @@
 #include "chan.h"
 #include "tandem.h"
 #include "modules.h"
+#include "egg_store.h"
 
 #include <sys/utsname.h>
 
@@ -444,69 +445,61 @@ void dumplots(int idx, const char *prefix, const char *data)
 /* Convert an interval (in seconds) to one of:
  * "19 days ago", "1 day ago", "18:12"
  */
-void daysago(time_t now, time_t then, char *out)
+const char *daysago(time_t now, time_t then)
 {
+  static op_strbuf_t _b;
+
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%d day%s ago", days, (days == 1) ? "" : "s");
-      strlcpy(out, op_strbuf_str(&_b), 29);
-      op_strbuf_free(&_b);
-    }
-    return;
+    op_strbuf_reset(&_b, "%d day%s ago", days, (days == 1) ? "" : "s");
+  } else {
+    char tmp[6];
+    strftime(tmp, sizeof tmp, "%H:%M", localtime(&then));
+    op_strbuf_reset(&_b, "%s", tmp);
   }
-  strftime(out, 6, "%H:%M", localtime(&then));
+  return op_strbuf_str(&_b);
 }
 
 /* Convert an interval (in seconds) to one of:
  * "in 19 days", "in 1 day", "at 18:12"
  */
-void days(time_t now, time_t then, char *out)
+const char *days(time_t now, time_t then)
 {
+  static op_strbuf_t _b;
+
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "in %d day%s", days, (days == 1) ? "" : "s");
-      strlcpy(out, op_strbuf_str(&_b), 29);
-      op_strbuf_free(&_b);
-    }
-    return;
+    op_strbuf_reset(&_b, "in %d day%s", days, (days == 1) ? "" : "s");
+  } else {
+    char tmp[9];
+    strftime(tmp, sizeof tmp, "at %H:%M", localtime(&now));
+    op_strbuf_reset(&_b, "%s", tmp);
   }
-  strftime(out, 9, "at %H:%M", localtime(&now));
+  return op_strbuf_str(&_b);
 }
 
 /* Convert an interval (in seconds) to one of:
  * "for 19 days", "for 1 day", "for 09:10"
  */
-void daysdur(time_t now, time_t then, char *out)
+const char *daysdur(time_t now, time_t then)
 {
-  int hrs, mins;
+  static op_strbuf_t _b;
 
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "for %d day%s", days, (days == 1) ? "" : "s");
-      strlcpy(out, op_strbuf_str(&_b), 41);
-      op_strbuf_free(&_b);
-    }
-    return;
+    op_strbuf_reset(&_b, "for %d day%s", days, (days == 1) ? "" : "s");
+  } else {
+    int hrs, mins;
+
+    time_t diff = now - then;
+    hrs = (int) (diff / 3600);
+    mins = (int) ((diff - (hrs * 3600)) / 60);
+    op_strbuf_reset(&_b, "for %02d:%02d", hrs, mins);
   }
-  strlcpy(out, "for ", 41);
-  now -= then;
-  hrs = (int) (now / 3600);
-  mins = (int) ((now - (hrs * 3600)) / 60);
-  {
-    op_strbuf_t s;
-    op_strbuf_printf(&s, "%02d:%02d", hrs, mins);
-    strlcat(out, op_strbuf_str(&s), 41);
-    op_strbuf_free(&s);
-  }
+  return op_strbuf_str(&_b);
 }
 
 
@@ -767,20 +760,18 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
 char *egg_uname(void)
 {
   struct utsname u;
-  static char sysrel[(sizeof u.sysname) + (sizeof u.release)];
+  static op_strbuf_t sb;
+  static bool sb_inited;
 
   if (show_uname) {
     if (uname(&u) < 0)
       return "*unknown*";
-    else {
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s %s", u.sysname, u.release);
-        strlcpy(sysrel, op_strbuf_str(&_b), sizeof sysrel);
-        op_strbuf_free(&_b);
-      }
-      return sysrel;
+    if (!sb_inited) {
+      op_strbuf_init(&sb);
+      sb_inited = true;
     }
+    op_strbuf_reset(&sb, "%s %s", u.sysname, u.release);
+    return (char *) op_strbuf_str(&sb);
   }
   else
     return "";
@@ -1587,6 +1578,7 @@ void str_unescape(char *str, const char esc_char)
   botnet_send_chat(-1, botnetnick, s1);
   botnet_send_bye();
   write_userfile(-1);
+  egg_store_shutdown();
   fatal(s2, 2);
   __builtin_unreachable();
 }

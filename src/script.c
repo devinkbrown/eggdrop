@@ -91,6 +91,7 @@ const char *egg_getvar(const char *name)
 
 static script_call_t engine_call = NULL;
 static script_load_t engine_load = NULL;
+static script_eval_t engine_eval = NULL;
 
 void script_register(script_call_t call, script_load_t load)
 {
@@ -98,11 +99,17 @@ void script_register(script_call_t call, script_load_t load)
   engine_load = load;
 }
 
+void script_register_eval(script_eval_t eval)
+{
+  engine_eval = eval;
+}
+
 void script_unregister(script_call_t call)
 {
   if (engine_call == call) {
     engine_call = NULL;
     engine_load = NULL;
+    engine_eval = NULL;
   }
 }
 
@@ -120,4 +127,43 @@ int script_load(const char *fname)
     return -1;
   }
   return engine_load(fname);
+}
+
+int script_eval(const char *script)
+{
+  if (!engine_eval)
+    return TCL_ERROR;
+  return engine_eval(script);
+}
+
+/* -------------------------------------------------------------------------
+ * Unified script evaluation.
+ *
+ * In Tcl builds, egg_eval() calls Tcl_Eval(interp, script).
+ * In no-Tcl builds, it's a no-op (returns error) since there is no
+ * general-purpose eval path without a Tcl interpreter — bind dispatch
+ * is handled separately through check_tcl_bind / script_call.
+ *
+ * egg_eval_log() is a convenience wrapper that logs errors with context.
+ * ------------------------------------------------------------------------- */
+
+extern Tcl_Interp *interp;
+
+int egg_eval(const char *script)
+{
+  if (!script || !script[0])
+    return 0;
+  /* Try the Tcl interpreter first (returns TCL_ERROR as no-op in no-Tcl). */
+  if (interp)
+    return Tcl_Eval(interp, script);
+  /* Fallback: registered script engine (Python). */
+  return script_eval(script);
+}
+
+int egg_eval_log(const char *context, const char *script)
+{
+  int rc = egg_eval(script);
+  if (rc != TCL_OK)
+    putlog(LOG_MISC, "*", "Script error [%s]: %s", context, tcl_resultstring());
+  return rc;
 }

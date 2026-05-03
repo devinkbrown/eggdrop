@@ -471,8 +471,9 @@ static int fast_deq(int which)
   struct msgq_head *h;
   struct msgq *m, *nm;
   char msgstr[SENDLINEMAX], nextmsgstr[SENDLINEMAX], tosend[SENDLINEMAX],
-       victims[SENDLINEMAX], stackable[SENDLINEMAX], *msg, *nextmsg, *cmd,
+       stackable[SENDLINEMAX], *msg, *nextmsg, *cmd,
        *nextcmd, *to, *nextto, *stckbl;
+  op_strbuf_t victims;
   int len, doit = 0, found = 0, cmd_count = 0, stack_method = 1;
 
   if (!use_fastdeq)
@@ -524,7 +525,7 @@ static int fast_deq(int which)
       }
   }
   to = newsplit(&msg);
-  strlcpy(victims, to, sizeof victims);
+  op_strbuf_printf(&victims, "%s", to);
   while (m) {
     nm = m->next;
     if (!nm)
@@ -534,18 +535,10 @@ static int fast_deq(int which)
     nextcmd = newsplit(&nextmsg);
     nextto = newsplit(&nextmsg);
     if (strcmp(to, nextto) && !strcmp(cmd, nextcmd) && !strcmp(msg, nextmsg) &&
-        ((strlen(cmd) + strlen(victims) + strlen(nextto) + strlen(msg) + 2) <
+        ((strlen(cmd) + op_strbuf_len(&victims) + strlen(nextto) + strlen(msg) + 2) <
         SENDLINEMAX-2) && (!stack_limit || cmd_count < stack_limit - 1)) {
       cmd_count++;
-      {
-        op_strbuf_t _b;
-        if (stack_method == 1)
-          op_strbuf_printf(&_b, "%s,%s", victims, nextto);
-        else
-          op_strbuf_printf(&_b, "%s %s", victims, nextto);
-        strlcpy(victims, op_strbuf_str(&_b), sizeof victims);
-        op_strbuf_free(&_b);
-      }
+      op_strbuf_appendf(&victims, "%c%s", stack_method == 1 ? ',' : ' ', nextto);
       doit = 1;
       m->next = nm->next;
       if (!nm->next)
@@ -559,7 +552,7 @@ static int fast_deq(int which)
   if (doit) {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s %s %s", cmd, victims, msg);
+      op_strbuf_printf(&_b, "%s %s %s", cmd, op_strbuf_str(&victims), msg);
       strlcpy(tosend, op_strbuf_str(&_b), sizeof tosend);
       op_strbuf_free(&_b);
     }
@@ -587,8 +580,10 @@ static int fast_deq(int which)
       h->last = 0;
     h->tot--;
     last_time += calc_penalty(tosend);
+    op_strbuf_free(&victims);
     return 1;
   }
+  op_strbuf_free(&victims);
   return 0;
 }
 
@@ -607,13 +602,15 @@ static void check_queues(char *oldnick, char *newnick)
 static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
 {
   struct msgq *m, *lm = NULL;
-  char buf[SENDLINEMAX], *msg, *nicks, *nick, *chan, newnicks[SENDLINEMAX], newmsg[SENDLINEMAX];
+  char buf[SENDLINEMAX], *msg, *nicks, *nick, *chan;
+  op_strbuf_t newnicks;
   int changed;
 
+  op_strbuf_init(&newnicks);
   for (m = q->head; m;) {
     changed = 0;
     if (optimize_kicks == 2 && !strncasecmp(m->msg, "KICK ", 5)) {
-      newnicks[0] = 0;
+      op_strbuf_clear(&newnicks);
       strlcpy(buf, m->msg, sizeof buf);
       msg = buf;
       newsplit(&msg);
@@ -622,33 +619,20 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
       while (strlen(nicks) > 0) {
         nick = splitnicks(&nicks);
         if (!strcasecmp(nick, oldnick) &&
-            ((9 + strlen(chan) + strlen(newnicks) + strlen(newnick) +
+            ((9 + strlen(chan) + op_strbuf_len(&newnicks) + strlen(newnick) +
               strlen(nicks) + strlen(msg)) < SENDLINEMAX-1)) {
-          if (newnick) {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%s,%s", newnicks, newnick);
-            strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
-            op_strbuf_free(&_b);
-          }
+          if (newnick)
+            op_strbuf_appendf(&newnicks, ",%s", newnick);
           changed = 1;
-        } else
-          strlcpy(newnicks, ",", sizeof newnicks);
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s%s", newnicks, nick);
-          strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
-          op_strbuf_free(&_b);
+        } else {
+          op_strbuf_clear(&newnicks);
+          op_strbuf_append_cstr(&newnicks, ",");
         }
-      }
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, msg);
-        strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
-        op_strbuf_free(&_b);
+        op_strbuf_append_cstr(&newnicks, nick);
       }
     }
     if (changed) {
-      if (newnicks[0] == 0) {
+      if (op_strbuf_empty(&newnicks)) {
         if (!lm)
           q->head = m->next;
         else
@@ -660,9 +644,11 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
         if (!q->head)
           q->last = 0;
       } else {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, msg);
         op_free(m->msg);
-        m->msg = op_strdup(newmsg);
-        m->len = strlen(newmsg);
+        m->len = op_strbuf_len(&_b);
+        m->msg = op_strbuf_steal(&_b);
       }
     }
     lm = m;
@@ -671,19 +657,22 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
     else
       m = q->head;
   }
+  op_strbuf_free(&newnicks);
 }
 
 static void purge_kicks(struct msgq_head *q)
 {
   struct msgq *m, *lm = NULL;
-  char buf[MSGMAX], *reason, *nicks, *nick, *chan, newnicks[MSGMAX],
-       newmsg[MSGMAX], chans[MSGMAX], *chns, *ch;
+  char buf[MSGMAX], *reason, *nicks, *nick, *chan,
+       chans[MSGMAX], *chns, *ch;
+  op_strbuf_t newnicks;
   int changed, found;
   struct chanset_t *cs;
 
+  op_strbuf_init(&newnicks);
   for (m = q->head; m;) {
     if (!strncasecmp(m->msg, "KICK", 4)) {
-      newnicks[0] = 0;
+      op_strbuf_clear(&newnicks);
       changed = 0;
       strlcpy(buf, m->msg, sizeof buf);
       reason = buf;
@@ -703,12 +692,8 @@ static void purge_kicks(struct msgq_head *q)
           if (ismember(cs, nick))
             found = 1;
         }
-        if (found) {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s,%s", newnicks, nick);
-          strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
-          op_strbuf_free(&_b);
-        }
+        if (found)
+          op_strbuf_appendf(&newnicks, ",%s", nick);
         else {
           putlog(LOG_SRVOUT, "*", "%s isn't on any target channel; removing "
                  "kick.", nick);
@@ -716,7 +701,7 @@ static void purge_kicks(struct msgq_head *q)
         }
       }
       if (changed) {
-        if (newnicks[0] == 0) {
+        if (op_strbuf_empty(&newnicks)) {
           if (!lm)
             q->head = m->next;
           else
@@ -728,15 +713,11 @@ static void purge_kicks(struct msgq_head *q)
           if (!q->head)
             q->last = 0;
         } else {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
           op_free(m->msg);
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, reason);
-            strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
-            op_strbuf_free(&_b);
-          }
-          m->msg = op_strdup(newmsg);
-          m->len = strlen(newmsg);
+          m->len = op_strbuf_len(&_b);
+          m->msg = op_strbuf_steal(&_b);
         }
       }
     }
@@ -746,6 +727,7 @@ static void purge_kicks(struct msgq_head *q)
     else
       m = q->head;
   }
+  op_strbuf_free(&newnicks);
 }
 
 static int deq_kick(int which)
@@ -753,13 +735,15 @@ static int deq_kick(int which)
   struct msgq_head *h;
   struct msgq *msg, *m, *lm;
   char buf[MSGMAX], buf2[MSGMAX], *reason2, *nicks, *chan, *chan2, *reason, *nick,
-       newnicks[MSGMAX], newnicks2[MSGMAX], newmsg[MSGMAX];
+       newmsg[MSGMAX];
+  op_strbuf_t newnicks, newnicks2;
   int changed = 0, nr = 0;
 
   if (!optimize_kicks)
     return 0;
 
-  newnicks[0] = 0;
+  op_strbuf_init(&newnicks);
+  op_strbuf_init(&newnicks2);
   switch (which) {
   case DP_MODE:
     h = &modeq;
@@ -794,16 +778,13 @@ static int deq_kick(int which)
   nicks = newsplit(&reason);
   while (strlen(nicks) > 0) {
     const char *_nick = newsplit(&nicks);
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s,%s", newnicks, _nick);
-    strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
-    op_strbuf_free(&_b);
+    op_strbuf_appendf(&newnicks, ",%s", _nick);
     nr++;
   }
   for (m = msg->next, lm = NULL; m && (nr < kick_method);) {
     if (!strncasecmp(m->msg, "KICK", 4)) {
       changed = 0;
-      newnicks2[0] = 0;
+      op_strbuf_clear(&newnicks2);
       strlcpy(buf2, m->msg, sizeof buf2);
       reason2 = buf2;
       newsplit(&reason2);
@@ -812,24 +793,18 @@ static int deq_kick(int which)
       if (!strcasecmp(chan, chan2) && !strcasecmp(reason, reason2)) {
         while (strlen(nicks) > 0) {
           nick = splitnicks(&nicks);
-          if ((nr < kick_method) && ((9 + strlen(chan) + strlen(newnicks) +
+          if ((nr < kick_method) && ((9 + strlen(chan) + op_strbuf_len(&newnicks) +
               strlen(nick) + strlen(reason)) < 510)) {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%s,%s", newnicks, nick);
-            strlcpy(newnicks, op_strbuf_str(&_b), sizeof newnicks);
-            op_strbuf_free(&_b);
+            op_strbuf_appendf(&newnicks, ",%s", nick);
             nr++;
             changed = 1;
           } else {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%s,%s", newnicks2, nick);
-            strlcpy(newnicks2, op_strbuf_str(&_b), sizeof newnicks2);
-            op_strbuf_free(&_b);
+            op_strbuf_appendf(&newnicks2, ",%s", nick);
           }
         }
       }
       if (changed) {
-        if (newnicks2[0] == 0) {
+        if (op_strbuf_empty(&newnicks2)) {
           if (!lm)
             h->head->next = m->next;
           else
@@ -841,15 +816,11 @@ static int deq_kick(int which)
           if (!h->head)
             h->last = 0;
         } else {
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "KICK %s %s %s", chan2, op_strbuf_str(&newnicks2) + 1, reason);
           op_free(m->msg);
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "KICK %s %s %s", chan2, newnicks2 + 1, reason);
-            strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
-            op_strbuf_free(&_b);
-          }
-          m->msg = op_strdup(newmsg);
-          m->len = strlen(newmsg);
+          m->len = op_strbuf_len(&_b);
+          m->msg = op_strbuf_steal(&_b);
         }
       }
     }
@@ -861,10 +832,12 @@ static int deq_kick(int which)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "KICK %s %s %s", chan, newnicks + 1, reason);
+    op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
     strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
     op_strbuf_free(&_b);
   }
+  op_strbuf_free(&newnicks);
+  op_strbuf_free(&newnicks2);
   check_tcl_out(which, newmsg, 1);
   write_to_server(newmsg, strlen(newmsg));
   if (raw_log) {
@@ -904,7 +877,7 @@ static void empty_msgq(void)
 
 /* Queues outgoing messages so there's no flooding.
  */
-static void queue_server(int which, char *msg, int len)
+static void queue_server(int which, const char *msg, int len)
 {
   struct msgq_head *h = NULL, tempq;
   struct msgq *q, *tq, *tqq;
@@ -919,8 +892,10 @@ static void queue_server(int which, char *msg, int len)
    * - Wcc [01/09/2004]
    */
   strlcpy(buf, msg, sizeof buf);
-  msg = buf;
-  remove_crlf(&msg);
+  {
+    char *p = buf;
+    remove_crlf(&p);
+  }
   len = strlen(buf);
 
   /* No queue for PING, PONG and AUTHENTICATE */
@@ -2039,7 +2014,6 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
 {
   Tcl_Size lc, i;
   int code;
-  char x[1024];
   EGG_CONST char **list, *slist;
   struct server_list *q;
   Tcl_DString ds;
@@ -2048,32 +2022,24 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
     /* Create server list */
     Tcl_DStringInit(&ds);
     for (q = serverlist; q; q = q->next) {
+      op_strbuf_t _b;
 #ifdef TLS
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s%s%s:%s%d%s%s %s",
-                         strchr(q->name, ':') ? "[" : "", q->name,
-                         strchr(q->name, ':') ? "]" : "",
-                         q->ssl ? "+" : "", q->port ? q->port : default_port,
-                         q->pass ? ":" : "", q->pass ? q->pass : "",
-                         q->realname ? q->realname : "");
-        strlcpy(x, op_strbuf_str(&_b), sizeof x);
-        op_strbuf_free(&_b);
-      }
+      op_strbuf_printf(&_b, "%s%s%s:%s%d%s%s %s",
+                       strchr(q->name, ':') ? "[" : "", q->name,
+                       strchr(q->name, ':') ? "]" : "",
+                       q->ssl ? "+" : "", q->port ? q->port : default_port,
+                       q->pass ? ":" : "", q->pass ? q->pass : "",
+                       q->realname ? q->realname : "");
 #else
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s%s%s:%d%s%s %s",
-                         strchr(q->name, ':') ? "[" : "", q->name,
-                         strchr(q->name, ':') ? "]" : "",
-                         q->port ? q->port : default_port,
-                         q->pass ? ":" : "", q->pass ? q->pass : "",
-                         q->realname ? q->realname : "");
-        strlcpy(x, op_strbuf_str(&_b), sizeof x);
-        op_strbuf_free(&_b);
-      }
+      op_strbuf_printf(&_b, "%s%s%s:%d%s%s %s",
+                       strchr(q->name, ':') ? "[" : "", q->name,
+                       strchr(q->name, ':') ? "]" : "",
+                       q->port ? q->port : default_port,
+                       q->pass ? ":" : "", q->pass ? q->pass : "",
+                       q->realname ? q->realname : "");
 #endif
-      Tcl_DStringAppendElement(&ds, x);
+      Tcl_DStringAppendElement(&ds, op_strbuf_str(&_b));
+      op_strbuf_free(&_b);
     }
     slist = Tcl_DStringValue(&ds);
     Tcl_SetVar2(interp, name1, name2, slist, TCL_GLOBAL_ONLY);
@@ -2334,18 +2300,14 @@ static void server_postrehash(void)
 
 static void server_die(void)
 {
-  char msg[MSGMAX];
   cycle_time = 100;
   if (server_online) {
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "QUIT :%s", quit_msg);
-      strlcpy(msg, op_strbuf_str(&_b), sizeof msg);
-      op_strbuf_free(&_b);
-    }
-    dprintf(-serv, "%s\n", msg);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "QUIT :%s", quit_msg);
+    dprintf(-serv, "%s\n", op_strbuf_str(&_b));
     if (raw_log)
-      putlog(LOG_SRVOUT, "*", "[->] %s", msg);
+      putlog(LOG_SRVOUT, "*", "[->] %s", op_strbuf_str(&_b));
+    op_strbuf_free(&_b);
     sleep(1); /* Give the server time to understand. 1s should be enough. */
   }
   nuke_server(NULL);
@@ -2402,29 +2364,25 @@ static int server_expmem(void)
 
 static void server_report(int idx, int details)
 {
-  char s1[64], s[128], capbuf[1024], buf[1024], *bufptr, *endptr;
+  char buf[1024], *bufptr, *endptr;
+  op_strbuf_t s;
   size_t written = 0;
   struct capability *current;
   int servidx;
 
+  op_strbuf_init(&s);
   if (server_online) {
     dprintf(idx, "    Online as: %s%s%s (%s)\n", botname, botuserhost[0] ?
             "!" : "", botuserhost[0] ? botuserhost : "", botrealname);
     if (nick_juped)
       dprintf(idx, "    NICK IS JUPED: %s%s\n", origbotname,
               keepnick ? " (trying)" : "");
-    daysdur(now, server_online, s1);
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "(connected %s)", s1);
-      if (server_lag && !lastpingcheck) {
-        if (server_lag == -1)
-          op_strbuf_append_cstr(&_b, " (bad pong replies)");
-        else
-          op_strbuf_appendf(&_b, " (lag: %ds)", server_lag);
-      }
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
+    op_strbuf_printf(&s, "(connected %s)", daysdur(now, server_online));
+    if (server_lag && !lastpingcheck) {
+      if (server_lag == -1)
+        op_strbuf_append_cstr(&s, " (bad pong replies)");
+      else
+        op_strbuf_appendf(&s, " (lag: %ds)", server_lag);
     }
   }
 
@@ -2434,10 +2392,10 @@ static void server_report(int idx, int details)
 #ifdef TLS
     dprintf(idx, "    Connected to %s [%s]:%s%d %s\n", networkname, dcc[servidx].host,
             dcc[servidx].ssl ? "+" : "", dcc[servidx].port, trying_server ?
-            "(trying)" : s);
+            "(trying)" : op_strbuf_str(&s));
 #else
     dprintf(idx, "    Connected to %s [%s]:%d %s\n", networkname, dcc[servidx].host,
-            dcc[servidx].port, trying_server ? "(trying)" : s);
+            dcc[servidx].port, trying_server ? "(trying)" : op_strbuf_str(&s));
 #endif
   } else
     dprintf(idx, "    %s\n", IRC_NOSERVER);
@@ -2460,12 +2418,13 @@ static void server_report(int idx, int details)
       if (current->enabled)
         op_strbuf_appendf(&_cb, "%s ", current->name);
     }
-    strlcpy(capbuf, op_strbuf_str(&_cb), sizeof capbuf);
+    written = op_strbuf_len(&_cb);
+    if (written)
+      strlcpy(buf, op_strbuf_str(&_cb), sizeof buf);
     op_strbuf_free(&_cb);
   }
-  written = strlen(capbuf);
+  op_strbuf_free(&s);
   if (written) {
-    strlcpy(buf, capbuf, sizeof buf);
     bufptr = buf;
     endptr = buf + 80;
     while (strlen(buf) > 80) {
@@ -2638,7 +2597,7 @@ static Function server_table[] = {
   (Function) & H_flud,          /* p_tcl_bind_list                      */
   (Function) & H_ctcp,          /* p_tcl_bind_list                      */
   (Function) & H_ctcr,          /* p_tcl_bind_list                      */
-  (Function) ctcp_reply,
+  (Function) &ctcp_reply,
   /* 36 - 39 */
   (Function) get_altbotnick,    /* char *                               */
   (Function) & nick_len,        /* int                                  */

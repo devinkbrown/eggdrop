@@ -45,20 +45,16 @@ static op_bh *assoc_bh = NULL;
 
 static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
 {
-  char x[1024];
+  op_strbuf_t _b;
   int idx2;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64(chan), nick, buf);
-    strlcpy(x, op_strbuf_str(&_b), sizeof x);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64(chan), nick, buf);
   for (idx2 = 0; idx2 < dcc_total; idx2++)
     if ((dcc[idx2].type == &DCC_BOT) && (idx2 != idx) &&
         (b_numver(idx2) >= NEAT_BOTNET) &&
         !(bot_flags(dcc[idx2].user) & BOT_ISOLATE))
-      botnet_send_zapf(idx2, botnetnick, dcc[idx2].nick, x);
+      botnet_send_zapf(idx2, botnetnick, dcc[idx2].nick, op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
 }
 
 static int assoc_expmem(void)
@@ -73,22 +69,17 @@ static int assoc_expmem(void)
 
 static void link_assoc(char *bot, char *via)
 {
-  char x[1024];
-
   if (!strcasecmp(via, botnetnick)) {
     int idx = nextbot(bot);
     assoc_t *a;
 
     if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
       for (a = assoc; a && a->name[0]; a = a->next) {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
-                            botnetnick, a->name);
-          strlcpy(x, op_strbuf_str(&_b), sizeof x);
-          op_strbuf_free(&_b);
-        }
-        botnet_send_zapf(idx, botnetnick, dcc[idx].nick, x);
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
+                          botnetnick, a->name);
+        botnet_send_zapf(idx, botnetnick, dcc[idx].nick, op_strbuf_str(&_b));
+        op_strbuf_free(&_b);
       }
     }
   }

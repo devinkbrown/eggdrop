@@ -65,9 +65,8 @@ static void filelist_addout(filelist_t *flist, char *desc)
   if (FILELIST_LE(flist).output) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", FILELIST_LE(flist).output, desc);
-    FILELIST_LE(flist).output = op_realloc(FILELIST_LE(flist).output, op_strbuf_len(&_b) + 1);
-    strlcpy(FILELIST_LE(flist).output, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    op_free(FILELIST_LE(flist).output);
+    FILELIST_LE(flist).output = op_strbuf_steal(&_b);
   } else {
     size_t desc_sz = strlen(desc) + 1;
     FILELIST_LE(flist).output = op_malloc(desc_sz);

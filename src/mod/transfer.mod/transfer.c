@@ -309,7 +309,7 @@ static void eof_dcc_fork_send(int idx)
 static void eof_dcc_send(int idx)
 {
   int ok, j;
-  char *nfn, s[1024], *hand;
+  char *nfn, *hand;
   struct userrec *u;
 
   /* Success */
@@ -330,9 +330,7 @@ static void eof_dcc_send(int idx)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s%s", dcc[idx].u.xfer->dir, dcc[idx].u.xfer->origname);
-      nfn = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(nfn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      nfn = op_strbuf_steal(&_b);
     }
 
     if ((l = fcopyfile(dcc[idx].u.xfer->f, nfn))) {
@@ -345,10 +343,9 @@ static void eof_dcc_send(int idx)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
+      u = get_user_by_host(op_strbuf_str(&_b));
       op_strbuf_free(&_b);
     }
-    u = get_user_by_host(s);
     hand = u ? u->handle : "*";
 
     /* Add to file database if copyfile succeeded */
@@ -406,11 +403,10 @@ static void eof_dcc_send(int idx)
         {
           op_strbuf_t _b;
           op_strbuf_printf(&_b, TRANSFER_USERFILE_DISCON, dcc[y].nick);
-          strlcpy(s, op_strbuf_str(&_b), sizeof s);
+          botnet_send_unlinked(y, dcc[y].nick, op_strbuf_str(&_b));
+          putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&_b));
           op_strbuf_free(&_b);
         }
-        botnet_send_unlinked(y, dcc[y].nick, s);
-        putlog(LOG_BOTS, "*", "%s.", s);
         if (y != idx) {
           killsock(dcc[y].sock);
           lostdcc(y);
@@ -611,7 +607,7 @@ static void dcc_get(int idx, char *buf, int len)
 
 static void eof_dcc_get(int idx)
 {
-  char xnick[NICKLEN], s[1024];
+  char xnick[NICKLEN];
 
   fclose(dcc[idx].u.xfer->f);
   if (!strcmp(dcc[idx].nick, "*users")) {
@@ -630,11 +626,10 @@ static void eof_dcc_get(int idx)
         {
           op_strbuf_t _b;
           op_strbuf_printf(&_b, TRANSFER_USERFILE_DISCON, dcc[y].nick);
-          strlcpy(s, op_strbuf_str(&_b), sizeof s);
+          botnet_send_unlinked(y, dcc[y].nick, op_strbuf_str(&_b));
+          putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&_b));
           op_strbuf_free(&_b);
         }
-        botnet_send_unlinked(y, dcc[y].nick, s);
-        putlog(LOG_BOTS, "*", "%s.", s);
         if (y != idx) {
           killsock(dcc[y].sock);
           lostdcc(y);
@@ -650,13 +645,10 @@ static void eof_dcc_get(int idx)
 
     /* Call `lost' DCC trigger now.
      */
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
-    }
-    u = get_user_by_host(s);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
+    u = get_user_by_host(op_strbuf_str(&_b));
+    op_strbuf_free(&_b);
     check_tcl_toutlost(u, dcc[idx].nick, dcc[idx].u.xfer->dir,
                        dcc[idx].u.xfer->acked, dcc[idx].u.xfer->length, H_lost);
 
@@ -710,11 +702,10 @@ static void transfer_get_timeout(int i)
         {
           op_strbuf_t _b;
           op_strbuf_printf(&_b, TRANSFER_DICONNECT_TIMEOUT, dcc[y].nick);
-          strlcpy(xx, op_strbuf_str(&_b), sizeof xx);
+          botnet_send_unlinked(y, dcc[y].nick, op_strbuf_str(&_b));
+          putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&_b));
           op_strbuf_free(&_b);
         }
-        botnet_send_unlinked(y, dcc[y].nick, xx);
-        putlog(LOG_BOTS, "*", "%s.", xx);
         if (y != i) {
           killsock(dcc[y].sock);
           lostdcc(y);
@@ -735,13 +726,10 @@ static void transfer_get_timeout(int i)
 
     /* Call DCC `timeout' trigger now.
      */
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s!%s", dcc[i].nick, dcc[i].host);
-      strlcpy(xx, op_strbuf_str(&_b), sizeof xx);
-      op_strbuf_free(&_b);
-    }
-    u = get_user_by_host(xx);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s!%s", dcc[i].nick, dcc[i].host);
+    u = get_user_by_host(op_strbuf_str(&_b));
+    op_strbuf_free(&_b);
     check_tcl_toutlost(u, dcc[i].nick, dcc[i].u.xfer->dir,
                        dcc[i].u.xfer->acked, dcc[i].u.xfer->length, H_tout);
 
@@ -919,8 +907,6 @@ static struct dcc_table DCC_GET_PENDING = {
 
 static void dcc_fork_send(int idx, char *x, int y)
 {
-  char s[NICKMAX + 1 + UHOSTMAX + 1];
-
   if (dcc[idx].type != &DCC_FORK_SEND)
     return;
 
@@ -930,9 +916,9 @@ static void dcc_fork_send(int idx, char *x, int y)
   if (strcmp(dcc[idx].nick, "*users")) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s!%s", dcc[idx].nick, dcc[idx].host);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    putlog(LOG_MISC, "*", TRANSFER_DCC_CONN, dcc[idx].u.xfer->origname,
+           op_strbuf_str(&_b));
     op_strbuf_free(&_b);
-    putlog(LOG_MISC, "*", TRANSFER_DCC_CONN, dcc[idx].u.xfer->origname, s);
   }
   if (dcc[idx].type->activity && y) {
     /* Could already have data! */

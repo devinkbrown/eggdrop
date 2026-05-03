@@ -145,6 +145,18 @@ _libop_compat_obj = static_library('_op_compat',
 )
 
 # -------------------------------------------------------------------------
+# LMDB — embedded key-value store for the userfile/channel database backend.
+# Compiled with minimal warnings (upstream code, not ours).
+# -------------------------------------------------------------------------
+_libop_lmdb_obj = static_library('_op_lmdb',
+  sources: files('lmdb/mdb.c', 'lmdb/midl.c'),
+  include_directories: [include_directories('lmdb')],
+  c_args: ['-DMDB_USE_POSIX_MUTEX=1',
+           '-Wno-unused-parameter', '-Wno-format-extra-args'],
+  pic: true,
+)
+
+# -------------------------------------------------------------------------
 # Unified libop — single archive containing all object files.
 # Consumers link only this one library; no separate compat/md5 libs needed.
 # -------------------------------------------------------------------------
@@ -152,6 +164,7 @@ libop_ds = static_library('op',
   objects: [
     _libop_core_obj.extract_all_objects(recursive: true),
     _libop_compat_obj.extract_all_objects(recursive: true),
+    _libop_lmdb_obj.extract_all_objects(recursive: true),
   ],
   dependencies: have_ssl
                   ? [thread_dep, libm_dep, wolfssl_dep]
@@ -159,7 +172,9 @@ libop_ds = static_library('op',
   pic: true,
 )
 
+lmdb_inc = include_directories('lmdb')
+
 libop_dep = declare_dependency(
   link_with:            libop_ds,
-  include_directories:  [libop_inc],
+  include_directories:  [libop_inc, lmdb_inc],
 )

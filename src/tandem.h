@@ -60,13 +60,13 @@ constexpr int GLOBAL_CHANS = 100000;
 
 #ifndef MAKING_MODS
 
-void send_tand_but(int, char *, int);
-void botnet_send_chan(int, char *, char *, int, char *);
+void send_tand_but(int, const char *, int);
+void botnet_send_chan(int, const char *, const char *, int, const char *);
 void botnet_send_chat(int, char *, const char *);
 void botnet_send_act(int, char *, char *, int, char *);
 void botnet_send_ping(int);
 void botnet_send_pong(int);
-void botnet_send_priv (int idx, char *from, char *to, char *tobot, const char *format, ...) ATTRIBUTE_FORMAT(printf,5,6);
+void botnet_send_priv (int idx, const char *from, const char *to, const char *tobot, const char *format, ...) ATTRIBUTE_FORMAT(printf,5,6);
 void botnet_send_who(int, const char *, const char *, int);
 void botnet_send_infoq(int, const char *);
 void botnet_send_unlinked(int, char *, const char *);
@@ -77,17 +77,17 @@ void botnet_send_link(int, const char *, char *, const char *);
 void botnet_send_update(int, tand_t *);
 void botnet_send_nlinked(int, char *, char *, char, int);
 void botnet_send_reject(int, char *, char *, char *, char *, char *);
-void botnet_send_zapf(int, char *, char *, char *);
-void botnet_send_zapf_broad(int, char *, char *, char *);
+void botnet_send_zapf(int, const char *, const char *, const char *);
+void botnet_send_zapf_broad(int, const char *, const char *, const char *);
 void botnet_send_motd(int, const char *, const char *);
 void botnet_send_filereq(int, char *, char *, char *);
 void botnet_send_filereject(int, char *, char *, char *);
-void botnet_send_filesend(int, char *, char *, char *);
+void botnet_send_filesend(int, const char *, const char *, const char *);
 void botnet_send_away(int, char *, int, char *, int);
 void botnet_send_idle(int, char *, int, int, char *);
 void botnet_send_join_idx(int, int);
 void botnet_send_join_party(int, int, int, int);
-void botnet_send_part_idx(int, char *);
+void botnet_send_part_idx(int, const char *);
 void botnet_send_part_party(int, int, char *, int);
 void botnet_send_bye(void);
 void botnet_send_nkch_part(int, int, char *);

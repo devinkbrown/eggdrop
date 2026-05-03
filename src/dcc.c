@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include "tandem.h"
+#include "script.h"
 
 /* Includes for botnet md5 challenge/response code <cybah> */
 #include "md5/md5.h"
@@ -230,7 +231,7 @@ static void bot_version(int idx, char *par)
 #endif
   check_tcl_link(dcc[idx].nick, botnetnick);
   op_strbuf_printf(&x, "v %d", dcc[idx].u.bot->numver);
-  bot_share(idx, (char *) op_strbuf_str(&x));
+  bot_share(idx, op_strbuf_str(&x));
   op_strbuf_free(&x);
   dprintf(idx, "el\n");
 }
@@ -244,7 +245,7 @@ void failed_link(int idx)
     op_strbuf_t msg;
     op_strbuf_printf(&msg, "Couldn't link to %s.", dcc[idx].nick);
     strlcpy(s1, dcc[idx].u.bot->linker, sizeof(s1));
-    add_note(s1, botnetnick, (char *) op_strbuf_str(&msg), -2, 0);
+    add_note(s1, botnetnick, op_strbuf_str(&msg), -2, 0);
     op_strbuf_free(&msg);
   }
   if (dcc[idx].u.bot->numver >= -1)
@@ -578,26 +579,22 @@ struct dcc_table DCC_FORK_BOT = {
  */
 static int dcc_bot_check_digest(int idx, char *remote_digest)
 {
-  char digest_string[35]; /* 32 for digest in hex + null, but also used for (1) */
+  char digest_string[33];
   unsigned char digest[16];
   char *password = get_bot_pass(dcc[idx].user);
   int ret;
 
   if (!password)
     return 1;
-  {
-    op_strbuf_t tmp;
-    op_strbuf_printf(&tmp, "<%lx%" PRIx64 "@", (long) getpid(), /* (1) */
-                     (uint64_t) dcc[idx].timeval);
-    strlcpy(digest_string, op_strbuf_str(&tmp), sizeof digest_string);
-    op_strbuf_free(&tmp);
-  }
+  op_strbuf_t _seed;
+  op_strbuf_printf(&_seed, "<%lx%" PRIx64 "@", (long) getpid(),
+                   (uint64_t) dcc[idx].timeval);
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L) && defined(HAVE_EVP_MD5)
   EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
   const EVP_MD *md = EVP_md5();
   unsigned int md_len;
   EVP_DigestInit_ex(mdctx, md, NULL);
-  EVP_DigestUpdate(mdctx, digest_string, strlen(digest_string));
+  EVP_DigestUpdate(mdctx, op_strbuf_str(&_seed), op_strbuf_len(&_seed));
   EVP_DigestUpdate(mdctx, botnetnick, strlen(botnetnick));
   EVP_DigestUpdate(mdctx, ">", 1);
   EVP_DigestUpdate(mdctx, password, strlen(password));
@@ -606,13 +603,14 @@ static int dcc_bot_check_digest(int idx, char *remote_digest)
 #else
   MD5_CTX md5context;
   MD5_Init(&md5context);
-  MD5_Update(&md5context, (unsigned char *) digest_string,
-             strlen(digest_string));
+  MD5_Update(&md5context, (unsigned char *) op_strbuf_str(&_seed),
+             op_strbuf_len(&_seed));
   MD5_Update(&md5context, (unsigned char *) botnetnick, strlen(botnetnick));
   MD5_Update(&md5context, (unsigned char *) ">", 1);
   MD5_Update(&md5context, (unsigned char *) password, strlen(password));
   MD5_Final(digest, &md5context);
 #endif
+  op_strbuf_free(&_seed);
 
   for (int i = 0; i < 16; i++) {
     static const char hex[] = "0123456789abcdef";
@@ -1202,7 +1200,7 @@ static time_t lasttelnettime;
 
 /* A modified detect_flood for incoming telnet flood protection.
  */
-static int detect_telnet_flood(char *floodhost)
+static int detect_telnet_flood(const char *floodhost)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
@@ -1394,7 +1392,7 @@ static void dcc_telnet_hostresolved(int i)
   op_strbuf_t s;
   op_strbuf_printf(&s, "-telnet!telnet@%s", dcc[i].host);
   userhost = op_strbuf_str(&s) + strlen("-telnet!");
-  if (match_ignore(op_strbuf_str(&s)) || detect_telnet_flood((char *) op_strbuf_str(&s))) {
+  if (match_ignore(op_strbuf_str(&s)) || detect_telnet_flood(op_strbuf_str(&s))) {
     op_strbuf_free(&s);
     killsock(dcc[i].sock);
     lostdcc(i);
@@ -1839,7 +1837,7 @@ static void dcc_telnet_pass(int idx, int atr)
       op_strbuf_t buf;
       op_strbuf_printf(&buf, "\n%s%s\r\n", escape_telnet(DCC_ENTERPASS),
                TLN_IAC_C TLN_WILL_C TLN_ECHO_C);
-      tputs(dcc[idx].sock, (char *) op_strbuf_str(&buf), op_strbuf_len(&buf));
+      tputs(dcc[idx].sock, op_strbuf_str(&buf), op_strbuf_len(&buf));
       op_strbuf_free(&buf);
     } else
       dprintf(idx, "\n%s\n", DCC_ENTERPASS);
@@ -1926,7 +1924,7 @@ static void dcc_telnet_new(int idx, char *buf, int x)
         *q = '@';
       } else
         op_strbuf_printf(&work, "-telnet!*@*%s", dcc[idx].host);
-      userlist = adduser(userlist, buf, (char *) op_strbuf_str(&work), "-",
+      userlist = adduser(userlist, buf, op_strbuf_str(&work), "-",
                          sanity_check(USER_PARTY | default_flags));
       op_strbuf_free(&work);
     }
@@ -1969,11 +1967,11 @@ static void dcc_telnet_pw(int idx, char *new, int x)
     splitc(recipient, notify_list, ',');
     while (recipient[0]) {
       rmspace(recipient);
-      add_note(recipient, botnetnick, (char *) op_strbuf_str(&notebuf), -1, 0);
+      add_note(recipient, botnetnick, op_strbuf_str(&notebuf), -1, 0);
       splitc(recipient, notify_list, ',');
     }
     rmspace(notify_list);
-    add_note(notify_list, botnetnick, (char *) op_strbuf_str(&notebuf), -1, 0);
+    add_note(notify_list, botnetnick, op_strbuf_str(&notebuf), -1, 0);
     op_strbuf_free(&notebuf);
   }
   dprintf(idx, "\nRemember that!  You'll need it next time you log in.\n"
@@ -2056,16 +2054,13 @@ struct dcc_table DCC_TELNET_PW = {
 
 static int call_tcl_func(char *name, int idx, char *args)
 {
-  op_strbuf_t s;
-  op_strbuf_printf(&s, "%d", idx);
-  Tcl_SetVar(interp, "_n", op_strbuf_str(&s), 0);
-  op_strbuf_free(&s);
-  Tcl_SetVar(interp, "_a", args, 0);
-  if (Tcl_VarEval(interp, name, " $_n $_a", NULL) == TCL_ERROR) {
-    putlog(LOG_MISC, "*", DCC_TCLERROR, name, tcl_resultstring());
-    Tcl_BackgroundError(interp);
+  op_strbuf_t cmd;
+  op_strbuf_printf(&cmd, "%s %d {%s}", name, idx, args);
+  if (egg_eval_log(name, op_strbuf_str(&cmd))) {
+    op_strbuf_free(&cmd);
     return -1;
   }
+  op_strbuf_free(&cmd);
   return tcl_resultint();
 }
 
@@ -2365,7 +2360,7 @@ static void dcc_telnet_got_ident(int i, const char *host)
   op_strbuf_t x;
   op_strbuf_printf(&x, "-telnet!%s", dcc[i].host);
   if (protect_telnet && !make_userfile) {
-    struct userrec *u = get_user_by_host((char *) op_strbuf_str(&x));
+    struct userrec *u = get_user_by_host(op_strbuf_str(&x));
     /* Not a user or +p & require p OR +o */
     bool ok = u != NULL;
     if (ok && require_p && !(u->flags & USER_PARTY))

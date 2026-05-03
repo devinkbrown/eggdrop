@@ -162,7 +162,7 @@ static int got908(char *from, char *msg)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "sasl=%s", msg);
-    add_capabilities((char *) op_strbuf_str(&_b));
+    add_capabilities(op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
   return 0;

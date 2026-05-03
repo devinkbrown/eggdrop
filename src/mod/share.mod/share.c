@@ -83,7 +83,7 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
 static int flush_tbuf(char *);
 static int can_resync(char *);
 static void dump_resync(int);
-static void q_resync(char *, struct chanset_t *);
+static void q_resync(const char *, struct chanset_t *);
 static void cancel_user_xfer(int, void *);
 static int private_globals_bitmask(void);
 
@@ -1238,17 +1238,12 @@ static void share_userfileq(int idx, char *par)
 static void share_ufsend(int idx, char *par)
 {
   char *port;
-  char s[1024];
   int sock;
   FILE *f;
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, ".share.%s.%" PRId64 ".users", botnetnick,
-                     (int64_t) now);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, ".share.%s.%" PRId64 ".users", botnetnick,
+                   (int64_t) now);
   if (!(b_status(idx) & STAT_SHARE)) {
     dprintf(idx, "s e You didn't ask; you just started sending.\n");
     dprintf(idx, "s e Ask before sending the userfile.\n");
@@ -1287,7 +1282,7 @@ static void share_ufsend(int idx, char *par)
       fclose(f);
     } else {
       strlcpy(dcc[i].nick, "*users", sizeof(dcc[i].nick));
-      dcc[i].u.xfer->filename = op_strdup(s);
+      dcc[i].u.xfer->filename = op_strbuf_steal(&_b);
       dcc[i].u.xfer->origname = dcc[i].u.xfer->filename;
       dcc[i].u.xfer->length = atoi(par);
       dcc[i].u.xfer->f = f;
@@ -1301,6 +1296,7 @@ static void share_ufsend(int idx, char *par)
       dcc[idx].status |= STAT_GETTING;
     }
   }
+  op_strbuf_free(&_b);
 }
 
 static void share_resyncq(int idx, char *par)
@@ -1477,16 +1473,16 @@ static void sharein_mod(int idx, char *msg)
 ATTRIBUTE_FORMAT(printf,2,3)
 static void shareout_mod(struct chanset_t *chan, const char *format, ...)
 {
-  int l;
-  char s[601];
   va_list va;
 
   if (!chan || channel_shared(chan)) {
     va_start(va, format);
 
-    strlcpy(s, "s ", sizeof(s));
-    if ((l = vsnprintf(s + 2, 509, format, va)) < 0)
-      s[2 + (l = 509)] = 0;
+    op_strbuf_t _s;
+    op_strbuf_printf(&_s, "s ");
+    op_strbuf_vappendf(&_s, format, va);
+    if (op_strbuf_len(&_s) > 511)
+      op_strbuf_truncate(&_s, 511);
     for (int i = 0; i < dcc_total; i++)
       if ((dcc[i].type->flags & DCT_BOT) &&
           (dcc[i].status & STAT_SHARE) &&
@@ -1496,11 +1492,14 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
           get_user_flagrec(dcc[i].user, &fr, chan->dname);
         }
         if (!chan || bot_chan(fr) || bot_global(fr)) {
-          putlog(LOG_BOTSHROUT, "*", "{b->%s} %s", dcc[i].nick, s + 2);
-          tputs(dcc[i].sock, s, l + 2);
+          putlog(LOG_BOTSHROUT, "*", "{b->%s} %s", dcc[i].nick,
+                 op_strbuf_str(&_s) + 2);
+          tputs(dcc[i].sock, op_strbuf_str(&_s),
+                (unsigned int)op_strbuf_len(&_s));
         }
       }
-    q_resync(s, chan);
+    q_resync(op_strbuf_str(&_s), chan);
+    op_strbuf_free(&_s);
     va_end(va);
   }
 }
@@ -1508,15 +1507,15 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
 ATTRIBUTE_FORMAT(printf,3,4)
 static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
 {
-  int l;
-  char s[601];
   va_list va;
 
   va_start(va, format);
 
-  strlcpy(s, "s ", sizeof(s));
-  if ((l = vsnprintf(s + 2, 509, format, va)) < 0)
-    s[2 + (l = 509)] = 0;
+  op_strbuf_t _s;
+  op_strbuf_printf(&_s, "s ");
+  op_strbuf_vappendf(&_s, format, va);
+  if (op_strbuf_len(&_s) > 511)
+    op_strbuf_truncate(&_s, 511);
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & DCT_BOT) && (i != x) &&
         (dcc[i].status & STAT_SHARE) &&
@@ -1527,11 +1526,14 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
         get_user_flagrec(dcc[i].user, &fr, chan->dname);
       }
       if (!chan || bot_chan(fr) || bot_global(fr)) {
-        putlog(LOG_BOTSHROUT, "*", "{b->%s} %s", dcc[i].nick, s + 2);
-        tputs(dcc[i].sock, s, l + 2);
+        putlog(LOG_BOTSHROUT, "*", "{b->%s} %s", dcc[i].nick,
+               op_strbuf_str(&_s) + 2);
+        tputs(dcc[i].sock, op_strbuf_str(&_s),
+              (unsigned int)op_strbuf_len(&_s));
       }
     }
-  q_resync(s, chan);
+  q_resync(op_strbuf_str(&_s), chan);
+  op_strbuf_free(&_s);
   va_end(va);
 }
 
@@ -1626,7 +1628,7 @@ static void check_expired_tbufs(void)
 
 /* Push a share message onto a bot's tandbuf queue.
  * Silently drops the message when the queue reaches the 1000-entry limit. */
-static void q_push_msg(op_deque_t *q, struct chanset_t *chan, char *s)
+static void q_push_msg(op_deque_t *q, struct chanset_t *chan, const char *s)
 {
   struct share_msgq *qe;
 
@@ -1640,7 +1642,7 @@ static void q_push_msg(op_deque_t *q, struct chanset_t *chan, char *s)
 
 /* Add stuff to a specific bot's tbuf.
  */
-static void q_tbuf(char *bot, char *s, struct chanset_t *chan)
+static void q_tbuf(char *bot, const char *s, struct chanset_t *chan)
 {
   tandbuf *t;
 
@@ -1658,7 +1660,7 @@ static void q_tbuf(char *bot, char *s, struct chanset_t *chan)
 
 /* Add stuff to the resync buffers.
  */
-static void q_resync(char *s, struct chanset_t *chan)
+static void q_resync(const char *s, struct chanset_t *chan)
 {
   tandbuf *t;
 
@@ -2017,7 +2019,8 @@ static void finish_share(int idx)
 static void start_sending_users(int idx)
 {
   struct userrec *u;
-  char share_file[1024], s1[64];
+  char *share_file;
+  char s1[64];
   int i = 1;
   struct chanuserrec *ch;
   struct chanset_t *cst;
@@ -2026,8 +2029,7 @@ static void start_sending_users(int idx)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, ".share.%s.%" PRId64, dcc[idx].nick, (int64_t) now);
-    strlcpy(share_file, op_strbuf_str(&_b), sizeof share_file);
-    op_strbuf_free(&_b);
+    share_file = op_strbuf_steal(&_b);
   }
   if (dcc[idx].u.bot->uff_flags & UFF_OVERRIDE) {
     debug1("NOTE: Sharing aggressively with %s, overriding its local bots.",
@@ -2043,6 +2045,7 @@ static void start_sending_users(int idx)
     dprintf(idx, "s e %s\n", "uff parsing failed");
     putlog(LOG_BOTS, "*", "uff parsing failed");
     dcc[idx].status &= ~(STAT_SHARE | STAT_SENDING | STAT_AGGRESSIVE);
+    op_free(share_file);
     return;
   }
 
@@ -2080,54 +2083,35 @@ static void start_sending_users(int idx)
         if ((u->flags & USER_BOT) && !(u->flags & USER_UNSHARED)) {
           struct bot_addr *bi = get_user(&USERENTRY_BOTADDR, u);
           struct list_type *t;
-          char s2[1024];
+          op_strbuf_t _s2;
 
+          op_strbuf_init(&_s2);
           /* Send hostmasks */
           for (t = get_user(&USERENTRY_HOSTS, u); t; t = t->next) {
-            {
-              op_strbuf_t _b;
-              op_strbuf_printf(&_b, "s +bh %s %s\n", u->handle, t->extra);
-              strlcpy(s2, op_strbuf_str(&_b), sizeof s2);
-              op_strbuf_free(&_b);
-            }
-            q_tbuf(dcc[idx].nick, s2, NULL);
+            op_strbuf_reset(&_s2, "s +bh %s %s\n", u->handle, t->extra);
+            q_tbuf(dcc[idx].nick, op_strbuf_str(&_s2), NULL);
           }
           /* Send address */
           if (bi) {
 #ifdef TLS
-            {
-              op_strbuf_t _b;
-              op_strbuf_printf(&_b, "s c BOTADDR %s %s %s%d %s%d\n",
-                               u->handle, bi->address,
-                               (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
-                               (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
-              strlcpy(s2, op_strbuf_str(&_b), sizeof s2);
-              op_strbuf_free(&_b);
-            }
+            op_strbuf_reset(&_s2, "s c BOTADDR %s %s %s%d %s%d\n",
+                            u->handle, bi->address,
+                            (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
+                            (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
 #else
-            {
-              op_strbuf_t _b;
-              op_strbuf_printf(&_b, "s c BOTADDR %s %s %d %d\n",
-                               u->handle, bi->address,
-                               bi->telnet_port, bi->relay_port);
-              strlcpy(s2, op_strbuf_str(&_b), sizeof s2);
-              op_strbuf_free(&_b);
-            }
+            op_strbuf_reset(&_s2, "s c BOTADDR %s %s %d %d\n",
+                            u->handle, bi->address,
+                            bi->telnet_port, bi->relay_port);
 #endif
-            q_tbuf(dcc[idx].nick, s2, NULL);
+            q_tbuf(dcc[idx].nick, op_strbuf_str(&_s2), NULL);
           }
           fr.match = FR_GLOBAL;
           fr.global = u->flags;
 
           fr.udef_global = u->flags_udef;
           build_flags(s1, &fr, NULL);
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "s a %s %s\n", u->handle, s1);
-            strlcpy(s2, op_strbuf_str(&_b), sizeof s2);
-            op_strbuf_free(&_b);
-          }
-          q_tbuf(dcc[idx].nick, s2, NULL);
+          op_strbuf_reset(&_s2, "s a %s %s\n", u->handle, s1);
+          q_tbuf(dcc[idx].nick, op_strbuf_str(&_s2), NULL);
           for (ch = u->chanrec; ch; ch = ch->next) {
             if ((ch->flags & ~BOT_AGGRESSIVE) &&
                 ((cst = findchan_by_dname(ch->channel)) &&
@@ -2139,16 +2123,12 @@ static void start_sending_users(int idx)
                 fr.chan = ch->flags & ~BOT_AGGRESSIVE;
                 fr.udef_chan = ch->flags_udef;
                 build_flags(s1, &fr, NULL);
-                {
-                  op_strbuf_t _b;
-                  op_strbuf_printf(&_b, "s a %s %s %s\n", u->handle, s1, ch->channel);
-                  strlcpy(s2, op_strbuf_str(&_b), sizeof s2);
-                  op_strbuf_free(&_b);
-                }
-                q_tbuf(dcc[idx].nick, s2, cst);
+                op_strbuf_reset(&_s2, "s a %s %s %s\n", u->handle, s1, ch->channel);
+                q_tbuf(dcc[idx].nick, op_strbuf_str(&_s2), cst);
               }
             }
           }
+          op_strbuf_free(&_s2);
         }
       }
     }
@@ -2158,6 +2138,7 @@ static void start_sending_users(int idx)
      */
     unlink(share_file);
   }
+  op_free(share_file);
 }
 
 static void (*def_dcc_bot_kill) (int, void *) = 0;

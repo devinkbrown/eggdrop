@@ -941,7 +941,7 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
   tcl_cmd_t *tc, *htc = NULL;
   char *str, *varName, *brkt;
   const char *argv[16];
-  int argc;
+  __attribute__((unused)) int argc;
 
   if (!tl)
     return BIND_NOMATCH;

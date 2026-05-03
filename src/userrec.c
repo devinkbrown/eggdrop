@@ -29,6 +29,7 @@
 #include "main.h"
 #include "modules.h"
 #include "tandem.h"
+#include "egg_store.h"
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
 extern int default_flags, default_uflags, quiet_save, dcc_total, share_greet,
@@ -314,7 +315,7 @@ memberlist *find_member_from_nick(char *nick) {
  * Falls back to O(n×m) linear scan if the dict has not been built yet;
  * the lazy rebuild triggers on the next call once userlist is populated.
  */
-struct userrec *get_user_by_account(char *acct)
+struct userrec *get_user_by_account(const char *acct)
 {
   struct userrec *u;
   struct list_type *q;
@@ -397,7 +398,7 @@ struct userrec *get_user_from_member(memberlist *m)
   if ((m->userhost[0] != '\0') && (m->nick[0] != '\0')) {
     op_strbuf_t s;
     op_strbuf_printf(&s, "%s!%s", m->nick, m->userhost);
-    ret = get_user_by_host((char *) op_strbuf_str(&s));
+    ret = get_user_by_host(op_strbuf_str(&s));
     op_strbuf_free(&s);
     if (ret) {
       goto getuser_done;
@@ -421,7 +422,8 @@ getuser_done:
  * 'm->account' for the account, use the independent source variable 'account'
  * if available. This allows redundant checking in case of unexpected NULLs
  */
-struct userrec *lookup_user_record(memberlist *m, char *account, char *host)
+struct userrec *lookup_user_record(memberlist *m, const char *account,
+                                   const char *host)
 {
   struct userrec *u = NULL;
 
@@ -524,7 +526,7 @@ void clear_userlist(struct userrec *bu)
 /* Find CLOSEST host match
  * (if "*!*@*" and "*!*@*clemson.edu" both match, use the latter!)
  */
-struct userrec *get_user_by_host(char *host)
+struct userrec *get_user_by_host(const char *host)
 {
   struct userrec *u, *ret = NULL;
   struct list_type *q;
@@ -533,16 +535,16 @@ struct userrec *get_user_by_host(char *host)
 
   if (host == NULL)
     return NULL;
-  rmspace(host);
-  if (!host[0])
+  strlcpy(host2, host, sizeof host2);
+  rmspace(host2);
+  if (!host2[0])
     return NULL;
   cnt = 0;
   cache_miss++;
-  strlcpy(host2, host, sizeof host2);
   for (u = userlist; u; u = u->next) {
     q = get_user(&USERENTRY_HOSTS, u);
     for (; q; q = q->next) {
-      i = match_useraddr(q->extra, host);
+      i = match_useraddr(q->extra, host2);
       if (i > cnt) {
         ret = u;
         cnt = i;
@@ -819,6 +821,10 @@ void write_userfile(int idx)
   call_hook(HOOK_USERFILE);
   movefile(op_strbuf_str(&new_userfile), userfile);
   op_strbuf_free(&new_userfile);
+
+  /* If the LMDB backend is active, also persist to it for crash safety. */
+  if (egg_store && egg_store != &egg_store_flat)
+    egg_store->save_users(idx);
 }
 
 void backup_userfile(void)
@@ -869,12 +875,13 @@ int change_handle(struct userrec *u, char *newh)
 
 extern int noxtra;
 
-struct userrec *adduser(struct userrec *bu, char *handle, char *host,
+struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
                         char *pass, int flags)
 {
   struct userrec *u, *x;
   struct xtra_key *xk;
   int oldshare = noshare;
+  char hostcopy[UHOSTLEN];
 
   noshare = 1;
   u = alloc_userrec();
@@ -908,12 +915,13 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
   if (host && host[0]) {
     char *p;
 
-    p = strchr(host, ',');
+    strlcpy(hostcopy, host, sizeof hostcopy);
+    p = strchr(hostcopy, ',');
     while (p != NULL) {
       *p = '?';
-      p = strchr(host, ',');
+      p = strchr(hostcopy, ',');
     }
-    set_user(&USERENTRY_HOSTS, u, host);
+    set_user(&USERENTRY_HOSTS, u, hostcopy);
   } else
     set_user(&USERENTRY_HOSTS, u, "none");
   if (bu == userlist)
@@ -928,7 +936,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, char *host,
 
     fr.udef_global = u->flags_udef;
     build_flags(flags_str, &fr, 0);
-    shareout(NULL, "n %s %s %s %s\n", handle, host && host[0] ? host : "none",
+    shareout(NULL, "n %s %s %s %s\n", handle, host && host[0] ? hostcopy : "none",
              pass, flags_str);
   }
   if (bu == NULL)
@@ -1101,14 +1109,14 @@ int delaccount_by_handle(char *handle, char *acct)
 }
 
 
-static void add_host_or_account(char *handle, char *arg, int type)
+static void add_host_or_account(char *handle, const char *arg, int type)
 {
   struct userrec *u = get_user_by_handle(userlist, handle);
 
   if (type) {
-    set_user(&USERENTRY_ACCOUNT, u, arg);
+    set_user(&USERENTRY_ACCOUNT, u, (void *) arg);
   } else {
-    set_user(&USERENTRY_HOSTS, u, arg);
+    set_user(&USERENTRY_HOSTS, u, (void *) arg);
   }
   if ((!noshare) && !(u->flags & USER_UNSHARED)) {
     if (u->flags & USER_BOT) {
@@ -1120,7 +1128,7 @@ static void add_host_or_account(char *handle, char *arg, int type)
   clear_chanlist();
 }
 
-void addhost_by_handle(char *handle, char *host)
+void addhost_by_handle(char *handle, const char *host)
 {
   add_host_or_account(handle, host, 0);
 }
@@ -1132,7 +1140,7 @@ void addaccount_by_handle(char *handle, char *acct)
    * invalidated user_account_dict; no further maintenance needed here. */
 }
 
-void touch_laston(struct userrec *u, char *where, time_t timeval)
+void touch_laston(struct userrec *u, const char *where, time_t timeval)
 {
   if (!u)
     return;
@@ -1171,7 +1179,7 @@ struct userrec *get_user_by_nick(char *nick)
       if (!rfc_casecmp(nick, m->nick)) {
         op_strbuf_t word;
         op_strbuf_printf(&word, "%s!%s", m->nick, m->userhost);
-        struct userrec *r = get_user_by_host((char *) op_strbuf_str(&word));
+        struct userrec *r = get_user_by_host(op_strbuf_str(&word));
         op_strbuf_free(&word);
         return r;
       }

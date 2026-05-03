@@ -44,9 +44,7 @@ static int convert_old_files(char *path, char *newfiledb)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s/.files", path);
-    s1 = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    s1 = op_strbuf_steal(&_b);
   }
   f = fopen(s1, "r");
   my_free(s1);
@@ -111,13 +109,9 @@ static int convert_old_files(char *path, char *newfiledb)
         malloc_strcpy(fdbe->uploader, nick);
         fdbe->gots = atoi(s1);
         fdbe->uploaded = atoi(tm);
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s/%s", path, fn);
-          strlcpy(s, op_strbuf_str(&_b), sizeof s);
-          op_strbuf_free(&_b);
-        }
-        if (stat(s, &st) == 0) {
+        op_strbuf_t _b;
+        op_strbuf_printf(&_b, "%s/%s", path, fn);
+        if (stat(op_strbuf_str(&_b), &st) == 0) {
           /* File is okay */
           if (S_ISDIR(st.st_mode)) {
             fdbe->stat |= FILE_DIR;
@@ -136,6 +130,7 @@ static int convert_old_files(char *path, char *newfiledb)
           fdbe->size = st.st_size;
         } else
           in_file = 0;        /* skip */
+        op_strbuf_free(&_b);
       }
     }
   }
@@ -247,9 +242,7 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s-tmp", filedb);
-      tempdb = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(tempdb, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      tempdb = op_strbuf_steal(&_b);
     }
 
     /* Step 1: Copy old content to backup while original is still locked */

@@ -287,7 +287,7 @@ constexpr int CHAN_DYNAMICINVITES = 0x0010;
 constexpr int CHAN_NOUSERINVITES  = 0x0020;
 
 /* prototypes */
-[[nodiscard]] memberlist *ismember(struct chanset_t *, char *);
+[[nodiscard]] memberlist *ismember(struct chanset_t *, const char *);
 [[nodiscard]] struct chanset_t *findchan(const char *name);
 [[nodiscard]] struct chanset_t *findchan_by_dname(const char *name);
 

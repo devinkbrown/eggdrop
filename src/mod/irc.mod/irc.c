@@ -79,8 +79,8 @@ static Tcl_Obj *tcl_account;
  * true (1) if we want to, false (0) if not.
  */
 static int want_to_revenge(struct chanset_t *chan, struct userrec *u,
-                           struct userrec *u2, char *badnick, char *victim,
-                           int mevictim)
+                           struct userrec *u2, const char *badnick,
+                           const char *victim, int mevictim)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
@@ -112,8 +112,8 @@ static int want_to_revenge(struct chanset_t *chan, struct userrec *u,
 /* Dependent on revenge_mode, punish the offender.
  */
 static void punish_badguy(struct chanset_t *chan, char *whobad,
-                          struct userrec *u, char *badnick, char *victim,
-                          int mevictim, int type)
+                          struct userrec *u, const char *badnick,
+                          const char *victim, int mevictim, int type)
 {
   op_strbuf_t reason, comment;
   char ct[7], *kick_msg;
@@ -215,7 +215,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
     maskaddr(whobad, banmask, chan->ban_type);
     op_strbuf_clear(&comment);
     op_strbuf_appendf(&comment, "(%s) %s", ct, op_strbuf_str(&reason));
-    u_addban(chan, banmask, botnetnick, (char *)op_strbuf_str(&comment),
+    u_addban(chan, banmask, botnetnick, op_strbuf_str(&comment),
              now + (60 * chan->ban_time), 0);
     if (!mevictim && HALFOP_CANDOMODE('b')) {
       add_mode(chan, '+', 'b', banmask);
@@ -237,10 +237,13 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
 /* Punishes bad guys under certain circumstances using methods as defined
  * by the revenge_mode flag.
  */
-static void maybe_revenge(struct chanset_t *chan, char *whobad,
-                          char *whovictim, int type)
+static void maybe_revenge(struct chanset_t *chan, const char *whobad,
+                          const char *whovictim, int type)
 {
-  char *badnick, *victim, buf[NICKLEN + UHOSTLEN];
+  char *badnick, *victim;
+  char bad[NICKLEN + UHOSTLEN], vic[NICKLEN + UHOSTLEN];
+  char buf[NICKLEN + UHOSTLEN];
+  char *bp, *vp;
   int mevictim;
   struct userrec *u, *u2;
   memberlist *m;
@@ -249,21 +252,25 @@ static void maybe_revenge(struct chanset_t *chan, char *whobad,
     return;
 
   /* Get info about offender */
+  strlcpy(bad, whobad, sizeof bad);
   strlcpy(buf, whobad, sizeof buf);
-  badnick = splitnick(&whobad);
+  bp = bad;
+  badnick = splitnick(&bp);
   m = ismember(chan, badnick);
   u = lookup_user_record(m, m ? m->account : NULL, buf);
 
   /* Get info about victim */
+  strlcpy(vic, whovictim, sizeof vic);
   strlcpy(buf, whovictim, sizeof buf);
-  victim = splitnick(&whovictim);
+  vp = vic;
+  victim = splitnick(&vp);
   m = ismember(chan, victim);
   u2 = lookup_user_record(m, m ? m->account : NULL, buf);
   mevictim = match_my_nick(victim);
 
   /* Do we want to revenge? */
   if (want_to_revenge(chan, u, u2, badnick, victim, mevictim))
-    punish_badguy(chan, whobad, u, badnick, victim, mevictim, type);
+    punish_badguy(chan, bp, u, badnick, victim, mevictim, type);
 }
 
 /* Set the key.
@@ -306,7 +313,7 @@ static void refresh_who_chan(char *channame)
 /* Adds a ban, exempt or invite mask to the list
  * m should be chan->channel.(exempt|invite|ban)
  */
-static void newmask(masklist *m, op_htab *ht, char *s, char *who)
+static void newmask(masklist *m, op_htab *ht, const char *s, const char *who)
 {
   /* O(1) duplicate check via hash table */
   if (ht && op_htab_get(ht, s))
@@ -796,8 +803,8 @@ static int invite_4char STDVAR
   return TCL_OK;
 }
 
-static int check_tcl_chghost(char *nick, char *from, char *mask, struct userrec *u,
-                             char *chan, char *ident, char * host)
+static int check_tcl_chghost(char *nick, char *from, const char *mask, struct userrec *u,
+                             char *chan, char *ident, char *host)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
   op_strbuf_t usermask;
@@ -810,7 +817,7 @@ static int check_tcl_chghost(char *nick, char *from, char *mask, struct userrec 
   Tcl_SetVar(interp, "_chghost2", from, 0);
   Tcl_SetVar(interp, "_chghost3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_chghost4", chan, 0);
-  Tcl_SetVar(interp, "_chghost5", (char *)op_strbuf_str(&usermask), 0);
+  Tcl_SetVar(interp, "_chghost5", op_strbuf_str(&usermask), 0);
   x = check_tcl_bind(H_chghost, mask, &fr,
                 " $_chghost1 $_chghost2 $_chghost3 $_chghost4 $_chghost5",
                 MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
@@ -818,7 +825,7 @@ static int check_tcl_chghost(char *nick, char *from, char *mask, struct userrec 
   return (x == BIND_EXEC_LOG);
 }
 
-static int check_tcl_ircaway(char *nick, char *from, char *mask,
+static int check_tcl_ircaway(char *nick, char *from, const char *mask,
             struct userrec *u, char *chan, char *msg)
 {
   int x;
@@ -848,7 +855,7 @@ static void check_tcl_joinspltrejn(char *nick, char *uhost, struct userrec *u,
   Tcl_SetVar(interp, "_jp2", uhost, 0);
   Tcl_SetVar(interp, "_jp3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_jp4", chname, 0);
-  check_tcl_bind(table, (char *)op_strbuf_str(&args), &fr, " $_jp1 $_jp2 $_jp3 $_jp4",
+  check_tcl_bind(table, op_strbuf_str(&args), &fr, " $_jp1 $_jp2 $_jp3 $_jp4",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
   op_strbuf_free(&args);
 }
@@ -869,7 +876,7 @@ static void check_tcl_part(char *nick, char *uhost, struct userrec *u,
   Tcl_SetVar(interp, "_p3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_p4", chname, 0);
   Tcl_SetVar(interp, "_p5", text ? text : "", 0);
-  check_tcl_bind(H_part, (char *)op_strbuf_str(&args), &fr, " $_p1 $_p2 $_p3 $_p4 $_p5",
+  check_tcl_bind(H_part, op_strbuf_str(&args), &fr, " $_p1 $_p2 $_p3 $_p4 $_p5",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
   op_strbuf_free(&args);
 }
@@ -892,7 +899,7 @@ static void check_tcl_signtopcnick(char *nick, char *uhost, struct userrec *u,
   Tcl_SetVar(interp, "_stnm3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_stnm4", chname, 0);
   Tcl_SetVar(interp, "_stnm5", reason, 0);
-  check_tcl_bind(table, (char *)op_strbuf_str(&args), &fr,
+  check_tcl_bind(table, op_strbuf_str(&args), &fr,
                  " $_stnm1 $_stnm2 $_stnm3 $_stnm4 $_stnm5",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
   op_strbuf_free(&args);
@@ -913,7 +920,7 @@ static void check_tcl_mode(char *nick, char *uhost, struct userrec *u,
   Tcl_SetVar(interp, "_mode4", chname, 0);
   Tcl_SetVar(interp, "_mode5", mode, 0);
   Tcl_SetVar(interp, "_mode6", target, 0);
-  check_tcl_bind(H_mode, (char *)op_strbuf_str(&args), &fr,
+  check_tcl_bind(H_mode, op_strbuf_str(&args), &fr,
                  " $_mode1 $_mode2 $_mode3 $_mode4 $_mode5 $_mode6",
                  MATCH_MODE | BIND_USE_ATTR | BIND_STACKABLE);
   op_strbuf_free(&args);
@@ -934,7 +941,7 @@ static void check_tcl_kick(char *nick, char *uhost, struct userrec *u,
   Tcl_SetVar(interp, "_kick4", chname, 0);
   Tcl_SetVar(interp, "_kick5", dest, 0);
   Tcl_SetVar(interp, "_kick6", reason, 0);
-  check_tcl_bind(H_kick, (char *)op_strbuf_str(&args), &fr,
+  check_tcl_bind(H_kick, op_strbuf_str(&args), &fr,
                  " $_kick1 $_kick2 $_kick3 $_kick4 $_kick5 $_kick6",
                  MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE);
   op_strbuf_free(&args);
@@ -949,7 +956,7 @@ static void check_tcl_invite(char *nick, char *from, char *chan, char *invitee)
   Tcl_SetVar(interp, "_invite3", chan, 0);
   Tcl_SetVar(interp, "_invite4", invitee, 0);
   op_strbuf_printf(&args, "%s %s", chan, invitee);
-  check_tcl_bind(H_invt, (char *)op_strbuf_str(&args), 0,
+  check_tcl_bind(H_invt, op_strbuf_str(&args), 0,
                  " $_invite1 $_invite2 $_invite3 $_invite4",
                  MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&args);
@@ -1008,7 +1015,7 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
   Tcl_SetVar(interp, "_pubm3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_pubm4", chname, 0);
   Tcl_SetVar(interp, "_pubm5", msg, 0);
-  x = check_tcl_bind(H_pubm, (char *)op_strbuf_str(&buf), &fr,
+  x = check_tcl_bind(H_pubm, op_strbuf_str(&buf), &fr,
                      " $_pubm1 $_pubm2 $_pubm3 $_pubm4 $_pubm5",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_STACKRET);
   op_strbuf_free(&buf);
@@ -1034,7 +1041,7 @@ static void check_tcl_need(char *chname, char *type)
   op_strbuf_appendf(&buf, "%s %s", chname, type);
   Tcl_SetVar(interp, "_need1", chname, 0);
   Tcl_SetVar(interp, "_need2", type, 0);
-  check_tcl_bind(H_need, (char *)op_strbuf_str(&buf), 0, " $_need1 $_need2",
+  check_tcl_bind(H_need, op_strbuf_str(&buf), 0, " $_need1 $_need2",
                  MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&buf);
 }
@@ -1050,7 +1057,7 @@ static void check_tcl_account(char *nick, char *uhost, struct userrec *u, char *
   Tcl_SetVar(interp, "_acnt3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_acnt4", chan, 0);
   Tcl_SetVar(interp, "_acnt5", account, 0);
-  check_tcl_bind(H_account, (char *)op_strbuf_str(&mask), &fr,
+  check_tcl_bind(H_account, op_strbuf_str(&mask), &fr,
        " $_acnt1 $_acnt2 $_acnt3 $_acnt4 $_acnt5", MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&mask);
 }
@@ -1179,12 +1186,14 @@ static void tell_account_tracking_status(int idx, int details)
 static void irc_report(int idx, int details)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  char ch[1024], q[256], *p;
+  char q[256], *p;
   int k, l;
   struct chanset_t *chan;
+  op_strbuf_t _bch;
 
   strlcpy(q, "Channels: ", sizeof(q));
   k = 10;
+  op_strbuf_init(&_bch);
   for (chan = chanset; chan; chan = chan->next) {
     if (idx != DP_STDOUT)
       get_user_flagrec(dcc[idx].user, &fr, chan->dname);
@@ -1200,22 +1209,18 @@ static void irc_report(int idx, int details)
         else if ((chan->dname[0] != '+') && !me_op(chan))
           p = MISC_WANTOPS;
       }
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s%s%s%s, ", chan->dname, p ? " (" : "",
-                         p ? p : "", p ? ")" : "");
-        strlcpy(ch, op_strbuf_str(&_b), sizeof ch);
-        l = (int) op_strbuf_len(&_b);
-        op_strbuf_free(&_b);
-      }
+      op_strbuf_reset(&_bch, "%s%s%s%s, ", chan->dname, p ? " (" : "",
+                       p ? p : "", p ? ")" : "");
+      l = (int) op_strbuf_len(&_bch);
       if ((k + l) > 70) {
         dprintf(idx, "    %s\n", q);
         strlcpy(q, "          ", sizeof(q));
         k = 10;
       }
-      k += my_strcpy(q + k, ch);
+      k += my_strcpy(q + k, op_strbuf_str(&_bch));
     }
   }
+  op_strbuf_free(&_bch);
   if (k > 10) {
     q[k - 2] = 0;
     dprintf(idx, "    %s\n", q);

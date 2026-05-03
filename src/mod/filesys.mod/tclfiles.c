@@ -321,9 +321,7 @@ static int tcl_mkdir STDVAR
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
-      t = op_malloc(op_strbuf_len(&_b) + 1);
-      strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-      op_strbuf_free(&_b);
+      t = op_strbuf_steal(&_b);
     }
     if (mkdir(t, 0755) != 0) {
       Tcl_AppendResult(irp, "1", NULL);
@@ -414,19 +412,15 @@ static int tcl_rmdir STDVAR
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s/%s/.filedb", dccdir, d, p);
-    t = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    t = op_strbuf_steal(&_b);
     unlink(t);
     op_strbuf_printf(&_b, "%s%s/%s/.files", dccdir, d, p);
-    t = op_realloc(t, op_strbuf_len(&_b) + 1);
-    strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    op_free(t);
+    t = op_strbuf_steal(&_b);
     unlink(t);
     op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
-    t = op_realloc(t, op_strbuf_len(&_b) + 1);
-    strlcpy(t, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    op_free(t);
+    t = op_strbuf_steal(&_b);
   }
   my_free(s);
   if (rmdir(t) == 0) {
@@ -550,17 +544,13 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
           op_strbuf_printf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
         else
           op_strbuf_printf(&_b, "%s%s", dccdir, fdbe_old->filename);
-        s = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s = op_strbuf_steal(&_b);
         const char *newfn_eff = newfn[0] ? newfn : fdbe_old->filename;
         if (newpath[0])
           op_strbuf_printf(&_b, "%s%s/%s", dccdir, newpath, newfn_eff);
         else
           op_strbuf_printf(&_b, "%s%s", dccdir, newfn_eff);
-        s1 = op_malloc(op_strbuf_len(&_b) + 1);
-        strlcpy(s1, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-        op_strbuf_free(&_b);
+        s1 = op_strbuf_steal(&_b);
       }
       if (!strcmp(s, s1)) {
         Tcl_AppendResult(irp, "-3", NULL);      /* Stupid copy to self */

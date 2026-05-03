@@ -229,7 +229,7 @@ int _wild_match(unsigned char *m, unsigned char *n)
  * This is required as userhost matching shouldn't depend on
  * server support of cidr.
  */
-int addr_match(char *m, char *n, int user, int cmp)
+int addr_match(const char *m, const char *n, int user, int cmp)
 {
   char *p, *q, *r = 0, *s = 0;
   char mu[UHOSTLEN], nu[UHOSTLEN];

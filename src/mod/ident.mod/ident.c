@@ -110,35 +110,29 @@ static void ident_oidentd(void)
 {
   char *home = getenv("HOME");
   FILE *fd;
-  op_strbuf_t data_buf;
-  char path[PATH_MAX], line[256], buf[256], identstr[256];
+  op_strbuf_t data_buf, identstr_buf, path_buf;
+  char line[256], buf[256];
   char s[EGG_INET_ADDRSTRLEN];
   int ret, prevtime, servidx;
   socklen_t namelen;
   struct sockaddr_storage ss;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "### eggdrop_%s", pid_file);
-    strlcpy(identstr, op_strbuf_str(&_b), sizeof identstr);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&identstr_buf, "### eggdrop_%s", pid_file);
+  const char *identstr = op_strbuf_str(&identstr_buf);
 
   if (!home) {
     putlog(LOG_MISC, "*",
            "Ident error: variable HOME is not in the current environment.");
+    op_strbuf_free(&identstr_buf);
     return;
   }
-  if (strlen(home) + sizeof("/.oidentd.conf") - 1 >= sizeof path) {
+  if (strlen(home) + sizeof("/.oidentd.conf") - 1 >= PATH_MAX) {
     putlog(LOG_MISC, "*", "Ident error: path too long.");
+    op_strbuf_free(&identstr_buf);
     return;
   }
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/.oidentd.conf", home);
-    strlcpy(path, op_strbuf_str(&_b), sizeof path);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&path_buf, "%s/.oidentd.conf", home);
+  const char *path = op_strbuf_str(&path_buf);
   op_strbuf_init(&data_buf);
   fd = fopen(path, "r");
   if (fd != NULL) {
@@ -175,6 +169,8 @@ static void ident_oidentd(void)
   if (servidx < 0 ) {
     putlog(LOG_MISC, "*", "IDENT: Error could not find server socket");
     op_strbuf_free(&data_buf);
+    op_strbuf_free(&identstr_buf);
+    op_strbuf_free(&path_buf);
     return;
   }
   namelen = sizeof ss;
@@ -208,6 +204,8 @@ static void ident_oidentd(void)
     putlog(LOG_MISC, "*", "IDENT: Error opening oident.conf for writing");
   }
   op_strbuf_free(&data_buf);
+  op_strbuf_free(&identstr_buf);
+  op_strbuf_free(&path_buf);
 }
 
 static void ident_builtin_on(void)

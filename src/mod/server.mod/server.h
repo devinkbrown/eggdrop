@@ -51,7 +51,7 @@ constexpr int NEWSERVERPASSMAX = 128;
 #define flud_ctcp_thr (*(int*)(server_funcs[10]))
 #define flud_ctcp_time (*(int*)(server_funcs[11]))
 /* 12 - 15 */
-#define match_my_nick ((int(*)(char *))server_funcs[12])
+#define match_my_nick ((int(*)(const char *))server_funcs[12])
 #define check_tcl_flud ((int (*)(char *,char *,struct userrec *,char *,char *))server_funcs[13])
 /* Empty, formally msgtag */
 #define answer_ctcp (*(int *)(server_funcs[15]))
@@ -79,7 +79,7 @@ constexpr int NEWSERVERPASSMAX = 128;
 #define H_flud (*(p_tcl_bind_list *)(server_funcs[32]))
 #define H_ctcp (*(p_tcl_bind_list *)(server_funcs[33]))
 #define H_ctcr (*(p_tcl_bind_list *)(server_funcs[34]))
-#define ctcp_reply ((char *)(server_funcs[35]))
+#define ctcp_reply (*(op_strbuf_t *)(server_funcs[35]))
 /* 36 - 39 */
 #define get_altbotnick ((char *(*)(void))(server_funcs[36]))
 #define nick_len (*(int *)(server_funcs[37]))

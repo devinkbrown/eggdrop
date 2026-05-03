@@ -112,66 +112,56 @@ static void setaccount(char *nick, char *account)
 
 /* Returns the current channel mode.
  */
-static char *getchanmode(struct chanset_t *chan)
+static const char *getchanmode(struct chanset_t *chan)
 {
-  static char s[121];
-  int atr, i;
+  static op_strbuf_t s;
+  int atr;
 
-  s[0] = '+';
-  i = 1;
+  op_strbuf_reset(&s, "+");
   atr = chan->channel.mode;
   if (atr & CHANINV)
-    s[i++] = 'i';
+    op_strbuf_appendc(&s, 'i');
   if (atr & CHANPRIV)
-    s[i++] = 'p';
+    op_strbuf_appendc(&s, 'p');
   if (atr & CHANSEC)
-    s[i++] = 's';
+    op_strbuf_appendc(&s, 's');
   if (atr & CHANMODER)
-    s[i++] = 'm';
+    op_strbuf_appendc(&s, 'm');
   if (atr & CHANNOCLR)
-    s[i++] = 'c';
+    op_strbuf_appendc(&s, 'c');
   if (atr & CHANNOCTCP)
-    s[i++] = 'C';
+    op_strbuf_appendc(&s, 'C');
   if (atr & CHANREGON)
-    s[i++] = 'R';
+    op_strbuf_appendc(&s, 'R');
   if (atr & CHANTOPIC)
-    s[i++] = 't';
+    op_strbuf_appendc(&s, 't');
   if (atr & CHANMODREG)
-    s[i++] = 'M';
+    op_strbuf_appendc(&s, 'M');
   if (atr & CHANLONLY)
-    s[i++] = 'r';
+    op_strbuf_appendc(&s, 'r');
   if (atr & CHANDELJN)
-    s[i++] = 'D';
+    op_strbuf_appendc(&s, 'D');
   if (atr & CHANSTRIP)
-    s[i++] = 'u';
+    op_strbuf_appendc(&s, 'u');
   if (atr & CHANNONOTC)
-    s[i++] = 'N';
+    op_strbuf_appendc(&s, 'N');
   if (atr & CHANNOAMSG)
-    s[i++] = 'T';
+    op_strbuf_appendc(&s, 'T');
   if (atr & CHANINVIS)
-    s[i++] = 'd';
+    op_strbuf_appendc(&s, 'd');
   if (atr & CHANNOMSG)
-    s[i++] = 'n';
+    op_strbuf_appendc(&s, 'n');
   if (atr & CHANANON)
-    s[i++] = 'a';
+    op_strbuf_appendc(&s, 'a');
   if (atr & CHANKEY)
-    s[i++] = 'k';
+    op_strbuf_appendc(&s, 'k');
   if (chan->channel.maxmembers != 0)
-    s[i++] = 'l';
-  s[i] = 0;
-  if (chan->channel.key[0]) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, " %s", chan->channel.key);
-    strlcat(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
-  }
-  if (chan->channel.maxmembers != 0) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, " %s", int_to_base10(chan->channel.maxmembers));
-    strlcat(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
-  }
-  return s;
+    op_strbuf_appendc(&s, 'l');
+  if (chan->channel.key[0])
+    op_strbuf_appendf(&s, " %s", chan->channel.key);
+  if (chan->channel.maxmembers != 0)
+    op_strbuf_appendf(&s, " %s", int_to_base10(chan->channel.maxmembers));
+  return op_strbuf_str(&s);
 }
 
 #include "chan_enforce.c"

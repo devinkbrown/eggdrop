@@ -580,7 +580,6 @@ static int tcl_queuesize STDVAR
 
 static int tcl_server STDVAR {
   int ret;
-  char s[7];
   struct server_list *z;
   __attribute__((unused)) Tcl_Obj *server;
 
@@ -617,18 +616,17 @@ static int tcl_server STDVAR {
     z = serverlist;
     while(z != NULL) {
       server = Tcl_NewListObj(0, NULL);
+      Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->name, -1));
 #ifdef TLS
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s%d", z->ssl ? "+" : "", z->port);
-        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(op_strbuf_str(&_b), -1));
         op_strbuf_free(&_b);
       }
 #else
-      strlcpy(s, int_to_base10(z->port), sizeof s);
+      Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(int_to_base10(z->port), -1));
 #endif
-      Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->name, -1));
-      Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(s, -1));
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->pass, -1));
       Tcl_SetObjResult(irp, server);
       Tcl_ListObjAppendElement(irp, servers, server);

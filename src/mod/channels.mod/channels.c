@@ -308,10 +308,8 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
   *p = 0;
   if (!op_strbuf_empty(&s1)) {
     op_strbuf_truncate(&s1, op_strbuf_len(&s1) - 1);
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, " %s", op_strbuf_str(&s1));
-    strlcat(s, op_strbuf_str(&_b), sz);
-    op_strbuf_free(&_b);
+    strlcat(s, " ", sz);
+    strlcat(s, op_strbuf_str(&s1), sz);
   }
   op_strbuf_free(&s1);
 }
@@ -339,7 +337,7 @@ int check_tcl_chanset(const char *chan, const char *setting, const char *value)
 
 /* Returns true if this is one of the channel masks
  */
-static int ismodeline(masklist *m, op_htab *ht, char *user)
+static int ismodeline(masklist *m, op_htab *ht, const char *user)
 {
   if (ht)
     return op_htab_get(ht, user) != NULL;
@@ -351,7 +349,7 @@ static int ismodeline(masklist *m, op_htab *ht, char *user)
 
 /* Returns true if user matches one of the masklist -- drummer
  */
-static int ismasked(masklist *m, char *user)
+static int ismasked(masklist *m, const char *user)
 {
   for (; m && m->mask[0]; m = m->next)
     if (match_addr(m->mask, user))
@@ -507,17 +505,17 @@ static void write_channels(void)
 
   if (!chanfile[0])
     return;
-  char tmpfile[PATH_MAX];
+  char *tmpfile;
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s~new", chanfile);
-    strlcpy(tmpfile, op_strbuf_str(&_b), sizeof tmpfile);
-    op_strbuf_free(&_b);
+    tmpfile = op_strbuf_steal(&_b);
   }
   f = fopen(tmpfile, "w");
   chmod(tmpfile, userfile_perm);
   if (f == NULL) {
     putlog(LOG_MISC, "*", "ERROR writing channel file.");
+    op_free(tmpfile);
     return;
   }
   if (!quiet_save)
@@ -612,12 +610,14 @@ static void write_channels(void)
     if (fflush(f)) {
       putlog(LOG_MISC, "*", "ERROR writing channel file.");
       fclose(f);
+      op_free(tmpfile);
       return;
     }
   }
   fclose(f);
   unlink(chanfile);
   movefile(tmpfile, chanfile);
+  op_free(tmpfile);
 }
 
 static void read_channels(int create, int reload)
@@ -730,12 +730,7 @@ static void channels_report(int idx, int details)
       if (channel_bitch(chan))   op_strbuf_append_cstr(&feats, "bitch, ");
       if (op_strbuf_len(&feats) >= 2) {
         /* strip trailing ", " */
-        op_strbuf_appendc(&feats, '\0');
-        size_t flen = op_strbuf_len(&feats);
-        if (flen >= 3) {
-          char *fs = (char *)op_strbuf_str(&feats);
-          fs[flen - 3] = '\0';  /* overwrite the ", " */
-        }
+        op_strbuf_truncate(&feats, op_strbuf_len(&feats) - 2);
         op_strbuf_appendf(&s, " (%s)", op_strbuf_str(&feats));
       }
       op_strbuf_free(&feats);
@@ -778,10 +773,7 @@ static void channels_report(int idx, int details)
       if (channel_inactive(chan))       op_strbuf_append_cstr(&opts, "inactive ");
       if (channel_nodesynch(chan))      op_strbuf_append_cstr(&opts, "nodesynch ");
       /* trim trailing space */
-      if (op_strbuf_len(&opts) > 0) {
-        char *op = (char *)op_strbuf_str(&opts);
-        op[op_strbuf_len(&opts) - 1] = '\0';
-      }
+      op_strbuf_trim_end(&opts, " ");
       dprintf(idx, "      Options: %s\n", op_strbuf_str(&opts));
       op_strbuf_free(&opts);
 

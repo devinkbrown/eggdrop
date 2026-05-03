@@ -26,6 +26,7 @@
 #include "main.h"
 #include "tandem.h"
 #include "modules.h"
+#include "script.h"
 
 extern char botnetnick[], ver[], admin[], network[], motdfile[];
 extern int dcc_total, remote_boots, noshare;
@@ -339,7 +340,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
     {
       op_strbuf_t tcl_cmd;
       op_strbuf_printf(&tcl_cmd, "assoc %d", chan);
-      if ((Tcl_Eval(interp, op_strbuf_str(&tcl_cmd)) != TCL_OK) || tcl_resultempty())
+      if (egg_eval(op_strbuf_str(&tcl_cmd)) || tcl_resultempty())
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s %s%d: (* = owner, + ="
                          " master, %% = botmaster, @ = op, ^ = halfop)\n",
                          BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" : "*",
@@ -423,15 +424,13 @@ static void remote_tell_who(int idx, char *nick, int chan)
  */
 static void bot_who(int idx, char *par)
 {
-  char from_buf[UHOSTLEN + NICKLEN + 2];
+  op_strbuf_t _from_sb;
+  op_strbuf_init(&_from_sb);
 
   char *from = newsplit(&par);
   if (!strchr(from, '@')) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s@%s", from, dcc[idx].nick);
-    strlcpy(from_buf, op_strbuf_str(&_b), sizeof from_buf);
-    op_strbuf_free(&_b);
-    from = from_buf;
+    op_strbuf_printf(&_from_sb, "%s@%s", from, dcc[idx].nick);
+    from = (char *) op_strbuf_str(&_from_sb);
   }
   char *to = newsplit(&par);
   if (!strcasecmp(to, botnetnick))
@@ -443,6 +442,7 @@ static void bot_who(int idx, char *par)
       botnet_send_who(i, from, to, chan);
   } else
     remote_tell_who(idx, from, chan);
+  op_strbuf_free(&_from_sb);
 }
 
 static void bot_endlink(int idx, char *par)
@@ -701,7 +701,7 @@ static void bot_trace(int idx, char *par)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s:%s", par, botnetnick);
-    botnet_send_traced(idx, from, (char *) op_strbuf_str(&_b));
+    botnet_send_traced(idx, from, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
   if (strcasecmp(dest, botnetnick)) {
@@ -1135,7 +1135,7 @@ static void bot_join(int idx, char *par)
   if (u) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "@%s", bot);
-    touch_laston(u, (char *) op_strbuf_str(&_b), now);
+    touch_laston(u, op_strbuf_str(&_b), now);
     op_strbuf_free(&_b);
   }
   int i2;
@@ -1177,7 +1177,7 @@ static void bot_part(int idx, char *par)
   if (u) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "@%s", bot);
-    touch_laston(u, (char *) op_strbuf_str(&_b), now);
+    touch_laston(u, op_strbuf_str(&_b), now);
     op_strbuf_free(&_b);
   }
   int partyidx;
@@ -1269,9 +1269,11 @@ static void bot_idle(int idx, char *par)
 }
 
 
-void bot_share(int idx, char *par)
+void bot_share(int idx, const char *par)
 {
-  sharein(idx, par);
+  char *copy = op_strdup(par);
+  sharein(idx, copy);
+  op_free(copy);
 }
 
 /* v <frombot> <tobot> <idx:nick>

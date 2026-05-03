@@ -611,20 +611,17 @@ static int tcl_getchanidle STDVAR
 
 static int tcl_chanmasks(masklist *m, Tcl_Interp *irp)
 {
-  char work[21], *p;
+  char *p;
   EGG_CONST char *list[3];
 
   for (; m && m->mask && m->mask[0]; m = m->next) {
     list[0] = m->mask;
     list[1] = m->who;
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%" PRId64, (int64_t) (now - m->timer));
-      strlcpy(work, op_strbuf_str(&_b), sizeof work);
-      op_strbuf_free(&_b);
-    }
-    list[2] = work;
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%" PRId64, (int64_t) (now - m->timer));
+    list[2] = op_strbuf_str(&_b);
     p = Tcl_Merge(3, list);
+    op_strbuf_free(&_b);
     Tcl_AppendElement(irp, p);
     Tcl_Free((char *) p);
   }

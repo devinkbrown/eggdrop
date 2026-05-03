@@ -231,25 +231,24 @@ static int compress_to_file_mmap(gzFile fout, FILE *fin)
  */
 static int compress_to_file(char *f_src, char *f_target, int mode_num)
 {
-  char buf[BUFLEN], mode[5];
+  char buf[BUFLEN];
   FILE *fin;
   gzFile fout;
   int len;
 
   adjust_mode_num(&mode_num);
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "wb%s", int_to_base10(mode_num));
-    strlcpy(mode, op_strbuf_str(&_b), sizeof mode);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_t mode_buf;
+  op_strbuf_printf(&mode_buf, "wb%s", int_to_base10(mode_num));
+  const char *mode = op_strbuf_str(&mode_buf);
 
   if (!is_file(f_src)) {
+    op_strbuf_free(&mode_buf);
     putlog(LOG_MISC, "*", "Failed to compress file `%s': not a file.", f_src);
     return COMPF_ERROR;
   }
   fin = fopen(f_src, "rb");
   if (!fin) {
+    op_strbuf_free(&mode_buf);
     putlog(LOG_MISC, "*", "Failed to compress file `%s': open failed: %s.",
            f_src, strerror(errno));
     return COMPF_ERROR;
@@ -257,6 +256,7 @@ static int compress_to_file(char *f_src, char *f_target, int mode_num)
 
   fout = gzopen(f_target, mode);
   if (!fout) {
+    op_strbuf_free(&mode_buf);
     fclose(fin);
     putlog(LOG_MISC, "*", "Failed to compress file `%s': gzopen failed.",
            f_src);
@@ -265,6 +265,7 @@ static int compress_to_file(char *f_src, char *f_target, int mode_num)
 
 #ifdef HAVE_MMAP
   if (compress_to_file_mmap(fout, fin) == COMPF_SUCCESS) {
+    op_strbuf_free(&mode_buf);
     compressed_files++;
     return COMPF_SUCCESS;
   } else {
@@ -275,6 +276,7 @@ static int compress_to_file(char *f_src, char *f_target, int mode_num)
     fout = gzopen(f_target, mode);
   }
 #endif /* HAVE_MMAP */
+  op_strbuf_free(&mode_buf);
 
   while (1) {
     len = fread(buf, 1, sizeof(buf), fin);
@@ -317,9 +319,7 @@ static int compress_file(char *filename, int mode_num)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", filename, rands);
-    temp_fn = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(temp_fn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    temp_fn = op_strbuf_steal(&_b);
   }
 
   /* Compress file. */
@@ -347,9 +347,7 @@ static int uncompress_file(char *filename)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s%s", filename, rands);
-    temp_fn = op_malloc(op_strbuf_len(&_b) + 1);
-    strlcpy(temp_fn, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-    op_strbuf_free(&_b);
+    temp_fn = op_strbuf_steal(&_b);
   }
 
   /* Uncompress file. */

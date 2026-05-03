@@ -200,12 +200,11 @@ const char *masktype(int x)
   return s;
 }
 
-char *maskname(int x)
+const char *maskname(int x)
 {
-  static char s[512];
-  op_strbuf_t _b;
+  static op_strbuf_t _b;
 
-  op_strbuf_init(&_b);
+  op_strbuf_clear(&_b);
   if (x & LOG_MSGS)    op_strbuf_append_cstr(&_b, "msgs, ");
   if (x & LOG_PUBLIC)  op_strbuf_append_cstr(&_b, "public, ");
   if (x & LOG_JOIN)    op_strbuf_append_cstr(&_b, "joins, ");
@@ -232,12 +231,11 @@ char *maskname(int x)
   if (x & LOG_LEV6)    op_strbuf_append_cstr(&_b, "level 6, ");
   if (x & LOG_LEV7)    op_strbuf_append_cstr(&_b, "level 7, ");
   if (x & LOG_LEV8)    op_strbuf_append_cstr(&_b, "level 8, ");
-  if (op_strbuf_len(&_b))
-    strlcpy(s, op_strbuf_str(&_b), op_strbuf_len(&_b) - 1);
+  if (!op_strbuf_empty(&_b))
+    op_strbuf_truncate(&_b, op_strbuf_len(&_b) - 2);
   else
-    strlcpy(s, "none", sizeof s);
-  op_strbuf_free(&_b);
-  return s;
+    op_strbuf_append_cstr(&_b, "none");
+  return op_strbuf_str(&_b);
 }
 
 /* Some flags are mutually exclusive -- this roots them out

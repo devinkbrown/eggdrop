@@ -78,8 +78,8 @@ static int u_setsticky_mask(struct chanset_t *chan, maskrec *m, char *uhost,
                             int sticky, char *botcmd);
 
 static int u_equals_mask(maskrec *u, op_htab *ht, char *uhost);
-static int u_match_mask(struct maskrec *rec, char *mask);
-static int u_match_mask_trie(struct maskrec *rec, op_cidr_tbl_t *ip_trie, char *mask);
+static int u_match_mask(struct maskrec *rec, const char *mask);
+static int u_match_mask_trie(struct maskrec *rec, op_cidr_tbl_t *ip_trie, const char *mask);
 static int u_delexempt(struct chanset_t *c, char *who, int doit);
 static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
                        char *note, time_t expire_time, int flags);
@@ -87,7 +87,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit);
 static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
                        char *note, time_t expire_time, int flags);
 static int u_delban(struct chanset_t *c, char *who, int doit);
-static int u_addban(struct chanset_t *chan, char *ban, char *from, char *note,
+static int u_addban(struct chanset_t *chan, const char *ban, char *from, const char *note,
                     time_t expire_time, int flags);
 static void tell_bans(int idx, int show_inact, char *match);
 static int write_bans(FILE *f, int idx);
@@ -103,8 +103,8 @@ static void read_channels(int, int);
 static void clear_channel(struct chanset_t *, int);
 static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz);
 static void set_mode_protect(struct chanset_t *chan, char *set);
-static int ismasked(masklist *m, char *user);
-static int ismodeline(masklist *m, op_htab *ht, char *user);
+static int ismasked(masklist *m, const char *user);
+static int ismodeline(masklist *m, op_htab *ht, const char *user);
 static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                               int items, char **item);
 static int tcl_channel_add(Tcl_Interp *irp, char *, char *);
@@ -127,7 +127,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 /* 4 - 7 */
 #define u_setsticky_mask ((int (*)(struct chanset_t *, maskrec *, char *, int, char *))channels_funcs[4])
 #define u_delban ((int (*)(struct chanset_t *, char *, int))channels_funcs[5])
-#define u_addban ((int (*)(struct chanset_t *, char *, char *, char *, time_t, int))channels_funcs[6])
+#define u_addban ((int (*)(struct chanset_t *, const char *, char *, const char *, time_t, int))channels_funcs[6])
 #define write_bans ((int (*)(FILE *, int))channels_funcs[7])
 /* 8 - 11 */
 #define get_chanrec ((struct chanuserrec *(*)(struct userrec *, char *))channels_funcs[8])
@@ -136,7 +136,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define set_handle_chaninfo ((void (*)(struct userrec *, char *, char *, char *))channels_funcs[11])
 /* 12 - 15 */
 #define channel_malloc(x) op_malloc(x)
-#define u_match_mask ((int (*)(maskrec *, char *))channels_funcs[13])
+#define u_match_mask ((int (*)(maskrec *, const char *))channels_funcs[13])
 #define u_equals_mask ((int (*)(maskrec *, op_htab *, char *))channels_funcs[14])
 #define clear_channel ((void (*)(struct chanset_t *, int))channels_funcs[15])
 /* 16 - 19 */
@@ -146,7 +146,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define get_handle_chaninfo ((void (*)(char *, char *, char *, size_t))channels_funcs[19])
 /* 20 - 23 */
 #define u_sticky_mask ((int (*)(maskrec *, op_htab *, char *))channels_funcs[20])
-#define ismasked ((int (*)(masklist *, char *))channels_funcs[21])
+#define ismasked ((int (*)(masklist *, const char *))channels_funcs[21])
 #define add_chanrec_by_handle ((void (*)(struct userrec *, char *, char *))channels_funcs[22])
 /* *HOLE* channels_funcs[23] used to be isexempted() <cybah> */
 /* 24 - 27 */
@@ -171,7 +171,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define write_exempts ((int (*)(FILE *, int))channels_funcs[39])
 /* 40 - 43 */
 #define write_invites ((int (*)(FILE *, int))channels_funcs[40])
-#define ismodeline ((int(*)(masklist *, op_htab *, char *))channels_funcs[41])
+#define ismodeline ((int(*)(masklist *, op_htab *, const char *))channels_funcs[41])
 #define initudef ((void(*)(int, char *,int))channels_funcs[42])
 #define ngetudef ((int(*)(char *, char *))channels_funcs[43])
 /* 44 - 47 */
@@ -188,7 +188,7 @@ static int check_tcl_chanset(const char *, const char *, const char *);
 #define channel_malloc_mask()   ((void *(*)(void))channels_funcs[51])()
 #define channel_free_mask(x)    ((void (*)(void *))channels_funcs[52])(x)
 /* 53 */
-#define u_match_mask_trie ((int (*)(maskrec *, op_cidr_tbl_t *, char *))channels_funcs[53])
+#define u_match_mask_trie ((int (*)(maskrec *, op_cidr_tbl_t *, const char *))channels_funcs[53])
 
 #endif /* MAKING_CHANNELS */
 

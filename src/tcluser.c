@@ -605,7 +605,7 @@ static int tcl_killignore STDVAR
 
 static int tcl_ignorelist STDVAR
 {
-  char expire[21], added[21], *p;
+  char *p;
   EGG_CONST char *list[5];
   struct igrec *i;
 
@@ -614,22 +614,15 @@ static int tcl_ignorelist STDVAR
   for (i = global_ign; i; i = i->next) {
     list[0] = i->igmask;
     list[1] = i->msg;
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%" PRId64, (int64_t) i->expire);
-      strlcpy(expire, op_strbuf_str(&_b), sizeof expire);
-      op_strbuf_free(&_b);
-    }
-    list[2] = expire;
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%" PRId64, (int64_t) i->added);
-      strlcpy(added, op_strbuf_str(&_b), sizeof added);
-      op_strbuf_free(&_b);
-    }
-    list[3] = added;
+    op_strbuf_t _expire, _added;
+    op_strbuf_printf(&_expire, "%" PRId64, (int64_t) i->expire);
+    list[2] = op_strbuf_str(&_expire);
+    op_strbuf_printf(&_added, "%" PRId64, (int64_t) i->added);
+    list[3] = op_strbuf_str(&_added);
     list[4] = i->user;
     p = Tcl_Merge(5, list);
+    op_strbuf_free(&_expire);
+    op_strbuf_free(&_added);
     Tcl_AppendElement(irp, p);
     Tcl_Free((char *) p);
   }

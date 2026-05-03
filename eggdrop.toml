@@ -313,6 +313,14 @@ chanfile  = "LamestBot.chan"
 # Unix permissions on the user file (octal string).
 userfile_perm = "0600"
 
+# Storage backend: "lmdb" (default, crash-safe) or "flat" (legacy text files).
+# LMDB provides atomic writes and instant crash recovery while maintaining full
+# compatibility with Tcl commands and share module transfers.
+store_backend = "lmdb"
+
+# Path to the LMDB database file.  Defaults to "<botnetnick>.mdb" if empty.
+# store_path = ""
+
 # Help files directory.
 help_path = "help/"
 

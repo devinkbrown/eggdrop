@@ -109,14 +109,14 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define int_to_base10 ((char * (*) (int))global[22])
 #define simple_sprintf ((int (*)(char *, const char *, ...))global[23])
 /* 24 - 27 */
-#define botnet_send_zapf ((void (*)(int, char *, char *, char *))global[24])
-#define botnet_send_zapf_broad ((void (*)(int, char *, char *, char *))global[25])
-#define botnet_send_unlinked ((void (*)(int, char *, char *))global[26])
+#define botnet_send_zapf ((void (*)(int, const char *, const char *, const char *))global[24])
+#define botnet_send_zapf_broad ((void (*)(int, const char *, const char *, const char *))global[25])
+#define botnet_send_unlinked ((void (*)(int, char *, const char *))global[26])
 #define botnet_send_bye ((void(*)(void))global[27])
 /* 28 - 31 */
-#define botnet_send_chat ((void(*)(int,char*,char*))global[28])
+#define botnet_send_chat ((void(*)(int,char*,const char*))global[28])
 #define botnet_send_filereject ((void(*)(int,char*,char*,char*))global[29])
-#define botnet_send_filesend ((void(*)(int,char*,char*,char*))global[30])
+#define botnet_send_filesend ((void(*)(int,const char*,const char*,const char*))global[30])
 #define botnet_send_filereq ((void(*)(int,char*,char*,char*))global[31])
 /* 32 - 35 */
 #define botnet_send_join_idx ((void(*)(int,int))global[32])
@@ -136,15 +136,15 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 /* 44 - 47 */
 #define get_user_flagrec ((void (*)(struct userrec *, struct flag_record *, const char *))global[44])
 #define set_user_flagrec ((void (*)(struct userrec *, struct flag_record *, const char *))global[45])
-#define get_user_by_host ((struct userrec * (*)(char *))global[46])
+#define get_user_by_host ((struct userrec * (*)(const char *))global[46])
 #define get_user_by_handle ((struct userrec *(*)(struct userrec *,char *))global[47])
 /* 48 - 51 */
 #define find_entry_type ((struct user_entry_type * (*) ( char * ))global[48])
 #define find_user_entry ((struct user_entry * (*)( struct user_entry_type *, struct userrec *))global[49])
-#define adduser ((struct userrec *(*)(struct userrec *,char*,char*,char*,int))global[50])
+#define adduser ((struct userrec *(*)(struct userrec *,char*,const char*,char*,int))global[50])
 #define deluser ((int (*)(char *))global[51])
 /* 52 - 55 */
-#define addhost_by_handle ((void (*) (char *, char *))global[52])
+#define addhost_by_handle ((void (*) (char *, const char *))global[52])
 #define delhost_by_handle ((int(*)(char *,char *))global[53])
 #define readuserfile ((int (*)(char *,struct userrec **))global[54])
 #define write_userfile ((void(*)(int))global[55])
@@ -180,7 +180,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #ifdef TLS
 #  define ssl_handshake ((int (*)(int,int,int,int,char *,IntFunc))global[78])
 #endif
-#define tputs ((void (*) (int, char *,unsigned int))global[79])
+#define tputs ((void (*) (int, const char *,unsigned int))global[79])
 /* 80 - 83 */
 #define new_dcc ((int (*) (struct dcc_table *, int))global[80])
 #define lostdcc ((void (*) (int))global[81])
@@ -259,23 +259,23 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define findchan ((struct chanset_t *(*)(const char *))global[131])
 /* 132 - 135 */
 #define cmd_die (global[132])
-#define days ((void (*)(time_t,time_t,char *))global[133])
-#define daysago ((void (*)(time_t,time_t,char *))global[134])
-#define daysdur ((void (*)(time_t,time_t,char *))global[135])
+#define days ((const char *(*)(time_t,time_t))global[133])
+#define daysago ((const char *(*)(time_t,time_t))global[134])
+#define daysdur ((const char *(*)(time_t,time_t))global[135])
 /* 136 - 139 */
-#define ismember ((memberlist * (*) (struct chanset_t *, char *))global[136])
+#define ismember ((memberlist * (*) (struct chanset_t *, const char *))global[136])
 #define newsplit ((char *(*)(char **))global[137])
 #define splitnick ((char *(*)(char **))global[138])
 #define splitc ((void (*)(char *,char *,char))global[139])
 /* 140 - 143 */
-#define addignore ((void (*) (char *, char *, char *,time_t))global[140])
+#define addignore ((void (*) (const char *, char *, char *,time_t))global[140])
 #define match_ignore ((int (*)(char *))global[141])
 #define delignore ((int (*)(char *))global[142])
 #define fatal ((void (*)(const char *, int))global[143])
 /* 144 - 147 */
 #define xtra_kill ((void (*)(struct user_entry *))global[144])
 #define xtra_unpack ((void (*)(struct userrec *, struct user_entry *))global[145])
-#define movefile ((int (*) (char *, char *))global[146])
+#define movefile ((int (*) (const char *, const char *))global[146])
 #define copyfile ((int (*) (const char *, const char *))global[147])
 /* 148 - 151 */
 #define do_tcl ((void (*)(char *, char *))global[148])
@@ -293,12 +293,12 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define add_help_reference ((void(*)(char *))global[158])
 #define rem_help_reference ((void(*)(char *))global[159])
 /* 160 - 163 */
-#define touch_laston ((void (*)(struct userrec *,char *,time_t))global[160])
-#define add_mode ((void (*)(struct chanset_t *,char,char,char *))(*(Function**)(global[161])))
+#define touch_laston ((void (*)(struct userrec *,const char *,time_t))global[160])
+#define add_mode ((void (*)(struct chanset_t *,char,char,const char *))(*(Function**)(global[161])))
 #define rmspace ((void (*)(char *))global[162])
 #define in_chain ((int (*)(char *))global[163])
 /* 164 - 167 */
-#define add_note ((int (*)(char *,char*,char*,int,int))global[164])
+#define add_note ((int (*)(char *,char*,const char*,int,int))global[164])
 #define del_lang_section ((int(*)(char *))global[165])
 #define detect_dcc_flood ((int (*) (time_t *,struct chat_info *,int))global[166])
 #define flush_lines ((void(*)(int,struct chat_info*))global[167])
@@ -339,7 +339,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 /* 196 - 199 */
 #define USERENTRY_LASTON (*(struct user_entry_type *)(global[196]))
 #define putlog ((putlogfunc)(global[197]))
-#define botnet_send_chan ((void(*)(int,char*,char*,int,char*))global[198])
+#define botnet_send_chan ((void(*)(int,const char*,const char*,int,const char*))global[198])
 #define list_type_kill ((void(*)(struct list_type *))global[199])
 /* 200 - 203 */
 #define logmodes ((int(*)(char *))global[200])
@@ -441,7 +441,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define socklist (*(struct sock_list **)global[268])
 #define sockoptions ((int (*)(int, int, int))global[269])
 #define flush_inbuf ((int (*)(int))global[270])
-#define kill_bot ((void (*)(char *, char *))global[271])
+#define kill_bot ((void (*)(const char *, const char *))global[271])
 /* 272 - 275 */
 #define quit_msg ((char *)(global[272]))
 #define module_load ((char *(*)(char *))global[273])
@@ -508,14 +508,14 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define get_expire_time ((time_t (*) (Tcl_Interp *, const char *))global[315])
 /* 316 - 319 */
 #define USERENTRY_ACCOUNT (*(struct user_entry_type *)(global[316]))
-#define get_user_by_account ((struct userrec * (*)(char *))global[317])
+#define get_user_by_account ((struct userrec * (*)(const char *))global[317])
 #define delaccount_by_handle ((int(*)(char *,char *))global[318])
 #define check_tcl_event_arg ((void (*) (const char *,const char *))global[319])
 /* 320 - 323 */
 #define bind_bind_entry ((int(*)(tcl_bind_list_t *, const char *, const char *, const char *))global[320])
 #define unbind_bind_entry ((int(*)(tcl_bind_list_t *, const char *, const char *, const char *))global[321])
 #define argv0 ((char *)global[322])
-#define lookup_user_record ((struct userrec * (*)(memberlist *, char *, char *))global[323])
+#define lookup_user_record ((struct userrec * (*)(memberlist *, const char *, const char *))global[323])
 /* 324 - 327 */
 #define find_member_from_nick ((memberlist * (*) (char *))global[324])
 #define get_user_from_member ((struct userrec * (*) (memberlist *))global[325])
@@ -544,6 +544,11 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 /* 336 - 337 */
 #define chan_htab_add ((void (*)(struct chanset_t *))global[336])
 #define chan_htab_del ((void (*)(struct chanset_t *))global[337])
+/* 338 - 341: script evaluation and variable access */
+#define notcl_setvar ((void (*)(const char *, const char *))global[338])
+#define notcl_getvar ((const char *(*)(const char *, char *, size_t))global[339])
+#define egg_eval ((int (*)(const char *))global[340])
+#define egg_eval_log ((int (*)(const char *, const char *))global[341])
 
 /* Check ABI compatibility.  Call early in _start() after setting global.
  * Returns NULL on success, or an error string on mismatch.

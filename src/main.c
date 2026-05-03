@@ -48,6 +48,7 @@
 #include "modules.h"
 #include "bg.h"
 #include "configtoml.h"
+#include "script.h"
 #include <op_commio.h>
 
 #ifdef HAVE_GETRANDOM
@@ -237,14 +238,12 @@ static void write_debug(void)
     if (interp) {
       /* info library */
       dprintf(-x, "Tcl library: %s\n",
-              ((interp) && (Tcl_Eval(interp, "info library") == TCL_OK)) ?
-              tcl_resultstring() : "*unknown*");
+              !egg_eval("info library") ? tcl_resultstring() : "*unknown*");
 
       /* info tclversion/patchlevel */
       dprintf(-x, "Tcl version: %s (header version " TCL_PATCH_LEVEL ")\n",
-              ((interp) && (Tcl_Eval(interp, "info patchlevel") == TCL_OK)) ?
-              tcl_resultstring() : (Tcl_Eval(interp, "info tclversion") == TCL_OK) ?
-              tcl_resultstring() : "*unknown*");
+              !egg_eval("info patchlevel") ? tcl_resultstring() :
+              !egg_eval("info tclversion") ? tcl_resultstring() : "*unknown*");
 
       if (tcl_threaded())
         dprintf(-x, "Tcl is threaded\n");
@@ -596,7 +595,7 @@ static void core_secondly(void)
             }
             op_strbuf_printf(&sb, "%s.yesterday", logs[li].filename);
             unlink(op_strbuf_str(&sb));
-            movefile(logs[li].filename, (char *) op_strbuf_str(&sb));
+            movefile(logs[li].filename, op_strbuf_str(&sb));
             op_strbuf_free(&sb);
           }
       }
@@ -1007,6 +1006,7 @@ int main(int arg_c, char **arg_v)
   lastmin = now / 60;
   init_random();
   op_event_init();
+  op_init_bh();
   op_fdlist_init(0, 1024, 256);
   op_init_netio();
   op_linebuf_init(64);

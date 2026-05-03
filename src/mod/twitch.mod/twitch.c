@@ -211,58 +211,46 @@ static void cmd_userstate(struct userrec *u, int idx, char *par) {
 
 static int check_tcl_clearchat(char *chan, char *nick) {
   int x;
-  char mask[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
-    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
   Tcl_SetVar(interp, "_ccht1", nick ? (char *) nick : "", 0);
   Tcl_SetVar(interp, "_ccht2", chan, 0);
-  x = check_tcl_bind(H_ccht, mask, &fr, " $_ccht1 $_ccht2",
+  x = check_tcl_bind(H_ccht, op_strbuf_str(&_b), &fr, " $_ccht1 $_ccht2",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&_b);
   return (x == BIND_EXEC_LOG);
 }
 
 static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
   int x;
-  char mask[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
-    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
   Tcl_SetVar(interp, "_cmsg1", nick, 0);
   Tcl_SetVar(interp, "_cmsg2", chan, 0);
   Tcl_SetVar(interp, "_cmsg3", msgid, 0);
   Tcl_SetVar(interp, "_cmsg4", msg, 0);
-  x = check_tcl_bind(H_cmsg, mask, &fr, " $_cmsg1 $_cmsg2 $_cmsg3 $_cmsg4",
+  x = check_tcl_bind(H_cmsg, op_strbuf_str(&_b), &fr, " $_cmsg1 $_cmsg2 $_cmsg3 $_cmsg4",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&_b);
   return (x == BIND_EXEC_LOG);
 }
 
 static int check_tcl_hosttarget(char *chan, char *nick, char *viewers) {
   int x;
-  char mask[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s", chan, nick);
-    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "%s %s", chan, nick);
   Tcl_SetVar(interp, "_htgt1", nick, 0);
   Tcl_SetVar(interp, "_htgt2", chan, 0);
   Tcl_SetVar(interp, "_htgt3", viewers, 0);
-  x = check_tcl_bind(H_htgt, mask, &fr, " $_htgt1 $_htgt2 $_htgt3",
+  x = check_tcl_bind(H_htgt, op_strbuf_str(&_b), &fr, " $_htgt1 $_htgt2 $_htgt3",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&_b);
 
   return (x == BIND_EXEC_LOG);
 }
@@ -288,20 +276,19 @@ static int check_tcl_whisper(char *from, char *cmd, char *msg) {
 }
 
 static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
-  char buf[UHOSTMAX], args[MSGMAX], *uhost=buf, *nick, *hand;
+  char buf[UHOSTMAX], *uhost=buf, *nick, *hand;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   struct userrec *u = NULL;
+  op_strbuf_t args_buf;
   int x;
 
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   if (msg[0]) {                     /* Re-attach the cmd to the msg */
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s", cmd, msg);
-    strlcpy(args, op_strbuf_str(&_b), sizeof args);
-    op_strbuf_free(&_b);
+    op_strbuf_printf(&args_buf, "%s %s", cmd, msg);
   } else
-    strlcpy(args, cmd, sizeof args);
+    op_strbuf_printf(&args_buf, "%s", cmd);
+  const char *args = op_strbuf_str(&args_buf);
   u = get_user_by_host(from);
   get_user_flagrec(u, &fr, NULL);
   hand = (u ? u->handle : "*");
@@ -311,53 +298,42 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
   Tcl_SetVar(interp, "_wspm4", args, 0);
   x = check_tcl_bind(H_wspm, args, &fr, " $_wspm1 $_wspm2 $_wspm3 $_wspm4",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&args_buf);
   return (x == BIND_EXEC_LOG);
 }
 
 static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
-  char mask[TOTALTAGMAX + 200]; /* channel + key */
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
-    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_rmst1", chan, 0);
   Tcl_SetVar(interp, "_rmst2", Tcl_GetString(tags), 0);
-  check_tcl_bind(H_rmst, mask, NULL, " $_rmst1 $_rmst2",
+  check_tcl_bind(H_rmst, op_strbuf_str(&_b), NULL, " $_rmst1 $_rmst2",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&_b);
 }
 
 static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
-  char mask[TOTALTAGMAX + 200]; /* channel + key */
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
-    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usst1", chan, 0);
   Tcl_SetVar(interp, "_usst2", Tcl_GetString(tags), 0);
-  check_tcl_bind(H_usst, mask, NULL, " $_usst1 $_usst2",
+  check_tcl_bind(H_usst, op_strbuf_str(&_b), NULL, " $_usst1 $_usst2",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&_b);
 }
 
 static void check_tcl_usernotice(char *chan, char *msg, Tcl_Obj *tags) {
-  char mask[TOTALTAGMAX + 200]; /* channel + msgid */
+  op_strbuf_t _b;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
-    strlcpy(mask, op_strbuf_str(&_b), sizeof mask);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usrntc1", chan, 0);
   Tcl_SetVar(interp, "_usrntc2", Tcl_GetString(tags), 0);
   Tcl_SetVar(interp, "_usrntc3", msg ? msg : "", 0);
-  check_tcl_bind(H_usrntc, mask, NULL, " $_usrntc1 $_usrntc2 $_usrntc3",
+  check_tcl_bind(H_usrntc, op_strbuf_str(&_b), NULL, " $_usrntc1 $_usrntc2 $_usrntc3",
         MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&_b);
 }
 
 /* Right now, we only use this to do some init stuff for a channel we join
@@ -466,25 +442,24 @@ static int gotclearchat(char *from, char *msg) {
 }
 
 static int gothosttarget(char *from, char *msg) {
-  char s[30], *nick, *chan, *viewers;
+  char *nick, *chan, *viewers;
+  op_strbuf_t _b;
 
   chan = newsplit(&msg);
   fixcolon(msg);
   nick = newsplit(&msg);
   viewers = newsplit(&msg);
-  if (viewers) {
-    op_strbuf_t _b;
+  if (viewers)
     op_strbuf_printf(&_b, " (Viewers: %s)", viewers);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
-    op_strbuf_free(&_b);
-  }
   check_tcl_hosttarget(chan, nick, viewers);
   if (nick[0] == '-') {             /* Check if it is an unhost */
     putlog(LOG_SERV, "*", "* TWITCH: %s has stopped host mode.", chan);
   } else {
     putlog(LOG_SERV, "*", "* TWITCH: %s has started hosting %s%s",
-            chan, nick, (viewers) ? s : "");
+            chan, nick, (viewers) ? op_strbuf_str(&_b) : "");
   }
+  if (viewers)
+    op_strbuf_free(&_b);
   return 0;
 }
 

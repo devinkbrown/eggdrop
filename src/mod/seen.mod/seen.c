@@ -79,10 +79,10 @@
 
 static Function *global = NULL;
 static void wordshift(char *first, char *rest);
-static void do_seen(int idx, char *prefix, char *nick, char *hand, char *channel, char *text);
+static void do_seen(int idx, const char *prefix, char *nick, char *hand, char *channel, char *text);
 static char *match_trigger(char *word);
 static char *getxtra(char *hand, char *field);
-static char *fixnick(char *nick);
+static const char *fixnick(char *nick);
 
 typedef struct {
   char *key;
@@ -114,7 +114,7 @@ static int pub_seen(char *nick, char *host, char *hand,
     op_strbuf_t sb;
     op_strbuf_init(&sb);
     op_strbuf_appendf(&sb, "PRIVMSG %s :", chan->name);
-    do_seen(DP_HELP, (char *)op_strbuf_str(&sb), nick, hand, chan->dname, text);
+    do_seen(DP_HELP, op_strbuf_str(&sb), nick, hand, chan->dname, text);
     op_strbuf_free(&sb);
   }
   return 0;
@@ -130,7 +130,7 @@ static int msg_seen(char *nick, char *host, struct userrec *u, char *text)
   {
     op_strbuf_t _p;
     op_strbuf_printf(&_p, "PRIVMSG %s :", nick);
-    do_seen(DP_SERVER, (char *) op_strbuf_str(&_p), nick, u->handle, "", text);
+    do_seen(DP_SERVER, op_strbuf_str(&_p), nick, u->handle, "", text);
     op_strbuf_free(&_p);
   }
   return 0;
@@ -143,11 +143,12 @@ static int dcc_seen(struct userrec *u, int idx, char *par)
   return 0;
 }
 
-static void do_seen(int idx, char *prefix, char *nick, char *hand,
+static void do_seen(int idx, const char *prefix, char *nick, char *hand,
                     char *channel, char *text)
 {
   char word1[512], word2[512], whotarget[128], object[128],
-       whoredirect[512], *oix, *lastonplace = 0;
+       *oix, *lastonplace = 0;
+  op_strbuf_t whoredirect;
   struct userrec *urec;
   struct chanset_t *chan;
   struct laston_info *li;
@@ -158,14 +159,14 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
   time_t laston = 0, work;
 
   whotarget[0]   = 0;
-  whoredirect[0] = 0;
+  op_strbuf_init(&whoredirect);
   object[0]      = 0;
 
   /* Was ANYONE specified */
   if (!text[0]) {
     dprintf(idx, "%sUm, %s, it might help if you ask me about _someone_...\n",
             prefix, nick);
-    return;
+    goto done;
   }
 
   wordshift(word1, text);
@@ -182,7 +183,7 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
     wordshift(word1, text);
     if (!word1[0]) {
       dprintf(idx, "%s%s's what, %s?\n", prefix, object, nick);
-      return;
+      goto done;
     }
     urec = get_user_by_handle(userlist, object);
     if (!urec) {
@@ -195,12 +196,7 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
           urec = get_user_from_member(m);
           if (!urec || !strcasecmp(object, urec->handle))
             break;
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%s is %s, and ", object, urec->handle);
-            strlcat(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-            op_strbuf_free(&_b);
-          }
+          op_strbuf_appendf(&whoredirect, "%s is %s, and ", object, urec->handle);
           strlcpy(object, urec->handle, sizeof object);
           break;
         }
@@ -209,73 +205,58 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
       if (!onchan) {
         dprintf(idx, "%sI don't think I know who %s is, %s.\n",
                 prefix, object, nick);
-        return;
+        goto done;
       }
     }
     if (!strcasecmp(word1, "bf") || !strcasecmp(word1, "boyfriend")) {
       strlcpy(whotarget, getxtra(object, "BF"), sizeof whotarget);
       if (whotarget[0]) {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s boyfriend is %s, and ", fixnick(object), whotarget);
-          strlcpy(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-          op_strbuf_free(&_b);
-        }
+        op_strbuf_reset(&whoredirect, "%s boyfriend is %s, and ", fixnick(object), whotarget);
         goto targetcont;
       }
       dprintf(idx,
               "%sI don't know who %s boyfriend is, %s.\n",
               prefix, fixnick(object), nick);
-      return;
+      goto done;
     }
     if (!strcasecmp(word1, "gf") || !strcasecmp(word1, "girlfriend")) {
       strlcpy(whotarget, getxtra(object, "GF"), sizeof whotarget);
       if (whotarget[0]) {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s girlfriend is %s, and ", fixnick(object), whotarget);
-          strlcpy(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-          op_strbuf_free(&_b);
-        }
+        op_strbuf_reset(&whoredirect, "%s girlfriend is %s, and ", fixnick(object), whotarget);
         goto targetcont;
       }
       dprintf(idx,
               "%sI don't know who %s girlfriend is, %s.\n",
               prefix, fixnick(object), nick);
-      return;
+      goto done;
     }
     dprintf(idx,
             "%sWhy are you bothering me with questions about %s %s, %s?\n",
             prefix, fixnick(object), word1, nick);
-    return;
+    goto done;
   }
   /* Keyword "my" */
   if (!strcasecmp(word1, "my")) {
     wordshift(word1, text);
     if (!word1[0]) {
       dprintf(idx, "%sYour what, %s?\n", prefix, nick);
-      return;
+      goto done;
     }
     /* Do I even KNOW the requester? */
     if (hand[0] == '*' || !hand[0]) {
       dprintf(idx,
               "%sI don't know you, %s, so I don't know about your %s.\n",
               prefix, nick, word1);
-      return;
+      goto done;
     }
     /* "my boyfriend" */
     if (!strcasecmp(word1, "boyfriend") || !strcasecmp(word1, "bf")) {
       strlcpy(whotarget, getxtra(hand, "BF"), sizeof whotarget);
       if (whotarget[0]) {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s, your boyfriend is %s, and ", nick, whotarget);
-          strlcpy(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-          op_strbuf_free(&_b);
-        }
+        op_strbuf_reset(&whoredirect, "%s, your boyfriend is %s, and ", nick, whotarget);
       } else {
         dprintf(idx, "%sI didn't know you had a boyfriend, %s\n", prefix, nick);
-        return;
+        goto done;
       }
     }
     /* "my girlfriend" */
@@ -283,21 +264,16 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
              !strcasecmp(word1, "gf")) {
       strlcpy(whotarget, getxtra(hand, "GF"), sizeof whotarget);
       if (whotarget[0]) {
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s, your girlfriend is %s, and ", nick, whotarget);
-          strlcpy(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-          op_strbuf_free(&_b);
-        }
+        op_strbuf_reset(&whoredirect, "%s, your girlfriend is %s, and ", nick, whotarget);
       } else {
         dprintf(idx, "%sI didn't know you had a girlfriend, %s\n", prefix,
                 nick);
-        return;
+        goto done;
       }
     } else {
       dprintf(idx, "%sI don't know anything about your %s, %s.\n", prefix,
               word1, nick);
-      return;
+      goto done;
     }
   }
   /* "your" keyword */
@@ -308,32 +284,24 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
       if (admin[0]) {
         strlcpy(word2, admin, sizeof word2);
         wordshift(whotarget, word2);
-        {
-          op_strbuf_t _b;
-          op_strbuf_printf(&_b, "My owner is %s, and ", whotarget);
-          strlcat(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-          op_strbuf_free(&_b);
-        }
+        op_strbuf_appendf(&whoredirect, "My owner is %s, and ", whotarget);
         if (!strcasecmp(whotarget, hand)) {
-          op_strbuf_t _b;
           if (!strcasecmp(hand, nick))
-            op_strbuf_printf(&_b, "that's YOU!!!");
+            op_strbuf_append_cstr(&whoredirect, "that's YOU!!!");
           else
-            op_strbuf_printf(&_b, "that's YOU, %s!", nick);
-          strlcat(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-          op_strbuf_free(&_b);
-          dprintf(idx, "%s%s\n", prefix, whoredirect);
-          return;
+            op_strbuf_appendf(&whoredirect, "that's YOU, %s!", nick);
+          dprintf(idx, "%s%s\n", prefix, op_strbuf_str(&whoredirect));
+          goto done;
         }
       } else {                    /* owner variable munged or not set */
         dprintf(idx,
                 "%sI don't seem to recall who my owner is right now...\n",
                 prefix);
-        return;
+        goto done;
       }
     } else {                      /* no "your" target specified */
       dprintf(idx, "%sLet's not get personal, %s.\n", prefix, nick);
-      return;
+      goto done;
     }
   }
   /* Check for keyword match in the internal table */
@@ -342,7 +310,7 @@ static void do_seen(int idx, char *prefix, char *nick, char *hand,
     op_strbuf_printf(&_b, "%s%s\n", prefix, match_trigger(word1));
     dprintf(idx, op_strbuf_str(&_b), nick);
     op_strbuf_free(&_b);
-    return;
+    goto done;
   }
   /* Otherwise, make the target to the first word and continue */
   else
@@ -352,8 +320,8 @@ targetcont:
   /* Looking for ones own nick? */
   if (!rfc_casecmp(nick, whotarget)) {
     dprintf(idx, "%s%sLooking for yourself, eh %s?\n",
-            prefix, whoredirect, nick);
-    return;
+            prefix, op_strbuf_str(&whoredirect), nick);
+    goto done;
   }
   /* Check if nick is on a channel */
   chan = chanset;
@@ -361,21 +329,10 @@ targetcont:
     m = ismember(chan, whotarget);
     if (m) {
       onchan = 1;
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s!%s", whotarget, m->userhost);
-        strlcpy(word1, op_strbuf_str(&_b), sizeof word1);
-        op_strbuf_free(&_b);
-      }
       urec = get_user_from_member(m);
       if (!urec || !strcasecmp(whotarget, urec->handle))
         break;
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s is %s, and ", whotarget, urec->handle);
-        strlcat(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-        op_strbuf_free(&_b);
-      }
+      op_strbuf_appendf(&whoredirect, "%s is %s, and ", whotarget, urec->handle);
       break;
     }
     chan = chan->next;
@@ -388,12 +345,7 @@ targetcont:
       while (m && m->nick[0]) {
         urec = get_user_from_member(m);
         if (urec && !strcasecmp(urec->handle, whotarget)) {
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%s is %s, and ", whotarget, m->nick);
-            strlcat(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-            op_strbuf_free(&_b);
-          }
+          op_strbuf_appendf(&whoredirect, "%s is %s, and ", whotarget, m->nick);
           strlcpy(whotarget, m->nick, sizeof whotarget);
           break;
         }
@@ -408,15 +360,15 @@ targetcont:
     m = ismember(chan, whotarget);
     if (m && chan_issplit(m)) {
       dprintf(idx, "%s%s%s was just here, but got netsplit.\n",
-              prefix, whoredirect, whotarget);
-      return;
+              prefix, op_strbuf_str(&whoredirect), whotarget);
+      goto done;
     }
   }
   /* Check if the target IS on the channel */
   if (chan && m) {
     dprintf(idx, "%s%s%s is on the channel right now!\n",
-            prefix, whoredirect, whotarget);
-    return;
+            prefix, op_strbuf_str(&whoredirect), whotarget);
+    goto done;
   }
   /* Target not on this channel. Check other channels */
   chan = chanset;
@@ -425,14 +377,14 @@ targetcont:
     if (m && chan_issplit(m)) {
       dprintf(idx,
               "%s%s%s was just on %s, but got netsplit.\n",
-              prefix, whoredirect, whotarget, chan->dname);
-      return;
+              prefix, op_strbuf_str(&whoredirect), whotarget, chan->dname);
+      goto done;
     }
     if (m) {
       dprintf(idx,
               "%s%s%s is on %s right now!\n",
-              prefix, whoredirect, whotarget, chan->dname);
-      return;
+              prefix, op_strbuf_str(&whoredirect), whotarget, chan->dname);
+      goto done;
     }
     chan = chan->next;
   }
@@ -442,8 +394,8 @@ targetcont:
   /* No match, then bail out */
   if (!urec) {
     dprintf(idx, "%s%sI don't know who %s is.\n",
-            prefix, whoredirect, whotarget);
-    return;
+            prefix, op_strbuf_str(&whoredirect), whotarget);
+    goto done;
   }
   /* We had a userlist match to a handle */
   /* Is the target currently DCC CHAT to me on the botnet? */
@@ -452,19 +404,14 @@ targetcont:
       if (!strcasecmp(whotarget, dcc[i].nick)) {
         if (!rfc_casecmp(channel, dcc[i].u.chat->con_chan) &&
             dcc[i].u.chat->con_flags & LOG_PUBLIC) {
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%s is 'observing' this channel right now from my party line!", whotarget);
-            strlcat(whoredirect, op_strbuf_str(&_b), sizeof whoredirect);
-            op_strbuf_free(&_b);
-          }
-          dprintf(idx, "%s%s\n", prefix, whoredirect);
+          op_strbuf_appendf(&whoredirect, "%s is 'observing' this channel right now from my party line!", whotarget);
+          dprintf(idx, "%s%s\n", prefix, op_strbuf_str(&whoredirect));
         } else {
           dprintf(idx,
                   "%s%s%s is linked to me via DCC CHAT right now!\n",
-                  prefix, whoredirect, whotarget);
+                  prefix, op_strbuf_str(&whoredirect), whotarget);
         }
-        return;
+        goto done;
       }
     }
   }
@@ -486,8 +433,8 @@ targetcont:
     li = get_user(&USERENTRY_LASTON, urec);
     if (!li || !li->lastonplace || !li->lastonplace[0]) {
       dprintf(idx, "%s%sI've never seen %s around.\n",
-              prefix, whoredirect, whotarget);
-      return;
+              prefix, op_strbuf_str(&whoredirect), whotarget);
+      goto done;
     }
     lastonplace = li->lastonplace;
     laston = li->laston;
@@ -528,30 +475,30 @@ targetcont:
       else
         op_strbuf_printf(&_w, "seen");
       dprintf(idx, "%s%s%s was last %s %s\n",
-              prefix, whoredirect, whotarget, op_strbuf_str(&_w), op_strbuf_str(&dur));
+              prefix, op_strbuf_str(&whoredirect), whotarget, op_strbuf_str(&_w), op_strbuf_str(&dur));
       op_strbuf_free(&_w);
     }
     op_strbuf_free(&dur);
   }
+done:
+  op_strbuf_free(&whoredirect);
 }
 
-static char fixit[512];
-static char *fixnick(char *nick)
+static const char *fixnick(char *nick)
 {
+  static op_strbuf_t _fixit;
+
   if (!nick)
     return NULL;
   if (!nick[0])
-    fixit[0] = '\0';
+    op_strbuf_clear(&_fixit);
   else {
     char last = nick[strlen(nick) - 1];
     const char *suffix = (last == 's' || last == 'S' || last == 'x' ||
                           last == 'X' || last == 'z' || last == 'Z') ? "'" : "'s";
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s", nick, suffix);
-    strlcpy(fixit, op_strbuf_str(&_b), sizeof fixit);
-    op_strbuf_free(&_b);
+    op_strbuf_reset(&_fixit, "%s%s", nick, suffix);
   }
-  return fixit;
+  return op_strbuf_str(&_fixit);
 }
 
 static char *match_trigger(char *word)
@@ -568,7 +515,7 @@ static char *match_trigger(char *word)
 
 static char *getxtra(char *hand, char *field)
 {
-
+  static op_strbuf_t _fixit;
   struct userrec *urec;
   struct user_entry *ue;
   struct xtra_key *xk;
@@ -581,8 +528,9 @@ static char *getxtra(char *hand, char *field)
         if (xk->key && !strcasecmp(xk->key, field)) {
           if (xk->data[0] == '{' && xk->data[strlen(xk->data) - 1] == '}' &&
               strlen(xk->data) > 2) {
-            strlcpy(fixit, &xk->data[1], strlen(xk->data) - 1);
-            return fixit;
+            op_strbuf_reset(&_fixit, "%.*s",
+                            (int)(strlen(xk->data) - 2), &xk->data[1]);
+            return (char *) op_strbuf_str(&_fixit);
           } else {
             return xk->data;
           }

@@ -55,12 +55,12 @@ extern int (*rfc_toupper) (int);
 extern int (*rfc_tolower) (int);
 extern int (*match_noterej) (struct userrec *, char *);
 extern void (*webui_dcc_telnet_hostresolved) (int, int);
-extern size_t (*webui_frame) (char **, char *, size_t);
+extern size_t (*webui_frame) (const char **, const char *, size_t);
 extern void (*webui_unframe) (int, char *, int *);
 #endif
 
 /* botcmd.c */
-void bot_share(int, char *);
+void bot_share(int, const char *);
 int base64_to_int(char *);
 
 /* botnet.c */
@@ -93,7 +93,7 @@ void tandem_relay(int, char *, int);
 int getparty(char *, int);
 
 /* botmsg.c */
-int add_note(char *, char *, char *, int, int);
+int add_note(char *, char *, const char *, int, int);
 int simple_sprintf(char *buf, const char *formatt, ...);
 [[nodiscard]] char *int_to_base10(int);
 [[nodiscard]] char *unsigned_int_to_base10(unsigned int);
@@ -106,7 +106,7 @@ void tell_settings(int);
 int logmodes(char *);
 int isowner(char *);
 [[nodiscard]] const char *masktype(int);
-[[nodiscard]] char *maskname(int);
+[[nodiscard]] const char *maskname(int);
 void reaffirm_owners(void);
 void add_hq_user(void);
 void rehash(void);
@@ -146,7 +146,7 @@ int findidx(int);
 int findanyidx(int);
 void dcc_map_set(int sock, int idx);
 void dcc_map_clear(int sock);
-void dprint(int, char *, int);
+void dprint(int, const char *, int);
 void dprintf (int, const char *format, ...) ATTRIBUTE_FORMAT(printf,2,3);
 void chatout (const char *format, ...) ATTRIBUTE_FORMAT(printf,1,2);
 extern void (*shareout) (void *, const char *, ...) ATTRIBUTE_FORMAT(printf, 2, 3);
@@ -203,7 +203,7 @@ int _wild_match_per(unsigned char *, unsigned char *,
                     int (*)(unsigned char, unsigned char),
                     int (*)(unsigned char, unsigned char),
                     unsigned char *);
-int addr_match(char *, char *, int, int);
+int addr_match(const char *, const char *, int, int);
 int mask_match(char *, char *);
 int cidr_match(char *, char *, int);
 int cron_match(const char *, const char *);
@@ -214,10 +214,10 @@ int cron_match(const char *, const char *);
 #define wild_match_partial_case(a,b) _wild_match_per((unsigned char *)(a),     \
                             (unsigned char *)(b),casecharcmp,charcmp,          \
                             (unsigned char *)strchr((b),' '))
-#define match_addr(a,b) addr_match((char *)(a),(char *)(b),0,0)
-#define match_useraddr(a,b) addr_match((char *)(a),(char *)(b),1,0)
-#define cmp_masks(a,b) addr_match((char *)(a),(char *)(b),0,1)
-#define cmp_usermasks(a,b) addr_match((char *)(a),(char *)(b),1,1)
+#define match_addr(a,b) addr_match((a),(b),0,0)
+#define match_useraddr(a,b) addr_match((a),(b),1,0)
+#define cmp_masks(a,b) addr_match((a),(b),0,1)
+#define cmp_usermasks(a,b) addr_match((a),(b),1,1)
 
 /* misc.c */
 int egg_strcatn(char *, const char *, size_t);
@@ -230,9 +230,9 @@ void remove_crlf(char **);
 [[nodiscard]] char *newsplit(char **);
 [[nodiscard]] char *splitnick(char **);
 void dumplots(int, const char *, const char *);
-void daysago(time_t, time_t, char *);
-void days(time_t, time_t, char *);
-void daysdur(time_t, time_t, char *);
+[[nodiscard]] const char *daysago(time_t, time_t);
+[[nodiscard]] const char *days(time_t, time_t);
+[[nodiscard]] const char *daysdur(time_t, time_t);
 [[nodiscard]] char *egg_uname(void);
 void help_subst(char *, char *, struct flag_record *, int, char *);
 void sub_lang(int, char *);
@@ -283,7 +283,7 @@ int open_telnet(int, char *, int);
 int answer(int, sockname_t *, uint16_t *, int);
 int getdccaddr(sockname_t *, char *, size_t);
 int getdccfamilyaddr(sockname_t *, char *, size_t, int);
-void tputs(int, char *, unsigned int);
+void tputs(int, const char *, unsigned int);
 void dequeue_sockets(void);
 int sockread(char *, int *, sock_list *, int, int);
 int sockgets(char *, int *);
@@ -318,8 +318,8 @@ int list_type_expmem(struct list_type *);
 int xtra_set(struct userrec *,struct user_entry *, void *);
 
 /* userrec.c */
-[[nodiscard]] struct userrec *adduser(struct userrec *, char *, char *, char *, int);
-void addhost_by_handle(char *, char *);
+[[nodiscard]] struct userrec *adduser(struct userrec *, char *, const char *, char *, int);
+void addhost_by_handle(char *, const char *);
 void addaccount_by_handle(char *, char *);
 void clear_masks(struct maskrec *);
 void clear_userlist(struct userrec *);
@@ -334,7 +334,7 @@ void correct_handle(char *);
 int write_user(struct userrec *, FILE *, int);
 int write_ignores(FILE *f, int);
 void write_userfile(int);
-void touch_laston(struct userrec *, char *, time_t);
+void touch_laston(struct userrec *, const char *, time_t);
 void user_del_chan(char *);
 int check_conflags(struct flag_record *fr, int md);
 

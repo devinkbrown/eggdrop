@@ -109,12 +109,8 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     /* Notify the user that his/her handle was truncated. */
     dprintf(DP_HELP, IRC_NICKTOOLONG, nick, handle);
   if (notify_new[0]) {
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, IRC_INITINTRO, nick, host);
-      strlcpy(s, op_strbuf_str(&_b), sizeof s);
-      op_strbuf_free(&_b);
-    }
+    op_strbuf_t _bn;
+    op_strbuf_printf(&_bn, IRC_INITINTRO, nick, host);
     strlcpy(s1, notify_new, sizeof(s1));
     while (s1[0]) {
       p1 = strchr(s1, ',');
@@ -124,12 +120,13 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
         rmspace(p1);
       }
       rmspace(s1);
-      add_note(s1, botnetnick, s, -1, 0);
+      add_note(s1, botnetnick, op_strbuf_str(&_bn), -1, 0);
       if (p1 == NULL)
         s1[0] = 0;
       else
         strlcpy(s1, p1, sizeof s1);
     }
+    op_strbuf_free(&_bn);
   }
   return 1;
 }
@@ -172,7 +169,7 @@ static int msg_pass(char *nick, char *host, struct userrec *u, char *par)
 
 static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
 {
-  char s[UHOSTLEN], s1[UHOSTLEN], *pass, who[NICKLEN];
+  char s1[UHOSTLEN], *pass, who[NICKLEN];
   struct userrec *u2;
 
   if (match_my_nick(nick) || (u && (u->flags & USER_BOT)))
@@ -218,10 +215,9 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s!%s", nick, host);
-        strlcpy(s, op_strbuf_str(&_b), sizeof s);
+        maskhost(op_strbuf_str(&_b), s1);
         op_strbuf_free(&_b);
       }
-      maskhost(s, s1);
       dprintf(DP_HELP, "NOTICE %s :%s: %s\n", nick, IRC_ADDHOSTMASK, s1);
       addhost_by_handle(who, s1);
       check_this_user(who, 0, NULL);
@@ -945,7 +941,7 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
     else
       op_strbuf_printf(&_s, "BOT SHUTDOWN (%s: %s)", u->handle, par);
     chatout("*** %s\n", op_strbuf_str(&_s));
-    botnet_send_chat(-1, botnetnick, (char *) op_strbuf_str(&_s));
+    botnet_send_chat(-1, botnetnick, op_strbuf_str(&_s));
     op_strbuf_free(&_s);
   }
   botnet_send_bye();

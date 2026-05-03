@@ -30,6 +30,7 @@
 #include "tandem.h"
 #include "md5/md5.h"
 #include "users.h"
+#include "script.h"
 
 #ifndef STATIC
 #  ifdef MOD_USE_SHL
@@ -164,8 +165,8 @@ char *(*encrypt_string) (char *, char *) = 0;
 char *(*decrypt_string) (char *, char *) = 0;
 void (*shareout) (void *, const char *, ...) = (void (*)(void *, const char *, ...)) null_func;
 void (*sharein) (int, char *) = null_share;
-void (*qserver) (int, char *, int) = (void (*)(int, char *, int)) null_func;
-void (*add_mode) (struct chanset_t *, char, char, char *) = (void (*)(struct chanset_t *, char, char, char *)) null_func;
+void (*qserver) (int, const char *, int) = (void (*)(int, const char *, int)) null_func;
+void (*add_mode) (struct chanset_t *, char, char, const char *) = (void (*)(struct chanset_t *, char, char, const char *)) null_func;
 int (*match_noterej) (struct userrec *, char *) =
     (int (*)(struct userrec *, char *)) false_func;
 int (*rfc_casecmp) (const char *, const char *) = _rfc_casecmp;
@@ -175,7 +176,7 @@ int (*rfc_tolower) (int) = _rfc_tolower;
 void (*dns_hostbyip) (sockname_t *) = core_dns_hostbyip;
 void (*dns_ipbyhost) (char *) = core_dns_ipbyhost;
 void (*webui_dcc_telnet_hostresolved) (int, int) = 0;
-size_t (*webui_frame) (char **, char *, size_t) = 0;
+size_t (*webui_frame) (const char **, const char *, size_t) = 0;
 void (*webui_unframe) (int, char *, int *) = 0;
 
 module_entry *module_list;
@@ -644,7 +645,12 @@ Function global_table[] = {
   (Function) & eggdrop_api,
 /* 336 - 337: channel hash table helpers */
   (Function) chan_htab_add,
-  (Function) chan_htab_del
+  (Function) chan_htab_del,
+/* 338 - 341: script evaluation and variable access */
+  (Function) notcl_setvar,
+  (Function) notcl_getvar,
+  (Function) egg_eval,
+  (Function) egg_eval_log
 };
 
 static eggdrop_api_t eggdrop_api = {
@@ -697,7 +703,7 @@ const char *module_load(char *name)
 #endif
 
 #ifndef STATIC
-  char workbuf[PATH_MAX];
+  op_strbuf_t _path;
 #  ifdef MOD_USE_SHL
   shl_t hand;
 #  endif
@@ -722,54 +728,43 @@ const char *module_load(char *name)
     return MOD_ALREADYLOAD;
 
 #ifndef STATIC
+  op_strbuf_init(&_path);
   if (moddir[0] != '/') {
-    if (getcwd(workbuf, sizeof workbuf) == NULL) {
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof cwd) == NULL) {
       debug1("modules: getcwd(): %s\n", strerror(errno));
       return MOD_BADCWD;
     }
-    {
-      op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s/%s%s." EGG_MOD_EXT, workbuf, moddir, name);
-      strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
-      op_strbuf_free(&_b);
-    }
+    op_strbuf_printf(&_path, "%s/%s%s." EGG_MOD_EXT, cwd, moddir, name);
   } else {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s." EGG_MOD_EXT, moddir, name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
-    op_strbuf_free(&_b);
+    op_strbuf_printf(&_path, "%s%s." EGG_MOD_EXT, moddir, name);
   }
 #ifdef EGG_MODDIR
   /* Fall back to the compiled-in install directory if the configured path
    * doesn't exist (e.g. running an installed binary from an arbitrary CWD). */
-  if (access(workbuf, F_OK) != 0) {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
-    op_strbuf_free(&_b);
-  }
+  if (access(op_strbuf_str(&_path), F_OK) != 0)
+    op_strbuf_reset(&_path, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
 #endif
 
 #  ifdef MOD_USE_SHL
-  hand = shl_load(workbuf, BIND_IMMEDIATE, 0L);
+  hand = shl_load(op_strbuf_str(&_path), BIND_IMMEDIATE, 0L);
+  op_strbuf_free(&_path);
   if (!hand)
     return "Can't load module.";
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
+      f = NULL;
     op_strbuf_free(&_b);
   }
-  if (shl_findsym(&hand, workbuf, (short) TYPE_PROCEDURE, (void *) &f))
-    f = NULL;
   if (f == NULL) {
     /* Some OS's require a _ to be prepended to the symbol name (Darwin, etc). */
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "_%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
-    op_strbuf_free(&_b);
-    if (shl_findsym(&hand, workbuf, (short) TYPE_PROCEDURE, (void *) &f))
+    if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
       f = NULL;
+    op_strbuf_free(&_b);
   }
   if (f == NULL) {
     shl_unload(hand);
@@ -778,17 +773,19 @@ const char *module_load(char *name)
 #  endif /* MOD_USE_SHL */
 
 #  ifdef MOD_USE_DYLD
-  ret = NSCreateObjectFileImageFromFile(workbuf, &file);
-  if (ret != NSObjectFileImageSuccess)
+  ret = NSCreateObjectFileImageFromFile(op_strbuf_str(&_path), &file);
+  if (ret != NSObjectFileImageSuccess) {
+    op_strbuf_free(&_path);
     return "Can't load module.";
-  hand = NSLinkModule(file, workbuf, DYLDFLAGS);
+  }
+  hand = NSLinkModule(file, op_strbuf_str(&_path), DYLDFLAGS);
+  op_strbuf_free(&_path);
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "_%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    sym = NSLookupSymbolInModule(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  sym = NSLookupSymbolInModule(hand, workbuf);
   if (sym)
     f = (Function) NSAddressOfSymbol(sym);
   else
@@ -800,38 +797,37 @@ const char *module_load(char *name)
 #  endif /* MOD_USE_DYLD */
 
 #  ifdef MOD_USE_RLD
-  ret = rld_load(NULL, (struct mach_header **) 0, workbuf, (const char *) 0);
+  ret = rld_load(NULL, (struct mach_header **) 0, op_strbuf_str(&_path), (const char *) 0);
+  op_strbuf_free(&_path);
   if (!ret)
     return "Can't load module.";
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "_%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    ret = rld_lookup(NULL, op_strbuf_str(&_b), &f);
     op_strbuf_free(&_b);
   }
-  ret = rld_lookup(NULL, workbuf, &f)
   if (!ret || f == NULL)
     return MOD_NOSTARTDEF;
   /* There isn't a reliable way to unload at this point... just keep it loaded. */
 #  endif /* MOD_USE_DYLD */
 
 #  ifdef MOD_USE_LOADER
-  hand = load(workbuf, LDR_NOFLAGS);
+  hand = load(op_strbuf_str(&_path), LDR_NOFLAGS);
+  op_strbuf_free(&_path);
   if (hand == LDR_NULL_MODULE)
     return "Can't load module.";
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  f = (Function) ldr_lookup_package(hand, workbuf);
   if (f == NULL) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "_%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
-    f = (Function) ldr_lookup_package(hand, workbuf);
   }
   if (f == NULL) {
     unload(hand);
@@ -840,22 +836,21 @@ const char *module_load(char *name)
 #  endif /* MOD_USE_LOADER */
 
 #  ifdef MOD_USE_DL
-  hand = dlopen(workbuf, DLFLAGS);
+  hand = dlopen(op_strbuf_str(&_path), DLFLAGS);
+  op_strbuf_free(&_path);
   if (!hand)
     return dlerror();
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  f = (Function) dlsym(hand, workbuf);
   if (f == NULL) {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "_%s_start", name);
-    strlcpy(workbuf, op_strbuf_str(&_b), sizeof workbuf);
+    f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
-    f = (Function) dlsym(hand, workbuf);
   }
   if (f == NULL) {
     dlclose(hand);
@@ -1095,12 +1090,12 @@ void add_hook(int hook_num, Function func)
       sharein = (void (*)(int, char *)) func;
       break;
     case HOOK_QSERV:
-      if (qserver == (void (*)(int, char *, int)) null_func)
-        qserver = (void (*)(int, char *, int)) func;
+      if (qserver == (void (*)(int, const char *, int)) null_func)
+        qserver = (void (*)(int, const char *, int)) func;
       break;
     case HOOK_ADD_MODE:
-      if (add_mode == (void (*)(struct chanset_t *, char, char, char *)) null_func)
-        add_mode = (void (*)(struct chanset_t *, char, char, char *)) func;
+      if (add_mode == (void (*)(struct chanset_t *, char, char, const char *)) null_func)
+        add_mode = (void (*)(struct chanset_t *, char, char, const char *)) func;
       break;
       /* special hook <drummer> */
     case HOOK_RFC_CASECMP:
@@ -1133,7 +1128,7 @@ void add_hook(int hook_num, Function func)
       webui_dcc_telnet_hostresolved = (void (*)(int, int)) func;
       break;
     case HOOK_WEBUI_FRAME:
-      webui_frame = (size_t (*)(char **, char *, size_t)) func;
+      webui_frame = (size_t (*)(const char **, const char *, size_t)) func;
       break;
     case HOOK_WEBUI_UNFRAME:
       webui_unframe = (void (*)(int, char *, int *)) func;
@@ -1184,12 +1179,12 @@ void del_hook(int hook_num, Function func)
         sharein = null_share;
       break;
     case HOOK_QSERV:
-      if (qserver == (void (*)(int, char *, int)) func)
-        qserver = (void (*)(int, char *, int)) null_func;
+      if (qserver == (void (*)(int, const char *, int)) func)
+        qserver = (void (*)(int, const char *, int)) null_func;
       break;
     case HOOK_ADD_MODE:
-      if (add_mode == (void (*)(struct chanset_t *, char, char, char *)) func)
-        add_mode = (void (*)(struct chanset_t *, char, char, char *)) null_func;
+      if (add_mode == (void (*)(struct chanset_t *, char, char, const char *)) func)
+        add_mode = (void (*)(struct chanset_t *, char, char, const char *)) null_func;
       break;
     case HOOK_MATCH_NOTEREJ:
       if (match_noterej == (int (*)(struct userrec *, char *)) func)
@@ -1208,8 +1203,8 @@ void del_hook(int hook_num, Function func)
         webui_dcc_telnet_hostresolved = (void (*)(int, int)) null_func;
       break;
     case HOOK_WEBUI_FRAME:
-      if (webui_frame == (size_t (*)(char **, char *, size_t)) func)
-        webui_frame = (size_t (*)(char**, char *, size_t)) null_func;
+      if (webui_frame == (size_t (*)(const char **, const char *, size_t)) func)
+        webui_frame = (size_t (*)(const char **, const char *, size_t)) null_func;
       break;
     case HOOK_WEBUI_UNFRAME:
       if (webui_unframe == (void (*)(int, char *, int *)) func)

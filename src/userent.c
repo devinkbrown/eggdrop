@@ -471,7 +471,6 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
                           struct user_entry *e, int argc, char **argv)
 {
   struct laston_info *li = (struct laston_info *) e->u.extra;
-  char number[22];
   struct chanuserrec *cr;
 
   BADARGS(3, 4, " handle LASTON ?channel?");
@@ -489,10 +488,9 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%" PRId64 " ", (int64_t) li->laston);
-      strlcpy(number, op_strbuf_str(&_b), sizeof number);
+      Tcl_AppendResult(irp, op_strbuf_str(&_b), li->lastonplace, NULL);
       op_strbuf_free(&_b);
     }
-    Tcl_AppendResult(irp, number, li->lastonplace, NULL);
   }
   return TCL_OK;
 }
@@ -1004,10 +1002,7 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s %s", curr->key, curr->data);
-      size_t _el = op_strbuf_len(&_b) + 1;
-      t->extra = user_malloc(_el);
-      strlcpy(t->extra, op_strbuf_str(&_b), _el);
-      op_strbuf_free(&_b);
+      t->extra = op_strbuf_steal(&_b);
     }
     list_insert((&e->u.list), t);
     next = curr->next;

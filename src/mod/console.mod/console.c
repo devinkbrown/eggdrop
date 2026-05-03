@@ -69,27 +69,19 @@ static int console_unpack(struct userrec *u, struct user_entry *e)
 
 static int console_pack(struct userrec *u, struct user_entry *e)
 {
-  char work[1024];
   struct console_info *ci;
-  int l;
 
   ci = (struct console_info *) e->u.extra;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s %s %d %d %d",
-                     ci->channel, masktype(ci->conflags),
-                     stripmasktype(ci->stripflags), ci->echoflags,
-                     ci->page, ci->conchan);
-    strlcpy(work, op_strbuf_str(&_b), sizeof work);
-    l = (int) op_strbuf_len(&_b);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s %s %s %d %d %d",
+                   ci->channel, masktype(ci->conflags),
+                   stripmasktype(ci->stripflags), ci->echoflags,
+                   ci->page, ci->conchan);
 
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
-  e->u.list->extra = user_malloc(l + 1);
-  strlcpy(e->u.list->extra, work, l + 1);
+  e->u.list->extra = op_strbuf_steal(&_b);
 
   op_free(ci->channel);
   op_free(ci);
@@ -138,34 +130,27 @@ static int console_set(struct userrec *u, struct user_entry *e, void *buf)
   return 1;
 }
 
-static void console_tcl_format(char *work, struct console_info *i)
+static const char *console_tcl_format(struct console_info *i)
 {
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s %s %d %d %d",
-                     i->channel, masktype(i->conflags),
-                     stripmasktype(i->stripflags), i->echoflags,
-                     i->page, i->conchan);
-    strlcpy(work, op_strbuf_str(&_b), 1024);
-    op_strbuf_free(&_b);
-  }
+  static op_strbuf_t _work;
+
+  op_strbuf_reset(&_work, "%s %s %s %d %d %d",
+                  i->channel, masktype(i->conflags),
+                  stripmasktype(i->stripflags), i->echoflags,
+                  i->page, i->conchan);
+  return op_strbuf_str(&_work);
 }
 static int console_tcl_get(Tcl_Interp *irp, struct userrec *u,
                            struct user_entry *e, int argc, char **argv)
 {
-  char work[1024];
-
-  console_tcl_format(work, e->u.extra);
-  Tcl_SetResult(irp, work, TCL_STATIC);
+  Tcl_SetResult(irp, (char *) console_tcl_format(e->u.extra), TCL_VOLATILE);
   return TCL_OK;
 }
 
 static int console_tcl_append(Tcl_Interp *irp, struct userrec *u,
                            struct user_entry *e)
 {
-  char work[1024];
-  console_tcl_format(work, e->u.extra);
-  Tcl_AppendElement(irp, work);
+  Tcl_AppendElement(irp, console_tcl_format(e->u.extra));
   return TCL_OK;
 }
 
@@ -296,17 +281,13 @@ static int console_chon(char *handle, int idx)
 
       if (p) {
         if (dcc[idx].u.chat->channel >= 0) {
-          char x[1024];
-
           chanout_but(-1, dcc[idx].u.chat->channel,
                       "*** [%s] %s\n", dcc[idx].nick, p);
-          {
-            op_strbuf_t _b;
-            op_strbuf_printf(&_b, "[%s] %s", dcc[idx].nick, p);
-            strlcpy(x, op_strbuf_str(&_b), sizeof x);
-            op_strbuf_free(&_b);
-          }
-          botnet_send_chan(-1, botnetnick, NULL, dcc[idx].u.chat->channel, x);
+          op_strbuf_t _b;
+          op_strbuf_printf(&_b, "[%s] %s", dcc[idx].nick, p);
+          botnet_send_chan(-1, botnetnick, NULL, dcc[idx].u.chat->channel,
+                          op_strbuf_str(&_b));
+          op_strbuf_free(&_b);
         }
       }
     }

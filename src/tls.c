@@ -1190,9 +1190,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
           "\r\n%s", strlen(body),
           stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
           body);
-        response = op_malloc(op_strbuf_len(&_r) + 1);
-        strlcpy(response, op_strbuf_str(&_r), op_strbuf_len(&_r) + 1);
-        op_strbuf_free(&_r);
+        response = op_strbuf_steal(&_r);
       }
       if (write(sock, response, strlen(response)) < 0) /* tputs() cannot be used here */
         putlog(LOG_MISC, "*", "TLS: error: write(sock %i): %s", sock, strerror(errno));

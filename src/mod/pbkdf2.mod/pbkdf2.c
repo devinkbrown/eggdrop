@@ -179,29 +179,26 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
   char method[sizeof pbkdf2_method],
        b64salt[B64_NTOP_CALCULATE_SIZE(PBKDF2_SALT_LEN) + 1],
        b64hash[B64_NTOP_CALCULATE_SIZE(256) + 1];
-  char format[40];
+  op_strbuf_t format_buf;
   unsigned int rounds;
   const EVP_MD *digest;
   unsigned char salt[PBKDF2_SALT_LEN + 1];
   int saltlen;
   static char *buf;
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "$pbkdf2-%%%zu[^$]$rounds=%%u$%%%zu[^$]$%%%zus",
-                     (sizeof method) - 1, (sizeof b64salt) - 1, (sizeof b64hash) - 1);
-    strlcpy(format, op_strbuf_str(&_b), sizeof format);
-    size_t _fmtlen = op_strbuf_len(&_b);
-    op_strbuf_free(&_b);
-    if (_fmtlen != (sizeof format) - 1) {
-      putlog(LOG_MISC, "*", "PBKDF2 error: could not initialize parser for hashed password.");
-      return NULL;
-    }
+  op_strbuf_printf(&format_buf, "$pbkdf2-%%%zu[^$]$rounds=%%u$%%%zu[^$]$%%%zus",
+                   (sizeof method) - 1, (sizeof b64salt) - 1, (sizeof b64hash) - 1);
+  if (op_strbuf_len(&format_buf) != 39) {
+    putlog(LOG_MISC, "*", "PBKDF2 error: could not initialize parser for hashed password.");
+    op_strbuf_free(&format_buf);
+    return NULL;
   }
-  if (sscanf(encrypted, format, method, &rounds, b64salt, b64hash) != 4) {
+  if (sscanf(encrypted, op_strbuf_str(&format_buf), method, &rounds, b64salt, b64hash) != 4) {
+    op_strbuf_free(&format_buf);
     putlog(LOG_MISC, "*", "PBKDF2 error: could not parse hashed password.");
     return NULL;
   }
+  op_strbuf_free(&format_buf);
   digest = EVP_get_digestbyname(method);
   if (!digest) {
     putlog(LOG_MISC, "*", "PBKDF2 error: Unknown message digest '%s'.", method);
