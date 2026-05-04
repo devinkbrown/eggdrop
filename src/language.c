@@ -575,7 +575,6 @@ static int cmd_relang(struct userrec *u, int idx, char *par)
 static int cmd_languagedump(struct userrec *u, int idx, char *par)
 {
   lang_tab *l;
-  char ltext2[512];
   unsigned int idx2;
 
   putlog(LOG_CMDS, "*", "#%s# ldump %s", dcc[idx].nick, par);
@@ -585,8 +584,7 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
       sscanf(par, "%x", &idx2);
     else
       idx2 = (int) strtol(par, (char **) NULL, 10);
-    strlcpy(ltext2, get_language(idx2), sizeof ltext2);
-    dprintf(idx, "0x%x: %s\n", idx2, ltext2);
+    dprintf(idx, "0x%x: %s\n", idx2, get_language(idx2));
     return 0;
   }
   dprintf(idx, " LANGIDX TEXT\n");

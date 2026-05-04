@@ -221,7 +221,6 @@ static void real_add_mode(struct chanset_t *chan,
   int type, modes, l;
   masklist *m;
   memberlist *mx;
-  char s[21];
 
   /* Some IRCds do not allow halfops to set certain modes. The modes halfops
    * are not allowed to set can be changed in chan.h. */
@@ -359,11 +358,12 @@ static void real_add_mode(struct chanset_t *chan,
     chan->limit = atoi(op);
   else {
     /* Typical mode changes */
+    op_strbuf_t s;
     if (plus == '+')
-      strlcpy(s, chan->pls, sizeof(s));
+      op_strbuf_printf(&s, "%s", chan->pls);
     else
-      strlcpy(s, chan->mns, sizeof(s));
-    if (!strchr(s, mode)) {
+      op_strbuf_printf(&s, "%s", chan->mns);
+    if (!strchr(op_strbuf_str(&s), mode)) {
       if (plus == '+') {
         chan->pls[strlen(chan->pls) + 1] = 0;
         chan->pls[strlen(chan->pls)] = mode;
@@ -372,6 +372,7 @@ static void real_add_mode(struct chanset_t *chan,
         chan->mns[strlen(chan->mns)] = mode;
       }
     }
+    op_strbuf_free(&s);
   }
   modes = modesperline;         /* Check for full buffer. */
   for (int i = 0; i < modesperline; i++)

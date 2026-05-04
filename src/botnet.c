@@ -753,49 +753,55 @@ void dump_links(int z)
         if ((dcc[i].u.chat->channel >= 0) &&
             (dcc[i].u.chat->channel < GLOBAL_CHANS)) {
           {
-            char b64_chan[12], b64_sock[12], b64_idle[12];
-            strlcpy(b64_chan, int_to_base64(dcc[i].u.chat->channel), sizeof b64_chan);
-            strlcpy(b64_sock, int_to_base64(dcc[i].sock), sizeof b64_sock);
+            op_strbuf_t b64_chan, b64_sock, b64_idle;
+            op_strbuf_printf(&b64_chan, "%s", int_to_base64(dcc[i].u.chat->channel));
+            op_strbuf_printf(&b64_sock, "%s", int_to_base64(dcc[i].sock));
             op_strbuf_t _bj;
             op_strbuf_printf(&_bj, "j !%s %s %s %c%s %s\n",
                               botnetnick, dcc[i].nick,
-                              b64_chan, geticon(i),
-                              b64_sock, dcc[i].host);
+                              op_strbuf_str(&b64_chan), geticon(i),
+                              op_strbuf_str(&b64_sock), dcc[i].host);
             dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
             op_strbuf_free(&_bj);
-            strlcpy(b64_idle, int_to_base64(now - dcc[i].timeval), sizeof b64_idle);
+            op_strbuf_printf(&b64_idle, "%s", int_to_base64(now - dcc[i].timeval));
             op_strbuf_t _bi;
             op_strbuf_printf(&_bi, "i %s %s %s %s\n", botnetnick,
-                              b64_sock, b64_idle,
+                              op_strbuf_str(&b64_sock), op_strbuf_str(&b64_idle),
                               dcc[i].u.chat->away ? dcc[i].u.chat->away : "");
             dprint(z, op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
             op_strbuf_free(&_bi);
+            op_strbuf_free(&b64_chan);
+            op_strbuf_free(&b64_sock);
+            op_strbuf_free(&b64_idle);
           }
         }
       }
     }
     for (int i = 0; i < parties; i++) {
       {
-        char b64_chan[12], b64_sock[12];
-        strlcpy(b64_chan, int_to_base64(party[i].chan), sizeof b64_chan);
-        strlcpy(b64_sock, int_to_base64(party[i].sock), sizeof b64_sock);
+        op_strbuf_t b64_chan, b64_sock;
+        op_strbuf_printf(&b64_chan, "%s", int_to_base64(party[i].chan));
+        op_strbuf_printf(&b64_sock, "%s", int_to_base64(party[i].sock));
         op_strbuf_t _bj;
         op_strbuf_printf(&_bj, "j %s %s %s %c%s %s\n",
                           party[i].bot, party[i].nick,
-                          b64_chan, party[i].flag,
-                          b64_sock, party[i].from);
+                          op_strbuf_str(&b64_chan), party[i].flag,
+                          op_strbuf_str(&b64_sock), party[i].from);
         dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
         op_strbuf_free(&_bj);
         if ((party[i].status & PLSTAT_AWAY) || (party[i].timer != 0)) {
-          char b64_idle[12];
-          strlcpy(b64_idle, int_to_base64(now - party[i].timer), sizeof b64_idle);
+          op_strbuf_t b64_idle;
+          op_strbuf_printf(&b64_idle, "%s", int_to_base64(now - party[i].timer));
           op_strbuf_t _bi;
           op_strbuf_printf(&_bi, "i %s %s %s %s\n", party[i].bot,
-                            b64_sock, b64_idle,
+                            op_strbuf_str(&b64_sock), op_strbuf_str(&b64_idle),
                             party[i].away ? party[i].away : "");
           dprint(z, op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
           op_strbuf_free(&_bi);
+          op_strbuf_free(&b64_idle);
         }
+        op_strbuf_free(&b64_chan);
+        op_strbuf_free(&b64_sock);
       }
     }
   }
@@ -1025,13 +1031,14 @@ int botlink(char *linker, int idx, char *nick)
 
 static void botlink_resolve_failure(int i)
 {
-  char s[81];
+  op_strbuf_t s;
 
   putlog(LOG_BOTS, "*", DCC_LINKFAIL, dcc[i].nick);
-  strlcpy(s, dcc[i].nick, sizeof(s));
+  op_strbuf_printf(&s, "%s", dcc[i].nick);
   op_free(dcc[i].u.dns->cptr);
   lostdcc(i);
-  autolink_cycle(s);            /* Check for more auto-connections */
+  autolink_cycle((char *)op_strbuf_str(&s)); /* Check for more auto-connections */
+  op_strbuf_free(&s);
 }
 
 static void botlink_resolve_success(int i)

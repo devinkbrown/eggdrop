@@ -23,7 +23,8 @@
 
 static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
 {
-  char host[UHOSTLEN], s[UHOSTLEN], s1[UHOSTLEN], handle[HANDLEN + 1];
+  char host[UHOSTLEN], s[UHOSTLEN], s1[UHOSTLEN];
+  op_strbuf_t _handle;
   char *p1;
   int common = 0;
   int atr = 0;
@@ -44,10 +45,11 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
       return 1;
     }
   }
-  strlcpy(handle, nick, sizeof(handle));
-  if (get_user_by_handle(userlist, handle)) {
+  op_strbuf_printf(&_handle, "%.*s", HANDLEN, nick);
+  if (get_user_by_handle(userlist, (char *)op_strbuf_str(&_handle))) {
     dprintf(DP_HELP, IRC_BADHOST1, nick);
     dprintf(DP_HELP, IRC_BADHOST2, nick, botname);
+    op_strbuf_free(&_handle);
     return 1;
   }
   {
@@ -58,6 +60,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
   }
   if (u_match_mask(global_bans, s)) {
     dprintf(DP_HELP, "NOTICE %s :%s.\n", nick, IRC_BANNED2);
+    op_strbuf_free(&_handle);
     return 1;
   }
   if (atr & USER_COMMON) {
@@ -69,25 +72,25 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
       strlcpy(host, op_strbuf_str(&_b), sizeof host);
       op_strbuf_free(&_b);
     }
-    userlist = adduser(userlist, handle, host, "-", USER_DEFAULT);
+    userlist = adduser(userlist, (char *)op_strbuf_str(&_handle), host, "-", USER_DEFAULT);
     putlog(LOG_MISC, "*", "%s %s (%s) -- %s",
            IRC_INTRODUCED, nick, host, IRC_COMMONSITE);
     common = 1;
   } else {
     maskhost(s, host);
     if (make_userfile) {
-      userlist = adduser(userlist, handle, host, "-",
+      userlist = adduser(userlist, (char *)op_strbuf_str(&_handle), host, "-",
                  sanity_check(default_flags | USER_MASTER | USER_OWNER));
-      set_user(&USERENTRY_HOSTS, get_user_by_handle(userlist, handle),
+      set_user(&USERENTRY_HOSTS, get_user_by_handle(userlist, (char *)op_strbuf_str(&_handle)),
                "-telnet!*@*");
     } else
-      userlist = adduser(userlist, handle, host, "-",
+      userlist = adduser(userlist, (char *)op_strbuf_str(&_handle), host, "-",
                          sanity_check(default_flags));
     putlog(LOG_MISC, "*", "%s %s (%s)", IRC_INTRODUCED, nick, host);
   }
   for (chan = chanset; chan; chan = chan->next)
-    if (ismember(chan, handle))
-      add_chanrec_by_handle(userlist, handle, chan->dname);
+    if (ismember(chan, (char *)op_strbuf_str(&_handle)))
+      add_chanrec_by_handle(userlist, (char *)op_strbuf_str(&_handle), chan->dname);
   dprintf(DP_HELP, IRC_SALUT1, nick, nick, botname);
   dprintf(DP_HELP, IRC_SALUT2, nick, host);
   if (common) {
@@ -98,16 +101,16 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     dprintf(DP_HELP, "NOTICE %s :%s\n", nick, IRC_INITOWNER1);
     dprintf(DP_HELP, IRC_NEWBOT1, nick, botname);
     dprintf(DP_HELP, IRC_NEWBOT2, nick);
-    putlog(LOG_MISC, "*", IRC_INIT1, handle);
+    putlog(LOG_MISC, "*", IRC_INIT1, op_strbuf_str(&_handle));
     make_userfile = 0;
     write_userfile(-1);
-    add_note(handle, botnetnick, IRC_INITNOTE, -1, 0);
+    add_note((char *)op_strbuf_str(&_handle), botnetnick, IRC_INITNOTE, -1, 0);
   } else {
     dprintf(DP_HELP, IRC_INTRO1, nick, botname);
   }
   if (strlen(nick) > HANDLEN)
     /* Notify the user that his/her handle was truncated. */
-    dprintf(DP_HELP, IRC_NICKTOOLONG, nick, handle);
+    dprintf(DP_HELP, IRC_NICKTOOLONG, nick, op_strbuf_str(&_handle));
   if (notify_new[0]) {
     op_strbuf_t _bn;
     op_strbuf_printf(&_bn, IRC_INITINTRO, nick, host);
@@ -128,6 +131,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     }
     op_strbuf_free(&_bn);
   }
+  op_strbuf_free(&_handle);
   return 1;
 }
 
@@ -169,7 +173,8 @@ static int msg_pass(char *nick, char *host, struct userrec *u, char *par)
 
 static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
 {
-  char s1[UHOSTLEN], *pass, who[NICKLEN];
+  char s1[UHOSTLEN], *pass;
+  op_strbuf_t _who;
   struct userrec *u2;
 
   if (match_my_nick(nick) || (u && (u->flags & USER_BOT)))
@@ -182,17 +187,17 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
   }
   pass = newsplit(&par);
   if (!par[0])
-    strlcpy(who, nick, sizeof who);
+    op_strbuf_printf(&_who, "%s", nick);
   else
-    strlcpy(who, par, sizeof who);
-  u2 = get_user_by_handle(userlist, who);
+    op_strbuf_printf(&_who, "%s", par);
+  u2 = get_user_by_handle(userlist, (char *)op_strbuf_str(&_who));
   if (!u2) {
     if (u && !quiet_reject)
       dprintf(DP_HELP, IRC_MISIDENT, nick, nick, u->handle);
-  } else if (rfc_casecmp(who, origbotname) && !(u2->flags & USER_BOT)) {
+  } else if (rfc_casecmp((char *)op_strbuf_str(&_who), origbotname) && !(u2->flags & USER_BOT)) {
     /* This could be used as detection... */
     if (u_pass_match(u2, "-")) {
-      putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, who);
+      putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, op_strbuf_str(&_who));
       if (!quiet_reject)
         dprintf(DP_HELP, "NOTICE %s :%s\n", nick, IRC_NOPASS);
     } else if (!u_pass_match(u2, pass)) {
@@ -206,12 +211,14 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
        *   -Toth  [July 30, 2003]
        */
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, IRC_RECOGNIZED);
+      op_strbuf_free(&_who);
       return 1;
     } else if (u) {
-      dprintf(DP_HELP, IRC_MISIDENT, nick, who, u->handle);
+      dprintf(DP_HELP, IRC_MISIDENT, nick, (char *)op_strbuf_str(&_who), u->handle);
+      op_strbuf_free(&_who);
       return 1;
     } else {
-      putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, who);
+      putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, op_strbuf_str(&_who));
       {
         op_strbuf_t _b;
         op_strbuf_printf(&_b, "%s!%s", nick, host);
@@ -219,12 +226,14 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
         op_strbuf_free(&_b);
       }
       dprintf(DP_HELP, "NOTICE %s :%s: %s\n", nick, IRC_ADDHOSTMASK, s1);
-      addhost_by_handle(who, s1);
-      check_this_user(who, 0, NULL);
+      addhost_by_handle((char *)op_strbuf_str(&_who), s1);
+      check_this_user((char *)op_strbuf_str(&_who), 0, NULL);
+      op_strbuf_free(&_who);
       return 1;
     }
   }
-  putlog(LOG_CMDS, "*", "(%s!%s) !*! failed IDENT %s", nick, host, who);
+  putlog(LOG_CMDS, "*", "(%s!%s) !*! failed IDENT %s", nick, host, op_strbuf_str(&_who));
+  op_strbuf_free(&_who);
   return 1;
 }
 

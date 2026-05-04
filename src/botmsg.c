@@ -424,14 +424,17 @@ void botnet_send_filereq(int idx, char *from, char *bot, char *path)
 void botnet_send_idle(int idx, char *bot, int sock, int idle, char *away)
 {
   if (tands > 0) {
-    char b64_sock[12], b64_idle[12];
-    strlcpy(b64_sock, int_to_base64(sock), sizeof b64_sock);
-    strlcpy(b64_idle, int_to_base64(idle), sizeof b64_idle);
+    op_strbuf_t _b64_sock, _b64_idle;
+    op_strbuf_printf(&_b64_sock, "%s", int_to_base64(sock));
+    op_strbuf_printf(&_b64_idle, "%s", int_to_base64(idle));
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "i %s %s %s %s\n", bot, b64_sock, b64_idle,
+    op_strbuf_printf(&_b, "i %s %s %s %s\n", bot,
+                      op_strbuf_str(&_b64_sock), op_strbuf_str(&_b64_idle),
                       away ? away : "");
     send_tand_but(idx, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
     op_strbuf_free(&_b);
+    op_strbuf_free(&_b64_sock);
+    op_strbuf_free(&_b64_idle);
   }
 }
 
@@ -450,34 +453,38 @@ void botnet_send_away(int idx, char *bot, int sock, char *msg, int linking)
 void botnet_send_join_idx(int useridx, int oldchan)
 {
   if (tands > 0) {
-    char b64_chan[12], b64_sock[12];
-    strlcpy(b64_chan, int_to_base64(dcc[useridx].u.chat->channel), sizeof b64_chan);
-    strlcpy(b64_sock, int_to_base64(dcc[useridx].sock), sizeof b64_sock);
+    op_strbuf_t _b64_chan, _b64_sock;
+    op_strbuf_printf(&_b64_chan, "%s", int_to_base64(dcc[useridx].u.chat->channel));
+    op_strbuf_printf(&_b64_sock, "%s", int_to_base64(dcc[useridx].sock));
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "j %s %s %s %c%s %s\n",
                       botnetnick, dcc[useridx].nick,
-                      b64_chan, geticon(useridx),
-                      b64_sock, dcc[useridx].host);
+                      op_strbuf_str(&_b64_chan), geticon(useridx),
+                      op_strbuf_str(&_b64_sock), dcc[useridx].host);
     send_tand_but(-1, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
     op_strbuf_free(&_b);
+    op_strbuf_free(&_b64_chan);
+    op_strbuf_free(&_b64_sock);
   }
 }
 
 void botnet_send_join_party(int idx, int linking, int useridx, int oldchan)
 {
   if (tands > 0) {
-    char b64_chan[12], b64_sock[12];
-    strlcpy(b64_chan, int_to_base64(party[useridx].chan), sizeof b64_chan);
-    strlcpy(b64_sock, int_to_base64(party[useridx].sock), sizeof b64_sock);
+    op_strbuf_t _b64_chan, _b64_sock;
+    op_strbuf_printf(&_b64_chan, "%s", int_to_base64(party[useridx].chan));
+    op_strbuf_printf(&_b64_sock, "%s", int_to_base64(party[useridx].sock));
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "j %s%s %s %s %c%s %s\n",
                       linking ? "!" : "",
                       party[useridx].bot, party[useridx].nick,
-                      b64_chan, party[useridx].flag,
-                      b64_sock,
+                      op_strbuf_str(&_b64_chan), party[useridx].flag,
+                      op_strbuf_str(&_b64_sock),
                       party[useridx].from ? party[useridx].from : "");
     send_tand_but(idx, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
     op_strbuf_free(&_b);
+    op_strbuf_free(&_b64_chan);
+    op_strbuf_free(&_b64_sock);
   }
 }
 

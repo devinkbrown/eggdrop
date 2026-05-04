@@ -527,12 +527,14 @@ static void status_log(void)
   masklist *b;
   memberlist *m;
   struct chanset_t *chan;
-  char s[20], s2[20];
+  op_strbuf_t s, s2;
   int chops, halfops, voice, nonops, bans, invites, exempts;
 
   if (!server_online)
     return;
 
+  op_strbuf_init(&s);
+  op_strbuf_init(&s2);
   for (chan = chanset; chan != NULL; chan = chan->next) {
     if (channel_active(chan) && channel_logstatus(chan) &&
         !channel_inactive(chan)) {
@@ -556,17 +558,20 @@ static void status_log(void)
       for (invites = 0, b = chan->channel.invite; b->mask[0]; b = b->next)
         invites++;
 
-      strlcpy(s, int_to_base10(exempts), sizeof s);
-      strlcpy(s2, int_to_base10(invites), sizeof s2);
+      op_strbuf_reset(&s, "%d", exempts);
+      op_strbuf_reset(&s2, "%d", invites);
 
       putlog(LOG_MISC, chan->dname,
              "%s%s (%s) : [m/%d o/%d h/%d v/%d n/%d b/%d e/%s I/%s]",
              me_op(chan) ? "@" : me_voice(chan) ? "+" :
              me_halfop(chan) ? "%" : "", chan->dname, getchanmode(chan),
              chan->channel.members, chops, halfops, voice, nonops, bans,
-             use_exempts ? s : "-", use_invites ? s2 : "-");
+             use_exempts ? op_strbuf_str(&s) : "-",
+             use_invites ? op_strbuf_str(&s2) : "-");
     }
   }
+  op_strbuf_free(&s);
+  op_strbuf_free(&s2);
 }
 
 /* If i'm the only person on the channel, and i'm not op'd,

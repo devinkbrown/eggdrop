@@ -1510,13 +1510,6 @@ static int gotnick(char *from, char *msg)
       /*
        * Banned?
        */
-      /* Compose a nick!user@host for the new nick */
-      {
-        op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s!%s", msg, uhost);
-        strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
-        op_strbuf_free(&_b);
-      }
       if (chan->channel.member_ht && m->nick[0])
         op_htab_del(chan->channel.member_ht, m->nick);
       strlcpy(m->nick, msg, sizeof m->nick);
@@ -1565,12 +1558,10 @@ static int gotquit(char *from, char *msg)
 {
   char *nick, *chname, *p, *alt;
   int split = 0;
-  char from2[NICKMAX + UHOSTMAX + 1];
   memberlist *m;
   struct chanset_t *chan, *oldchan = NULL;
   struct userrec *u;
 
-  strlcpy(from2, from, sizeof from2);
   nick = splitnick(&from);
   fixcolon(msg);
   /* Fred1: Instead of expensive wild_match on signoff, quicker method.

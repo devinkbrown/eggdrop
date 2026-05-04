@@ -127,14 +127,14 @@ static int tcl_dccsimul STDVAR
 
 static int tcl_dccbroadcast STDVAR
 {
-  char msg[401];
-
   BADARGS(2, 2, " message");
 
-  strlcpy(msg, argv[1], sizeof msg);
-  chatout("*** %s\n", msg);
-  botnet_send_chat(-1, botnetnick, msg);
-  check_tcl_bcst(botnetnick, -1, msg);
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s", argv[1]);
+  chatout("*** %s\n", op_strbuf_str(&_b));
+  botnet_send_chat(-1, botnetnick, (char *)op_strbuf_str(&_b));
+  check_tcl_bcst(botnetnick, -1, (char *)op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
   return TCL_OK;
 }
 
@@ -233,7 +233,6 @@ static int tcl_setchan STDVAR
 static int tcl_dccputchan STDVAR
 {
   int chan;
-  char msg[401];
 
   BADARGS(3, 3, " channel message");
 
@@ -242,8 +241,6 @@ static int tcl_dccputchan STDVAR
     Tcl_AppendResult(irp, "channel out of range; must be 0 through 199999", NULL);
     return TCL_ERROR;
   }
-  strlcpy(msg, argv[2], sizeof msg);
-
   chanout_but(-1, chan, "*** %s\n", argv[2]);
   botnet_send_chan(-1, botnetnick, NULL, chan, argv[2]);
   check_tcl_bcst(botnetnick, chan, argv[2]);
@@ -509,8 +506,6 @@ static int tcl_killdcc STDVAR
 
 static int tcl_putbot STDVAR
 {
-  char msg[401];
-
   BADARGS(3, 3, " botnick message");
 
   int i = nextbot(argv[1]);
@@ -518,20 +513,21 @@ static int tcl_putbot STDVAR
     Tcl_AppendResult(irp, "bot is not on the botnet", NULL);
     return TCL_ERROR;
   }
-  strlcpy(msg, argv[2], sizeof msg);
-
-  botnet_send_zapf(i, botnetnick, argv[1], msg);
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s", argv[2]);
+  botnet_send_zapf(i, botnetnick, argv[1], (char *)op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
   return TCL_OK;
 }
 
 static int tcl_putallbots STDVAR
 {
-  char msg[401];
-
   BADARGS(2, 2, " message");
 
-  strlcpy(msg, argv[1], sizeof msg);
-  botnet_send_zapf_broad(-1, botnetnick, NULL, msg);
+  op_strbuf_t _b;
+  op_strbuf_printf(&_b, "%s", argv[1]);
+  botnet_send_zapf_broad(-1, botnetnick, NULL, (char *)op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
   return TCL_OK;
 }
 
@@ -576,24 +572,27 @@ static int tcl_bots STDVAR
 
 static int tcl_botlist STDVAR
 {
-  char *p, sh[2], string[20];
+  char *p, sh[2];
   EGG_CONST char *list[4];
   tand_t *bot;
+  op_strbuf_t ver_buf;
 
   BADARGS(1, 1, "");
 
   sh[1] = 0;
   list[3] = sh;
-  list[2] = string;
+  op_strbuf_init(&ver_buf);
   for (bot = tandbot; bot; bot = bot->next) {
     list[0] = bot->bot;
     list[1] = (bot->uplink == (tand_t *) 1) ? botnetnick : bot->uplink->bot;
-    strlcpy(string, int_to_base10(bot->ver), sizeof string);
+    op_strbuf_reset(&ver_buf, "%s", int_to_base10(bot->ver));
+    list[2] = op_strbuf_str(&ver_buf);
     sh[0] = bot->share;
     p = Tcl_Merge(4, list);
     Tcl_AppendElement(irp, p);
     Tcl_Free((char *) p);
   }
+  op_strbuf_free(&ver_buf);
   return TCL_OK;
 }
 
@@ -877,44 +876,49 @@ static int tcl_setdccaway STDVAR
 static int tcl_link STDVAR
 {
   __attribute__((unused)) int x;
-  char bot[HANDLEN + 1], bot2[HANDLEN + 1];
 
   BADARGS(2, 3, " ?via-bot? bot");
 
-  strlcpy(bot, argv[1], sizeof bot);
+  op_strbuf_t _bot;
+  op_strbuf_printf(&_bot, "%s", argv[1]);
   if (argc == 3) {
     x = 1;
-    strlcpy(bot2, argv[2], sizeof bot2);
-    int i = nextbot(bot);
+    op_strbuf_t _bot2;
+    op_strbuf_printf(&_bot2, "%s", argv[2]);
+    int i = nextbot((char *)op_strbuf_str(&_bot));
     if (i < 0)
       x = 0;
     else
-      botnet_send_link(i, botnetnick, bot, bot2);
+      botnet_send_link(i, botnetnick, (char *)op_strbuf_str(&_bot),
+                       (char *)op_strbuf_str(&_bot2));
+    op_strbuf_free(&_bot2);
   } else
-    x = botlink("", -2, bot);
+    x = botlink("", -2, (char *)op_strbuf_str(&_bot));
 
+  op_strbuf_free(&_bot);
   Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
   return TCL_OK;
 }
 
 static int tcl_unlink STDVAR
 {
-  char bot[HANDLEN + 1];
-
   BADARGS(2, 3, " bot ?comment?");
 
-  strlcpy(bot, argv[1], sizeof bot);
-  int i = nextbot(bot);
+  op_strbuf_t _bot;
+  op_strbuf_printf(&_bot, "%s", argv[1]);
+  int i = nextbot((char *)op_strbuf_str(&_bot));
   __attribute__((unused)) int x;
   if (i < 0)
     x = 0;
   else {
     x = 1;
-    if (!strcasecmp(bot, dcc[i].nick))
-      x = botunlink(-2, bot, argv[2], botnetnick);
+    if (!strcasecmp(op_strbuf_str(&_bot), dcc[i].nick))
+      x = botunlink(-2, (char *)op_strbuf_str(&_bot), argv[2], botnetnick);
     else
-      botnet_send_unlink(i, botnetnick, lastbot(bot), bot, argv[2]);
+      botnet_send_unlink(i, botnetnick, lastbot((char *)op_strbuf_str(&_bot)),
+                         (char *)op_strbuf_str(&_bot), argv[2]);
   }
+  op_strbuf_free(&_bot);
   Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
   return TCL_OK;
 }

@@ -281,7 +281,7 @@ static int tcl_killassoc STDVAR
 static int tcl_assoc STDVAR
 {
   int chan;
-  char name[21], *p;
+  char *p;
 
   BADARGS(2, 3, " chan ?name?");
 
@@ -289,10 +289,8 @@ static int tcl_assoc STDVAR
     chan = get_assoc(argv[1]);
     if (chan == -1)
       Tcl_AppendResult(irp, "", NULL);
-    else {
-      strlcpy(name, int_to_base10(chan), sizeof name);
-      Tcl_AppendResult(irp, name, NULL);
-    }
+    else
+      Tcl_AppendResult(irp, int_to_base10(chan), NULL);
     return TCL_OK;
   }
   chan = atoi(argv[1]);
@@ -301,16 +299,14 @@ static int tcl_assoc STDVAR
     return TCL_ERROR;
   }
   if (argc == 3) {
-    strlcpy(name, argv[2], sizeof name);
-    add_assoc(name, chan);
-    botnet_send_assoc(-1, chan, "*script*", name);
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%.20s", argv[2]);
+    add_assoc((char *)op_strbuf_str(&_b), chan);
+    botnet_send_assoc(-1, chan, "*script*", (char *)op_strbuf_str(&_b));
+    op_strbuf_free(&_b);
   }
   p = get_assoc_name(chan);
-  if (p == NULL)
-    name[0] = 0;
-  else
-    strlcpy(name, p, sizeof(name));
-  Tcl_AppendResult(irp, name, NULL);
+  Tcl_AppendResult(irp, p ? p : "", NULL);
   return TCL_OK;
 }
 

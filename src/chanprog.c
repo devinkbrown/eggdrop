@@ -227,9 +227,8 @@ float getcputime(void)
  */
 void tell_verbose_uptime(int idx)
 {
-  char s1[121];
   time_t now2, hr, min;
-  op_strbuf_t s;
+  op_strbuf_t s, s1;
 
   now2 = now - online_since;
   op_strbuf_init(&s);
@@ -245,18 +244,19 @@ void tell_verbose_uptime(int idx)
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
   op_strbuf_appendf(&s, "%02d:%02d", (int) hr, (int) min);
-  s1[0] = 0;
+  op_strbuf_init(&s1);
   if (backgrd)
-    strlcpy(s1, MISC_BACKGROUND, sizeof(s1));
+    op_strbuf_append_cstr(&s1, MISC_BACKGROUND);
   else {
     if (term_z >= 0)
-      strlcpy(s1, MISC_TERMMODE, sizeof(s1));
+      op_strbuf_append_cstr(&s1, MISC_TERMMODE);
     else if (con_chan)
-      strlcpy(s1, MISC_STATMODE, sizeof(s1));
+      op_strbuf_append_cstr(&s1, MISC_STATMODE);
     else
-      strlcpy(s1, MISC_LOGMODE, sizeof(s1));
+      op_strbuf_append_cstr(&s1, MISC_LOGMODE);
   }
-  dprintf(idx, "%s %s  (%s)\n", MISC_ONLINEFOR, op_strbuf_str(&s), s1);
+  dprintf(idx, "%s %s  (%s)\n", MISC_ONLINEFOR, op_strbuf_str(&s), op_strbuf_str(&s1));
+  op_strbuf_free(&s1);
   op_strbuf_free(&s);
 }
 
@@ -264,10 +264,10 @@ void tell_verbose_uptime(int idx)
  */
 void tell_verbose_status(int idx)
 {
-  char s1[121], *sysrel;
+  char *sysrel;
   time_t now2 = now - online_since, hr, min;
   double cputime, cache_total;
-  op_strbuf_t s, s2;
+  op_strbuf_t s, s1, s2;
 
   int i = count_users(userlist);
   struct rusage ru;
@@ -287,16 +287,16 @@ void tell_verbose_status(int idx)
   now2 -= (hr * 3600);
   min = (time_t) ((int) now2 / 60);
   op_strbuf_appendf(&s, "%02d:%02d", (int) hr, (int) min);
-  s1[0] = 0;
+  op_strbuf_init(&s1);
   if (backgrd)
-    strlcpy(s1, MISC_BACKGROUND, sizeof s1);
+    op_strbuf_append_cstr(&s1, MISC_BACKGROUND);
   else {
     if (term_z >= 0)
-      strlcpy(s1, MISC_TERMMODE, sizeof s1);
+      op_strbuf_append_cstr(&s1, MISC_TERMMODE);
     else if (con_chan)
-      strlcpy(s1, MISC_STATMODE, sizeof s1);
+      op_strbuf_append_cstr(&s1, MISC_STATMODE);
     else
-      strlcpy(s1, MISC_LOGMODE, sizeof s1);
+      op_strbuf_append_cstr(&s1, MISC_LOGMODE);
   }
   cputime = getcputime();
   if (cputime < 0)
@@ -311,9 +311,10 @@ void tell_verbose_status(int idx)
   } else
     cache_total = 0;
   dprintf(idx, "%s %s (%s) - %s - %s: %4.1f%%\n", MISC_ONLINEFOR,
-          op_strbuf_str(&s), s1, op_strbuf_str(&s2),
+          op_strbuf_str(&s), op_strbuf_str(&s1), op_strbuf_str(&s2),
           MISC_CACHEHIT, cache_total);
   op_strbuf_free(&s);
+  op_strbuf_free(&s1);
   op_strbuf_free(&s2);
   dprintf(idx, "Configured with: " EGG_AC_ARGS "\n");
   if (admin[0])

@@ -1096,15 +1096,14 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
   } else if (glob_bot(victim) && !glob_owner(user)) {
     dprintf(idx, "You can't remove a bot!\n");
   } else {
-    char buf[HANDLEN + 1];
-
-    strlcpy(buf, u->handle, sizeof buf);
-    buf[HANDLEN] = 0;
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%.*s", HANDLEN, u->handle);
     if (deluser(u->handle)) {
-      dprintf(idx, "Deleted %s.\n", buf);       /* ?!?! :) */
-      putlog(LOG_CMDS, "*", "#%s# deluser %s [%s]", dcc[idx].nick, nick, buf);
+      dprintf(idx, "Deleted %s.\n", op_strbuf_str(&_b));       /* ?!?! :) */
+      putlog(LOG_CMDS, "*", "#%s# deluser %s [%s]", dcc[idx].nick, nick, op_strbuf_str(&_b));
     } else
       dprintf(idx, "Failed.\n");
+    op_strbuf_free(&_b);
   }
 }
 

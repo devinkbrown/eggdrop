@@ -1032,8 +1032,12 @@ int run_setup_wizard(const char *outfile)
   prompt("IRC server hostname", net_defaults[net_idx], server, sizeof server);
   use_ssl = prompt_yn("Use SSL/TLS?", 1);
 
-  strlcpy(tmp, int_to_base10(use_ssl ? 6697 : 6667), sizeof tmp);
-  prompt("Port", tmp, port_buf, sizeof port_buf);
+  {
+    op_strbuf_t _b;
+    op_strbuf_printf(&_b, "%s", int_to_base10(use_ssl ? 6697 : 6667));
+    prompt("Port", op_strbuf_str(&_b), port_buf, sizeof port_buf);
+    op_strbuf_free(&_b);
+  }
   port = atoi(port_buf);
   if (port <= 0 || port > 65535)
     port = use_ssl ? 6697 : 6667;

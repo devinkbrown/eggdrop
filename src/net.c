@@ -1760,29 +1760,34 @@ int sanitycheck_dcc(char *nick, char *from, char *ipaddy, char *port)
 int hostsanitycheck_dcc(char *nick, char *from, sockname_t *ip, char *dnsname,
                         char *prt)
 {
-  char badaddress[EGG_INET_ADDRSTRLEN];
+  /* It is disabled HERE so we only have to check in *one* spot! */
+  if (!dcc_sanitycheck)
+    return 1;
 
   /* According to the latest RFC, the clients SHOULD be able to handle
    * DNS names that are up to 255 characters long.  This is not broken.
    */
-  char hostn[256];
-
-  /* It is disabled HERE so we only have to check in *one* spot! */
-  if (!dcc_sanitycheck)
-    return 1;
-  strlcpy(badaddress, iptostr(&ip->addr.sa), sizeof badaddress);
-  strlcpy(hostn, extracthostname(from), sizeof hostn);
-  if (!strcasecmp(hostn, dnsname)) {
+  op_strbuf_t _badaddress, _hostn;
+  op_strbuf_printf(&_badaddress, "%s", iptostr(&ip->addr.sa));
+  op_strbuf_printf(&_hostn, "%s", extracthostname(from));
+  if (!strcasecmp(op_strbuf_str(&_hostn), dnsname)) {
+    op_strbuf_free(&_hostn);
+    op_strbuf_free(&_badaddress);
     putlog(LOG_DEBUG, "*", "DNS information for submitted IP checks out.");
     return 1;
   }
-  if (!strcmp(badaddress, dnsname))
+  if (!strcmp(op_strbuf_str(&_badaddress), dnsname))
     putlog(LOG_MISC, "*", "ALERT: (%s!%s) sent a DCC request with bogus IP "
            "information of %s port %s. %s does not resolve to %s!", nick, from,
-           badaddress, prt, from, badaddress);
-  else
+           op_strbuf_str(&_badaddress), prt, from, op_strbuf_str(&_badaddress));
+  else {
+    op_strbuf_free(&_hostn);
+    op_strbuf_free(&_badaddress);
     return 1;                   /* <- usually happens when we have
                                  * a user with an unresolved hostmask! */
+  }
+  op_strbuf_free(&_hostn);
+  op_strbuf_free(&_badaddress);
   return 0;
 }
 

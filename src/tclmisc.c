@@ -128,41 +128,46 @@ static int tcl_logfile STDVAR
 
 static int tcl_putlog STDVAR
 {
-  char logtext[501];
-
   BADARGS(2, 2, " text");
 
-  strlcpy(logtext, argv[1], sizeof logtext);
-  putlog(LOG_MISC, "*", "%s", logtext);
+  {
+    op_strbuf_t _logtext;
+    op_strbuf_printf(&_logtext, "%s", argv[1]);
+    putlog(LOG_MISC, "*", "%s", op_strbuf_str(&_logtext));
+    op_strbuf_free(&_logtext);
+  }
   return TCL_OK;
 }
 
 static int tcl_putcmdlog STDVAR
 {
-  char logtext[501];
-
   BADARGS(2, 2, " text");
 
-  strlcpy(logtext, argv[1], sizeof logtext);
-  putlog(LOG_CMDS, "*", "%s", logtext);
+  {
+    op_strbuf_t _logtext;
+    op_strbuf_printf(&_logtext, "%s", argv[1]);
+    putlog(LOG_CMDS, "*", "%s", op_strbuf_str(&_logtext));
+    op_strbuf_free(&_logtext);
+  }
   return TCL_OK;
 }
 
 static int tcl_putxferlog STDVAR
 {
-  char logtext[501];
-
   BADARGS(2, 2, " text");
 
-  strlcpy(logtext, argv[1], sizeof logtext);
-  putlog(LOG_FILES, "*", "%s", logtext);
+  {
+    op_strbuf_t _logtext;
+    op_strbuf_printf(&_logtext, "%s", argv[1]);
+    putlog(LOG_FILES, "*", "%s", op_strbuf_str(&_logtext));
+    op_strbuf_free(&_logtext);
+  }
   return TCL_OK;
 }
 
 static int tcl_putloglev STDVAR
 {
   int lev = 0;
-  char logtext[501];
 
   BADARGS(4, 4, " flag(s) channel text");
 
@@ -171,16 +176,19 @@ static int tcl_putloglev STDVAR
     Tcl_AppendResult(irp, "No valid log flag given", NULL);
     return TCL_ERROR;
   }
-  strlcpy(logtext, argv[3], sizeof logtext);
-
-  putlog(lev, argv[2], "%s", logtext);
+  {
+    op_strbuf_t _logtext;
+    op_strbuf_printf(&_logtext, "%s", argv[3]);
+    putlog(lev, argv[2], "%s", op_strbuf_str(&_logtext));
+    op_strbuf_free(&_logtext);
+  }
   return TCL_OK;
 }
 
 static int tcl_binds STDVAR
 {
   int matching = 0;
-  char *g, flg[100], hits[11];
+  char *g, flg[100];
   EGG_CONST char *list[5];
   tcl_bind_list_t *tl, *tl_kind;
   tcl_bind_mask_t *tm;
@@ -210,13 +218,17 @@ static int tcl_binds STDVAR
             !wild_match_per(argv[1], tc->func_name))
           continue;
         build_flags(flg, &(tc->flags), NULL);
-        strlcpy(hits, int_to_base10((int) tc->hits), sizeof hits);
-        list[0] = tl->name;
-        list[1] = flg;
-        list[2] = tm->mask;
-        list[3] = hits;
-        list[4] = tc->func_name;
-        g = Tcl_Merge(5, list);
+        {
+          op_strbuf_t _hits;
+          op_strbuf_printf(&_hits, "%s", int_to_base10((int) tc->hits));
+          list[0] = tl->name;
+          list[1] = flg;
+          list[2] = tm->mask;
+          list[3] = op_strbuf_str(&_hits);
+          list[4] = tc->func_name;
+          g = Tcl_Merge(5, list);
+          op_strbuf_free(&_hits);
+        }
         Tcl_AppendElement(irp, g);
         Tcl_Free((char *) g);
       }
@@ -468,26 +480,35 @@ static int tcl_rand STDVAR
 
 static int tcl_sendnote STDVAR
 {
-  char from[NOTENAMELEN + 1], to[NOTENAMELEN + 1], msg[451];
-
   BADARGS(4, 4, " from to message");
 
-  strlcpy(from, argv[1], sizeof from);
-  strlcpy(to, argv[2], sizeof to);
-  strlcpy(msg, argv[3], sizeof msg);
-  Tcl_SetObjResult(irp, Tcl_NewIntObj(add_note(to, from, msg, -1, 0)));
+  {
+    op_strbuf_t _from, _to, _msg;
+    op_strbuf_printf(&_from, "%s", argv[1]);
+    op_strbuf_printf(&_to, "%s", argv[2]);
+    op_strbuf_printf(&_msg, "%s", argv[3]);
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(add_note(
+        (char *)op_strbuf_str(&_to), (char *)op_strbuf_str(&_from),
+        (char *)op_strbuf_str(&_msg), -1, 0)));
+    op_strbuf_free(&_from);
+    op_strbuf_free(&_to);
+    op_strbuf_free(&_msg);
+  }
   return TCL_OK;
 }
 
 static int tcl_dumpfile STDVAR
 {
-  char nick[NICKLEN];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
 
   BADARGS(3, 3, " nickname filename");
 
-  strlcpy(nick, argv[1], sizeof nick);
-  get_user_flagrec(get_user_by_nick(nick), &fr, NULL);
+  {
+    op_strbuf_t _nick;
+    op_strbuf_printf(&_nick, "%s", argv[1]);
+    get_user_flagrec(get_user_by_nick((char *)op_strbuf_str(&_nick)), &fr, NULL);
+    op_strbuf_free(&_nick);
+  }
   showhelp(argv[1], argv[2], &fr, HELP_TEXT);
   return TCL_OK;
 }

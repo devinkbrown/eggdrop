@@ -351,31 +351,36 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
   int j, i = 0;
   maskrec *t;
   maskrec **u = (c) ? &c->bans : &global_bans;
-  char temp[256];
+  op_strbuf_t _temp;
 
+  op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
     j = atoi(who);
     j--;
     for (; (*u) && j; u = &((*u)->next), j--);
     if (*u) {
-      strlcpy(temp, (*u)->mask, sizeof temp);
+      op_strbuf_printf(&_temp, "%s", (*u)->mask);
       i = 1;
-    } else
+    } else {
+      op_strbuf_free(&_temp);
       return -j - 1;
+    }
   } else {
     /* Find matching host, if there is one */
     for (; *u && !i; u = &((*u)->next))
       if (!rfc_casecmp((*u)->mask, who)) {
-        strlcpy(temp, who, sizeof temp);
+        op_strbuf_printf(&_temp, "%s", who);
         i = 1;
         break;
       }
-    if (!*u)
+    if (!*u) {
+      op_strbuf_free(&_temp);
       return 0;
+    }
   }
   if (i && doit) {
     if (!noshare) {
-      char *mask = str_escape(temp, ':', '\\');
+      char *mask = str_escape((char *)op_strbuf_str(&_temp), ':', '\\');
 
       if (mask) {
         /* Distribute chan bans differently */
@@ -406,6 +411,7 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
     *u = (*u)->next;
     free_maskrec(t);
   }
+  op_strbuf_free(&_temp);
   return i;
 }
 
@@ -413,31 +419,36 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
 {
   int j, i = 0;
   maskrec *t, **u = c ? &(c->exempts) : &global_exempts;
-  char temp[256];
+  op_strbuf_t _temp;
 
+  op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
     j = atoi(who);
     j--;
     for (; (*u) && j; u = &((*u)->next), j--);
     if (*u) {
-      strlcpy(temp, (*u)->mask, sizeof temp);
+      op_strbuf_printf(&_temp, "%s", (*u)->mask);
       i = 1;
-    } else
+    } else {
+      op_strbuf_free(&_temp);
       return -j - 1;
+    }
   } else {
     /* Find matching host, if there is one */
     for (; *u && !i; u = &((*u)->next))
       if (!rfc_casecmp((*u)->mask, who)) {
-        strlcpy(temp, who, sizeof temp);
+        op_strbuf_printf(&_temp, "%s", who);
         i = 1;
         break;
       }
-    if (!*u)
+    if (!*u) {
+      op_strbuf_free(&_temp);
       return 0;
+    }
   }
   if (i && doit) {
     if (!noshare) {
-      char *mask = str_escape(temp, ':', '\\');
+      char *mask = str_escape((char *)op_strbuf_str(&_temp), ':', '\\');
 
       if (mask) {
         /* Distribute chan exempts differently */
@@ -467,6 +478,7 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
     *u = (*u)->next;
     free_maskrec(t);
   }
+  op_strbuf_free(&_temp);
   return i;
 }
 
@@ -475,31 +487,36 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
   int j, i = 0;
   maskrec *t;
   maskrec **u = c ? &(c->invites) : &global_invites;
-  char temp[256];
+  op_strbuf_t _temp;
 
+  op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
     j = atoi(who);
     j--;
     for (; (*u) && j; u = &((*u)->next), j--);
     if (*u) {
-      strlcpy(temp, (*u)->mask, sizeof temp);
+      op_strbuf_printf(&_temp, "%s", (*u)->mask);
       i = 1;
-    } else
+    } else {
+      op_strbuf_free(&_temp);
       return -j - 1;
+    }
   } else {
     /* Find matching host, if there is one */
     for (; *u && !i; u = &((*u)->next))
       if (!rfc_casecmp((*u)->mask, who)) {
-        strlcpy(temp, who, sizeof temp);
+        op_strbuf_printf(&_temp, "%s", who);
         i = 1;
         break;
       }
-    if (!*u)
+    if (!*u) {
+      op_strbuf_free(&_temp);
       return 0;
+    }
   }
   if (i && doit) {
     if (!noshare) {
-      char *mask = str_escape(temp, ':', '\\');
+      char *mask = str_escape((char *)op_strbuf_str(&_temp), ':', '\\');
 
       if (mask) {
         /* Distribute chan invites differently */
@@ -529,6 +546,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
     *u = (*u)->next;
     free_maskrec(t);
   }
+  op_strbuf_free(&_temp);
   return i;
 }
 

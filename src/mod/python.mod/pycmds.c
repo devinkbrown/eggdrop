@@ -2172,7 +2172,8 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
 /* putbot(botnick, message) — send a zapf message to a linked bot */
 static PyObject *py_putbot(PyObject *self, PyObject *args)
 {
-  char *botnick, *msg, msgbuf[401];
+  char *botnick, *msg;
+  op_strbuf_t _b;
 
   if (!PyArg_ParseTuple(args, "ss", &botnick, &msg))
     return NULL;
@@ -2181,20 +2182,23 @@ static PyObject *py_putbot(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "bot is not on the botnet");
     return NULL;
   }
-  strlcpy(msgbuf, msg, sizeof msgbuf);
-  botnet_send_zapf(i, botnetnick, botnick, msgbuf);
+  op_strbuf_printf(&_b, "%s", msg);
+  botnet_send_zapf(i, botnetnick, botnick, op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
   Py_RETURN_NONE;
 }
 
 /* putallbots(message) — broadcast a zapf message to all linked bots */
 static PyObject *py_putallbots(PyObject *self, PyObject *args)
 {
-  char *msg, msgbuf[401];
+  char *msg;
+  op_strbuf_t _b;
 
   if (!PyArg_ParseTuple(args, "s", &msg))
     return NULL;
-  strlcpy(msgbuf, msg, sizeof msgbuf);
-  botnet_send_zapf_broad(-1, botnetnick, NULL, msgbuf);
+  op_strbuf_printf(&_b, "%s", msg);
+  botnet_send_zapf_broad(-1, botnetnick, NULL, op_strbuf_str(&_b));
+  op_strbuf_free(&_b);
   Py_RETURN_NONE;
 }
 
@@ -4032,41 +4036,57 @@ static PyObject *py_traffic(PyObject *self, PyObject *args)
 static PyObject *py_link(PyObject *self, PyObject *args)
 {
   char *bot, *via = NULL;
-  char botbuf[HANDLEN + 1], viabuf[HANDLEN + 1];
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &via))
     return NULL;
   if (via) {
     /* link(via, bot) — two-arg form: send link request through via-bot */
-    strlcpy(viabuf, bot, sizeof viabuf);  /* first arg is via */
-    strlcpy(botbuf, via, sizeof botbuf);  /* second arg is target bot */
-    int i = nextbot(viabuf);
-    if (i < 0)
+    op_strbuf_t _via, _bot;
+    op_strbuf_printf(&_via, "%s", bot);
+    op_strbuf_printf(&_bot, "%s", via);
+    int i = nextbot((char *)op_strbuf_str(&_via));
+    if (i < 0) {
+      op_strbuf_free(&_via);
+      op_strbuf_free(&_bot);
       return PyLong_FromLong(0L);
-    botnet_send_link(i, botnetnick, viabuf, botbuf);
+    }
+    botnet_send_link(i, botnetnick, (char *)op_strbuf_str(&_via), (char *)op_strbuf_str(&_bot));
+    op_strbuf_free(&_via);
+    op_strbuf_free(&_bot);
     return PyLong_FromLong(1L);
   }
-  strlcpy(botbuf, bot, sizeof botbuf);
-  return PyLong_FromLong((long)botlink("", -2, botbuf));
+  op_strbuf_t _bot;
+  op_strbuf_printf(&_bot, "%s", bot);
+  PyObject *_ret = PyLong_FromLong((long)botlink("", -2, (char *)op_strbuf_str(&_bot)));
+  op_strbuf_free(&_bot);
+  return _ret;
 }
 
 /* unlink(bot[, comment]) — unlink a bot from the botnet */
 static PyObject *py_unlink(PyObject *self, PyObject *args)
 {
   char *bot, *comment = "";
-  char botbuf[HANDLEN + 1];
+  op_strbuf_t _b;
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &comment))
     return NULL;
-  strlcpy(botbuf, bot, sizeof botbuf);
-  int i = nextbot(botbuf);
-  if (i < 0)
+  op_strbuf_printf(&_b, "%s", bot);
+  int i = nextbot((char *)op_strbuf_str(&_b));
+  if (i < 0) {
+    op_strbuf_free(&_b);
     return PyLong_FromLong(0L);
-  if (!strcasecmp(botbuf, dcc[i].nick))
-    return PyLong_FromLong((long)botunlink(-2, botbuf, (char *)comment,
+  }
+  PyObject *_ret;
+  if (!strcasecmp(op_strbuf_str(&_b), dcc[i].nick))
+    _ret = PyLong_FromLong((long)botunlink(-2, (char *)op_strbuf_str(&_b), (char *)comment,
                                            botnetnick));
-  botnet_send_unlink(i, botnetnick, lastbot(botbuf), botbuf, (char *)comment);
-  return PyLong_FromLong(1L);
+  else {
+    botnet_send_unlink(i, botnetnick, lastbot((char *)op_strbuf_str(&_b)),
+                       (char *)op_strbuf_str(&_b), (char *)comment);
+    _ret = PyLong_FromLong(1L);
+  }
+  op_strbuf_free(&_b);
+  return _ret;
 }
 
 /* valididx(idx) — True if idx is a valid, active DCC index */

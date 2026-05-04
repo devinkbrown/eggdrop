@@ -29,7 +29,7 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
 #ifdef IPV6
   char buf[sizeof(struct in6_addr)];
 #endif
-  char setpass[12];
+  const char *setpass;
 
   putlog(LOG_CMDS, "*", "#%s# servers", dcc[idx].nick);
   if (!x) {
@@ -53,11 +53,11 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
         t = time(NULL);
         currtm = localtime(&t); /* ******* */
         if ((currtm->tm_mon == 3) && (currtm->tm_mday == 1))
-          strlcpy(setpass, " (hunter2)", sizeof setpass);
+          setpass = " (hunter2)";
         else
-          strlcpy(setpass, " (password)", sizeof setpass);
+          setpass = " (password)";
       } else {
-        strlcpy(setpass, "", sizeof setpass);
+        setpass = "";
       }
       if ((i == curserv) && realservername) {
         op_strbuf_appendf(&s, "%s%s (%s) <- I am here",

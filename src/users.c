@@ -63,27 +63,28 @@ int delignore(char *ign)
   int i, j;
   struct igrec **u;
   struct igrec *t;
-  char temp[UHOSTLEN];
+  op_strbuf_t temp;
 
+  op_strbuf_init(&temp);
   i = 0;
   if (!strchr(ign, '!') && (j = atoi(ign))) {
     for (u = &global_ign, j--; *u && j; u = &((*u)->next), j--);
     if (*u) {
-      strlcpy(temp, (*u)->igmask, sizeof temp);
+      op_strbuf_printf(&temp, "%s", (*u)->igmask);
       i = 1;
     }
   } else {
     /* find the matching host, if there is one */
     for (u = &global_ign; *u && !i; u = &((*u)->next))
       if (!rfc_casecmp(ign, (*u)->igmask)) {
-        strlcpy(temp, ign, sizeof temp);
+        op_strbuf_printf(&temp, "%s", ign);
         i = 1;
         break;
       }
   }
   if (i) {
     if (!noshare) {
-      char *mask = str_escape(temp, ':', '\\');
+      char *mask = str_escape((char *)op_strbuf_str(&temp), ':', '\\');
 
       if (mask) {
         shareout(NULL, "-i %s\n", mask);
@@ -99,6 +100,7 @@ int delignore(char *ign)
     *u = (*u)->next;
     free_igrec(t);
   }
+  op_strbuf_free(&temp);
   return i;
 }
 

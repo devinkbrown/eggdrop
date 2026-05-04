@@ -447,7 +447,6 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
   char salt_plain[64]; /* atheme: Valid values are 8 to 64 (inclusive) */
   unsigned int stored_key_len;
   unsigned char stored_key[EVP_MAX_MD_SIZE];
-  char client_final_message_without_proof[1024];
   unsigned char client_signature[EVP_MAX_MD_SIZE];
   unsigned char client_proof[EVP_MAX_MD_SIZE];
   char client_proof_b64[1024];
@@ -570,18 +569,13 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
    *                    client-final-message-without-proof
    */
 
-  {
-    op_strbuf_t _b;
-    op_strbuf_printf(&_b, "c=biws,r=%s", server_nonce);
-    strlcpy(client_final_message_without_proof, op_strbuf_str(&_b),
-            sizeof client_final_message_without_proof);
-    op_strbuf_free(&_b);
-  }
+  op_strbuf_t _cfmwp;
+  op_strbuf_printf(&_cfmwp, "c=biws,r=%s", server_nonce);
 
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "%s,%s,%s", client_first_message + 3,
-                     server_first_message, client_final_message_without_proof);
+                     server_first_message, op_strbuf_str(&_cfmwp));
     strlcpy(auth_message, op_strbuf_str(&_b), sizeof auth_message);
     op_strbuf_free(&_b);
   }
@@ -592,6 +586,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
   if (!HMAC(digest, stored_key, digest_len, (unsigned char *) auth_message,
             auth_message_len, client_signature, NULL)) {
     sasl_errorf("AUTHENTICATE: HMAC(): %s", ERR_error_string(ERR_get_error(), NULL));
+    op_strbuf_free(&_cfmwp);
     return -1;
   }
 
@@ -602,15 +597,17 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
 
   if (b64_ntop(client_proof, client_key_len, client_proof_b64, sizeof client_proof_b64) == -1) {
     sasl_error("AUTHENTICATE: could not base64 encode");
+    op_strbuf_free(&_cfmwp);
     return -1;
   }
 
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s,p=%s", client_final_message_without_proof, client_proof_b64);
+    op_strbuf_printf(&_b, "%s,p=%s", op_strbuf_str(&_cfmwp), client_proof_b64);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
   }
+  op_strbuf_free(&_cfmwp);
   return (int) strlen(client_msg_plain);
 }
 

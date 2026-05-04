@@ -174,7 +174,7 @@ static int send_uptime(void)
   struct stat st;
   PackUp *mem;
   int len, servidx;
-  char servhost[UHOSTLEN] = "none";
+  const char *servhost = "none";
   module_entry *me;
 
   if (uptimeip == -1) {
@@ -194,7 +194,7 @@ static int send_uptime(void)
 
     if (server_online) {
       servidx = findanyidx(serv);
-      strlcpy(servhost, dcc[servidx].host, sizeof servhost);
+      servhost = dcc[servidx].host;
       upPack.ontime = htonl(server_online);
     }
   }

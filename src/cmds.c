@@ -653,13 +653,14 @@ static void cmd_boot(struct userrec *u, int idx, char *par)
 /* Make changes to user console settings */
 static void do_console(struct userrec *u, int idx, char *par, int reset)
 {
-  char *nick, s[2], s1[512];
+  char *nick, s[2];
+  op_strbuf_t s1;
   int dest = 0, pls;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   module_entry *me;
 
   get_user_flagrec(u, &fr, dcc[idx].u.chat->con_chan);
-  strlcpy(s1, par, sizeof s1);
+  op_strbuf_printf(&s1, "%s", par);
   nick = newsplit(&par);
   /* Check if the parameter is a handle.
    * Don't remove '+' as someone couldn't have '+' in CHANMETA cause
@@ -676,6 +677,7 @@ static void do_console(struct userrec *u, int idx, char *par, int reset)
     }
     if (!ok) {
       dprintf(idx, "No such user on the party line!\n");
+      op_strbuf_free(&s1);
       return;
     }
     nick[0] = 0;
@@ -690,12 +692,14 @@ static void do_console(struct userrec *u, int idx, char *par, int reset)
       (nick[0] != '+' && strchr(CHANMETA "*", nick[0])))) {
     if (strcmp(nick, "*") && !findchan_by_dname(nick)) {
       dprintf(idx, "Invalid console channel: %s.\n", nick);
+      op_strbuf_free(&s1);
       return;
     }
     get_user_flagrec(u, &fr, nick);
     if (!chan_op(fr) && !(glob_op(fr) && !chan_deop(fr))) {
       dprintf(idx, "You don't have op or master access to channel %s.\n",
               nick);
+      op_strbuf_free(&s1);
       return;
     }
     strlcpy(dcc[dest].u.chat->con_chan, nick,
@@ -729,7 +733,8 @@ static void do_console(struct userrec *u, int idx, char *par, int reset)
   }
   dcc[dest].u.chat->con_flags = check_conflags(&fr,
                                                dcc[dest].u.chat->con_flags);
-  putlog(LOG_CMDS, "*", "#%s# %sconsole %s", dcc[idx].nick, reset ? "reset" : "", s1);
+  putlog(LOG_CMDS, "*", "#%s# %sconsole %s", dcc[idx].nick, reset ? "reset" : "", op_strbuf_str(&s1));
+  op_strbuf_free(&s1);
   if (dest == idx) {
     dprintf(idx, "Set your console to %s: %s (%s).\n",
             dcc[idx].u.chat->con_chan,
@@ -959,15 +964,17 @@ static void cmd_pls_bot(struct userrec *u, int idx, char *par)
 
 static void cmd_chhandle(struct userrec *u, int idx, char *par)
 {
-  char hand[HANDLEN + 1], newhand[HANDLEN + 1];
+  char newhand[HANDLEN + 1];
   int atr = u ? u->flags : 0, atr2;
   struct userrec *u2;
+  op_strbuf_t hand;
 
-  strlcpy(hand, newsplit(&par), sizeof hand);
+  op_strbuf_printf(&hand, "%s", newsplit(&par));
   strlcpy(newhand, newsplit(&par), sizeof newhand);
 
-  if (!hand[0] || !newhand[0]) {
+  if (!op_strbuf_str(&hand)[0] || !newhand[0]) {
     dprintf(idx, "Usage: chhandle <oldhandle> <newhandle>\n");
+    op_strbuf_free(&hand);
     return;
   }
   for (int i = 0; i < (int) strlen(newhand); i++)
@@ -977,37 +984,38 @@ static void cmd_chhandle(struct userrec *u, int idx, char *par)
     dprintf(idx, "Bizarre quantum forces prevent nicknames from starting with "
             "'%c'.\n", newhand[0]);
   else if (get_user_by_handle(userlist, newhand) &&
-           strcasecmp(hand, newhand))
+           strcasecmp(op_strbuf_str(&hand), newhand))
     dprintf(idx, "Somebody is already using %s.\n", newhand);
   else {
-    u2 = get_user_by_handle(userlist, hand);
+    u2 = get_user_by_handle(userlist, (char *)op_strbuf_str(&hand));
     atr2 = u2 ? u2->flags : 0;
     if ((atr & USER_BOTMAST) && !(atr & USER_MASTER) && !(atr2 & USER_BOT))
       dprintf(idx, "You can't change handles for non-bots.\n");
-    else if (!strcasecmp(hand, EGG_BG_HANDLE))
+    else if (!strcasecmp(op_strbuf_str(&hand), EGG_BG_HANDLE))
       dprintf(idx, "You can't change the handle of a temporary user.\n");
     else if ((bot_flags(u2) & BOT_SHARE) && !(atr & USER_OWNER))
       dprintf(idx, "You can't change share bot's nick.\n");
     else if ((atr2 & USER_OWNER) && !(atr & USER_OWNER) &&
-             strcasecmp(dcc[idx].nick, hand))
+             strcasecmp(dcc[idx].nick, op_strbuf_str(&hand)))
       dprintf(idx, "You can't change a bot owner's handle.\n");
-    else if (isowner(hand) && strcasecmp(dcc[idx].nick, hand))
+    else if (isowner((char *)op_strbuf_str(&hand)) && strcasecmp(dcc[idx].nick, op_strbuf_str(&hand)))
       dprintf(idx, "You can't change a permanent bot owner's handle.\n");
     else if (!strcasecmp(newhand, botnetnick) && (!(atr2 & USER_BOT) ||
-             nextbot(hand) != -1))
+             nextbot((char *)op_strbuf_str(&hand)) != -1))
       dprintf(idx, "Hey! That's MY name!\n");
     else if (change_handle(u2, newhand)) {
       putlog(LOG_CMDS, "*", "#%s# chhandle %s %s", dcc[idx].nick,
-             hand, newhand);
+             op_strbuf_str(&hand), newhand);
       dprintf(idx, "Changed.\n");
     } else
       dprintf(idx, "Failed.\n");
   }
+  op_strbuf_free(&hand);
 }
 
 static void cmd_handle(struct userrec *u, int idx, char *par)
 {
-  char oldhandle[HANDLEN + 1], newhandle[HANDLEN + 1];
+  char newhandle[HANDLEN + 1];
 
   strlcpy(newhandle, newsplit(&par), sizeof newhandle);
 
@@ -1030,12 +1038,14 @@ static void cmd_handle(struct userrec *u, int idx, char *par)
   else if (!strcasecmp(newhandle, botnetnick))
     dprintf(idx, "Hey!  That's MY name!\n");
   else {
-    strlcpy(oldhandle, dcc[idx].nick, sizeof oldhandle);
+    op_strbuf_t oldhandle;
+    op_strbuf_printf(&oldhandle, "%s", dcc[idx].nick);
     if (change_handle(u, newhandle)) {
-      putlog(LOG_CMDS, "*", "#%s# handle %s", oldhandle, newhandle);
+      putlog(LOG_CMDS, "*", "#%s# handle %s", op_strbuf_str(&oldhandle), newhandle);
       dprintf(idx, "Okay, changed.\n");
     } else
       dprintf(idx, "Failed.\n");
+    op_strbuf_free(&oldhandle);
   }
 }
 
@@ -3051,18 +3061,18 @@ static void cmd_pls_ignore(struct userrec *u, int idx, char *par)
 
 static void cmd_mns_ignore(struct userrec *u, int idx, char *par)
 {
-  char buf[UHOSTLEN];
-
   if (!par[0]) {
     dprintf(idx, "Usage: -ignore <hostmask | ignore #>\n");
     return;
   }
-  strlcpy(buf, par, sizeof buf);
-  if (delignore(buf)) {
-    putlog(LOG_CMDS, "*", "#%s# -ignore %s", dcc[idx].nick, buf);
-    dprintf(idx, "No longer ignoring: %s\n", buf);
+  op_strbuf_t buf;
+  op_strbuf_printf(&buf, "%s", par);
+  if (delignore((char *)op_strbuf_str(&buf))) {
+    putlog(LOG_CMDS, "*", "#%s# -ignore %s", dcc[idx].nick, op_strbuf_str(&buf));
+    dprintf(idx, "No longer ignoring: %s\n", op_strbuf_str(&buf));
   } else
     dprintf(idx, "That ignore cannot be found.\n");
+  op_strbuf_free(&buf);
 }
 
 static void cmd_ignores(struct userrec *u, int idx, char *par)

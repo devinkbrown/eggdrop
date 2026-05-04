@@ -719,15 +719,18 @@ static char *mktempfile(char *filename)
 
 static void filesys_dcc_send_hostresolved(int i)
 {
-  char *s1, *param, prt[6], *tempf;
+  char *s1, *param, *tempf;
   int len = dcc[i].u.dns->ibuf, j;
 
-  strlcpy(prt, int_to_base10(dcc[i].port), sizeof prt);
+  op_strbuf_t _prt;
+  op_strbuf_printf(&_prt, "%s", int_to_base10(dcc[i].port));
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].u.dns->host, &dcc[i].sockname,
-                           dcc[i].u.dns->host, prt)) {
+                           dcc[i].u.dns->host, (char *)op_strbuf_str(&_prt))) {
     lostdcc(i);
+    op_strbuf_free(&_prt);
     return;
   }
+  op_strbuf_free(&_prt);
   param = op_strdup(dcc[i].u.dns->cbuf);
 
   changeover_dcc(i, &DCC_FORK_SEND, sizeof(struct xfer_info));

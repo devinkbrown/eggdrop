@@ -470,8 +470,7 @@ static int fast_deq(int which)
 {
   struct msgq_head *h;
   struct msgq *m, *nm;
-  char msgstr[SENDLINEMAX], nextmsgstr[SENDLINEMAX], tosend[SENDLINEMAX],
-       stackable[SENDLINEMAX], *msg, *nextmsg, *cmd,
+  char *msgstr = NULL, *nextmsgstr, *tosend, *stackable = NULL, *msg, *nextmsg, *cmd,
        *nextcmd, *to, *nextto, *stckbl;
   op_strbuf_t victims;
   int len, doit = 0, found = 0, cmd_count = 0, stack_method = 1;
@@ -494,11 +493,19 @@ static int fast_deq(int which)
   }
 
   m = h->head;
-  strlcpy(msgstr, m->msg, sizeof msgstr);
+  {
+    op_strbuf_t _sb;
+    op_strbuf_printf(&_sb, "%s", m->msg);
+    msgstr = op_strbuf_steal(&_sb);
+  }
   msg = msgstr;
   cmd = newsplit(&msg);
   if (use_fastdeq > 1) {
-    strlcpy(stackable, stackablecmds, sizeof stackable);
+    {
+      op_strbuf_t _sb;
+      op_strbuf_printf(&_sb, "%s", stackablecmds);
+      stackable = op_strbuf_steal(&_sb);
+    }
     stckbl = stackable;
     while (strlen(stckbl) > 0) {
       if (!strcasecmp(newsplit(&stckbl), cmd)) {
@@ -508,21 +515,33 @@ static int fast_deq(int which)
     }
 
     /* If use_fastdeq is 2, only commands in the list should be stacked. */
-    if (use_fastdeq == 2 && !found)
+    if (use_fastdeq == 2 && !found) {
+      op_free(stackable);
+      op_free(msgstr);
       return 0;
+    }
 
     /* If use_fastdeq is 3, only commands _not_ in the list should be stacked. */
-    if (use_fastdeq == 3 && found)
+    if (use_fastdeq == 3 && found) {
+      op_free(stackable);
+      op_free(msgstr);
       return 0;
+    }
 
     /* we check for the stacking method (default=1) */
-    strlcpy(stackable, stackable2cmds, sizeof stackable);
+    op_free(stackable);
+    {
+      op_strbuf_t _sb;
+      op_strbuf_printf(&_sb, "%s", stackable2cmds);
+      stackable = op_strbuf_steal(&_sb);
+    }
     stckbl = stackable;
     while (strlen(stckbl) > 0)
       if (!strcasecmp(newsplit(&stckbl), cmd)) {
         stack_method = 2;
         break;
       }
+    op_free(stackable);
   }
   to = newsplit(&msg);
   op_strbuf_printf(&victims, "%s", to);
@@ -530,7 +549,11 @@ static int fast_deq(int which)
     nm = m->next;
     if (!nm)
       break;
-    strlcpy(nextmsgstr, nm->msg, sizeof nextmsgstr);
+    {
+      op_strbuf_t _sb;
+      op_strbuf_printf(&_sb, "%s", nm->msg);
+      nextmsgstr = op_strbuf_steal(&_sb);
+    }
     nextmsg = nextmsgstr;
     nextcmd = newsplit(&nextmsg);
     nextto = newsplit(&nextmsg);
@@ -548,13 +571,13 @@ static int fast_deq(int which)
       h->tot--;
     } else
       m = m->next;
+    op_free(nextmsgstr);
   }
   if (doit) {
     {
       op_strbuf_t _b;
       op_strbuf_printf(&_b, "%s %s %s", cmd, op_strbuf_str(&victims), msg);
-      strlcpy(tosend, op_strbuf_str(&_b), sizeof tosend);
-      op_strbuf_free(&_b);
+      tosend = op_strbuf_steal(&_b);
     }
     len = strlen(tosend);
     check_tcl_out(which, tosend, 1);
@@ -580,9 +603,12 @@ static int fast_deq(int which)
       h->last = 0;
     h->tot--;
     last_time += calc_penalty(tosend);
+    op_free(tosend);
+    op_free(msgstr);
     op_strbuf_free(&victims);
     return 1;
   }
+  op_free(msgstr);
   op_strbuf_free(&victims);
   return 0;
 }
@@ -602,16 +628,21 @@ static void check_queues(char *oldnick, char *newnick)
 static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
 {
   struct msgq *m, *lm = NULL;
-  char buf[SENDLINEMAX], *msg, *nicks, *nick, *chan;
+  char *buf, *msg, *nicks, *nick, *chan;
   op_strbuf_t newnicks;
   int changed;
 
+  buf = NULL;
   op_strbuf_init(&newnicks);
   for (m = q->head; m;) {
     changed = 0;
     if (optimize_kicks == 2 && !strncasecmp(m->msg, "KICK ", 5)) {
       op_strbuf_clear(&newnicks);
-      strlcpy(buf, m->msg, sizeof buf);
+      {
+        op_strbuf_t _sb;
+        op_strbuf_printf(&_sb, "%s", m->msg);
+        buf = op_strbuf_steal(&_sb);
+      }
       msg = buf;
       newsplit(&msg);
       chan = newsplit(&msg);
@@ -651,6 +682,8 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
         m->msg = op_strbuf_steal(&_b);
       }
     }
+    op_free(buf);
+    buf = NULL;
     lm = m;
     if (m)
       m = m->next;
@@ -663,8 +696,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
 static void purge_kicks(struct msgq_head *q)
 {
   struct msgq *m, *lm = NULL;
-  char buf[MSGMAX], *reason, *nicks, *nick, *chan,
-       chans[MSGMAX], *chns, *ch;
+  char *buf = NULL, *reason, *nicks, *nick, *chan, *chans, *chns, *ch;
   op_strbuf_t newnicks;
   int changed, found;
   struct chanset_t *cs;
@@ -674,7 +706,11 @@ static void purge_kicks(struct msgq_head *q)
     if (!strncasecmp(m->msg, "KICK", 4)) {
       op_strbuf_clear(&newnicks);
       changed = 0;
-      strlcpy(buf, m->msg, sizeof buf);
+      {
+        op_strbuf_t _sb;
+        op_strbuf_printf(&_sb, "%s", m->msg);
+        buf = op_strbuf_steal(&_sb);
+      }
       reason = buf;
       newsplit(&reason);
       chan = newsplit(&reason);
@@ -682,7 +718,11 @@ static void purge_kicks(struct msgq_head *q)
       while (strlen(nicks) > 0) {
         found = 0;
         nick = splitnicks(&nicks);
-        strlcpy(chans, chan, sizeof chans);
+        {
+          op_strbuf_t _sb;
+          op_strbuf_printf(&_sb, "%s", chan);
+          chans = op_strbuf_steal(&_sb);
+        }
         chns = chans;
         while (strlen(chns) > 0) {
           ch = newsplit(&chns);
@@ -692,6 +732,7 @@ static void purge_kicks(struct msgq_head *q)
           if (ismember(cs, nick))
             found = 1;
         }
+        op_free(chans);
         if (found)
           op_strbuf_appendf(&newnicks, ",%s", nick);
         else {
@@ -721,6 +762,8 @@ static void purge_kicks(struct msgq_head *q)
         }
       }
     }
+    op_free(buf);
+    buf = NULL;
     lm = m;
     if (m)
       m = m->next;
@@ -734,8 +777,7 @@ static int deq_kick(int which)
 {
   struct msgq_head *h;
   struct msgq *msg, *m, *lm;
-  char buf[MSGMAX], buf2[MSGMAX], *reason2, *nicks, *chan, *chan2, *reason, *nick,
-       newmsg[MSGMAX];
+  char *buf, *buf2, *reason2, *nicks, *chan, *chan2, *reason, *nick, *newmsg;
   op_strbuf_t newnicks, newnicks2;
   int changed = 0, nr = 0;
 
@@ -771,7 +813,11 @@ static int deq_kick(int which)
     return 0;
 
   msg = h->head;
-  strlcpy(buf, msg->msg, sizeof buf);
+  {
+    op_strbuf_t _sb;
+    op_strbuf_printf(&_sb, "%s", msg->msg);
+    buf = op_strbuf_steal(&_sb);
+  }
   reason = buf;
   newsplit(&reason);
   chan = newsplit(&reason);
@@ -781,11 +827,16 @@ static int deq_kick(int which)
     op_strbuf_appendf(&newnicks, ",%s", _nick);
     nr++;
   }
+  buf2 = NULL;
   for (m = msg->next, lm = NULL; m && (nr < kick_method);) {
     if (!strncasecmp(m->msg, "KICK", 4)) {
       changed = 0;
       op_strbuf_clear(&newnicks2);
-      strlcpy(buf2, m->msg, sizeof buf2);
+      {
+        op_strbuf_t _sb;
+        op_strbuf_printf(&_sb, "%s", m->msg);
+        buf2 = op_strbuf_steal(&_sb);
+      }
       reason2 = buf2;
       newsplit(&reason2);
       chan2 = newsplit(&reason2);
@@ -824,6 +875,8 @@ static int deq_kick(int which)
         }
       }
     }
+    op_free(buf2);
+    buf2 = NULL;
     lm = m;
     if (m)
       m = m->next;
@@ -833,8 +886,7 @@ static int deq_kick(int which)
   {
     op_strbuf_t _b;
     op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
-    strlcpy(newmsg, op_strbuf_str(&_b), sizeof newmsg);
-    op_strbuf_free(&_b);
+    newmsg = op_strbuf_steal(&_b);
   }
   op_strbuf_free(&newnicks);
   op_strbuf_free(&newnicks2);
@@ -856,6 +908,8 @@ static int deq_kick(int which)
   }
   h->tot--;
   last_time += calc_penalty(newmsg);
+  op_free(newmsg);
+  op_free(buf);
   m = h->head->next;
   op_free(h->head->msg);
   op_bh_free(msgq_node_bh, h->head);
@@ -882,7 +936,7 @@ static void queue_server(int which, const char *msg, int len)
   struct msgq_head *h = NULL, tempq;
   struct msgq *q, *tq, *tqq;
   int doublemsg = 0, qnext = 0;
-  char buf[SENDLINEMAX];
+  char *buf;
 
   /* Don't even BOTHER if there's no server online. */
   if (serv < 0)
@@ -891,7 +945,11 @@ static void queue_server(int which, const char *msg, int len)
   /* Remove \r\n. We will add these back when we send the text to the server.
    * - Wcc [01/09/2004]
    */
-  strlcpy(buf, msg, sizeof buf);
+  {
+    op_strbuf_t _sb;
+    op_strbuf_printf(&_sb, "%s", msg);
+    buf = op_strbuf_steal(&_sb);
+  }
   {
     char *p = buf;
     remove_crlf(&p);
@@ -911,6 +969,7 @@ static void queue_server(int which, const char *msg, int len)
     write_to_server(buf, len);
     if (raw_log)
       putlog(LOG_SRVOUT, "*", "[m->] %s", buf);
+    op_free(buf);
     return;
   }
 
@@ -950,6 +1009,7 @@ static void queue_server(int which, const char *msg, int len)
 
   default:
     putlog(LOG_MISC, "*", "Warning: queuing unknown type to server!");
+    op_free(buf);
     return;
   }
 
@@ -963,13 +1023,16 @@ static void queue_server(int which, const char *msg, int len)
             debug1("Message already queued; skipping: %s", buf);
             double_warned = 1;
           }
+          op_free(buf);
           return;
         }
       }
     }
 
-    if (check_tcl_out(which, buf, 0))
+    if (check_tcl_out(which, buf, 0)) {
+      op_free(buf);
       return; /* a Tcl proc requested not to send the message */
+    }
 
     q = op_bh_alloc(msgq_node_bh);
 
@@ -1044,6 +1107,7 @@ static void queue_server(int which, const char *msg, int len)
     h->warned = 1;
   }
 
+  op_free(buf);
   if (which == DP_MODE || which == DP_MODE_NEXT)
     deq_msg(); /* DP_MODE needs to be sent ASAP, flush if possible. */
 }
@@ -2094,14 +2158,19 @@ static void dcc_chat_hostresolved(int);
 static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
                          char *object, char *keyword, char *text)
 {
-  char *action, *param, *ip, *prt, buf[512], *msg = buf;
+  char *action, *param, *ip, *prt, *buf, *msg;
 #ifdef TLS
   int ssl = 0;
 #endif
   struct userrec *u = get_user_by_handle(userlist, handle);
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
-  strlcpy(buf, text, sizeof buf);
+  {
+    op_strbuf_t _sb;
+    op_strbuf_printf(&_sb, "%s", text);
+    buf = op_strbuf_steal(&_sb);
+  }
+  msg = buf;
   action = newsplit(&msg);
   param = newsplit(&msg);
   ip = newsplit(&msg);
@@ -2113,18 +2182,25 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
       ssl = 1;
     else
 #endif
+    {
+      op_free(buf);
       return 0;
+    }
   }
-  if (strcasecmp(object, botname) || !u)
+  if (strcasecmp(object, botname) || !u) {
+    op_free(buf);
     return 0;
+  }
   get_user_flagrec(u, &fr, 0);
   if (dcc_total == max_dcc && increase_socks_max()) {
     if (!quiet_reject)
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, DCC_TOOMANYDCCS1);
     putlog(LOG_MISC, "*", DCC_TOOMANYDCCS2, "CHAT", param, nick, from);
   } else if (!(glob_party(fr) || (!require_p && chan_op(fr)))) {
-    if (glob_xfer(fr))
+    if (glob_xfer(fr)) {
+      op_free(buf);
       return 0;                 /* Allow filesys to pick up the chat */
+    }
     if (!quiet_reject)
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, DCC_REFUSED2);
     putlog(LOG_MISC, "*", "%s: %s!%s", DCC_REFUSED, nick, from);
@@ -2139,11 +2215,14 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
               DCC_CONNECTFAILED1);
     putlog(LOG_MISC, "*", "%s: CHAT (%s!%s)", DCC_CONNECTFAILED3, nick, from);
   } else {
-    if (!sanitycheck_dcc(nick, from, ip, prt))
+    if (!sanitycheck_dcc(nick, from, ip, prt)) {
+      op_free(buf);
       return 1;
+    }
     int i = new_dcc(&DCC_DNSWAIT, sizeof(struct dns_info));
     if (i < 0) {
       putlog(LOG_MISC, "*", "DCC connection: CHAT (%s!%s)", nick, ip);
+      op_free(buf);
       return 1;
     }
 #ifdef TLS
@@ -2162,6 +2241,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
     dcc[i].u.dns->type = &DCC_CHAT_PASS;
     dcc_dnshostbyip(&dcc[i].sockname);
   }
+  op_free(buf);
   return 1;
 }
 
@@ -2179,31 +2259,33 @@ int dcc_chat_sslcb(int sock)
 
 static void dcc_chat_hostresolved(int i)
 {
-  char buf[512];
+  op_strbuf_t buf;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
-  strlcpy(buf, int_to_base10(dcc[i].port), sizeof buf);
+  op_strbuf_init(&buf);
+  op_strbuf_appendf(&buf, "%s", int_to_base10(dcc[i].port));
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].host, &dcc[i].sockname,
-      dcc[i].u.dns->host, buf)) {
+      dcc[i].u.dns->host, (char *)op_strbuf_str(&buf))) {
+    op_strbuf_free(&buf);
     lostdcc(i);
     return;
   }
-  buf[0] = 0;
+  op_strbuf_clear(&buf);
   dcc[i].sock = getsock(dcc[i].sockname.family, 0);
   if (dcc[i].sock < 0 || open_telnet_raw(dcc[i].sock, &dcc[i].sockname) < 0)
-    strlcpy(buf, strerror(errno), sizeof buf);
+    op_strbuf_append_cstr(&buf, strerror(errno));
 #ifdef TLS
   else if (dcc[i].ssl && ssl_handshake(dcc[i].sock, TLS_CONNECT, tls_vfydcc,
                                        LOG_MISC, dcc[i].host, &dcc_chat_sslcb))
-    strlcpy(buf, "TLS negotiation error", sizeof buf);
+    op_strbuf_append_cstr(&buf, "TLS negotiation error");
 #endif
-  if (buf[0]) {
+  if (op_strbuf_len(&buf)) {
     if (!quiet_reject)
       dprintf(DP_HELP, "NOTICE %s :%s (%s)\n", dcc[i].nick,
-              DCC_CONNECTFAILED1, buf);
+              DCC_CONNECTFAILED1, op_strbuf_str(&buf));
     putlog(LOG_MISC, "*", "%s: CHAT (%s!%s)", DCC_CONNECTFAILED2,
            dcc[i].nick, dcc[i].host);
-    putlog(LOG_MISC, "*", "    (%s)", buf);
+    putlog(LOG_MISC, "*", "    (%s)", op_strbuf_str(&buf));
     killsock(dcc[i].sock);
     lostdcc(i);
   } else {
@@ -2224,6 +2306,7 @@ static void dcc_chat_hostresolved(int i)
 #endif
     dprintf(i, "%s\n", DCC_ENTERPASS);
   }
+  op_strbuf_free(&buf);
   return;
 }
 
@@ -2420,7 +2503,7 @@ static void server_report(int idx, int details)
     }
     written = op_strbuf_len(&_cb);
     if (written)
-      strlcpy(buf, op_strbuf_str(&_cb), sizeof buf);
+      snprintf(buf, sizeof buf, "%s", op_strbuf_str(&_cb));
     op_strbuf_free(&_cb);
   }
   op_strbuf_free(&s);

@@ -606,7 +606,7 @@ static int tcl_newchanban STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  char ban[161], cmt[MASKREASON_LEN], from[HANDLEN + 1];
+  op_strbuf_t ban_b, from_b, cmt_b;
   int sticky = 0;
   module_entry *me;
 
@@ -627,19 +627,28 @@ static int tcl_newchanban STDVAR
       return TCL_ERROR;
     }
   }
-  strlcpy(ban, argv[2], sizeof ban);
-  strlcpy(from, argv[3], sizeof from);
-  strlcpy(cmt, argv[4], sizeof cmt);
+  op_strbuf_printf(&ban_b, "%s", argv[2]);
+  op_strbuf_printf(&from_b, "%s", argv[3]);
+  op_strbuf_printf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
     if (chan->ban_time == 0)
       expire_time = 0;
     else
       expire_time = now + 60 * chan->ban_time;
-  } else if ((expire_time = get_expire_time(irp, argv[5])) == -1)
+  } else if ((expire_time = get_expire_time(irp, argv[5])) == -1) {
+    op_strbuf_free(&ban_b);
+    op_strbuf_free(&from_b);
+    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
-  if (u_addban(chan, ban, from, cmt, expire_time, sticky))
+  }
+  if (u_addban(chan, op_strbuf_str(&ban_b), (char *)op_strbuf_str(&from_b),
+               op_strbuf_str(&cmt_b), expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
-      ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, sticky);
+      ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan,
+          (char *)op_strbuf_str(&ban_b), sticky);
+  op_strbuf_free(&ban_b);
+  op_strbuf_free(&from_b);
+  op_strbuf_free(&cmt_b);
   return TCL_OK;
 }
 
@@ -647,7 +656,7 @@ static int tcl_newban STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  char ban[UHOSTLEN], cmt[MASKREASON_LEN], from[HANDLEN + 1];
+  op_strbuf_t ban_b, from_b, cmt_b;
   int sticky = 0;
   module_entry *me;
 
@@ -663,20 +672,29 @@ static int tcl_newban STDVAR
       return TCL_ERROR;
     }
   }
-  strlcpy(ban, argv[1], sizeof ban);
-  strlcpy(from, argv[2], sizeof from);
-  strlcpy(cmt, argv[3], sizeof cmt);
+  op_strbuf_printf(&ban_b, "%s", argv[1]);
+  op_strbuf_printf(&from_b, "%s", argv[2]);
+  op_strbuf_printf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
     if (global_ban_time == 0)
       expire_time = 0;
     else
       expire_time = now + 60 * global_ban_time;
-  } else if ((expire_time = get_expire_time(irp, argv[4])) == -1)
+  } else if ((expire_time = get_expire_time(irp, argv[4])) == -1) {
+    op_strbuf_free(&ban_b);
+    op_strbuf_free(&from_b);
+    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
-  if (u_addban(NULL, ban, from, cmt, expire_time, sticky))
+  }
+  if (u_addban(NULL, op_strbuf_str(&ban_b), (char *)op_strbuf_str(&from_b),
+               op_strbuf_str(&cmt_b), expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
       for (chan = chanset; chan != NULL; chan = chan->next)
-        ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan, ban, sticky);
+        ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan,
+            (char *)op_strbuf_str(&ban_b), sticky);
+  op_strbuf_free(&ban_b);
+  op_strbuf_free(&from_b);
+  op_strbuf_free(&cmt_b);
   return TCL_OK;
 }
 
@@ -684,7 +702,7 @@ static int tcl_newchanexempt STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  char exempt[161], cmt[MASKREASON_LEN], from[HANDLEN + 1];
+  op_strbuf_t exempt_b, from_b, cmt_b;
   int sticky = 0;
 
   BADARGS(5, 7, " channel exempt creator comment ?lifetime? ?options?");
@@ -704,18 +722,27 @@ static int tcl_newchanexempt STDVAR
       return TCL_ERROR;
     }
   }
-  strlcpy(exempt, argv[2], sizeof exempt);
-  strlcpy(from, argv[3], sizeof from);
-  strlcpy(cmt, argv[4], sizeof cmt);
+  op_strbuf_printf(&exempt_b, "%s", argv[2]);
+  op_strbuf_printf(&from_b, "%s", argv[3]);
+  op_strbuf_printf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
     if (chan->exempt_time == 0)
       expire_time = 0;
     else
       expire_time = now + 60 * chan->exempt_time;
-  } else if ((expire_time = get_expire_time(irp, argv[5])) == -1)
+  } else if ((expire_time = get_expire_time(irp, argv[5])) == -1) {
+    op_strbuf_free(&exempt_b);
+    op_strbuf_free(&from_b);
+    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
-  if (u_addexempt(chan, exempt, from, cmt, expire_time, sticky))
-    add_mode(chan, '+', 'e', exempt);
+  }
+  if (u_addexempt(chan, (char *)op_strbuf_str(&exempt_b),
+                  (char *)op_strbuf_str(&from_b),
+                  (char *)op_strbuf_str(&cmt_b), expire_time, sticky))
+    add_mode(chan, '+', 'e', op_strbuf_str(&exempt_b));
+  op_strbuf_free(&exempt_b);
+  op_strbuf_free(&from_b);
+  op_strbuf_free(&cmt_b);
   return TCL_OK;
 }
 
@@ -723,7 +750,7 @@ static int tcl_newexempt STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  char exempt[UHOSTLEN], cmt[MASKREASON_LEN], from[HANDLEN + 1];
+  op_strbuf_t exempt_b, from_b, cmt_b;
   int sticky = 0;
 
   BADARGS(4, 6, " exempt creator comment ?lifetime? ?options?");
@@ -738,19 +765,28 @@ static int tcl_newexempt STDVAR
       return TCL_ERROR;
     }
   }
-  strlcpy(exempt, argv[1], sizeof exempt);
-  strlcpy(from, argv[2], sizeof from);
-  strlcpy(cmt, argv[3], sizeof cmt);
+  op_strbuf_printf(&exempt_b, "%s", argv[1]);
+  op_strbuf_printf(&from_b, "%s", argv[2]);
+  op_strbuf_printf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
     if (global_exempt_time == 0)
       expire_time = 0;
     else
       expire_time = now + 60 * global_exempt_time;
-  } else if ((expire_time = get_expire_time(irp, argv[4])) == -1)
+  } else if ((expire_time = get_expire_time(irp, argv[4])) == -1) {
+    op_strbuf_free(&exempt_b);
+    op_strbuf_free(&from_b);
+    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
-  u_addexempt(NULL, exempt, from, cmt, expire_time, sticky);
+  }
+  u_addexempt(NULL, (char *)op_strbuf_str(&exempt_b),
+              (char *)op_strbuf_str(&from_b),
+              (char *)op_strbuf_str(&cmt_b), expire_time, sticky);
   for (chan = chanset; chan; chan = chan->next)
-    add_mode(chan, '+', 'e', exempt);
+    add_mode(chan, '+', 'e', op_strbuf_str(&exempt_b));
+  op_strbuf_free(&exempt_b);
+  op_strbuf_free(&from_b);
+  op_strbuf_free(&cmt_b);
   return TCL_OK;
 }
 
@@ -758,7 +794,7 @@ static int tcl_newchaninvite STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  char invite[161], cmt[MASKREASON_LEN], from[HANDLEN + 1];
+  op_strbuf_t invite_b, from_b, cmt_b;
   int sticky = 0;
 
   BADARGS(5, 7, " channel invite creator comment ?lifetime? ?options?");
@@ -778,18 +814,27 @@ static int tcl_newchaninvite STDVAR
       return TCL_ERROR;
     }
   }
-  strlcpy(invite, argv[2], sizeof invite);
-  strlcpy(from, argv[3], sizeof from);
-  strlcpy(cmt, argv[4], sizeof cmt);
+  op_strbuf_printf(&invite_b, "%s", argv[2]);
+  op_strbuf_printf(&from_b, "%s", argv[3]);
+  op_strbuf_printf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
     if (chan->invite_time == 0)
       expire_time = 0;
     else
       expire_time = now + 60 * chan->invite_time;
-  } else if ((expire_time = get_expire_time(irp, argv[5])) == -1)
+  } else if ((expire_time = get_expire_time(irp, argv[5])) == -1) {
+    op_strbuf_free(&invite_b);
+    op_strbuf_free(&from_b);
+    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
-  if (u_addinvite(chan, invite, from, cmt, expire_time, sticky))
-    add_mode(chan, '+', 'I', invite);
+  }
+  if (u_addinvite(chan, (char *)op_strbuf_str(&invite_b),
+                  (char *)op_strbuf_str(&from_b),
+                  (char *)op_strbuf_str(&cmt_b), expire_time, sticky))
+    add_mode(chan, '+', 'I', op_strbuf_str(&invite_b));
+  op_strbuf_free(&invite_b);
+  op_strbuf_free(&from_b);
+  op_strbuf_free(&cmt_b);
   return TCL_OK;
 }
 
@@ -797,7 +842,7 @@ static int tcl_newinvite STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  char invite[UHOSTLEN], cmt[MASKREASON_LEN], from[HANDLEN + 1];
+  op_strbuf_t invite_b, from_b, cmt_b;
   int sticky = 0;
 
   BADARGS(4, 6, " invite creator comment ?lifetime? ?options?");
@@ -812,19 +857,28 @@ static int tcl_newinvite STDVAR
       return TCL_ERROR;
     }
   }
-  strlcpy(invite, argv[1], sizeof invite);
-  strlcpy(from, argv[2], sizeof from);
-  strlcpy(cmt, argv[3], sizeof cmt);
+  op_strbuf_printf(&invite_b, "%s", argv[1]);
+  op_strbuf_printf(&from_b, "%s", argv[2]);
+  op_strbuf_printf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
     if (global_invite_time == 0)
       expire_time = 0;
     else
       expire_time = now + 60 * global_invite_time;
-  } else if ((expire_time = get_expire_time(irp, argv[4])) == -1)
+  } else if ((expire_time = get_expire_time(irp, argv[4])) == -1) {
+    op_strbuf_free(&invite_b);
+    op_strbuf_free(&from_b);
+    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
-  u_addinvite(NULL, invite, from, cmt, expire_time, sticky);
+  }
+  u_addinvite(NULL, (char *)op_strbuf_str(&invite_b),
+              (char *)op_strbuf_str(&from_b),
+              (char *)op_strbuf_str(&cmt_b), expire_time, sticky);
   for (chan = chanset; chan; chan = chan->next)
-    add_mode(chan, '+', 'I', invite);
+    add_mode(chan, '+', 'I', op_strbuf_str(&invite_b));
+  op_strbuf_free(&invite_b);
+  op_strbuf_free(&from_b);
+  op_strbuf_free(&cmt_b);
   return TCL_OK;
 }
 
@@ -1118,31 +1172,43 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
 
   if (!strcmp(setting, "chanmode"))
     get_mode_protect(chan, s, sizeof s);
-  else if (!strcmp(setting, "need-op"))
-    strlcpy(s, chan->need_op, sizeof s);
-  else if (!strcmp(setting, "need-invite"))
-    strlcpy(s, chan->need_invite, sizeof s);
-  else if (!strcmp(setting, "need-key"))
-    strlcpy(s, chan->need_key, sizeof s);
-  else if (!strcmp(setting, "need-unban"))
-    strlcpy(s, chan->need_unban, sizeof s);
-  else if (!strcmp(setting, "need-limit"))
-    strlcpy(s, chan->need_limit, sizeof s);
-  else if (!strcmp(setting, "idle-kick"))
-    strlcpy(s, int_to_base10(chan->idle_kick), sizeof s);
-  else if (!strcmp(setting, "stopnethack-mode") || !strcmp(setting, "stop-net-hack"))
-    strlcpy(s, int_to_base10(chan->stopnethack_mode), sizeof s);
-  else if (!strcmp(setting, "revenge-mode"))
-    strlcpy(s, int_to_base10(chan->revenge_mode), sizeof s);
-  else if (!strcmp(setting, "ban-type"))
-    strlcpy(s, int_to_base10(chan->ban_type), sizeof s);
-  else if (!strcmp(setting, "ban-time"))
-    strlcpy(s, int_to_base10(chan->ban_time), sizeof s);
-  else if (!strcmp(setting, "exempt-time"))
-    strlcpy(s, int_to_base10(chan->exempt_time), sizeof s);
-  else if (!strcmp(setting, "invite-time"))
-    strlcpy(s, int_to_base10(chan->invite_time), sizeof s);
-  else if (!strcmp(setting, "flood-chan")) {
+  else if (!strcmp(setting, "need-op")) {
+    Tcl_AppendResult(irp, chan->need_op, NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "need-invite")) {
+    Tcl_AppendResult(irp, chan->need_invite, NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "need-key")) {
+    Tcl_AppendResult(irp, chan->need_key, NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "need-unban")) {
+    Tcl_AppendResult(irp, chan->need_unban, NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "need-limit")) {
+    Tcl_AppendResult(irp, chan->need_limit, NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "idle-kick")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->idle_kick), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "stopnethack-mode") || !strcmp(setting, "stop-net-hack")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->stopnethack_mode), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "revenge-mode")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->revenge_mode), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "ban-type")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->ban_type), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "ban-time")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->ban_time), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "exempt-time")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->exempt_time), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "invite-time")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->invite_time), NULL);
+    return TCL_OK;
+  } else if (!strcmp(setting, "flood-chan")) {
     op_strbuf_t t;
     op_strbuf_printf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
