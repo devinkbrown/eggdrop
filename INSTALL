@@ -11,15 +11,19 @@ DEPENDENCIES
 ============
 
   Required on all platforms:
-    - Tcl >= 8.6 development headers
     - Meson  >= 0.57.0
     - Ninja  (any recent version)
 
   Optional (auto-detected; enable/disable with meson -D flags):
+    - Tcl >= 8.6 development headers    Tcl scripting (optional)
     - OpenSSL >= 1.0  (libssl-dev)      TLS/SSL support
     - Python  >= 3.8  development       Python scripting module
     - zlib             development       compress module
     - liburing                           io_uring backend (Linux >= 5.1 only)
+
+  Bundled (no external installation needed):
+    - LMDB (Lightning Memory-Mapped Database) — crash-safe storage backend,
+      included in libop.  No system package required.
 
   Meson discovers dependencies via pkg-config first, then CMake, then a
   manual library search.  Make sure the relevant pkg-config .pc files are
@@ -28,26 +32,26 @@ DEPENDENCIES
   ---- Debian / Ubuntu -------------------------------------------------------
 
     # Required
-    sudo apt-get install meson ninja-build tcl-dev
+    sudo apt-get install meson ninja-build
 
     # Optional (install whichever you want)
-    sudo apt-get install libssl-dev python3-dev zlib1g-dev liburing-dev
+    sudo apt-get install tcl-dev libssl-dev python3-dev zlib1g-dev liburing-dev
 
   ---- Fedora / RHEL / Rocky -------------------------------------------------
 
     # Required
-    sudo dnf install meson ninja-build tcl-devel
+    sudo dnf install meson ninja-build
 
     # Optional
-    sudo dnf install openssl-devel python3-devel zlib-devel liburing-devel
+    sudo dnf install tcl-devel openssl-devel python3-devel zlib-devel liburing-devel
 
   ---- macOS (Homebrew) -------------------------------------------------------
 
     # Required
-    brew install meson ninja tcl-tk
+    brew install meson ninja
 
     # Optional
-    brew install openssl@3 python@3.12 zlib
+    brew install tcl-tk openssl@3 python@3.12 zlib
 
     # Make Homebrew packages visible to pkg-config
     export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:\
@@ -59,11 +63,11 @@ $(brew --prefix tcl-tk)/lib/pkgconfig:$PKG_CONFIG_PATH"
 
     # Required
     pacman -S mingw-w64-ucrt-x86_64-meson \
-              mingw-w64-ucrt-x86_64-ninja \
-              mingw-w64-ucrt-x86_64-tcl
+              mingw-w64-ucrt-x86_64-ninja
 
     # Optional
-    pacman -S mingw-w64-ucrt-x86_64-openssl \
+    pacman -S mingw-w64-ucrt-x86_64-tcl \
+              mingw-w64-ucrt-x86_64-openssl \
               mingw-w64-ucrt-x86_64-python \
               mingw-w64-ucrt-x86_64-zlib
 
@@ -91,13 +95,16 @@ $(brew --prefix tcl-tk)/lib/pkgconfig:$PKG_CONFIG_PATH"
           git clone https://github.com/microsoft/vcpkg C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat
 
-      Then install required and optional packages (all in one command):
+      Then install optional packages (all in one command):
 
           C:\vcpkg\vcpkg install ^
               tcl:x64-windows ^
               openssl:x64-windows ^
               zlib:x64-windows ^
               python3:x64-windows
+
+      All of these are optional.  At minimum, install python3 or tcl
+      for scripting support.
 
       Winsock2 (ws2_32.lib) and MsWSock (mswsock.lib) are part of the
       Windows SDK included with Visual Studio -- no vcpkg package needed.
@@ -266,5 +273,5 @@ the README file. If not, then READ IT!
 
 Have fun with Eggdrop!
 
-  Copyright (C) 1997 Robey Pointer Copyright (C) 1999 - 2025 Eggheads
+  Copyright (C) 1997 Robey Pointer Copyright (C) 1999 - 2026 Eggheads
   Development Team

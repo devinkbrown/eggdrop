@@ -36,12 +36,29 @@ Eggdrop Features
     -   Console mode: you can view each channel through dcc chat or
         telnet, selectively looking at mode changes, joins and parts,
         channel talk, or any combination of the above.
-    -   A scripting language: commands and features can be easily added
-        to the bot by means of the Tcl scripting language, giving you
-        the power of TOTAL customization of your bot.
+    -   Scripting languages: commands and features can be added to the
+        bot via Python (recommended) or Tcl (optional). The Python API
+        has 100% parity with the Tcl API (239 commands), covering
+        channel management, user database, botnet, DCC, timers, and
+        all IRC protocol operations. A modern helper library
+        (scripts/eggtools.py) provides decorator-based bind registration,
+        type annotations, and dataclass-based channel member introspection.
     -   Module support: you can remove/add features to your bot by
         adding or removing modules.
+    -   Crash-safe persistent storage via an LMDB backend. The user
+        database is stored in an LMDB transaction — if the bot crashes
+        mid-save, the previous transaction is intact and the userfile is
+        automatically recovered on next startup. A pluggable storage
+        backend system allows switching between flat-file and LMDB
+        storage. (devinkbrown fork)
+    -   Five native I/O backends: io_uring (Linux), epoll (Linux),
+        kqueue (macOS/BSD), IOCP (Windows), and select (fallback).
+        The best available backend is auto-selected at compile time.
+        (devinkbrown fork)
+    -   TOML configuration format with an interactive setup wizard.
+        Run 'eggdrop --setup' for guided configuration. Legacy .conf
+        files continue to work unchanged. (devinkbrown fork)
 
 Copyright (C) 1997 Robey Pointer
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+Copyright (C) 2000 - 2026 Eggheads Development Team

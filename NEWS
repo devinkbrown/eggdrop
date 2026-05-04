@@ -1,5 +1,5 @@
 News
-Last revised: May 01, 2026
+Last revised: May 04, 2026
      _________________________________________________________________
 
                                 What's new?
@@ -17,6 +17,73 @@ Last revised: May 01, 2026
      _________________________________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+ Wave 80 — LMDB storage backend, buffer elimination, strlcpy migration:
+
+  Pluggable storage backend (egg_store):
+    - New vtable-based storage backend architecture (egg_store.h) with
+      open/close/load_users/save_users/load_channels/save_channels/
+      export_flat/import_flat operations.
+    - Flat-file backend (egg_store_flat.c) wraps existing readuserfile()/
+      write_userfile() as a thin adapter.
+    - LMDB backend (egg_store_lmdb.c) provides crash-safe persistent
+      storage using Howard Chu's LMDB (bundled in libop).  Two-layer
+      architecture:
+        Layer 1: Stores the complete flat-file content as an LMDB blob
+          under "userfile_blob" in the meta sub-database.  If the flat
+          userfile is missing or empty on startup, the blob is extracted
+          and written back — automatic crash recovery.
+        Layer 2: Per-user, per-host, per-account, and per-ignore records
+          written to named sub-databases for future incremental operations
+          and direct lookups.
+      Sub-databases: meta, users, hosts, accounts, ignores.
+    - Backend dispatch layer (egg_store.c) selects backend based on
+      store_backend config variable.  Defaults to LMDB, falls back to
+      flat on failure.
+
+  strlcpy/strlcat → op_strbuf_t migration:
+    - Systematic audit of all 677 strlcpy/strlcat call sites across ~40
+      source files.  127 sites (19%) converted to op_strbuf_t where the
+      buffer was used only for string construction (snprintf formatting,
+      concatenation consumed once and discarded).
+    - Remaining 550 sites are legitimate fixed-size uses: struct field
+      writes, globals, in-place mutation buffers, output parameters, and
+      system API buffers.
+    - Eliminated global OBUF[1024] in botmsg.c — strbuf data passed
+      directly to socket write functions.
+    - DCC display callback changed from char *buf to op_strbuf_t * —
+      no more truncation on long status lines.
+
+  Buffer elimination:
+    - server.c server_report(): replaced char buf[1024] with
+      op_strbuf_steal() for CAP negotiation word-wrap output.  Eliminates
+      1024-byte truncation risk on large CAP lists.  Also fixed a latent
+      endptr reset bug in the word-wrap loop.
+    - dccutil.c/userent.c: eliminated fixed-size buffers with op_strbuf_t.
+
+  Dead code removal:
+    - Stripped pre-1.3.0 botnet protocol dead code (NO_OLD_BOTNET).
+    - Removed dead prototypes and unreachable tell_netdebug function.
+
+ Wave 77 — Python API 100% parity (239 commands):
+
+  Python API — 65 new commands (pycmds.c), total now 239/239 (100% parity):
+    - Botnet (9): bots, bottree, islinked, dccused, assoc, killassoc,
+      dcclist, strip, stripflags.
+    - User database (8): getuser, setuser, chattr, botattr, addbot,
+      setpass, encpass, passwdok.
+    - DCC/Partyline (7): putbot, putallbots, dccbroadcast, boot, whom,
+      dccputchan, echo.
+    - Channel management (7): channel, savechannels, loadchannels,
+      channels, isdynamic, setudef, renudef.
+    - Ban/Exempt/Invite (6): newchanban, newchanexempt, newchaninvite,
+      killchanexempt, killchaninvite, stickexempt.
+    - Ignore (4): newignore, killignore, ignorelist, isignore.
+    - Timer (4): utimer, timer, killtimer, killutimer.
+    - Server (3): jump, clearqueue, queuesize.
+    - Misc (17): strftime, ctime, myip, callevent, md5, dccsimul,
+      traffic, backup, rehash, restart, die, loadmodule, unloadmodule,
+      modules, binds, logfile, console.
 
  Wave 76 — Python API parity, linebuf port, tclhash unification:
 

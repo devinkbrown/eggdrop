@@ -1,7 +1,7 @@
 # devinkbrown/eggdrop — Design and Change Rationale
 
 **Based on:** eggdrop v1.10.1  
-**Last updated:** 2026-04-26
+**Last updated:** 2026-05-04
 
 This document explains every major change made in this fork, why each change
 was made, and what problem it solves.  Changes are grouped by theme, not by
@@ -31,6 +31,8 @@ commit order.
 18. [Windows / IOCP native support](#18-windows--iocp-native-support)
 19. [CI / GitHub Actions](#19-ci--github-actions)
 20. [Bug fixes](#20-bug-fixes)
+21. [Pluggable storage backend (egg_store + LMDB)](#21-pluggable-storage-backend)
+22. [Dead code and legacy protocol removal](#22-dead-code-and-legacy-protocol-removal)
 
 ---
 
@@ -253,7 +255,25 @@ op_strbuf_free(&buf);
 ```
 
 `op_strbuf_t` never truncates.  The buffer grows to fit.  The SSO avoids heap
-allocation for strings ≤ 23 bytes (covering the majority of IRC hostmasks).
+allocation for strings ≤ 192 bytes (covering the majority of IRC messages).
+
+**Phase 4 — `strlcpy`/`strlcat` → `op_strbuf_t` migration:**  
+A systematic audit of all 677 `strlcpy`/`strlcat` call sites across ~40 source
+files identified 127 sites (19%) that were used only for string construction —
+`snprintf` formatting or concatenation consumed once and discarded.  These were
+converted to `op_strbuf_t`.  The remaining 550 sites are legitimate fixed-size
+uses: struct field writes, globals, in-place mutation buffers, output
+parameters, and system API buffers.
+
+Notable eliminations:
+- `OBUF[1024]` global in `botmsg.c` — strbuf data passed directly to socket
+  write functions
+- `char buf[1024]` in `server_report()` — replaced with `op_strbuf_steal()` for
+  CAP negotiation word-wrap output, fixing a 1024-byte truncation risk on large
+  CAP lists and a latent `endptr` reset bug in the word-wrap loop
+- DCC display callback changed from `char *buf` to `op_strbuf_t *` — no more
+  truncation on long status lines
+- Fixed-size buffers in `dccutil.c` and `userent.c` replaced with `op_strbuf_t`
 
 ---
 
@@ -422,8 +442,8 @@ Making Tcl optional required changes across the entire codebase.
   pre-created global tables, so Python binds fire correctly
 
 **Python API coverage:**  
-90+ Python C API functions in `python.mod/pycmds.c` covering the majority of
-the Tcl scripting surface area:
+239 Python C API functions in `python.mod/pycmds.c` providing 100% parity with
+the Tcl scripting API:
 
 - Channel member status: `isop`, `ishalfop`, `isvoice`, `isaway`, `botisop`,
   `botishalfop`, `botisvoice`, `getaccount`
@@ -659,6 +679,89 @@ support was added:
 | No-Tcl `check_tcl_chpt` | `tclhash.c` | Same `MATCH_EXACT` vs `MATCH_MASK` mismatch as `check_tcl_chjn`. |
 | No-Tcl `check_tcl_dcc` | `tclhash.c` | Missing `BIND_QUIT` return handling — partyline `quit` bind never fired. |
 | No-Tcl `check_tcl_bind` | `tclhash.c` | Missing move-to-front optimisation for hot binds, causing O(n) on every dispatch. |
+
+---
+
+## 21. Pluggable storage backend
+
+**Problem:** Eggdrop's user database is stored as a flat text file.  If the bot
+crashes mid-write (during `write_userfile()`), the file may be truncated or
+incomplete, and all user data is lost.  There is no structured access to
+individual user records without parsing the entire file.
+
+**Change:** A pluggable storage backend system (`egg_store`) was introduced with
+two implementations: flat-file (the original format) and LMDB.
+
+**Architecture:**
+
+`egg_store_backend_t` is a vtable with eight operations:
+
+```c
+typedef struct {
+  const char *name;
+  int  (*open)(const char *path);
+  void (*close)(void);
+  int  (*load_users)(const char *path, struct userrec **list);
+  void (*save_users)(int idx);
+  int  (*load_channels)(void);
+  void (*save_channels)(void);
+  int  (*export_flat)(const char *path);
+  int  (*import_flat)(const char *path);
+} egg_store_backend_t;
+```
+
+**Flat-file backend (`egg_store_flat.c`):**
+A thin adapter wrapping the existing `readuserfile()`/`write_userfile()` code.
+No behaviour change — the flat-file format remains the canonical serialization.
+
+**LMDB backend (`egg_store_lmdb.c`):**
+Uses Howard Chu's LMDB (Lightning Memory-Mapped Database), bundled in libop.
+No external system package required.
+
+Two-layer design:
+
+| Layer | Purpose | Sub-database |
+|---|---|---|
+| 1 — Crash recovery | Complete flat-file content stored as an LMDB blob | `meta` → `userfile_blob` |
+| 2 — Structured access | Per-record data for direct lookups | `users`, `hosts`, `accounts`, `ignores` |
+
+**Layer 1** stores the entire flat-file as a single blob after each
+`write_userfile()` call.  If the bot crashes and the flat userfile is missing or
+empty on next startup, `lmdb_load_users()` extracts the blob, writes it back to
+the flat userfile path, and loads normally.  This provides automatic crash
+recovery with no user intervention.
+
+**Layer 2** populates per-user sub-databases for future incremental operations:
+- `users` — key: handle, value: flags summary
+- `hosts` — key: handle\0hostmask, value: (empty)
+- `accounts` — key: handle\0account, value: (empty)
+- `ignores` — key: mask, value: packed ignore record (expire, added, flags, user, msg)
+
+**Why the flat-file format is still used as the serialization layer:**
+Each user entry type (`USERENTRY_COMMENT`, `USERENTRY_PASS`, `USERENTRY_LASTON`,
+etc.) has its own `write_userfile(FILE *f, ...)` vtable function that writes to a
+`FILE *`.  Reimplementing all entry-type serializers for a key-value store would
+be a large, error-prone change.  Instead, the LMDB backend leverages the existing
+serialization by storing the complete flat-file output, gaining crash safety
+without touching the entry-type vtables.
+
+**Backend selection:**
+`egg_store.c` dispatches based on the `store_backend` config variable.  Defaults
+to `"lmdb"`, falls back to `"flat"` on LMDB open failure.
+
+---
+
+## 22. Dead code and legacy protocol removal
+
+**Pre-1.3.0 botnet protocol:**
+Code guarded by `NO_OLD_BOTNET` (supporting botnet protocol versions from before
+Eggdrop 1.3.0, circa 1997) was stripped entirely.  The old protocol handlers,
+version-detection logic, and compatibility shims were dead code — no bot in
+active use runs a version older than 1.3.0.
+
+**Dead functions and prototypes:**
+- `tell_netdebug()` — unreachable function removed
+- Orphaned prototypes for functions deleted in earlier waves cleaned up
 
 ---
 

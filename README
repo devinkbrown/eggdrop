@@ -127,6 +127,19 @@ FORK NOTICE
       so only entry points are exported. Optional -march=native tuning
       via -Dnative-opt=false (on by default; -mcpu=native on
       ARM/AArch64/PowerPC, -march=native everywhere else).
+    - Pluggable storage backend (egg_store): vtable-based backend
+      system supporting flat-file and LMDB storage. The LMDB backend
+      (bundled via libop, no external dependency) provides crash-safe
+      persistent storage — if the bot crashes mid-save, the previous
+      LMDB transaction is intact and the userfile is automatically
+      recovered on next startup.  Per-user, per-host, per-account,
+      and per-ignore sub-databases enable direct lookups.
+    - Python API at 100% parity with Tcl (239/239 commands). Every
+      Tcl scripting function has a Python equivalent.
+    - Systematic string safety: strlcpy/strlcat → op_strbuf_t migration
+      across 127 call sites.  Global fixed-size buffers eliminated in
+      botmsg, dccutil, userent, and server modules.
+    - Pre-1.3.0 botnet protocol dead code stripped (NO_OLD_BOTNET).
     - Various bug fixes and patches under review for upstream inclusion
 
   Issues and changes specific to this fork should be reported at the
@@ -377,8 +390,10 @@ CONFIGURATION
 PYTHON SCRIPTING
 
   This fork provides full Python scripting support as a modern
-  alternative (or replacement) for Tcl.  Scripts can use the built-in
-  eggdrop module and the helper library scripts/eggtools.py.
+  alternative (or replacement) for Tcl.  The Python API has 100% parity
+  with Tcl (239 commands covering all channel, user, botnet, DCC, timer,
+  and IRC operations).  Scripts can use the built-in eggdrop module and
+  the helper library scripts/eggtools.py.
 
   BUILDING WITHOUT TCL:
 
@@ -546,5 +561,5 @@ OBTAINING HELP
     -   Don't ask to ask- just state your question, along with any
         relevant details and error messages
 
-Copyright (C) 1997 Robey Pointer Copyright (C) 1999 - 2025 Eggheads
+Copyright (C) 1997 Robey Pointer Copyright (C) 1999 - 2026 Eggheads
 Development Team
