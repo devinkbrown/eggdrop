@@ -2447,9 +2447,8 @@ static int server_expmem(void)
 
 static void server_report(int idx, int details)
 {
-  char buf[1024], *bufptr, *endptr;
+  char *buf = NULL, *bufptr, *endptr;
   op_strbuf_t s;
-  size_t written = 0;
   struct capability *current;
   int servidx;
 
@@ -2501,13 +2500,10 @@ static void server_report(int idx, int details)
       if (current->enabled)
         op_strbuf_appendf(&_cb, "%s ", current->name);
     }
-    written = op_strbuf_len(&_cb);
-    if (written)
-      snprintf(buf, sizeof buf, "%s", op_strbuf_str(&_cb));
-    op_strbuf_free(&_cb);
+    buf = op_strbuf_steal(&_cb);
   }
   op_strbuf_free(&s);
-  if (written) {
+  if (buf && buf[0]) {
     bufptr = buf;
     endptr = buf + 80;
     while (strlen(buf) > 80) {
@@ -2517,11 +2513,13 @@ static void server_report(int idx, int details)
       endptr[0] = 0;
       dprintf(idx, "    Active CAP negotiations: %s\n", bufptr);
       memmove(buf, endptr + 1, strlen(endptr + 1) + 1);
+      endptr = buf + 80;
     }
     dprintf(idx, "    Active CAP negotiations: %s\n", buf);
   } else {
     dprintf(idx, "    Active CAP negotiations: (none)\n");
   }
+  op_free(buf);
 
 if (details) {
     int size = server_expmem();
