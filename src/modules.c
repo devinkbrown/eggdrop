@@ -82,7 +82,7 @@ extern int parties, noshare, dcc_total, egg_numver, userfile_perm, ignore_time,
            quiet_reject, stealth_telnets;
 extern volatile sig_atomic_t do_restart;
 
-int copy_to_tmp = 1; /* TODO: remove from module API for eggdrop 2.0 */
+int copy_to_tmp = 1;
 
 #ifdef IPV6
 extern int pref_af;
@@ -735,15 +735,17 @@ const char *module_load(char *name)
       debug1("modules: getcwd(): %s\n", strerror(errno));
       return MOD_BADCWD;
     }
-    op_strbuf_printf(&_path, "%s/%s%s." EGG_MOD_EXT, cwd, moddir, name);
+    op_strbuf_appendf(&_path, "%s/%s%s." EGG_MOD_EXT, cwd, moddir, name);
   } else {
-    op_strbuf_printf(&_path, "%s%s." EGG_MOD_EXT, moddir, name);
+    op_strbuf_appendf(&_path, "%s%s." EGG_MOD_EXT, moddir, name);
   }
 #ifdef EGG_MODDIR
   /* Fall back to the compiled-in install directory if the configured path
    * doesn't exist (e.g. running an installed binary from an arbitrary CWD). */
-  if (access(op_strbuf_str(&_path), F_OK) != 0)
-    op_strbuf_reset(&_path, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
+  if (access(op_strbuf_str(&_path), F_OK) != 0) {
+    op_strbuf_clear(&_path);
+    op_strbuf_appendf(&_path, EGG_MODDIR "/%s." EGG_MOD_EXT, name);
+  }
 #endif
 
 #  ifdef MOD_USE_SHL
@@ -753,7 +755,7 @@ const char *module_load(char *name)
     return "Can't load module.";
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s_start", name);
+    op_strbuf_appendf(&_b, "%s_start", name);
     if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
       f = NULL;
     op_strbuf_free(&_b);
@@ -761,7 +763,7 @@ const char *module_load(char *name)
   if (f == NULL) {
     /* Some OS's require a _ to be prepended to the symbol name (Darwin, etc). */
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "_%s_start", name);
+    op_strbuf_appendf(&_b, "_%s_start", name);
     if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
       f = NULL;
     op_strbuf_free(&_b);
@@ -782,7 +784,7 @@ const char *module_load(char *name)
   op_strbuf_free(&_path);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "_%s_start", name);
+    op_strbuf_appendf(&_b, "_%s_start", name);
     sym = NSLookupSymbolInModule(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
@@ -803,7 +805,7 @@ const char *module_load(char *name)
     return "Can't load module.";
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "_%s_start", name);
+    op_strbuf_appendf(&_b, "_%s_start", name);
     ret = rld_lookup(NULL, op_strbuf_str(&_b), &f);
     op_strbuf_free(&_b);
   }
@@ -819,13 +821,13 @@ const char *module_load(char *name)
     return "Can't load module.";
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s_start", name);
+    op_strbuf_appendf(&_b, "%s_start", name);
     f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
   if (f == NULL) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "_%s_start", name);
+    op_strbuf_appendf(&_b, "_%s_start", name);
     f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
@@ -842,13 +844,13 @@ const char *module_load(char *name)
     return dlerror();
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s_start", name);
+    op_strbuf_appendf(&_b, "%s_start", name);
     f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
   if (f == NULL) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "_%s_start", name);
+    op_strbuf_appendf(&_b, "_%s_start", name);
     f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }

@@ -4,7 +4,7 @@
  * CSPRNG providing arc4random(3)-compatible API backed by the ChaCha20
  * stream cipher (D.J. Bernstein, public-domain design, RFC 8439).
  *
- * Copyright (C) 2024-2025 Ophion IRC Daemon contributors
+ * Copyright (C) 2024-2026 Ophion IRC Daemon contributors
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,7 +51,7 @@
 #include <libop_config.h>
 #include <op_lib.h>
 
-#if !defined(HAVE_WOLFSSL) && !defined(HAVE_ARC4RANDOM)
+#if !defined(HAVE_OPSSL) && !defined(HAVE_ARC4RANDOM)
 
 #include "arc4random.h"
 
@@ -319,4 +319,4 @@ arc4random(void)
 	return val;
 }
 
-#endif /* !HAVE_WOLFSSL && !HAVE_ARC4RANDOM */
+#endif /* !HAVE_OPSSL && !HAVE_ARC4RANDOM */

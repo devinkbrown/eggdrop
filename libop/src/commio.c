@@ -68,11 +68,32 @@ static op_bh *timeout_heap;
 static op_bh *conn_heap;
 static op_bh *accept_heap;
 
-static op_dlink_list timeout_list;
 static op_dlink_list closed_list;
-static pthread_spinlock_t timeout_lock; /* guards timeout_list and op_timeout_ev */
 
-static struct ev_entry *op_timeout_ev;
+/* Backend-specific fd cleanup hook — set by try_uring(), NULL for other backends.
+ * Declared here (above op_close) because the full io_ops_t vtable lives further
+ * down in the file.  The vtable copy in g_io mirrors this pointer. */
+static void (*io_close_fd)(op_fde_t *) = NULL;
+
+/*
+ * Sharded timeout lists — 16 shards, each with its own spinlock.
+ * op_settimeout() acquires only the shard for the target fd, reducing
+ * contention by 16x compared to a single global lock.
+ * op_checktimeouts() iterates all shards, locking each individually.
+ */
+#define TIMEOUT_SHARDS     16
+#define TIMEOUT_SHARD_MASK (TIMEOUT_SHARDS - 1)
+#define TIMEOUT_SHARD(fd)  ((unsigned)(fd) & TIMEOUT_SHARD_MASK)
+
+struct timeout_shard {
+	pthread_spinlock_t lock;
+	op_dlink_list      list;
+	char               _pad[48]; /* avoid false sharing between shards */
+};
+
+static struct timeout_shard timeout_shards[TIMEOUT_SHARDS];
+static _Atomic int          timeout_total_count; /* sum across all shards */
+static struct ev_entry     *op_timeout_ev;
 
 
 static const char *op_err_str[] = { "Comm OK", "Error during bind()",
@@ -131,13 +152,39 @@ op_close_pending_fds(void)
 	{
 		F = ptr->data;
 
-		/* number_fd is decremented in op_close_pending_fds after the fd is closed. */
+		/*
+		 * If this fde is still in the io_uring dirty inbox (Treiber
+		 * stack), we must not free it yet — uring_flush_dirty() needs
+		 * to traverse the intrusive linked list through uring_dirty_next.
+		 * Close the underlying fd immediately so we don't leak it, but
+		 * defer freeing the fde memory.  uring_flush_dirty() will clear
+		 * the dirty flag, and we will free the block on the next call.
+		 */
+		if (atomic_load_explicit(&F->uring_dirty, memory_order_acquire))
+		{
+			if (F->fd >= 0)
+			{
 #ifdef _WIN32
-		if (F->type & (OP_FD_SOCKET | OP_FD_PIPE))
-			closesocket(F->fd);
-		else
+				if (F->type & (OP_FD_SOCKET | OP_FD_PIPE))
+					closesocket(F->fd);
+				else
 #endif
-			close(F->fd);
+					close(F->fd);
+				F->fd = -1;
+			}
+			continue;
+		}
+
+		/* number_fd is decremented in op_close_pending_fds after the fd is closed. */
+		if (F->fd >= 0)
+		{
+#ifdef _WIN32
+			if (F->type & (OP_FD_SOCKET | OP_FD_PIPE))
+				closesocket(F->fd);
+			else
+#endif
+				close(F->fd);
+		}
 
 		op_dlinkDelete(ptr, &closed_list);
 		op_bh_free(fd_heap, F);
@@ -277,39 +324,39 @@ void
 op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 {
 	struct timeout_data *td;
-	int need_ev = 0;
 
 	if (F == NULL)
 		return;
 
 	slop_assert(IsFDOpen(F));
 
+	unsigned int shard = TIMEOUT_SHARD(F->fd);
+	struct timeout_shard *ts = &timeout_shards[shard];
+
 	if (callback == NULL)	/* user wants to remove */
 	{
-		pthread_spin_lock(&timeout_lock);
+		pthread_spin_lock(&ts->lock);
 		td = F->timeout;
 		if (td == NULL)
 		{
-			pthread_spin_unlock(&timeout_lock);
+			pthread_spin_unlock(&ts->lock);
 			return;
 		}
-		op_dlinkDelete(&td->node, &timeout_list);
+		op_dlinkDelete(&td->node, &ts->list);
 		op_bh_free(timeout_heap, td);
 		F->timeout = NULL;
-		struct ev_entry *ev_to_delete = NULL;
-		if (op_dlink_list_length(&timeout_list) == 0)
+		pthread_spin_unlock(&ts->lock);
+
+		/* If the total count drops to zero, delete the timer event.
+		 * fetch_sub returns the PREVIOUS value. */
+		if (atomic_fetch_sub_explicit(&timeout_total_count, 1,
+		                              memory_order_relaxed) == 1)
 		{
-			/* Grab and clear op_timeout_ev under the lock (prevents
-			 * double-delete), then delete outside the lock.
-			 * op_event_delete → op_epoll_unsched_event → op_close →
-			 * op_settimeout re-acquires timeout_lock on the same thread,
-			 * which deadlocks if we hold it here. */
-			ev_to_delete = op_timeout_ev;
+			struct ev_entry *ev = op_timeout_ev;
 			op_timeout_ev = NULL;
+			if (ev != NULL)
+				op_event_delete(ev);
 		}
-		pthread_spin_unlock(&timeout_lock);
-		if (ev_to_delete)
-			op_event_delete(ev_to_delete);
 		return;
 	}
 
@@ -322,7 +369,7 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 		timeout = OP_TIMEOUT_MAX;
 #undef OP_TIMEOUT_MAX
 
-	pthread_spin_lock(&timeout_lock);
+	pthread_spin_lock(&ts->lock);
 
 	td = F->timeout;
 	if (td == NULL)
@@ -332,7 +379,20 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 		td->timeout = op_current_time() + timeout;
 		td->timeout_handler = callback;
 		td->timeout_data = cbdata;
-		op_dlinkAdd(td, &td->node, &timeout_list);
+		op_dlinkAdd(td, &td->node, &ts->list);
+		pthread_spin_unlock(&ts->lock);
+
+		/* If old total was 0, this is the first timeout — create the
+		 * timer event.  fetch_add returns the PREVIOUS value. */
+		if (atomic_fetch_add_explicit(&timeout_total_count, 1,
+		                              memory_order_relaxed) == 0)
+		{
+			/* op_event_add may itself call op_settimeout on some backends;
+			 * safe because we've already released the shard lock. */
+			if (op_timeout_ev == NULL)
+				op_timeout_ev = op_event_add("op_checktimeouts",
+				                             op_checktimeouts, NULL, 5);
+		}
 	}
 	else
 	{
@@ -340,21 +400,7 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 		td->timeout = op_current_time() + timeout;
 		td->timeout_handler = callback;
 		td->timeout_data = cbdata;
-	}
-
-	if (op_timeout_ev == NULL)
-		need_ev = 1;
-
-	pthread_spin_unlock(&timeout_lock);
-
-	/* op_event_add may itself call op_settimeout internally on some backends;
-	 * call it outside timeout_lock to avoid any potential re-entry issues. */
-	if (need_ev)
-	{
-		pthread_spin_lock(&timeout_lock);
-		if (op_timeout_ev == NULL)
-			op_timeout_ev = op_event_add("op_checktimeouts", op_checktimeouts, NULL, 5);
-		pthread_spin_unlock(&timeout_lock);
+		pthread_spin_unlock(&ts->lock);
 	}
 }
 
@@ -370,26 +416,38 @@ op_checktimeouts(void *notused __attribute__((unused)))
 {
 	op_dlink_node *ptr, *next;
 	struct timeout_data *td;
-	/* Collect expired entries into a local list under the lock, then
-	 * dispatch handlers without holding timeout_lock.  This avoids
+	/* Collect expired entries from all shards into a local list, then
+	 * dispatch handlers without holding any shard lock.  This avoids
 	 * deadlock when a handler calls op_settimeout() to re-register. */
 	op_dlink_list dispatch = { NULL, NULL, 0 };
 	time_t now = op_current_time();
+	int expired_count = 0;
 
-	pthread_spin_lock(&timeout_lock);
-	OP_DLINK_FOREACH_SAFE(ptr, next, timeout_list.head)
+	for (int s = 0; s < TIMEOUT_SHARDS; s++)
 	{
-		td = ptr->data;
-		if (td->F == NULL || !IsFDOpen(td->F))
-			continue;
-		if (td->timeout < now)
+		struct timeout_shard *ts = &timeout_shards[s];
+
+		pthread_spin_lock(&ts->lock);
+		OP_DLINK_FOREACH_SAFE(ptr, next, ts->list.head)
 		{
-			op_dlinkDelete(&td->node, &timeout_list);
-			td->F->timeout = NULL;
-			op_dlinkAdd(td, &td->node, &dispatch);
+			td = ptr->data;
+			if (td->F == NULL || !IsFDOpen(td->F))
+				continue;
+			if (td->timeout < now)
+			{
+				op_dlinkDelete(&td->node, &ts->list);
+				td->F->timeout = NULL;
+				op_dlinkAdd(td, &td->node, &dispatch);
+				expired_count++;
+			}
 		}
+		pthread_spin_unlock(&ts->lock);
 	}
-	pthread_spin_unlock(&timeout_lock);
+
+	/* Adjust total count outside any shard lock. */
+	if (expired_count > 0)
+		atomic_fetch_sub_explicit(&timeout_total_count, expired_count,
+		                          memory_order_relaxed);
 
 	OP_DLINK_FOREACH_SAFE(ptr, next, dispatch.head)
 	{
@@ -593,6 +651,7 @@ op_sctp_bindx(const op_fde_t *F, const struct sockaddr_storage *addrs, size_t le
 
 	return 0;
 #else
+	(void)F; (void)addrs; (void)len;
 	return -1;
 #endif
 }
@@ -600,6 +659,7 @@ op_sctp_bindx(const op_fde_t *F, const struct sockaddr_storage *addrs, size_t le
 int
 op_inet_get_proto(const op_fde_t *F)
 {
+	(void)F;
 #ifdef HAVE_LIBSCTP
 	if (F->type & OP_FD_SCTP)
 		return IPPROTO_SCTP;
@@ -641,6 +701,9 @@ static void op_accept_tryaccept(op_fde_t *F, void *data __attribute__((unused)))
 		op_get_errno();
 		if (new_fd < 0)
 		{
+			if (errno == EINVAL || errno == ENOTSOCK
+			    || errno == EOPNOTSUPP)
+				return;
 			op_setselect(F, OP_SELECT_ACCEPT, op_accept_tryaccept, NULL);
 			return;
 		}
@@ -673,18 +736,13 @@ static void op_accept_tryaccept(op_fde_t *F, void *data __attribute__((unused)))
 		 * All three are best-effort; failures are silently ignored.       */
 		if (!(new_F->type & OP_FD_SCTP))
 		{
-#if defined(__linux__) && defined(SO_ZEROCOPY)
-			/* MSG_ZEROCOPY: kernel pins user-space pages instead of copying
-			 * them into the TCP transmit buffer.  Only effective for plain
-			 * (non-SSL) sockets; SSL goes through wolfSSL which manages its
-			 * own copy anyway.  Requires Linux ≥ 4.14.  Best-effort. */
-			if (!(new_F->type & OP_FD_SSL)) {
-				int one = 1;
-				if (setsockopt(new_F->fd, SOL_SOCKET, SO_ZEROCOPY,
-				               &one, sizeof(one)) == 0)
-					new_F->flags |= FLAG_ZEROCOPY;
-			}
-#endif
+			/* SO_ZEROCOPY is intentionally disabled: the kernel pins
+			 * user-space pages during sendmsg(MSG_ZEROCOPY) and reads
+			 * from them asynchronously.  Our slab allocator reuses
+			 * buf_line_t memory immediately after sendbuf_advance()
+			 * frees it, corrupting in-flight data.  IRC messages are
+			 * too small to benefit from pinning anyway (the kernel
+			 * threshold is ~10 KB). */
 #ifdef TCP_NODELAY
 			{
 				int optval = 1;
@@ -730,13 +788,11 @@ static void op_accept_tryaccept(op_fde_t *F, void *data __attribute__((unused)))
 			if (!F->accept->precb(new_F, (struct sockaddr *)&st, addrlen, F->accept->data))	/* pre-callback decided to drop it */
 				continue;
 		}
-#if HAVE_WOLFSSL
 		if (F->type & OP_FD_SSL)
 		{
 			op_ssl_accept_setup(F, new_F, (struct sockaddr *)&st, addrlen, false);
 		}
 		else
-#endif /* HAVE_WOLFSSL */
 		{
 			F->accept->callback(new_F, OP_OK, (struct sockaddr *)&st, addrlen,
 					    F->accept->data);
@@ -912,6 +968,8 @@ op_connect_sctp(op_fde_t *F, struct sockaddr_storage *dest, size_t dest_len,
 	/* If we get here, we've succeeded, so call with OP_OK */
 	op_connect_callback(F, OP_OK);
 #else
+	(void)dest; (void)dest_len; (void)clocal; (void)clocal_len;
+	(void)callback; (void)data; (void)timeout;
 	op_connect_callback(F, OP_ERR_CONNECT);
 #endif
 }
@@ -1326,7 +1384,9 @@ op_fdlist_init(int closeall, int maxfds, size_t heapsize)
 	 * timeout (effectively every client).  Pool-allocating avoids the
 	 * per-call malloc overhead on the hot accept→settimeout path.      */
 	timeout_heap = op_bh_create(sizeof(struct timeout_data), heapsize, "libop_timeout_heap");
-	pthread_spin_init(&timeout_lock, PTHREAD_PROCESS_PRIVATE);
+	for (int i = 0; i < TIMEOUT_SHARDS; i++)
+		pthread_spin_init(&timeout_shards[i].lock, PTHREAD_PROCESS_PRIVATE);
+	atomic_init(&timeout_total_count, 0);
 	/* conndata/acceptdata are allocated per outgoing/incoming connection
 	 * attempt.  Pool-allocating avoids per-connect malloc overhead.    */
 	conn_heap   = op_bh_create(sizeof(struct conndata),   heapsize, "libop_conn_heap");
@@ -1380,6 +1440,7 @@ op_open(op_platform_fd_t fd, uint16_t type, const char *desc)
 	}
 	F->fd = fd;
 	F->type = type;
+	F->uring_fixed_idx = -1;
 	pthread_spin_init(&F->pflags_lock, PTHREAD_PROCESS_PRIVATE);
 	SetFDOpen(F);
 
@@ -1435,16 +1496,16 @@ op_close(op_fde_t *F)
 
 	op_setselect(F, OP_SELECT_WRITE | OP_SELECT_READ, NULL, NULL);
 	op_settimeout(F, 0, NULL, NULL);
+	if (io_close_fd != NULL)
+		io_close_fd(F);
 	if (F->accept)  { op_bh_free(accept_heap, F->accept);  F->accept  = NULL; }
 	if (F->connect) { op_bh_free(conn_heap,   F->connect); F->connect = NULL; }
 	op_free(F->desc);
 	F->desc = NULL;
-#if HAVE_WOLFSSL
 	if (type & OP_FD_SSL)
 	{
 		op_ssl_shutdown(F);
 	}
-#endif /* HAVE_WOLFSSL */
 	if (type & OP_FD_WEBSOCKET)
 	{
 		op_ws_shutdown(F);
@@ -1530,21 +1591,6 @@ op_fd_ssl(const op_fde_t *F)
 	return 0;
 }
 
-void
-op_fde_set_ssl_ptr(op_fde_t *F, void *ssl)
-{
-	if (F != NULL)
-		F->ssl = ssl;
-}
-
-void *
-op_fde_get_ssl_ptr(const op_fde_t *F)
-{
-	if (F == NULL)
-		return NULL;
-	return F->ssl;
-}
-
 op_platform_fd_t
 op_get_fd(const op_fde_t *F)
 {
@@ -1571,12 +1617,10 @@ op_read(op_fde_t *F, void *buf, size_t count)
 	{
 		return op_ws_read(F, buf, count);
 	}
-#if HAVE_WOLFSSL
 	if (F->type & OP_FD_SSL)
 	{
 		return op_ssl_read(F, buf, count);
 	}
-#endif
 	if (F->type & OP_FD_SOCKET)
 	{
 		ret = recv(F->fd, buf, count, 0);
@@ -1592,6 +1636,24 @@ op_read(op_fde_t *F, void *buf, size_t count)
 	return read(F->fd, buf, count);
 }
 
+/*
+ * op_pending — return the number of already-decrypted bytes buffered inside
+ * the TLS library for F.  Returns 0 for plain sockets, kTLS sockets, or
+ * when no data is pending.
+ *
+ * Use this after a short read from op_read() on a TLS socket: if op_pending()
+ * returns > 0, the caller must read again immediately rather than waiting for
+ * POLLIN — the data is in the TLS library buffer, not the kernel socket buffer.
+ */
+int
+op_pending(op_fde_t *F)
+{
+	if (F == NULL)
+		return 0;
+	if (F->type & OP_FD_SSL)
+		return op_ssl_pending(F);
+	return 0;
+}
 
 /*
  * op_fd_cork — enable or disable TCP_CORK (Linux) / TCP_NOPUSH (BSD) on a
@@ -1677,19 +1739,13 @@ op_write(op_fde_t *F, const void *buf, size_t count)
 	{
 		return op_ws_write(F, buf, count);
 	}
-#if HAVE_WOLFSSL
 	if (F->type & OP_FD_SSL)
 	{
 		return op_ssl_write(F, buf, count);
 	}
-#endif
 	if (F->type & OP_FD_SOCKET)
 	{
 		int flags = MSG_NOSIGNAL;
-#if defined(__linux__) && defined(MSG_ZEROCOPY)
-		if (F->flags & FLAG_ZEROCOPY)
-			flags |= MSG_ZEROCOPY;
-#endif
 		ret = send(F->fd, buf, count, flags);
 		if (ret < 0)
 		{
@@ -1703,7 +1759,7 @@ op_write(op_fde_t *F, const void *buf, size_t count)
 
 /* op_fake_writev — sequential per-iovec fallback for op_writev.
  * Needed whenever we cannot use writev() directly: no system writev (Windows /
- * old platforms), SSL (wolfSSL context needed per-call), and WebSocket
+ * old platforms), SSL (TLS context needed per-call), and WebSocket
  * (RFC 6455 framing must be applied per-message via op_write).  Define it
  * unconditionally so all builds have the symbol; the compiler will dead-strip
  * it where unused. */
@@ -1758,21 +1814,15 @@ op_writev(op_fde_t *F, struct op_iovec * vector, int count)
 	{
 		return op_fake_writev(F, vector, count);
 	}
-#if HAVE_WOLFSSL
 	if (F->type & OP_FD_SSL)
 	{
 		return op_fake_writev(F, vector, count);
 	}
-#endif /* HAVE_WOLFSSL */
 #ifdef HAVE_SENDMSG
 	if (F->type & OP_FD_SOCKET)
 	{
 		struct msghdr msg;
 		int flags = MSG_NOSIGNAL;
-#if defined(__linux__) && defined(MSG_ZEROCOPY)
-		if (F->flags & FLAG_ZEROCOPY)
-			flags |= MSG_ZEROCOPY;
-#endif
 		memset(&msg, 0, sizeof(msg));
 		msg.msg_iov = (struct iovec *)vector;
 		msg.msg_iovlen = (size_t)count;
@@ -1978,7 +2028,14 @@ inet_ntop6(const unsigned char *src, char *dst, size_t size)
 			tp += strlen(tp);
 			break;
 		}
-		tp += snprintf(tp, sizeof(tmp) - (size_t)(tp - tmp), "%x", words[i]);
+		{
+			size_t avail = sizeof(tmp) - (size_t)(tp - tmp);
+			int n = snprintf(tp, avail, "%x", words[i]);
+			if(n > 0) {
+				if((size_t)n >= avail) n = (int)(avail > 0 ? avail - 1 : 0);
+				tp += n;
+			}
+		}
 	}
 	/* Was it a trailing run of 0x00's? */
 	if (best.base != -1 && (best.base + best.len) == (IN6ADDRSZ / INT16SZ))
@@ -2477,6 +2534,7 @@ typedef struct {
 	void (*unsched_event)(struct ev_entry *);
 	int  (*supports_event)(void);
 	void (*init_event)(void);
+	void (*close_fd)(op_fde_t *);     /* optional; cleanup before fd close */
 	bool (*start_pollthread)(void);   /* optional; NULL if not supported */
 	void (*stop_pollthread)(void);    /* optional; NULL if not supported */
 	char  name[25];
@@ -2518,10 +2576,12 @@ try_uring(void)
 {
 	if (!op_init_netio_uring())
 	{
+		io_close_fd = op_close_fd_uring;
 		g_io = (io_ops_t){
 			.setselect        = op_setselect_uring,
 			.select           = op_select_uring,
 			.setup_fd         = op_setup_fd_uring,
+			.close_fd         = op_close_fd_uring,
 			.sched_event      = op_uring_sched_event,
 			.unsched_event    = op_uring_unsched_event,
 			.supports_event   = op_uring_supports_event,

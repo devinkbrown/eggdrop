@@ -33,9 +33,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#ifdef TLS
-#  include "egg_tls.h"
-#endif
 
 /* Global socklist from net.c */
 extern sock_list *socklist;

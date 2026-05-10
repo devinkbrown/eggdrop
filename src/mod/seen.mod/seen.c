@@ -129,7 +129,7 @@ static int msg_seen(char *nick, char *host, struct userrec *u, char *text)
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! SEEN %s", nick, host, u->handle, text);
   {
     op_strbuf_t _p;
-    op_strbuf_printf(&_p, "PRIVMSG %s :", nick);
+    op_strbuf_appendf(&_p, "PRIVMSG %s :", nick);
     do_seen(DP_SERVER, op_strbuf_str(&_p), nick, u->handle, "", text);
     op_strbuf_free(&_p);
   }
@@ -211,7 +211,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
     if (!strcasecmp(word1, "bf") || !strcasecmp(word1, "boyfriend")) {
       strlcpy(whotarget, getxtra(object, "BF"), sizeof whotarget);
       if (whotarget[0]) {
-        op_strbuf_reset(&whoredirect, "%s boyfriend is %s, and ", fixnick(object), whotarget);
+        op_strbuf_clear(&whoredirect);
+        op_strbuf_appendf(&whoredirect, "%s boyfriend is %s, and ", fixnick(object), whotarget);
         goto targetcont;
       }
       dprintf(idx,
@@ -222,7 +223,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
     if (!strcasecmp(word1, "gf") || !strcasecmp(word1, "girlfriend")) {
       strlcpy(whotarget, getxtra(object, "GF"), sizeof whotarget);
       if (whotarget[0]) {
-        op_strbuf_reset(&whoredirect, "%s girlfriend is %s, and ", fixnick(object), whotarget);
+        op_strbuf_clear(&whoredirect);
+        op_strbuf_appendf(&whoredirect, "%s girlfriend is %s, and ", fixnick(object), whotarget);
         goto targetcont;
       }
       dprintf(idx,
@@ -253,7 +255,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
     if (!strcasecmp(word1, "boyfriend") || !strcasecmp(word1, "bf")) {
       strlcpy(whotarget, getxtra(hand, "BF"), sizeof whotarget);
       if (whotarget[0]) {
-        op_strbuf_reset(&whoredirect, "%s, your boyfriend is %s, and ", nick, whotarget);
+        op_strbuf_clear(&whoredirect);
+        op_strbuf_appendf(&whoredirect, "%s, your boyfriend is %s, and ", nick, whotarget);
       } else {
         dprintf(idx, "%sI didn't know you had a boyfriend, %s\n", prefix, nick);
         goto done;
@@ -264,7 +267,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
              !strcasecmp(word1, "gf")) {
       strlcpy(whotarget, getxtra(hand, "GF"), sizeof whotarget);
       if (whotarget[0]) {
-        op_strbuf_reset(&whoredirect, "%s, your girlfriend is %s, and ", nick, whotarget);
+        op_strbuf_clear(&whoredirect);
+        op_strbuf_appendf(&whoredirect, "%s, your girlfriend is %s, and ", nick, whotarget);
       } else {
         dprintf(idx, "%sI didn't know you had a girlfriend, %s\n", prefix,
                 nick);
@@ -307,7 +311,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
   /* Check for keyword match in the internal table */
   else if (match_trigger(word1)) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s\n", prefix, match_trigger(word1));
+    op_strbuf_appendf(&_b, "%s%s\n", prefix, match_trigger(word1));
     dprintf(idx, op_strbuf_str(&_b), nick);
     op_strbuf_free(&_b);
     goto done;
@@ -467,13 +471,13 @@ targetcont:
     {
       op_strbuf_t _w;
       if (lastonplace[0] && (strchr(CHANMETA, lastonplace[0]) != NULL))
-        op_strbuf_printf(&_w, "on IRC channel %s", lastonplace);
+        op_strbuf_appendf(&_w, "on IRC channel %s", lastonplace);
       else if (lastonplace[0] == '@')
-        op_strbuf_printf(&_w, "on %s", lastonplace + 1);
+        op_strbuf_appendf(&_w, "on %s", lastonplace + 1);
       else if (lastonplace[0] != 0)
-        op_strbuf_printf(&_w, "on my %s", lastonplace);
+        op_strbuf_appendf(&_w, "on my %s", lastonplace);
       else
-        op_strbuf_printf(&_w, "seen");
+        op_strbuf_appendf(&_w, "seen");
       dprintf(idx, "%s%s%s was last %s %s\n",
               prefix, op_strbuf_str(&whoredirect), whotarget, op_strbuf_str(&_w), op_strbuf_str(&dur));
       op_strbuf_free(&_w);
@@ -496,7 +500,8 @@ static const char *fixnick(char *nick)
     char last = nick[strlen(nick) - 1];
     const char *suffix = (last == 's' || last == 'S' || last == 'x' ||
                           last == 'X' || last == 'z' || last == 'Z') ? "'" : "'s";
-    op_strbuf_reset(&_fixit, "%s%s", nick, suffix);
+    op_strbuf_clear(&_fixit);
+    op_strbuf_appendf(&_fixit, "%s%s", nick, suffix);
   }
   return op_strbuf_str(&_fixit);
 }
@@ -528,7 +533,8 @@ static char *getxtra(char *hand, char *field)
         if (xk->key && !strcasecmp(xk->key, field)) {
           if (xk->data[0] == '{' && xk->data[strlen(xk->data) - 1] == '}' &&
               strlen(xk->data) > 2) {
-            op_strbuf_reset(&_fixit, "%.*s",
+            op_strbuf_clear(&_fixit);
+            op_strbuf_appendf(&_fixit, "%.*s",
                             (int)(strlen(xk->data) - 2), &xk->data[1]);
             return (char *) op_strbuf_str(&_fixit);
           } else {

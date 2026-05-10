@@ -5,7 +5,7 @@
  *  Copyright (C) 1990 Jarkko Oikarinen and University of Oulu, Co Center
  *  Copyright (C) 1996-2002 Hybrid Development Team
  *  Copyright (C) 2002-2005 ircd-ratbox development team
- *  Copyright (C) 2025 ophion development team
+ *  Copyright (C) 2025-2026 ophion development team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -40,6 +40,10 @@ typedef void op_bh_usage_cb (size_t bused, size_t bfree, size_t bmemusage, size_
 
 void op_bh_free(op_bh *, void *);
 void *op_bh_alloc(op_bh *);
+
+/* Runtime toggle for memory poisoning.  In debug builds, set to 0 to
+ * disable the 0xDE fill/check without recompiling.  Defined in balloc.c. */
+extern int op_balloc_poison;
 
 op_bh *op_bh_create(size_t elemsize, size_t elemsperblock, const char *desc);
 int op_bh_destroy(op_bh *bh);

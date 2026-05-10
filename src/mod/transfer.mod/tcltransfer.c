@@ -46,7 +46,7 @@ static int tcl_dccsend STDVAR
       nfn++;
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "*%s", argv[1]);
+        op_strbuf_appendf(&_b, "*%s", argv[1]);
         sys = op_strbuf_steal(&_b);
       }
       queue_file(sys, nfn, "(script)", argv[2]);
@@ -72,12 +72,12 @@ static int tcl_getfileq STDVAR
       {
         op_strbuf_t _b;
         if (q->dir[0] == '*') {
-          op_strbuf_printf(&_b, "%s %s/%s", q->to, &q->dir[1], q->file);
+          op_strbuf_appendf(&_b, "%s %s/%s", q->to, &q->dir[1], q->file);
         } else {
           if (q->dir[0])
-            op_strbuf_printf(&_b, "%s /%s/%s", q->to, q->dir, q->file);
+            op_strbuf_appendf(&_b, "%s /%s/%s", q->to, q->dir, q->file);
           else
-            op_strbuf_printf(&_b, "%s /%s", q->to, q->file);
+            op_strbuf_appendf(&_b, "%s /%s", q->to, q->file);
         }
         op_free(s);
         s = op_strbuf_steal(&_b);
@@ -101,7 +101,7 @@ static int tcl_getfilesendtime STDVAR
     if (dcc[i].sock == sock) {
       if (dcc[i].type == &DCC_SEND || dcc[i].type == &DCC_GET) {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%lu", dcc[i].u.xfer->start_time);
+        op_strbuf_appendf(&_b, "%lu", dcc[i].u.xfer->start_time);
         Tcl_AppendResult(irp, op_strbuf_str(&_b), NULL);
         op_strbuf_free(&_b);
       } else

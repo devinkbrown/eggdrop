@@ -108,7 +108,7 @@ static void send_next_file(char *to)
 
   if (this->dir[0] == '*') { /* Absolute path */
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/%s", &this->dir[1], this->file);
+    op_strbuf_appendf(&_b, "%s/%s", &this->dir[1], this->file);
     s = op_strbuf_steal(&_b);
   } else {
     char *p = strchr(this->dir, '*');
@@ -122,24 +122,24 @@ static void send_next_file(char *to)
     {
       op_strbuf_t _b;
       if (p[0])
-        op_strbuf_printf(&_b, "%s/%s", p, this->file);
+        op_strbuf_appendf(&_b, "%s/%s", p, this->file);
       else
-        op_strbuf_printf(&_b, "%s", this->file);
+        op_strbuf_appendf(&_b, "%s", this->file);
       s = op_strbuf_steal(&_b);
     }
     strlcpy(this->dir, &(p[atoi(this->dir)]), sizeof(this->dir));
   }
   if (this->dir[0] == '*') {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/%s", &this->dir[1], this->file);
+    op_strbuf_appendf(&_b, "%s/%s", &this->dir[1], this->file);
     op_free(s);
     s = op_strbuf_steal(&_b);
   } else {
     op_strbuf_t _b;
     if (this->dir[0])
-      op_strbuf_printf(&_b, "%s/%s", this->dir, this->file);
+      op_strbuf_appendf(&_b, "%s/%s", this->dir, this->file);
     else
-      op_strbuf_printf(&_b, "%s", this->file);
+      op_strbuf_appendf(&_b, "%s", this->file);
     op_free(s);
     s = op_strbuf_steal(&_b);
   }
@@ -246,12 +246,12 @@ static void fileq_cancel(int idx, char *par)
         {
           op_strbuf_t _b;
           if (q->dir[0] == '*') {
-            op_strbuf_printf(&_b, "%s/%s", &q->dir[1], q->file);
+            op_strbuf_appendf(&_b, "%s/%s", &q->dir[1], q->file);
           } else {
             if (q->dir[0])
-              op_strbuf_printf(&_b, "/%s/%s", q->dir, q->file);
+              op_strbuf_appendf(&_b, "/%s/%s", q->dir, q->file);
             else
-              op_strbuf_printf(&_b, "/%s", q->file);
+              op_strbuf_appendf(&_b, "/%s", q->file);
           }
           op_free(s);
           s = op_strbuf_steal(&_b);

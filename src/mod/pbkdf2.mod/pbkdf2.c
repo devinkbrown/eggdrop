@@ -7,26 +7,46 @@
  * Copyright (C) 2017 - 2025 Eggheads Development Team
  */
 
-/* egg_tls.h must precede module.h (which includes Tcl) — wolfssl/mp_int conflict. */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
-#include "../../egg_tls.h"
 #include "src/mod/module.h"
 
-#if OPENSSL_VERSION_NUMBER >= 0x1000000fL /* 1.0.0 */
+#ifdef TLS
+#include <opssl/crypto.h>
+#include <opssl/platform.h>
+#include <opssl/err.h>
+
+/* Map digest name string to opssl_hmac_algo_t.  Returns -1 if unknown. */
+static int pbkdf2_get_algo(const char *name, opssl_hmac_algo_t *algo, int *dlen)
+{
+  if (!strcasecmp(name, "SHA256") || !strcasecmp(name, "SHA-256")) {
+    *algo = OPSSL_HMAC_SHA256;
+    *dlen = OPSSL_SHA256_DIGEST_LEN;
+    return 0;
+  }
+  if (!strcasecmp(name, "SHA384") || !strcasecmp(name, "SHA-384")) {
+    *algo = OPSSL_HMAC_SHA384;
+    *dlen = OPSSL_SHA384_DIGEST_LEN;
+    return 0;
+  }
+  if (!strcasecmp(name, "SHA512") || !strcasecmp(name, "SHA-512")) {
+    *algo = OPSSL_HMAC_SHA512;
+    *dlen = OPSSL_SHA512_DIGEST_LEN;
+    return 0;
+  }
+  return -1;
+}
+
 static Function *global = NULL; /* before tclpbkdf2.c */
 #include "tclpbkdf2.c"
 
 #define MODULE_NAME "encryption2"
 
-#include <openssl/err.h>
-#include <openssl/rand.h>
-
 /* Salt string length — DO NOT CHANGE; changing breaks stored passwords. */
 constexpr int PBKDF2_SALT_LEN = 16;
 
-/* Cryptographic hash function used. openssl list -digest-algorithms */
+/* Cryptographic hash function used. */
 static char pbkdf2_method[28] = "SHA256";
 /* Enable re-encoding of password if pbkdf2-method and / or pbkdf2-rounds
  * change.
@@ -70,7 +90,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
                          const unsigned char *salt, unsigned int saltlen,
                          unsigned int rounds)
 {
-  const EVP_MD *digest;
+  opssl_hmac_algo_t algo;
   int digestlen, ret;
   int outlen, restlen;
   static char out[256]; /* static object is initialized to zero (Standard C) */
@@ -78,13 +98,11 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   unsigned char *buf;
   struct rusage ru1, ru2;
 
-  digest = EVP_get_digestbyname(digest_name);
-  if (!digest) {
+  if (pbkdf2_get_algo(digest_name, &algo, &digestlen)) {
     putlog(LOG_MISC, "*", "PBKDF2 error: Unknown message digest '%s'.",
            digest_name);
     return NULL;
   }
-  digestlen = EVP_MD_size(digest);
   outlen = strlen("$pbkdf2-") + strlen(digest_name) +
            strlen("$rounds=4294967295$i") + B64_NTOP_CALCULATE_SIZE(saltlen) +
            1 + B64_NTOP_CALCULATE_SIZE(digestlen);
@@ -97,7 +115,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   restlen = outlen;
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "$pbkdf2-%s$rounds=%u$", digest_name, rounds);
+    op_strbuf_appendf(&_b, "$pbkdf2-%s$rounds=%u$", digest_name, rounds);
     strlcpy((char *) out2, op_strbuf_str(&_b), restlen);
     bufcount(&out2, &restlen, op_strbuf_len(&_b));
     op_strbuf_free(&_b);
@@ -113,12 +131,14 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   bufcount(&out2, &restlen, 1);
   buf = op_malloc(digestlen);
   ret = getrusage(RUSAGE_SELF, &ru1);
-  if (!PKCS5_PBKDF2_HMAC(pass, strlen(pass), salt, saltlen, rounds, digest,
-                         digestlen, buf)) {
+  if (opssl_pbkdf2(algo,
+                   (const uint8_t *) pass, strlen(pass),
+                   salt, saltlen, rounds,
+                   buf, digestlen) != 1) {
     explicit_bzero(buf, digestlen);
     explicit_bzero(out, outlen);
     putlog(LOG_MISC, "*", "PBKDF2 key derivation error: %s.",
-           ERR_error_string(ERR_get_error(), NULL));
+           opssl_err_string(opssl_err_get()));
     op_free(buf);
     return NULL;
   }
@@ -153,9 +173,9 @@ static char *pbkdf2_encrypt(const char *pass)
   unsigned char salt[PBKDF2_SALT_LEN];
   static char *buf;
 
-  if (RAND_bytes(salt, sizeof salt) != 1) {
-    putlog(LOG_MISC, "*", "PBKDF2 error: RAND_bytes(): %s.",
-           ERR_error_string(ERR_get_error(), NULL));
+  if (opssl_random_bytes(salt, sizeof salt) != 1) {
+    putlog(LOG_MISC, "*", "PBKDF2 error: opssl_random_bytes(): %s.",
+           opssl_err_string(opssl_err_get()));
     return NULL;
   }
   if (!(buf = pbkdf2_hash(pass, pbkdf2_method, salt, sizeof salt,
@@ -181,12 +201,13 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
        b64hash[B64_NTOP_CALCULATE_SIZE(256) + 1];
   op_strbuf_t format_buf;
   unsigned int rounds;
-  const EVP_MD *digest;
+  opssl_hmac_algo_t algo;
+  int digestlen;
   unsigned char salt[PBKDF2_SALT_LEN + 1];
   int saltlen;
   static char *buf;
 
-  op_strbuf_printf(&format_buf, "$pbkdf2-%%%zu[^$]$rounds=%%u$%%%zu[^$]$%%%zus",
+  op_strbuf_appendf(&format_buf, "$pbkdf2-%%%zu[^$]$rounds=%%u$%%%zu[^$]$%%%zus",
                    (sizeof method) - 1, (sizeof b64salt) - 1, (sizeof b64hash) - 1);
   if (op_strbuf_len(&format_buf) != 39) {
     putlog(LOG_MISC, "*", "PBKDF2 error: could not initialize parser for hashed password.");
@@ -199,8 +220,7 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
     return NULL;
   }
   op_strbuf_free(&format_buf);
-  digest = EVP_get_digestbyname(method);
-  if (!digest) {
+  if (pbkdf2_get_algo(method, &algo, &digestlen)) {
     putlog(LOG_MISC, "*", "PBKDF2 error: Unknown message digest '%s'.", method);
     return NULL;
   }
@@ -256,26 +276,14 @@ static Function pbkdf2_table[] = {
   (Function) pbkdf2_verify
 };
 
-/* Initializes API with hash algorithm */
 static int pbkdf2_init(void)
 {
-  const EVP_MD *digest;
-  /* OpenSSL library initialization
-   * If you are using 1.1.0 or above then you don't need to take any further
-   * steps. */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-  SSL_library_init();
-  SSL_load_error_strings();
-  OpenSSL_add_all_algorithms();
-#endif
-  digest = EVP_get_digestbyname(pbkdf2_method);
-  if (!digest) {
+  opssl_hmac_algo_t algo;
+  int dlen;
+
+  if (pbkdf2_get_algo(pbkdf2_method, &algo, &dlen)) {
     putlog(LOG_MISC, "*", "PBKDF2 error: Unknown message digest '%s'.",
            pbkdf2_method);
-    return 1;
-  }
-  if (!RAND_status()) {
-    putlog(LOG_MISC, "*", "PBKDF2 error: openssl random generator has not been seeded with enough data.");
     return 1;
   }
   return 0;
@@ -284,7 +292,7 @@ static int pbkdf2_init(void)
 #endif
 char *pbkdf2_start(Function *global_funcs)
 {
-#if OPENSSL_VERSION_NUMBER >= 0x1000000fL /* 1.0.0 */
+#ifdef TLS
 
   /* `global_funcs' is NULL if eggdrop is recovering from a restart.
    *
@@ -312,10 +320,6 @@ char *pbkdf2_start(Function *global_funcs)
   }
   return NULL;
 #else
-  #ifdef TLS
-    return "Initialization failure: compiled with openssl version < 1.0.0";
-  #else
-    return "Initialization failure: configured with --disable-tls or openssl not found";
-  #endif
+  return "Initialization failure: configured with --disable-tls or TLS library not found";
 #endif
 }

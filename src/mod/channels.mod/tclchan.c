@@ -627,9 +627,9 @@ static int tcl_newchanban STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_printf(&ban_b, "%s", argv[2]);
-  op_strbuf_printf(&from_b, "%s", argv[3]);
-  op_strbuf_printf(&cmt_b, "%s", argv[4]);
+  op_strbuf_appendf(&ban_b, "%s", argv[2]);
+  op_strbuf_appendf(&from_b, "%s", argv[3]);
+  op_strbuf_appendf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
     if (chan->ban_time == 0)
       expire_time = 0;
@@ -672,9 +672,9 @@ static int tcl_newban STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_printf(&ban_b, "%s", argv[1]);
-  op_strbuf_printf(&from_b, "%s", argv[2]);
-  op_strbuf_printf(&cmt_b, "%s", argv[3]);
+  op_strbuf_appendf(&ban_b, "%s", argv[1]);
+  op_strbuf_appendf(&from_b, "%s", argv[2]);
+  op_strbuf_appendf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
     if (global_ban_time == 0)
       expire_time = 0;
@@ -722,9 +722,9 @@ static int tcl_newchanexempt STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_printf(&exempt_b, "%s", argv[2]);
-  op_strbuf_printf(&from_b, "%s", argv[3]);
-  op_strbuf_printf(&cmt_b, "%s", argv[4]);
+  op_strbuf_appendf(&exempt_b, "%s", argv[2]);
+  op_strbuf_appendf(&from_b, "%s", argv[3]);
+  op_strbuf_appendf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
     if (chan->exempt_time == 0)
       expire_time = 0;
@@ -765,9 +765,9 @@ static int tcl_newexempt STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_printf(&exempt_b, "%s", argv[1]);
-  op_strbuf_printf(&from_b, "%s", argv[2]);
-  op_strbuf_printf(&cmt_b, "%s", argv[3]);
+  op_strbuf_appendf(&exempt_b, "%s", argv[1]);
+  op_strbuf_appendf(&from_b, "%s", argv[2]);
+  op_strbuf_appendf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
     if (global_exempt_time == 0)
       expire_time = 0;
@@ -814,9 +814,9 @@ static int tcl_newchaninvite STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_printf(&invite_b, "%s", argv[2]);
-  op_strbuf_printf(&from_b, "%s", argv[3]);
-  op_strbuf_printf(&cmt_b, "%s", argv[4]);
+  op_strbuf_appendf(&invite_b, "%s", argv[2]);
+  op_strbuf_appendf(&from_b, "%s", argv[3]);
+  op_strbuf_appendf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
     if (chan->invite_time == 0)
       expire_time = 0;
@@ -857,9 +857,9 @@ static int tcl_newinvite STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_printf(&invite_b, "%s", argv[1]);
-  op_strbuf_printf(&from_b, "%s", argv[2]);
-  op_strbuf_printf(&cmt_b, "%s", argv[3]);
+  op_strbuf_appendf(&invite_b, "%s", argv[1]);
+  op_strbuf_appendf(&from_b, "%s", argv[2]);
+  op_strbuf_appendf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
     if (global_invite_time == 0)
       expire_time = 0;
@@ -898,13 +898,13 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
   Tcl_AppendElement(irp, chan->need_key);
   Tcl_AppendElement(irp, chan->need_unban);
   Tcl_AppendElement(irp, chan->need_limit);
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->flood_pub_thr, chan->flood_pub_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->flood_ctcp_thr, chan->flood_ctcp_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->flood_join_thr, chan->flood_join_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->flood_kick_thr, chan->flood_kick_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->flood_deop_thr, chan->flood_deop_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->flood_nick_thr, chan->flood_nick_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d:%d", chan->aop_min, chan->aop_max); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->flood_pub_thr, chan->flood_pub_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->flood_ctcp_thr, chan->flood_ctcp_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->flood_join_thr, chan->flood_join_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->flood_kick_thr, chan->flood_kick_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->flood_deop_thr, chan->flood_deop_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->flood_nick_thr, chan->flood_nick_time); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d:%d", chan->aop_min, chan->aop_max); Tcl_AppendElement(irp, op_strbuf_str(&t)); op_strbuf_free(&t); }
   Tcl_AppendElement(irp, int_to_base10(chan->ban_type));
   Tcl_AppendElement(irp, int_to_base10(chan->ban_time));
   Tcl_AppendElement(irp, int_to_base10(chan->exempt_time));
@@ -1020,14 +1020,14 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
 
     if (ul->type == UDEF_FLAG) {
       op_strbuf_t t;
-      op_strbuf_printf(&t, "%c%s",
+      op_strbuf_appendf(&t, "%c%s",
                getudef(ul->values, chan->dname) ? '+' : '-', ul->name);
       Tcl_AppendElement(irp, op_strbuf_str(&t));
       op_strbuf_free(&t);
     } else if (ul->type == UDEF_INT) {
       char *x;
       op_strbuf_t b_buf;
-      op_strbuf_printf(&b_buf, "%" PRIdPTR, getudef(ul->values, chan->dname));
+      op_strbuf_appendf(&b_buf, "%" PRIdPTR, getudef(ul->values, chan->dname));
       args[0] = ul->name;
       args[1] = op_strbuf_str(&b_buf);
       x = Tcl_Merge(2, args);
@@ -1041,7 +1041,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
       if (!p)
         p = "{}";
 
-      op_strbuf_printf(&buf, "%s %s", ul->name, p);
+      op_strbuf_appendf(&buf, "%s %s", ul->name, p);
       Tcl_AppendElement(irp, op_strbuf_str(&buf));
       op_strbuf_free(&buf);
     } else
@@ -1079,13 +1079,13 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
   APPEND_KEYVAL("ban-time", int_to_base10(chan->ban_time));
   APPEND_KEYVAL("exempt-time", int_to_base10(chan->exempt_time));
   APPEND_KEYVAL("invite-time", int_to_base10(chan->invite_time));
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time); APPEND_KEYVAL("flood-chan", op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time); APPEND_KEYVAL("flood-ctcp", op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time); APPEND_KEYVAL("flood-join", op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time); APPEND_KEYVAL("flood-kick", op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time); APPEND_KEYVAL("flood-deop", op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time); APPEND_KEYVAL("flood-nick", op_strbuf_str(&t)); op_strbuf_free(&t); }
-  { op_strbuf_t t; op_strbuf_printf(&t, "%d %d", chan->aop_min, chan->aop_max); APPEND_KEYVAL("aop-delay", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time); APPEND_KEYVAL("flood-chan", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time); APPEND_KEYVAL("flood-ctcp", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time); APPEND_KEYVAL("flood-join", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time); APPEND_KEYVAL("flood-kick", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time); APPEND_KEYVAL("flood-deop", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time); APPEND_KEYVAL("flood-nick", op_strbuf_str(&t)); op_strbuf_free(&t); }
+  { op_strbuf_t t; op_strbuf_appendf(&t, "%d %d", chan->aop_min, chan->aop_max); APPEND_KEYVAL("aop-delay", op_strbuf_str(&t)); op_strbuf_free(&t); }
 
   /* Last, but not least - flags */
   APPEND_KEYVAL("enforcebans",
@@ -1153,7 +1153,7 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
       Tcl_Free((char *) argv);
     } else {
       op_strbuf_t t;
-      op_strbuf_printf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
+      op_strbuf_appendf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
       APPEND_KEYVAL(ul->name, op_strbuf_str(&t));
       op_strbuf_free(&t);
     }
@@ -1210,49 +1210,49 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
     return TCL_OK;
   } else if (!strcmp(setting, "flood-chan")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
+    op_strbuf_appendf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-ctcp")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
+    op_strbuf_appendf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-join")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time);
+    op_strbuf_appendf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-kick")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
+    op_strbuf_appendf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-deop")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
+    op_strbuf_appendf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-nick")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
+    op_strbuf_appendf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "aop-delay")) {
     op_strbuf_t t;
-    op_strbuf_printf(&t, "%d %d", chan->aop_min, chan->aop_max);
+    op_strbuf_appendf(&t, "%d %d", chan->aop_min, chan->aop_max);
     Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
     op_strbuf_free(&t);
     return TCL_OK;
@@ -1310,7 +1310,7 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
     } else {
       /* Flag or int, all the same. */
       op_strbuf_t t;
-      op_strbuf_printf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
+      op_strbuf_appendf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
       Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
       op_strbuf_free(&t);
     }
@@ -1398,9 +1398,9 @@ static int tcl_do_masklist(maskrec *m, Tcl_Interp *irp)
 
   for (; m; m = m->next) {
     op_strbuf_t ts, ts1, ts2;
-    op_strbuf_printf(&ts, "%" PRId64, (int64_t) m->expire);
-    op_strbuf_printf(&ts1, "%" PRId64, (int64_t) m->added);
-    op_strbuf_printf(&ts2, "%" PRId64, (int64_t) m->lastactive);
+    op_strbuf_appendf(&ts, "%" PRId64, (int64_t) m->expire);
+    op_strbuf_appendf(&ts1, "%" PRId64, (int64_t) m->added);
+    op_strbuf_appendf(&ts2, "%" PRId64, (int64_t) m->lastactive);
     list[0] = m->mask;
     list[1] = m->desc;
     list[2] = op_strbuf_str(&ts);

@@ -476,3 +476,49 @@ op_cidr_foreach6(const op_cidr_tbl_t *t, op_cidr_each_t fn, void *ud)
     ((struct sockaddr_in6 *)&ctx.ss)->sin6_family = AF_INET6;
     trie_foreach(t->root6, &ctx, 0);
 }
+
+/* ---- parsing helpers ----------------------------------------------------- */
+
+int
+op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss)
+{
+    memset(ss, 0, sizeof(*ss));
+    if (inet_pton(AF_INET, s, &((struct sockaddr_in *)ss)->sin_addr) == 1) {
+        ss->ss_family = AF_INET;
+        return 0;
+    }
+    if (inet_pton(AF_INET6, s, &((struct sockaddr_in6 *)ss)->sin6_addr) == 1) {
+        ss->ss_family = AF_INET6;
+        return 0;
+    }
+    return -1;
+}
+
+int
+op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen)
+{
+    char buf[INET6_ADDRSTRLEN + 4];
+    const char *slash = strchr(s, '/');
+
+    if (!slash)
+        return -1;
+    size_t host_len = (size_t)(slash - s);
+    if (host_len == 0 || host_len >= sizeof(buf))
+        return -1;
+    memcpy(buf, s, host_len);
+    buf[host_len] = '\0';
+
+    char *end;
+    long pl = strtol(slash + 1, &end, 10);
+    if (*end != '\0' || pl < 0)
+        return -1;
+
+    if (op_cidr_parse_addr(buf, ss) < 0)
+        return -1;
+
+    int max_plen = (ss->ss_family == AF_INET) ? 32 : 128;
+    if (pl > max_plen)
+        return -1;
+    *plen = (int)pl;
+    return 0;
+}

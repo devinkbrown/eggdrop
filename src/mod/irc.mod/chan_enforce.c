@@ -172,7 +172,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
           u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, from)))
         return 1;
       op_strbuf_t _bh;
-      op_strbuf_printf(&_bh, "*!*@%s", p);
+      op_strbuf_appendf(&_bh, "*!*@%s", p);
       if (!isbanned(chan, op_strbuf_str(&_bh)) && (me_op(chan) || me_halfop(chan))) {
         check_exemptlist(chan, from);
         do_mask(chan, chan->channel.ban, op_strbuf_str(&_bh), 'b');
@@ -193,7 +193,8 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
 
         op_strbuf_init(&_bs);
         for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-          op_strbuf_reset(&_bs, "%s!%s", m->nick, m->userhost);
+          op_strbuf_clear(&_bs);
+          op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
           if (wild_match(op_strbuf_str(&_bh), op_strbuf_str(&_bs)) && (m->joined >= chan->floodtime[which]) &&
               !chan_sentkick(m) && !match_my_nick(m->nick) && (me_op(chan) ||
               (me_halfop(chan) && !chan_hasop(m)))) {
@@ -263,7 +264,8 @@ static void kick_all(struct chanset_t *chan, char *hostmask,
   op_strbuf_init(&kicknick);
   op_strbuf_init(&_s);
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-    op_strbuf_reset(&_s, "%s!%s", m->nick, m->userhost);
+    op_strbuf_clear(&_s);
+    op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
     get_user_flagrec(get_user_from_member(m), &fr, chan->dname);
     if ((me_op(chan) || (me_halfop(chan) && !chan_hasop(m))) &&
         match_addr(hostmask, op_strbuf_str(&_s)) && !chan_sentkick(m) &&
@@ -325,7 +327,7 @@ static void refresh_ban_kick(struct chanset_t *chan, const char *user, char *nic
           do_mask(chan, chan->channel.ban, b->mask, 'b');
           b->lastactive = now;
           if (b->desc && b->desc[0] != '@')
-            op_strbuf_printf(&_bc, "%s %s", IRC_PREBANNED, b->desc);
+            op_strbuf_appendf(&_bc, "%s %s", IRC_PREBANNED, b->desc);
           else
             op_strbuf_init(&_bc);
           kick_all(chan, b->mask,
@@ -396,7 +398,7 @@ static void enforce_bans(struct chanset_t *chan)
   if (HALFOP_CANTDOMODE('b'))
     return;
 
-  op_strbuf_printf(&_bme, "%s!%s", botname, botuserhost);
+  op_strbuf_appendf(&_bme, "%s!%s", botname, botuserhost);
   /* Go through all bans, kicking the users.
    * Skip extended bans ($a:, $z:, $r:, etc.) — server-side matching only. */
   for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
@@ -524,7 +526,8 @@ static void check_this_ban(struct chanset_t *chan, char *banmask, int sticky)
 
   op_strbuf_init(&_bu);
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-    op_strbuf_reset(&_bu, "%s!%s", m->nick, m->userhost);
+    op_strbuf_clear(&_bu);
+    op_strbuf_appendf(&_bu, "%s!%s", m->nick, m->userhost);
     if (match_addr(banmask, op_strbuf_str(&_bu)) &&
         !(use_exempts &&
           (u_match_mask(global_exempts, op_strbuf_str(&_bu)) ||
@@ -707,7 +710,7 @@ static void check_this_member(struct chanset_t *chan, char *nick,
       return;
 
     op_strbuf_t _bs;
-    op_strbuf_printf(&_bs, "%s!%s", m->nick, m->userhost);
+    op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
     if (use_invites && (u_match_mask(global_invites, op_strbuf_str(&_bs)) ||
         u_match_mask_trie(chan->invites, chan->invite_ip_trie, op_strbuf_str(&_bs))))
       refresh_invite(chan, op_strbuf_str(&_bs));
@@ -741,7 +744,8 @@ static void check_this_user(char *hand, int delete, char *host)
   op_strbuf_init(&_s);
   for (chan = chanset; chan; chan = chan->next)
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-      op_strbuf_reset(&_s, "%s!%s", m->nick, m->userhost);
+      op_strbuf_clear(&_s);
+      op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
       u = get_user_from_member(m);
       if ((u && !strcasecmp(u->handle, hand) && delete < 2) ||
           (!u && delete == 2 && match_addr(host, op_strbuf_str(&_s)))) {

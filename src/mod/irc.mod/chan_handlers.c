@@ -140,7 +140,7 @@ static int got352or4(struct chanset_t *chan, char *user, const char *host,
   /* Store the userhost */
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s@%s", user, host);
+    op_strbuf_appendf(&_b, "%s@%s", user, host);
     strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
     op_strbuf_free(&_b);
   }
@@ -245,13 +245,13 @@ static int gottwitch366(char *from, char *msg) {
     chan->status |= CHAN_PEND; /* Channel needs to be PENDING for 1st join */
     {
       op_strbuf_t _bhost;
-      op_strbuf_printf(&_bhost, "%s.tmi.twitch.tv", nick);
+      op_strbuf_appendf(&_bhost, "%s.tmi.twitch.tv", nick);
       got352or4(chan, nick, op_strbuf_str(&_bhost), nick, "H", NULL);
       op_strbuf_free(&_bhost);
     }
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s %s :End of /who", nick, chan->dname);
+      op_strbuf_appendf(&_b, "%s %s :End of /who", nick, chan->dname);
       strlcpy(fakemsg, op_strbuf_str(&_b), sizeof fakemsg);
       op_strbuf_free(&_b);
     }
@@ -309,7 +309,7 @@ static int gotchghost(char *from, char *msg) {
   if (match_my_nick(nick)) {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s@%s", ident, msg);
+      op_strbuf_appendf(&_b, "%s@%s", ident, msg);
       strlcpy(botuserhost, op_strbuf_str(&_b), UHOSTMAX);
       op_strbuf_free(&_b);
     }
@@ -322,13 +322,13 @@ static int gotchghost(char *from, char *msg) {
       u = get_user_from_member(m);
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s@%s", ident, msg);
+        op_strbuf_appendf(&_b, "%s@%s", ident, msg);
         strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
         op_strbuf_free(&_b);
       }
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s %s!%s@%s", chname, nick, ident, msg);
+        op_strbuf_appendf(&_b, "%s %s!%s@%s", chname, nick, ident, msg);
         check_tcl_chghost(nick, from, op_strbuf_str(&_b), u, chname, ident, msg);
         op_strbuf_free(&_b);
       }
@@ -417,7 +417,7 @@ static int got396(char *from, char *msg)
     if (ident) {
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s@%s", ident, uhost);
+        op_strbuf_appendf(&_b, "%s@%s", ident, uhost);
         strlcpy(botuserhost, op_strbuf_str(&_b), UHOSTMAX);
         op_strbuf_free(&_b);
       }
@@ -507,7 +507,7 @@ static int gotaway(char *from, char *msg)
       u = get_user_from_member(m);
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s %s", chname, from);
+        op_strbuf_appendf(&_b, "%s %s", chname, from);
         check_tcl_ircaway(nick, from, op_strbuf_str(&_b), u, chname, msg);
         op_strbuf_free(&_b);
       }
@@ -1021,7 +1021,7 @@ static int gotjoin(char *from, char *channame)
     if (l_chname > (CHANNEL_ID_LEN + 1)) {
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "!%s", chname + (CHANNEL_ID_LEN + 1));
+        op_strbuf_appendf(&_b, "!%s", chname + (CHANNEL_ID_LEN + 1));
         ch_dname = op_strbuf_steal(&_b);
       }
       if (ch_dname) {
@@ -1438,7 +1438,7 @@ static int gotkick(char *from, char *origmsg)
       if (m) {
         struct userrec *u2;
 
-        op_strbuf_printf(&_bk, "%s!%s", m->nick, m->userhost);
+        op_strbuf_appendf(&_bk, "%s!%s", m->nick, m->userhost);
         kicked = op_strbuf_str(&_bk);
         u2 = get_user_from_member(m);
         set_handle_laston(chan->dname, u2, now);

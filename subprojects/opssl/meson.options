@@ -1,0 +1,11 @@
+option('ktls', type: 'feature', value: 'auto',
+  description: 'Linux kernel TLS offload support')
+
+option('postquantum', type: 'feature', value: 'enabled',
+  description: 'Post-quantum ML-KEM (Kyber) key exchange')
+
+option('session_export', type: 'feature', value: 'enabled',
+  description: 'TLS session state export/import for live migration')
+
+option('tests', type: 'boolean', value: true,
+  description: 'Build test suite')

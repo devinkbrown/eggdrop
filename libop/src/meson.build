@@ -6,7 +6,7 @@
 #   • Data structures (Waves 67–69)
 #   • Utilities
 #   • commio I/O layer (replaces eggdrop's net.c)
-#   • TLS via wolfSSL (wolfssl.c) or no-op stubs (wolfssl_nossl.c)
+#   • TLS via opssl (opssl_backend.c) or no-op stubs (ssl_stubs.c)
 # =========================================================================
 
 libop_sources = files(
@@ -54,6 +54,7 @@ libop_sources = files(
   'async_log.c',        # async log writer thread (op_async_log_*)
   'helper.c',           # helper process / in-process thread (op_helper_*)
   'seccomp.c',          # seccomp-bpf privilege restriction (self-guards __linux__)
+  'lock_debug.c',       # mutex/rwlock debugging (self-guards on OP_LOCK_DEBUG)
 
   # Portability fallbacks
   'arc4random.c',       # arc4random / arc4random_buf when not in libc
@@ -80,11 +81,11 @@ libop_sources = files(
   'unix.c',             # process helpers (fork, socketpair, fd passing)
 )
 
-# TLS backend: real wolfssl or no-op stubs
+# TLS backend: opssl or no-op stubs
 if have_ssl
-  libop_sources += files('wolfssl.c')
+  libop_sources += files('opssl_backend.c')
 else
-  libop_sources += files('wolfssl_nossl.c')
+  libop_sources += files('ssl_stubs.c')
 endif
 
 fs = import('fs')
@@ -94,8 +95,7 @@ libm_dep   = meson.get_compiler('c').find_library('m', required: false)
 libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu23',
                 '-Wno-stringop-overread']  # GCC false positive in sha1.c under LTO
 if have_ssl
-  libop_c_args += ['-DHAVE_WOLFSSL=1',
-                   '-include', 'wolfssl/options.h']  # load system wolfSSL config
+  libop_c_args += ['-DHAVE_OPSSL=1']
 endif
 
 _top_inc = include_directories('../..')
@@ -108,7 +108,7 @@ _libop_core_obj = static_library('_op_core',
   sources:              libop_sources,
   include_directories:  [libop_inc],
   dependencies:         have_ssl
-                          ? [thread_dep, libm_dep, wolfssl_dep]
+                          ? [thread_dep, libm_dep, opssl_dep]
                           : [thread_dep, libm_dep],
   c_args:               libop_c_args,
   pic:                  true,
@@ -137,10 +137,7 @@ endif
 _libop_compat_obj = static_library('_op_compat',
   sources:             compat_sources_merged,
   include_directories: [libop_inc, _top_inc, _src_inc],
-  c_args:              ['-DHAVE_CONFIG_H', '-DCOMPILING_MEM']
-                         + (have_ssl ? ['-DHAVE_WOLFSSL=1',
-                                       '-include', 'wolfssl/options.h'] : []),
-  dependencies:        have_ssl ? [wolfssl_dep] : [],
+  c_args:              ['-DHAVE_CONFIG_H', '-DCOMPILING_MEM'],
   pic:                 true,
 )
 
@@ -167,7 +164,7 @@ libop_ds = static_library('op',
     _libop_lmdb_obj.extract_all_objects(recursive: true),
   ],
   dependencies: have_ssl
-                  ? [thread_dep, libm_dep, wolfssl_dep]
+                  ? [thread_dep, libm_dep, opssl_dep]
                   : [thread_dep, libm_dep],
   pic: true,
 )

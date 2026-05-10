@@ -71,7 +71,7 @@ static void ident_activity(int idx, char *buf, int len)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, " : USERID : UNIX : %s\r\n", botname);
+    op_strbuf_appendf(&_b, " : USERID : UNIX : %s\r\n", botname);
     strlcpy(pos, op_strbuf_str(&_b), (sizeof buf2) - (size_t)(pos - buf2));
     op_strbuf_free(&_b);
   }
@@ -117,7 +117,7 @@ static void ident_oidentd(void)
   socklen_t namelen;
   struct sockaddr_storage ss;
 
-  op_strbuf_printf(&identstr_buf, "### eggdrop_%s", pid_file);
+  op_strbuf_appendf(&identstr_buf, "### eggdrop_%s", pid_file);
   const char *identstr = op_strbuf_str(&identstr_buf);
 
   if (!home) {
@@ -131,7 +131,7 @@ static void ident_oidentd(void)
     op_strbuf_free(&identstr_buf);
     return;
   }
-  op_strbuf_printf(&path_buf, "%s/.oidentd.conf", home);
+  op_strbuf_appendf(&path_buf, "%s/.oidentd.conf", home);
   const char *path = op_strbuf_str(&path_buf);
   op_strbuf_init(&data_buf);
   fd = fopen(path, "r");

@@ -23,6 +23,7 @@
  *  USA
  */
 
+#define _GNU_SOURCE 1
 #include <libop_config.h>
 #include <op_lib.h>
 
@@ -168,24 +169,30 @@ op_gettimeofday(struct timeval *tv, void *tz __attribute__((unused)))
 void
 op_sleep(unsigned int seconds, unsigned int useconds)
 {
+	struct timespec rem = {
+		.tv_sec  = seconds,
+		.tv_nsec = (long)useconds * 1000L,
+	};
+
 #if defined(HAVE_CLOCK_NANOSLEEP)
 	/* CLOCK_MONOTONIC sleep is immune to NTP wall-clock adjustments.
 	 * Pass TIMER_ABSTIME=0 (relative), loop on EINTR with remaining. */
 	int rc;
-	struct timespec next = { .tv_sec = seconds, .tv_nsec = (long)useconds * 1000L };
+	struct timespec next = rem;
 	while ((rc = clock_nanosleep(CLOCK_MONOTONIC, 0, &next, &next)) != 0)
 	{
 		if (rc != EINTR)
 			break;
 	}
 #elif defined(HAVE_NANOSLEEP)
-	struct timespec next = { .tv_sec = seconds, .tv_nsec = (long)useconds * 1000L };
+	struct timespec next = rem;
 	while (nanosleep(&next, &next) == -1)
 	{
 		if (errno != EINTR)
 			break;
 	}
 #else
+	(void)rem;
 	/* Last resort: select() with a timeout.  Signal interruption is
 	 * not retried here because select() does not return remaining time. */
 	struct timeval tv = { .tv_sec = seconds, .tv_usec = useconds };
@@ -200,7 +207,9 @@ op_sleep(unsigned int seconds, unsigned int useconds)
 char *
 op_strerror(int error)
 {
-	return strerror(error);
+	static _Thread_local char buf[256];
+	/* GNU strerror_r returns char* — may point to buf or a static literal. */
+	return strerror_r(error, buf, sizeof(buf));
 }
 
 int

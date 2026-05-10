@@ -70,14 +70,14 @@ int delignore(char *ign)
   if (!strchr(ign, '!') && (j = atoi(ign))) {
     for (u = &global_ign, j--; *u && j; u = &((*u)->next), j--);
     if (*u) {
-      op_strbuf_printf(&temp, "%s", (*u)->igmask);
+      op_strbuf_appendf(&temp, "%s", (*u)->igmask);
       i = 1;
     }
   } else {
     /* find the matching host, if there is one */
     for (u = &global_ign; *u && !i; u = &((*u)->next))
       if (!rfc_casecmp(ign, (*u)->igmask)) {
-        op_strbuf_printf(&temp, "%s", ign);
+        op_strbuf_appendf(&temp, "%s", ign);
         i = 1;
         break;
       }
@@ -148,12 +148,12 @@ static void display_ignore(int idx, int number, struct igrec *ignore)
 
   op_strbuf_init(&when);
   if (ignore->added)
-    op_strbuf_printf(&when, "Started %s", daysago(now, ignore->added));
+    op_strbuf_appendf(&when, "Started %s", daysago(now, ignore->added));
 
   if (ignore->flags & IGREC_PERM)
-    op_strbuf_printf(&expire, "(perm)");
+    op_strbuf_appendf(&expire, "(perm)");
   else
-    op_strbuf_printf(&expire, "(expires %s)", days(ignore->expire, now));
+    op_strbuf_appendf(&expire, "(expires %s)", days(ignore->expire, now));
 
   if (number >= 0)
     dprintf(idx, "  [%3d] %s %s\n", number, ignore->igmask, op_strbuf_str(&expire));
@@ -456,7 +456,7 @@ static void tell_user(int idx, struct userrec *u)
   build_flags(s, &fr, NULL);
   if (module_find("notes", 0, 0)) {
     op_strbuf_t cmd;
-    op_strbuf_printf(&cmd, "notes {%s}", u->handle);
+    op_strbuf_appendf(&cmd, "notes {%s}", u->handle);
     if (!egg_eval(op_strbuf_str(&cmd)))
       n = tcl_resultint();
     op_strbuf_free(&cmd);
@@ -779,7 +779,7 @@ int readuserfile(char *file, struct userrec **ret)
           if (!findchan_by_dname(lasthand)) {
             {
               op_strbuf_t _b;
-              op_strbuf_printf(&_b, "%s ", lasthand);
+              op_strbuf_appendf(&_b, "%s ", lasthand);
               if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
                 op_strbuf_appendf(&ignored, "%s ", lasthand);
               op_strbuf_free(&_b);
@@ -806,7 +806,7 @@ int readuserfile(char *file, struct userrec **ret)
           if (!findchan_by_dname(lasthand)) {
             {
               op_strbuf_t _b;
-              op_strbuf_printf(&_b, "%s ", lasthand);
+              op_strbuf_appendf(&_b, "%s ", lasthand);
               if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
                 op_strbuf_appendf(&ignored, "%s ", lasthand);
               op_strbuf_free(&_b);
@@ -835,7 +835,7 @@ int readuserfile(char *file, struct userrec **ret)
           if (!findchan_by_dname(lasthand)) {
             {
               op_strbuf_t _b;
-              op_strbuf_printf(&_b, "%s ", lasthand);
+              op_strbuf_appendf(&_b, "%s ", lasthand);
               if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
                 op_strbuf_appendf(&ignored, "%s ", lasthand);
               op_strbuf_free(&_b);
@@ -968,6 +968,9 @@ int readuserfile(char *file, struct userrec **ret)
       }
   }
   noshare = noxtra = 0;
+  /* Mark all users dirty after bulk load */
+  for (u = bu; u; u = u->next)
+    u->dirty = 1;
   /* process the user data *now* */
   if (remove_pass)
     cleanup_pass();

@@ -28,7 +28,7 @@
 
 #include "main.h"
 #ifdef TLS
-#  include <wolfssl/version.h>  /* LIBWOLFSSL_VERSION_STRING */
+#  include <opssl/opssl.h>
 #endif
 #include <sys/utsname.h>
 #include "modules.h"
@@ -48,7 +48,7 @@ extern int backgrd, term_z, con_chan, cache_hit, cache_miss, firewallport,
            default_flags, max_logs, conmask, protect_readonly, make_userfile,
            noshare, ignore_time, max_socks;
 #ifdef TLS
-extern SSL_CTX *ssl_ctx;
+extern opssl_ctx_t *ssl_ctx;
 #endif
 
 tcl_timer_t *timer = NULL;         /* Minutely timer               */
@@ -234,7 +234,7 @@ void tell_verbose_uptime(int idx)
   op_strbuf_init(&s);
   if (now2 > 86400) {
     /* days */
-    op_strbuf_printf(&s, "%d day", (int) (now2 / 86400));
+    op_strbuf_appendf(&s, "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
       op_strbuf_append_cstr(&s, "s");
     op_strbuf_append_cstr(&s, ", ");
@@ -277,7 +277,7 @@ void tell_verbose_status(int idx)
   op_strbuf_init(&s);
   if (now2 > 86400) {
     /* days */
-    op_strbuf_printf(&s, "%d day", (int) (now2 / 86400));
+    op_strbuf_appendf(&s, "%d day", (int) (now2 / 86400));
     if ((int) (now2 / 86400) >= 2)
       op_strbuf_append_cstr(&s, "s");
     op_strbuf_append_cstr(&s, ", ");
@@ -300,11 +300,11 @@ void tell_verbose_status(int idx)
   }
   cputime = getcputime();
   if (cputime < 0)
-    op_strbuf_printf(&s2, "CPU: unknown");
+    op_strbuf_appendf(&s2, "CPU: unknown");
   else {
     hr = cputime / 60;
     cputime -= hr * 60;
-    op_strbuf_printf(&s2, "CPU: %02d:%05.2f", (int) hr, cputime); /* Actually min/sec */
+    op_strbuf_appendf(&s2, "CPU: %02d:%05.2f", (int) hr, cputime); /* Actually min/sec */
   }
   if (cache_hit + cache_miss) {      /* 2019, still can't divide by zero */
     cache_total = 100.0 * (cache_hit) / (cache_hit + cache_miss);
@@ -358,8 +358,8 @@ void tell_verbose_status(int idx)
   }
 #ifdef TLS
   dprintf(idx, "TLS support is enabled.\n"
-               "TLS library: wolfSSL %s (%s)\n",
-          LIBWOLFSSL_VERSION_STRING, MISC_HEADERVERSION);
+               "TLS library: opssl %s\n",
+          opssl_version_string());
 #else
   dprintf(idx, "TLS support is not available.\n");
 #endif
@@ -550,7 +550,7 @@ void chanprog(void)
         printf("User file created.  Say '%s hello' on IRC or connect via DCC to set your password.\n\n", origbotname);
       } else {
         op_strbuf_t tmp;
-        op_strbuf_printf(&tmp, MISC_NOUSERFILE, configfile);
+        op_strbuf_appendf(&tmp, MISC_NOUSERFILE, configfile);
         fatal(op_strbuf_str(&tmp), 0);
         op_strbuf_free(&tmp);
       }
@@ -616,7 +616,7 @@ static void egg_timer_fire(void *arg)
 
   {
     op_strbuf_t x;
-    op_strbuf_printf(&x, "timer%lu", t->id);
+    op_strbuf_appendf(&x, "timer%lu", t->id);
     do_tcl(op_strbuf_str(&x), t->cmd);
     op_strbuf_free(&x);
   }
@@ -670,7 +670,7 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
     }
   } else {
     op_strbuf_t name_buf;
-    op_strbuf_printf(&name_buf, "timer%" PRIu64, (*stack)->id);
+    op_strbuf_appendf(&name_buf, "timer%" PRIu64, (*stack)->id);
     (*stack)->name = op_strdup(op_strbuf_str(&name_buf));
     op_strbuf_free(&name_buf);
   }
@@ -751,8 +751,8 @@ void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
     unsigned int remaining = (mark->fire_at > now_t)
       ? (unsigned int)((mark->fire_at - now_t) / mark->secs_per_tick) : 0;
     op_strbuf_t ticks, count;
-    op_strbuf_printf(&ticks, "%u", remaining);
-    op_strbuf_printf(&count, "%u", mark->count);
+    op_strbuf_appendf(&ticks, "%u", remaining);
+    op_strbuf_appendf(&count, "%u", mark->count);
     argv[0] = op_strbuf_str(&ticks);
     argv[1] = mark->cmd;
     argv[2] = mark->name;
@@ -801,7 +801,6 @@ int isowner(char *name) {
 void add_hq_user(void)
 {
   if (!backgrd && term_z >= 0) {
-    /* HACK: Workaround using dcc[].nick not to pass literal "-HQ" as a non-const arg */
     dcc[term_z].user = get_user_by_handle(userlist, dcc[term_z].nick);
     /* Make sure there's an innocuous -HQ user if needed */
     if (!dcc[term_z].user) {

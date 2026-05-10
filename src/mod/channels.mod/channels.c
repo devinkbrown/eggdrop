@@ -508,7 +508,7 @@ static void write_channels(void)
   char *tmpfile;
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", chanfile);
+    op_strbuf_appendf(&_b, "%s~new", chanfile);
     tmpfile = op_strbuf_steal(&_b);
   }
   f = fopen(tmpfile, "w");
@@ -666,7 +666,7 @@ static void backup_chanfile(void)
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "Backing up channel file...");
   op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s~bak", chanfile);
+  op_strbuf_appendf(&_b, "%s~bak", chanfile);
   copyfile(chanfile, op_strbuf_str(&_b));
   op_strbuf_free(&_b);
 }
@@ -705,7 +705,7 @@ static void channels_report(int idx, int details)
       continue;
 
     op_strbuf_t s;
-    op_strbuf_printf(&s, "    %-20s: ", chan->dname);
+    op_strbuf_appendf(&s, "    %-20s: ", chan->dname);
 
     if (channel_inactive(chan))
       op_strbuf_append_cstr(&s, "(inactive)");

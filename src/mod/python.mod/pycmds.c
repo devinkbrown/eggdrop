@@ -431,7 +431,7 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   hash = PyObject_Hash((PyObject *)bind);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
+    op_strbuf_appendf(&_b, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
     strlcpy(bind->tclcmdname, op_strbuf_str(&_b), sizeof bind->tclcmdname);
     op_strbuf_free(&_b);
   }
@@ -589,7 +589,6 @@ static PyObject *py_findtclfunc(PyObject *self, PyObject *args) {
     PyErr_SetString(EggdropError, "wrong arguments");
     return NULL;
   }
-  // TODO: filter a bit better what is available to Python, specify return types ("list of string"), etc.
   if (!(Tcl_FindCommand(tclinterp, cmdname, NULL, TCL_GLOBAL_ONLY))) {
     PyErr_SetString(PyExc_AttributeError, cmdname);
     return NULL;
@@ -943,7 +942,7 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+    op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
     u = get_user_by_host(op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
@@ -968,7 +967,7 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
   for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+      op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
       u = get_user_by_host(op_strbuf_str(&_b));
       op_strbuf_free(&_b);
     }
@@ -1116,16 +1115,16 @@ static PyObject *py_maskhost(PyObject *self, PyObject *args)
     /* If only host given, build *!*@*.domain or *!*@host */
     dot = strchr(userhost, '.');
     if (dot)
-      op_strbuf_printf(&buf, "*!*@*%s", dot);
+      op_strbuf_appendf(&buf, "*!*@*%s", dot);
     else
-      op_strbuf_printf(&buf, "*!*@%s", userhost);
+      op_strbuf_appendf(&buf, "*!*@%s", userhost);
   } else {
     /* userhost is user@host */
     dot = strchr(at + 1, '.');
     if (dot)
-      op_strbuf_printf(&buf, "*!*@*%s", dot);
+      op_strbuf_appendf(&buf, "*!*@*%s", dot);
     else
-      op_strbuf_printf(&buf, "*!*@%s", at + 1);
+      op_strbuf_appendf(&buf, "*!*@%s", at + 1);
   }
   PyObject *ret = PyUnicode_FromString(op_strbuf_str(&buf));
   op_strbuf_free(&buf);
@@ -1241,10 +1240,10 @@ static PyObject *py_die(PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple(args, "|s", &reason))
     return NULL;
   if (reason && reason[0]) {
-    op_strbuf_printf(&s, "BOT SHUTDOWN (%s)", reason);
+    op_strbuf_appendf(&s, "BOT SHUTDOWN (%s)", reason);
     strlcpy(quit_msg, reason, 1024);
   } else {
-    op_strbuf_printf(&s, "BOT SHUTDOWN (No reason)");
+    op_strbuf_appendf(&s, "BOT SHUTDOWN (No reason)");
     quit_msg[0] = 0;
   }
   kill_bot(op_strbuf_str(&s), quit_msg[0] ? quit_msg : "EXIT");
@@ -2182,7 +2181,7 @@ static PyObject *py_putbot(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "bot is not on the botnet");
     return NULL;
   }
-  op_strbuf_printf(&_b, "%s", msg);
+  op_strbuf_appendf(&_b, "%s", msg);
   botnet_send_zapf(i, botnetnick, botnick, op_strbuf_str(&_b));
   op_strbuf_free(&_b);
   Py_RETURN_NONE;
@@ -2196,7 +2195,7 @@ static PyObject *py_putallbots(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &msg))
     return NULL;
-  op_strbuf_printf(&_b, "%s", msg);
+  op_strbuf_appendf(&_b, "%s", msg);
   botnet_send_zapf_broad(-1, botnetnick, NULL, op_strbuf_str(&_b));
   op_strbuf_free(&_b);
   Py_RETURN_NONE;
@@ -4042,8 +4041,8 @@ static PyObject *py_link(PyObject *self, PyObject *args)
   if (via) {
     /* link(via, bot) — two-arg form: send link request through via-bot */
     op_strbuf_t _via, _bot;
-    op_strbuf_printf(&_via, "%s", bot);
-    op_strbuf_printf(&_bot, "%s", via);
+    op_strbuf_appendf(&_via, "%s", bot);
+    op_strbuf_appendf(&_bot, "%s", via);
     int i = nextbot((char *)op_strbuf_str(&_via));
     if (i < 0) {
       op_strbuf_free(&_via);
@@ -4056,7 +4055,7 @@ static PyObject *py_link(PyObject *self, PyObject *args)
     return PyLong_FromLong(1L);
   }
   op_strbuf_t _bot;
-  op_strbuf_printf(&_bot, "%s", bot);
+  op_strbuf_appendf(&_bot, "%s", bot);
   PyObject *_ret = PyLong_FromLong((long)botlink("", -2, (char *)op_strbuf_str(&_bot)));
   op_strbuf_free(&_bot);
   return _ret;
@@ -4070,7 +4069,7 @@ static PyObject *py_unlink(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &comment))
     return NULL;
-  op_strbuf_printf(&_b, "%s", bot);
+  op_strbuf_appendf(&_b, "%s", bot);
   int i = nextbot((char *)op_strbuf_str(&_b));
   if (i < 0) {
     op_strbuf_free(&_b);
@@ -4946,7 +4945,7 @@ static PyObject *py_monitor(PyObject *self, PyObject *args)
   /* +nick or -nick: send raw MONITOR command */
   if (action[0] == '+' || action[0] == '-') {
     op_strbuf_t buf;
-    op_strbuf_printf(&buf, "MONITOR %c %s", action[0], action + 1);
+    op_strbuf_appendf(&buf, "MONITOR %c %s", action[0], action + 1);
     dprintf(DP_SERVER, "%s\n", op_strbuf_str(&buf));
     op_strbuf_free(&buf);
     Py_RETURN_TRUE;
@@ -5164,7 +5163,7 @@ static PyObject *py_unames(PyObject *self, PyObject *args)
   if (uname(&un) < 0)
     return PyUnicode_FromString("unknown");
   op_strbuf_t buf;
-  op_strbuf_printf(&buf, "%s %s %s %s %s", un.sysname, un.nodename,
+  op_strbuf_appendf(&buf, "%s %s %s %s %s", un.sysname, un.nodename,
                    un.release, un.version, un.machine);
   PyObject *result = PyUnicode_FromString(op_strbuf_str(&buf));
   op_strbuf_free(&buf);

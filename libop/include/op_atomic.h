@@ -193,6 +193,74 @@ _op_fetch_add_64(volatile long long *p, long long v)
     atomic_fetch_sub((obj), (val))
 
 /* -------------------------------------------------------------------------
+ * atomic_fetch_or / atomic_fetch_and
+ *
+ * Returns the value BEFORE the operation (same as C11 semantics).
+ * ---------------------------------------------------------------------- */
+
+static __forceinline long
+_op_fetch_or_32(volatile long *p, long v)
+{
+    return InterlockedOr(p, v);
+}
+
+static __forceinline long long
+_op_fetch_or_64(volatile long long *p, long long v)
+{
+    return InterlockedOr64(p, v);
+}
+
+static __forceinline long
+_op_fetch_and_32(volatile long *p, long v)
+{
+    return InterlockedAnd(p, v);
+}
+
+static __forceinline long long
+_op_fetch_and_64(volatile long long *p, long long v)
+{
+    return InterlockedAnd64(p, v);
+}
+
+# define atomic_fetch_or(obj, val)                                 \
+    _Generic((obj),                                                \
+        volatile int *:               _op_fetch_or_32(             \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile long *:              _op_fetch_or_32(             \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile unsigned int *:      _op_fetch_or_32(             \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile long long *:         _op_fetch_or_64(             \
+                (volatile long long *)(obj), (long long)(val)),    \
+        volatile unsigned long long *:_op_fetch_or_64(             \
+                (volatile long long *)(obj), (long long)(val)),    \
+        volatile uint64_t *:          _op_fetch_or_64(             \
+                (volatile long long *)(obj), (long long)(val))     \
+    )
+
+# define atomic_fetch_or_explicit(obj, val, order) \
+    atomic_fetch_or((obj), (val))
+
+# define atomic_fetch_and(obj, val)                                \
+    _Generic((obj),                                                \
+        volatile int *:               _op_fetch_and_32(            \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile long *:              _op_fetch_and_32(            \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile unsigned int *:      _op_fetch_and_32(            \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile long long *:         _op_fetch_and_64(            \
+                (volatile long long *)(obj), (long long)(val)),    \
+        volatile unsigned long long *:_op_fetch_and_64(            \
+                (volatile long long *)(obj), (long long)(val)),    \
+        volatile uint64_t *:          _op_fetch_and_64(            \
+                (volatile long long *)(obj), (long long)(val))     \
+    )
+
+# define atomic_fetch_and_explicit(obj, val, order) \
+    atomic_fetch_and((obj), (val))
+
+/* -------------------------------------------------------------------------
  * atomic_compare_exchange_strong / _weak
  *
  * Returns 1 on success, 0 on failure (updates *expected on failure).
@@ -241,6 +309,39 @@ _op_cas_64(volatile long long *p, long long *expected, long long desired)
     atomic_compare_exchange_strong((obj), (exp), (des))
 # define atomic_compare_exchange_weak                  atomic_compare_exchange_strong
 # define atomic_compare_exchange_weak_explicit         atomic_compare_exchange_strong_explicit
+
+/* -------------------------------------------------------------------------
+ * atomic_exchange
+ * ---------------------------------------------------------------------- */
+
+static __forceinline long
+_op_exchange_32(volatile long *p, long val)
+{
+    return InterlockedExchange(p, val);
+}
+
+static __forceinline long long
+_op_exchange_64(volatile long long *p, long long val)
+{
+    return InterlockedExchange64(p, val);
+}
+
+# define atomic_exchange(obj, val)                                 \
+    _Generic((obj),                                                \
+        volatile int *:               _op_exchange_32(             \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile long *:              _op_exchange_32(             \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile unsigned int *:      _op_exchange_32(             \
+                (volatile long *)(obj), (long)(val)),              \
+        volatile long long *:         _op_exchange_64(             \
+                (volatile long long *)(obj), (long long)(val)),    \
+        volatile unsigned long long *:_op_exchange_64(             \
+                (volatile long long *)(obj), (long long)(val))     \
+    )
+
+# define atomic_exchange_explicit(obj, val, order) \
+    atomic_exchange((obj), (val))
 
 /* -------------------------------------------------------------------------
  * Fence

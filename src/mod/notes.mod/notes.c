@@ -122,7 +122,7 @@ static void notes_change(char *oldnick, char *newnick)
     return;
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
     if (g == NULL) {
       op_strbuf_free(&_b);
@@ -156,7 +156,7 @@ static void notes_change(char *oldnick, char *newnick)
   unlink(notefile);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
@@ -179,7 +179,7 @@ static void expire_notes(void)
     return;
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
     if (g == NULL) {
       op_strbuf_free(&_b);
@@ -215,7 +215,7 @@ static void expire_notes(void)
   unlink(notefile);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
@@ -289,7 +289,7 @@ static int tcl_storenote STDVAR
                             argv[1], argv[3]);
           {
             op_strbuf_t _b;
-            op_strbuf_printf(&_b, "@%s", botnetnick);
+            op_strbuf_appendf(&_b, "@%s", botnetnick);
             strlcpy(u, op_strbuf_str(&_b), sizeof u);
             op_strbuf_free(&_b);
           }
@@ -423,7 +423,7 @@ static int tcl_erasenotes STDVAR
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
     if (g == NULL) {
       op_strbuf_free(&_b);
@@ -460,7 +460,7 @@ static int tcl_erasenotes STDVAR
   unlink(notefile);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
@@ -543,9 +543,9 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
           {
             op_strbuf_t _xd;
             if (lapse >= note_life)
-              op_strbuf_printf(&_xd, "%s%s", wt, NOTES_EXPIRE_TODAY);
+              op_strbuf_appendf(&_xd, "%s%s", wt, NOTES_EXPIRE_TODAY);
             else {
-              op_strbuf_printf(&_xd, "%s", wt);
+              op_strbuf_appendf(&_xd, "%s", wt);
               op_strbuf_appendf(&_xd, NOTES_EXPIRE_XDAYS,
                       note_life - lapse, (note_life - lapse) == 1 ? "" : "S");
             }
@@ -632,7 +632,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
     if (g == NULL) {
       op_strbuf_free(&_b);
@@ -673,7 +673,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   unlink(notefile);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s~new", notefile);
+    op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
     op_strbuf_free(&_b);
   }
@@ -1041,7 +1041,7 @@ int add_note_ignore(struct userrec *u, char *mask)
   } else {                        /* ... else, we already have other entries. */
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s %s", xk->data, mask);
+      op_strbuf_appendf(&_b, "%s %s", xk->data, mask);
       xk->data = user_realloc(xk->data, op_strbuf_len(&_b) + 1);
       strlcpy(xk->data, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);
@@ -1067,9 +1067,9 @@ int del_note_ignore(struct userrec *u, char *mask)
     if (strcmp(ignores[i], mask)) {
       op_strbuf_t _b;
       if (buf[0])
-        op_strbuf_printf(&_b, "%s %s", buf, ignores[i]);
+        op_strbuf_appendf(&_b, "%s %s", buf, ignores[i]);
       else
-        op_strbuf_printf(&_b, "%s", ignores[i]);
+        op_strbuf_appendf(&_b, "%s", ignores[i]);
       buf = user_realloc(buf, op_strbuf_len(&_b) + 1);
       strlcpy(buf, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
       op_strbuf_free(&_b);

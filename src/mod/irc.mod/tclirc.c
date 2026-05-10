@@ -618,7 +618,7 @@ static int tcl_chanmasks(masklist *m, Tcl_Interp *irp)
     list[0] = m->mask;
     list[1] = m->who;
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%" PRId64, (int64_t) (now - m->timer));
+    op_strbuf_appendf(&_b, "%" PRId64, (int64_t) (now - m->timer));
     list[2] = op_strbuf_str(&_b);
     p = Tcl_Merge(3, list);
     op_strbuf_free(&_b);
@@ -705,7 +705,7 @@ static int tcl_getchanjoin STDVAR
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%" PRIu64, (uint64_t) m->joined);
+    op_strbuf_appendf(&_b, "%" PRIu64, (uint64_t) m->joined);
     Tcl_AppendResult(irp, op_strbuf_str(&_b), NULL);
     op_strbuf_free(&_b);
   }

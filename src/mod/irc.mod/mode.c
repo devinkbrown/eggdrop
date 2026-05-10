@@ -127,7 +127,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     /* 'sizeof(post) - 1' is used because we want to overwrite the old null */
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s ", int_to_base10(chan->limit));
+      op_strbuf_appendf(&_b, "%s ", int_to_base10(chan->limit));
       char *_dst = &post[(sizeof(post) - 1) - postsize];
       strlcpy(_dst, op_strbuf_str(&_b), postsize + 1);
       op_strbuf_free(&_b);
@@ -283,12 +283,6 @@ static void real_add_mode(struct chanset_t *chan,
     type = (plus == '+' ? PLUS : MINUS) | (mode == 'o' ? CHOP : (mode == 'h' ?
            CHHOP : (mode == 'b' ? BAN : (mode == 'v' ? VOICE : (mode == 'e' ?
            EXEMPT : INVITE)))));
-    /*
-     * FIXME: Some networks remove overlapped bans,
-     *        IRCnet does not (poptix/drummer)
-     *
-     * Note:  On IRCnet ischanXXX() should be used, otherwise isXXXed().
-     */
     if ((plus == '-' && ((mode == 'b' && !ischanban(chan, op)) ||
         (mode == 'e' && !ischanexempt(chan, op)) ||
         (mode == 'I' && !ischaninvite(chan, op)))) || (plus == '+' &&
@@ -360,9 +354,9 @@ static void real_add_mode(struct chanset_t *chan,
     /* Typical mode changes */
     op_strbuf_t s;
     if (plus == '+')
-      op_strbuf_printf(&s, "%s", chan->pls);
+      op_strbuf_appendf(&s, "%s", chan->pls);
     else
-      op_strbuf_printf(&s, "%s", chan->mns);
+      op_strbuf_appendf(&s, "%s", chan->mns);
     if (!strchr(op_strbuf_str(&s), mode)) {
       if (plus == '+') {
         chan->pls[strlen(chan->pls) + 1] = 0;
@@ -437,7 +431,7 @@ static void got_op(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s;
-  op_strbuf_printf(&_s, "%s!%s", m->nick, m->userhost);
+  op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
 
   get_user_flagrec(u, &victim, chan->dname);
@@ -537,7 +531,7 @@ static void got_halfop(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s;
-  op_strbuf_printf(&_s, "%s!%s", m->nick, m->userhost);
+  op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
 
   get_user_flagrec(u, &victim, chan->dname);
@@ -628,8 +622,8 @@ static void got_deop(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof ch);
   op_strbuf_t _s, _s1;
-  op_strbuf_printf(&_s, "%s!%s", m->nick, m->userhost);
-  op_strbuf_printf(&_s1, "%s!%s", nick, from);
+  op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
+  op_strbuf_appendf(&_s1, "%s!%s", nick, from);
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);
 
@@ -725,8 +719,8 @@ static void got_dehalfop(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof ch);
   op_strbuf_t _s, _s1;
-  op_strbuf_printf(&_s, "%s!%s", m->nick, m->userhost);
-  op_strbuf_printf(&_s1, "%s!%s", nick, from);
+  op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
+  op_strbuf_appendf(&_s1, "%s!%s", nick, from);
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);
 
@@ -804,7 +798,7 @@ static void got_owner(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s;
-  op_strbuf_printf(&_s, "%s!%s", m->nick, m->userhost);
+  op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);
 
@@ -853,7 +847,7 @@ static void got_deowner(struct chanset_t *chan, char *nick, char *from,
   strlcpy(ch, chan->name, sizeof ch);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+    op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
 
     m->flags &= ~(CHANOWNER | SENTDEOWNER);
 
@@ -881,8 +875,8 @@ static void got_ban(struct chanset_t *chan, char *nick, char *from, char *who,
   struct userrec *targ;
 
   op_strbuf_t _me, _s;
-  op_strbuf_printf(&_me, "%s!%s", botname, botuserhost);
-  op_strbuf_printf(&_s, "%s!%s", nick, from);
+  op_strbuf_appendf(&_me, "%s!%s", botname, botuserhost);
+  op_strbuf_appendf(&_s, "%s!%s", nick, from);
   newban(chan, who, op_strbuf_str(&_s));
   op_strbuf_free(&_s);
   check_tcl_mode(nick, from, u, chan->dname, "+b", who);
@@ -913,7 +907,8 @@ static void got_ban(struct chanset_t *chan, char *nick, char *from, char *who,
     op_strbuf_t _s1;
     op_strbuf_init(&_s1);
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-      op_strbuf_reset(&_s1, "%s!%s", m->nick, m->userhost);
+      op_strbuf_clear(&_s1);
+      op_strbuf_appendf(&_s1, "%s!%s", m->nick, m->userhost);
       if (match_addr(who, op_strbuf_str(&_s1))) {
         targ = get_user_from_member(m);
         if (targ) {
@@ -942,7 +937,8 @@ static void got_ban(struct chanset_t *chan, char *nick, char *from, char *who,
       for (b = cycle ? chan->bans : global_bans; b; b = b->next) {
         if (match_addr(b->mask, who)) {
           if (b->desc && b->desc[0] != '@') {
-            op_strbuf_reset(&_resn, "%s %s", IRC_PREBANNED, b->desc);
+            op_strbuf_clear(&_resn);
+            op_strbuf_appendf(&_resn, "%s %s", IRC_PREBANNED, b->desc);
           } else
             op_strbuf_clear(&_resn);
         }
@@ -1000,7 +996,7 @@ static void got_exempt(struct chanset_t *chan, char *nick, char *from,
                        char *who, char *ch, struct userrec *u)
 {
   op_strbuf_t _s;
-  op_strbuf_printf(&_s, "%s!%s", nick, from);
+  op_strbuf_appendf(&_s, "%s!%s", nick, from);
   newexempt(chan, who, op_strbuf_str(&_s));
   op_strbuf_free(&_s);
   check_tcl_mode(nick, from, u, chan->dname, "+e", who);
@@ -1080,7 +1076,7 @@ static void got_invite(struct chanset_t *chan, char *nick, char *from,
                        char *who, char *ch, struct userrec *u)
 {
   op_strbuf_t _s;
-  op_strbuf_printf(&_s, "%s!%s", nick, from);
+  op_strbuf_appendf(&_s, "%s!%s", nick, from);
   newinvite(chan, who, op_strbuf_str(&_s));
   op_strbuf_free(&_s);
   check_tcl_mode(nick, from, u, chan->dname, "+I", who);
@@ -1324,13 +1320,13 @@ static int gotmode(char *from, char *origmsg)
             if (channel_active(chan)) {
               if (reversing && (chan->channel.maxmembers != 0)) {
                 op_strbuf_t lim;
-                op_strbuf_printf(&lim, "%d", chan->channel.maxmembers);
+                op_strbuf_appendf(&lim, "%d", chan->channel.maxmembers);
                 add_mode(chan, '+', 'l', op_strbuf_str(&lim));
                 op_strbuf_free(&lim);
               } else if ((chan->limit_prot != 0) && !glob_master(user) &&
                          !chan_master(user) && !match_my_nick(nick)) {
                 op_strbuf_t lim;
-                op_strbuf_printf(&lim, "%d", chan->limit_prot);
+                op_strbuf_appendf(&lim, "%d", chan->limit_prot);
                 add_mode(chan, '+', 'l', op_strbuf_str(&lim));
                 op_strbuf_free(&lim);
               }
@@ -1357,7 +1353,7 @@ static int gotmode(char *from, char *origmsg)
                 (chan->mode_pls_prot & CHANLIMIT) && (chan->limit_prot != 0) &&
                 !glob_master(user) && !chan_master(user)) {
               op_strbuf_t lim;
-              op_strbuf_printf(&lim, "%d", chan->limit_prot);
+              op_strbuf_appendf(&lim, "%d", chan->limit_prot);
               add_mode(chan, '+', 'l', op_strbuf_str(&lim));
               op_strbuf_free(&lim);
             }
@@ -1420,7 +1416,7 @@ static int gotmode(char *from, char *origmsg)
             refresh_who_chan(chan->name);
           } else {
             op_strbuf_t _vs;
-            op_strbuf_printf(&_vs, "%s!%s", m->nick, m->userhost);
+            op_strbuf_appendf(&_vs, "%s!%s", m->nick, m->userhost);
             get_user_flagrec(get_user_from_member(m), &victim, chan->dname);
             if (ms2[0] == '+') {
               m->flags &= ~SENTVOICE;

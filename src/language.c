@@ -428,7 +428,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
 
   for (int i = 0; i < ndirs; i++) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
+    op_strbuf_appendf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
     langfile = op_strbuf_steal(&_b);
     if (file_readable(langfile)) {
       /* Save language used for this section */
@@ -604,7 +604,8 @@ char *get_language(int idx)
   for (l = langtab[idx & 63]; l; l = l->next)
     if (idx == l->idx)
       return l->text;
-  op_strbuf_reset(&text, "MSG%03X", idx);
+  op_strbuf_clear(&text);
+  op_strbuf_appendf(&text, "MSG%03X", idx);
   return (char *) op_strbuf_str(&text);
 }
 

@@ -124,7 +124,7 @@ static __attribute__((unused)) char *dns_change(ClientData cdata, Tcl_Interp *ir
     Tcl_DStringInit(&ds);
     for (i = 0; i < myres.nscount; i++) {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s:%s", iptostr((struct sockaddr *) &myres.nsaddr_list[i]),
+      op_strbuf_appendf(&_b, "%s:%s", iptostr((struct sockaddr *) &myres.nsaddr_list[i]),
                        int_to_base10(ntohs(myres.nsaddr_list[i].sin_port)));
       Tcl_DStringAppendElement(&ds, op_strbuf_str(&_b));
       op_strbuf_free(&_b);
@@ -253,7 +253,7 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
 #ifdef EGG_TLS
     if (dot_active || dot_sa_valid) {
       op_strbuf_t _port;
-      op_strbuf_printf(&_port, "%u", dot_port_saved ? dot_port_saved : 853);
+      op_strbuf_appendf(&_port, "%u", dot_port_saved ? dot_port_saved : 853);
       Tcl_AppendResult(irp, dot_active ? "on " : "connecting ", dot_host, ":",
                        op_strbuf_str(&_port), NULL);
       op_strbuf_free(&_port);

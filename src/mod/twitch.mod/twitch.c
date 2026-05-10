@@ -214,7 +214,7 @@ static int check_tcl_clearchat(char *chan, char *nick) {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   op_strbuf_t _b;
 
-  op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
+  op_strbuf_appendf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
   Tcl_SetVar(interp, "_ccht1", nick ? (char *) nick : "", 0);
   Tcl_SetVar(interp, "_ccht2", chan, 0);
   x = check_tcl_bind(H_ccht, op_strbuf_str(&_b), &fr, " $_ccht1 $_ccht2",
@@ -228,7 +228,7 @@ static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   op_strbuf_t _b;
 
-  op_strbuf_printf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
+  op_strbuf_appendf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
   Tcl_SetVar(interp, "_cmsg1", nick, 0);
   Tcl_SetVar(interp, "_cmsg2", chan, 0);
   Tcl_SetVar(interp, "_cmsg3", msgid, 0);
@@ -244,7 +244,7 @@ static int check_tcl_hosttarget(char *chan, char *nick, char *viewers) {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
   op_strbuf_t _b;
 
-  op_strbuf_printf(&_b, "%s %s", chan, nick);
+  op_strbuf_appendf(&_b, "%s %s", chan, nick);
   Tcl_SetVar(interp, "_htgt1", nick, 0);
   Tcl_SetVar(interp, "_htgt2", chan, 0);
   Tcl_SetVar(interp, "_htgt3", viewers, 0);
@@ -285,9 +285,9 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   if (msg[0]) {                     /* Re-attach the cmd to the msg */
-    op_strbuf_printf(&args_buf, "%s %s", cmd, msg);
+    op_strbuf_appendf(&args_buf, "%s %s", cmd, msg);
   } else
-    op_strbuf_printf(&args_buf, "%s", cmd);
+    op_strbuf_appendf(&args_buf, "%s", cmd);
   const char *args = op_strbuf_str(&args_buf);
   u = get_user_by_host(from);
   get_user_flagrec(u, &fr, NULL);
@@ -305,7 +305,7 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
 static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
   op_strbuf_t _b;
 
-  op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
+  op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_rmst1", chan, 0);
   Tcl_SetVar(interp, "_rmst2", Tcl_GetString(tags), 0);
   check_tcl_bind(H_rmst, op_strbuf_str(&_b), NULL, " $_rmst1 $_rmst2",
@@ -316,7 +316,7 @@ static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
 static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
   op_strbuf_t _b;
 
-  op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
+  op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usst1", chan, 0);
   Tcl_SetVar(interp, "_usst2", Tcl_GetString(tags), 0);
   check_tcl_bind(H_usst, op_strbuf_str(&_b), NULL, " $_usst1 $_usst2",
@@ -327,7 +327,7 @@ static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
 static void check_tcl_usernotice(char *chan, char *msg, Tcl_Obj *tags) {
   op_strbuf_t _b;
 
-  op_strbuf_printf(&_b, "%s %s", chan, encode_msgtags(tags));
+  op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usrntc1", chan, 0);
   Tcl_SetVar(interp, "_usrntc2", Tcl_GetString(tags), 0);
   Tcl_SetVar(interp, "_usrntc3", msg ? msg : "", 0);
@@ -450,7 +450,7 @@ static int gothosttarget(char *from, char *msg) {
   nick = newsplit(&msg);
   viewers = newsplit(&msg);
   if (viewers)
-    op_strbuf_printf(&_b, " (Viewers: %s)", viewers);
+    op_strbuf_appendf(&_b, " (Viewers: %s)", viewers);
   check_tcl_hosttarget(chan, nick, viewers);
   if (nick[0] == '-') {             /* Check if it is an unhost */
     putlog(LOG_SERV, "*", "* TWITCH: %s has stopped host mode.", chan);

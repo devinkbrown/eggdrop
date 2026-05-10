@@ -28,11 +28,6 @@
 
 #include "src/main.h"
 
-#ifdef HAVE_WOLFSSL
-/* wolfSSL provides MD5 via its OpenSSL compat layer — use it if available. */
-#  include <wolfssl/openssl/md5.h>
-#else
-
 /* Any 32-bit or wider unsigned integer data type will do */
 typedef unsigned int MD5_u32plus;
 
@@ -43,9 +38,10 @@ typedef struct {
 	MD5_u32plus block[16];
 } MD5_CTX;
 
+#ifndef MAKING_MODS
 extern void MD5_Init(MD5_CTX *ctx);
 extern void MD5_Update(MD5_CTX *ctx, const void *data, unsigned long size);
 extern void MD5_Final(unsigned char *result, MD5_CTX *ctx);
+#endif
 
-#endif /* HAVE_OPENSSL_MD5 */
 #endif /* _MD5_H */

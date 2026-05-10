@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>   /* pthread_mutex_t — guards per-heap free list */
+#include <op_atomic.h> /* _Atomic, atomic_* — magazine generation counter */
 
 /* memfd_create is Linux 3.17+; detect at compile time. */
 #if defined(__linux__) && defined(__NR_memfd_create)
@@ -114,6 +115,10 @@ struct op_bh
 	/* Thread-safety: protects free_head, nfree, nused, and block_list growth.
 	 * Callers may be on any thread (I/O thread or worker pool threads). */
 	pthread_mutex_t lock;
+	/* Generation counter: bumped on destroy.  Thread-local magazines cache
+	 * the generation at creation; a mismatch means the heap was destroyed
+	 * and the address reused — the magazine must be discarded. */
+	_Atomic(uint32_t) generation;
 };
 
 static op_dlink_list *heap_lists;
@@ -189,6 +194,7 @@ op_bh_alloc_struct(size_t elemsize, size_t elemsperblock, const char *desc)
 	bh->desc          = (desc != NULL) ? op_strdup(desc) : NULL;
 	bh->shmem_fd      = -1;
 	bh->shmem_size    = 0;
+	atomic_init(&bh->generation, 0);
 	if (pthread_mutex_init(&bh->lock, NULL) != 0)
 		op_bh_fail("op_bh_alloc_struct: pthread_mutex_init failed");
 	return bh;
@@ -395,6 +401,139 @@ op_bh_attach_shmem(int fd, size_t size, const char *desc)
 #endif /* HAVE_MEMFD */
 }
 
+/* =========================================================================
+ * Thread-local magazine cache
+ *
+ * Each thread maintains a small cache of free elements per heap, amortising
+ * the pthread_mutex_lock cost: instead of locking on every alloc/free, we
+ * lock once per MAGAZINE_SIZE operations (batch refill/flush).
+ *
+ * Magazine capacity is tuned for the typical IRC workload: small, frequent
+ * allocations of linebuf, dnode, sendbuf_chunk objects.
+ * ====================================================================== */
+
+#define MAGAZINE_SIZE    32     /* elements per magazine */
+#define MAG_HASH_SIZE    64     /* buckets in per-thread magazine table */
+#define MAG_HASH_MASK    (MAG_HASH_SIZE - 1)
+
+typedef struct op_bh_magazine {
+	op_bh               *heap;     /* which heap this magazine belongs to */
+	struct op_bh_magazine *hash_next; /* chaining in the per-thread hash */
+	void                *items[MAGAZINE_SIZE];
+	int                  count;    /* number of items currently cached */
+	uint32_t             generation; /* heap generation at magazine creation */
+} op_bh_magazine_t;
+
+/* Per-thread magazine hash table — maps op_bh* → magazine. */
+typedef struct {
+	op_bh_magazine_t *buckets[MAG_HASH_SIZE];
+} mag_table_t;
+
+static _Thread_local mag_table_t *tl_mag_table = NULL;
+
+static inline uint32_t
+mag_hash_ptr(const op_bh *bh)
+{
+	uintptr_t v = (uintptr_t)bh;
+	v ^= v >> 16;
+	v *= 0x45d9f3b;
+	v ^= v >> 16;
+	return (uint32_t)(v & MAG_HASH_MASK);
+}
+
+static op_bh_magazine_t *
+mag_find_or_create(op_bh *bh)
+{
+	if (op_unlikely(tl_mag_table == NULL)) {
+		tl_mag_table = calloc(1, sizeof(mag_table_t));
+		if (tl_mag_table == NULL)
+			op_bh_fail("mag_find_or_create: calloc failed");
+	}
+
+	uint32_t cur_gen = atomic_load_explicit(&bh->generation,
+	                                        memory_order_relaxed);
+	uint32_t idx = mag_hash_ptr(bh);
+	op_bh_magazine_t *m = tl_mag_table->buckets[idx];
+	while (m != NULL) {
+		if (m->heap == bh) {
+			if (op_unlikely(m->generation != cur_gen)) {
+				/* Heap was destroyed and address reused —
+				 * discard stale cached pointers. */
+				m->count      = 0;
+				m->generation = cur_gen;
+			}
+			return m;
+		}
+		m = m->hash_next;
+	}
+
+	/* Create a new magazine for this heap on this thread. */
+	m = calloc(1, sizeof(op_bh_magazine_t));
+	if (m == NULL)
+		op_bh_fail("mag_find_or_create: calloc failed");
+	m->heap       = bh;
+	m->count      = 0;
+	m->generation = cur_gen;
+	m->hash_next  = tl_mag_table->buckets[idx];
+	tl_mag_table->buckets[idx] = m;
+	return m;
+}
+
+/* Refill a magazine from the global heap (called under bh->lock). */
+static void
+mag_refill_locked(op_bh *bh, op_bh_magazine_t *mag)
+{
+	int want = MAGAZINE_SIZE / 2;   /* refill half the magazine */
+	int got  = 0;
+
+	while (got < want) {
+		if (op_unlikely(bh->free_head == NULL))
+			op_bh_grow(bh);
+		mag->items[mag->count] = bh->free_head;
+		bh->free_head = FREELIST_NEXT(mag->items[mag->count]);
+		bh->nfree--;
+		bh->nused++;
+		mag->count++;
+		got++;
+	}
+}
+
+/* Flush magazine items back to the global heap (called under bh->lock). */
+static void
+mag_flush_locked(op_bh *bh, op_bh_magazine_t *mag, int flush_count)
+{
+	for (int i = 0; i < flush_count; i++) {
+		mag->count--;
+		void *ptr = mag->items[mag->count];
+		FREELIST_NEXT(ptr) = bh->free_head;
+		bh->free_head = ptr;
+		bh->nfree++;
+		bh->nused--;
+	}
+}
+
+/* =========================================================================
+ * Memory poisoning (debug builds)
+ *
+ * On free: fill the element with 0xDE so any use-after-free sees garbage.
+ * On alloc: check the poison pattern — if partially overwritten, someone
+ * wrote to a freed element (use-after-free) or we have a double-free.
+ *
+ * The first sizeof(void*) bytes are the free-list pointer, so we skip
+ * those and only check/fill bytes [sizeof(void*) .. elemSize).
+ *
+ * Gated behind NDEBUG so release builds pay zero cost.
+ * ====================================================================== */
+
+#ifndef NDEBUG
+# define OP_BH_POISON_BYTE  0xDE
+# define OP_BH_POISON_CHECK 1
+int op_balloc_poison = 1;  /* on by default in debug builds */
+#else
+# define OP_BH_POISON_CHECK 0
+int op_balloc_poison = 0;
+#endif
+
 void *
 op_bh_alloc(op_bh *bh)
 {
@@ -402,17 +541,40 @@ op_bh_alloc(op_bh *bh)
 	if (op_unlikely(bh == NULL))
 		op_bh_fail("op_bh_alloc: bh == NULL");
 
-	pthread_mutex_lock(&bh->lock);
+	op_bh_magazine_t *mag = mag_find_or_create(bh);
 
-	if (op_unlikely(bh->free_head == NULL))
-		op_bh_grow(bh);  /* grows under the lock */
+	if (op_unlikely(mag->count == 0)) {
+		/* Magazine empty — refill from global heap. */
+		pthread_mutex_lock(&bh->lock);
+		mag_refill_locked(bh, mag);
+		pthread_mutex_unlock(&bh->lock);
+	}
 
-	void *elem    = bh->free_head;
-	bh->free_head = FREELIST_NEXT(elem);
-	bh->nfree--;
-	bh->nused++;
+	void *elem = mag->items[--mag->count];
 
-	pthread_mutex_unlock(&bh->lock);
+#if OP_BH_POISON_CHECK
+	/* Verify poison pattern — skip the free-list pointer area. */
+	if (op_balloc_poison && bh->elemSize > sizeof(void *)) {
+		unsigned char *p   = (unsigned char *)elem + sizeof(void *);
+		size_t         len = bh->elemSize - sizeof(void *);
+		size_t         bad = 0;
+		for (size_t i = 0; i < len; i++) {
+			if (p[i] != OP_BH_POISON_BYTE)
+				bad++;
+		}
+		/* If the block was previously freed it should be fully poisoned.
+		 * A partially-poisoned block means use-after-free corruption.
+		 * A block that was never freed (first alloc from slab) is all
+		 * zeros, so bad == len — that's fine, not a double-free.
+		 * We only flag it when SOME bytes match poison but others don't:
+		 * that means someone wrote into a poisoned (freed) block. */
+		if (bad > 0 && bad < len) {
+			op_lib_log("op_bh_alloc: POISON CHECK FAILED for heap '%s' — "
+			           "possible use-after-free (%zu/%zu bytes corrupted)",
+			           bh->desc ? bh->desc : "(unnamed)", bad, len);
+		}
+	}
+#endif
 
 	memset(elem, 0, bh->elemSize);
 	return elem;
@@ -435,12 +597,40 @@ op_bh_free(op_bh *bh, void *ptr)
 		return;
 	}
 
-	pthread_mutex_lock(&bh->lock);
-	FREELIST_NEXT(ptr) = bh->free_head;
-	bh->free_head = ptr;
-	bh->nfree++;
-	bh->nused--;
-	pthread_mutex_unlock(&bh->lock);
+#if OP_BH_POISON_CHECK
+	/* Check for double-free: if the block is already fully poisoned
+	 * (past the free-list pointer), someone is freeing it again. */
+	if (op_balloc_poison && bh->elemSize > sizeof(void *)) {
+		unsigned char *p   = (unsigned char *)ptr + sizeof(void *);
+		size_t         len = bh->elemSize - sizeof(void *);
+		size_t         poisoned = 0;
+		for (size_t i = 0; i < len; i++) {
+			if (p[i] == OP_BH_POISON_BYTE)
+				poisoned++;
+		}
+		if (poisoned == len) {
+			op_lib_log("op_bh_free: DOUBLE FREE DETECTED for heap '%s' at %p",
+			           bh->desc ? bh->desc : "(unnamed)", ptr);
+			abort();
+		}
+	}
+
+	/* Poison the entire element — the free-list pointer will be set
+	 * below, overwriting the first sizeof(void*) bytes. */
+	if (op_balloc_poison)
+		memset(ptr, OP_BH_POISON_BYTE, bh->elemSize);
+#endif
+
+	op_bh_magazine_t *mag = mag_find_or_create(bh);
+
+	if (op_unlikely(mag->count >= MAGAZINE_SIZE)) {
+		/* Magazine full — flush half back to global heap. */
+		pthread_mutex_lock(&bh->lock);
+		mag_flush_locked(bh, mag, MAGAZINE_SIZE / 2);
+		pthread_mutex_unlock(&bh->lock);
+	}
+
+	mag->items[mag->count++] = ptr;
 }
 
 int
@@ -448,6 +638,25 @@ op_bh_destroy(op_bh *bh)
 {
 	if (bh == NULL)
 		return 1;
+
+	/* Bump the generation so any thread-local magazines caching pointers
+	 * from this heap will detect staleness on their next access. */
+	atomic_fetch_add_explicit(&bh->generation, 1, memory_order_relaxed);
+
+	/* Flush the calling thread's magazine immediately (if any). */
+	if (tl_mag_table != NULL) {
+		uint32_t idx = mag_hash_ptr(bh);
+		op_bh_magazine_t **pp = &tl_mag_table->buckets[idx];
+		while (*pp != NULL) {
+			if ((*pp)->heap == bh) {
+				op_bh_magazine_t *stale = *pp;
+				*pp = stale->hash_next;
+				free(stale);
+				break;
+			}
+			pp = &(*pp)->hash_next;
+		}
+	}
 
 	op_dlinkDelete(&bh->hlist, heap_lists);
 
@@ -463,8 +672,6 @@ op_bh_destroy(op_bh *bh)
 	}
 
 	pthread_mutex_destroy(&bh->lock);
-	if (bh->shmem_fd >= 0)
-		close(bh->shmem_fd);
 	op_free(bh->desc);
 	op_free(bh);
 	return 0;

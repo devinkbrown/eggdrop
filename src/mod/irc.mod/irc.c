@@ -558,8 +558,10 @@ static void status_log(void)
       for (invites = 0, b = chan->channel.invite; b->mask[0]; b = b->next)
         invites++;
 
-      op_strbuf_reset(&s, "%d", exempts);
-      op_strbuf_reset(&s2, "%d", invites);
+      op_strbuf_clear(&s);
+      op_strbuf_appendf(&s, "%d", exempts);
+      op_strbuf_clear(&s2);
+      op_strbuf_appendf(&s2, "%d", invites);
 
       putlog(LOG_MISC, chan->dname,
              "%s%s (%s) : [m/%d o/%d h/%d v/%d n/%d b/%d e/%s I/%s]",
@@ -816,7 +818,7 @@ static int check_tcl_chghost(char *nick, char *from, const char *mask, struct us
   int x;
 
   get_user_flagrec(u, &fr, NULL);
-  op_strbuf_printf(&usermask, "%s!%s@%s", nick, ident, host);
+  op_strbuf_appendf(&usermask, "%s!%s@%s", nick, ident, host);
 
   Tcl_SetVar(interp, "_chghost1", nick, 0);
   Tcl_SetVar(interp, "_chghost2", from, 0);
@@ -960,7 +962,7 @@ static void check_tcl_invite(char *nick, char *from, char *chan, char *invitee)
   Tcl_SetVar(interp, "_invite2", from, 0);
   Tcl_SetVar(interp, "_invite3", chan, 0);
   Tcl_SetVar(interp, "_invite4", invitee, 0);
-  op_strbuf_printf(&args, "%s %s", chan, invitee);
+  op_strbuf_appendf(&args, "%s %s", chan, invitee);
   check_tcl_bind(H_invt, op_strbuf_str(&args), 0,
                  " $_invite1 $_invite2 $_invite3 $_invite4",
                  MATCH_MASK | BIND_STACKABLE);
@@ -1008,7 +1010,7 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
   struct chanset_t *chan;
   memberlist *m;
 
-  op_strbuf_printf(&buf, "%s %s", chname, msg);
+  op_strbuf_appendf(&buf, "%s %s", chname, msg);
   chan = findchan(chname);
   m = ismember(chan, nick);
   if (!m)
@@ -1056,7 +1058,7 @@ static void check_tcl_account(char *nick, char *uhost, struct userrec *u, char *
   op_strbuf_t mask;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
 
-  op_strbuf_printf(&mask, "%s %s!%s %s", chan, nick, uhost, account);
+  op_strbuf_appendf(&mask, "%s %s!%s %s", chan, nick, uhost, account);
   Tcl_SetVar(interp, "_acnt1", nick, 0);
   Tcl_SetVar(interp, "_acnt2", uhost, 0);
   Tcl_SetVar(interp, "_acnt3", u ? u->handle : "*", 0);
@@ -1214,7 +1216,8 @@ static void irc_report(int idx, int details)
         else if ((chan->dname[0] != '+') && !me_op(chan))
           p = MISC_WANTOPS;
       }
-      op_strbuf_reset(&_bch, "%s%s%s%s, ", chan->dname, p ? " (" : "",
+      op_strbuf_clear(&_bch);
+      op_strbuf_appendf(&_bch, "%s%s%s%s, ", chan->dname, p ? " (" : "",
                        p ? p : "", p ? ")" : "");
       l = (int) op_strbuf_len(&_bch);
       if ((k + l) > 70) {

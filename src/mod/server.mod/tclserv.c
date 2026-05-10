@@ -331,7 +331,7 @@ static int tcl_cap STDVAR {
     }
     if ((argc == 3) && (!found)) {
       op_strbuf_t errmsg;
-      op_strbuf_printf(&errmsg, "Capability \"%s\" is not enabled", argv[2]);
+      op_strbuf_appendf(&errmsg, "Capability \"%s\" is not enabled", argv[2]);
       Tcl_AppendResult(irp, op_strbuf_str(&errmsg), NULL);
       op_strbuf_free(&errmsg);
       return TCL_ERROR;
@@ -344,7 +344,7 @@ static int tcl_cap STDVAR {
       return TCL_ERROR;
     } else {
       op_strbuf_t cap_req;
-      op_strbuf_printf(&cap_req, "CAP REQ :%s", argv[2]);
+      op_strbuf_appendf(&cap_req, "CAP REQ :%s", argv[2]);
       dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_req));
       op_strbuf_free(&cap_req);
     }
@@ -352,7 +352,7 @@ static int tcl_cap STDVAR {
   } else if (!strcasecmp(argv[1], "raw")) {
     if (argc == 3) {
       op_strbuf_t cap_raw;
-      op_strbuf_printf(&cap_raw, "CAP %s", argv[2]);
+      op_strbuf_appendf(&cap_raw, "CAP %s", argv[2]);
       dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_raw));
       op_strbuf_free(&cap_raw);
     } else {
@@ -620,7 +620,7 @@ static int tcl_server STDVAR {
 #ifdef TLS
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s%d", z->ssl ? "+" : "", z->port);
+        op_strbuf_appendf(&_b, "%s%d", z->ssl ? "+" : "", z->port);
         Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(op_strbuf_str(&_b), -1));
         op_strbuf_free(&_b);
       }

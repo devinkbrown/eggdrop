@@ -208,8 +208,9 @@ linebuf_copy(buf_head_t *restrict bufhead, buf_line_t *restrict bufline,
 		}
 
 		bufline->terminated = 1;
+		/* Only add the delta — partial bytes were already counted. */
+		bufhead->len       += LINEBUF_SIZE - bufline->len;
 		bufline->len        = LINEBUF_SIZE;
-		bufhead->len       += LINEBUF_SIZE;
 		return consumed;
 	}
 

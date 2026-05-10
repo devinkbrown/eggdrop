@@ -27,7 +27,6 @@
 #define ARRAYCOUNT(x) (sizeof (x) / sizeof *(x))
 
 #include "src/mod/module.h"
-// HACK, but stable API
 #undef interp
 #define tclinterp (*(Tcl_Interp **)(global[128]))
 #undef days
@@ -117,7 +116,7 @@ static char *init_python() {
   config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/bin/python3", venv);
+    op_strbuf_appendf(&_b, "%s/bin/python3", venv);
     const char *venvpython = op_strbuf_str(&_b);
     /* Validate the venv executable exists and is runnable before telling
      * Python to use it.  Py_InitializeFromConfig() issues a fatal (not just

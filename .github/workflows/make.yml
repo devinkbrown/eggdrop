@@ -31,7 +31,7 @@ jobs:
       matrix:
         opt_tls:  [ '', '-Dtls=disabled' ]
         opt_ipv6: [ '', '-Dipv6=false' ]
-        opt_tdns: [ '', '-Dtdns=false' ]
+        opt_tcl:  [ '', '-Dtcl=disabled' ]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -39,4 +39,4 @@ jobs:
       run: sudo apt-get update && sudo apt-get install meson ninja-build tcl tcl-dev openssl libssl-dev
     - uses: ammaraskar/gcc-problem-matcher@master
     - name: Build
-      run: meson setup build --wrap-mode=nodownload ${{ matrix.opt_tls }} ${{ matrix.opt_ipv6 }} ${{ matrix.opt_tdns }} && meson compile -C build
+      run: meson setup build --wrap-mode=nodownload ${{ matrix.opt_tls }} ${{ matrix.opt_ipv6 }} ${{ matrix.opt_tcl }} && meson compile -C build

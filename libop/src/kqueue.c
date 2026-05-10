@@ -120,7 +120,7 @@ typedef struct
 /* Notification pipe: poll thread writes to [1], main thread reads from [0]. */
 static int               kq_notify_pipe[2] = { -1, -1 };
 static pthread_t         kq_poll_tid;
-static atomic_int        kq_thread_stop  = 0;
+static volatile int      kq_thread_stop  = 0;
 static int               kq_thread_active = 0;
 static kq_event_ring_t   kq_ring __attribute__((aligned(64)));
 

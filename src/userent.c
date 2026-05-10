@@ -421,7 +421,7 @@ static int laston_pack(struct userrec *u, struct user_entry *e)
   struct laston_info *li = (struct laston_info *) e->u.extra;
   op_strbuf_t sb;
 
-  op_strbuf_printf(&sb, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
+  op_strbuf_appendf(&sb, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
   e->u.list = alloc_list_type();
   e->u.list->next = NULL;
   e->u.list->extra = op_strbuf_steal(&sb);
@@ -487,7 +487,7 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
   } else {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%" PRId64 " ", (int64_t) li->laston);
+      op_strbuf_appendf(&_b, "%" PRId64 " ", (int64_t) li->laston);
       Tcl_AppendResult(irp, op_strbuf_str(&_b), li->lastonplace, NULL);
       op_strbuf_free(&_b);
     }
@@ -1001,7 +1001,7 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
     t = alloc_list_type();
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s %s", curr->key, curr->data);
+      op_strbuf_appendf(&_b, "%s %s", curr->key, curr->data);
       t->extra = op_strbuf_steal(&_b);
     }
     list_insert((&e->u.list), t);
@@ -1673,5 +1673,10 @@ int set_user(struct user_entry_type *et, struct userrec *u, void *d)
     egg_list_delete((struct list_type **) &(u->entries), (struct list_type *) e);
     free_user_entry(e);
   }
+
+  /* Mark user as dirty when any entry changes */
+  if (r && u)
+    u->dirty = 1;
+
   return r;
 }

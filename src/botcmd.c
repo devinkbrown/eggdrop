@@ -33,7 +33,7 @@ extern int dcc_total, remote_boots, noshare;
 #ifdef TLS
 extern int tls_vfybots;
 extern int tls_vfyclients;
-extern SSL_CTX *ssl_ctx;
+extern opssl_ctx_t *ssl_ctx;
 #endif
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
@@ -113,7 +113,7 @@ static void bot_chan2(int idx, char *msg)
   op_strbuf_t tbuf;
   p = strchr(from, '@');
   if (p) {
-    op_strbuf_printf(&tbuf, "<%s> %s", from, msg);
+    op_strbuf_appendf(&tbuf, "<%s> %s", from, msg);
     *p = 0;
     if (!partyidle(p + 1, from)) {
       *p = '@';
@@ -124,7 +124,7 @@ static void bot_chan2(int idx, char *msg)
     *p = '@';
     p++;
   } else {
-    op_strbuf_printf(&tbuf, "*** (%s) %s", from, msg);
+    op_strbuf_appendf(&tbuf, "*** (%s) %s", from, msg);
     p = from;
   }
   int i = nextbot(p);
@@ -276,7 +276,7 @@ static void bot_bye(int idx, char *par)
   int users = users_in_subtree(findbot(dcc[idx].nick));
   {
     op_strbuf_t s;
-    op_strbuf_printf(&s, "%s %s. %s (lost %d bot%s and %d user%s)",
+    op_strbuf_appendf(&s, "%s %s. %s (lost %d bot%s and %d user%s)",
              BOT_DISCONNECTED, dcc[idx].nick, par[0] ?
              par : "No reason", bots, (bots != 1) ?
              "s" : "", users, (users != 1) ? "s" : "");
@@ -298,7 +298,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
   realnick = realnick ? realnick + 1 : nick;
   putlog(LOG_BOTS, "*", "#%s# who", realnick);
   op_strbuf_t line;
-  op_strbuf_printf(&line, "Channels: ");
+  op_strbuf_appendf(&line, "Channels: ");
   for (struct chanset_t *c = chanset; c; c = c->next) {
     if (!channel_secret(c) && !channel_inactive(c)) {
       size_t l = strlen(c->dname);
@@ -312,7 +312,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
           /* flush this line; always room for trailing ',' */
           op_strbuf_append_cstr(&line, ",");
           botnet_send_priv(idx, botnetnick, nick, NULL, "%s", op_strbuf_str(&line));
-          op_strbuf_printf(&line, "          "); /* 10-space continuation indent */
+          op_strbuf_appendf(&line, "          "); /* 10-space continuation indent */
         }
       }
       op_strbuf_append_cstr(&line, c->dname);
@@ -339,7 +339,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
   else {
     {
       op_strbuf_t tcl_cmd;
-      op_strbuf_printf(&tcl_cmd, "assoc %d", chan);
+      op_strbuf_appendf(&tcl_cmd, "assoc %d", chan);
       if (egg_eval(op_strbuf_str(&tcl_cmd)) || tcl_resultempty())
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s %s%d: (* = owner, + ="
                          " master, %% = botmaster, @ = op, ^ = halfop)\n",
@@ -357,7 +357,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
     if (dcc[i].type->flags & DCT_REMOTEWHO)
       if (dcc[i].u.chat->channel == chan) {
         op_strbuf_t entry;
-        op_strbuf_printf(&entry, "  %c%-15s %s",
+        op_strbuf_appendf(&entry, "  %c%-15s %s",
                          (geticon(i) == '-' ? ' ' : geticon(i)),
                          dcc[i].nick, dcc[i].host);
         if (now - dcc[i].timeval > 300) {
@@ -386,7 +386,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
         botnet_send_priv(idx, botnetnick, nick, NULL, "%s:", BOT_BOTSCONNECTED);
       }
       op_strbuf_t entry;
-      op_strbuf_printf(&entry, "  %s%c%-15s %s",
+      op_strbuf_appendf(&entry, "  %s%c%-15s %s",
               dcc[i].status & STAT_CALLED ? "<-" : "->",
               dcc[i].status & STAT_SHARE ? '+' : ' ',
               dcc[i].nick, dcc[i].u.bot->version);
@@ -402,7 +402,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
           botnet_send_priv(idx, botnetnick, nick, NULL, "%s:", BOT_OTHERPEOPLE);
         }
         op_strbuf_t entry;
-        op_strbuf_printf(&entry, "  %c%-15s %s",
+        op_strbuf_appendf(&entry, "  %c%-15s %s",
                          (geticon(i) == '-' ? ' ' : geticon(i)),
                          dcc[i].nick, dcc[i].host);
         if (now - dcc[i].timeval > 300) {
@@ -429,7 +429,7 @@ static void bot_who(int idx, char *par)
 
   char *from = newsplit(&par);
   if (!strchr(from, '@')) {
-    op_strbuf_printf(&_from_sb, "%s@%s", from, dcc[idx].nick);
+    op_strbuf_appendf(&_from_sb, "%s@%s", from, dcc[idx].nick);
     from = (char *) op_strbuf_str(&_from_sb);
   }
   char *to = newsplit(&par);
@@ -548,11 +548,6 @@ static void bot_unlink(int idx, char *par)
     char *p = strchr(from, '@');
     if (result == 1) {
       if (p) {
-        /* idx will change after unlink -- get new idx
-         *
-         * TODO: This has changed with the new lostdcc() behaviour. Check
-         *       if we can optimise the situation.
-         */
         int i = nextbot(p + 1);
         if (i >= 0)
           botnet_send_priv(i, botnetnick, from, NULL,
@@ -605,14 +600,14 @@ static void bot_nlinked(int idx, char *par)
   if (!next[0]) {
     putlog(LOG_BOTS, "*", "Invalid eggnet protocol from %s (zapfing)",
            dcc[idx].nick);
-    op_strbuf_printf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
+    op_strbuf_appendf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
              MISC_INVALIDBOT);
       dprintf(idx, "e invalid eggnet protocol for 'nlinked'\n");
   } else if ((in_chain(newbot)) || (!strcasecmp(newbot, botnetnick))) {
     /* Loop! */
     putlog(LOG_BOTS, "*", "%s %s (mutual: %s)",
            BOT_LOOPDETECT, dcc[idx].nick, newbot);
-    op_strbuf_printf(&s, "%s %s: disconnecting %s", MISC_LOOP, newbot,
+    op_strbuf_appendf(&s, "%s %s: disconnecting %s", MISC_LOOP, newbot,
              dcc[idx].nick);
       dprintf(idx, "e Loop (%s)\n", newbot);
   }
@@ -628,14 +623,16 @@ static void bot_nlinked(int idx, char *par)
   if (bogus) {
     putlog(LOG_BOTS, "*", "%s %s!  (%s -> %s)", BOT_BOGUSLINK, dcc[idx].nick,
            next, newbot);
-    op_strbuf_reset(&s, "%s: %s %s", BOT_BOGUSLINK, dcc[idx].nick,
+    op_strbuf_clear(&s);
+    op_strbuf_appendf(&s, "%s: %s %s", BOT_BOGUSLINK, dcc[idx].nick,
              MISC_DISCONNECTED);
       dprintf(idx, "e %s (%s -> %s)\n", BOT_BOGUSLINK, next, newbot);
   }
   if (bot_flags(dcc[idx].user) & BOT_LEAF) {
     putlog(LOG_BOTS, "*", "%s %s  (%s %s)",
            BOT_DISCONNLEAF, dcc[idx].nick, newbot, BOT_LINKEDTO);
-    op_strbuf_reset(&s, "%s %s (to %s): %s",
+    op_strbuf_clear(&s);
+    op_strbuf_appendf(&s, "%s %s (to %s): %s",
              BOT_ILLEGALLINK, dcc[idx].nick, newbot, MISC_DISCONNECTED);
       dprintf(idx, "e %s\n", BOT_YOUREALEAF);
   }
@@ -700,7 +697,7 @@ static void bot_trace(int idx, char *par)
   char *dest = newsplit(&par);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s:%s", par, botnetnick);
+    op_strbuf_appendf(&_b, "%s:%s", par, botnetnick);
     botnet_send_traced(idx, from, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
@@ -786,7 +783,7 @@ static void bot_reject(int idx, char *par)
       dprintf(i, "bye %s\n", par[0] ? par : MISC_REJECTED);
       {
         op_strbuf_t s;
-        op_strbuf_printf(&s, "%s %s (%s: %s)",
+        op_strbuf_appendf(&s, "%s %s (%s: %s)",
                  MISC_DISCONNECTED, dcc[i].nick, from,
                  par[0] ? par : MISC_REJECTED);
         putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&s));
@@ -846,7 +843,7 @@ static void bot_thisbot(int idx, char *par)
     dprintf(idx, "bye %s\n", MISC_IMPOSTER);
     {
       op_strbuf_t s;
-      op_strbuf_printf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
+      op_strbuf_appendf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
                MISC_IMPOSTER);
       putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&s));
       botnet_send_unlinked(idx, dcc[idx].nick, op_strbuf_str(&s));
@@ -1134,7 +1131,7 @@ static void bot_join(int idx, char *par)
   struct userrec *u = get_user_by_handle(userlist, nick);
   if (u) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "@%s", bot);
+    op_strbuf_appendf(&_b, "@%s", bot);
     touch_laston(u, op_strbuf_str(&_b), now);
     op_strbuf_free(&_b);
   }
@@ -1176,7 +1173,7 @@ static void bot_part(int idx, char *par)
   struct userrec *u = get_user_by_handle(userlist, nick);
   if (u) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "@%s", bot);
+    op_strbuf_appendf(&_b, "@%s", bot);
     touch_laston(u, op_strbuf_str(&_b), now);
     op_strbuf_free(&_b);
   }
