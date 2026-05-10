@@ -117,7 +117,8 @@ static const char *getchanmode(struct chanset_t *chan)
   static op_strbuf_t s;
   int atr;
 
-  op_strbuf_reset(&s, "+");
+  op_strbuf_clear(&s);
+  op_strbuf_appendf(&s, "+");
   atr = chan->channel.mode;
   if (atr & CHANINV)
     op_strbuf_appendc(&s, 'i');

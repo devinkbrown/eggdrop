@@ -39,23 +39,13 @@
  */
 
 #define _GNU_SOURCE 1
-/* egg_tls.h must precede main.h to avoid wolfssl/Tcl mp_int conflict. */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
-/* module.h defines 'days', 'daysago', 'daysdur' as global[] dispatch macros;
- * these collide with wolfssl parameter names.  Suppress them before the
- * wolfssl include and they are not needed in this translation unit. */
-#ifdef days
-#  undef days
+#ifdef TLS
+#include <opssl/conn.h>
+#include <opssl/types.h>
 #endif
-#ifdef daysago
-#  undef daysago
-#endif
-#ifdef daysdur
-#  undef daysdur
-#endif
-#include "../../egg_tls.h"
 /* Include main.h (which in turn includes eggdrop.h and, when NOT
  * MAKING_MODS, proto.h as well) so that res.c compiles as a standalone
  * translation unit.  When compiled inside the dns module unity build
@@ -1166,25 +1156,24 @@ void res_read_dns(void)
       return;
     }
 
-    /* Reassembly loop.  SSL_read() may return fewer bytes than requested
+    /* Reassembly loop.  opssl_read() may return fewer bytes than requested
      * (partial TLS records).  We drive a two-phase state machine:
      *   phase 0: fill dot_rxbuf[0..1] with the RFC 7858 2-byte length prefix.
      *   phase 1: fill dot_rxbuf[2..2+msglen-1] with the DNS payload.
      * Partial reads simply leave dot_rxoff < dot_rxneed and we return,
      * resuming where we left off on the next readable event. */
     for (;;) {
-      int got = SSL_read(socklist[idx].ssl,
-                         dot_rxbuf + dot_rxoff,
-                         dot_rxneed - dot_rxoff);
+      ssize_t got = opssl_read(socklist[idx].ssl,
+                               dot_rxbuf + dot_rxoff,
+                               dot_rxneed - dot_rxoff);
       if (got <= 0) {
-        int err = SSL_get_error(socklist[idx].ssl, got);
-        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+        if (got == OPSSL_WANT_READ || got == OPSSL_WANT_WRITE)
           break; /* no more data this tick */
         /* Connection error — reset reassembly state, schedule reconnect */
         dot_rxoff = 0; dot_rxneed = 2; dot_rx_phase = 0;
         putlog(LOG_MISC, "*",
-               "DNS: DoT read error (%d); reconnecting in %ds",
-               err, DOT_RECONNECT_DELAY);
+               "DNS: DoT read error (%zd); reconnecting in %ds",
+               got, DOT_RECONNECT_DELAY);
         dot_active = 0;
         killsock(dot_fd);
         dot_fd = -1;
@@ -1626,7 +1615,7 @@ void build_rdns(char *buf, size_t size,
     cp = (const unsigned char *)&v4->sin_addr.s_addr;
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%u.%u.%u.%u.%s",
+      op_strbuf_appendf(&_b, "%u.%u.%u.%u.%s",
                        (unsigned)cp[3], (unsigned)cp[2],
                        (unsigned)cp[1], (unsigned)cp[0],
                        suffix ? suffix : "in-addr.arpa");
@@ -1640,7 +1629,7 @@ void build_rdns(char *buf, size_t size,
     cp = (const unsigned char *)&v6->sin6_addr.s6_addr;
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b,
+      op_strbuf_appendf(&_b,
           "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
           "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%s",
           cp[15] & 0xf, cp[15] >> 4,  cp[14] & 0xf, cp[14] >> 4,

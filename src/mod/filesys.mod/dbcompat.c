@@ -43,7 +43,7 @@ static int convert_old_files(char *path, char *newfiledb)
 
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/.files", path);
+    op_strbuf_appendf(&_b, "%s/.files", path);
     s1 = op_strbuf_steal(&_b);
   }
   f = fopen(s1, "r");
@@ -78,7 +78,7 @@ static int convert_old_files(char *path, char *newfiledb)
           if (fdbe->desc) {
             {
               op_strbuf_t _b;
-              op_strbuf_printf(&_b, "%s\n%s", fdbe->desc, s);
+              op_strbuf_appendf(&_b, "%s\n%s", fdbe->desc, s);
               fdbe->desc = op_realloc(fdbe->desc, op_strbuf_len(&_b) + 1);
               strlcpy(fdbe->desc, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
               op_strbuf_free(&_b);
@@ -110,7 +110,7 @@ static int convert_old_files(char *path, char *newfiledb)
         fdbe->gots = atoi(s1);
         fdbe->uploaded = atoi(tm);
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s/%s", path, fn);
+        op_strbuf_appendf(&_b, "%s/%s", path, fn);
         if (stat(op_strbuf_str(&_b), &st) == 0) {
           /* File is okay */
           if (S_ISDIR(st.st_mode)) {
@@ -241,7 +241,7 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
     /* Create backup name */
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s-tmp", filedb);
+      op_strbuf_appendf(&_b, "%s-tmp", filedb);
       tempdb = op_strbuf_steal(&_b);
     }
 

@@ -130,7 +130,7 @@ static int tcl_dccbroadcast STDVAR
   BADARGS(2, 2, " message");
 
   op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s", argv[1]);
+  op_strbuf_appendf(&_b, "%s", argv[1]);
   chatout("*** %s\n", op_strbuf_str(&_b));
   botnet_send_chat(-1, botnetnick, (char *)op_strbuf_str(&_b));
   check_tcl_bcst(botnetnick, -1, (char *)op_strbuf_str(&_b));
@@ -514,7 +514,7 @@ static int tcl_putbot STDVAR
     return TCL_ERROR;
   }
   op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s", argv[2]);
+  op_strbuf_appendf(&_b, "%s", argv[2]);
   botnet_send_zapf(i, botnetnick, argv[1], (char *)op_strbuf_str(&_b));
   op_strbuf_free(&_b);
   return TCL_OK;
@@ -525,7 +525,7 @@ static int tcl_putallbots STDVAR
   BADARGS(2, 2, " message");
 
   op_strbuf_t _b;
-  op_strbuf_printf(&_b, "%s", argv[1]);
+  op_strbuf_appendf(&_b, "%s", argv[1]);
   botnet_send_zapf_broad(-1, botnetnick, NULL, (char *)op_strbuf_str(&_b));
   op_strbuf_free(&_b);
   return TCL_OK;
@@ -585,7 +585,8 @@ static int tcl_botlist STDVAR
   for (bot = tandbot; bot; bot = bot->next) {
     list[0] = bot->bot;
     list[1] = (bot->uplink == (tand_t *) 1) ? botnetnick : bot->uplink->bot;
-    op_strbuf_reset(&ver_buf, "%s", int_to_base10(bot->ver));
+    op_strbuf_clear(&ver_buf);
+    op_strbuf_appendf(&ver_buf, "%s", int_to_base10(bot->ver));
     list[2] = op_strbuf_str(&ver_buf);
     sh[0] = bot->share;
     p = Tcl_Merge(4, list);
@@ -658,8 +659,8 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
         !strcasecmp(dcc[i].type->name, type)))) {
       op_strbuf_t idxstr, timestamp, other;
-      op_strbuf_printf(&idxstr, "%ld", dcc[i].sock);
-      op_strbuf_printf(&timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
+      op_strbuf_appendf(&idxstr, "%ld", dcc[i].sock);
+      op_strbuf_appendf(&timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
       op_strbuf_init(&other);
       if (dcc[i].type && dcc[i].type->display)
         dcc[i].type->display(i, &other);
@@ -674,9 +675,9 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
       if (!src) {
         op_strbuf_t portstring;
 #ifdef TLS
-        op_strbuf_printf(&portstring, "%s%d", dcc[i].ssl ? "+" : "", dcc[i].port);
+        op_strbuf_appendf(&portstring, "%s%d", dcc[i].ssl ? "+" : "", dcc[i].port);
 #else
-        op_strbuf_printf(&portstring, "%d", dcc[i].port);
+        op_strbuf_appendf(&portstring, "%d", dcc[i].port);
 #endif
         build_dcc_list(irp, op_strbuf_str(&idxstr), dcc[i].nick,
             (dcc[i].host[0] == '\0') ? iptostr(&dcc[i].sockname.addr.sa) : dcc[i].host,
@@ -763,7 +764,7 @@ static int tcl_whom STDVAR
       if (dcc[i].u.chat->channel == chan || chan == -1) {
         c[0] = geticon(i);
         c[1] = 0;
-        op_strbuf_printf(&idle, "%" PRId64, (int64_t) ((now - dcc[i].timeval) / 60));
+        op_strbuf_appendf(&idle, "%" PRId64, (int64_t) ((now - dcc[i].timeval) / 60));
         list[0] = dcc[i].nick;
         list[1] = botnetnick;
         list[2] = dcc[i].host;
@@ -771,7 +772,7 @@ static int tcl_whom STDVAR
         list[4] = op_strbuf_str(&idle);
         list[5] = dcc[i].u.chat->away ? dcc[i].u.chat->away : "";
         if (chan == -1) {
-          op_strbuf_printf(&work, "%d", dcc[i].u.chat->channel);
+          op_strbuf_appendf(&work, "%d", dcc[i].u.chat->channel);
           list[6] = op_strbuf_str(&work);
         }
         p = Tcl_Merge((chan == -1) ? 7 : 6, list);
@@ -787,9 +788,9 @@ static int tcl_whom STDVAR
       c[0] = party[i].flag;
       c[1] = 0;
       if (party[i].timer == 0L)
-        op_strbuf_printf(&idle, "0");
+        op_strbuf_appendf(&idle, "0");
       else
-        op_strbuf_printf(&idle, "%" PRId64, (int64_t) ((now - party[i].timer) / 60));
+        op_strbuf_appendf(&idle, "%" PRId64, (int64_t) ((now - party[i].timer) / 60));
       list[0] = party[i].nick;
       list[1] = party[i].bot;
       list[2] = party[i].from ? party[i].from : "";
@@ -797,7 +798,7 @@ static int tcl_whom STDVAR
       list[4] = op_strbuf_str(&idle);
       list[5] = party[i].status & PLSTAT_AWAY ? party[i].away : "";
       if (chan == -1) {
-        op_strbuf_printf(&work, "%d", party[i].chan);
+        op_strbuf_appendf(&work, "%d", party[i].chan);
         list[6] = op_strbuf_str(&work);
       }
       p = Tcl_Merge((chan == -1) ? 7 : 6, list);
@@ -880,11 +881,11 @@ static int tcl_link STDVAR
   BADARGS(2, 3, " ?via-bot? bot");
 
   op_strbuf_t _bot;
-  op_strbuf_printf(&_bot, "%s", argv[1]);
+  op_strbuf_appendf(&_bot, "%s", argv[1]);
   if (argc == 3) {
     x = 1;
     op_strbuf_t _bot2;
-    op_strbuf_printf(&_bot2, "%s", argv[2]);
+    op_strbuf_appendf(&_bot2, "%s", argv[2]);
     int i = nextbot((char *)op_strbuf_str(&_bot));
     if (i < 0)
       x = 0;
@@ -905,7 +906,7 @@ static int tcl_unlink STDVAR
   BADARGS(2, 3, " bot ?comment?");
 
   op_strbuf_t _bot;
-  op_strbuf_printf(&_bot, "%s", argv[1]);
+  op_strbuf_appendf(&_bot, "%s", argv[1]);
   int i = nextbot((char *)op_strbuf_str(&_bot));
   __attribute__((unused)) int x;
   if (i < 0)
@@ -1125,7 +1126,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       i = open_address_listen(&name);
       if (i < 0) {
         op_strbuf_t msg;
-        op_strbuf_printf(&msg, "Couldn't listen on port %d on %s: %s. "
+        op_strbuf_appendf(&msg, "Couldn't listen on port %d on %s: %s. "
                  "Please check that the port is not already in use",
                   realport, newip, strerror(errno));
         Tcl_AppendResult(irp, op_strbuf_str(&msg), NULL);
@@ -1136,7 +1137,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       i = open_listen(&port);
       if (i < 0) {
         op_strbuf_t msg;
-        op_strbuf_printf(&msg, "Couldn't listen on port %d on the given "
+        op_strbuf_appendf(&msg, "Couldn't listen on port %d on the given "
                  "address: %s. Please check that the port is not already in use",
                   realport, strerror(errno));
         Tcl_AppendResult(irp, op_strbuf_str(&msg), NULL);
@@ -1368,31 +1369,35 @@ static int tcl_traffic STDVAR
   uint64_t in_total_today, in_total;
 
   /* IRC traffic */
-  op_strbuf_printf(&buf, "irc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_appendf(&buf, "irc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_irc_today, itraffic_irc + itraffic_irc_today,
           otraffic_irc_today, otraffic_irc + otraffic_irc_today);
   Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Botnet traffic */
-  op_strbuf_reset(&buf, "botnet %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "botnet %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_bn_today, itraffic_bn + itraffic_bn_today,
           otraffic_bn_today, otraffic_bn + otraffic_bn_today);
   Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Partyline */
-  op_strbuf_reset(&buf, "partyline %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "partyline %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_dcc_today, itraffic_dcc + itraffic_dcc_today,
           otraffic_dcc_today, otraffic_dcc + otraffic_dcc_today);
   Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Transfer */
-  op_strbuf_reset(&buf, "transfer %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "transfer %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_trans_today, itraffic_trans + itraffic_trans_today,
           otraffic_trans_today, otraffic_trans + otraffic_trans_today);
   Tcl_AppendElement(irp, op_strbuf_str(&buf));
 
   /* Misc traffic */
-  op_strbuf_reset(&buf, "misc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "misc %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           itraffic_unknown_today, itraffic_unknown + itraffic_unknown_today,
           otraffic_unknown_today, otraffic_unknown + otraffic_unknown_today);
   Tcl_AppendElement(irp, op_strbuf_str(&buf));
@@ -1408,7 +1413,8 @@ static int tcl_traffic STDVAR
                     otraffic_unknown_today;
   out_total = out_total_today + otraffic_irc + otraffic_bn + otraffic_dcc +
               otraffic_trans + otraffic_unknown;
-  op_strbuf_reset(&buf, "total %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "total %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
           in_total_today, in_total, out_total_today, out_total);
   Tcl_AppendElement(irp, op_strbuf_str(&buf));
   op_strbuf_free(&buf);

@@ -75,7 +75,7 @@ static void refresh_who_chan(char *);
 
 void reset_chan_info(struct chanset_t *, int, int);
 static void recheck_channel(struct chanset_t *, int);
-#undef set_key /* because it could collide with openssl */
+#undef set_key /* could collide with crypto headers */
 static void set_key(struct chanset_t *, char *);
 static void maybe_revenge(struct chanset_t *, const char *, const char *, int);
 static int detect_chan_flood(char *, char *, const char *, struct chanset_t *, int,

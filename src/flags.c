@@ -1277,6 +1277,8 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
     u->flags = fr->global;
 
     u->flags_udef = fr->udef_global;
+    /* Mark user as dirty when flags change */
+    u->dirty = 1;
     if (!noshare && !(u->flags & USER_UNSHARED)) {
       fr->match = FR_GLOBAL;
       build_flags(buffer, fr, NULL);
@@ -1301,6 +1303,8 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
     if (cr && ch) {
       cr->flags = fr->chan;
       cr->flags_udef = fr->udef_chan;
+      /* Mark user as dirty when channel flags change */
+      u->dirty = 1;
       if (!noshare && !(u->flags & USER_UNSHARED) && channel_shared(ch)) {
         fr->match = FR_CHAN;
         build_flags(buffer, fr, NULL);

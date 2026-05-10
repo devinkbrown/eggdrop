@@ -5,7 +5,7 @@
  *  Copyright (C) 1990 Jarkko Oikarinen and University of Oulu, Co Center
  *  Copyright (C) 1996-2002 Hybrid Development Team
  *  Copyright (C) 2002-2005 ircd-ratbox development team
- *  Copyright (C) 2025 ophion development team
+ *  Copyright (C) 2025-2026 ophion development team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -35,6 +35,9 @@
 
 void op_outofmemory(void) __attribute__((noreturn));
 
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclobbered"
 static inline void *
 op_calloc(size_t nmemb, size_t size)
 {
@@ -47,7 +50,7 @@ op_calloc(size_t nmemb, size_t size)
 static inline void *
 op_malloc(size_t size)
 {
-	void *ret = calloc(1, size);
+	void *volatile ret = calloc(1, size);
 	if (op_unlikely(ret == NULL))
 		op_outofmemory();
 	return (ret);
@@ -66,10 +69,10 @@ op_realloc(void *x, size_t y)
 static inline char *
 op_strndup(const char *x, size_t y)
 {
-	char *ret = malloc(y + 1);
+	char *ret = malloc(y);
 	if (op_unlikely(ret == NULL))
 		op_outofmemory();
-	op_strlcpy(ret, x, y + 1);
+	op_strlcpy(ret, x, y);
 	return (ret);
 }
 
@@ -90,5 +93,6 @@ op_free(void *ptr)
 	if (op_likely(ptr != NULL))
 		free(ptr);
 }
+#pragma GCC diagnostic pop
 
 #endif /* LIBOP_MEMORY_H */

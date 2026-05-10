@@ -646,7 +646,7 @@ static void filedb_update(char *path, FILE *fdb, int sort)
     if (name[0] != '.') {
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s/%s", path, name);
+        op_strbuf_appendf(&_b, "%s/%s", path, name);
         s = op_strbuf_steal(&_b);
         stat(s, &st);
         my_free(s);
@@ -687,7 +687,7 @@ static void filedb_update(char *path, FILE *fdb, int sort)
         fdbe->filename) {
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s/%s", path, fdbe->filename);
+        op_strbuf_appendf(&_b, "%s/%s", path, fdbe->filename);
         s = op_strbuf_steal(&_b);
       }
       if (stat(s, &st) != 0)
@@ -740,19 +740,19 @@ static FILE *filedb_open(char *path, int sort)
     putlog(LOG_MISC, "*", "(@) warning: %d open filedb's", count);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s", dccdir, path);
+    op_strbuf_appendf(&_b, "%s%s", dccdir, path);
     npath = op_strbuf_steal(&_b);
   }
   /* Use alternate filename if requested */
   if (filedb_path[0]) {
     char *s2 = make_point_path(path);
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%sfiledb.%s", filedb_path, s2);
+    op_strbuf_appendf(&_b, "%sfiledb.%s", filedb_path, s2);
     s = op_strbuf_steal(&_b);
     my_free(s2);
   } else {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s/.filedb", npath);
+    op_strbuf_appendf(&_b, "%s/.filedb", npath);
     s = op_strbuf_steal(&_b);
   }
   fdb = fopen(s, "r+b");
@@ -908,13 +908,13 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         if (strlen(fdbe->filename) > 45) {
           /* Display the filename on its own line. */
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s/\n", fdbe->filename);
+          op_strbuf_appendf(&_b, "%s/\n", fdbe->filename);
           s2 = op_strbuf_steal(&_b);
           filelist_addout(flist, s2);
           my_free(s2);
         } else {
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s/", fdbe->filename);
+          op_strbuf_appendf(&_b, "%s/", fdbe->filename);
           s2 = op_strbuf_steal(&_b);
         }
         /* Note: You have to keep the sprintf and the op_malloc statements
@@ -924,7 +924,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         if ((fdbe->flags_req) && (user.global &(USER_MASTER | USER_JANITOR))) {
           {
             op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%-30s <DIR%s>  (%s %s%s%s)\n", s2,
+            op_strbuf_appendf(&_b, "%-30s <DIR%s>  (%s %s%s%s)\n", s2,
                     fdbe->stat & FILE_SHARE ?
                     " SHARE" : "", FILES_REQUIRES, fdbe->flags_req,
                     fdbe->chan ? " " : "", fdbe->chan ? fdbe->chan : "");
@@ -934,7 +934,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         } else {
           {
             op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%-30s <DIR>\n", s2 ? s2 : "");
+            op_strbuf_appendf(&_b, "%-30s <DIR>\n", s2 ? s2 : "");
             malloc_strcpy(s3, op_strbuf_str(&_b));
             op_strbuf_free(&_b);
           }
@@ -957,12 +957,12 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         strftime(t, 10, "%d%b%Y", localtime(&fdbe->uploaded));
         if (fdbe->size < 1024) {
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%5d", fdbe->size);
+          op_strbuf_appendf(&_b, "%5d", fdbe->size);
           strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
           op_strbuf_free(&_b);
         } else {
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%4dk", (int) (fdbe->size / 1024));
+          op_strbuf_appendf(&_b, "%4dk", (int) (fdbe->size / 1024));
           strlcpy(s1, op_strbuf_str(&_b), sizeof s1);
           op_strbuf_free(&_b);
         }
@@ -971,7 +971,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         /* Too long? */
         if (strlen(fdbe->filename) > 30) {
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "%s\n", fdbe->filename);
+          op_strbuf_appendf(&_b, "%s\n", fdbe->filename);
           s3 = op_strbuf_steal(&_b);
           filelist_addout(flist, s3);
           my_free(s3);
@@ -981,7 +981,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         {
           {
             op_strbuf_t _b;
-            op_strbuf_printf(&_b, "%-30s %s  %-9s (%s)  %6d%s\n",
+            op_strbuf_appendf(&_b, "%-30s %s  %-9s (%s)  %6d%s\n",
                     s3 ? s3 : "", s1, fdbe->uploader, t, fdbe->gots,
                     op_strbuf_str(&s2_buf));
             malloc_strcpy(s4, op_strbuf_str(&_b));
@@ -996,7 +996,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         if (fdbe->sharelink) {
           {
             op_strbuf_t _b;
-            op_strbuf_printf(&_b, "   --> %s\n", fdbe->sharelink);
+            op_strbuf_appendf(&_b, "   --> %s\n", fdbe->sharelink);
             s4 = op_strbuf_steal(&_b);
           }
           filelist_addout(flist, s4);
@@ -1012,7 +1012,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
 
             {
               op_strbuf_t _b;
-              op_strbuf_printf(&_b, "   %s\n", fdbe->desc);
+              op_strbuf_appendf(&_b, "   %s\n", fdbe->desc);
               sd = op_strbuf_steal(&_b);
             }
             filelist_addout(flist, sd);
@@ -1026,7 +1026,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
 
           {
             op_strbuf_t _b;
-            op_strbuf_printf(&_b, "   %s\n", fdbe->desc);
+            op_strbuf_appendf(&_b, "   %s\n", fdbe->desc);
             sd = op_strbuf_steal(&_b);
             filelist_addout(flist, sd);
             my_free(sd);
@@ -1084,9 +1084,9 @@ static void remote_filereq(int idx, char *from, char *file)
         {
           op_strbuf_t _b;
           if (dir[0])
-            op_strbuf_printf(&_b, "%s%s/%s", dccdir, dir, what);
+            op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dir, what);
           else
-            op_strbuf_printf(&_b, "%s%s", dccdir, what);
+            op_strbuf_appendf(&_b, "%s%s", dccdir, what);
           s1 = op_strbuf_steal(&_b);
         }
         i = raw_dcc_send(s1, "*remote", FILES_REMOTE);
@@ -1100,7 +1100,7 @@ static void remote_filereq(int idx, char *from, char *file)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s:%s/%s", botnetnick, dir, what);
+    op_strbuf_appendf(&_b, "%s:%s/%s", botnetnick, dir, what);
     s1 = op_strbuf_steal(&_b);
   }
   if (reject) {
@@ -1115,7 +1115,7 @@ static void remote_filereq(int idx, char *from, char *file)
   getdccaddr(&dcc[i].sockname, s, sizeof s);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %u %lu", s, dcc[i].port, dcc[i].u.xfer->length);
+    op_strbuf_appendf(&_b, "%s %u %lu", s, dcc[i].port, dcc[i].u.xfer->length);
     botnet_send_filesend(idx, s1, from, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }

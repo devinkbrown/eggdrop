@@ -29,14 +29,15 @@
 #ifndef _GNU_SOURCE
 #  define _GNU_SOURCE
 #endif
-/* egg_tls.h includes wolfSSL before Tcl, redirecting mp_int to avoid the
- * typedef clash between wolfssl/sp_int.h and tcl.h.  Must precede main.h. */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
-#include "egg_tls.h"
 #include <fcntl.h>
 #include <stdatomic.h>
+#ifdef TLS
+#  include <opssl/conn.h>
+#  include <opssl/types.h>
+#endif
 #include "main.h"
 #include "modules.h"
 #include <op_commio.h>
@@ -567,13 +568,8 @@ void killsock(int sock)
       if (!(td->socklist[i].flags & SOCK_TCL)) { /* nothing to free for tclsocks */
 #ifdef TLS
         if (td->socklist[i].ssl) {
-          /* Clear the FDE ssl pointer before op_close frees the FDE. */
-          op_fde_t *F_ssl = op_get_fde(sock);
-          if (F_ssl)
-            op_fde_set_ssl_ptr(F_ssl, NULL);
-          SSL_shutdown(td->socklist[i].ssl);
-          op_free(SSL_get_app_data(td->socklist[i].ssl));
-          SSL_free(td->socklist[i].ssl);
+          opssl_shutdown(td->socklist[i].ssl);
+          opssl_conn_free(td->socklist[i].ssl);
           td->socklist[i].ssl = NULL;
         }
 #endif
@@ -660,16 +656,13 @@ static int proxy_connect(int sock, sockname_t *addr)
   } else if (proxy == PROXY_SUN) {
     op_strbuf_t sb;
     inet_ntop(AF_INET, &addr->addr.s4.sin_addr, host, sizeof host);
-    op_strbuf_printf(&sb, "%s %d\n", host, port);
+    op_strbuf_appendf(&sb, "%s %d\n", host, port);
     tputs(sock, op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
     op_strbuf_free(&sb);
   }
   return sock;
 }
 
-/* FIXME: if we can break compatibility for 1.9 or 2.0, we can replace this
- * workaround with an additional port parameter for functions in need
- */
 static int get_port_from_addr(const sockname_t *addr)
 {
 #ifdef IPV6
@@ -1173,7 +1166,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
         if (x == 0 && !tcl_ready) {
           for (int i = 0; i < slistmax; i++) {
             if (!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL)) && slist[i].ssl) {
-              if (!SSL_is_init_finished(slist[i].ssl)) {
+              if (opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) {
                 tls_pending = 1;
               } else if (slist[i].flags & SOCK_CONNECT) {
                 slist[i].commio_ready = 1;
@@ -1225,7 +1218,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
         ((slist[i].commio_ready) ||
 #ifdef TLS
-        (slist[i].ssl && !SSL_is_init_finished(slist[i].ssl)) ||
+        (slist[i].ssl && opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) ||
 #endif
         ((slist[i].sock == STDOUT) && (!backgrd) &&
          (FD_ISSET(STDIN, &fdr)))))) {
@@ -1235,7 +1228,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           grab = 10;
 #ifdef TLS
         else if (!(slist[i].flags & SOCK_STRONGCONN) &&
-                 (!(slist[i].ssl) || SSL_is_init_finished(slist[i].ssl))) {
+                 (!slist[i].ssl || opssl_conn_get_state(slist[i].ssl) == OPSSL_HS_COMPLETE)) {
 #else
         else if (!(slist[i].flags & SOCK_STRONGCONN)) {
 #endif
@@ -1602,7 +1595,7 @@ void dequeue_sockets(void)
       if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
           socklist[j].handler.sock.outbuf != NULL
 #ifdef TLS
-          && !(socklist[j].ssl && !SSL_is_init_finished(socklist[j].ssl))
+          && !(socklist[j].ssl && opssl_conn_get_state(socklist[j].ssl) != OPSSL_HS_COMPLETE)
 #endif
          ) {
         op_fde_t *F = op_get_fde(socklist[j].sock);
@@ -1768,8 +1761,8 @@ int hostsanitycheck_dcc(char *nick, char *from, sockname_t *ip, char *dnsname,
    * DNS names that are up to 255 characters long.  This is not broken.
    */
   op_strbuf_t _badaddress, _hostn;
-  op_strbuf_printf(&_badaddress, "%s", iptostr(&ip->addr.sa));
-  op_strbuf_printf(&_hostn, "%s", extracthostname(from));
+  op_strbuf_appendf(&_badaddress, "%s", iptostr(&ip->addr.sa));
+  op_strbuf_appendf(&_hostn, "%s", extracthostname(from));
   if (!strcasecmp(op_strbuf_str(&_hostn), dnsname)) {
     op_strbuf_free(&_hostn);
     op_strbuf_free(&_badaddress);

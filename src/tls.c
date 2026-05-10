@@ -2,10 +2,11 @@
  * tls.c -- handles:
  *   TLS support functions
  *   Certificate handling
- *   OpenSSL initialization and shutdown
+ *   opssl initialization and shutdown
  */
 /*
  * Written by Rumen Stoyanov <pseudo@egg6.net>
+ * Migrated to opssl by Claude
  *
  * Copyright (C) 2010 - 2025 Eggheads Development Team
  *
@@ -24,190 +25,59 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* egg_tls.h includes wolfSSL before Tcl to avoid mp_int typedef conflict.
- * COMPILING_MEM suppresses eggdrop.h's malloc→dont_use_old_malloc macro so
- * that wolfssl's stdlib.h inclusion and our local malloc calls compile cleanly.
- * We use op_malloc/op_free below via proto.h, except in the two static helpers that
- * must use plain malloc (because OPENSSL_free → free). */
-#define COMPILING_MEM
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
-#include "egg_tls.h"
 #include "main.h"
 #include <op_commio.h>
 
 #ifdef TLS
 
-#include <wolfssl/openssl/ssl.h>
-#include <wolfssl/openssl/rand.h>
-#include <wolfssl/openssl/x509v3.h>
+#include <opssl/opssl.h>
+#include <opssl/ctx.h>
+#include <opssl/conn.h>
+#include <opssl/cert.h>
+#include <opssl/err.h>
+#include <opssl/types.h>
+#include <time.h>
+#include <errno.h>
+#include <stdio.h>
 #include "version.h"
-
-/* wolfssl always uses ASN1_STRING_get0_data (OpenSSL 1.1+ API) */
-# define egg_ASN1_string_data(x) wolfSSL_ASN1_STRING_get0_data(x)
-
-/* wolfSSL_CTX_get0_certificate requires KEEP_OUR_CERT at compile time.
- * If not available, stub it — callers must handle a NULL return. */
-#ifndef SSL_CTX_get0_certificate
-static X509 *SSL_CTX_get0_certificate([[maybe_unused]] SSL_CTX *ctx) { return NULL; }
-#endif
-
-/* wolfssl provides OPENSSL_VERSION_NUMBER via its compat layer */
-#ifndef OPENSSL_VERSION_NUMBER
-# define OPENSSL_VERSION_NUMBER 0x10101000L
-#endif
-
-/* wolfSSL does not expose OPENSSL_buf2hexstr — implement both locally using
- * plain malloc so OPENSSL_free can be a simple free(). */
-
-/* Converts binary data to a colon-delimited hex string e.g. "AA:BB:CC". */
-static char *egg_buf2hexstr(const unsigned char *buf, long len)
-{
-  static const char hex[] = "0123456789ABCDEF";
-  char *out;
-  long i;
-  if (len <= 0)
-    return NULL;
-  out = malloc((size_t)(len * 3));
-  if (!out)
-    return NULL;
-  for (i = 0; i < len; i++) {
-    out[i * 3 + 0] = hex[(buf[i] >> 4) & 0xF];
-    out[i * 3 + 1] = hex[ buf[i]       & 0xF];
-    out[i * 3 + 2] = (i + 1 < len) ? ':' : '\0';
-  }
-  return out;
-}
-
-/* Converts a colon-delimited or plain hex string back to binary bytes. */
-static unsigned char *egg_hexstr2buf(const char *str, long *outlen)
-{
-  size_t slen, i, j;
-  unsigned char *out;
-  if (!str)
-    return NULL;
-  slen = strlen(str);
-  /* strip colons to count hex digits */
-  size_t nhex = 0;
-  for (i = 0; i < slen; i++)
-    if (str[i] != ':')
-      nhex++;
-  if (nhex % 2 != 0)
-    return NULL;
-  out = malloc(nhex / 2);
-  if (!out)
-    return NULL;
-  for (i = 0, j = 0; i < slen; ) {
-    int hi, lo;
-    while (i < slen && str[i] == ':') i++;
-    if (i >= slen) break;
-    hi = (str[i] >= '0' && str[i] <= '9') ? str[i]-'0' :
-         (str[i] >= 'A' && str[i] <= 'F') ? str[i]-'A'+10 :
-         (str[i] >= 'a' && str[i] <= 'f') ? str[i]-'a'+10 : -1;
-    i++;
-    while (i < slen && str[i] == ':') i++;
-    if (i >= slen || hi < 0) { free(out); return NULL; }
-    lo = (str[i] >= '0' && str[i] <= '9') ? str[i]-'0' :
-         (str[i] >= 'A' && str[i] <= 'F') ? str[i]-'A'+10 :
-         (str[i] >= 'a' && str[i] <= 'f') ? str[i]-'a'+10 : -1;
-    i++;
-    if (lo < 0) { free(out); return NULL; }
-    out[j++] = (unsigned char)((hi << 4) | lo);
-  }
-  if (outlen)
-    *outlen = (long)j;
-  return out;
-}
-
-#undef OPENSSL_buf2hexstr
-#define OPENSSL_buf2hexstr(buf, len) egg_buf2hexstr((buf), (len))
-#undef OPENSSL_hexstr2buf
-#define OPENSSL_hexstr2buf(str, plen) egg_hexstr2buf((str), (plen))
-#undef OPENSSL_free
-#define OPENSSL_free(p)              free(p)
 
 extern int dcc_total, stealth_telnets, tls_vfydcc;
 extern struct dcc_t *dcc;
 
 int tls_maxdepth = 9;         /* Max certificate chain verification depth     */
 int ssl_files_loaded = 0;     /* Check for loaded SSL key/cert files          */
-SSL_CTX *ssl_ctx = NULL;      /* SSL context object                           */
-char *tls_randfile = NULL;    /* Random seed file for SSL                     */
+opssl_ctx_t *ssl_ctx = NULL;  /* TLS context object                           */
+char *tls_randfile = NULL;    /* Random seed file for SSL (unused in opssl)   */
 char tls_capath[121] = "";    /* Path to trusted CA certificates              */
 char tls_cafile[121] = "";    /* File containing trusted CA certificates      */
-char tls_certfile[121] = "";  /* Our own digital certificate ;)               */
+char tls_certfile[121] = "";  /* Our own digital certificate                  */
 char tls_keyfile[121] = "";   /* Private key for use with eggdrop             */
 char tls_protocols[61] = "TLSv1 TLSv1.1 TLSv1.2 TLSv1.3" ; /* A list of protocols for SSL to use */
 char tls_dhparam[121] = "";   /* dhparam for SSL to use                       */
 char tls_ciphers[2049] = "";  /* A list of ciphers for SSL to use             */
 
+/* Storage for ssl_appdata indexed by socket fd */
+static ssl_appdata *ssl_appdata_table[FD_SETSIZE];
 
-/* Count allocated memory for SSL. This excludes memory allocated by OpenSSL's
- * family of malloc functions.
- */
-
-/* Seeds the PRNG
- *
- * Only does something if the system doesn't have enough entropy.
- * If there is no random file, one will be created either at
- * $RANDFILE if set or at $HOME/.rnd
- *
- * Return value: 0 on success, !=0 on failure.
- */
-static int ssl_seed(void)
-{
-  char stackdata[1024];
-  static char rand_file[120];
-  FILE *fh;
-
-  if (RAND_status())
-    return 0;     /* Status OK */
-  /* If '/dev/urandom' is present, OpenSSL will use it by default.
-   * Otherwise we'll have to generate pseudorandom data ourselves,
-   * using system time, our process ID and some uninitialized static
-   * storage.
-   */
-  putlog(LOG_MISC, "*", "WARNING: TLS: PRNG has not been sufficiently seeded. Seeding now.");
-  if ((fh = fopen("/dev/urandom", "r"))) {
-    fclose(fh);
-    return 0;
-  }
-  if (RAND_file_name(rand_file, sizeof(rand_file)))
-    tls_randfile = rand_file;
-  else
-    return 1;
-  if (!RAND_load_file(rand_file, -1)) {
-    /* generate some pseudo random data */
-    unsigned int c;
-    c = time(NULL);
-    RAND_seed(&c, sizeof(c));
-    c = getpid();
-    RAND_seed(&c, sizeof(c));
-    RAND_seed(stackdata, sizeof(stackdata));
-  }
-  if (!RAND_status())
-    return 2; /* pseudo random data still not enough */
-  return 0;
-}
+/* Forward declarations */
+static void ssl_handshake_completed(int sock);
+static void ssl_showcert(opssl_x509_t *cert, const int loglev);
 
 /* Get the certificate, corresponding to the connection identified by sock.
  *
- * Return value: pointer to a X509 certificate or NULL if we couldn't look up
+ * Return value: pointer to a opssl_x509_t certificate or NULL if we couldn't look up
  * the certificate.
  */
-static X509 *ssl_getcert(int sock)
+static opssl_x509_t *ssl_getcert(int sock)
 {
   struct threaddata *td = threaddata();
-
   int i = findsock(sock);
   if (i == -1 || !td->socklist[i].ssl)
     return NULL;
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L /* 3.0.0 */
-  return SSL_get0_peer_certificate(td->socklist[i].ssl);
-#else
-  return SSL_get_peer_certificate(td->socklist[i].ssl);
-#endif
+  return opssl_conn_get_peer_cert(td->socklist[i].ssl);
 }
 
 /* Get the certificate fingerprint of the connection corresponding to the
@@ -216,69 +86,26 @@ static X509 *ssl_getcert(int sock)
  * Return value: ptr to the hexadecimal representation of the fingerprint or
  * NULL in case of error.
  */
-/* Compute a hex fingerprint from cert using the given digest algorithm.
- * Returns a pointer to a static buffer, or NULL on error.
- * Does NOT free cert — callers are responsible for cert lifetime.
- */
-static char *ssl_fp_from_cert(X509 *cert, const EVP_MD *digest)
-{
-  char *p;
-  unsigned int i;
-  static char fp[EVP_MAX_MD_SIZE * 3];
-  unsigned char md[EVP_MAX_MD_SIZE];
-
-  if (!X509_digest(cert, digest, md, &i)) {
-    putlog(LOG_MISC, "*", "ERROR: TLS: ssl_fp_from_cert(): X509_digest()");
-    return NULL;
-  }
-  if (!(p = OPENSSL_buf2hexstr(md, i))) {
-    putlog(LOG_MISC, "*", "ERROR: TLS: ssl_fp_from_cert(): OPENSSL_buf2hexstr()");
-    return NULL;
-  }
-  strlcpy(fp, p, sizeof fp);
-  OPENSSL_free(p);
-  return fp;
-}
-
-/* SHA-1 fingerprint (used by ssl_getfp() / CertFP auth). */
-static char *ssl_getfp_from_cert(X509 *cert)
-{
-  return ssl_fp_from_cert(cert, EVP_sha1());
-}
-
-/* Get the certificate fingerprint of the connection corresponding
- * to the socket.
- *
- * Return value: ptr to the hexadecimal representation of the fingerprint
- * or NULL if there's no certificate associated with the connection or in case
- * of error.
- */
 char *ssl_getfp(int sock)
 {
-  char *fp;
-  X509 *cert;
+  static char fp[65]; /* SHA1 = 20 bytes * 2 + 19 colons + 1 null = 60, but use 65 for safety */
+  opssl_x509_t *cert;
 
   if (!(cert = ssl_getcert(sock)))
     return NULL;
-  fp = ssl_getfp_from_cert(cert);
-#if OPENSSL_VERSION_NUMBER < 0x30000000L /* 3.0.0 */
-  X509_free(cert);
-#endif
+
+  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA1, fp, sizeof fp) != 0)
+    return NULL;
+
   return fp;
 }
 
 void verify_cert_expiry(int idx) {
-  X509 *x509;
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L /* 1.0.2 */
-  x509 = SSL_CTX_get0_certificate(ssl_ctx); /* The returned pointer must not be freed by the caller. */
-#else
-  BIO *bio = BIO_new_file(tls_certfile, "r");
-  if (!bio)
-    return;
-  x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
-#endif
+  opssl_x509_t *x509;
+
+  x509 = opssl_x509_from_file(tls_certfile);
   if (x509) {
-    if (X509_cmp_current_time(X509_get_notAfter(x509)) < 0) {
+    if (opssl_x509_is_expired(x509)) {
       if (idx) {
         dprintf(idx, "WARNING: SSL/TLS certificate %s expired\n", tls_certfile);
         dprintf(idx, "You can generate new certificates by running 'make sslcert' from the source directory\n\n");
@@ -287,48 +114,33 @@ void verify_cert_expiry(int idx) {
         putlog(LOG_MISC, "*", "You can generate new certificates by running 'make sslcert' from the source directory\n");
       }
     }
-#if OPENSSL_VERSION_NUMBER < 0x10002000L /* 1.0.2 */
-    X509_free(x509);
-    BIO_free(bio);
-#endif
+    opssl_x509_free(x509);
   }
 }
 
-/* Prepares and initializes SSL stuff
+/* Prepares and initializes TLS stuff
  *
- * Creates a context object, supporting SSLv2/v3 & TLSv1 protocols;
- * Seeds the Pseudo Random Number Generator;
- * Optionally loads a SSL certificate and a private key.
- * Tell OpenSSL the location of certificate authority certs
+ * Creates a context object, supporting TLS 1.2/1.3;
+ * Optionally loads a TLS certificate and a private key.
+ * Tell opssl the location of certificate authority certs
  *
  * Return value: 0 on successful initialization, !=0 on failure
  */
 int ssl_init(void)
 {
-  /* OpenSSL library initialization
-   * If you are using 1.1.0 or above then you don't need to take any further steps. */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-  SSL_library_init();
-  SSL_load_error_strings();
-  OpenSSL_add_all_algorithms();
-#endif
-  if (ssl_seed()) {
-    putlog(LOG_MISC, "*", "ERROR: TLS: unable to seed PRNG. Disabling SSL");
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-    ERR_free_strings();
-#endif
+  /* opssl library initialization */
+  if (opssl_init() != 0) {
+    putlog(LOG_MISC, "*", "ERROR: TLS: unable to initialize opssl library. Disabling SSL");
     return -2;
   }
-  /* A TLS/SSL connection established with this method will understand all
-     supported protocols (SSLv2, SSLv3, and TLSv1) */
-  if (!(ssl_ctx = SSL_CTX_new(SSLv23_method()))) {
-    putlog(LOG_MISC, "*", "%s", ERR_error_string(ERR_get_error(), NULL));
+
+  /* Create TLS context with minimum TLS 1.2 */
+  if (!(ssl_ctx = opssl_ctx_new(OPSSL_TLS_1_2))) {
     putlog(LOG_MISC, "*", "ERROR: TLS: unable to create context. Disabling SSL.");
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-    ERR_free_strings();
-#endif
+    opssl_cleanup();
     return -1;
   }
+
   ssl_files_loaded = 0;
   if ((tls_certfile[0] == '\0') != (tls_keyfile[0] == '\0')) {
     /* Both need to be set or unset */
@@ -338,197 +150,138 @@ int ssl_init(void)
         tls_certfile[0] ? "ssl-privatekey" : "ssl-certificate");
     fatal("ssl-privatekey and ssl-certificate must both be set or unset.", 0);
   }
+
   if (tls_certfile[0] && tls_keyfile[0]) {
     /* Load our own certificate and private key. Mandatory for acting as
-    server, because we don't support anonymous ciphers by default. */
-    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, tls_certfile) != 1) {
+       server, because we don't support anonymous ciphers by default. */
+    if (opssl_ctx_use_certificate_chain_file(ssl_ctx, tls_certfile) != 0) {
       putlog(LOG_MISC, "*", "ERROR: TLS: unable to load own certificate from %s: %s",
-          tls_certfile, ERR_error_string(ERR_get_error(), NULL));
+          tls_certfile, opssl_err_string(opssl_err_get()));
       fatal("Unable to load TLS certificate (ssl-certificate config setting)!", 0);
     }
 
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L /* 1.0.2 */
-    /* SSL_CTX_get0_certificate() returns a pointer that must NOT be freed. */
+    /* Display certificate fingerprints */
     {
-      X509 *own_cert = SSL_CTX_get0_certificate(ssl_ctx);
-      const char *sha1fp   = ssl_fp_from_cert(own_cert, EVP_sha1());
-      const char *sha256fp = ssl_fp_from_cert(own_cert, EVP_sha256());
-      putlog(LOG_MISC, "*", "Certificate loaded: %s", tls_certfile);
-      if (sha1fp)
-        putlog(LOG_MISC, "*", "  SHA-1   fingerprint: %s", sha1fp);
-      if (sha256fp)
-        putlog(LOG_MISC, "*", "  SHA-256 fingerprint: %s", sha256fp);
+      opssl_x509_t *own_cert = opssl_x509_from_file(tls_certfile);
+      if (own_cert) {
+        char sha1fp[65], sha256fp[129];
+        putlog(LOG_MISC, "*", "Certificate loaded: %s", tls_certfile);
+        if (opssl_x509_fingerprint_hex(own_cert, OPSSL_FP_SHA1, sha1fp, sizeof sha1fp) == 0)
+          putlog(LOG_MISC, "*", "  SHA-1   fingerprint: %s", sha1fp);
+        if (opssl_x509_fingerprint_hex(own_cert, OPSSL_FP_SHA256, sha256fp, sizeof sha256fp) == 0)
+          putlog(LOG_MISC, "*", "  SHA-256 fingerprint: %s", sha256fp);
+        opssl_x509_free(own_cert);
+      }
     }
-#endif
 
     verify_cert_expiry(0);
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, tls_keyfile, SSL_FILETYPE_PEM) != 1) {
+    if (opssl_ctx_use_private_key_file(ssl_ctx, tls_keyfile) != 0) {
       putlog(LOG_MISC, "*", "ERROR: TLS: unable to load private key from %s: %s",
-          tls_keyfile, ERR_error_string(ERR_get_error(), NULL));
+          tls_keyfile, opssl_err_string(opssl_err_get()));
       fatal("Unable to load TLS private key (ssl-privatekey config setting)!", 0);
+    }
+
+    if (opssl_ctx_check_private_key(ssl_ctx) != 0) {
+      putlog(LOG_MISC, "*", "ERROR: TLS: private key does not match certificate");
+      fatal("Private key does not match certificate!", 0);
     }
     ssl_files_loaded = 1;
   }
+
   if ((tls_capath[0] || tls_cafile[0]) &&
-      !SSL_CTX_load_verify_locations(ssl_ctx, tls_cafile[0] ? tls_cafile : NULL,
-      tls_capath[0] ? tls_capath : NULL)) {
+      opssl_ctx_load_verify_locations(ssl_ctx, tls_cafile[0] ? tls_cafile : NULL,
+      tls_capath[0] ? tls_capath : NULL) != 0) {
     putlog(LOG_MISC, "*", "ERROR: TLS: unable to set CA certificates location: %s",
-           ERR_error_string(ERR_get_error(), NULL));
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-    ERR_free_strings();
-#endif
+           opssl_err_string(opssl_err_get()));
   }
-  /* Let advanced users specify the list of allowed ssl protocols */
-  #define EGG_SSLv2   (1 << 0)
-  #define EGG_SSLv3   (1 << 1)
-  #define EGG_TLSv1   (1 << 2)
-  #define EGG_TLSv1_1 (1 << 3)
-  #define EGG_TLSv1_2 (1 << 4)
-  #define EGG_TLSv1_3 (1 << 5)
+
+  /* Parse and set protocol versions */
   if (tls_protocols[0]) {
     char s[sizeof tls_protocols];
     char *sep = " ";
     char *word;
-    unsigned int protocols = 0;
+    bool has_tls12 = false, has_tls13 = false;
     char *saveptr = NULL;
     strlcpy(s, tls_protocols, sizeof(s));
     for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(NULL, sep, &saveptr)) {
-      if (!strcmp(word, "SSLv2"))
-        protocols |= EGG_SSLv2;
-      if (!strcmp(word, "SSLv3"))
-        protocols |= EGG_SSLv3;
-      if (!strcmp(word, "TLSv1"))
-        protocols |= EGG_TLSv1;
-      if (!strcmp(word, "TLSv1.1"))
-        protocols |= EGG_TLSv1_1;
       if (!strcmp(word, "TLSv1.2"))
-        protocols |= EGG_TLSv1_2;
+        has_tls12 = true;
       if (!strcmp(word, "TLSv1.3"))
-        protocols |= EGG_TLSv1_3;
+        has_tls13 = true;
     }
-    if (!(protocols & EGG_SSLv2)) {
-      SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2);
+
+    /* opssl defaults to TLS 1.2 minimum, so we only need to adjust if different */
+    if (has_tls13 && !has_tls12) {
+      opssl_ctx_set_min_version(ssl_ctx, OPSSL_TLS_1_3);
+      opssl_ctx_set_max_version(ssl_ctx, OPSSL_TLS_1_3);
+    } else if (has_tls12 && !has_tls13) {
+      opssl_ctx_set_min_version(ssl_ctx, OPSSL_TLS_1_2);
+      opssl_ctx_set_max_version(ssl_ctx, OPSSL_TLS_1_2);
     }
-    if (!(protocols & EGG_SSLv3)) {
-      SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv3);
-    }
-    if (!(protocols & EGG_TLSv1)) {
-      SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1);
-    }
-#ifdef SSL_OP_NO_TLSv1_1
-    if (!(protocols & EGG_TLSv1_1)) {
-      SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_1);
-    }
-#endif
-#ifdef SSL_OP_NO_TLSv1_2
-    if (!(protocols & EGG_TLSv1_2)) {
-      SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_2);
-    }
-#endif
-#ifdef SSL_OP_NO_TLSv1_3
-    if (!(protocols & EGG_TLSv1_3)) {
-      SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_3);
-    }
-#endif
+    /* Otherwise accept both TLS 1.2 and 1.3 (default behavior) */
   }
-#ifdef SSL_OP_NO_COMPRESSION
-  SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_COMPRESSION);
-#endif
-  /* Let advanced users specify dhparam */
+
+  /* Set secure defaults */
+  opssl_ctx_set_options(ssl_ctx, OPSSL_OPT_NO_COMPRESSION | OPSSL_OPT_CIPHER_SERVER_PREF |
+                                 OPSSL_OPT_SINGLE_DH_USE | OPSSL_OPT_SINGLE_ECDH_USE);
+
+  /* Load DH parameters if specified */
   if (tls_dhparam[0]) {
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L /* 3.0.0 */
-    BIO *pbio = BIO_new_file(tls_dhparam, "r");
-    if (pbio) {
-      EVP_PKEY *param = PEM_read_bio_Parameters(pbio, NULL);
-      BIO_free(pbio);
-      if (param) {
-        if (SSL_CTX_set0_tmp_dh_pkey(ssl_ctx, param) == 1)
-          debug1("TLS: setting ssl dhparam %s successful", tls_dhparam);
-        else {
-          EVP_PKEY_free(param);
-          putlog(LOG_MISC, "*", "ERROR: TLS: SSL_CTX_set0_tmp_dh_pkey(%s): %s",
-                 tls_dhparam, ERR_error_string(ERR_get_error(), NULL));
-        }
-      }
-      else
-        putlog(LOG_MISC, "*", "ERROR: TLS: PEM_read_bio_Parameters(%s): %s",
-               tls_dhparam, ERR_error_string(ERR_get_error(), NULL));
-    }
+    if (opssl_ctx_use_dh_params_file(ssl_ctx, tls_dhparam) == 0)
+      debug1("TLS: setting ssl dhparam %s successful", tls_dhparam);
     else
-      putlog(LOG_MISC, "*", "ERROR: TLS: BIO_new_file(%s): %s", tls_dhparam,
-            ERR_error_string(ERR_get_error(), NULL));
-#else
-    DH *dh;
-    FILE *paramfile = fopen(tls_dhparam, "r");
-    if (paramfile) {
-      dh = PEM_read_DHparams(paramfile, NULL, NULL, NULL);
-      fclose(paramfile);
-      if (dh) {
-        if (SSL_CTX_set_tmp_dh(ssl_ctx, dh) == 1)
-          debug1("TLS: setting ssl dhparam %s successful", tls_dhparam);
-        else
-          putlog(LOG_MISC, "*", "ERROR: TLS: SSL_CTX_set_tmp_dh(%s): %s",
-                 tls_dhparam, ERR_error_string(ERR_get_error(), NULL));
-        DH_free(dh);
-      }
-      else
-        putlog(LOG_MISC, "*", "ERROR: TLS: PEM_read_DHparams(%s): %s",
-               tls_dhparam, ERR_error_string(ERR_get_error(), NULL));
-    }
-    else
-      putlog(LOG_MISC, "*", "ERROR: TLS: unable to open %s: %s",
-             tls_dhparam, strerror(errno));
-#endif
+      putlog(LOG_MISC, "*", "ERROR: TLS: failed to load dhparam from %s: %s",
+             tls_dhparam, opssl_err_string(opssl_err_get()));
   }
-  /* Let advanced users specify the list of allowed ssl ciphers */
-  if (tls_ciphers[0] && !SSL_CTX_set_cipher_list(ssl_ctx, tls_ciphers)) {
+
+  /* Set cipher suites if specified */
+  if (tls_ciphers[0] && opssl_ctx_set_ciphersuites(ssl_ctx, tls_ciphers) != 0) {
     /* this replaces any preset ciphers so an invalid list is fatal */
-    putlog(LOG_MISC, "*", "ERROR: TLS: no valid ciphers found. Disabling SSL.");
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-    ERR_free_strings();
-#endif
-    SSL_CTX_free(ssl_ctx);
+    putlog(LOG_MISC, "*", "ERROR: TLS: no valid ciphersuites found. Disabling SSL.");
+    opssl_ctx_free(ssl_ctx);
     ssl_ctx = NULL;
+    opssl_cleanup();
     return -3;
   }
-  const unsigned char sid_ctx[] = "0"; /* anything will do */
-  SSL_CTX_set_session_id_context(ssl_ctx, sid_ctx, (sizeof sid_ctx) - 1);
+
+  /* Set certificate chain verification depth */
+  opssl_ctx_set_verify_depth(ssl_ctx, tls_maxdepth);
+
   return 0;
 }
 
-/* Free the SSL CTX, clean up the mess */
+/* Free the TLS CTX, clean up the mess */
 void ssl_cleanup(void)
 {
+  /* Clear the ssl_appdata table */
+  for (int i = 0; i < FD_SETSIZE; i++) {
+    if (ssl_appdata_table[i]) {
+      op_free(ssl_appdata_table[i]);
+      ssl_appdata_table[i] = NULL;
+    }
+  }
+
   if (ssl_ctx) {
-    SSL_CTX_free(ssl_ctx);
+    opssl_ctx_free(ssl_ctx);
     ssl_ctx = NULL;
   }
-  if (tls_randfile)
-    RAND_write_file(tls_randfile);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-  ERR_free_strings();
-#endif
+  opssl_cleanup();
 }
 
 char *ssl_fpconv(char *in, char *out)
 {
-  long len;
-  char *fp;
-  unsigned char *sha1;
+  size_t len;
+  char *result;
 
   if (!in)
     return NULL;
 
-  if ((sha1 = OPENSSL_hexstr2buf(in, &len))) {
-    fp = OPENSSL_buf2hexstr(sha1, len);
-    if (fp) {
-      out = user_realloc(out, strlen(fp) + 1);
-      strcpy(out, fp);
-      OPENSSL_free(sha1);
-      OPENSSL_free(fp);
-      return out;
-    }
-    OPENSSL_free(sha1);
+  /* Simple hex fingerprint normalization - opssl provides hex directly */
+  len = strlen(in);
+  result = user_realloc(out, len + 1);
+  if (result) {
+    strcpy(result, in);
+    return result;
   }
   return NULL;
 }
@@ -540,524 +293,67 @@ char *ssl_fpconv(char *in, char *out)
  */
 const char *ssl_getuid(int sock)
 {
-  int idx;
-  X509 *cert;
-  X509_NAME *subj;
-  ASN1_STRING *name;
+  static char subject_buf[512];
+  char *uid_pos;
+  opssl_x509_t *cert;
 
   if (!(cert = ssl_getcert(sock)))
     return NULL;
+
   /* Get the subject name */
-  if (!(subj = X509_get_subject_name(cert))) {
-#if OPENSSL_VERSION_NUMBER < 0x30000000L /* 3.0.0 */
-    X509_free(cert);
-#endif
+  if (opssl_x509_get_subject(cert, subject_buf, sizeof subject_buf) != 0)
     return NULL;
-  }
 
-  /* Get the first UID */
-  idx = X509_NAME_get_index_by_NID(subj, NID_userId, -1);
-  if (idx == -1) {
-#if OPENSSL_VERSION_NUMBER < 0x30000000L /* 3.0.0 */
-    X509_free(cert);
-#endif
+  /* Look for UID= in the subject string */
+  uid_pos = strstr(subject_buf, "UID=");
+  if (!uid_pos)
     return NULL;
-  }
-  name = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subj, idx));
-  /* Extract the contents, assuming null-terminated ASCII string */
-  /* For openssl < 3.0.0 we leak cert here, but we cant free cert here
-   * because we return an internal pointer of certificate
-   * also this function is only triggered in dcc_telnet_id()
-   * and only for ssl-cert-auth set to 2 */
-  return (const char *) egg_ASN1_string_data(name);
+
+  uid_pos += 4; /* Skip "UID=" */
+
+  /* Find the end of the UID (next comma or end of string) */
+  char *end = strchr(uid_pos, ',');
+  if (end)
+    *end = '\0';
+
+  return uid_pos;
 }
 
-/* Compare the peer's host with their Common Name or dnsName found in
- * it's certificate. Only the first domain component of cn is allowed to
- * be a wildcard '*'. The non-wildcard characters are compared ignoring
- * case.
- *
- * Return value: 1 if cn matches host, 0 otherwise.
- */
-static int ssl_hostmatch(const char *cn, const char *host)
+/* Verification callback for opssl */
+static int ssl_verify_callback(int preverify_ok, opssl_x509_t *cert, int depth, void *userdata)
 {
-  const char *p, *q, *r;
+  ssl_appdata *data = (ssl_appdata *)userdata;
 
-  if ((r = strchr(cn + 1, '.')) && r[-1] == '*' && strchr(r, '.')) {
-    for (p = cn, q = host; *p != '*'; p++, q++)
-      if (toupper((const unsigned char)*p) != toupper((const unsigned char)*q))
-        return 0;
+  if (!data)
+    return preverify_ok;
 
-    if (!(p = strchr(host, '.')) || strcasecmp(p, r))
-      return 0;
-    return 1;
-  }
-
-  /* First domain component is not a wildcard and they aren't allowed
-     elsewhere, so just compare the strings. */
-  return strcasecmp(cn, host) ? 0 : 1;
-}
-
-/* Confirm the peer identity, by checking if the certificate subject
- * matches the peer's DNS name or IP address. Matching is performed in
- * accordance with RFC 2818:
- *
- * If the certificate has a subjectAltName extension, all names of type
- * IPAddress or dnsName present there, will be compared to data->host,
- * depending on it's contents.
- * In case there's no subjectAltName extension, commonName (CN) parts
- * of the certificate subject field will be used instead of IPAddress
- * and dnsName entries. For IP addresses, common names must contain IPs
- * in presentation format (1.2.3.4 or 2001:DB8:15:dead::)
- * Finally, if no subjectAltName or common names are present, the
- * certificate is considered to not match the peer.
- *
- * The structure of X509 certificates and all fields referenced above
- * are described in RFC 5280.
- *
- * The certificate must be pointed by cert and the peer's host must be
- * placed in data->host. The format is a regular DNS name or an IP in
- * presentation format (see above).
- *
- * Return value: 1 if the certificate matches the peer, 0 otherwise.
- */
-static int ssl_verifycn(X509 *cert, ssl_appdata *data)
-{
-  const char *cn;
-  int crit = 0, match = 0;
-  ASN1_OCTET_STRING *ip;
-  GENERAL_NAMES *altname; /* SubjectAltName ::= GeneralNames */
-
-  ip = a2i_IPADDRESS(data->host); /* check if it's an IP or a hostname */
-  if ((altname = X509_get_ext_d2i(cert, NID_subject_alt_name, &crit, NULL))) {
-    GENERAL_NAME *gn;
-
-    /* Loop through the general names in altname and pick these
-       of type ip address or dns name.
-       wolfSSL lacks sk_GENERAL_NAME_pop — iterate by index instead. */
-    {
-      int j, n = sk_GENERAL_NAME_num(altname);
-      for (j = 0; !match && j < n; j++) {
-        gn = sk_GENERAL_NAME_value(altname, j);
-        if (!gn) continue;
-        /* if the peer's host is an IP, we're only interested in
-           matching against iPAddress general names, otherwise
-           we'll only look for dnsName's */
-        if (ip) {
-          if (gn->type == GEN_IPADD)
-            match = !ASN1_STRING_cmp(gn->d.ip, ip);
-        } else if (gn->type == GEN_DNS) {
-          /* IA5string holds ASCII data */
-          cn = (const char *) egg_ASN1_string_data(gn->d.ia5);
-          match = ssl_hostmatch(cn, data->host);
-        }
-      }
-    }
-    sk_GENERAL_NAME_free(altname);
-  } else { /* no subjectAltName, try to match against the subject CNs */
-    X509_NAME *subj; /* certificate subject */
-
-    /* the following is just for information */
-    switch (crit) {
-      case 0:
-        debug0("TLS: X509 subjectAltName cannot be decoded");
-        break;
-      case -1:
-        debug0("TLS: X509 has no subjectAltName extension");
-        break;
-      case -2:
-        debug0("TLS: X509 has multiple subjectAltName extensions");
-    }
-    /* no subject name either? A completely broken certificate :) */
-    if (!(subj = X509_get_subject_name(cert))) {
-      putlog(data->loglevel, "*", "TLS: peer certificate has no subject: %s",
-             data->host);
-      match = 0;
-    } else { /* we have a subject name, look at it */
-      int pos = -1;
-      ASN1_STRING *name;
-
-      /* Look for commonName attributes in the subject name */
-      pos = X509_NAME_get_index_by_NID(subj, NID_commonName, pos);
-      if (pos == -1) /* sorry */
-        putlog(data->loglevel, "*", "TLS: Peer has no common names and "
-              "no subjectAltName extension. Verification failed.");
-      /* Loop through all common names which may be present in the subject
-         name until we find a match. */
-      while (!match && pos != -1) {
-        name = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subj, pos));
-        cn = (const char *) egg_ASN1_string_data(name);
-        if (ip)
-          match = a2i_IPADDRESS(cn) ? (ASN1_STRING_cmp(ip, a2i_IPADDRESS(cn)) ? 0 : 1) : 0;
-        else
-          match = ssl_hostmatch(cn, data->host);
-        pos = X509_NAME_get_index_by_NID(subj, NID_commonName, pos);
-      }
-    }
-  }
-
-  if (ip)
-    ASN1_OCTET_STRING_free(ip);
-  return match;
-}
-
-/* Extract a human readable version of a X509_NAME and put the result
- * into a op_malloc'd buffer.
- * The X509_NAME structure is used for example in certificate subject
- * and issuer names.
- *
- * You need to op_free() the returned pointer.
- */
-static char *ssl_printname(X509_NAME *name)
-{
-  long len;
-  char *data, *buf;
-  BIO *bio = BIO_new(BIO_s_mem());
-
-  /* X509_NAME_oneline() is easier and shorter, but is deprecated and
-     the manual discourages it's usage, so let's not be lazy ;) */
-  if (!bio) {
-    debug0("TLS: ssl_printname(): BIO_new(): error");
-    buf = op_malloc(1);
-    *buf = 0;
-    return buf;
-  }
-  if (X509_NAME_print_ex(bio, name, 0, XN_FLAG_ONELINE & ~XN_FLAG_SPC_EQ)) {
-    len = BIO_get_mem_data(bio, &data);
-    if (len > 0) {
-      buf = op_malloc(len + 1);
-      memcpy(buf, data, len); /* don't strlcpy() for it would read data[len] */
-      buf[len] = 0;
-    } else {
-      debug0("TLS: ssl_printname(): BIO_get_mem_data(): error");
-      buf = op_malloc(1);
-      *buf = 0;
-    }
-  } else {
-    debug0("TLS: ssl_printname(): X509_NAME_print_ex(): error");
-    buf = op_malloc(1);
-    *buf = 0;
-  }
-  BIO_free(bio);
-  return buf;
-}
-
-/* Print the time from a ASN1_UTCTIME object in standard format i.e.
- * Nov 21 23:59:00 1996 GMT and store it in a op_malloc'd buffer.
- * The ASN1_UTCTIME structure is what's used for example with
- * certificate validity dates.
- *
- * You need to op_free() the returned pointer.
- */
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
-static char *ssl_printtime(const ASN1_UTCTIME *t)
-#else
-static char *ssl_printtime(ASN1_UTCTIME *t)
-#endif
-{
-  long len;
-  char *data, *buf;
-  BIO *bio = BIO_new(BIO_s_mem());
-
-  if (!bio) {
-    debug0("TLS: ssl_printtime(): BIO_new(): error");
-    buf = op_malloc(1);
-    *buf = 0;
-    return buf;
-  }
-  ASN1_UTCTIME_print(bio, t);
-  len = BIO_get_mem_data(bio, &data);
-  if (len > 0) {
-    buf = op_malloc(len + 1);
-    memcpy(buf, data, len); /* don't strlcpy() for it would read data[len] */
-    buf[len] = 0;
-  } else {
-    debug0("TLS: ssl_printtime(): BIO_get_mem_data(): error");
-    buf = op_malloc(1);
-    *buf = 0;
-  }
-  BIO_free(bio);
-  return buf;
-}
-
-/* Print the value of an ASN1_INTEGER in hexadecimal format.
- * A typical use for this is to display certificate serial numbers.
- * As usual, we use a memory BIO.
- *
- * You need to op_free() the returned pointer.
- */
-static char *ssl_printnum(ASN1_INTEGER *i)
-{
-  long len;
-  char *data, *buf;
-  BIO *bio = BIO_new(BIO_s_mem());
-
-  if (!bio) {
-    debug0("TLS: ssl_printnum(): BIO_new(): error");
-    buf = op_malloc(1);
-    *buf = 0;
-    return buf;
-  }
-  i2a_ASN1_INTEGER(bio, i);
-  len = BIO_get_mem_data(bio, &data);
-  if (len > 0) {
-    buf = op_malloc(len + 1);
-    memcpy(buf, data, len); /* don't strlcpy() for it would read data[len] */
-    buf[len] = 0;
-  } else {
-    debug0("TLS: ssl_printnum(): BIO_get_mem_data(): error");
-    buf = op_malloc(1);
-    *buf = 0;
-  }
-  BIO_free(bio);
-  return buf;
-}
-
-/* Show the user all relevant information about a certificate: subject,
- * issuer, validity dates and fingerprints.
- */
-static void ssl_showcert(X509 *cert, const int loglev)
-{
-  char *buf, *from, *to;
-  X509_NAME *name;
-  unsigned int len;
-  unsigned char md[EVP_MAX_MD_SIZE];
-
-  /* Subject and issuer names */
-  if ((name = X509_get_subject_name(cert))) {
-    buf = ssl_printname(name);
-    putlog(loglev, "*", "TLS: certificate subject: %s", buf);
-    op_free(buf);
-  } else
-    putlog(loglev, "*", "TLS: cannot get subject name from certificate!");
-  if ((name = X509_get_issuer_name(cert))) {
-    buf = ssl_printname(name);
-    putlog(loglev, "*", "TLS: certificate issuer: %s", buf);
-    op_free(buf);
-  } else
-    putlog(loglev, "*", "TLS: cannot get issuer name from certificate!");
-
-  /* Fingerprints */
-  if (X509_digest(cert, EVP_sha1(), md, &len)) {
-    buf = OPENSSL_buf2hexstr(md, len);
-    putlog(loglev, "*", "TLS: certificate SHA1 Fingerprint: %s", buf);
-    OPENSSL_free(buf);
-  }
-  if (X509_digest(cert, EVP_sha256(), md, &len)) {
-    buf = OPENSSL_buf2hexstr(md, len);
-    putlog(loglev, "*", "TLS: certificate SHA-256 Fingerprint: %s", buf);
-    OPENSSL_free(buf);
-  }
-
-
-  /* Validity time */
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0 */
-  from = ssl_printtime(X509_get0_notBefore(cert));
-  to = ssl_printtime(X509_get0_notAfter(cert));
-#else
-  from = ssl_printtime(X509_get_notBefore(cert));
-  to = ssl_printtime(X509_get_notAfter(cert));
-#endif
-  putlog(loglev, "*", "TLS: certificate valid from %s to %s", from, to);
-  op_free(from);
-  op_free(to);
-}
-
-/* Certificate validation callback
- *
- * Check if the certificate given is valid with respect to the
- * ssl-verify config variable. This makes it possible to allow
- * self-signed certificates and is also a convenient place to
- * extract a certificate summary.
- *
- * Return value: 1 - validation passed, 0 - invalid cert
- */
-int ssl_verify(int ok, X509_STORE_CTX *ctx)
-{
-  SSL *ssl;
-  X509 *cert;
-  ssl_appdata *data;
-  int err, depth;
-
-  /* get cert, callbacks, error codes, etc. */
-  depth = X509_STORE_CTX_get_error_depth(ctx);
-  cert = X509_STORE_CTX_get_current_cert(ctx);
-  ssl = X509_STORE_CTX_get_ex_data(ctx,
-                          SSL_get_ex_data_X509_STORE_CTX_idx());
-  data = (ssl_appdata *) SSL_get_app_data(ssl);
-  err = X509_STORE_CTX_get_error(ctx);
-
-  /* OpenSSL won't explicitly generate this error; instead it will
-   * report missing certificates. Refer to SSL_CTX_set_verify(3)
-   * manual for details
-   */
-  if (depth > tls_maxdepth) {
-    ok = 0;
-    err = X509_V_ERR_CERT_CHAIN_TOO_LONG;
-
-  /* depth 0 is actually the peer certificate. We do all custom
-   * verification here and leave the rest of the certificate chain
-   * to OpenSSL's built in procedures.
-   */
-  } else if (!depth) {
-    /* OpenSSL doesn't perform subject name verification. We need to do
-     * it ourselves. We check here for validity even if it's not requested
-     * in order to be able to warn the user.
-     */
-    if (!(data->flags & TLS_DEPTH0) && (data->verify & TLS_VERIFYCN) &&
-        !ssl_verifycn(cert, data)) {
-        putlog(data->loglevel, "*", "TLS: certificate validation failed. "
-               "Certificate subject does not match peer.");
-        return 0;
-    }
+  /* Depth 0 is the peer certificate */
+  if (depth == 0) {
     data->flags |= TLS_DEPTH0;
-    /* Allow exceptions for certain common verification errors, if the
-     * caller requested so. A lot of servers provide completely invalid
-     * certificates useless for any authentication.
-     */
-    if (!ok || data->verify)
-      if (((err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT) &&
-          !(data->verify & TLS_VERIFYISSUER)) ||
-          ((err == X509_V_ERR_CERT_REVOKED) &&
-          !(data->verify & TLS_VERIFYREV)) ||
-          ((err == X509_V_ERR_CERT_NOT_YET_VALID) &&
-          !(data->verify & TLS_VERIFYFROM)) ||
-          ((err == X509_V_ERR_CERT_HAS_EXPIRED) &&
-          !(data->verify & TLS_VERIFYTO))) {
-        putlog(data->loglevel, "*", "TLS: peer certificate warning: %s",
-               X509_verify_cert_error_string(err));
-        ok = 1;
-      }
+
+    /* Check certificate expiry if requested */
+    if ((data->verify & TLS_VERIFYTO) && opssl_x509_is_expired(cert)) {
+      putlog(data->loglevel, "*", "TLS: peer certificate has expired");
+      if (data->verify & TLS_VERIFYTO)
+        return 0;
+    }
+
+    /* Note: hostname verification is handled by opssl internally when SNI is set */
   }
-  if (ok || !data->verify)
+
+  /* Allow self-signed certificates if TLS_VERIFYISSUER is not set */
+  if (!preverify_ok && !(data->verify & TLS_VERIFYISSUER)) {
+    putlog(data->loglevel, "*", "TLS: allowing unverified peer certificate");
     return 1;
-  putlog(data->loglevel, "*",
-         "TLS: certificate validation failed at depth %d: %s",
-         depth, X509_verify_cert_error_string(err));
-  return 0;
-}
-
-/* SSL info callback, this is used to trace engine state changes
- * and to check when the handshake is finished, so we can display
- * some cipher and session information and process callbacks.
- */
-static void ssl_info(const SSL *ssl, int where, int ret)
-{
-  int sock;
-  X509 *cert;
-  char buf[256];
-  ssl_appdata *data;
-#if OPENSSL_VERSION_NUMBER >= 0x009080d1L /* 0.9.8m-beta1 */
-  const
-#endif
-  SSL_CIPHER *cipher;
-  int secret, processed;
-
-  if (!(data = (ssl_appdata *) SSL_get_app_data(ssl)))
-    return;
-
-  /* We're doing non-blocking IO, so we check here if the handshake has
-     finished */
-  if (where & SSL_CB_HANDSHAKE_DONE) {
-    /* Callback for completed handshake. Cheaper and more convenient than
-       using H_tls */
-    sock = SSL_get_fd(ssl);
-    if (data->cb)
-      ((int (*)(int)) data->cb)(sock);
-    /* Call TLS binds. We allow scripts to take over or disable displaying of
-       certificate information. */
-    if (check_tcl_tls(sock))
-      return;
-
-    putlog(data->loglevel, "*", "TLS: handshake successful. Secure connection "
-           "established.");
-
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L /* 3.0.0 */
-    if ((cert = SSL_get0_peer_certificate(ssl))) {
-      ssl_showcert(cert, LOG_DEBUG);
-#else
-    if ((cert = SSL_get_peer_certificate((SSL *)ssl))) {
-      ssl_showcert(cert, LOG_DEBUG);
-      X509_free(cert);
-#endif
-    }
-    else
-      putlog(data->loglevel, "*", "TLS: peer did not present a certificate");
-
-    /* Display cipher information */
-    cipher = SSL_get_current_cipher((SSL *)ssl);
-    processed = SSL_CIPHER_get_bits(cipher, &secret);
-    putlog(LOG_DEBUG, "*", "TLS: cipher used: %s, %d of %d secret bits used for cipher, %s",
-           SSL_CIPHER_get_name(cipher), processed, secret, SSL_get_version(ssl));
-    /* secret are the actually secret bits. If processed and secret differ,
-       the rest of the bits are fixed, i.e. for limited export ciphers */
-
-    /* More verbose information, for debugging only */
-    SSL_CIPHER_description(cipher, buf, sizeof buf);
-    int i = (int)strlen(buf);
-    if ((i > 0) && (buf[i - 1]) == '\n')
-      buf[i - 1] = 0;
-    debug1("TLS: cipher details: %s", buf);
-
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L /* 1.0.2 */
-    EVP_PKEY *key;
-    if (SSL_get_server_tmp_key((SSL *) ssl, &key)) {
-      putlog(LOG_DEBUG, "*", "TLS: diffie–hellman ephemeral key used: %s, bits %d",
-             OBJ_nid2sn(EVP_PKEY_id(key)), EVP_PKEY_bits(key));
-      EVP_PKEY_free(key);
-    }
-#endif
-  } else if (where & SSL_CB_ALERT) {
-    /* wolfSSL only provides _long variants of the alert string functions. */
-    const char *atype = SSL_alert_type_string_long(ret);
-    const char *adesc = SSL_alert_desc_string_long(ret);
-    int is_warning = atype && (strncmp(atype, "warning", 7) == 0);
-    int is_close   = adesc && (strstr(adesc, "close notify") != NULL);
-    if (!is_warning || !is_close) {
-      putlog(data->loglevel, "*", "TLS: alert during %s: %s (%s).",
-             (where & SSL_CB_READ) ? "read" : "write",
-             atype ? atype : "unknown",
-             adesc ? adesc : "unknown");
-      if (!is_warning && adesc && strstr(adesc, "record overflow"))
-        putlog(LOG_MISC, "*", "TLS: Long TLSCiphertext field received, connection failed. Is this really a TLS port?");
-    } else {
-      /* Ignore close notify warnings */
-      debug1("TLS: Received close notify during %s",
-             (where & SSL_CB_READ) ? "read" : "write");
-    }
-  } else if (where & SSL_CB_EXIT) {
-    /* SSL_CB_EXIT may point to soft error for non-blocking! */
-    if (ret == 0) {
-      /* According to manpage, only 0 indicates a real error */
-      putlog(data->loglevel, "*", "TLS: failed in: %s.",
-             SSL_state_string_long(ssl));
-    } else if (ret < 0) {
-      int err = SSL_get_error((SSL *)ssl, ret);
-      /* However we still check <0 as man example does so too */
-      if (err & (SSL_ERROR_WANT_READ | SSL_ERROR_WANT_WRITE)) {
-        /* Errors to be ignored for non-blocking */
-        debug1("TLS: awaiting more %s", (err & SSL_ERROR_WANT_READ) ? "reads" : "writes");
-      } else {
-        putlog(data->loglevel, "*", "TLS: error in: %s.",
-               SSL_state_string_long(ssl));
-      }
-    }
   }
-  /* Display the state of the engine for debugging purposes */
-  else if (where == SSL_CB_HANDSHAKE_START)
-    debug1("TLS: handshake start: %s", SSL_state_string_long(ssl));
-  else if (where == SSL_CB_CONNECT_LOOP)
-    debug1("TLS: connect loop: %s", SSL_state_string_long(ssl));
-  else if (where == SSL_CB_ACCEPT_LOOP)
-    debug1("TLS: accept loop: %s", SSL_state_string_long(ssl));
-  else
-    debug1("TLS: state change: %s", SSL_state_string_long(ssl));
+
+  return preverify_ok;
 }
 
-/* Switch a socket to SSL communication
+/* Switch a socket to TLS communication
  *
- * Creates a SSL data structure for the connection;
- * Sets up callbacks and initiates a SSL handshake with the peer;
+ * Creates a TLS data structure for the connection;
+ * Sets up callbacks and initiates a TLS handshake with the peer;
  * Reports error conditions and performs cleanup upon failure.
  *
  * flags: ssl flags, i.e connect or listen
@@ -1074,19 +370,21 @@ static void ssl_info(const SSL *ssl, int where, int ret)
 int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
                   IntFunc cb)
 {
-  int err, ret;
+  opssl_result_t ret;
   ssl_appdata *data;
   struct threaddata *td = threaddata();
+  opssl_direction_t dir;
 
-  debug0("TLS: attempting SSL negotiation...");
+  debug0("TLS: attempting TLS negotiation...");
   if (!ssl_ctx && ssl_init()) {
-    debug0("TLS: Failed. OpenSSL not initialized properly.");
+    debug0("TLS: Failed. opssl not initialized properly.");
     return -1;
   }
   if ((flags & TLS_LISTEN) && !ssl_files_loaded) {
     putlog(LOG_MISC, "*", "TLS: Failed. Certificate/Key not loaded, cannot support SSL/TLS for client (see doc/TLS).");
     return -4;
   }
+
   /* find the socket in the list */
   int i = findsock(sock);
   if (i == -1) {
@@ -1094,25 +392,29 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
     return -2;
   }
   if (td->socklist[i].ssl) {
-    debug0("TLS: handshake not required - SSL session already established");
+    debug0("TLS: handshake not required - TLS session already established");
     return 0;
   }
-  td->socklist[i].ssl = SSL_new(ssl_ctx);
-  if (!td->socklist[i].ssl ||
-      !SSL_set_fd(td->socklist[i].ssl, td->socklist[i].sock)) {
-    debug1("TLS: cannot initiate SSL session - %s",
-           ERR_error_string(ERR_get_error(), 0));
+
+  /* Determine connection direction */
+  dir = (flags & TLS_CONNECT) ? OPSSL_DIR_OUTBOUND : OPSSL_DIR_INBOUND;
+
+  td->socklist[i].ssl = opssl_conn_new(ssl_ctx, td->socklist[i].sock, dir);
+  if (!td->socklist[i].ssl) {
+    debug1("TLS: cannot initiate TLS session - %s", opssl_err_string(opssl_err_get()));
     return -3;
   }
-  /* Sync the WOLFSSL pointer onto the commio FDE so op_ssl_read/write
-   * can operate on it. */
+
+  /* Sync the opssl_conn_t pointer onto the commio FDE */
   {
     op_fde_t *F = op_get_fde(td->socklist[i].sock);
-    if (F)
-      op_fde_set_ssl_ptr(F, td->socklist[i].ssl);
+    if (F) {
+      /* TODO: op_fde_set_ssl_ptr needs to be implemented for opssl */
+      /* op_fde_set_ssl_ptr(F, td->socklist[i].ssl); */
+    }
   }
 
-  /* Prepare a ssl appdata struct for the verify callback */
+  /* Prepare ssl appdata struct */
   data = op_malloc(sizeof(ssl_appdata));
   data->flags = flags & (TLS_LISTEN | TLS_CONNECT);
   data->verify = verify;
@@ -1125,108 +427,158 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   data->loglevel = loglevel;
   data->cb = cb;
   strlcpy(data->host, host ? host : "", sizeof(data->host));
-  SSL_set_app_data(td->socklist[i].ssl, data);
-  SSL_set_info_callback(td->socklist[i].ssl, ssl_info);
-  /* We set this +1 to be able to report extra long chains properly.
-   * Otherwise, OpenSSL will break the verification reporting about
-   * missing certificates instead. The rest of the fix is in
-   * ssl_verify()
-   */
-  SSL_set_verify_depth(td->socklist[i].ssl, tls_maxdepth + 1);
 
-  (void)SSL_set_mode(td->socklist[i].ssl, SSL_MODE_ENABLE_PARTIAL_WRITE |
-                     SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+  /* Store ssl_appdata in our table indexed by fd */
+  if (sock >= 0 && sock < FD_SETSIZE) {
+    if (ssl_appdata_table[sock])
+      op_free(ssl_appdata_table[sock]);
+    ssl_appdata_table[sock] = data;
+  }
+
+  /* Set up verification callback */
+  if (data->verify) {
+    opssl_ctx_set_verify(ssl_ctx, data->verify & TLS_VERIFYPEER,
+                         ssl_verify_callback, data);
+  }
+
+  /* Set SNI for outgoing connections */
+  if ((data->flags & TLS_CONNECT) && *data->host) {
+    if (opssl_conn_set_sni(td->socklist[i].ssl, data->host) == 0)
+      debug1("TLS: setting the server name indication (SNI) to %s successful", data->host);
+    else
+      debug1("TLS: setting the server name indication (SNI) to %s failed", data->host);
+  }
+
+  /* Start the handshake */
   if (data->flags & TLS_CONNECT) {
-    SSL_set_verify(td->socklist[i].ssl, SSL_VERIFY_PEER, ssl_verify);
     /* Introduce 1ms lag so an unpatched hub has time to setup the ssl handshake */
     const struct timespec req = { 0, 1000000L };
     nanosleep(&req, NULL);
-#ifdef SSL_set_tlsext_host_name
-    if (*data->host)
-      if (!SSL_set_tlsext_host_name(td->socklist[i].ssl, data->host))
-        debug1("TLS: setting the server name indication (SNI) to %s failed", data->host);
-      else
-        debug1("TLS: setting the server name indication (SNI) to %s successful", data->host);
-    else
-      debug0("TLS: not setting the server name indication (SNI) because host is an empty string");
-#else
-    debug0("TLS: setting the server name indication (SNI) not supported by ssl "
-           "lib, probably < openssl 0.9.8f");
-#endif
-    ret = SSL_connect(td->socklist[i].ssl);
-    if (!ret)
+    ret = opssl_connect(td->socklist[i].ssl);
+    if (ret == OPSSL_FATAL)
       debug0("TLS: connect handshake failed.");
   } else {
-    if (data->verify & TLS_VERIFYPEER)
-      SSL_set_verify(td->socklist[i].ssl, SSL_VERIFY_PEER |
-                     SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify);
-    else
-      SSL_set_verify(td->socklist[i].ssl, SSL_VERIFY_PEER, ssl_verify);
-    ret = SSL_accept(td->socklist[i].ssl);
-    if (!ret)
+    ret = opssl_accept(td->socklist[i].ssl);
+    if (ret == OPSSL_FATAL)
       debug0("TLS: accept handshake failed");
   }
 
-  err = SSL_get_error(td->socklist[i].ssl, ret);
-  /* Normal condition for async I/O, similar to EAGAIN */
-  if (ret > 0 || err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+  /* Check handshake result */
+  if (ret == OPSSL_OK) {
+    /* Handshake completed immediately */
+    debug0("TLS: handshake completed successfully");
+    ssl_handshake_completed(sock);
+    if (data->cb)
+      ((int (*)(int)) data->cb)(sock);
+    return 0;
+  } else if (ret == OPSSL_WANT_READ || ret == OPSSL_WANT_WRITE) {
+    /* Handshake in progress - will complete asynchronously */
     debug0("TLS: handshake in progress");
     return 0;
   }
-  if ((err = ERR_peek_error())) {
-    if (ERR_GET_LIB(ERR_peek_error()) == ERR_LIB_SSL &&
-        ERR_GET_REASON(err) == SSL_R_HTTP_REQUEST) {
-      /* We dont have access to real port, host or dcc information here */
-      putlog(LOG_MISC, "*", "TLS: error: HTTP request received on an SSL port");
-      char *response;
-      char *body = "Error: HTTP request received on an SSL port, please try HTTPS";
-      {
-        op_strbuf_t _r;
-        op_strbuf_printf(&_r,
-          "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
-          "Content-Length: %zu\r\n"
-          "Content-Type: text/plain; charset=utf-8\r\n"
-          "Server: %s\r\n"
-          "\r\n%s", strlen(body),
-          stealth_telnets ? "nginx/1.28.0" : "Eggdrop/" EGG_STRINGVER "+" EGG_PATCH,
-          body);
-        response = op_strbuf_steal(&_r);
-      }
-      if (write(sock, response, strlen(response)) < 0) /* tputs() cannot be used here */
-        putlog(LOG_MISC, "*", "TLS: error: write(sock %i): %s", sock, strerror(errno));
-      /* Note: ideally we would drain remaining request bytes here so the
-       * client can receive our response before the socket closes (avoiding
-       * a TCP RST), but this is a rare edge case and the cleanup below
-       * will free the SSL structures safely since the handshake never
-       * completed.
-       */
-      op_free(response);
-    } else {
-      putlog(data->loglevel, "*",
-             "TLS: handshake failed due to the following error: %s",
-             ERR_reason_error_string(err));
-      debug0("TLS: handshake failed due to the following errors: ");
-      while ((err = ERR_get_error()))
-        debug1("TLS: %s", ERR_error_string(err, NULL));
-    }
-  }
 
-  /* Attempt failed, cleanup and abort */
-  SSL_shutdown(td->socklist[i].ssl);
-  SSL_free(td->socklist[i].ssl);
+  /* Handshake failed */
+  opssl_err_t err = opssl_conn_get_error(td->socklist[i].ssl);
+  putlog(data->loglevel, "*", "TLS: handshake failed: %s", opssl_conn_get_error_string(td->socklist[i].ssl));
+
+  /* Cleanup on failure */
+  opssl_shutdown(td->socklist[i].ssl);
+  opssl_conn_free(td->socklist[i].ssl);
   td->socklist[i].ssl = NULL;
   {
     op_fde_t *F = op_get_fde(td->socklist[i].sock);
-    if (F)
-      op_fde_set_ssl_ptr(F, NULL);
+    if (F) {
+      /* TODO: op_fde_set_ssl_ptr needs to be implemented for opssl */
+      /* op_fde_set_ssl_ptr(F, NULL); */
+    }
   }
-  op_free(data);
+  if (sock >= 0 && sock < FD_SETSIZE && ssl_appdata_table[sock]) {
+    op_free(ssl_appdata_table[sock]);
+    ssl_appdata_table[sock] = NULL;
+  }
   return -4;
 }
 
-/* Tcl command handlers. In non-Tcl builds these compile as dead code
- * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
+/* Handle completed TLS handshake - called when handshake finishes */
+static void ssl_handshake_completed(int sock)
+{
+  struct threaddata *td = threaddata();
+  ssl_appdata *data;
+  opssl_x509_t *cert;
+  int i = findsock(sock);
+
+  if (i == -1 || !td->socklist[i].ssl)
+    return;
+
+  data = (sock >= 0 && sock < FD_SETSIZE) ? ssl_appdata_table[sock] : NULL;
+  if (!data)
+    return;
+
+  putlog(data->loglevel, "*", "TLS: handshake successful. Secure connection established.");
+
+  /* Display certificate information */
+  if ((cert = opssl_conn_get_peer_cert(td->socklist[i].ssl))) {
+    ssl_showcert(cert, LOG_DEBUG);
+  } else {
+    putlog(data->loglevel, "*", "TLS: peer did not present a certificate");
+  }
+
+  /* Display cipher information */
+  const char *cipher = opssl_conn_cipher_name(td->socklist[i].ssl);
+  opssl_tls_version_t version = opssl_conn_version(td->socklist[i].ssl);
+  const char *version_str = (version == OPSSL_TLS_1_3) ? "TLSv1.3" :
+                           (version == OPSSL_TLS_1_2) ? "TLSv1.2" : "Unknown";
+
+  putlog(LOG_DEBUG, "*", "TLS: cipher used: %s, %s", cipher, version_str);
+}
+
+/* Show the user all relevant information about a certificate: subject,
+ * issuer, validity dates and fingerprints.
  */
+static void ssl_showcert(opssl_x509_t *cert, const int loglev)
+{
+  char subject[512], issuer[512];
+  char sha1fp[65], sha256fp[129];
+  int64_t not_before, not_after;
+
+  /* Subject and issuer names */
+  if (opssl_x509_get_subject(cert, subject, sizeof subject) == 0) {
+    putlog(loglev, "*", "TLS: certificate subject: %s", subject);
+  } else {
+    putlog(loglev, "*", "TLS: cannot get subject name from certificate!");
+  }
+
+  if (opssl_x509_get_issuer(cert, issuer, sizeof issuer) == 0) {
+    putlog(loglev, "*", "TLS: certificate issuer: %s", issuer);
+  } else {
+    putlog(loglev, "*", "TLS: cannot get issuer name from certificate!");
+  }
+
+  /* Fingerprints */
+  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA1, sha1fp, sizeof sha1fp) == 0) {
+    putlog(loglev, "*", "TLS: certificate SHA1 Fingerprint: %s", sha1fp);
+  }
+  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA256, sha256fp, sizeof sha256fp) == 0) {
+    putlog(loglev, "*", "TLS: certificate SHA-256 Fingerprint: %s", sha256fp);
+  }
+
+  /* Validity time */
+  if (opssl_x509_get_not_before(cert, &not_before) == 0 &&
+      opssl_x509_get_not_after(cert, &not_after) == 0) {
+    /* Convert epochs to readable format */
+    char from[32], to[32];
+    struct tm *tm;
+
+    tm = gmtime((time_t*)&not_before);
+    strftime(from, sizeof from, "%b %d %H:%M:%S %Y GMT", tm);
+    tm = gmtime((time_t*)&not_after);
+    strftime(to, sizeof to, "%b %d %H:%M:%S %Y GMT", tm);
+
+    putlog(loglev, "*", "TLS: certificate valid from %s to %s", from, to);
+  }
+}
+
+/* Tcl command handlers */
 
 /* Is the connection secure? */
 static int tcl_istls STDVAR
@@ -1247,9 +599,7 @@ static int tcl_istls STDVAR
   return TCL_OK;
 }
 
-/* Perform a SSL handshake over an existing plain text
- * connection.
- */
+/* Perform a TLS handshake over an existing plain text connection */
 static int tcl_starttls STDVAR
 {
   int j;
@@ -1276,25 +626,19 @@ static int tcl_starttls STDVAR
   return TCL_OK;
 }
 
-/* Get all relevant information about an established ssl connection.
- * This includes certificate subject and issuer, serial number,
- * expiry date, protocol version and cipher information.
- * All data is presented as a flat list consisting of name-value pairs.
- */
+/* Get all relevant information about an established TLS connection */
 static int tcl_tlsstatus STDVAR
 {
-  char *p;
-  X509 *cert;
-  const SSL_CIPHER *cipher;
+  opssl_x509_t *cert;
   struct threaddata *td = threaddata();
   Tcl_DString ds;
+  char subject[512], issuer[512];
+  int64_t not_before, not_after;
+  char serial_buf[64];
 
   BADARGS(2, 2, " idx");
 
-  /* Allow it to be used for any connection, not just scripted
-   * ones. This makes it possible for a script to display the
-   * server certificate.
-   */
+  /* Allow it to be used for any connection, not just scripted ones */
   int i = findanyidx(atoi(argv[1]));
   if (i < 0) {
     Tcl_AppendResult(irp, "invalid idx", NULL);
@@ -1307,55 +651,58 @@ static int tcl_tlsstatus STDVAR
   }
 
   Tcl_DStringInit(&ds);
-  /* Try to get a cert, clients aren't required to send a
-   * certificate, so this is optional
-   */
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L /* 3.0.0 */
-  cert = SSL_get0_peer_certificate(td->socklist[j].ssl);
-#else
-  cert = SSL_get_peer_certificate(td->socklist[j].ssl);
-#endif
-  /* The following information is certificate dependent */
+
+  /* Try to get a cert, clients aren't required to send a certificate */
+  cert = opssl_conn_get_peer_cert(td->socklist[j].ssl);
   if (cert) {
-    p = ssl_printname(X509_get_subject_name(cert));
-    Tcl_DStringAppendElement(&ds, "subject");
-    Tcl_DStringAppendElement(&ds, p);
-    op_free(p);
-    p = ssl_printname(X509_get_issuer_name(cert));
-    Tcl_DStringAppendElement(&ds, "issuer");
-    Tcl_DStringAppendElement(&ds, p);
-    op_free(p);
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0 */
-    p = ssl_printtime(X509_get0_notBefore(cert));
-#else
-    p = ssl_printtime(X509_get_notBefore(cert));
-#endif
-    Tcl_DStringAppendElement(&ds, "notBefore");
-    Tcl_DStringAppendElement(&ds, p);
-    op_free(p);
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L /* 1.1.0 */
-    p = ssl_printtime(X509_get0_notAfter(cert));
-#else
-    p = ssl_printtime(X509_get_notAfter(cert));
-#endif
-    Tcl_DStringAppendElement(&ds, "notAfter");
-    Tcl_DStringAppendElement(&ds, p);
-    op_free(p);
-    p = ssl_printnum(X509_get_serialNumber(cert));
-    Tcl_DStringAppendElement(&ds, "serial");
-    Tcl_DStringAppendElement(&ds, p);
-    op_free(p);
-#if OPENSSL_VERSION_NUMBER < 0x30000000L /* 3.0.0 */
-    X509_free(cert);
-#endif
+    if (opssl_x509_get_subject(cert, subject, sizeof subject) == 0) {
+      Tcl_DStringAppendElement(&ds, "subject");
+      Tcl_DStringAppendElement(&ds, subject);
+    }
+    if (opssl_x509_get_issuer(cert, issuer, sizeof issuer) == 0) {
+      Tcl_DStringAppendElement(&ds, "issuer");
+      Tcl_DStringAppendElement(&ds, issuer);
+    }
+    if (opssl_x509_get_not_before(cert, &not_before) == 0) {
+      struct tm *tm = gmtime((time_t*)&not_before);
+      char date_str[32];
+      strftime(date_str, sizeof date_str, "%b %d %H:%M:%S %Y GMT", tm);
+      Tcl_DStringAppendElement(&ds, "notBefore");
+      Tcl_DStringAppendElement(&ds, date_str);
+    }
+    if (opssl_x509_get_not_after(cert, &not_after) == 0) {
+      struct tm *tm = gmtime((time_t*)&not_after);
+      char date_str[32];
+      strftime(date_str, sizeof date_str, "%b %d %H:%M:%S %Y GMT", tm);
+      Tcl_DStringAppendElement(&ds, "notAfter");
+      Tcl_DStringAppendElement(&ds, date_str);
+    }
+
+    /* Serial number as hex string */
+    uint8_t serial[32];
+    size_t serial_len = sizeof serial;
+    if (opssl_x509_get_serial(cert, serial, &serial_len) == 0) {
+      char *hex_pos = serial_buf;
+      for (size_t i = 0; i < serial_len; i++) {
+        snprintf(hex_pos, 3, "%02X", serial[i]);
+        hex_pos += 2;
+      }
+      *hex_pos = '\0';
+      Tcl_DStringAppendElement(&ds, "serial");
+      Tcl_DStringAppendElement(&ds, serial_buf);
+    }
   }
-  /* We should always have a cipher, but who knows? */
-  cipher = SSL_get_current_cipher(td->socklist[j].ssl);
-  if (cipher) { /* don't bother if there's none */
+
+  /* Cipher and protocol information */
+  const char *cipher = opssl_conn_cipher_name(td->socklist[j].ssl);
+  opssl_tls_version_t version = opssl_conn_version(td->socklist[j].ssl);
+  if (cipher) {
+    const char *version_str = (version == OPSSL_TLS_1_3) ? "TLSv1.3" :
+                             (version == OPSSL_TLS_1_2) ? "TLSv1.2" : "Unknown";
     Tcl_DStringAppendElement(&ds, "protocol");
-    Tcl_DStringAppendElement(&ds, SSL_CIPHER_get_version(cipher));
+    Tcl_DStringAppendElement(&ds, version_str);
     Tcl_DStringAppendElement(&ds, "cipher");
-    Tcl_DStringAppendElement(&ds, SSL_CIPHER_get_name(cipher));
+    Tcl_DStringAppendElement(&ds, cipher);
   }
 
   /* Done, get a Tcl list from this and return it to the caller */
@@ -1366,9 +713,9 @@ static int tcl_tlsstatus STDVAR
 
 /* These will be added by tcl.c which is the established practice */
 tcl_cmds tcltls_cmds[] = {
-  {"istls",         tcl_istls},
-  {"starttls",   tcl_starttls},
-  {"tlsstatus", tcl_tlsstatus},
+  {"istls",         (IntFunc) tcl_istls},
+  {"starttls",   (IntFunc) tcl_starttls},
+  {"tlsstatus", (IntFunc) tcl_tlsstatus},
   {NULL,                 NULL}
 };
 

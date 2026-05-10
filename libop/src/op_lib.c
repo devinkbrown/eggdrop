@@ -334,7 +334,7 @@ op_set_time(void)
  * op_lib_version — human-readable library version string.
  *
  * Format: "<product> <version> — <ssl_info>"
- * Example: "ophion 1.71 — wolfssl 5.7.0"
+ * Example: "ophion 1.71 — opssl 1.0.0"
  * ---------------------------------------------------------------------- */
 const char *
 op_lib_version(void)
@@ -623,7 +623,7 @@ op_base64_decode(const unsigned char *src, size_t len, size_t *out_len)
 	const unsigned char *in = src;
 	unsigned char *result;
 	size_t i = 0, j = 0;
-	int ch;
+	int ch = 0;
 
 	/* Maximum decoded output is ceil(len*3/4) ≤ len bytes; len+1 is safe. */
 	if (len == SIZE_MAX)

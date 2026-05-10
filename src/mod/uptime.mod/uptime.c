@@ -220,7 +220,7 @@ static int send_uptime(void)
   memcpy(mem, &upPack, sizeof(upPack));
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s %s %s", botnetnick, servhost, uptime_version);
+    op_strbuf_appendf(&_b, "%s %s %s", botnetnick, servhost, uptime_version);
     strlcpy(mem->string, op_strbuf_str(&_b), sizeof(mem->string));
     op_strbuf_free(&_b);
   }

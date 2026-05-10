@@ -48,7 +48,7 @@ static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
   op_strbuf_t _b;
   int idx2;
 
-  op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64(chan), nick, buf);
+  op_strbuf_appendf(&_b, "assoc %s %s %s", int_to_base64(chan), nick, buf);
   for (idx2 = 0; idx2 < dcc_total; idx2++)
     if ((dcc[idx2].type == &DCC_BOT) && (idx2 != idx) &&
         (b_numver(idx2) >= NEAT_BOTNET) &&
@@ -76,7 +76,7 @@ static void link_assoc(char *bot, char *via)
     if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
       for (a = assoc; a && a->name[0]; a = a->next) {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
+        op_strbuf_appendf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
                           botnetnick, a->name);
         botnet_send_zapf(idx, botnetnick, dcc[idx].nick, op_strbuf_str(&_b));
         op_strbuf_free(&_b);
@@ -300,7 +300,7 @@ static int tcl_assoc STDVAR
   }
   if (argc == 3) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%.20s", argv[2]);
+    op_strbuf_appendf(&_b, "%.20s", argv[2]);
     add_assoc((char *)op_strbuf_str(&_b), chan);
     botnet_send_assoc(-1, chan, "*script*", (char *)op_strbuf_str(&_b));
     op_strbuf_free(&_b);

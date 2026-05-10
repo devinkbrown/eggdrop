@@ -128,7 +128,7 @@ static int               ep_notify_fd     = -1;
 /* Poll thread pthread handle and its private event buffer. */
 static pthread_t         ep_poll_tid;
 static struct epoll_event *ep_thread_pfd  = NULL;  /* same size as ep_info->pfd */
-static atomic_int        ep_thread_stop   = 0;     /* set to 1 to request exit  */
+static volatile int      ep_thread_stop   = 0;     /* set to 1 to request exit  */
 static int               ep_thread_active = 0;     /* 1 once successfully started */
 
 /* The ring itself — statically allocated, 64-byte aligned. */

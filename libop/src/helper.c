@@ -43,6 +43,10 @@
  *  USA
  */
 
+#ifndef _GNU_SOURCE
+# define _GNU_SOURCE   /* pthread_setname_np */
+#endif
+
 #include <libop_config.h>
 #include <op_lib.h>
 #include <commio-int.h>
@@ -338,6 +342,20 @@ op_helper_start_thread(const char *name,
 		op_free(thread_arg);
 		return NULL;
 	}
+
+	/* Name the helper thread for debugger/top visibility. */
+	{
+		char tname[16];
+		snprintf(tname, sizeof(tname), "op-%.12s", name);
+#if defined(__linux__)
+		pthread_setname_np(tid, tname);
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+		pthread_set_name_np(tid, tname);
+#endif
+		/* macOS: pthread_setname_np(name) can only set the calling thread's
+		 * name, so helper threads on macOS must self-name. */
+	}
+
 	pthread_detach(tid);
 
 	op_helper *helper = op_malloc(sizeof(op_helper));

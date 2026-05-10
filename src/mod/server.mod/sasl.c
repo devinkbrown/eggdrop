@@ -50,11 +50,13 @@ static char const *SASL_MECHANISMS[SASL_MECHANISM_NUM] = {
 };
 
 /* scram state */
-/* wolfssl already included via egg_tls.h in server.c before module.h */
 #ifdef TLS
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
-const EVP_MD *digest;
-char salted_password[EVP_MAX_MD_SIZE];
+#include <opssl/crypto.h>
+#include <opssl/cert.h>
+#include <opssl/platform.h>
+#include <opssl/err.h>
+opssl_hmac_algo_t digest_algo;
+uint8_t salted_password[OPSSL_HMAC_MAX_DIGEST_LEN];
 static int step = 0;
 char nonce[21]; /* atheme defines acceptable client nonce len min 8 max 512 chars
                  * nonce 128 bit = math.ceil(128 / math.log(93, 2)) = 20 chars
@@ -67,17 +69,16 @@ char auth_message[3069];
 char last_sasl_password[sizeof sasl_password];
 char last_salt_b64[96] = "";
 char last_i[32] = "";
-char client_key[EVP_MAX_MD_SIZE];
-unsigned int client_key_len;
+uint8_t client_key[OPSSL_HMAC_MAX_DIGEST_LEN];
+size_t client_key_len;
 int use_cache;
-char server_key[EVP_MAX_MD_SIZE];
-unsigned int server_key_len;
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
+uint8_t server_key[OPSSL_HMAC_MAX_DIGEST_LEN];
+size_t server_key_len;
 #endif /* TLS */
 
 static void sasl_error(const char *msg)
 {
-#if defined(TLS) && OPENSSL_VERSION_NUMBER >= 0x10000000L
+#ifdef TLS
   step = 0;
 #endif
   putlog(LOG_SERV, "*", "SASL: error: %s", msg);
@@ -96,7 +97,7 @@ static void sasl_errorf(const char *fmt, ...)
   va_list ap;
   op_strbuf_t _m;
   va_start(ap, fmt);
-  op_strbuf_vprintf(&_m, fmt, ap);
+  op_strbuf_vappendf(&_m, fmt, ap);
   va_end(ap);
   sasl_error(op_strbuf_str(&_m));
   op_strbuf_free(&_m);
@@ -161,7 +162,7 @@ static int got908(char *from, char *msg)
   del_capability("sasl");
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "sasl=%s", msg);
+    op_strbuf_appendf(&_b, "sasl=%s", msg);
     add_capabilities(op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
@@ -207,102 +208,44 @@ static int sasl_ecdsa_nist256p_challenge_step_1(
   char *restrict client_msg_plain, char *restrict server_msg_plain,
   int server_msg_plain_len)
 {
-  FILE *fp;
-  EVP_PKEY *pkey;
+  opssl_pkey_t *pkey;
+  size_t siglen = 256;
 
-  if (!(fp = fopen(sasl_ecdsa_key, "r"))) {
-    sasl_errorf("AUTHENTICATE: could not open file sasl_ecdsa_key %s: %s\n",
-                sasl_ecdsa_key, strerror(errno));
+  pkey = opssl_pkey_from_file(sasl_ecdsa_key);
+  if (!pkey) {
+    sasl_errorf("AUTHENTICATE: could not load key %s: %s",
+                sasl_ecdsa_key, opssl_err_string(opssl_err_get()));
     return -1;
   }
-  if (!(pkey = PEM_read_PrivateKey(fp, NULL, 0, NULL))) {
-    sasl_errorf("AUTHENTICATE: PEM_read_PrivateKey(): SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    fclose(fp);
+  if (opssl_pkey_type(pkey) != OPSSL_PKEY_EC) {
+    sasl_error("AUTHENTICATE: key is not an EC key");
+    opssl_pkey_free(pkey);
     return -1;
   }
-  fclose(fp);
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
-  EVP_PKEY_CTX *ctx;
-  size_t siglen;
-
-  /* The EVP interface to digital signatures should almost always be used in
-   * preference to the low level interfaces.
-   */
-  if (!(ctx = EVP_PKEY_CTX_new(pkey, NULL))) {
-    sasl_errorf("AUTHENTICATE: EVP_PKEY_CTX_new(): SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
+  if (opssl_pkey_sign(pkey, (const uint8_t *) server_msg_plain,
+                      server_msg_plain_len,
+                      (uint8_t *) client_msg_plain, &siglen) != 1) {
+    sasl_errorf("AUTHENTICATE: signing failed: %s",
+                opssl_err_string(opssl_err_get()));
+    opssl_pkey_free(pkey);
     return -1;
   }
-  EVP_PKEY_free(pkey);
-  if (EVP_PKEY_sign_init(ctx) <= 0) {
-    sasl_errorf("AUTHENTICATE: EVP_PKEY_sign_init():SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    EVP_PKEY_CTX_free(ctx);
-    return -1;
-  }
-  if (EVP_PKEY_CTX_set_signature_md(ctx, EVP_sha256()) <= 0) {
-    sasl_errorf("AUTHENTICATE: EVP_PKEY_CTX_set_signature_md(): SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    EVP_PKEY_CTX_free(ctx);
-    return -1;
-  }
-  /* EVP_PKEY_sign() must be used instead of EVP_DigestSign*() and EVP_Sign*(),
-   * because EVP_PKEY_sign() does not hash the data to be signed.
-   * EVP_PKEY_sign() is for signing digests, EVP_DigestSign*() and EVP_Sign*()
-   * are for signing messages.
-   */
-  if (EVP_PKEY_sign(ctx, NULL, &siglen, (unsigned char *) server_msg_plain, server_msg_plain_len) <= 0) {
-    sasl_errorf("AUTHENTICATE: EVP_PKEY_sign(): SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    EVP_PKEY_CTX_free(ctx);
-    return -1;
-  }
-  if (EVP_PKEY_sign(ctx, (unsigned char *) client_msg_plain, &siglen, (unsigned char *) server_msg_plain, server_msg_plain_len) <= 0) {
-    sasl_errorf("AUTHENTICATE: EVP_PKEY_sign(): SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    EVP_PKEY_CTX_free(ctx);
-    return -1;
-  }
-  EVP_PKEY_CTX_free(ctx);
-#else
-  EC_KEY *eckey;
-  int ret;
-  unsigned int siglen;
-
-  eckey = EVP_PKEY_get1_EC_KEY(pkey);
-  EVP_PKEY_free(pkey);
-  if (!eckey) {
-    sasl_errorf("AUTHENTICATE: EVP_PKEY_get1_EC_KEY(): SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    return -1;
-  }
-  ret = ECDSA_sign(0, (const unsigned char *) server_msg_plain,
-                   server_msg_plain_len,
-                   (unsigned char *) client_msg_plain, &siglen, eckey);
-  EC_KEY_free(eckey);
-  if (!ret) {
-    sasl_errorf("AUTHENTICATE: ECDSA_sign() SSL error = %s\n",
-                ERR_error_string(ERR_get_error(), 0));
-    return -1;
-  }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
-  return siglen;
+  opssl_pkey_free(pkey);
+  return (int) siglen;
 }
 
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
 static int sasl_scram_step_0(char *client_msg_plain, int client_msg_plain_len)
 {
-  /* Use RAND_bytes() for a cryptographically secure, unbiased nonce.
+  /* Use opssl_random_bytes() for a cryptographically secure, unbiased nonce.
    * 15 raw bytes base64-encode to exactly 20 printable chars (no ',' in
    * base64 alphabet), fitting the nonce[21] buffer and satisfying RFC 5802.
    */
   unsigned char raw_nonce[15];
-  RAND_bytes(raw_nonce, sizeof raw_nonce);
+  opssl_random_bytes(raw_nonce, sizeof raw_nonce);
   b64_ntop(raw_nonce, sizeof raw_nonce, nonce, sizeof nonce);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "n,,n=%s,r=%s", sasl_username, nonce);
+    op_strbuf_appendf(&_b, "n,,n=%s,r=%s", sasl_username, nonce);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
   }
@@ -337,7 +280,6 @@ static int sasl_saslprep_check(const char *password)
   return 0;
 }
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(HAVE_WOLFSSL) /* 1.1.0: EVP_PKEY_X25519 */
 /* ECDH-X25519-CHALLENGE step 1: ECDH key agreement + HMAC-SHA256 response.
  *
  * Protocol (Atheme saslserv):
@@ -345,97 +287,84 @@ static int sasl_saslprep_check(const char *password)
  *   Client sends:  base64( client_longterm_pubkey[32] || HMAC-SHA256(shared, server_pubkey)[32] )
  *
  * The client must have an X25519 private key stored in sasl-x25519-key.
+ * Key file is PKCS#8 PEM (48-byte DER: 16-byte ASN.1 prefix + 32-byte key).
  */
 static int sasl_ecdh_x25519_step_1(char *restrict client_msg_plain,
                                    char *restrict server_msg_plain,
                                    int server_msg_plain_len)
 {
   FILE *fp;
-  EVP_PKEY *pkey = NULL, *server_pkey = NULL;
-  EVP_PKEY_CTX *dh_ctx = NULL;
-  unsigned char shared[32], client_pubkey[32], hmac_out[EVP_MAX_MD_SIZE];
-  size_t shared_len = sizeof shared, client_pubkey_len = sizeof client_pubkey;
-  unsigned int hmac_len;
+  char line[256], b64buf[256];
+  uint8_t der[48];
+  size_t b64len = 0;
+  uint8_t priv[OPSSL_X25519_KEY_LEN], client_pubkey[OPSSL_X25519_KEY_LEN];
+  uint8_t shared[OPSSL_X25519_SHARED_LEN], hmac_out[OPSSL_SHA256_DIGEST_LEN];
+  size_t hmac_len = sizeof hmac_out;
+  int in_body = 0;
+  static const uint8_t x25519_basepoint[32] = { 9 };
 
   if (server_msg_plain_len != 32) {
     sasl_errorf("AUTHENTICATE: ECDH-X25519: expected 32-byte server pubkey, got %s",
                 int_to_base10(server_msg_plain_len));
     return -1;
   }
-
   if (!sasl_x25519_key[0]) {
     sasl_error("AUTHENTICATE: ECDH-X25519: sasl-x25519-key not set");
     return -1;
   }
-
   if (!(fp = fopen(sasl_x25519_key, "r"))) {
     sasl_errorf("AUTHENTICATE: ECDH-X25519: could not open %s: %s",
                 sasl_x25519_key, strerror(errno));
     return -1;
   }
-  pkey = PEM_read_PrivateKey(fp, NULL, 0, NULL);
+
+  while (fgets(line, sizeof line, fp)) {
+    if (strstr(line, "-----BEGIN")) { in_body = 1; continue; }
+    if (strstr(line, "-----END")) break;
+    if (in_body) {
+      size_t ll = strlen(line);
+      while (ll > 0 && (line[ll - 1] == '\n' || line[ll - 1] == '\r'))
+        line[--ll] = '\0';
+      if (b64len + ll >= sizeof b64buf) { fclose(fp); return -1; }
+      memcpy(b64buf + b64len, line, ll);
+      b64len += ll;
+    }
+  }
   fclose(fp);
-  if (!pkey) {
-    sasl_errorf("AUTHENTICATE: ECDH-X25519: PEM_read_PrivateKey(): %s",
-                ERR_error_string(ERR_get_error(), NULL));
+  b64buf[b64len] = '\0';
+
+  if (b64_pton(b64buf, der, sizeof der) != 48) {
+    sasl_error("AUTHENTICATE: ECDH-X25519: key file is not a valid X25519 PKCS#8 key");
     return -1;
   }
-  if (EVP_PKEY_id(pkey) != EVP_PKEY_X25519) {
-    sasl_error("AUTHENTICATE: ECDH-X25519: key file does not contain an X25519 key");
-    EVP_PKEY_free(pkey);
+  memcpy(priv, der + 16, 32);
+  opssl_memzero(der, sizeof der);
+
+  if (opssl_x25519_derive(client_pubkey, priv, x25519_basepoint) != 1) {
+    sasl_error("AUTHENTICATE: ECDH-X25519: failed to compute public key");
+    opssl_memzero(priv, sizeof priv);
     return -1;
   }
 
-  /* Extract our long-term public key (32 bytes, sent to server) */
-  if (!EVP_PKEY_get_raw_public_key(pkey, client_pubkey, &client_pubkey_len) ||
-      client_pubkey_len != 32) {
-    sasl_errorf("AUTHENTICATE: ECDH-X25519: EVP_PKEY_get_raw_public_key(): %s",
-                ERR_error_string(ERR_get_error(), NULL));
-    EVP_PKEY_free(pkey);
+  if (opssl_x25519_derive(shared, priv, (const uint8_t *) server_msg_plain) != 1) {
+    sasl_error("AUTHENTICATE: ECDH-X25519: key agreement failed");
+    opssl_memzero(priv, sizeof priv);
     return -1;
   }
+  opssl_memzero(priv, sizeof priv);
 
-  /* Import server's ephemeral X25519 public key */
-  server_pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, NULL,
-                                             (unsigned char *) server_msg_plain, 32);
-  if (!server_pkey) {
-    sasl_errorf("AUTHENTICATE: ECDH-X25519: EVP_PKEY_new_raw_public_key(): %s",
-                ERR_error_string(ERR_get_error(), NULL));
-    EVP_PKEY_free(pkey);
+  if (opssl_hmac(OPSSL_HMAC_SHA256, shared, sizeof shared,
+                 server_msg_plain, 32, hmac_out, &hmac_len) != 1 || hmac_len != 32) {
+    sasl_error("AUTHENTICATE: ECDH-X25519: HMAC-SHA256 failed");
+    opssl_memzero(shared, sizeof shared);
     return -1;
   }
+  opssl_memzero(shared, sizeof shared);
 
-  /* Perform X25519 key agreement: shared = X25519(client_priv, server_pub) */
-  dh_ctx = EVP_PKEY_CTX_new(pkey, NULL);
-  if (!dh_ctx || EVP_PKEY_derive_init(dh_ctx) <= 0 ||
-      EVP_PKEY_derive_set_peer(dh_ctx, server_pkey) <= 0 ||
-      EVP_PKEY_derive(dh_ctx, shared, &shared_len) <= 0) {
-    sasl_errorf("AUTHENTICATE: ECDH-X25519: key agreement failed: %s",
-                ERR_error_string(ERR_get_error(), NULL));
-    EVP_PKEY_CTX_free(dh_ctx);
-    EVP_PKEY_free(server_pkey);
-    EVP_PKEY_free(pkey);
-    return -1;
-  }
-  EVP_PKEY_CTX_free(dh_ctx);
-  EVP_PKEY_free(server_pkey);
-  EVP_PKEY_free(pkey);
-
-  /* MAC = HMAC-SHA256(shared_secret, server_ephemeral_pubkey) */
-  if (!HMAC(EVP_sha256(), shared, (int) shared_len,
-            (unsigned char *) server_msg_plain, 32,
-            hmac_out, &hmac_len) || hmac_len != 32) {
-    sasl_errorf("AUTHENTICATE: ECDH-X25519: HMAC-SHA256(): %s",
-                ERR_error_string(ERR_get_error(), NULL));
-    return -1;
-  }
-
-  /* Response: client_longterm_pubkey (32) || HMAC (32) = 64 bytes total */
   memcpy(client_msg_plain,      client_pubkey, 32);
   memcpy(client_msg_plain + 32, hmac_out,      32);
   return 64;
 }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
 
 static int sasl_scram_step_1(char *restrict client_msg_plain,
                              int client_msg_plain_len,
@@ -445,12 +374,13 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
   char *word, *brkb, *server_nonce = 0, *salt_b64 = 0, *i = 0;
   int salt_plain_len, iter, j, ret;
   char salt_plain[64]; /* atheme: Valid values are 8 to 64 (inclusive) */
-  unsigned int stored_key_len;
-  unsigned char stored_key[EVP_MAX_MD_SIZE];
-  unsigned char client_signature[EVP_MAX_MD_SIZE];
-  unsigned char client_proof[EVP_MAX_MD_SIZE];
+  size_t stored_key_len;
+  uint8_t stored_key[OPSSL_HMAC_MAX_DIGEST_LEN];
+  uint8_t client_signature[OPSSL_HMAC_MAX_DIGEST_LEN];
+  uint8_t client_proof[OPSSL_HMAC_MAX_DIGEST_LEN];
   char client_proof_b64[1024];
   struct rusage ru1, ru2;
+  size_t _hmac_len;
 
   strlcpy(server_first_message, server_msg_plain, sizeof server_first_message);
   for (word = strtok_r(server_msg_plain,  ",", &brkb);
@@ -458,13 +388,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
        word = strtok_r(NULL, ",", &brkb)) {
     switch (*word) {
       case 'r':
-        if (
-#if OPENSSL_VERSION_NUMBER >= 0x1010008fL /* 1.1.0h */
-            CRYPTO_memcmp
-#else
-            memcmp
-#endif
-            (word + 2, nonce, (sizeof nonce) - 1)) {
+        if (!opssl_ct_eq(word + 2, nonce, (sizeof nonce) - 1)) {
           sasl_error("AUTHENTICATE: server nonce != client nonce");
           return -1;
         }
@@ -517,23 +441,26 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
       return -1;
     }
 
-    if (sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256)
-      digest = EVP_sha256();
-    else
-      digest = EVP_sha512();
-    digest_len = EVP_MD_size(digest);
+    if (sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256) {
+      digest_algo = OPSSL_HMAC_SHA256;
+      digest_len = OPSSL_SHA256_DIGEST_LEN;
+    } else {
+      digest_algo = OPSSL_HMAC_SHA512;
+      digest_len = OPSSL_SHA512_DIGEST_LEN;
+    }
 
     ret = getrusage(RUSAGE_SELF, &ru1);
-    if (!PKCS5_PBKDF2_HMAC(sasl_password, strlen(sasl_password),
-                           (const unsigned char *) salt_plain, salt_plain_len,
-                           iter, digest, digest_len,
-                           (unsigned char *) salted_password)) {
-      sasl_errorf("AUTHENTICATE: PKCS5_PBKDF2_HMAC(): %s",
-                  ERR_error_string(ERR_get_error(), NULL));
+    if (opssl_pbkdf2(digest_algo,
+                     (const uint8_t *) sasl_password, strlen(sasl_password),
+                     (const uint8_t *) salt_plain, salt_plain_len,
+                     iter, salted_password, digest_len) != 1) {
+      sasl_errorf("AUTHENTICATE: opssl_pbkdf2(): %s",
+                  opssl_err_string(opssl_err_get()));
       return -1;
     }
     if (!ret && !getrusage(RUSAGE_SELF, &ru2)) {
-      debug4("SASL: pbkdf2 digest %s iter %i, user %.3fms sys %.3fms", EVP_MD_name(digest),
+      debug4("SASL: pbkdf2 digest %s iter %i, user %.3fms sys %.3fms",
+             digest_algo == OPSSL_HMAC_SHA256 ? "SHA-256" : "SHA-512",
              iter,
              (double) (ru2.ru_utime.tv_usec - ru1.ru_utime.tv_usec) / 1000 +
              (double) (ru2.ru_utime.tv_sec  - ru1.ru_utime.tv_sec ) * 1000,
@@ -544,10 +471,11 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
       debug1("PBKDF2 error: getrusage(): %s", strerror(errno));
     }
 
-    if (!HMAC(digest, salted_password, digest_len, (unsigned char *) CLIENT_KEY,
-              strlen(CLIENT_KEY), (unsigned char *) client_key,
-              &client_key_len)) {
-      sasl_errorf("AUTHENTICATE: HMAC(): %s", ERR_error_string(ERR_get_error(), NULL));
+    if (opssl_hmac(digest_algo, salted_password, digest_len,
+                   CLIENT_KEY, strlen(CLIENT_KEY),
+                   client_key, &client_key_len) != 1) {
+      sasl_errorf("AUTHENTICATE: opssl_hmac(): %s",
+                  opssl_err_string(opssl_err_get()));
       return -1;
     }
     strlcpy(last_sasl_password, sasl_password, sizeof last_sasl_password);
@@ -559,10 +487,11 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
 
   /* StoredKey       := H(ClientKey) */
 
-  if (!EVP_Digest(client_key, client_key_len, stored_key, &stored_key_len, digest, NULL)) {
-    sasl_errorf("AUTHENTICATE: EVP_Digest(): %s", ERR_error_string(ERR_get_error(), NULL));
-    return -1;
-  }
+  if (digest_algo == OPSSL_HMAC_SHA256)
+    opssl_sha256(client_key, client_key_len, stored_key);
+  else
+    opssl_sha512(client_key, client_key_len, stored_key);
+  stored_key_len = digest_len;
 
   /* AuthMessage     := client-first-message-bare + "," +
    *                    server-first-message + "," +
@@ -570,11 +499,11 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
    */
 
   op_strbuf_t _cfmwp;
-  op_strbuf_printf(&_cfmwp, "c=biws,r=%s", server_nonce);
+  op_strbuf_appendf(&_cfmwp, "c=biws,r=%s", server_nonce);
 
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s,%s,%s", client_first_message + 3,
+    op_strbuf_appendf(&_b, "%s,%s,%s", client_first_message + 3,
                      server_first_message, op_strbuf_str(&_cfmwp));
     strlcpy(auth_message, op_strbuf_str(&_b), sizeof auth_message);
     op_strbuf_free(&_b);
@@ -583,16 +512,19 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
 
   /* ClientSignature := HMAC(StoredKey, AuthMessage) */
 
-  if (!HMAC(digest, stored_key, digest_len, (unsigned char *) auth_message,
-            auth_message_len, client_signature, NULL)) {
-    sasl_errorf("AUTHENTICATE: HMAC(): %s", ERR_error_string(ERR_get_error(), NULL));
+  _hmac_len = sizeof client_signature;
+  if (opssl_hmac(digest_algo, stored_key, digest_len,
+                 auth_message, auth_message_len,
+                 client_signature, &_hmac_len) != 1) {
+    sasl_errorf("AUTHENTICATE: opssl_hmac(): %s",
+                opssl_err_string(opssl_err_get()));
     op_strbuf_free(&_cfmwp);
     return -1;
   }
 
   /* ClientProof     := ClientKey XOR ClientSignature */
 
-  for (j = 0; j < client_key_len; j++)
+  for (j = 0; j < (int) client_key_len; j++)
     client_proof[j] = client_key[j] ^ client_signature[j];
 
   if (b64_ntop(client_proof, client_key_len, client_proof_b64, sizeof client_proof_b64) == -1) {
@@ -603,7 +535,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
 
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s,p=%s", op_strbuf_str(&_cfmwp), client_proof_b64);
+    op_strbuf_appendf(&_b, "%s,p=%s", op_strbuf_str(&_cfmwp), client_proof_b64);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
   }
@@ -615,25 +547,30 @@ static void sasl_scram_step_2(char *restrict client_msg_plain,
                              int client_msg_plain_len,
                              char *restrict server_msg_plain)
 {
-  unsigned char server_signature[EVP_MAX_MD_SIZE];
+  uint8_t server_signature[OPSSL_HMAC_MAX_DIGEST_LEN];
   char server_signature_b64[128];
   int server_signature_b64_len;
+  size_t _hmac_len;
 
   /* ServerKey       := HMAC(SaltedPassword, "Server Key") */
 
   if ((!use_cache) &&
-      (!HMAC(digest, salted_password, digest_len, (unsigned char *) SERVER_KEY,
-             strlen(SERVER_KEY), (unsigned char *) server_key,
-             &server_key_len))) {
-    sasl_errorf("AUTHENTICATE: HMAC(): %s", ERR_error_string(ERR_get_error(), NULL));
+      (opssl_hmac(digest_algo, salted_password, digest_len,
+                  SERVER_KEY, strlen(SERVER_KEY),
+                  server_key, &server_key_len) != 1)) {
+    sasl_errorf("AUTHENTICATE: opssl_hmac(): %s",
+                opssl_err_string(opssl_err_get()));
     return;
   }
 
   /* ServerSignature := HMAC(ServerKey, AuthMessage) */
 
-  if (!HMAC(digest, server_key, digest_len, (unsigned char *) auth_message,
-            auth_message_len, server_signature, NULL)) {
-    sasl_errorf("AUTHENTICATE: HMAC(): %s", ERR_error_string(ERR_get_error(), NULL));
+  _hmac_len = sizeof server_signature;
+  if (opssl_hmac(digest_algo, server_key, digest_len,
+                 auth_message, auth_message_len,
+                 server_signature, &_hmac_len) != 1) {
+    sasl_errorf("AUTHENTICATE: opssl_hmac(): %s",
+                opssl_err_string(opssl_err_get()));
     return;
   }
 
@@ -642,13 +579,7 @@ static void sasl_scram_step_2(char *restrict client_msg_plain,
     return;
   }
 
-  if (
-#if OPENSSL_VERSION_NUMBER >= 0x1010008fL /* 1.1.0h */
-      CRYPTO_memcmp
-#else
-      memcmp
-#endif
-      (server_msg_plain + 2, server_signature_b64, server_signature_b64_len)) {
+  if (!opssl_ct_eq(server_msg_plain + 2, server_signature_b64, server_signature_b64_len)) {
     sasl_error("invalid server signature");
     return;
   }
@@ -657,7 +588,6 @@ static void sasl_scram_step_2(char *restrict client_msg_plain,
   dprintf(DP_MODE, "AUTHENTICATE +\n");
   sasl_timeout_time = 0;
 }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
 #endif /* TLS */
 
 static int gotauthenticate(char *from, char *msg)
@@ -695,18 +625,14 @@ static int gotauthenticate(char *from, char *msg)
       case SASL_MECHANISM_EXTERNAL:
         dprintf(DP_MODE, "AUTHENTICATE +\n");
         return 0;
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
       case SASL_MECHANISM_SCRAM_SHA_256:
       case SASL_MECHANISM_SCRAM_SHA_512:
         client_msg_plain_len = sasl_scram_step_0(client_msg_plain, sizeof client_msg_plain);
         break;
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(HAVE_WOLFSSL) /* 1.1.0: X25519 */
       case SASL_MECHANISM_ECDH_X25519_CHALLENGE:
         /* Step 0: identify ourselves (same format as ECDSA step 0) */
         client_msg_plain_len = sasl_ecdsa_nist256p_challenge_step_0(client_msg_plain, sizeof client_msg_plain);
         break;
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
     }
   } else {
     if ((server_msg_plain_len = b64_pton(msg, (unsigned char*) server_msg_plain, sizeof server_msg_plain)) == -1) {
@@ -725,13 +651,10 @@ static int gotauthenticate(char *from, char *msg)
       if ((client_msg_plain_len = sasl_ecdsa_nist256p_challenge_step_1(client_msg_plain, server_msg_plain, server_msg_plain_len)) < 0)
         return 0;
     }
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(HAVE_WOLFSSL) /* 1.1.0: X25519 */
     else if (sasl_mechanism == SASL_MECHANISM_ECDH_X25519_CHALLENGE) {
       if ((client_msg_plain_len = sasl_ecdh_x25519_step_1(client_msg_plain, server_msg_plain, server_msg_plain_len)) < 0)
         return 0;
     }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L /* 1.0.0 */
     else
       if (step == 0) {
         if ((client_msg_plain_len = sasl_scram_step_1(client_msg_plain, sizeof client_msg_plain, server_msg_plain)) < 0)
@@ -742,7 +665,6 @@ static int gotauthenticate(char *from, char *msg)
         step = 0;
         return 0;
       }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10000000L */
   }
 #endif /* TLS */
   if (b64_ntop((unsigned char *) client_msg_plain, client_msg_plain_len, client_msg_b64, sizeof client_msg_b64) == -1) {
@@ -760,24 +682,7 @@ static __attribute__((unused)) char *traced_sasl_mechanism(ClientData cdata, Tcl
   if ((sasl_mechanism < 0) || (sasl_mechanism >= SASL_MECHANISM_NUM))
     return "sasl-mechanism is not set to an allowed value, please check it and"
            " try again";
-#ifdef TLS
-#ifndef HAVE_EVP_PKEY_GET1_EC_KEY
-  if (sasl_mechanism == SASL_MECHANISM_ECDSA_NIST256P_CHALLENGE)
-    return "SASL NIST256P functionality missing from your TLS libs, please "
-           "choose a different SASL method";
-#endif /* HAVE_EVP_PKEY_GET1_EC_KEY */
-#if OPENSSL_VERSION_NUMBER < 0x10000000L /* 1.0.0 */
-  if ((sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256) ||
-      (sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_512))
-    return "SASL SCRAM functionality needs openssl version 1.0.0 or higher, "
-           "please choose a different SASL method";
-#endif /* OPENSSL_VERSION_NUMBER < 0x10000000L */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L /* 1.1.0 */
-  if (sasl_mechanism == SASL_MECHANISM_ECDH_X25519_CHALLENGE)
-    return "SASL ECDH-X25519-CHALLENGE requires OpenSSL 1.1.0 or higher, "
-           "please choose a different SASL method";
-#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
-#else /* TLS */
+#ifndef TLS
   if (sasl_mechanism != SASL_MECHANISM_PLAIN)
     return "The selected SASL authentication method requires TLS libraries "
            "which are not installed on this machine. Please choose the PLAIN "
@@ -859,7 +764,7 @@ int sasl_authenticate_initial(const struct cap_values *cap_value_list)
     }
     {
       op_strbuf_t _m;
-      op_strbuf_printf(&_m, "authentication mechanism %s not supported by server",
+      op_strbuf_appendf(&_m, "authentication mechanism %s not supported by server",
                        SASL_MECHANISMS[sasl_mechanism]);
       if (op_strbuf_len(&_supported))
         op_strbuf_appendf(&_m, "; server supports: %s", op_strbuf_str(&_supported));

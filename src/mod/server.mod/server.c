@@ -25,12 +25,10 @@
 #define MAKING_SERVER
 #define COMPILING_MEM   /* suppress malloc→dont_use_old_malloc before op_lib.h */
 
-/* egg_tls.h must precede module.h to avoid wolfssl/Tcl mp_int conflict. */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
 #include <op_lib.h>
-#include "../../egg_tls.h"
 #include "src/mod/module.h"
 #include "server.h"
 
@@ -495,7 +493,7 @@ static int fast_deq(int which)
   m = h->head;
   {
     op_strbuf_t _sb;
-    op_strbuf_printf(&_sb, "%s", m->msg);
+    op_strbuf_appendf(&_sb, "%s", m->msg);
     msgstr = op_strbuf_steal(&_sb);
   }
   msg = msgstr;
@@ -503,7 +501,7 @@ static int fast_deq(int which)
   if (use_fastdeq > 1) {
     {
       op_strbuf_t _sb;
-      op_strbuf_printf(&_sb, "%s", stackablecmds);
+      op_strbuf_appendf(&_sb, "%s", stackablecmds);
       stackable = op_strbuf_steal(&_sb);
     }
     stckbl = stackable;
@@ -532,7 +530,7 @@ static int fast_deq(int which)
     op_free(stackable);
     {
       op_strbuf_t _sb;
-      op_strbuf_printf(&_sb, "%s", stackable2cmds);
+      op_strbuf_appendf(&_sb, "%s", stackable2cmds);
       stackable = op_strbuf_steal(&_sb);
     }
     stckbl = stackable;
@@ -544,14 +542,14 @@ static int fast_deq(int which)
     op_free(stackable);
   }
   to = newsplit(&msg);
-  op_strbuf_printf(&victims, "%s", to);
+  op_strbuf_appendf(&victims, "%s", to);
   while (m) {
     nm = m->next;
     if (!nm)
       break;
     {
       op_strbuf_t _sb;
-      op_strbuf_printf(&_sb, "%s", nm->msg);
+      op_strbuf_appendf(&_sb, "%s", nm->msg);
       nextmsgstr = op_strbuf_steal(&_sb);
     }
     nextmsg = nextmsgstr;
@@ -576,7 +574,7 @@ static int fast_deq(int which)
   if (doit) {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s %s %s", cmd, op_strbuf_str(&victims), msg);
+      op_strbuf_appendf(&_b, "%s %s %s", cmd, op_strbuf_str(&victims), msg);
       tosend = op_strbuf_steal(&_b);
     }
     len = strlen(tosend);
@@ -640,7 +638,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
       op_strbuf_clear(&newnicks);
       {
         op_strbuf_t _sb;
-        op_strbuf_printf(&_sb, "%s", m->msg);
+        op_strbuf_appendf(&_sb, "%s", m->msg);
         buf = op_strbuf_steal(&_sb);
       }
       msg = buf;
@@ -676,7 +674,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
           q->last = 0;
       } else {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, msg);
+        op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, msg);
         op_free(m->msg);
         m->len = op_strbuf_len(&_b);
         m->msg = op_strbuf_steal(&_b);
@@ -708,7 +706,7 @@ static void purge_kicks(struct msgq_head *q)
       changed = 0;
       {
         op_strbuf_t _sb;
-        op_strbuf_printf(&_sb, "%s", m->msg);
+        op_strbuf_appendf(&_sb, "%s", m->msg);
         buf = op_strbuf_steal(&_sb);
       }
       reason = buf;
@@ -720,7 +718,7 @@ static void purge_kicks(struct msgq_head *q)
         nick = splitnicks(&nicks);
         {
           op_strbuf_t _sb;
-          op_strbuf_printf(&_sb, "%s", chan);
+          op_strbuf_appendf(&_sb, "%s", chan);
           chans = op_strbuf_steal(&_sb);
         }
         chns = chans;
@@ -755,7 +753,7 @@ static void purge_kicks(struct msgq_head *q)
             q->last = 0;
         } else {
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
+          op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
           op_free(m->msg);
           m->len = op_strbuf_len(&_b);
           m->msg = op_strbuf_steal(&_b);
@@ -815,7 +813,7 @@ static int deq_kick(int which)
   msg = h->head;
   {
     op_strbuf_t _sb;
-    op_strbuf_printf(&_sb, "%s", msg->msg);
+    op_strbuf_appendf(&_sb, "%s", msg->msg);
     buf = op_strbuf_steal(&_sb);
   }
   reason = buf;
@@ -834,7 +832,7 @@ static int deq_kick(int which)
       op_strbuf_clear(&newnicks2);
       {
         op_strbuf_t _sb;
-        op_strbuf_printf(&_sb, "%s", m->msg);
+        op_strbuf_appendf(&_sb, "%s", m->msg);
         buf2 = op_strbuf_steal(&_sb);
       }
       reason2 = buf2;
@@ -868,7 +866,7 @@ static int deq_kick(int which)
             h->last = 0;
         } else {
           op_strbuf_t _b;
-          op_strbuf_printf(&_b, "KICK %s %s %s", chan2, op_strbuf_str(&newnicks2) + 1, reason);
+          op_strbuf_appendf(&_b, "KICK %s %s %s", chan2, op_strbuf_str(&newnicks2) + 1, reason);
           op_free(m->msg);
           m->len = op_strbuf_len(&_b);
           m->msg = op_strbuf_steal(&_b);
@@ -885,7 +883,7 @@ static int deq_kick(int which)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
+    op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
     newmsg = op_strbuf_steal(&_b);
   }
   op_strbuf_free(&newnicks);
@@ -947,7 +945,7 @@ static void queue_server(int which, const char *msg, int len)
    */
   {
     op_strbuf_t _sb;
-    op_strbuf_printf(&_sb, "%s", msg);
+    op_strbuf_appendf(&_sb, "%s", msg);
     buf = op_strbuf_steal(&_sb);
   }
   {
@@ -1698,7 +1696,7 @@ static __attribute__((unused)) char *traced_botname(ClientData cdata, Tcl_Interp
                             EGG_CONST char *name2, int flags)
 {
   op_strbuf_t s;
-  op_strbuf_printf(&s, "%s%s%s", botname,
+  op_strbuf_appendf(&s, "%s%s%s", botname,
                    botuserhost[0] ? "!" : "", botuserhost[0] ? botuserhost : "");
   Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&s), TCL_GLOBAL_ONLY);
   op_strbuf_free(&s);
@@ -2088,14 +2086,14 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
     for (q = serverlist; q; q = q->next) {
       op_strbuf_t _b;
 #ifdef TLS
-      op_strbuf_printf(&_b, "%s%s%s:%s%d%s%s %s",
+      op_strbuf_appendf(&_b, "%s%s%s:%s%d%s%s %s",
                        strchr(q->name, ':') ? "[" : "", q->name,
                        strchr(q->name, ':') ? "]" : "",
                        q->ssl ? "+" : "", q->port ? q->port : default_port,
                        q->pass ? ":" : "", q->pass ? q->pass : "",
                        q->realname ? q->realname : "");
 #else
-      op_strbuf_printf(&_b, "%s%s%s:%d%s%s %s",
+      op_strbuf_appendf(&_b, "%s%s%s:%d%s%s %s",
                        strchr(q->name, ':') ? "[" : "", q->name,
                        strchr(q->name, ':') ? "]" : "",
                        q->port ? q->port : default_port,
@@ -2167,7 +2165,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
 
   {
     op_strbuf_t _sb;
-    op_strbuf_printf(&_sb, "%s", text);
+    op_strbuf_appendf(&_sb, "%s", text);
     buf = op_strbuf_steal(&_sb);
   }
   msg = buf;
@@ -2386,7 +2384,7 @@ static void server_die(void)
   cycle_time = 100;
   if (server_online) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "QUIT :%s", quit_msg);
+    op_strbuf_appendf(&_b, "QUIT :%s", quit_msg);
     dprintf(-serv, "%s\n", op_strbuf_str(&_b));
     if (raw_log)
       putlog(LOG_SRVOUT, "*", "[->] %s", op_strbuf_str(&_b));
@@ -2459,7 +2457,7 @@ static void server_report(int idx, int details)
     if (nick_juped)
       dprintf(idx, "    NICK IS JUPED: %s%s\n", origbotname,
               keepnick ? " (trying)" : "");
-    op_strbuf_printf(&s, "(connected %s)", daysdur(now, server_online));
+    op_strbuf_appendf(&s, "(connected %s)", daysdur(now, server_online));
     if (server_lag && !lastpingcheck) {
       if (server_lag == -1)
         op_strbuf_append_cstr(&s, " (bad pong replies)");

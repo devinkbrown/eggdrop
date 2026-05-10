@@ -26,13 +26,15 @@
 #ifndef _COMMIO_INT_H
 #define _COMMIO_INT_H 1
 
+#include <op_atomic.h>
+
 #define OP_FD_HASH_BITS 12
 #define OP_FD_HASH_SIZE (1UL << OP_FD_HASH_BITS)
 #define OP_FD_HASH_MASK (OP_FD_HASH_SIZE-1)
 
 #define FD_DESC_SZ 128		/* hostlen + comment */
 
-#define op_hash_fd(x) (((x) ^ ((x) >> OP_FD_HASH_BITS) ^ ((x) >> (OP_FD_HASH_BITS * 2))) & OP_FD_HASH_MASK)
+#define op_hash_fd(x) ((x ^ (x >> OP_FD_HASH_BITS) ^ (x >> (OP_FD_HASH_BITS * 2))) & OP_FD_HASH_MASK)
 
 #ifdef HAVE_WRITEV
 #ifndef UIO_MAXIOV
@@ -82,9 +84,9 @@ struct acceptdata
 /* Internal per-fd flags */
 #define FLAG_OPEN       0x1   /* fd is live */
 #define FLAG_ZEROCOPY   0x2   /* SO_ZEROCOPY set; use MSG_ZEROCOPY for sends */
-#define IsFDOpen(F)     ((F)->flags & FLAG_OPEN)
-#define SetFDOpen(F)    ((F)->flags |= FLAG_OPEN)
-#define ClearFDOpen(F)  ((F)->flags &= ~FLAG_OPEN)
+#define IsFDOpen(F)     (F->flags & FLAG_OPEN)
+#define SetFDOpen(F)    (F->flags |= FLAG_OPEN)
+#define ClearFDOpen(F)  (F->flags &= ~FLAG_OPEN)
 
 #if !defined(SHUT_RDWR) && defined(_WIN32)
 # define SHUT_RDWR SD_BOTH
@@ -115,13 +117,20 @@ struct _fde
 	struct acceptdata *accept;
 	void *ssl;
 	void *ws;
-	bool ktls;         /* true: kernel TLS active; I/O bypasses wolfSSL */
+	bool ktls;         /* true: kernel TLS active; I/O bypasses opssl */
 	bool tls_outgoing; /* true: TLS was initiated outgoing (client side) */
 	unsigned int handshake_count;
 	uint64_t ssl_errno;  /* SSL error code; uint64_t for portability (matches ERR_get_error size) */
 	/* Incremented on each io_uring POLL_ADD submission; packed into sqe
 	 * user_data so stale CQEs for a recycled op_fde_t can be discarded. */
 	uint32_t uring_gen;
+	/* Deferred SQE submission: workers push dirty fdes to a Treiber stack
+	 * instead of acquiring uring_sqlock.  The I/O thread drains the stack
+	 * and batch-submits all pending SQEs. */
+	_Atomic(struct _fde *) uring_dirty_next;
+	_Atomic(uint8_t)       uring_dirty;
+	int                    uring_fixed_idx;  /* registered file slot, or -1 */
+	time_t                 uring_last_cqe_time;  /* timestamp of last CQE for staleness detection */
 };
 
 typedef void (*comm_event_cb_t) (void *);
@@ -183,6 +192,7 @@ void op_setselect_uring(op_fde_t *F, unsigned int type, PF *handler, void *clien
 int  op_init_netio_uring(void);
 int  op_select_uring(long);
 int  op_setup_fd_uring(op_fde_t *F);
+void op_close_fd_uring(op_fde_t *F);
 
 void op_uring_init_event(void);
 int  op_uring_sched_event(struct ev_entry *event, int when);

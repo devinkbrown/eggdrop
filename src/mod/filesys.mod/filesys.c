@@ -441,9 +441,9 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   {
     op_strbuf_t _b;
     if (dir[0])
-      op_strbuf_printf(&_b, "%s%s/%s", dccdir, dir, fn);
+      op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dir, fn);
     else
-      op_strbuf_printf(&_b, "%s%s", dccdir, fn);
+      op_strbuf_appendf(&_b, "%s%s", dccdir, fn);
     s = op_strbuf_steal(&_b);
   }
 
@@ -460,7 +460,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   /* Already have too many transfers active for this user?  queue it */
   if (at_limit(nick)) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
+    op_strbuf_appendf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
     queue_file(op_strbuf_str(&_b), fn, dcc[idx].nick, nick);
     op_strbuf_free(&_b);
     dprintf(idx, "Queued: %s to %s\n", fn, nick);
@@ -709,7 +709,7 @@ static char *mktempfile(char *filename)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
+    op_strbuf_appendf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
     tempname = op_strbuf_steal(&_b);
   }
   if (fn != filename)
@@ -723,7 +723,7 @@ static void filesys_dcc_send_hostresolved(int i)
   int len = dcc[i].u.dns->ibuf, j;
 
   op_strbuf_t _prt;
-  op_strbuf_printf(&_prt, "%s", int_to_base10(dcc[i].port));
+  op_strbuf_appendf(&_prt, "%s", int_to_base10(dcc[i].port));
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].u.dns->host, &dcc[i].sockname,
                            dcc[i].u.dns->host, (char *)op_strbuf_str(&_prt))) {
     lostdcc(i);
@@ -751,7 +751,7 @@ static void filesys_dcc_send_hostresolved(int i)
 
     if (p) {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s%s/", dccdir, p);
+      op_strbuf_appendf(&_b, "%s%s/", dccdir, p);
       strlcpy(dcc[i].u.xfer->dir, op_strbuf_str(&_b), sizeof(dcc[i].u.xfer->dir));
       op_strbuf_free(&_b);
     } else
@@ -761,7 +761,7 @@ static void filesys_dcc_send_hostresolved(int i)
   dcc[i].u.xfer->length = len;
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
+    op_strbuf_appendf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
     s1 = op_strbuf_steal(&_b);
   }
 

@@ -320,7 +320,7 @@ static int tcl_mkdir STDVAR
   if (!fdbe) {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
+      op_strbuf_appendf(&_b, "%s%s/%s", dccdir, d, p);
       t = op_strbuf_steal(&_b);
     }
     if (mkdir(t, 0755) != 0) {
@@ -411,14 +411,14 @@ static int tcl_rmdir STDVAR
   /* Erase '.filedb' and '.files' if they exist */
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s%s/%s/.filedb", dccdir, d, p);
+    op_strbuf_appendf(&_b, "%s%s/%s/.filedb", dccdir, d, p);
     t = op_strbuf_steal(&_b);
     unlink(t);
-    op_strbuf_printf(&_b, "%s%s/%s/.files", dccdir, d, p);
+    op_strbuf_appendf(&_b, "%s%s/%s/.files", dccdir, d, p);
     op_free(t);
     t = op_strbuf_steal(&_b);
     unlink(t);
-    op_strbuf_printf(&_b, "%s%s/%s", dccdir, d, p);
+    op_strbuf_appendf(&_b, "%s%s/%s", dccdir, d, p);
     op_free(t);
     t = op_strbuf_steal(&_b);
   }
@@ -541,15 +541,15 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
       {
         op_strbuf_t _b;
         if (oldpath[0])
-          op_strbuf_printf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
+          op_strbuf_appendf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
         else
-          op_strbuf_printf(&_b, "%s%s", dccdir, fdbe_old->filename);
+          op_strbuf_appendf(&_b, "%s%s", dccdir, fdbe_old->filename);
         s = op_strbuf_steal(&_b);
         const char *newfn_eff = newfn[0] ? newfn : fdbe_old->filename;
         if (newpath[0])
-          op_strbuf_printf(&_b, "%s%s/%s", dccdir, newpath, newfn_eff);
+          op_strbuf_appendf(&_b, "%s%s/%s", dccdir, newpath, newfn_eff);
         else
-          op_strbuf_printf(&_b, "%s%s", dccdir, newfn_eff);
+          op_strbuf_appendf(&_b, "%s%s", dccdir, newfn_eff);
         s1 = op_strbuf_steal(&_b);
       }
       if (!strcmp(s, s1)) {

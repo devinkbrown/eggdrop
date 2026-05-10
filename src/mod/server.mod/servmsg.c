@@ -20,7 +20,6 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* wolfssl already included via egg_tls.h in server.c before module.h */
 #include "../irc.mod/irc.h"
 #include "../channels.mod/channels.h"
 #include <errno.h>
@@ -148,9 +147,9 @@ static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
   int x;
 
   if (arg[0])
-    op_strbuf_printf(&args, "%s %s", cmd, arg);
+    op_strbuf_appendf(&args, "%s %s", cmd, arg);
   else
-    op_strbuf_printf(&args, "%s", cmd);
+    op_strbuf_appendf(&args, "%s", cmd);
   get_user_flagrec(u, &fr, NULL);
   Tcl_SetVar(interp, "_msgm1", nick, 0);
   Tcl_SetVar(interp, "_msgm2", uhost, 0);
@@ -311,7 +310,7 @@ static int check_tcl_out(int which, char *msg, int sent)
   default:
     queue = "noqueue";
   }
-  op_strbuf_printf(&args, "%s %s", queue, state);
+  op_strbuf_appendf(&args, "%s %s", queue, state);
   Tcl_SetVar(interp, "_out1", queue, 0);
   Tcl_SetVar(interp, "_out2", msg, 0);
   Tcl_SetVar(interp, "_out3", state, 0);
@@ -582,7 +581,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
       return 0;
     /* Private msg */
     op_strbuf_t h;
-    op_strbuf_printf(&h, "*!*@%s", p);
+    op_strbuf_appendf(&h, "*!*@%s", p);
     putlog(LOG_MISC, "*", IRC_FLOODIGNORE1, p);
     addignore(op_strbuf_str(&h), botnetnick, (which == FLOOD_CTCP) ? "CTCP flood" :
               "MSG/NOTICE flood", now + (60 * ignore_time));
@@ -1259,7 +1258,8 @@ static const char *encode_msgtag(const char *key, const char *value)
     op_strbuf_clear(&sb);
     return op_strbuf_str(&sb);
   }
-  op_strbuf_reset(&sb, "%s%s", key, encode_msgtag_value(value));
+  op_strbuf_clear(&sb);
+  op_strbuf_appendf(&sb, "%s%s", key, encode_msgtag_value(value));
   return op_strbuf_str(&sb);
 }
 
@@ -1425,7 +1425,7 @@ static int got311(char *from, char *msg)
 
   if (match_my_nick(n2)) {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s@%s", u, h);
+    op_strbuf_appendf(&_b, "%s@%s", u, h);
     strlcpy(botuserhost, op_strbuf_str(&_b), sizeof botuserhost);
     op_strbuf_free(&_b);
   }
@@ -1969,7 +1969,7 @@ static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
   op_strbuf_t mask;
   int x;
 
-  op_strbuf_printf(&mask, "%s:%s:%s", msgtype, cmd, code);
+  op_strbuf_appendf(&mask, "%s:%s:%s", msgtype, cmd, code);
   Tcl_SetVar(interp, "_sr1", from,     0);
   Tcl_SetVar(interp, "_sr2", msgtype,  0);
   Tcl_SetVar(interp, "_sr3", cmd,      0);
@@ -2252,7 +2252,7 @@ static int gotwhisper(char *from, char *msg)
   if (match_my_nick(target)) {
     struct userrec *u;
     op_strbuf_t hostbuf;
-    op_strbuf_printf(&hostbuf, "%s!%s", nick, from);
+    op_strbuf_appendf(&hostbuf, "%s!%s", nick, from);
     u = get_user_by_host(op_strbuf_str(&hostbuf));
     op_strbuf_free(&hostbuf);
     check_tcl_msg("whisper", nick, from, u, msg);
@@ -2411,10 +2411,10 @@ static void connect_server(void)
     op_strbuf_t s;
 #ifdef IPV6
     if (inet_pton(AF_INET6, botserver, buf))
-      op_strbuf_printf(&s, "%s [%s]", IRC_SERVERTRY, botserver);
+      op_strbuf_appendf(&s, "%s [%s]", IRC_SERVERTRY, botserver);
     else
 #endif
-      op_strbuf_printf(&s, "%s %s", IRC_SERVERTRY, botserver);
+      op_strbuf_appendf(&s, "%s %s", IRC_SERVERTRY, botserver);
 
 #ifdef TLS
     op_strbuf_appendf(&s, ":%s%d", use_ssl ? "+" : "", botserverport);
@@ -2492,7 +2492,7 @@ static void server_resolve_success(int servidx)
 #ifdef IPV6
     } else if (errno == ENETUNREACH) {
       errstr = strerror(errno);
-      op_strbuf_printf(&errstr2, " prefer-ipv6 %i", pref_af);
+      op_strbuf_appendf(&errstr2, " prefer-ipv6 %i", pref_af);
 #endif
     } else {
       errstr = strerror(errno);

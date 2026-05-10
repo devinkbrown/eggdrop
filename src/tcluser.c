@@ -615,9 +615,9 @@ static int tcl_ignorelist STDVAR
     list[0] = i->igmask;
     list[1] = i->msg;
     op_strbuf_t _expire, _added;
-    op_strbuf_printf(&_expire, "%" PRId64, (int64_t) i->expire);
+    op_strbuf_appendf(&_expire, "%" PRId64, (int64_t) i->expire);
     list[2] = op_strbuf_str(&_expire);
-    op_strbuf_printf(&_added, "%" PRId64, (int64_t) i->added);
+    op_strbuf_appendf(&_added, "%" PRId64, (int64_t) i->added);
     list[3] = op_strbuf_str(&_added);
     list[4] = i->user;
     p = Tcl_Merge(5, list);

@@ -175,6 +175,27 @@ void free_maskrec(maskrec *m)
 
 struct userrec *lastuser = NULL;   /* last accessed user record         */
 
+/* Mark a user record as dirty for incremental saves */
+static void mark_user_dirty(struct userrec *u)
+{
+  if (u)
+    u->dirty = 1;
+}
+
+/* Mark all users as dirty (called after bulk operations) */
+static void mark_all_users_dirty(void)
+{
+  for (struct userrec *u = userlist; u; u = u->next)
+    u->dirty = 1;
+}
+
+/* Clear dirty flags for all users (called after successful save) */
+static void clear_all_dirty_flags(void)
+{
+  for (struct userrec *u = userlist; u; u = u->next)
+    u->dirty = 0;
+}
+
 /* Splay-tree index from lowercase handle → userrec *.
  * Maintained by adduser/deluser/change_handle/clear_userlist.
  * Rebuilt lazily on first get_user_by_handle() after a bulk load. */
@@ -341,7 +362,6 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
 
   if (!handle)
     return NULL;
-  /* FIXME: This should be done outside of this function. */
   rmspace(handle);
   if (!handle[0] || (handle[0] == '*'))
     return NULL;
@@ -397,7 +417,7 @@ struct userrec *get_user_from_member(memberlist *m)
   /* Check if there is a user with a matching hostmask if one is provided */
   if ((m->userhost[0] != '\0') && (m->nick[0] != '\0')) {
     op_strbuf_t s;
-    op_strbuf_printf(&s, "%s!%s", m->nick, m->userhost);
+    op_strbuf_appendf(&s, "%s!%s", m->nick, m->userhost);
     ret = get_user_by_host(op_strbuf_str(&s));
     op_strbuf_free(&s);
     if (ret) {
@@ -791,7 +811,7 @@ void write_userfile(int idx)
     return;                     /* No point in saving userfile */
 
   op_strbuf_t new_userfile;
-  op_strbuf_printf(&new_userfile, "%s~new", userfile);
+  op_strbuf_appendf(&new_userfile, "%s~new", userfile);
 
   f = fopen(op_strbuf_str(&new_userfile), "w");
   chmod(op_strbuf_str(&new_userfile), userfile_perm);
@@ -832,7 +852,7 @@ void backup_userfile(void)
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "%s", USERF_BACKUP);
   op_strbuf_t s;
-  op_strbuf_printf(&s, "%s~bak", userfile);
+  op_strbuf_appendf(&s, "%s~bak", userfile);
   copyfile(userfile, op_strbuf_str(&s));
   op_strbuf_free(&s);
 }
@@ -855,6 +875,7 @@ int change_handle(struct userrec *u, char *newh)
     shareout(NULL, "h %s %s\n", u->handle, newh);
   strlcpy(s, u->handle, sizeof s);
   strlcpy(u->handle, newh, sizeof u->handle);
+  u->dirty = 1;  /* Mark as dirty when handle changes */
   if (user_handle_dict) {
     op_htab_del(user_handle_dict,s);
     op_htab_set(user_handle_dict, u->handle, u, NULL);
@@ -891,6 +912,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
   u->next = NULL;
   u->chanrec = NULL;
   u->entries = NULL;
+  u->dirty = 1;  /* New user is dirty */
   if (flags != USER_DEFAULT) {  /* drummer */
     u->flags = flags;
     u->flags_udef = 0;
@@ -905,7 +927,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
     strlcpy(xk->key, "created", sizeof(xk->key));
     {
       op_strbuf_t ts;
-      op_strbuf_printf(&ts, "%" PRId64, (int64_t) now);
+      op_strbuf_appendf(&ts, "%" PRId64, (int64_t) now);
       xk->data = op_strdup(op_strbuf_str(&ts));
       op_strbuf_free(&ts);
     }
@@ -1075,6 +1097,8 @@ static int del_host_or_account(char *handle, char *host, int type)
         op_free(q->extra);
         op_free(q);
         i++;
+        /* Mark user as dirty when entries are deleted */
+        u->dirty = 1;
       } else
         qprev = q;
       q = qnext;
@@ -1118,6 +1142,7 @@ static void add_host_or_account(char *handle, const char *arg, int type)
   } else {
     set_user(&USERENTRY_HOSTS, u, (void *) arg);
   }
+  /* Note: set_user already marks u as dirty via userent.c */
   if ((!noshare) && !(u->flags & USER_UNSHARED)) {
     if (u->flags & USER_BOT) {
       shareout(NULL, "+b%s %s %s\n", type ? "a" : "h", handle, arg);
@@ -1178,7 +1203,7 @@ struct userrec *get_user_by_nick(char *nick)
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       if (!rfc_casecmp(nick, m->nick)) {
         op_strbuf_t word;
-        op_strbuf_printf(&word, "%s!%s", m->nick, m->userhost);
+        op_strbuf_appendf(&word, "%s!%s", m->nick, m->userhost);
         struct userrec *r = get_user_by_host(op_strbuf_str(&word));
         op_strbuf_free(&word);
         return r;

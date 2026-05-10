@@ -126,19 +126,19 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
       op_strbuf_t _b;
       if (!strchr(who, '!')) {
         if (!strchr(who, '@'))
-          op_strbuf_printf(&_b, "%s!*@*", who);     /* Lame nick ban */
+          op_strbuf_appendf(&_b, "%s!*@*", who);     /* Lame nick ban */
         else
-          op_strbuf_printf(&_b, "*!%s", who);
+          op_strbuf_appendf(&_b, "*!%s", who);
       } else if (!strchr(who, '@'))
-        op_strbuf_printf(&_b, "%s@*", who);         /* brain-dead? */
+        op_strbuf_appendf(&_b, "%s@*", who);         /* brain-dead? */
       else
-        op_strbuf_printf(&_b, "%s", who);
+        op_strbuf_appendf(&_b, "%s", who);
       strlcpy(s, op_strbuf_str(&_b), sizeof s);
       op_strbuf_free(&_b);
     }
     if ((me = module_find("server", 0, 0)) && me->funcs) {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
+      op_strbuf_appendf(&_b, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
                        (char *) me->funcs[SERVER_BOTUSERHOST]);
       int selfban = match_addr(s, op_strbuf_str(&_b));
       op_strbuf_free(&_b);
@@ -272,13 +272,13 @@ static void cmd_pls_exempt(struct userrec *u, int idx, char *par)
       op_strbuf_t _b;
       if (!strchr(who, '!')) {
         if (!strchr(who, '@'))
-          op_strbuf_printf(&_b, "%s!*@*", who);     /* Lame nick exempt */
+          op_strbuf_appendf(&_b, "%s!*@*", who);     /* Lame nick exempt */
         else
-          op_strbuf_printf(&_b, "*!%s", who);
+          op_strbuf_appendf(&_b, "*!%s", who);
       } else if (!strchr(who, '@'))
-        op_strbuf_printf(&_b, "%s@*", who);         /* brain-dead? */
+        op_strbuf_appendf(&_b, "%s@*", who);         /* brain-dead? */
       else
-        op_strbuf_printf(&_b, "%s", who);
+        op_strbuf_appendf(&_b, "%s", who);
       strlcpy(s, op_strbuf_str(&_b), sizeof s);
       op_strbuf_free(&_b);
     }
@@ -400,13 +400,13 @@ static void cmd_pls_invite(struct userrec *u, int idx, char *par)
       op_strbuf_t _b;
       if (!strchr(who, '!')) {
         if (!strchr(who, '@'))
-          op_strbuf_printf(&_b, "%s!*@*", who);     /* Lame nick invite */
+          op_strbuf_appendf(&_b, "%s!*@*", who);     /* Lame nick invite */
         else
-          op_strbuf_printf(&_b, "*!%s", who);
+          op_strbuf_appendf(&_b, "*!%s", who);
       } else if (!strchr(who, '@'))
-        op_strbuf_printf(&_b, "%s@*", who);         /* brain-dead? */
+        op_strbuf_appendf(&_b, "%s@*", who);         /* brain-dead? */
       else
-        op_strbuf_printf(&_b, "%s", who);
+        op_strbuf_appendf(&_b, "%s", who);
       strlcpy(s, op_strbuf_str(&_b), sizeof s);
       op_strbuf_free(&_b);
     }
@@ -1415,7 +1415,7 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
             tmp = 1;
           }
           if (ii == 1)
-            op_strbuf_printf(&flagbuf, "    ");
+            op_strbuf_appendf(&flagbuf, "    ");
           op_strbuf_appendf(&flagbuf, " %c%s",
                             getudef(ul->values, chan->dname) ? '+' : '-', ul->name);
           ii++;

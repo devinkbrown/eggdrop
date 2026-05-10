@@ -327,7 +327,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%d:%d", *(cp->left), *(cp->right));
+      op_strbuf_appendf(&_b, "%d:%d", *(cp->left), *(cp->right));
       Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
       op_strbuf_free(&_b);
     }
@@ -426,7 +426,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     if ((st->str == firewall) && (firewall[0])) {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s:%d", firewall, firewallport);
+      op_strbuf_appendf(&_b, "%s:%d", firewall, firewallport);
       Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
       op_strbuf_free(&_b);
     } else
@@ -939,7 +939,7 @@ void init_unicodesup_cmd(Tcl_Obj *ensdict, const char *subcmd, int index)
   info[index].cmd = orig_cmd;
   Tcl_IncrRefCount(orig_cmd);
 
-  op_strbuf_printf(&buf, "::egg_string_%s", subcmd);
+  op_strbuf_appendf(&buf, "::egg_string_%s", subcmd);
   Tcl_CreateObjCommand(interp, op_strbuf_str(&buf), egg_string_unicodesup, &info[index], NULL);
 
   if (Tcl_DictObjPut(interp, ensdict, Tcl_NewStringObj(subcmd, -1),

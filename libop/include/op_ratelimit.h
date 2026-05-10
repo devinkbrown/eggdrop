@@ -43,6 +43,7 @@
 #define LIBOP_RATELIMIT_H
 
 #include <stdint.h>
+#include <sys/time.h>
 
 /* ---- type ---------------------------------------------------------------- */
 
@@ -87,7 +88,7 @@ op_ratelimit_init(op_ratelimit_t *rl, unsigned capacity, unsigned rate_per_sec,
                   uint64_t now_usec)
 {
     rl->rate_usec   = (rate_per_sec > 0) ? 1000000u / rate_per_sec : UINT64_MAX;
-    rl->capacity    = (uint32_t)((uint64_t)capacity * OP_RATELIMIT_SCALE);
+    rl->capacity    = capacity    * OP_RATELIMIT_SCALE;
     rl->tokens      = rl->capacity;   /* start full */
     rl->last_refill = now_usec;
 }
@@ -149,11 +150,11 @@ op_ratelimit_check_n(op_ratelimit_t *rl, uint64_t now_usec, unsigned n)
         rl->tokens = (total > rl->capacity) ? rl->capacity : (uint32_t)total;
     }
 
-    uint64_t cost = (uint64_t)n * OP_RATELIMIT_SCALE;
+    uint32_t cost = n * OP_RATELIMIT_SCALE;
     if (rl->tokens < cost)
         return false;
 
-    rl->tokens -= (uint32_t)cost;
+    rl->tokens -= cost;
     return true;
 }
 

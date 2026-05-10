@@ -14,6 +14,7 @@
 
 #include <libop_config.h>
 #include <op_lib.h>
+#include <op_atomic.h>
 #include <commio-int.h>
 
 static op_bh *op_sendbuf_block_heap;
@@ -32,6 +33,8 @@ op_sendbuf_init(size_t heap_size)
 
 /* ---- intrusive queue helpers --------------------------------------------- */
 
+/* Append a chunk to the active (consumer-only) list.
+ * Caller must be the I/O thread — no synchronisation. */
 static inline void
 sendbuf_enqueue(op_sendbuf_t *sb, op_sendbuf_chunk_t *chunk)
 {
@@ -43,7 +46,8 @@ sendbuf_enqueue(op_sendbuf_t *sb, op_sendbuf_chunk_t *chunk)
 	sb->tail = chunk;
 }
 
-/* Dequeue and free the head chunk, releasing its payload reference. */
+/* Dequeue and free the head chunk, releasing its payload reference.
+ * Caller must be the I/O thread. */
 static inline void
 sendbuf_free_head(op_sendbuf_t *sb)
 {
@@ -61,16 +65,69 @@ sendbuf_free_head(op_sendbuf_t *sb)
 	op_bh_free(op_sendbuf_chunk_heap, chunk);
 }
 
+/* ---- MPSC inbox (lock-free Treiber stack) -------------------------------- */
+
+/* Push a single chunk to the inbox.  Safe to call from any thread. */
+static inline void
+sendbuf_inbox_push(op_sendbuf_t *sb, op_sendbuf_chunk_t *chunk)
+{
+	op_sendbuf_chunk_t *old_top =
+	    atomic_load_explicit(&sb->inbox, memory_order_relaxed);
+	do {
+		chunk->next = old_top;
+	} while (!atomic_compare_exchange_weak_explicit(
+	    &sb->inbox, &old_top, chunk,
+	    memory_order_release, memory_order_relaxed));
+}
+
+/* Drain the inbox into the active queue (I/O thread only).
+ *
+ * Atomically swaps inbox to NULL, reverses the LIFO stack into FIFO
+ * order, and appends the result to the active head/tail list. */
+static void
+sendbuf_drain_inbox(op_sendbuf_t *sb)
+{
+	op_sendbuf_chunk_t *stack = atomic_exchange_explicit(
+	    &sb->inbox, NULL, memory_order_acquire);
+
+	if (stack == NULL)
+		return;
+
+	/* Reverse the stack (LIFO → FIFO). */
+	op_sendbuf_chunk_t *prev = NULL;
+	while (stack != NULL)
+	{
+		op_sendbuf_chunk_t *next = stack->next;
+		stack->next = prev;
+		prev = stack;
+		stack = next;
+	}
+	/* prev is now the head of the FIFO chain; find its tail. */
+	op_sendbuf_chunk_t *fifo_head = prev;
+	op_sendbuf_chunk_t *fifo_tail = prev;
+	while (fifo_tail->next != NULL)
+		fifo_tail = fifo_tail->next;
+
+	/* Append to the active queue. */
+	if (sb->tail)
+		sb->tail->next = fifo_head;
+	else
+		sb->head = fifo_head;
+	sb->tail = fifo_tail;
+}
+
 /* ---- public API ---------------------------------------------------------- */
 
 /* Free all chunks.  LINE chunks release their buf_line_t ref; BLOCK chunks
- * free their block back to the pool. */
+ * free their block back to the pool.  Must only be called when no producers
+ * can be racing (client teardown). */
 void
 op_sendbuf_donebuf(op_sendbuf_t *sb)
 {
+	sendbuf_drain_inbox(sb);
 	while (sb->head != NULL)
 		sendbuf_free_head(sb);
-	sb->len = 0;
+	atomic_store_explicit(&sb->len, 0, memory_order_relaxed);
 }
 
 /* Append len bytes from data into block storage (copy path, used for raw
@@ -120,7 +177,7 @@ op_sendbuf_write(op_sendbuf_t *sb, const void *data, size_t len)
 		blk->wpos  += (uint16_t)copy;
 		ptr        += copy;
 		remaining  -= copy;
-		sb->len    += copy;
+		atomic_fetch_add_explicit(&sb->len, copy, memory_order_relaxed);
 	}
 
 	return 0;
@@ -128,11 +185,15 @@ op_sendbuf_write(op_sendbuf_t *sb, const void *data, size_t len)
 
 /* Zero-copy enqueue: for each terminated buf_line_t in linebuf, take a
  * reference and add a CHUNK_LINE.  The caller may destroy the buf_head_t
- * immediately; the bytes stay alive via the refs until fully flushed. */
+ * immediately; the bytes stay alive via the refs until fully flushed.
+ *
+ * Thread-safe: pushes to the MPSC inbox (lock-free).  May be called from
+ * any thread. */
 int
 op_sendbuf_write_linebuf(op_sendbuf_t *sb, buf_head_t *linebuf)
 {
 	op_dlink_node *ptr;
+	size_t total_bytes = 0;
 
 	OP_DLINK_FOREACH(ptr, linebuf->list.head)
 	{
@@ -149,9 +210,12 @@ op_sendbuf_write_linebuf(op_sendbuf_t *sb, buf_head_t *linebuf)
 		chunk->type = SENDBUF_CHUNK_LINE;
 		chunk->rpos = 0;
 		chunk->line = line;
-		sendbuf_enqueue(sb, chunk);
-		sb->len += line->len;
+		sendbuf_inbox_push(sb, chunk);
+		total_bytes += line->len;
 	}
+
+	if (total_bytes > 0)
+		atomic_fetch_add_explicit(&sb->len, total_bytes, memory_order_release);
 
 	return 0;
 }
@@ -162,7 +226,7 @@ op_sendbuf_write_linebuf(op_sendbuf_t *sb, buf_head_t *linebuf)
 static void
 sendbuf_advance(op_sendbuf_t *sb, ssize_t consumed)
 {
-	sb->len -= (size_t)consumed;
+	atomic_fetch_sub_explicit(&sb->len, (size_t)consumed, memory_order_relaxed);
 
 	while (consumed > 0 && sb->head != NULL)
 	{
@@ -189,10 +253,13 @@ sendbuf_advance(op_sendbuf_t *sb, ssize_t consumed)
 
 /* Copy at most `limit` bytes from the front of the queue into `buf`,
  * consuming the bytes (advancing rpos, freeing fully-consumed chunks).
- * Used by transport layers that need raw bytes before writing. */
+ * Used by transport layers that need raw bytes before writing.
+ * Must only be called from the I/O thread (single consumer). */
 size_t
 op_sendbuf_drain_to_buf(op_sendbuf_t *sb, void *buf, size_t limit)
 {
+	sendbuf_drain_inbox(sb);
+
 	char  *out  = buf;
 	size_t done = 0;
 
@@ -226,7 +293,7 @@ op_sendbuf_drain_to_buf(op_sendbuf_t *sb, void *buf, size_t limit)
 		sendbuf_free_head(sb);
 	}
 
-	sb->len -= done;
+	atomic_fetch_sub_explicit(&sb->len, done, memory_order_relaxed);
 	return done;
 }
 
@@ -235,7 +302,9 @@ op_sendbuf_drain_to_buf(op_sendbuf_t *sb, void *buf, size_t limit)
 ssize_t
 op_sendbuf_flush(op_sendbuf_t *sb, op_fde_t *F)
 {
-	if (sb->len == 0)
+	sendbuf_drain_inbox(sb);
+
+	if (op_sendbuf_len(sb) == 0)
 	{
 		errno = EWOULDBLOCK;
 		return -1;

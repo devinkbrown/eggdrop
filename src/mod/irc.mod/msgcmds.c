@@ -45,7 +45,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
       return 1;
     }
   }
-  op_strbuf_printf(&_handle, "%.*s", HANDLEN, nick);
+  op_strbuf_appendf(&_handle, "%.*s", HANDLEN, nick);
   if (get_user_by_handle(userlist, (char *)op_strbuf_str(&_handle))) {
     dprintf(DP_HELP, IRC_BADHOST1, nick);
     dprintf(DP_HELP, IRC_BADHOST2, nick, botname);
@@ -54,7 +54,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s!%s", nick, h);
+    op_strbuf_appendf(&_b, "%s!%s", nick, h);
     strlcpy(s, op_strbuf_str(&_b), sizeof s);
     op_strbuf_free(&_b);
   }
@@ -68,7 +68,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     strlcpy(s, host, sizeof s);
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "%s!%s", nick, s + 2);
+      op_strbuf_appendf(&_b, "%s!%s", nick, s + 2);
       strlcpy(host, op_strbuf_str(&_b), sizeof host);
       op_strbuf_free(&_b);
     }
@@ -113,7 +113,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     dprintf(DP_HELP, IRC_NICKTOOLONG, nick, op_strbuf_str(&_handle));
   if (notify_new[0]) {
     op_strbuf_t _bn;
-    op_strbuf_printf(&_bn, IRC_INITINTRO, nick, host);
+    op_strbuf_appendf(&_bn, IRC_INITINTRO, nick, host);
     strlcpy(s1, notify_new, sizeof(s1));
     while (s1[0]) {
       p1 = strchr(s1, ',');
@@ -187,9 +187,9 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
   }
   pass = newsplit(&par);
   if (!par[0])
-    op_strbuf_printf(&_who, "%s", nick);
+    op_strbuf_appendf(&_who, "%s", nick);
   else
-    op_strbuf_printf(&_who, "%s", par);
+    op_strbuf_appendf(&_who, "%s", par);
   u2 = get_user_by_handle(userlist, (char *)op_strbuf_str(&_who));
   if (!u2) {
     if (u && !quiet_reject)
@@ -221,7 +221,7 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
       putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, op_strbuf_str(&_who));
       {
         op_strbuf_t _b;
-        op_strbuf_printf(&_b, "%s!%s", nick, host);
+        op_strbuf_appendf(&_b, "%s!%s", nick, host);
         maskhost(op_strbuf_str(&_b), s1);
         op_strbuf_free(&_b);
       }
@@ -482,7 +482,7 @@ static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
   }
   if (strlen(par) > NICKMAX)
     par[NICKMAX] = 0;
-  op_strbuf_printf(&uhost, "%s!%s", nick, host);
+  op_strbuf_appendf(&uhost, "%s!%s", nick, host);
   putlog(LOG_CMDS, "*", "(%s) !%s! WHOIS %s", op_strbuf_str(&uhost),
          u->handle, par);
   op_strbuf_free(&uhost);
@@ -867,7 +867,7 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
 
   {
     op_strbuf_t _s;
-    op_strbuf_printf(&_s, "Channels: ");
+    op_strbuf_appendf(&_s, "Channels: ");
     for (chan = chanset; chan; chan = chan->next) {
       op_strbuf_appendf(&_s, "%s", chan->dname);
       if (!channel_active(chan))
@@ -880,7 +880,8 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
       if (op_strbuf_len(&_s) > 140) {
         op_strbuf_truncate(&_s, op_strbuf_len(&_s) - 2); /* remove ', ' */
         dprintf(DP_HELP, "NOTICE %s :%s\n", nick, op_strbuf_str(&_s));
-        op_strbuf_reset(&_s, "Channels: ");
+        op_strbuf_clear(&_s);
+        op_strbuf_appendf(&_s, "Channels: ");
       }
     }
     if (op_strbuf_len(&_s) > 10) {
@@ -946,9 +947,9 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   {
     op_strbuf_t _s;
     if (!par[0])
-      op_strbuf_printf(&_s, "BOT SHUTDOWN (authorized by %s)", u->handle);
+      op_strbuf_appendf(&_s, "BOT SHUTDOWN (authorized by %s)", u->handle);
     else
-      op_strbuf_printf(&_s, "BOT SHUTDOWN (%s: %s)", u->handle, par);
+      op_strbuf_appendf(&_s, "BOT SHUTDOWN (%s: %s)", u->handle, par);
     chatout("*** %s\n", op_strbuf_str(&_s));
     botnet_send_chat(-1, botnetnick, op_strbuf_str(&_s));
     op_strbuf_free(&_s);
@@ -962,7 +963,7 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   sleep(1); /* Give the server time to understand. 1s has proven more than enough. */
   {
     op_strbuf_t _s;
-    op_strbuf_printf(&_s, "DEAD BY REQUEST OF %s!%s", nick, host);
+    op_strbuf_appendf(&_s, "DEAD BY REQUEST OF %s!%s", nick, host);
     fatal(op_strbuf_str(&_s), 0);
     op_strbuf_free(&_s);
   }

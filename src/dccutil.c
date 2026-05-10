@@ -260,7 +260,7 @@ void chatout(const char *format, ...)
   va_list va;
 
   va_start(va, format);
-  op_strbuf_vprintf(&sb, format, va);
+  op_strbuf_vappendf(&sb, format, va);
   va_end(va);
 
   for (int i = 0; i < dcc_total; i++)
@@ -278,7 +278,7 @@ void chanout_but(int x, int chan, const char *format, ...)
   va_list va;
 
   va_start(va, format);
-  op_strbuf_vprintf(&sb, format, va);
+  op_strbuf_vappendf(&sb, format, va);
   va_end(va);
 
   for (int i = 0; i < dcc_total; i++)
@@ -440,13 +440,14 @@ void tell_dcc(int zidx)
   if (j > 40)
     j = 40;
 
-  op_strbuf_printf(&fmt, "%%-3s %%-%d.%ds %%-6s %%-%d.%ds %%s\n",
+  op_strbuf_appendf(&fmt, "%%-3s %%-%d.%ds %%-6s %%-%d.%ds %%s\n",
                    j, j, nicklen, nicklen);
   dprintf(zidx, op_strbuf_str(&fmt), "IDX", "ADDR", "+ PORT", "NICK", "TYPE  INFO");
   dprintf(zidx, op_strbuf_str(&fmt), "---",
           "------------------------------------------------------", "------",
           "--------------------------------", "----- ---------");
-  op_strbuf_reset(&fmt, "%%-3d %%-%d.%ds %%c%%5d %%-%d.%ds %%s\n",
+  op_strbuf_clear(&fmt);
+  op_strbuf_appendf(&fmt, "%%-3d %%-%d.%ds %%c%%5d %%-%d.%ds %%s\n",
                   j, j, nicklen, nicklen);
 
   for (int i = 0; i < dcc_total; i++) {
@@ -606,7 +607,7 @@ int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
       /* Evil assumption here that flags&DCT_CHAT implies chat type */
       if ((dcc[idx].type->flags & DCT_CHAT) && (chat->channel >= 0)) {
         op_strbuf_t sb;
-        op_strbuf_printf(&sb, DCC_FLOODBOOT, dcc[idx].nick);
+        op_strbuf_appendf(&sb, DCC_FLOODBOOT, dcc[idx].nick);
         chanout_but(idx, chat->channel, "*** %s", op_strbuf_str(&sb));
         if (chat->channel < GLOBAL_CHANS)
           botnet_send_part_idx(idx, op_strbuf_str(&sb));
@@ -640,7 +641,7 @@ void do_boot(int idx, char *by, char *reason)
    * as DCC_CHAT */
   if ((dcc[idx].type->flags & DCT_CHAT) && (dcc[idx].u.chat->channel >= 0)) {
     op_strbuf_t sb;
-    op_strbuf_printf(&sb, DCC_BOOTED3, by, dcc[idx].nick,
+    op_strbuf_appendf(&sb, DCC_BOOTED3, by, dcc[idx].nick,
                      reason[0] ? ": " : "", reason);
     chanout_but(idx, dcc[idx].u.chat->channel, "*** %s.\n", op_strbuf_str(&sb));
     if (dcc[idx].u.chat->channel < GLOBAL_CHANS)

@@ -5,7 +5,7 @@
  *  Copyright (C) 1990 Jarkko Oikarinen and University of Oulu, Co Center
  *  Copyright (C) 1996-2002 Hybrid Development Team
  *  Copyright (C) 2002-2005 ircd-ratbox development team
- *  Copyright (C) 2025 ophion development team
+ *  Copyright (C) 2025-2026 ophion development team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -118,7 +118,7 @@ void op_close_pending_fds(void);
 /* Digest of SubjectPublicKeyInfo (RFC 5280), used by DANE (RFC 6698) */
 #define OP_SSL_CERTFP_METH_SPKI_SHA256	0x1001
 #define OP_SSL_CERTFP_METH_SPKI_SHA512	0x1002
-/* SHA-3 variants (WOLFSSL_SHA3 required) */
+/* SHA-3 variants */
 #define OP_SSL_CERTFP_METH_CERT_SHA3_256	0x0003
 #define OP_SSL_CERTFP_METH_CERT_SHA3_512	0x0004
 #define OP_SSL_CERTFP_METH_SPKI_SHA3_256	0x1003
@@ -159,6 +159,7 @@ ssize_t op_write(op_fde_t *, const void *buf, size_t count);
 ssize_t op_writev(op_fde_t *, struct op_iovec *vector, int count);
 
 ssize_t op_read(op_fde_t *, void *buf, size_t count);
+int op_pending(op_fde_t *);
 int op_pipe(op_fde_t **, op_fde_t **, const char *desc);
 
 int op_setup_ssl_server(const char *cert, const char *keyfile, const char *dhfile,
@@ -183,8 +184,6 @@ void op_setselect(op_fde_t *, unsigned int type, PF * handler, void *client_data
 void op_init_netio(void);
 int op_select(long);
 int op_fd_ssl(const op_fde_t *F);
-void op_fde_set_ssl_ptr(op_fde_t *F, void *ssl);
-void *op_fde_get_ssl_ptr(const op_fde_t *F);
 op_platform_fd_t op_get_fd(const op_fde_t *F);
 const char *op_get_ssl_strerror(op_fde_t *F);
 int op_get_ssl_certfp(op_fde_t *F, uint8_t certfp[OP_SSL_CERTFP_LEN], int method);

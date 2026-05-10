@@ -20,11 +20,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/* egg_tls.h must precede module.h to avoid wolfssl/Tcl mp_int conflict. */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
-#include "../../egg_tls.h"
 #include "src/mod/module.h"
 
 #ifdef TLS
@@ -38,7 +36,8 @@
 #ifdef __APPLE__
 #  define st_mtim st_mtimespec
 #endif
-#include <wolfssl/openssl/sha.h>
+#include <opssl/crypto.h>
+#include <opssl/conn.h>
 #include "src/version.h"
 
 constexpr char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -71,7 +70,7 @@ static void put_404(int idx) {
   debug1("webui: put_404() idx %i", idx);
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b,
+    op_strbuf_appendf(&_b,
       "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
       "Content-Length: 13\r\n"
       "Content-Type: text/plain\r\n"
@@ -137,7 +136,7 @@ static void put_file(int idx, int file_cache_index) {
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b,
+    op_strbuf_appendf(&_b,
       "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
       "Content-Length: %jd\r\n"
       "Content-Type: %s\r\n" /* at least firefox 144 needs this */
@@ -201,23 +200,12 @@ static void webui_http_activity(int idx, char *buf, int len)
         putlog(LOG_MISC, "*", "WEBUI error: Sec-WebSocket-Key too short ip %s", iptostr(&dcc[idx].sockname.addr.sa));
         return;
       }
-    unsigned char hash[SHA_DIGEST_LENGTH];
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
-    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-    const EVP_MD *md = EVP_sha1();
-    unsigned int md_len;
-    EVP_DigestInit_ex(mdctx, md, NULL);
-    EVP_DigestUpdate(mdctx, buf, WS_KEYLEN);
-    EVP_DigestUpdate(mdctx, WS_GUID, (sizeof WS_GUID) - 1);
-    EVP_DigestFinal_ex(mdctx, hash, &md_len);
-    EVP_MD_CTX_free(mdctx);
-#else
-    SHA_CTX c;
-    SHA1_Init(&c);
-    SHA1_Update(&c, buf, WS_KEYLEN);
-    SHA1_Update(&c, WS_GUID, (sizeof WS_GUID) - 1);
-    SHA1_Final(hash, &c);
-#endif
+    uint8_t hash[OPSSL_SHA1_DIGEST_LEN];
+    opssl_sha1_ctx_t sha1_ctx;
+    opssl_sha1_init(&sha1_ctx);
+    opssl_sha1_update(&sha1_ctx, buf, WS_KEYLEN);
+    opssl_sha1_update(&sha1_ctx, WS_GUID, (sizeof WS_GUID) - 1);
+    opssl_sha1_final(&sha1_ctx, hash);
 
     char out[WS_LEN + 1];
     if (b64_ntop(hash, sizeof hash, out, sizeof out) != WS_LEN) {
@@ -228,7 +216,7 @@ static void webui_http_activity(int idx, char *buf, int len)
     int i;
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b,
+      op_strbuf_appendf(&_b,
         "HTTP/1.1 101 Switching Protocols\r\n"
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
@@ -263,9 +251,9 @@ static void webui_http_activity(int idx, char *buf, int len)
     put_404(idx);
   if ((dcc[idx].sock != -1) && (len == 511)) { /* sock == -1 if lostdcc() in dcc_telnet_hostresolved2() */
     /* read probable remaining bytes */
-    SSL *ssl = socklist[findsock(dcc[idx].sock)].ssl;
+    opssl_conn_t *ssl = socklist[findsock(dcc[idx].sock)].ssl;
     if (ssl)
-      debug2("webui: SSL_read(): idx %i len %i", idx, SSL_read(ssl, buf, 511));
+      debug2("webui: opssl_read(): idx %i len %zi", idx, opssl_read(ssl, buf, 511));
     else
       debug2("webui: read(): idx %i len %li", idx, read(dcc[idx].sock, buf, 511));
   }
@@ -437,7 +425,7 @@ static size_t escape_html(char *dst, size_t dst_size, const char *src, size_t sr
 }
 
 static size_t webui_frame(const char **dst, const char *src, size_t len) {
-  static char buf[LOGLINELEN];
+  static thread_local char buf[LOGLINELEN];
   uint16_t len2;
 
   /* escape/replace html code chars
@@ -579,6 +567,6 @@ char *webui_start(Function *global_funcs)
   add_hook(HOOK_WEBUI_UNFRAME, (Function) webui_unframe);
   return NULL;
 #else
-  return "Initialization failure: configured with --disable-tls or openssl not found";
+  return "Initialization failure: configured with --disable-tls or TLS library not found";
 #endif
 }

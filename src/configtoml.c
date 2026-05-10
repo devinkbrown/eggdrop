@@ -100,11 +100,11 @@ static void flush_chanset_ircx(void)
     return;
   op_strbuf_t cmd;
   if (chanset_ircx_modes[0])
-    op_strbuf_printf(&cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
+    op_strbuf_appendf(&cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
                      chanset_channel, chanset_ownerkey,
                      chanset_ircx_create, chanset_ircx_modes);
   else
-    op_strbuf_printf(&cmd, "ircxautoowner %s \"%s\" %d",
+    op_strbuf_appendf(&cmd, "ircxautoowner %s \"%s\" %d",
                      chanset_channel, chanset_ownerkey, chanset_ircx_create);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
@@ -304,11 +304,11 @@ static void run_tcl_cmd(const char *cmd)
       {
         op_strbuf_t es;
         if (pass[0])
-          op_strbuf_printf(&es, "%s:%s:%s", host, port, pass);
+          op_strbuf_appendf(&es, "%s:%s:%s", host, port, pass);
         else if (port[0])
-          op_strbuf_printf(&es, "%s:%s", host, port);
+          op_strbuf_appendf(&es, "%s:%s", host, port);
         else
-          op_strbuf_printf(&es, "%s", host);
+          op_strbuf_appendf(&es, "%s", host);
         if (srv_add)
           srv_add(op_strbuf_str(&es));
         op_strbuf_free(&es);
@@ -334,7 +334,7 @@ static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
 {
   if (interp) {
     op_strbuf_t cmd;
-    op_strbuf_printf(&cmd, "loadmodule %s", name);
+    op_strbuf_appendf(&cmd, "loadmodule %s", name);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
   } else {
@@ -379,11 +379,11 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
   {
     op_strbuf_t cmd;
     if (pass[0])
-      op_strbuf_printf(&cmd, "server add %s %s %s", host, portpart, pass);
+      op_strbuf_appendf(&cmd, "server add %s %s %s", host, portpart, pass);
     else if (portpart[0])
-      op_strbuf_printf(&cmd, "server add %s %s", host, portpart);
+      op_strbuf_appendf(&cmd, "server add %s %s", host, portpart);
     else
-      op_strbuf_printf(&cmd, "server add %s", host);
+      op_strbuf_appendf(&cmd, "server add %s", host);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
   }
@@ -393,7 +393,7 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
 static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
 {
   op_strbuf_t cmd;
-  op_strbuf_printf(&cmd, "channel add %s", name);
+  op_strbuf_appendf(&cmd, "channel add %s", name);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
 }
@@ -405,7 +405,7 @@ static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
 static void cb_logfile(const char *entry, [[maybe_unused]] void *ud)
 {
   op_strbuf_t cmd;
-  op_strbuf_printf(&cmd, "logfile %s", entry);
+  op_strbuf_appendf(&cmd, "logfile %s", entry);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
 }
@@ -420,7 +420,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
   }
   if (interp) {
     op_strbuf_t cmd;
-    op_strbuf_printf(&cmd, "source %s", path);
+    op_strbuf_appendf(&cmd, "source %s", path);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
   } else {
@@ -431,7 +431,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
 static void cb_loadhelp(const char *file, [[maybe_unused]] void *ud)
 {
   op_strbuf_t cmd;
-  op_strbuf_printf(&cmd, "loadhelp %s", file);
+  op_strbuf_appendf(&cmd, "loadhelp %s", file);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
 }
@@ -539,12 +539,12 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         key_to_tclvar(key, tclkey, sizeof tclkey);
         op_strbuf_t cmd;
         if (is_chan_flag(tclkey))
-          op_strbuf_printf(&cmd, "channel set %s %s%s",
+          op_strbuf_appendf(&cmd, "channel set %s %s%s",
                            chanset_channel,
                            (strcmp(value, "0") == 0) ? "-" : "+",
                            tclkey);
         else
-          op_strbuf_printf(&cmd, "channel set %s %s %s",
+          op_strbuf_appendf(&cmd, "channel set %s %s %s",
                            chanset_channel, tclkey, value);
         run_tcl_cmd(op_strbuf_str(&cmd));
         op_strbuf_free(&cmd);
@@ -651,7 +651,7 @@ static void walk_key_cb(const char *key, void *ud)
   if (op_toml_str(ctx->tbl, key, &sval) == 1)
     val = sval;
   else if (op_toml_int(ctx->tbl, key, &ival) == 1) {
-    op_strbuf_printf(&_b, "%ld", ival);
+    op_strbuf_appendf(&_b, "%ld", ival);
     val = op_strbuf_str(&_b);
   } else if (op_toml_bool(ctx->tbl, key, &bval) == 1)
     val = bval ? "1" : "0";
@@ -994,14 +994,14 @@ int run_setup_wizard(const char *outfile)
   /* Smart defaults derived from nick */
   {
     op_strbuf_t _t;
-    op_strbuf_printf(&_t, "%s?", nick);
+    op_strbuf_appendf(&_t, "%s?", nick);
     prompt("Alternate nick (? replaced by a random digit)", op_strbuf_str(&_t),
            altnick, sizeof altnick);
     op_strbuf_free(&_t);
   }
   {
     op_strbuf_t _t;
-    op_strbuf_printf(&_t, "/msg %s help", nick);
+    op_strbuf_appendf(&_t, "/msg %s help", nick);
     prompt("Real name (IRC GECOS)", op_strbuf_str(&_t), realname, sizeof realname);
     op_strbuf_free(&_t);
   }
@@ -1034,7 +1034,7 @@ int run_setup_wizard(const char *outfile)
 
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s", int_to_base10(use_ssl ? 6697 : 6667));
+    op_strbuf_appendf(&_b, "%s", int_to_base10(use_ssl ? 6697 : 6667));
     prompt("Port", op_strbuf_str(&_b), port_buf, sizeof port_buf);
     op_strbuf_free(&_b);
   }
@@ -1135,11 +1135,13 @@ int run_setup_wizard(const char *outfile)
   /* Defaults derived from nick */
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s.user", nick);
+    op_strbuf_appendf(&_b, "%s.user", nick);
     prompt("User file", op_strbuf_str(&_b), userfile, sizeof userfile);
-    op_strbuf_reset(&_b, "%s.chan", nick);
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "%s.chan", nick);
     prompt("Chan file", op_strbuf_str(&_b), chanfile, sizeof chanfile);
-    op_strbuf_reset(&_b, "%s.log", nick);
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "%s.log", nick);
     prompt("Log file", op_strbuf_str(&_b), logfile, sizeof logfile);
     op_strbuf_free(&_b);
   }

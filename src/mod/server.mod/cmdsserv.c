@@ -41,10 +41,10 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
       op_strbuf_t s;
 #ifdef IPV6
       if (inet_pton(AF_INET6, x->name, buf) == 1)
-        op_strbuf_printf(&s, "  [%s]:", x->name);
+        op_strbuf_appendf(&s, "  [%s]:", x->name);
       else
 #endif
-        op_strbuf_printf(&s, "  %s:", x->name);
+        op_strbuf_appendf(&s, "  %s:", x->name);
 #ifdef TLS
       if (x->ssl)
         op_strbuf_append_cstr(&s, "+");

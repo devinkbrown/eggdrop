@@ -207,7 +207,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
   }
   {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%s!%s", m->nick, m->userhost);
+    op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
     strlcpy(s, op_strbuf_str(&_b), sizeof s);
     op_strbuf_free(&_b);
   }
@@ -722,7 +722,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
     const char *state = channel_pending(chan) ? IRC_PROCESSINGCHAN
                       : channel_active(chan)   ? IRC_CHANNEL
                                                : IRC_DESIRINGCHAN;
-    op_strbuf_printf(&_s1, "%s %s", state, chan->dname);
+    op_strbuf_appendf(&_s1, "%s %s", state, chan->dname);
     dprintf(idx, "%s, %d member%s, mode %s:\n", op_strbuf_str(&_s1),
             chan->channel.members, chan->channel.members == 1 ? "" : "s",
             getchanmode(chan));
@@ -851,13 +851,13 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
         {
           op_strbuf_t idle;
           if (now - (m->last) > 86400)
-            op_strbuf_printf(&idle, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
+            op_strbuf_appendf(&idle, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
           else if (now - (m->last) > 3600)
-            op_strbuf_printf(&idle, "%2" PRId64 "h", ((int64_t) (now - m->last)) / 3600);
+            op_strbuf_appendf(&idle, "%2" PRId64 "h", ((int64_t) (now - m->last)) / 3600);
           else if (now - (m->last) > 180)
-            op_strbuf_printf(&idle, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
+            op_strbuf_appendf(&idle, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
           else
-            op_strbuf_printf(&idle, "   ");
+            op_strbuf_appendf(&idle, "   ");
           op_strbuf_append_cstr(&idle, chan_ircaway(m) ? " (away)" : "       ");
           dprintf(idx, "%c%-*s %-*s %-*s %-6s %c %s  %s\n", chanflag, maxnicklen,
                 m->nick, maxhandlen, handle, maxnicklen, m->account, s, atrflag,
@@ -1008,7 +1008,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   if (strlen(hand) > HANDLEN)
     hand[HANDLEN] = 0;
   op_strbuf_t _bs;
-  op_strbuf_printf(&_bs, "%s!%s", m->nick, m->userhost);
+  op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
   if (u) {
     dprintf(idx, "%s is already known as %s.\n", nick, u->handle);
@@ -1097,7 +1097,7 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
     dprintf(idx, "You can't remove a bot!\n");
   } else {
     op_strbuf_t _b;
-    op_strbuf_printf(&_b, "%.*s", HANDLEN, u->handle);
+    op_strbuf_appendf(&_b, "%.*s", HANDLEN, u->handle);
     if (deluser(u->handle)) {
       dprintf(idx, "Deleted %s.\n", op_strbuf_str(&_b));       /* ?!?! :) */
       putlog(LOG_CMDS, "*", "#%s# deluser %s [%s]", dcc[idx].nick, nick, op_strbuf_str(&_b));

@@ -452,7 +452,7 @@ op_fsnprint(char *restrict buf, size_t len, const op_strf_t *restrict strings)
 		if (ret < 0)
 			return ret;
 
-		if ((size_t)ret > remaining - 1)
+		if ((size_t)ret >= remaining)
 			used += remaining - 1;
 		else
 			used += (size_t)ret;
@@ -463,7 +463,7 @@ op_fsnprint(char *restrict buf, size_t len, const op_strf_t *restrict strings)
 			break;
 		}
 
-		remaining -= (size_t)ret;
+		remaining = len - used;
 		strings = strings->next;
 	}
 

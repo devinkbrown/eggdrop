@@ -680,7 +680,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
 
   convert_element(glob_chanmode, buf2);
   op_strbuf_t _b;
-  op_strbuf_printf(&_b, "chanmode %s %s%s", buf2, glob_chanset, options);
+  op_strbuf_appendf(&_b, "chanmode %s %s%s", buf2, glob_chanset, options);
   const char *buf = op_strbuf_str(&_b);
 
   if (chan_split_list(buf, (int *) &items, &item, &tcl_alloc) != TCL_OK) {

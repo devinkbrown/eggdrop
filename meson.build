@@ -213,40 +213,29 @@ else
 endif
 
 # -------------------------------------------------------------------------
-# TLS / wolfSSL — optional (replaces OpenSSL)
-# wolfssl is in /usr/lib with headers in /usr/include/wolfssl
+# TLS / opssl — optional (replaces wolfSSL)
+# opssl is built as a Meson subproject from subprojects/opssl/
 # -------------------------------------------------------------------------
-wolfssl_dep = dependency('', required: false)  # sentinel
+opssl_dep = dependency('', required: false)  # sentinel
 if opt_tls.allowed()
-  _wssl_lib = cc.find_library('wolfssl',
-    dirs: ['/usr/lib', '/usr/local/lib'],
-    required: false)
-  _wssl_has_hdr = cc.has_header('wolfssl/ssl.h',
-    args: ['-I/usr/include', '-I/usr/local/include'])
-  if _wssl_lib.found() and _wssl_has_hdr
-    wolfssl_dep = declare_dependency(
-      dependencies: _wssl_lib,
-      include_directories: include_directories('/usr/include'),
-    )
+  _opssl_sub = subproject('opssl', required: opt_tls)
+  if _opssl_sub.found()
+    opssl_dep = _opssl_sub.get_variable('opssl_dep')
   endif
 endif
-tls_dep  = wolfssl_dep   # alias used throughout src/meson.build
-have_tls = wolfssl_dep.found()
+tls_dep  = opssl_dep     # alias used throughout src/meson.build
+have_tls = opssl_dep.found()
 have_ssl = have_tls       # alias used by libop subdir
 
 if have_tls
-  cdata.set('HAVE_WOLFSSL', 1)
+  cdata.set('HAVE_OPSSL', 1)
   cdata.set('TLS', 1)
   cdata.set('HAVE_TLS', 1)
-  # wolfssl provides OpenSSL-compat MD5 and EC key APIs
-  cdata.set('HAVE_OPENSSL_MD5', 1)
-  cdata.set('HAVE_EVP_MD5', 1)
-  cdata.set('HAVE_EVP_PKEY_GET1_EC_KEY', 1)
-  message('TLS: wolfSSL found — TLS enabled')
+  message('TLS: opssl found — TLS enabled')
 else
-  message('TLS: wolfSSL not found — TLS disabled')
+  message('TLS: opssl not found — TLS disabled')
   if opt_tls.enabled()
-    error('wolfssl required (-Dtls=enabled) but not found in /usr/lib')
+    error('opssl required (-Dtls=enabled) but subproject build failed')
   endif
 endif
 
@@ -634,6 +623,11 @@ subdir('libop')
 subdir('src')
 
 # -------------------------------------------------------------------------
+# Tests
+# -------------------------------------------------------------------------
+subdir('tests')
+
+# -------------------------------------------------------------------------
 # Summary
 # -------------------------------------------------------------------------
 if have_uring
@@ -650,7 +644,7 @@ endif
 summary({
   'Prefix':          get_option('prefix'),
   'IPv6':            opt_ipv6,
-  'TLS/OpenSSL':     have_tls,
+  'TLS/opssl':       have_tls,
   'Async DNS (res.c)': true,
   'Python module':   have_python,
   'Compress module': have_zlib,

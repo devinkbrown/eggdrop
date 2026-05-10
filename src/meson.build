@@ -66,7 +66,7 @@ core_cargs = [
 ]
 
 if have_tls
-  core_cargs += ['-include', 'wolfssl/options.h']  # load system wolfSSL config
+  core_cargs += ['-DHAVE_OPSSL=1']
 endif
 
 # Generic -DDEBUG/-g flags are applied globally via add_project_arguments()
@@ -242,7 +242,7 @@ else
     if m['name'] == 'dns' and resolv_dep.found()
       mod_deps += resolv_dep
     endif
-    if m['name'] in ['dns', 'server', 'webui'] and have_tls
+    if m['name'] in ['dns', 'pbkdf2', 'server', 'webui'] and have_tls
       mod_deps += tls_dep
     endif
 

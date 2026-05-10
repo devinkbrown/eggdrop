@@ -54,6 +54,11 @@
 #define WS_CLOSE_INVALID_UTF8   1007   /* RFC 6455 §7.4.1: invalid text encoding */
 #define WS_CLOSE_TOO_LARGE      1009
 
+/* Maximum aggregate decoded message size.  IRC lines should never exceed
+ * ~8 KiB (tags + line), so 64 KiB is very generous and prevents memory
+ * exhaustion from a malicious peer sending unlimited continuation frames. */
+#define WS_MAX_MESSAGE_SIZE     (64u * 1024u)
+
 #define WEBSOCKET_SERVER_KEY "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 static const char ws_answer_1[] =
@@ -172,7 +177,8 @@ inbuf_consume(ws_state_t *ws, size_t n)
  * decoded-output helpers
  * ---------------------------------------------------------------------- */
 
-static void
+/* Returns false if the aggregate message exceeds WS_MAX_MESSAGE_SIZE. */
+static bool
 decoded_append(ws_state_t *ws, const uint8_t *data, size_t len)
 {
     /* Compact: slide unread bytes to front */
@@ -186,8 +192,10 @@ decoded_append(ws_state_t *ws, const uint8_t *data, size_t len)
     }
 
     if (op_unlikely(len > SIZE_MAX - ws->decoded_len))
-        abort();
+        return false;
     size_t need = ws->decoded_len + len;
+    if (need > WS_MAX_MESSAGE_SIZE)
+        return false;
     if (need > ws->decoded_cap)
     {
         size_t newcap   = need + WS_DECODED_INITIAL;
@@ -196,6 +204,7 @@ decoded_append(ws_state_t *ws, const uint8_t *data, size_t len)
     }
     memcpy(ws->decoded + ws->decoded_len, data, len);
     ws->decoded_len += len;
+    return true;
 }
 
 /* -------------------------------------------------------------------------
@@ -438,7 +447,12 @@ ws_parse_frames(op_fde_t *F, ws_state_t *ws)
                         op_rawbuf_flush(ws->frame_out, F);
                         return false;
                     }
-                    decoded_append(ws, payload_buf, payload_len);
+                    if (!decoded_append(ws, payload_buf, payload_len))
+                    {
+                        ws_write_close_frame(ws, WS_CLOSE_TOO_LARGE);
+                        op_rawbuf_flush(ws->frame_out, F);
+                        return false;
+                    }
                 }
                 /* CRLF only on the final (or only) frame of the message. */
                 if (fin)
@@ -515,7 +529,7 @@ ws_parse_frames(op_fde_t *F, ws_state_t *ws)
  *
  * WebSocket connections may run over plain TCP (ws://, port 8082) or over
  * TLS (wss://, port 8080).  For TLS fds the WS layer must go through the
- * wolfSSL read/write API; raw recv/send would see encrypted bytes.
+ * TLS read/write API; raw recv/send would see encrypted bytes.
  *
  * ws_fd_recv: wraps op_ssl_read() on TLS fds, recv() on plain fds.
  *   Returns > 0 on success, 0 on EOF, < 0 on error/would-block.
@@ -684,15 +698,23 @@ op_ws_handshake_read(op_fde_t *F, void *data)
             char *accept = (char *)op_base64_encode(digest, SHA1_DIGEST_LENGTH);
 
             /* Build the 101 response */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
             char response[512];
             int  rlen = 0;
-            rlen += snprintf(response + rlen, sizeof(response) - rlen,
-                             "%s%s", ws_answer_1, accept);
+            { int n = snprintf(response + rlen, sizeof(response) - rlen,
+                               "%s%s", ws_answer_1, accept);
+              if(n > 0) rlen += ((size_t)n >= sizeof(response) - rlen) ? (int)(sizeof(response) - rlen - 1) : n; }
+#pragma GCC diagnostic pop
             op_free(accept);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
             if (ws_subproto[0] && op_strcasestr(ws_subproto, "irc"))
-                rlen += snprintf(response + rlen, sizeof(response) - rlen,
-                                 "\r\nSec-WebSocket-Protocol: irc");
+            { int n = snprintf(response + rlen, sizeof(response) - rlen,
+                               "\r\nSec-WebSocket-Protocol: irc");
+              if(n > 0) rlen += ((size_t)n >= sizeof(response) - rlen) ? (int)(sizeof(response) - rlen - 1) : n; }
+#pragma GCC diagnostic pop
 
             if (rlen + (int)sizeof(ws_answer_2) < (int)sizeof(response))
             {

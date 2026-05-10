@@ -389,7 +389,7 @@ void maskaddr(const char *s, char *nw, int type)
       u = strchr(++u, '.'); /* ccTLD or not? Look above. */
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "*%s", u);
+      op_strbuf_appendf(&_b, "*%s", u);
       strlcpy(nw, op_strbuf_str(&_b), UHOSTLEN);
       op_strbuf_free(&_b);
     }
@@ -452,11 +452,13 @@ const char *daysago(time_t now, time_t then)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    op_strbuf_reset(&_b, "%d day%s ago", days, (days == 1) ? "" : "s");
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "%d day%s ago", days, (days == 1) ? "" : "s");
   } else {
     char tmp[6];
     strftime(tmp, sizeof tmp, "%H:%M", localtime(&then));
-    op_strbuf_reset(&_b, "%s", tmp);
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "%s", tmp);
   }
   return op_strbuf_str(&_b);
 }
@@ -471,11 +473,13 @@ const char *days(time_t now, time_t then)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    op_strbuf_reset(&_b, "in %d day%s", days, (days == 1) ? "" : "s");
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "in %d day%s", days, (days == 1) ? "" : "s");
   } else {
     char tmp[9];
     strftime(tmp, sizeof tmp, "at %H:%M", localtime(&now));
-    op_strbuf_reset(&_b, "%s", tmp);
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "%s", tmp);
   }
   return op_strbuf_str(&_b);
 }
@@ -490,14 +494,16 @@ const char *daysdur(time_t now, time_t then)
   if (now - then > 86400) {
     int days = (now - then) / 86400;
 
-    op_strbuf_reset(&_b, "for %d day%s", days, (days == 1) ? "" : "s");
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "for %d day%s", days, (days == 1) ? "" : "s");
   } else {
     int hrs, mins;
 
     time_t diff = now - then;
     hrs = (int) (diff / 3600);
     mins = (int) ((diff - (hrs * 3600)) / 60);
-    op_strbuf_reset(&_b, "for %02d:%02d", hrs, mins);
+    op_strbuf_clear(&_b);
+    op_strbuf_appendf(&_b, "for %02d:%02d", hrs, mins);
   }
   return op_strbuf_str(&_b);
 }
@@ -580,7 +586,7 @@ void putlog (int type, char *chname, const char *format, ...)
           /* Open this logfile */
           if (keep_all_logs) {
             op_strbuf_t path;
-            op_strbuf_printf(&path, "%s%s", logs[i].filename, ct);
+            op_strbuf_appendf(&path, "%s%s", logs[i].filename, ct);
             logs[i].f = fopen(op_strbuf_str(&path), "a");
             op_strbuf_free(&path);
             if (logs[i].f)
@@ -683,7 +689,7 @@ void check_logsize(void)
 
           {
             op_strbuf_t buf;
-            op_strbuf_printf(&buf, "%s.yesterday", logs[i].filename);
+            op_strbuf_appendf(&buf, "%s.yesterday", logs[i].filename);
             unlink(op_strbuf_str(&buf));
             movefile(logs[i].filename, op_strbuf_str(&buf));
             op_strbuf_free(&buf);
@@ -740,7 +746,7 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
     colwidth = (subwidth - 5) / cols;
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "     ");
+      op_strbuf_appendf(&_b, "     ");
       for (size_t j = 0; j < n; j++) {
         col = op_vec_get(&colstrings, j);
         op_strbuf_append_cstr(&_b, col);
@@ -770,7 +776,8 @@ char *egg_uname(void)
       op_strbuf_init(&sb);
       sb_inited = true;
     }
-    op_strbuf_reset(&sb, "%s %s", u.sysname, u.release);
+    op_strbuf_clear(&sb);
+    op_strbuf_appendf(&sb, "%s %s", u.sysname, u.release);
     return (char *) op_strbuf_str(&sb);
   }
   else
@@ -1094,11 +1101,13 @@ void add_help_reference(char *file)
   help_list = current;
   {
     op_strbuf_t s;
-    op_strbuf_printf(&s, "%smsg/%s", helpdir, file);
+    op_strbuf_appendf(&s, "%smsg/%s", helpdir, file);
     scan_help_file(current, op_strbuf_str(&s), 0);
-    op_strbuf_reset(&s, "%s%s", helpdir, file);
+    op_strbuf_clear(&s);
+    op_strbuf_appendf(&s, "%s%s", helpdir, file);
     scan_help_file(current, op_strbuf_str(&s), 1);
-    op_strbuf_reset(&s, "%sset/%s", helpdir, file);
+    op_strbuf_clear(&s);
+    op_strbuf_appendf(&s, "%sset/%s", helpdir, file);
     scan_help_file(current, op_strbuf_str(&s), 2);
     op_strbuf_free(&s);
   }
@@ -1173,7 +1182,7 @@ static FILE *resolve_help(int dcc, char *file)
         if (!strcmp(item->name, file)) {
           if (!item->type && !dcc) {
             op_strbuf_t s;
-            op_strbuf_printf(&s, "%smsg/%s", helpdir, current->name);
+            op_strbuf_appendf(&s, "%smsg/%s", helpdir, current->name);
             f = fopen(op_strbuf_str(&s), "r");
             op_strbuf_free(&s);
             if (f)
@@ -1181,9 +1190,9 @@ static FILE *resolve_help(int dcc, char *file)
           } else if (dcc && item->type) {
             op_strbuf_t s;
             if (item->type == 1)
-              op_strbuf_printf(&s, "%s%s", helpdir, current->name);
+              op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
             else
-              op_strbuf_printf(&s, "%sset/%s", helpdir, current->name);
+              op_strbuf_appendf(&s, "%sset/%s", helpdir, current->name);
             f = fopen(op_strbuf_str(&s), "r");
             op_strbuf_free(&s);
             if (f)
@@ -1196,7 +1205,7 @@ static FILE *resolve_help(int dcc, char *file)
   /* Since we're not dealing with help files, we should just prepend the filename with textdir */
   {
     op_strbuf_t s;
-    op_strbuf_printf(&s, "%s%s", textdir, file);
+    op_strbuf_appendf(&s, "%s%s", textdir, file);
     if (is_file(op_strbuf_str(&s))) {
       f = fopen(op_strbuf_str(&s), "r");
       op_strbuf_free(&s);
@@ -1290,9 +1299,9 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
       if (wild_match(match, item->name) && item->type) {
         op_strbuf_t s;
         if (item->type == 1)
-          op_strbuf_printf(&s, "%s%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
         else
-          op_strbuf_printf(&s, "%sset/%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%sset/%s", helpdir, current->name);
         f = fopen(op_strbuf_str(&s), "r");
         op_strbuf_free(&s);
         if (f) {
@@ -1318,9 +1327,9 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
       if (!strcmp(match, item->name) && item->type) {
         op_strbuf_t s;
         if (item->type == 1)
-          op_strbuf_printf(&s, "%s%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
         else
-          op_strbuf_printf(&s, "%sset/%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%sset/%s", helpdir, current->name);
         f = fopen(op_strbuf_str(&s), "r");
         op_strbuf_free(&s);
         if (f) {
@@ -1492,7 +1501,7 @@ char *str_escape(const char *str, const char div, const char mask)
     if (*s == div || *s == mask) {
       {
         op_strbuf_t _e;
-        op_strbuf_printf(&_e, "%c%02x", mask, (unsigned char)*s);
+        op_strbuf_appendf(&_e, "%c%02x", mask, (unsigned char)*s);
         memcpy(b, op_strbuf_str(&_e), op_strbuf_len(&_e));
         op_strbuf_free(&_e);
       }

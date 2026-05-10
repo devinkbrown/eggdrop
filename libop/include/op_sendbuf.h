@@ -76,15 +76,33 @@ typedef struct op_sendbuf_chunk
 
 /* The send queue itself.  A zero-initialised op_sendbuf_t is valid (empty).
  * op_malloc() already zeros, so no explicit init call is needed when the
- * struct is embedded in a zero-initialised LocalUser. */
+ * struct is embedded in a zero-initialised LocalUser.
+ *
+ * Threading model (lock-free MPSC):
+ *   Multiple worker threads push chunks to the atomic `inbox` stack
+ *   (Treiber stack, CAS-based, lock-free).  The I/O thread is the
+ *   single consumer: it atomically swaps inbox to NULL, reverses the
+ *   stack into FIFO order, and appends the result to the active
+ *   head/tail list for flushing.  No spinlock is needed.
+ *
+ *   head/tail: consumer-only (I/O thread).
+ *   inbox:     multi-producer (workers), single-consumer (I/O thread).
+ *   len:       atomically updated by both producers and consumer.
+ */
 typedef struct op_sendbuf
 {
+	/* Active queue — only the I/O thread touches these. */
 	op_sendbuf_chunk_t *head;  /* oldest chunk (flushed first) */
 	op_sendbuf_chunk_t *tail;  /* newest chunk (appended last) */
-	size_t              len;   /* total queued bytes           */
+
+	/* MPSC inbox — workers push here lock-free. */
+	_Atomic(op_sendbuf_chunk_t *) inbox;
+
+	/* Total queued bytes (active + inbox). */
+	_Atomic(size_t)     len;
 } op_sendbuf_t;
 
-#define op_sendbuf_len(sb)  ((sb)->len)
+#define op_sendbuf_len(sb)  atomic_load_explicit(&(sb)->len, memory_order_relaxed)
 
 /* ---- API ----------------------------------------------------------------- */
 

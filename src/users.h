@@ -166,6 +166,7 @@ struct userrec {
   uint64_t flags_udef;
   struct chanuserrec *chanrec;
   struct user_entry *entries;
+  unsigned int dirty : 1;  /* Dirty flag for incremental saves */
 };
 
 struct igrec {

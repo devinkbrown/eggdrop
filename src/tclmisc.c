@@ -28,7 +28,7 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #ifdef TLS
-#  include <wolfssl/version.h>   /* LIBWOLFSSL_VERSION_STRING — no mp_int conflict */
+#  include <opssl/opssl.h>
 #endif
 
 /* Tcl command handlers. In non-Tcl builds these compile as dead code
@@ -61,7 +61,7 @@ static int tcl_logfile STDVAR
       if (logs[i].filename != NULL) {
         {
           op_strbuf_t logline;
-          op_strbuf_printf(&logline, "%s %s %s", masktype(logs[i].mask),
+          op_strbuf_appendf(&logline, "%s %s %s", masktype(logs[i].mask),
                            logs[i].chname, logs[i].filename);
           Tcl_AppendElement(interp, op_strbuf_str(&logline));
           op_strbuf_free(&logline);
@@ -132,7 +132,7 @@ static int tcl_putlog STDVAR
 
   {
     op_strbuf_t _logtext;
-    op_strbuf_printf(&_logtext, "%s", argv[1]);
+    op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_MISC, "*", "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
   }
@@ -145,7 +145,7 @@ static int tcl_putcmdlog STDVAR
 
   {
     op_strbuf_t _logtext;
-    op_strbuf_printf(&_logtext, "%s", argv[1]);
+    op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_CMDS, "*", "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
   }
@@ -158,7 +158,7 @@ static int tcl_putxferlog STDVAR
 
   {
     op_strbuf_t _logtext;
-    op_strbuf_printf(&_logtext, "%s", argv[1]);
+    op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_FILES, "*", "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
   }
@@ -178,7 +178,7 @@ static int tcl_putloglev STDVAR
   }
   {
     op_strbuf_t _logtext;
-    op_strbuf_printf(&_logtext, "%s", argv[3]);
+    op_strbuf_appendf(&_logtext, "%s", argv[3]);
     putlog(lev, argv[2], "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
   }
@@ -220,7 +220,7 @@ static int tcl_binds STDVAR
         build_flags(flg, &(tc->flags), NULL);
         {
           op_strbuf_t _hits;
-          op_strbuf_printf(&_hits, "%s", int_to_base10((int) tc->hits));
+          op_strbuf_appendf(&_hits, "%s", int_to_base10((int) tc->hits));
           list[0] = tl->name;
           list[1] = flg;
           list[2] = tm->mask;
@@ -484,9 +484,9 @@ static int tcl_sendnote STDVAR
 
   {
     op_strbuf_t _from, _to, _msg;
-    op_strbuf_printf(&_from, "%s", argv[1]);
-    op_strbuf_printf(&_to, "%s", argv[2]);
-    op_strbuf_printf(&_msg, "%s", argv[3]);
+    op_strbuf_appendf(&_from, "%s", argv[1]);
+    op_strbuf_appendf(&_to, "%s", argv[2]);
+    op_strbuf_appendf(&_msg, "%s", argv[3]);
     Tcl_SetObjResult(irp, Tcl_NewIntObj(add_note(
         (char *)op_strbuf_str(&_to), (char *)op_strbuf_str(&_from),
         (char *)op_strbuf_str(&_msg), -1, 0)));
@@ -505,7 +505,7 @@ static int tcl_dumpfile STDVAR
 
   {
     op_strbuf_t _nick;
-    op_strbuf_printf(&_nick, "%s", argv[1]);
+    op_strbuf_appendf(&_nick, "%s", argv[1]);
     get_user_flagrec(get_user_by_nick((char *)op_strbuf_str(&_nick)), &fr, NULL);
     op_strbuf_free(&_nick);
   }
@@ -547,10 +547,10 @@ static int tcl_die STDVAR
   BADARGS(1, 2, " ?reason?");
 
   if (argc == 2) {
-    op_strbuf_printf(&s, "BOT SHUTDOWN (%s)", argv[1]);
+    op_strbuf_appendf(&s, "BOT SHUTDOWN (%s)", argv[1]);
     strlcpy(quit_msg, argv[1], 1024);
   } else {
-    op_strbuf_printf(&s, "BOT SHUTDOWN (No reason)");
+    op_strbuf_appendf(&s, "BOT SHUTDOWN (No reason)");
     quit_msg[0] = 0;
   }
   kill_bot(op_strbuf_str(&s), quit_msg[0] ? quit_msg : "EXIT");
@@ -598,14 +598,14 @@ static int tcl_modules STDVAR
   for (current = module_list; current; current = current->next) {
     list[0] = current->name;
     op_strbuf_t ver;
-    op_strbuf_printf(&ver, "%d.%d", current->major, current->minor);
+    op_strbuf_appendf(&ver, "%d.%d", current->major, current->minor);
     list[1] = op_strbuf_str(&ver);
     i = 2;
     for (dep = dependancy_list; dep && (i < 100); dep = dep->next) {
       if (dep->needing == current) {
         list2[0] = dep->needed->name;
         op_strbuf_t depver;
-        op_strbuf_printf(&depver, "%d.%d", dep->major, dep->minor);
+        op_strbuf_appendf(&depver, "%d.%d", dep->major, dep->minor);
         list2[1] = op_strbuf_str(&depver);
         list[i] = Tcl_Merge(2, list2);
         op_strbuf_free(&depver);
@@ -714,20 +714,10 @@ static int tcl_md5 STDVAR
   unsigned char digest[16];
   BADARGS(2, 2, " string");
 
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L) && defined(HAVE_EVP_MD5)
-  EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-  const EVP_MD *md = EVP_md5();
-  unsigned int md_len;
-  EVP_DigestInit_ex(mdctx, md, NULL);
-  EVP_DigestUpdate(mdctx, argv[1], strlen(argv[1]));
-  EVP_DigestFinal_ex(mdctx, digest, &md_len);
-  EVP_MD_CTX_free(mdctx);
-#else
   MD5_CTX md5context;
   MD5_Init(&md5context);
   MD5_Update(&md5context, (unsigned char *) argv[1], strlen(argv[1]));
   MD5_Final(digest, &md5context);
-#endif
 
   for (int i = 0; i < 16; i++) {
     static const char hex[] = "0123456789abcdef";
@@ -779,7 +769,7 @@ static int tcl_status STDVAR
   if ((argc < 2) || !strcmp(argv[1], "cpu")) {
     op_strbuf_t cpu_buf;
     Tcl_AppendElement(irp, "cputime");
-    op_strbuf_printf(&cpu_buf, "%f", getcputime());
+    op_strbuf_appendf(&cpu_buf, "%f", getcputime());
     Tcl_AppendElement(irp, op_strbuf_str(&cpu_buf));
     op_strbuf_free(&cpu_buf);
   }
@@ -800,7 +790,11 @@ static int tcl_status STDVAR
   if ((argc < 2) || !strcmp(argv[1], "tls")) {
     Tcl_AppendElement(irp, "tls");
 #ifdef TLS
-    Tcl_AppendElement(irp, "wolfSSL " LIBWOLFSSL_VERSION_STRING);
+    {
+      char tls_ver[64];
+      snprintf(tls_ver, sizeof tls_ver, "opssl %s", opssl_version_string());
+      Tcl_AppendElement(irp, tls_ver);
+    }
 #else
     Tcl_AppendElement(irp, "disabled");
 #endif
@@ -808,7 +802,7 @@ static int tcl_status STDVAR
   if ((argc < 2) || !strcmp(argv[1], "cache")) {
     op_strbuf_t cache_buf;
     Tcl_AppendElement(irp, "usercache");
-    op_strbuf_printf(&cache_buf, "%4.1f", 100.0 *
+    op_strbuf_appendf(&cache_buf, "%4.1f", 100.0 *
                      ((float) cache_hit) / ((float) (cache_hit + cache_miss)));
     Tcl_AppendElement(irp, op_strbuf_str(&cache_buf));
     op_strbuf_free(&cache_buf);

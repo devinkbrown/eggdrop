@@ -71,7 +71,7 @@ static int add_bot_hostmask(int idx, char *nick)
         op_strbuf_t s;
         struct userrec *u;
 
-        op_strbuf_printf(&s, "%s!%s", m->nick, m->userhost);
+        op_strbuf_appendf(&s, "%s!%s", m->nick, m->userhost);
         u = get_user_by_host(op_strbuf_str(&s));
         if (u) {
           op_strbuf_free(&s);
@@ -79,10 +79,13 @@ static int add_bot_hostmask(int idx, char *nick)
                   nick, u->handle);
           return 0;
         }
-        if (strchr("~^+=-", m->userhost[0]))
-          op_strbuf_reset(&s, "*!?%s", m->userhost + 1);
-        else
-          op_strbuf_reset(&s, "*!%s", m->userhost);
+        if (strchr("~^+=-", m->userhost[0])) {
+          op_strbuf_clear(&s);
+          op_strbuf_appendf(&s, "*!?%s", m->userhost + 1);
+        } else {
+          op_strbuf_clear(&s);
+          op_strbuf_appendf(&s, "*!%s", m->userhost);
+        }
         dprintf(idx, "(Added hostmask for %s from %s)\n", nick, chan->dname);
         addhost_by_handle(nick, op_strbuf_str(&s));
         op_strbuf_free(&s);
@@ -103,7 +106,7 @@ static void tell_who(struct userrec *u, int idx, int chan)
             "^ = halfop)\n", BOT_PARTYMEMBS);
   else {
     op_strbuf_t assoccmd;
-    op_strbuf_printf(&assoccmd, "assoc %d", chan);
+    op_strbuf_appendf(&assoccmd, "assoc %d", chan);
     if (egg_eval(op_strbuf_str(&assoccmd)) || tcl_resultempty())
       dprintf(idx, "%s %s%d: (* = owner, + = master, %% = botmaster, @ = op, "
               "^ = halfop)\n", BOT_PEOPLEONCHAN, (chan < GLOBAL_CHANS) ? "" :
@@ -127,10 +130,10 @@ static void tell_who(struct userrec *u, int idx, int chan)
       char icon = (geticon(i) == '-') ? ' ' : geticon(i);
       op_strbuf_t s;
       if (atr & USER_OWNER)
-        op_strbuf_printf(&s, "  [%02lu]  %c%-*s %s", dcc[i].sock, icon,
+        op_strbuf_appendf(&s, "  [%02lu]  %c%-*s %s", dcc[i].sock, icon,
                          nicklen, dcc[i].nick, dcc[i].host);
       else
-        op_strbuf_printf(&s, "  %c%-*s %s", icon, nicklen, dcc[i].nick,
+        op_strbuf_appendf(&s, "  %c%-*s %s", icon, nicklen, dcc[i].nick,
                          dcc[i].host);
       if ((atr & USER_MASTER) && dcc[i].u.chat->con_flags)
         op_strbuf_appendf(&s, " (con:%s)", masktype(dcc[i].u.chat->con_flags));
@@ -181,10 +184,10 @@ static void tell_who(struct userrec *u, int idx, int chan)
         dprintf(idx, "Other people on the bot:\n");
       }
       if (atr & USER_OWNER)
-        op_strbuf_printf(&s, "  [%02lu]  %c%-*s ", dcc[i].sock, icon,
+        op_strbuf_appendf(&s, "  [%02lu]  %c%-*s ", dcc[i].sock, icon,
                          nicklen, dcc[i].nick);
       else
-        op_strbuf_printf(&s, "  %c%-*s ", icon, nicklen, dcc[i].nick);
+        op_strbuf_appendf(&s, "  %c%-*s ", icon, nicklen, dcc[i].nick);
       if (atr & USER_MASTER) {
         if (dcc[i].u.chat->channel < 0)
           op_strbuf_append_cstr(&s, "(-OFF-) ");
@@ -246,7 +249,7 @@ static void cmd_botinfo(struct userrec *u, int idx, char *par)
   putlog(LOG_CMDS, "*", "#%s# botinfo", dcc[idx].nick);
 
   op_strbuf_t infokey;
-  op_strbuf_printf(&infokey, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+  op_strbuf_appendf(&infokey, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
   botnet_send_infoq(-1, op_strbuf_str(&infokey));
   op_strbuf_free(&infokey);
 
@@ -300,7 +303,7 @@ static void cmd_whom(struct userrec *u, int idx, char *par)
 
     if ((par[0] < '0') || (par[0] > '9')) {
       op_strbuf_t assoc_cmd;
-      op_strbuf_printf(&assoc_cmd, "assoc {%s}", par);
+      op_strbuf_appendf(&assoc_cmd, "assoc {%s}", par);
       if (!egg_eval(op_strbuf_str(&assoc_cmd)) && !tcl_resultempty())
         chan = tcl_resultint();
       op_strbuf_free(&assoc_cmd);
@@ -355,7 +358,7 @@ static void cmd_motd(struct userrec *u, int idx, char *par)
         const char *hl = (u->flags & USER_HIGHLITE) ?
                          ((dcc[idx].status & STAT_TELNET) ? "#" : "!") : "";
         op_strbuf_t x;
-        op_strbuf_printf(&x, "%s%ld:%s@%s", hl, dcc[idx].sock, dcc[idx].nick,
+        op_strbuf_appendf(&x, "%s%ld:%s@%s", hl, dcc[idx].sock, dcc[idx].nick,
                          botnetnick);
         botnet_send_motd(i, op_strbuf_str(&x), par);
         op_strbuf_free(&x);
@@ -508,7 +511,7 @@ static void cmd_who(struct userrec *u, int idx, char *par)
         dprintf(idx, "You are on a local channel.\n");
       else {
         op_strbuf_t s;
-        op_strbuf_printf(&s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+        op_strbuf_appendf(&s, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
         botnet_send_who(i, op_strbuf_str(&s), par, dcc[idx].u.chat->channel);
         op_strbuf_free(&s);
       }
@@ -660,7 +663,7 @@ static void do_console(struct userrec *u, int idx, char *par, int reset)
   module_entry *me;
 
   get_user_flagrec(u, &fr, dcc[idx].u.chat->con_chan);
-  op_strbuf_printf(&s1, "%s", par);
+  op_strbuf_appendf(&s1, "%s", par);
   nick = newsplit(&par);
   /* Check if the parameter is a handle.
    * Don't remove '+' as someone couldn't have '+' in CHANMETA cause
@@ -969,7 +972,7 @@ static void cmd_chhandle(struct userrec *u, int idx, char *par)
   struct userrec *u2;
   op_strbuf_t hand;
 
-  op_strbuf_printf(&hand, "%s", newsplit(&par));
+  op_strbuf_appendf(&hand, "%s", newsplit(&par));
   strlcpy(newhand, newsplit(&par), sizeof newhand);
 
   if (!op_strbuf_str(&hand)[0] || !newhand[0]) {
@@ -1039,7 +1042,7 @@ static void cmd_handle(struct userrec *u, int idx, char *par)
     dprintf(idx, "Hey!  That's MY name!\n");
   else {
     op_strbuf_t oldhandle;
-    op_strbuf_printf(&oldhandle, "%s", dcc[idx].nick);
+    op_strbuf_appendf(&oldhandle, "%s", dcc[idx].nick);
     if (change_handle(u, newhandle)) {
       putlog(LOG_CMDS, "*", "#%s# handle %s", op_strbuf_str(&oldhandle), newhandle);
       dprintf(idx, "Okay, changed.\n");
@@ -1371,12 +1374,12 @@ static void cmd_reload(struct userrec *u, int idx, char *par)
   putlog(LOG_CMDS, "*", "#%s# die %s", dcc[idx].nick, par);
   op_strbuf_t s1, s2;
   if (par[0]) {
-    op_strbuf_printf(&s1, "BOT SHUTDOWN (%s: %s)", dcc[idx].nick, par);
-    op_strbuf_printf(&s2, "DIE BY %s!%s (%s)", dcc[idx].nick, dcc[idx].host, par);
+    op_strbuf_appendf(&s1, "BOT SHUTDOWN (%s: %s)", dcc[idx].nick, par);
+    op_strbuf_appendf(&s2, "DIE BY %s!%s (%s)", dcc[idx].nick, dcc[idx].host, par);
     strlcpy(quit_msg, par, 1024);
   } else {
-    op_strbuf_printf(&s1, "BOT SHUTDOWN (Authorized by %s)", dcc[idx].nick);
-    op_strbuf_printf(&s2, "DIE BY %s!%s (request)", dcc[idx].nick, dcc[idx].host);
+    op_strbuf_appendf(&s1, "BOT SHUTDOWN (Authorized by %s)", dcc[idx].nick);
+    op_strbuf_appendf(&s2, "DIE BY %s!%s (request)", dcc[idx].nick, dcc[idx].host);
     strlcpy(quit_msg, dcc[idx].nick, 1024);
   }
   kill_bot(op_strbuf_str(&s1), op_strbuf_str(&s2));
@@ -1439,7 +1442,7 @@ static void cmd_link(struct userrec *u, int idx, char *par)
       return;
     }
     op_strbuf_t x;
-    op_strbuf_printf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+    op_strbuf_appendf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
     botnet_send_link(i, op_strbuf_str(&x), s, par);
     op_strbuf_free(&x);
   }
@@ -1465,7 +1468,7 @@ static void cmd_unlink(struct userrec *u, int idx, char *par)
     botunlink(idx, bot, par, dcc[i].nick);
   else {
     op_strbuf_t x;
-    op_strbuf_printf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+    op_strbuf_appendf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
     botnet_send_unlink(i, op_strbuf_str(&x), lastbot(bot), bot, par);
     op_strbuf_free(&x);
   }
@@ -1512,8 +1515,8 @@ static void cmd_trace(struct userrec *u, int idx, char *par)
   }
   putlog(LOG_CMDS, "*", "#%s# trace %s", dcc[idx].nick, par);
   op_strbuf_t x, y;
-  op_strbuf_printf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
-  op_strbuf_printf(&y, ":%" PRId64, (int64_t) now);
+  op_strbuf_appendf(&x, "%ld:%s@%s", dcc[idx].sock, dcc[idx].nick, botnetnick);
+  op_strbuf_appendf(&y, ":%" PRId64, (int64_t) now);
   botnet_send_trace(i, op_strbuf_str(&x), par, op_strbuf_str(&y));
   op_strbuf_free(&x);
   op_strbuf_free(&y);
@@ -2103,7 +2106,7 @@ static void cmd_chattr(struct userrec *u, int idx, char *par)
       }
     } else if (arg && !strpbrk(chg, "&|")) {
       op_strbuf_t sb;
-      op_strbuf_printf(&sb, "|%s", chg);
+      op_strbuf_appendf(&sb, "|%s", chg);
       tmpchg = op_strbuf_steal(&sb);
       chg = tmpchg;
     }
@@ -2298,7 +2301,7 @@ static void cmd_botattr(struct userrec *u, int idx, char *par)
       }
     } else if (arg && !strpbrk(chg, "&|")) {
       op_strbuf_t sb;
-      op_strbuf_printf(&sb, "|%s", chg);
+      op_strbuf_appendf(&sb, "|%s", chg);
       tmpchg = op_strbuf_steal(&sb);
       chg = tmpchg;
     }
@@ -2403,7 +2406,7 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
           newchan = 0;
         else {
           op_strbuf_t assoc_cmd;
-          op_strbuf_printf(&assoc_cmd, "assoc {%s}", arg);
+          op_strbuf_appendf(&assoc_cmd, "assoc {%s}", arg);
           if (!egg_eval(op_strbuf_str(&assoc_cmd)) && !tcl_resultempty())
             newchan = tcl_resultint();
           else
@@ -2427,7 +2430,7 @@ static void cmd_chat(struct userrec *u, int idx, char *par)
           newchan = 0;
         else {
           op_strbuf_t assoc_cmd;
-          op_strbuf_printf(&assoc_cmd, "assoc {%s}", arg);
+          op_strbuf_appendf(&assoc_cmd, "assoc {%s}", arg);
           if (!egg_eval(op_strbuf_str(&assoc_cmd)) && !tcl_resultempty()) {
             newchan = tcl_resultint();
             if ((newchan >= GLOBAL_CHANS) && (newchan <= 199999)) {
@@ -2739,7 +2742,7 @@ static void cmd_su(struct userrec *u, int idx, char *par)
         /* Display password prompt and turn off echo (send IAC WILL ECHO). */
         if (dcc[idx].status & STAT_TELNET) {
           op_strbuf_t buf;
-          op_strbuf_printf(&buf, "Enter password for %s" TLN_IAC_C TLN_WILL_C
+          op_strbuf_appendf(&buf, "Enter password for %s" TLN_IAC_C TLN_WILL_C
                            TLN_ECHO_C "\r\n", par);
           tputs(dcc[idx].sock, op_strbuf_str(&buf), op_strbuf_len(&buf));
           op_strbuf_free(&buf);
@@ -2912,7 +2915,7 @@ static void cmd_set(struct userrec *u, int idx, char *msg)
   }
   {
     op_strbuf_t sb;
-    op_strbuf_printf(&sb, "set %s", msg);
+    op_strbuf_appendf(&sb, "set %s", msg);
     code = egg_eval(op_strbuf_str(&sb));
     op_strbuf_free(&sb);
   }
@@ -3039,13 +3042,13 @@ static void cmd_pls_ignore(struct userrec *u, int idx, char *par)
   /* Fix missing ! or @ BEFORE continuing */
   if (!strchr(who, '!')) {
     if (!strchr(who, '@'))
-      op_strbuf_printf(&s, "%s!*@*", who);
+      op_strbuf_appendf(&s, "%s!*@*", who);
     else
-      op_strbuf_printf(&s, "*!%s", who);
+      op_strbuf_appendf(&s, "*!%s", who);
   } else if (!strchr(who, '@'))
-    op_strbuf_printf(&s, "%s@*", who);
+    op_strbuf_appendf(&s, "%s@*", who);
   else
-    op_strbuf_printf(&s, "%s", who);
+    op_strbuf_appendf(&s, "%s", who);
 
   if (match_ignore(op_strbuf_str(&s)))
     dprintf(idx, "That already matches an existing ignore.\n");
@@ -3066,7 +3069,7 @@ static void cmd_mns_ignore(struct userrec *u, int idx, char *par)
     return;
   }
   op_strbuf_t buf;
-  op_strbuf_printf(&buf, "%s", par);
+  op_strbuf_appendf(&buf, "%s", par);
   if (delignore((char *)op_strbuf_str(&buf))) {
     putlog(LOG_CMDS, "*", "#%s# -ignore %s", dcc[idx].nick, op_strbuf_str(&buf));
     dprintf(idx, "No longer ignoring: %s\n", op_strbuf_str(&buf));
@@ -3326,10 +3329,13 @@ static const char *btos(uint64_t bytes)
     unit = "TBytes";
     xbytes = xbytes / 1024.0;
   }
-  if (bytes > 1024)
-    op_strbuf_reset(&sb, "%.2f %s", xbytes, unit);
-  else
-    op_strbuf_reset(&sb, "%" PRIu64 " Bytes", bytes);
+  if (bytes > 1024) {
+    op_strbuf_clear(&sb);
+    op_strbuf_appendf(&sb, "%.2f %s", xbytes, unit);
+  } else {
+    op_strbuf_clear(&sb);
+    op_strbuf_appendf(&sb, "%" PRIu64 " Bytes", bytes);
+  }
   return op_strbuf_str(&sb);
 }
 

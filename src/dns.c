@@ -278,7 +278,7 @@ static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other
   op_strbuf_t sb;
 
   /* Build the command: proc ip host ok ?paras? */
-  op_strbuf_printf(&sb, "%s {%s} {%s} %s",
+  op_strbuf_appendf(&sb, "%s {%s} {%s} %s",
                    tclinfo->proc,
                    iptostr(&ip->addr.sa),
                    hostn,

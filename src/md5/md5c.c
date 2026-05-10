@@ -39,7 +39,7 @@
 
 #include "md5.h"
 
-#ifndef HAVE_OPENSSL_MD5
+#ifndef HAVE_OPSSL_MD5
 /*
  * The basic MD5 functions.
  *
@@ -287,4 +287,4 @@ void MD5_Final(unsigned char *result, MD5_CTX *ctx)
 	memset(ctx, 0, sizeof(*ctx));
 }
 
-#endif /* HAVE_OPENSSL_MD5 */
+#endif /* HAVE_OPSSL_MD5 */

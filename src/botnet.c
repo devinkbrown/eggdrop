@@ -408,7 +408,7 @@ void answer_local_whom(int idx, int chan)
   else if (chan > 0) {
     {
       op_strbuf_t tcl_cmd;
-      op_strbuf_printf(&tcl_cmd, "assoc %d", chan);
+      op_strbuf_appendf(&tcl_cmd, "assoc %d", chan);
       if (egg_eval(op_strbuf_str(&tcl_cmd)) || tcl_resultempty())
         dprintf(idx, "%s %s%d:\n", BOT_USERSONCHAN,
                 (chan < GLOBAL_CHANS) ? "" : "*", chan % GLOBAL_CHANS);
@@ -447,10 +447,11 @@ void answer_local_whom(int idx, int chan)
   if (botnicklen < 9)
     botnicklen = 9;
 
-  op_strbuf_printf(&format, "%%-%us   %%-%us  %%s\n", nicklen, botnicklen);
+  op_strbuf_appendf(&format, "%%-%us   %%-%us  %%s\n", nicklen, botnicklen);
   dprintf(idx, op_strbuf_str(&format), " Nick", " Bot", " Host");
   dprintf(idx, op_strbuf_str(&format), "----------", "---------", "--------------------");
-  op_strbuf_reset(&format, "%%c%%-%us %%c %%-%us  %%s%%s\n", nicklen, botnicklen);
+  op_strbuf_clear(&format);
+  op_strbuf_appendf(&format, "%%c%%-%us %%c %%-%us  %%s%%s\n", nicklen, botnicklen);
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT) {
       if ((chan == -1) || ((chan >= 0) && (dcc[i].u.chat->channel == chan))) {
@@ -466,11 +467,11 @@ void answer_local_whom(int idx, int chan)
           hrs = ((now - dcc[i].timeval) - (days * 86400)) / 3600;
           mins = ((now - dcc[i].timeval) - (hrs * 3600)) / 60;
           if (days > 0)
-            op_strbuf_printf(&idle, " [idle %" PRIu64 "d%" PRIu64 "h]", days, hrs);
+            op_strbuf_appendf(&idle, " [idle %" PRIu64 "d%" PRIu64 "h]", days, hrs);
           else if (hrs > 0)
-            op_strbuf_printf(&idle, " [idle %" PRIu64 "h%" PRIu64 "m]", hrs, mins);
+            op_strbuf_appendf(&idle, " [idle %" PRIu64 "h%" PRIu64 "m]", hrs, mins);
           else
-            op_strbuf_printf(&idle, " [idle %" PRIu64 "m]", mins);
+            op_strbuf_appendf(&idle, " [idle %" PRIu64 "m]", mins);
         }
         total++;
         dprintf(idx, op_strbuf_str(&format), c, dcc[i].nick,
@@ -491,7 +492,7 @@ void answer_local_whom(int idx, int chan)
       if (c == '-')
         c = ' ';
       if (party[i].timer == 0L)
-        op_strbuf_printf(&idle, " [idle?]");
+        op_strbuf_appendf(&idle, " [idle?]");
       else if (now - party[i].timer > 300) {
         uint64_t days, hrs, mins;
 
@@ -499,11 +500,11 @@ void answer_local_whom(int idx, int chan)
         hrs = ((now - party[i].timer) - (days * 86400)) / 3600;
         mins = ((now - party[i].timer) - (hrs * 3600)) / 60;
         if (days > 0)
-          op_strbuf_printf(&idle, " [idle %" PRIu64 "d%" PRIu64 "h]", days, hrs);
+          op_strbuf_appendf(&idle, " [idle %" PRIu64 "d%" PRIu64 "h]", days, hrs);
         else if (hrs > 0)
-          op_strbuf_printf(&idle, " [idle %" PRIu64 "h%" PRIu64 "m]", hrs, mins);
+          op_strbuf_appendf(&idle, " [idle %" PRIu64 "h%" PRIu64 "m]", hrs, mins);
         else
-          op_strbuf_printf(&idle, " [idle %" PRIu64 "m]", mins);
+          op_strbuf_appendf(&idle, " [idle %" PRIu64 "m]", mins);
       }
       total++;
       dprintf(idx, op_strbuf_str(&format), c, party[i].nick,
@@ -629,14 +630,14 @@ void tell_bottree(int idx, int showver)
             } else {
               c = bot->share;
             }
-            op_strbuf_printf(&line, "%c%s", c, bot->bot);
+            op_strbuf_appendf(&line, "%c%s", c, bot->bot);
             if (showver)
               op_strbuf_appendf(&line, " (%d.%d.%d.%d)",
                       bot->ver / 1000000,
                       bot->ver % 1000000 / 10000,
                       bot->ver % 10000 / 100, bot->ver % 100);
           } else
-            op_strbuf_printf(&line, "-%s", bot->bot);
+            op_strbuf_appendf(&line, "-%s", bot->bot);
         } else
           bot = bot->next;
       }
@@ -675,14 +676,14 @@ void tell_bottree(int idx, int showver)
                   } else {
                     c = bot->share;
                   }
-                  op_strbuf_printf(&line, "%c%s", c, bot->bot);
+                  op_strbuf_appendf(&line, "%c%s", c, bot->bot);
                   if (showver)
                     op_strbuf_appendf(&line, " (%d.%d.%d.%d)",
                             bot->ver / 1000000,
                             bot->ver % 1000000 / 10000,
                             bot->ver % 10000 / 100, bot->ver % 100);
                 } else
-                  op_strbuf_printf(&line, "-%s", bot->bot);
+                  op_strbuf_appendf(&line, "-%s", bot->bot);
               }
             }
           }
@@ -740,7 +741,7 @@ void dump_links(int z)
     char *p = (bot->uplink == (tand_t *) 1) ? botnetnick : bot->uplink->bot;
     {
       op_strbuf_t _b;
-      op_strbuf_printf(&_b, "n %s %s %c%s\n", bot->bot, p,
+      op_strbuf_appendf(&_b, "n %s %s %c%s\n", bot->bot, p,
                         bot->share, int_to_base64(bot->ver));
       dprint(z, op_strbuf_str(&_b), (int) op_strbuf_len(&_b));
       op_strbuf_free(&_b);
@@ -754,18 +755,18 @@ void dump_links(int z)
             (dcc[i].u.chat->channel < GLOBAL_CHANS)) {
           {
             op_strbuf_t b64_chan, b64_sock, b64_idle;
-            op_strbuf_printf(&b64_chan, "%s", int_to_base64(dcc[i].u.chat->channel));
-            op_strbuf_printf(&b64_sock, "%s", int_to_base64(dcc[i].sock));
+            op_strbuf_appendf(&b64_chan, "%s", int_to_base64(dcc[i].u.chat->channel));
+            op_strbuf_appendf(&b64_sock, "%s", int_to_base64(dcc[i].sock));
             op_strbuf_t _bj;
-            op_strbuf_printf(&_bj, "j !%s %s %s %c%s %s\n",
+            op_strbuf_appendf(&_bj, "j !%s %s %s %c%s %s\n",
                               botnetnick, dcc[i].nick,
                               op_strbuf_str(&b64_chan), geticon(i),
                               op_strbuf_str(&b64_sock), dcc[i].host);
             dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
             op_strbuf_free(&_bj);
-            op_strbuf_printf(&b64_idle, "%s", int_to_base64(now - dcc[i].timeval));
+            op_strbuf_appendf(&b64_idle, "%s", int_to_base64(now - dcc[i].timeval));
             op_strbuf_t _bi;
-            op_strbuf_printf(&_bi, "i %s %s %s %s\n", botnetnick,
+            op_strbuf_appendf(&_bi, "i %s %s %s %s\n", botnetnick,
                               op_strbuf_str(&b64_sock), op_strbuf_str(&b64_idle),
                               dcc[i].u.chat->away ? dcc[i].u.chat->away : "");
             dprint(z, op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
@@ -780,10 +781,10 @@ void dump_links(int z)
     for (int i = 0; i < parties; i++) {
       {
         op_strbuf_t b64_chan, b64_sock;
-        op_strbuf_printf(&b64_chan, "%s", int_to_base64(party[i].chan));
-        op_strbuf_printf(&b64_sock, "%s", int_to_base64(party[i].sock));
+        op_strbuf_appendf(&b64_chan, "%s", int_to_base64(party[i].chan));
+        op_strbuf_appendf(&b64_sock, "%s", int_to_base64(party[i].sock));
         op_strbuf_t _bj;
-        op_strbuf_printf(&_bj, "j %s %s %s %c%s %s\n",
+        op_strbuf_appendf(&_bj, "j %s %s %s %c%s %s\n",
                           party[i].bot, party[i].nick,
                           op_strbuf_str(&b64_chan), party[i].flag,
                           op_strbuf_str(&b64_sock), party[i].from);
@@ -791,9 +792,9 @@ void dump_links(int z)
         op_strbuf_free(&_bj);
         if ((party[i].status & PLSTAT_AWAY) || (party[i].timer != 0)) {
           op_strbuf_t b64_idle;
-          op_strbuf_printf(&b64_idle, "%s", int_to_base64(now - party[i].timer));
+          op_strbuf_appendf(&b64_idle, "%s", int_to_base64(now - party[i].timer));
           op_strbuf_t _bi;
-          op_strbuf_printf(&_bi, "i %s %s %s %s\n", party[i].bot,
+          op_strbuf_appendf(&_bi, "i %s %s %s %s\n", party[i].bot,
                             op_strbuf_str(&b64_sock), op_strbuf_str(&b64_idle),
                             party[i].away ? party[i].away : "");
           dprint(z, op_strbuf_str(&_bi), (int) op_strbuf_len(&_bi));
@@ -883,13 +884,13 @@ int botunlink(int idx, char *nick, char *reason, char *from)
         {
           op_strbuf_t s;
           if (reason && reason[0]) {
-            op_strbuf_printf(&s, "%s %s (%s (%s)) (lost %d bot%s and %d user%s)",
+            op_strbuf_appendf(&s, "%s %s (%s (%s)) (lost %d bot%s and %d user%s)",
                      BOT_UNLINKEDFROM, dcc[i].nick, reason, from, bots,
                      (bots != 1) ? "s" : "", users, (users != 1) ?
                      "s" : "");
             dprintf(i, "bye %s\n", reason);
           } else {
-            op_strbuf_printf(&s, "%s %s (%s) (lost %d bot%s and %d user%s)",
+            op_strbuf_appendf(&s, "%s %s (%s) (lost %d bot%s and %d user%s)",
                      BOT_UNLINKEDFROM, dcc[i].nick, from, bots,
                      (bots != 1) ? "s" : "", users,
                      (users != 1) ? "s" : "");
@@ -1034,7 +1035,7 @@ static void botlink_resolve_failure(int i)
   op_strbuf_t s;
 
   putlog(LOG_BOTS, "*", DCC_LINKFAIL, dcc[i].nick);
-  op_strbuf_printf(&s, "%s", dcc[i].nick);
+  op_strbuf_appendf(&s, "%s", dcc[i].nick);
   op_free(dcc[i].u.dns->cptr);
   lostdcc(i);
   autolink_cycle((char *)op_strbuf_str(&s)); /* Check for more auto-connections */
@@ -1623,7 +1624,7 @@ void check_botnet_pings(void)
         int users = users_in_subtree(bot);
         {
           op_strbuf_t s;
-          op_strbuf_printf(&s, "%s: %s (lost %d bot%s and %d user%s)",
+          op_strbuf_appendf(&s, "%s: %s (lost %d bot%s and %d user%s)",
                    BOT_PINGTIMEOUT, dcc[i].nick, bots,
                    (bots != 1) ? "s" : "", users, (users != 1) ? "s" : "");
           putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&s));
@@ -1652,7 +1653,7 @@ void check_botnet_pings(void)
             int users = users_in_subtree(leaf_bot);
             {
               op_strbuf_t s;
-              op_strbuf_printf(&s, "%s %s (%s) (lost %d bot%s and %d user%s)",
+              op_strbuf_appendf(&s, "%s %s (%s) (lost %d bot%s and %d user%s)",
                        BOT_DISCONNECTED, dcc[i].nick, BOT_BOTNOTLEAFLIKE,
                        bots, (bots != 1) ? "s" : "", users, (users != 1) ?
                        "s" : "");
@@ -1679,7 +1680,7 @@ void zapfbot(int idx)
   int users = users_in_subtree(bot);
   {
     op_strbuf_t s;
-    op_strbuf_printf(&s, "%s: %s (lost %d bot%s and %d user%s)", BOT_BOTDROPPED,
+    op_strbuf_appendf(&s, "%s: %s (lost %d bot%s and %d user%s)", BOT_BOTDROPPED,
              dcc[idx].nick, bots, (bots != 1) ? "s" : "", users,
              (users != 1) ? "s" : "");
     putlog(LOG_BOTS, "*", "%s.", op_strbuf_str(&s));

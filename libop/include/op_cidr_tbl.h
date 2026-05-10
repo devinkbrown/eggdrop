@@ -161,6 +161,20 @@ size_t      op_cidr_count4(const op_cidr_tbl_t *t); /* IPv4 prefix count  */
 size_t      op_cidr_count6(const op_cidr_tbl_t *t); /* IPv6 prefix count  */
 const char *op_cidr_name  (const op_cidr_tbl_t *t);
 
+/* ---- parsing helpers ------------------------------------------------------ */
+
+/*
+ * op_cidr_parse_addr — parse a bare IP address (v4 or v6) into ss.
+ * Returns 0 on success, -1 on invalid input.
+ */
+int op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss);
+
+/*
+ * op_cidr_parse_str — parse "addr/prefix" into ss + plen.
+ * Returns 0 on success, -1 on invalid input.
+ */
+int op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen);
+
 /* ---- enumeration --------------------------------------------------------- */
 
 /*
