@@ -10,9 +10,8 @@ Make sure Tcl AND it's dev packages are installed on your system. On Debian-base
 
     sudo apt-get install tcl tcl-dev
 
-It is also STRONGLY recommended to have openssl installed, to enable SSL/TLS protection::
-
-    sudo apt-get install openssl libssl-dev
+TLS support is provided by opssl, a custom TLS library bundled with Eggdrop.
+No external TLS library (such as OpenSSL or wolfSSL) needs to be installed.
 
 The super-short version
 -----------------------

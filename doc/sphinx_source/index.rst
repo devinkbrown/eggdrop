@@ -28,7 +28,7 @@ How to install Eggdrop
 Installation Pre-requisites
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eggdrop requires Tcl (and its development header files) to be present on the system it is compiled on. It is also strongly encouraged to install openssl (and its development header files) to enable TLS-protected network communication.
+Eggdrop requires Tcl (and its development header files) to be present on the system it is compiled on. TLS support is provided by opssl, a custom TLS library bundled with Eggdrop. No external TLS library installation is needed.
 
 Installation
 ^^^^^^^^^^^^

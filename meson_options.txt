@@ -5,7 +5,7 @@ option('ipv6', type: 'boolean', value: true,
   description: 'Enable IPv6 support')
 
 option('tls', type: 'feature', value: 'auto',
-  description: 'Enable TLS/SSL support via OpenSSL')
+  description: 'Enable TLS/SSL support via opssl (bundled)')
 
 option('python', type: 'feature', value: 'auto',
   description: 'Build Python scripting module (requires Python >= 3.8)')

@@ -7,21 +7,18 @@ Sidenote: Despite SSL (Secure Socket Layer) encryption being deprecated and no l
 
 Pre-requisites
 --------------
-Your server must have OpenSSL (or an equivalent fork) installed. Most commonly this is done through your OS's package manager. Both the main package as well as the development headers must be installed. On a Debian/Ubuntu distro, this can be done by running::
+TLS is provided by opssl, a custom TLS library bundled with Eggdrop as a
+meson subproject. No external TLS library (such as OpenSSL or wolfSSL)
+needs to be installed. opssl supports TLS 1.2 and TLS 1.3 and is built
+automatically as part of the normal ``meson setup`` / ``ninja`` build
+process.
 
-  apt-get install openssl libssl-dev
-
-where openssl is the main package binaries, and libssl-dev are the development headers. Without these packages, TLS protection is not possible.
-
-You can check if your Eggdrop properly detected the installation of OpenSSL by either reviewing the ./configure output for the following line::
-
-  checking for openssl/ssl.h... yes
-
-Or, for an Eggdrop that is already running, you can join the partyline and type::
+You can check if your Eggdrop was built with TLS support by joining the
+partyline and typing::
 
   .status
 
-and look for::
+and looking for::
 
   TLS support is enabled.
 

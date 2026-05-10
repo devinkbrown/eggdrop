@@ -150,7 +150,7 @@ Simple Authentication and Security Layer (SASL) is becoming a prevalant method o
 
 * **PLAIN**: To use this method, set sasl-mechanism to 0. This method passes the username and password (set in the sasl-username and sasl-password config file settings) to the IRC server in plaintext. If you only connect to the IRC server using a connection protected by SSL/TLS this is a generally safe method of authentication; however you probably want to avoid this method if you connect to a server on a non-protected port as the exchange itself is not encrypted.
 
-* **ECDSA-NIST256P-CHALLENGE**: To use this method, set sasl-mechanism to 1. This method uses a public/private keypair to authenticate, so no username/password is required. Not all servers support this method. If your server does support this, you you must generate a certificate pair using::
+* **ECDSA-NIST256P-CHALLENGE**: To use this method, set sasl-mechanism to 1. This method uses a public/private keypair to authenticate, so no username/password is required. Not all servers support this method. If your server does support this, you must generate a certificate pair. You can use any ECDSA key generation tool; for example with the openssl command-line tool (if available on your system)::
 
     openssl ecparam -genkey -name prime256v1 -out eggdrop-ecdsa.pem
 
@@ -158,11 +158,11 @@ Simple Authentication and Security Layer (SASL) is becoming a prevalant method o
 
     openssl ec -noout -text -conv_form compressed -in eggdrop-ecdsa.pem | grep '^pub:' -A 3 | tail -n 3 | tr -d ' \n:' | xxd -r -p | base64
 
-  Then, authenticate with your NickServ service and register your public certificate with NickServ. You can view your public key  On Libera for example, it is done by::
+  Then, authenticate with your NickServ service and register your public certificate with NickServ. On Libera for example, it is done by::
 
     /msg NickServ set pubkey <fingerprint string from above goes here>
 
-* **EXTERNAL**: To use this method, set sasl-mechanism to 2. This method allows you to use other TLS certificates to connect to the IRC server, if the IRC server supports it. An EXTERNAL authentication method usually requires you to connect to the IRC server using SSL/TLS. There are many ways to generate certificates; one such way is generating your own certificate using::
+* **EXTERNAL**: To use this method, set sasl-mechanism to 2. This method allows you to use other TLS certificates to connect to the IRC server, if the IRC server supports it. An EXTERNAL authentication method usually requires you to connect to the IRC server using TLS. There are many ways to generate certificates; you can generate a self-signed certificate by running ``make sslcert`` from the Eggdrop source directory, or use any standard certificate generation tool. For example, if the openssl command-line tool is available::
 
     openssl req -new -x509 -nodes -keyout eggdrop.key -out eggdrop.crt
 
@@ -177,3 +177,5 @@ Then, ensure you have those keys loaded in the ssl-privatekey and ssl-certificat
 * **SCRAM-SHA-256**: To use this method, set sasl-mechanism to 3.
 
 * **SCRAM-SHA-512**: To use this method, set sasl-mechanism to 4.
+
+* **ECDH-X25519-CHALLENGE**: To use this method, set sasl-mechanism to 5. This method uses X25519 key exchange for authentication.

@@ -94,7 +94,7 @@ System Pre-Requisites
 
   Before you can compile Eggdrop, Tcl must be installed on your system. Many systems have Tcl installed on them by default (you can check by trying the command "tclsh"; if you are given a '%' for a prompt, it is, and you can type 'exit' to exit the Tcl shell. However, Eggdrop also requires the Tcl development header files to be installed. They can often be installed via an OS package manager, usually called something similar to 'tcl-dev' for the package name. You can also download Tcl source from `<https://www.tcl.tk/software/tcltk/download.html>`_. 
 
-  Eggdrop also requires openssl (and its development headers) in order to enable SSL/TLS protection of network data. The header files are often called something similar to 'libssl-dev'. While not advised, this requirement can be removed by compiling using ``./configure --disable-tls``, but you will not be able to connect to TLS-protected IRC servers nor utilize secure botnet communication.
+  TLS support is provided by opssl, a custom TLS library bundled with Eggdrop as a meson subproject. No external TLS library (such as OpenSSL or wolfSSL) needs to be installed. opssl supports TLS 1.2 and TLS 1.3 and is built automatically during the normal build process. TLS can be disabled at build time with ``-Dtls=disabled``, but you will not be able to connect to TLS-protected IRC servers nor utilize secure botnet communication.
 
 Minimum Requirements
 --------------------
@@ -106,7 +106,7 @@ Some components of Eggdrop relies on a variety of third-party libraries, documen
 +===============================+===================+===================+
 | Tcl interpreter (required)    | Tcl Dev Library   | 8.5.0             |
 +-------------------------------+-------------------+-------------------+
-| Secure communication          | OpenSSL           | 0.9.8             |
+| Secure communication          | opssl (bundled)   | N/A               |
 +-------------------------------+-------------------+-------------------+
 | Python module                 | Python            | 3.8.0             |
 +-------------------------------+-------------------+-------------------+
