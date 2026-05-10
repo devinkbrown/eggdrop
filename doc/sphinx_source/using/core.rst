@@ -482,29 +482,19 @@ support.
 
   set ssl-privatekey "eggdrop.key"
     File containing your private key, needed for the SSL certificate
-    (see below). You can create one issuing the following command::
-
-      openssl genrsa -out eggdrop.key 4096
-
-    It will create a 4096 bit RSA key, strong enough for eggdrop.
-    This is required for SSL hubs/listen ports, secure file transfer and
-    /ctcp botnick schat
-    For your convenience, you can type 'make sslcert' after 'make install'
-    and you'll get a key and a certificate in your DEST directory.
+    (see below). You can generate a key and certificate by running
+    'make sslcert' after building, or use any standard tool to create
+    a PEM-format private key. This is required for SSL hubs/listen
+    ports, secure file transfer and /ctcp botnick schat.
 
   set ssl-certificate "eggdrop.crt"
     Specify the filename where your SSL certificate is located. If you
     don't set this, eggdrop will not be able to act as a server in SSL
     connections, as with most ciphers a certificate and a private key
-    are required on the server side. Must be in PEM format.
-    If you don't have one, you can create it using the following command::
-
-      openssl req -new -key eggdrop.key -x509 -out eggdrop.crt -days 365
-
-    This is required for SSL hubs/listen ports, secure file transfer and
-    /ctcp botnick schat
-    For your convenience, you can type 'make sslcert' after 'make install'
-    and you'll get a key and a certificate in your DEST directory.
+    are required on the server side. Must be in PEM format. You can
+    generate a key and certificate by running 'make sslcert' after
+    building. This is required for SSL hubs/listen ports, secure file
+    transfer and /ctcp botnick schat.
 
   set ssl-verify-depth 9
     Sets the maximum depth for the certificate chain verification that shall
@@ -522,24 +512,7 @@ support.
     Specify the list of ciphers (in order of preference) allowed for use with
     ssl. The cipher list is one or more cipher strings separated by colons,
     commas or spaces. Unavailable ciphers are silently ignored unless no
-    usable cipher could be found. For the list of possible cipher strings
-    and their meanings, please refer to the ciphers(1) manual.
-    Note: if you set this, the value replaces any ciphers OpenSSL might use by
-    default. To include the default ciphers, you can put DEFAULT as a cipher
-    string in the list.
-    For example::
-
-      set ssl-ciphers "DEFAULT ADH"
-
-    ... will make eggdrop allow the default OpenSSL selection plus anonymous
-    DH ciphers.
-
-    ::
-
-      set ssl-ciphers "ALL"
-
-    ... will make eggdrop allow all ciphers supported by OpenSSL, in a
-    reasonable order.
+    usable cipher could be found.
 
 
   set ssl-cert-auth 0

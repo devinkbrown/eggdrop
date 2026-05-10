@@ -56,7 +56,7 @@ Eggdrop uses the GNU autoconfigure scripts to make things easier.
      Note that you must use full path for every file to be correctly
      installed.
 
-5. Since version 1.8, Eggdrop can use SSL to protect botnet links. If you intend on protecting botnet traffic between Eggdrops, you must generate SSL certificates by running::
+5. Since version 1.8, Eggdrop can use TLS to protect botnet links. TLS is provided by opssl, a custom TLS library bundled with Eggdrop -- no external TLS library installation is needed. If you intend on protecting botnet traffic between Eggdrops, you must generate TLS certificates by running::
 
         make sslcert
 
@@ -115,8 +115,7 @@ installation tool prior to compiling:
 ::
 
   Interpreters: tcl, tcl-devel
-  Net:          openssl, libssl-devel
-  Devel:        autoconf, gcc-core, git, make
+  Devel:        gcc-core, git, make, meson, ninja
   Libs:         zlib-devel
 
 Modules

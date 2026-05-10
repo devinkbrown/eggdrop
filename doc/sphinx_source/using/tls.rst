@@ -12,25 +12,27 @@ Eggdrop feature since version 1.8.0.
 About
 -----
 
-Eggdrop can be optionally compiled with TLS support. This requires OpenSSL
-0.9.8 or later installed on your system.
-TLS support includes encryption for IRC, DCC, botnet, telnet and scripted
-connections as well as certificate authentication for users and bots.
+Eggdrop can be optionally compiled with TLS support. TLS is provided by
+opssl, a custom TLS library bundled with Eggdrop as a meson subproject.
+No external TLS library (such as OpenSSL or wolfSSL) is needed. opssl
+supports TLS 1.2 and TLS 1.3. TLS support includes encryption for IRC,
+DCC, botnet, telnet and scripted connections as well as certificate
+authentication for users and bots.
 
 ------------
 Installation
 ------------
 
-./configure and install as usual, the configure script will detect if your
-system meets the requirements and will enable TLS automatically. You can
-override the autodetection and manually disable TLS with 
-./configure --disable-tls. You can't forcefully enable it though.
-The configure script will look for OpenSSL at the default system locations.
-If you have it installed at a non-standard location or locally in your
-home directory, you'll need to specify the paths to header and library
-files with the --with-sslinc and --with-ssllib options. You can also use
-these if you want to override the default OpenSSL installation with a
-custom one, as they take precedence over any system-wide paths.
+TLS support is provided by opssl, which is bundled with Eggdrop in the
+subprojects/opssl/ directory. It is built automatically as part of the
+normal meson build process::
+
+  meson setup builddir
+  ninja -C builddir
+
+No external TLS library installation is needed. TLS is enabled by
+default. You can disable it with ``-Dtls=disabled`` when running
+``meson setup``.
 
 -----
 Usage
@@ -129,15 +131,16 @@ To authenticate with a certificate instead of using password, you should
 make a ssl certificate for yourself and enable ssl-cert-auth in the config
 file. Then either connect to the bot using TLS and type ".fprint +" or
 enter your certificate fingerprint with .fprint SHA1-FINGERPRINT.
-To generate a ssl certificate for yourself, you can run the following
-command from the Eggdrop source directory::
+To generate a TLS certificate for yourself, you can run the following
+command from the Eggdrop source directory (if the openssl command-line
+tool is available on your system)::
 
   openssl req -new -x509 -nodes -keyout my.key -out my.crt -config ssl.conf
 
 When asked about bot's handle, put your handle instead. How to use your
 new certificate to connect to Eggdrop, depends on your irc client.
 To connect to your bot from the command line using the key/cert files
-generated in the previous step, you can use the OpenSSL ssl client ::
+generated in the previous step, you can use a TLS client such as::
 
   openssl s_client -cert my.crt -key my.key -connect host:sslport
 

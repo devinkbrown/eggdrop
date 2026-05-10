@@ -28,7 +28,8 @@ PBKDF2 Module
 There are also some variables you can set in your config file:
 
   set pbkdf2-method "SHA256"
-    Cryptographic hash function used. Use ``openssl list -digest-algorithms`` to view all available options
+    Cryptographic hash function used. Supported options depend on the
+    hash algorithms provided by opssl (the bundled TLS library).
 
   set pbkdf2-rounds 1600
     Number of rounds. The higher the number, the longer hashing takes; but also generally the higher the protection against brute force attacks.

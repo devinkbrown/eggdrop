@@ -213,7 +213,7 @@ else
 endif
 
 # -------------------------------------------------------------------------
-# TLS / opssl — optional (replaces wolfSSL)
+# TLS / opssl — bundled TLS library (no external TLS dependency needed)
 # opssl is built as a Meson subproject from subprojects/opssl/
 # -------------------------------------------------------------------------
 opssl_dep = dependency('', required: false)  # sentinel

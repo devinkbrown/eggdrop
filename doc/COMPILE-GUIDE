@@ -93,10 +93,10 @@ Last revised: May 14, 2023
              numbers from 9 to 32 inclusive.
 
            --disable-tls
-           --with-sslinc=
-           --with-ssllib=
-             You can disable TLS or specify the paths to the header and
-             library files. Look at doc/TLS for more information.
+             You can disable TLS if desired. TLS is provided by opssl,
+             which is bundled with Eggdrop and built automatically as
+             a meson subproject. No external TLS library is needed.
+             Look at doc/TLS for more information.
 
       2. Type either 'make config', or 'make iconfig' to determine which
          modules will be compiled.
@@ -230,16 +230,9 @@ Last revised: May 14, 2023
       Note that on macOS, the DYLD_LIBRARY_PATH environment variable should
       be used instead of LD_LIBRARY_PATH.
 
-      Install OpenSSL using homebrew:
-
-        Install homebrew from https://brew.sh/
-        brew update
-        brew install openssl
-
-      Tell configure where to find tcl and / or openssl in case it could not
-      autodetect:
-
-        ./configure --with-tcl=/System/Volumes/Data/Library/Developer/CommandLineTools/SDKs/MacOSX12.1.sdk/System/Library/Frameworks/Tcl.framework/tclConfig.sh -with-sslinc=/usr/local/Cellar/openssl@3/3.0.7/include --with-ssllib=/usr/local/Cellar/openssl@3/3.0.7/lib
+      TLS is provided by opssl, which is bundled with Eggdrop and built
+      automatically. No external TLS library (such as OpenSSL) needs to
+      be installed.
 
 
     E. AIX
@@ -325,9 +318,6 @@ Last revised: May 14, 2023
              cp /usr/local/bin/libtcl8.5.dll 'C:/eggdrop'
              cp /usr/local/bin/tclpip84.dll 'C:/eggdrop'
              cp /bin/cyggcc_s-1.dll 'C:/eggdrop'
-
-             cp /bin/cygcrypto-0.9.8.dll 'C:/eggdrop' (if compiled with ssl)
-             cp /bin/cygssl-0.9.8.dll 'C:/eggdrop' (if compiled with ssl)
 
              mkdir C:/eggdrop/lib
              cp -r /usr/local/lib/tcl 'C:/eggdrop/lib'

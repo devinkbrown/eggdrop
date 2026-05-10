@@ -549,7 +549,10 @@ throughout the codebase.
 
 **SASL hardening (covered in §16).**
 
-**TLS:**
+**TLS (opssl):**
+- TLS provided by opssl, a custom TLS library bundled as a meson subproject
+  (replaces wolfSSL/OpenSSL; no external TLS dependency needed)
+- opssl supports TLS 1.2 and TLS 1.3
 - Certificate verification enforced for DoT connections
 - SHA-256 fingerprint support for server certificate pinning
 - ECDH-X25519 key exchange for SASL EXTERNAL
@@ -596,11 +599,13 @@ require UTF-8 for nick validation, channel topics, and user messages.
 
 The existing SASL implementation was extended with:
 
-- **ECDH-X25519** key exchange mechanism
+- **ECDH-X25519-CHALLENGE** key exchange mechanism
 - **Secure nonce generation** using `getrandom(2)` instead of `rand()`
 - **SASLprep** (RFC 4013) string preparation for PLAIN/SCRAM passwords
 - **Mechanism reporting** — the bot logs which SASL mechanism was negotiated
 - **SCRAM-SHA-256 and SCRAM-SHA-512** mechanism support
+- **Supported mechanisms:** PLAIN, ECDSA-NIST256P-CHALLENGE, EXTERNAL,
+  SCRAM-SHA-256, SCRAM-SHA-512, ECDH-X25519-CHALLENGE
 - **SASL configuration in TOML:** `[sasl]` section with `sasl_mechanism`,
   `sasl_username`, `sasl_password`, `sasl_ecdsa_key`, `sasl_x25519_key`,
   `sasl_continue`, `sasl_timeout`
@@ -633,10 +638,10 @@ support was added:
 
 - All CI workflows updated from `./configure && make` to `meson setup && ninja`
 - `-j$(nproc)` replaces hardcoded `-j4` everywhere
-- macOS CI: robust Homebrew Tcl/OpenSSL detection, `PKG_CONFIG_PATH` for
+- macOS CI: robust Homebrew Tcl detection, `PKG_CONFIG_PATH` for
   keg-only packages
 - CodeQL analysis workflow added
-- macOS-specific `LDFLAGS`/`CPPFLAGS` exported for OpenSSL detection
+- TLS is provided by opssl (bundled); no external OpenSSL/wolfSSL detection needed
 
 ---
 
