@@ -1,15 +1,227 @@
-Last revised: December 31, 2001
+Last revised: May 10, 2026
 
 Woobie Module
 
-This is for demonstrative purposes only. If you are looking for starting
-point in writing modules, woobie is the right thing.
+This module is provided for demonstrative and educational purposes only.
+It is not intended for production use. If you are learning to write
+Eggdrop modules, woobie is an excellent starting point and reference
+implementation.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the woobie
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule woobie
+  [modules]
+  load = [
+    "woobie",
+  ]
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+
+PURPOSE
+
+Woobie is a minimal, educational module that demonstrates:
+  - Basic module structure and initialization
+  - Command bindings (DCC, MSG, public)
+  - Tcl/C integration
+  - Configuration reading
+  - Event handling
+
+It serves as a template for developers writing custom modules.
+
+
+DISCLAIMER
+
+This module:
+  - Is not intended for production environments
+  - Is intentionally simple (educational)
+  - Should not be loaded unless studying module development
+  - Has minimal features
+
+For production use, disable this module.
+
+
+MODULE SOURCE CODE
+
+Woobie's source code is located in:
+  src/mod/woobie.c  (C implementation)
+  src/mod/woobie.tcl (Tcl bindings, if applicable)
+
+View the source to learn:
+  - Module initialization
+  - Tcl command registration
+  - Memory management in Eggdrop modules
+  - Event binding patterns
+
+
+LEARNING RESOURCES
+
+If you want to write modules:
+
+1. Read woobie.c thoroughly
+2. Review doc/MODULES for module API
+3. Study other simple modules (dns, notes)
+4. Consult Eggdrop Tcl reference (doc/tcl-commands.doc)
+5. Join #eggdrop on Libera Chat for help
+
+
+FEATURES
+
+Woobie provides minimal functionality:
+  - Basic command parsing
+  - Simple event handling
+  - Demo Tcl bindings
+  - Example configuration
+
+Intentionally omits advanced features to stay simple.
+
+
+EXAMPLE CONFIGURATION
+
+Load woobie for learning:
+
+  [modules]
+  load = [
+    "woobie",      # For learning/development only
+  ]
+
+      DO NOT load in production!
+
+
+CONFIGURATION
+
+No specific configuration. Simply load to test:
+
+  [modules]
+  load = ["woobie"]
+
+
+DEPENDENCIES
+
+The woobie module has no external dependencies.
+
+
+MODULE DEVELOPMENT GUIDE
+
+To develop your own modules:
+
+1. Study woobie.c (module template)
+2. Understand module lifecycle:
+   - init_module() - module startup
+   - woobie_tcl_init() - Tcl bindings
+   - woobie_unload() - module shutdown
+
+3. Learn Eggdrop APIs:
+   - egg_list (list operations)
+   - egg_bind (event binding)
+   - egg_module (module management)
+
+4. Follow coding standards:
+   - Use consistent style
+   - Document your code
+   - Handle errors gracefully
+   - Test thoroughly
+
+5. Build and test:
+   - ./configure && make
+   - Load module in config
+   - Test all functionality
+   - Debug with -t flag
+
+
+MODULE STRUCTURE
+
+Typical module layout:
+
+  mod_woobie.c
+    ├── init_module()       (startup hook)
+    ├── woobie_tcl_init()   (register Tcl commands)
+    ├── cmd_woobie()        (command handler)
+    ├── event_woobie()      (event handler)
+    └── woobie_unload()     (cleanup hook)
+
+
+TESTING YOUR MODULES
+
+Load woobie to test module loading:
+
+  eggdrop -t eggdrop.toml      (terminal mode)
+  .modules                      (list loaded modules)
+  .module help                  (if implemented)
+
+
+DEBUGGING
+
+Common module issues:
+
+  Module won't load:
+    - Check compilation errors: meson build
+    - Verify .so file exists in modules/ directory
+    - Check permissions: ls -l modules/*.so
+
+  Module crashes bot:
+    - Memory leak? Use valgrind.
+    - Infinite loop? Add debugging output.
+    - Tcl error? Check Tcl bindings.
+
+  Commands don't work:
+    - Verify bindings are registered.
+    - Check Tcl proc names.
+    - Test in DCC partyline (.modules).
+
+
+RESOURCES FOR MODULE DEVELOPERS
+
+Documentation:
+  - doc/MODULES - module development guide
+  - doc/tcl-commands.doc - Tcl API reference
+  - src/mod/woobie.c - example implementation
+
+Community:
+  - #eggdrop on Libera Chat
+  - GitHub issues/discussions
+  - Eggheads forum (eggheads.org)
+
+
+EXAMPLE MODULE DEVELOPMENT WORKFLOW
+
+1. Study woobie.c for 30 minutes
+2. Copy woobie.c to my_module.c
+3. Modify function/command names
+4. Add your custom functionality
+5. Compile: meson build && ninja -C build install
+6. Load in eggdrop.toml: loadmodule my_module
+7. Test in DCC partyline
+8. Debug errors with .module commands
+9. Iterate until working
+
+
+NOTES
+
+- Woobie is intentionally minimal (educational).
+- Do not use in production.
+- Much more can be learned from other modules.
+- Module API documentation is in doc/MODULES.
+- Eggdrop community is helpful for developers.
+
+
+TROUBLESHOOTING
+
+Can't compile woobie:
+  - Verify Eggdrop was compiled correctly (meson build).
+  - Check for C compiler errors (gcc/clang).
+  - Run: meson compile -C build (shows detailed errors).
+
+Module loads but doesn't work:
+  - Check module initialization function names.
+  - Verify Tcl bindings are registered.
+  - Add debugging output with putlog().
+
+Module crashes bot:
+  - Ensure proper memory management (malloc/free).
+  - Check array bounds.
+  - Verify Tcl function calls are correct.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

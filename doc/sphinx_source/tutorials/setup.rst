@@ -1,164 +1,347 @@
 Setting Up Eggdrop
 ==================
 
-*This guide was based off perhaps the most helpful Eggdrop website ever written, egghelp.org by slennox. As happens with life, slennox has moved on and no longer updates it, but the information here is still incredibly useful. We have updated his setup page here and hope it will continue to prove useful to our users*
+*This guide is based on the setup information from egghelp.org and has been updated for Eggdrop 1.10 with Meson build system and TOML configuration.*
 
 Prerequisites
 -------------
 
-Make sure Tcl AND it's dev packages are installed on your system. On Debian-based systems, this is done with::
+Before installing Eggdrop, ensure you have:
 
-    sudo apt-get install tcl tcl-dev
+1. **Tcl Development Library** (8.5.0 or newer)
 
-TLS support is provided by opssl, a custom TLS library bundled with Eggdrop.
-No external TLS library (such as OpenSSL or wolfSSL) needs to be installed.
+   - On Debian/Ubuntu::
 
-The super-short version
+       sudo apt-get install tcl tcl-dev
+
+   - On Fedora/RHEL::
+
+       sudo dnf install tcl tcl-devel
+
+   - On macOS::
+
+       brew install tcl-tk
+
+   - Verify with::
+
+       tclsh
+
+     If you see a ``%`` prompt, Tcl is installed. Type ``exit`` to quit.
+
+2. **Meson and Ninja**
+
+   - On Debian/Ubuntu::
+
+       sudo apt-get install meson ninja-build
+
+   - On Fedora/RHEL::
+
+       sudo dnf install meson ninja-build
+
+   - On macOS::
+
+       brew install meson ninja
+
+3. **Python 3.8+** (optional, only for Python scripting module)
+
+4. **zlib** (optional, only for compression module)
+
+**TLS Support**: Eggdrop includes opssl, a custom TLS library bundled in the source. No external library installation needed.
+
+Quick Start (5 Minutes)
 -----------------------
 
-You can read the `Installation`_ section for a more detailed explanation of these steps.
+If you just want a working bot quickly:
 
-#. Download |dlink| to your shell via FTP, or simply type: :substitution-code:`wget geteggdrop.com -O eggdrop-|fullversion|.tar.gz`
-#. Next, from the commandline of the shell, ensure you are in the same directory that you downloaded the tar file into
-#. Type: :substitution-code:`tar zxvf eggdrop-|fullversion|.tar.gz`
-#. Type: :substitution-code:`cd eggdrop-|fullversion|`
-#. Type ``./configure``
-#. Type ``make config``
-#. Type ``make``
-#. Type ``make install``
-#. Type ``cd ~/eggdrop``
-#. For a quick start, edit the eggdrop-basic.conf file. To take advantage of all Eggdrop's features, we recommend using eggdrop.conf instead. It is also a good idea to rename the file to something easy to remember and specific to your bot, like botnick.conf.
-#. Type ./eggdrop -m <config file>
+#. Download the source::
 
-Getting the source
-------------------
+     wget https://github.com/eggheads/eggdrop/archive/refs/heads/main.tar.gz
+     tar xzf main.tar.gz && cd eggdrop-main
 
-History
-~~~~~~~
+#. Build and install::
 
-The current supported version of Eggdrop is the |majversion|.x tree. Only the current major version (|majversion|.x) is supported; earlier major versions are not.
+     meson setup builddir
+     ninja -C builddir
+     meson install -C builddir --destdir=$HOME/mybot
+     cd $HOME/mybot
 
-The most current version of Eggdrop, and the one appropriate for most users, is the current |majversion| series. It added many features such as SASL support, multi-ip listening, and a new password hashing module. It is the most complete, feature-rich, and functional version of Eggdrop. If you're just starting out with Eggdrop, you should use |version|.
+#. Generate a config file (interactive wizard)::
 
-Prior to that, the 1.8 series added several major features, to include IPv6 support and SSL/TLS connections. 1.6.21, which is now over 10 years old, was the last release of the 1.6 series. Because Eggdrop remained at the 1.6.21 patchlevel for several years it is still often run by users who have become comfortable with that version and don't wish to move to a newer version- however, it is getting harder and harder to continue running 1.6 bots on modern Linux systems. Tcl scripts written for bots as far back as the 1.6 series generally work on all later versions of Eggdrop as well, so if you haven't already- upgrade!
+     ./eggdrop --setup eggdrop.toml
 
-The |majversion| Eggdrop tree is currently under active development and the most recent changes are available in daily snapshots for users to download for testing. While the development snapshot will contain the most current, up-to-date features of Eggdrop, it is not yet considered stable and users stand a higher chance of encountering bugs during use. If you do use it and find a bug, it is highly encouraged to report it via the `Eggheads GitHub issues page. <https://github.com/eggheads/eggdrop/issues>`_
+#. Create a user file::
 
-Download locations
-~~~~~~~~~~~~~~~~~~
+     ./eggdrop -m eggdrop.toml
 
-The developers distribute Eggdrop via two main methods: FTP, and GitHub. For FTP, it is packaged in tarball format (with the .tar.gz filename extension), with the version number in the filename. The Eggdrop |version| source, for example, would be named :substitution-code:`eggdrop-|fullversion|.tar.gz`.
+#. Start the bot::
 
-`The Eggheads FTP <https://ftp.eggheads.org/pub/eggdrop/>`_ is a repository for |dlink|, as well as the most current development snapshot and previous stable releases.
+     ./eggdrop eggdrop.toml
 
-Eggdrop also maintains a `GitHub page <https://github.com/eggheads/eggdrop>`_ where you can download the development snapshot or a stable version, via either git commandline or by downloading a tarball. To download via git, type ``git clone https://github.com/eggheads/eggdrop.git``, then ``cd eggdrop``. This gives you the development version. To switch to the most recent stable version, type :substitution-code:`git checkout stable/|majversion|`. You can then skip to step 4 in the Installation section below.
+#. On IRC, introduce yourself to the bot::
 
-Installation
-------------
+     /msg <botnick> hello
 
-Installing Eggdrop is a relatively simple process provided your shell has the required tools for successful compilation. On most commercial shell accounts which allow Eggdrop bots you won't have any problems with installation, but on some private boxes or a shell on your ISP you may experience errors during compilation.
+You now have a working Eggdrop! Read the sections below for detailed explanations.
 
-Below is a step by step guide to the installation process. These instructions apply to |majversion| bots. It assumes you will be installing :substitution-code:`eggdrop-|fullversion|.tar.gz`, so just change the numbers if you are installing another version.
+Detailed Installation
+---------------------
 
-1. Put the Eggdrop source on your shell using one of the specified download locations, either by downloading |dlink| to your local system and then uploading it to the shell via FTP, or downloading it directly to the shell via the shell's FTP client, git, wget, or curl. You don't need to put the .tar.gz file in its own directory (it'll be done automatically in the next step).
+Getting the Source
+^^^^^^^^^^^^^^^^^^
 
-2. SSH to the shell (if you haven't already), and type :substitution-code:`tar zxvf eggdrop-|fullversion|.tar.gz` (if this doesn't work, try :substitution-code:`gunzip eggdrop-|fullversion|.tar.gz` then :substitution-code:`tar xvf eggdrop-|fullversion|.tar`). This will extract the Eggdrop source into its installation directory, named :substitution-code:`eggdrop-|fullversion|`.
+Download locations:
 
-3. Type :substitution-code:`cd eggdrop-|fullversion|` switch to the directory the Eggdrop source was extracted to.
+- **Stable Release**: https://geteggdrop.com or https://github.com/eggheads/eggdrop/releases
+- **FTP Mirror**: https://ftp.eggheads.org/pub/eggdrop/source
+- **Git (Development)**: ``git clone https://github.com/eggheads/eggdrop.git``
 
-4. Type ``./configure`` (that's a period followed by a slash followed by the word 'configure').  This makes sure the shell has all the right tools for compiling Eggdrop, and helps Eggdrop figure out how to compile on the shell.
+For a stable release::
 
-5. When configure is done, type ``make config``. This sets up which modules are to be compiled. For a more efficient installation, you can use ``make iconfig`` to select the modules to compile, but if you're not sure just use make config.
+  wget https://github.com/eggheads/eggdrop/archive/refs/tags/v1.10.1.tar.gz
+  tar xzf v1.10.1.tar.gz
+  cd eggdrop-1.10.1
 
-6. Type ``make``. This compiles the Eggdrop. The process takes a brief moment on fast systems, longer on slow systems.
+For the latest development version::
 
-7. Type ``make install DEST=~/botdir``. This will install Eggdrop into a directory named 'botdir' in your home directory. You can change 'botdir' to anything you like. Note that in some cases you may need to specify the full path, e.g. ``make install DEST=/home/cooldude/botdir``, using the ~ character in make install won't always work. You can get the full path by typing ``pwd``.
+  git clone https://github.com/eggheads/eggdrop.git
+  cd eggdrop
 
-8. You can safely delete the installation directory named :substitution-code:`eggdrop-|fullversion|` (to do this, type ``cd ~`` then :substitution-code:`rm -rf eggdrop-|fullversion|`) that was created previously, although some people may find it handy to keep that directory for performing additional or future installations of the same version without recompiling.
+Building Eggdrop
+^^^^^^^^^^^^^^^^
 
-That's it! Eggdrop is now installed into its own directory on the shell. It's time to edit the configuration files to make Eggdrop work the way you want it to.
+#. Enter the source directory::
+
+     cd eggdrop-1.10.1
+
+#. Set up the Meson build system::
+
+     meson setup builddir
+
+   Meson will automatically detect Tcl and other dependencies. If Tcl is not found, verify installation (see Prerequisites above).
+
+#. Compile the bot::
+
+     ninja -C builddir
+
+   On some systems, use ``ninja-build`` instead of ``ninja``. This compiles Eggdrop and all enabled modules.
+
+#. Install to your desired location::
+
+     meson install -C builddir --destdir=$HOME/mybot
+
+   Or install to a custom location::
+
+     meson install -C builddir --destdir=/home/username/eggdrop-botname
+
+   The ``--destdir`` flag specifies where to install. Use absolute paths or ``$HOME``.
+
+#. (Optional) Remove the source directory::
+
+     cd ~
+     rm -rf eggdrop-1.10.1
 
 Configuration
 -------------
 
-You will need to edit the configuration file before you can start up your Eggdrop. You can find the example configuration file in the directory you extracted the Eggdrop source to, under the name 'eggdrop.conf'. If you downloaded Eggdrop to your system, you can unzip the tarball (.tar.gz) file to its own directory using 7-Zip or a similar program, and view the example config file, botchk file, and all the documentation files locally. You can use Notepad to edit these files, although it's sometimes desirable to use an editor that supports the Unix file format such as EditPlus. To edit the file once it is on your shell, a program such as 'nano' or 'vim' is recommended.
+Eggdrop 1.10 uses **TOML format** for configuration files. The easiest way to create a config is to use the interactive setup wizard.
 
-Editing the config file
-~~~~~~~~~~~~~~~~~~~~~~~
+Using the Setup Wizard
+^^^^^^^^^^^^^^^^^^^^^^
 
-Eggdrop comes with two versions of the configuration file- eggdrop.conf and eggdrop-basic.conf. While it is recommended that users edit a copy of eggdrop.conf to take advantage of all the features Eggdrop has to offer, using eggdrop-basic.conf to start will be a quicker path for some. Still, it is recommended that you come back to the full config file at some point to see what you are missing.
+The interactive wizard guides you through essential settings::
 
-It is first recommended to rename the sample config to something other than "eggdrop.conf". Giving it the name of the bot's nick (e.g. NiceBot.conf) is quite common. In the config file, you set up the IRC servers you want the bot to use and set Eggdrop's options to suit your needs. Eggdrop has many options to configure, and editing the configuration file can take some time. I recommend you go over the entire config file to ensure the bot will be configured properly for your needs. All of the options in the config file have written explanations - be sure to read them carefully. Some of them can be a little bit vague, though.
+  cd /path/to/installed/eggdrop
+  ./eggdrop --setup mybot.toml
 
-To comment out a line (prevent the bot from reading that line), you can add a '#' in front of a line. When you come to a line that you need to edit, one popular option is to comment out the original and add your new line right below it. This preserves the original line as an example. For example::
+This creates a minimal but functional configuration file. Answer the prompts for:
 
-	# Set the nick the bot uses on IRC, and on the botnet unless you specify a
-	# separate botnet-nick, here.
-	#set nick "Lamestbot"
-	set nick LlamaBot
+- Bot nickname
+- Alternate nickname
+- Real name (GECOS)
+- Owner nick(s)
+- IRC network name
+- IRC servers to connect to
+- Channels to join
 
-Below are some of the common settings used for Eggdrop:
+Manual Configuration
+^^^^^^^^^^^^^^^^^^^^
 
-:set username: if your shell runs identd (most do), then you should set this to your account login name.
+If you prefer to edit the config file manually:
 
-:set vhost4: you'll need to set this if you want your bot to use a vhost. This setting lets you choose which IP to use if your shell has multiple. Use vhost4 for an IPv4 address (ie, 1.2.3.4) See also: vhost6
+#. Copy the sample configuration::
 
-:set vhost6: the same as vhost4, only for IPv6 addresses (ie, 5254:dead:b33f::1337:f270).
+     cp eggdrop.toml.sample eggdrop.toml
 
-:logfile: keeping logs is a good idea. Generally, you should have one log for bot stuff, and one log for each of your channels. To capture bot stuff, add the line ``logfile mcobxs * "botnick.log"`` to the config. To capture channel stuff, add ``logfile jkp #donkeys "#donkeys.log"``, ``logfile jkp #horses "#horses.log"``, etc. Make sure you remove the sample logfile lines for the channel #lamest. If you'd like to put your logfiles in their own directory, specify the directory in the log name (e.g. ``logfile jkp #donkeys "logs/#donkeys.log"`` to write the logfiles in the /logs directory).
+#. Edit with your text editor (nano, vim, etc.)::
 
-:listen 3333 all: you will almost certainly want to change this, as 3333 will probably be in use if there are other Eggdrops running on the machine. Generally, you can choose any port from 1024 to 65535, but the 49152-65535 range is best as these are the private/dynamic ports least likely to be reserved by other processes. You can choose not to have a port by commenting this line out, but that will prevent any telnet connections to the bot (you won't be able to use the bot as a hub, won't be able to telnet to the bot yourself, and the bot won't respond to /ctcp botnick CHAT requests).
+     nano eggdrop.toml
 
-:set protect-telnet: setting this to 1 is strongly recommended for security reasons.
+#. At minimum, set these values:
 
-:set require-p: this is a useful feature allowing you to give party line access on a user-specific basis. I recommend setting it to 1.
+   - **[bot]** section:
 
-:set stealth-telnets: when you telnet to your bot, it will usually display the bot's nickname and version information. You probably don't want people seeing this info if they do a port scan on the bot's shell. Setting this to 1 will prevent the bot from displaying its nickname and version when someone telnets to it.
+     - ``owner = "YourNick"`` — Your bot owner nick(s)
+     - ``nick = "BotNick"`` — Bot's IRC nickname
+     - ``altnick = "BotAlt?"`` — Alternate nick (? becomes random digit)
 
-:set notify-newusers: set this to the nick you will have on the bot. This setting isn't really used if you have learn-users switched off.
+   - **[servers]** section:
 
-:set owner: you should only put one person in this list - yourself. Set it to the nick you will have on the bot. Do NOT leave it set to the default "MrLame, MrsLame".
+     - ``list = ["irc.example.com:6667", "irc2.example.com:+6697"]`` — IRC servers
 
-:set default-flags: these are the flags automatically given to a user when they introduce themselves to the bot (if learn-users is on) or when they're added using .adduser. If you don't want the user to be given any flags initially, set this to "" or "-".
+   - **[channels]** section:
 
-:set must-be-owner: if you have the .tcl and .set commands enabled, you should definitely set this to 1. In 1.3.26 and later, you can set it to 2 for even better security.
+     - ``list = ["#channel1", "#channel2"]`` — Channels to join
 
-:set chanfile: the chanfile allows you to store 'dynamic' channels so that the bot rejoins the channel if restarted. Dynamic channels are those you make the bot join using the .+chan command - they aren't defined in the config file. The chanfile is good if you frequently add/remove channels from the bot, but can be a pain if you only like to add/remove channels using the config file since settings stored in the chanfile with overwrite those set in the config. You can choose not to use a chanfile by setting it to "".
+   See `Core Settings <../using/core.html>`_ for the complete configuration reference.
 
-:set nick: this is what you use to specify your bot's nickname. I recommend against using [ ] { } \ character's in the bot's nick, since these can cause problems with some Tcl scripts, but if you'd like to use them, you'll need to precede each of those characters with a backslash in the setting, e.g. if you wanted your bot to have the nick [NiceBot], use ``set nick "\[NiceBot\]"``.
+#. Save the file.
 
-:set altnick: if you want to use [ ] { } \ characters in the bot's alternate nick, follow the backslash rule described previously.
+Common Configuration Options
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-:server add: you should specify multiple servers in this list, in case the bot is unable to connect to the first server. The format for this list is shown below: 
+These are frequently used settings in the ``[bot]`` section:
 
-.. code-block:: tcl
+- **nick**: Bot's nickname on IRC
+- **altnick**: Alternate nick if primary is taken
+- **username**: Bot's username/ident (for systems without identd)
+- **realname**: Bot's "real name" / GECOS field
+- **admin**: Admin contact information
+- **owner**: List of owner nicks (set this!)
+- **notify-newusers**: Who gets notified of new user registrations
+- **timezone**: Timezone name for timestamps (e.g., "EST", "UTC")
+- **offset**: UTC offset in hours
 
-  server add you.need.to.change.this:6667
-  server add another.example.com:7000:password
-  server add [2001:db8:618:5c0:263::]:6669:password
-  server add ssl.example.net:+6697
+Modules
+^^^^^^^
 
-:set learn-users: this is an important setting that determines how users will be added to your Eggdrop. If set to 1, people can add themselves to the bot by sending 'hello' to it (the user will be added with the flags set in default-flags). If set to 0, users cannot add themselves - a master or owner must add them using the .adduser command.
+By default, Eggdrop loads commonly-used modules in the ``[modules]`` section::
 
-:set dcc-block: although the example config file recommends you set this to 0 (turbo-dcc), this may cause DCC transfers to abort prematurely. If you'll be using DCC transfers a lot, set this to 1024.
+  [modules]
+  load = [
+    "pbkdf2",     # Password hashing
+    "blowfish",   # Legacy password support
+    "channels",   # Channel management
+    "server",     # IRC protocol
+    "ctcp",       # CTCP support
+    "irc",        # Basic IRC
+    "notes",      # Offline messages
+    "console",    # Partyline settings
+    "uptime",     # Uptime reporting
+  ]
 
-Finally, be sure to remove the 'die' commands from the config (there are two of them 'hidden' in various places), or the bot won't start. Once you've finished editing the config file, make sure you rename it to something other than
-"eggdrop.conf" if you haven't already. Then, if you edited the config file locally, upload the config file to the directory you installed the bot.
+To enable optional modules, uncomment them or add them to the list:
 
-Starting the Eggdrop
---------------------
+- ``transfer`` — DCC file transfers
+- ``filesys`` — File server
+- ``compress`` — Compression support
+- ``python`` — Python scripting
+- ``twitch`` — Twitch support
 
-Phew! Now that you've compiled, installed, and configured Eggdrop, it's time to start it up. Switch to the directory to which you installed the bot, cross your fingers, and type ``./eggdrop -m <config>`` (where <config> is the name you gave to the config file). Eggdrop should start up, and the bot should appear on IRC within a few minutes. The -m option creates a new userfile for your bot, and is only needed the first time you start your Eggdrop. In future, you will only need to type ./eggdrop <config> to start the bot. Make sure you take the time to read what it tells you when you start it up!
+See `Modules <../modules/included.html>`_ for details.
 
-Once your bot is on IRC, it's important that you promptly introduce yourself to the bot. Msg it the 'hello' command you specified in the config file, e.g. ``/msg <botnick> hello``. This will make you the bot's owner. Once that's done, you need to set a password using ``/msg <botnick> pass <password>``. You can then DCC chat to the bot.
+Starting Your Bot
+-----------------
 
-Now that your Eggdrop is on IRC and you've introduced yourself as owner, it's time to learn how to use your Eggdrop!
+Initial Start (Create User File)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-No show?
-~~~~~~~~
+For the very first start, use the ``-m`` flag to create a user file::
 
-If your bot didn't appear on IRC, you should log in to the shell and view the bot's logfile (the default in the config file is "logs/eggdrop.log").
+  ./eggdrop -m eggdrop.toml
 
-Additionally, you can kill the bot via the command line (``kill pid``, the pid is shown to you when you started the bot or can be viewed by running ``ps x``) and then restart it with the -mnt flag, which will launch you directly into the partyline, to assist with troubleshooting. Note that if you use the -t flag, the bot will not persist and you will kill it once you quit the partyline.
+This creates an empty user file with owner flags assigned to the first person who introduces themselves to the bot. It will also perform a /SQUIT before exiting (to ensure the bot doesn't hang around waiting to disconnect).
 
-If you're still unsure what the problem is, try asking in #eggdrop on Libera, and be sure to include any relevant information from the logfile. Good luck!
+The bot should connect to IRC within a few moments.
+
+Introducing Yourself
+^^^^^^^^^^^^^^^^^^^^
+
+Once your bot appears on IRC, introduce yourself to it::
+
+  /msg <botnick> hello
+
+This adds you to the bot's user list with owner privileges (if ``notify-newusers`` is configured).
+
+Set a password::
+
+  /msg <botnick> pass MySecurePassword
+
+You can now DCC chat to the bot or use partyline commands.
+
+Normal Starts
+^^^^^^^^^^^^^
+
+For future starts, simply::
+
+  ./eggdrop eggdrop.toml
+
+The bot will background itself and run as a daemon. To run in foreground (useful for debugging)::
+
+  ./eggdrop -t eggdrop.toml
+
+This drops you into an interactive partyline session. Type ``.help`` for commands.
+
+Troubleshooting
+---------------
+
+Bot Doesn't Appear on IRC
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Check the log file for errors::
+
+  tail -f logs/eggdrop.log
+
+Common issues:
+
+- **Tcl not found**: Verify Tcl development library is installed
+- **Server list empty**: Edit config and add servers to ``[servers]`` section
+- **Config syntax error**: TOML is strict about formatting; check for mismatched brackets or quotes
+- **Connection refused**: Check server address and port
+
+No Show (Advanced Debug)
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+If the bot still doesn't connect:
+
+#. Kill any running bot::
+
+     kill $(cat pid.botnickname)
+
+#. Restart in terminal mode with extended logging::
+
+     ./eggdrop -t eggdrop.toml
+
+#. Watch for error messages. Type ``.help`` for commands.
+
+#. If you need support, capture output and ask in #eggdrop on Libera with error details.
+
+Can't Introduce Myself
+^^^^^^^^^^^^^^^^^^^^^^
+
+- Make sure you're using the correct command format: ``/msg <botnick> hello``
+- Check that the bot's nick is correctly set in config
+- Check that ``learn-users`` is enabled in the config (default is enabled)
+- Review the bot's log file for rejection reasons
+
+Forgot My Password
+^^^^^^^^^^^^^^^^^^
+
+You'll need to either:
+
+- Use partyline commands (if you have owner access) to reset the password
+- Delete the user file and restart with ``./eggdrop -m eggdrop.toml`` (loses all users)
+- Use the bot owner's PASS file capabilities (advanced)
+
+Next Steps
+----------
+
+Now that your bot is running:
+
+1. **Learn bot commands**: See `First Steps <firststeps.html>`_
+2. **Configure channels**: See `Core Settings <../using/core.html>`_
+3. **Write scripts**: See `First Script <firstscript.html>`_
+4. **Set up TLS**: See `TLS Setup <tlssetup.html>`_
+5. **Join the community**: #eggdrop on Libera.Chat
+
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999 - 2025 Eggheads Development Team

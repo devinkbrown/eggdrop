@@ -1,58 +1,204 @@
 About Eggdrop
-Last revised: July 27, 2010
-
-=============
-About Eggdrop
 =============
 
-  Eggdrop was created around December 1993 to help stop the incessant wars
-  on #gayteen. It spawned from another bot that was in the process of being
-  written at the time called "Unrest". The purpose of Unrest was to answer
-  help requests from other bots. The first public release of Eggdrop was
-  version 0.6, and since then, it has grown into what you have before you.
+History
+-------
 
-  Eggdrop is the World's most popular Internet Relay Chat (IRC) bot; it is
-  freely distributable under the GNU General Public License (GPL). Eggdrop
-  is a feature rich program designed to be easily used and expanded upon by
-  both novice and advanced IRC users on a variety of hardware and software
-  platforms.
+Eggdrop was created in December 1993 to stop channel wars on #gayteen. It evolved from an earlier project called "Unrest" that was designed to answer help requests. The first public release was version 0.6, and it has grown to become the world's most popular IRC bot.
 
-  An IRC bot is a program that sits on an IRC channel and performs automated
-  tasks while looking just like a normal user on the channel. Some of these
-  functions include protecting the channel from abuse, allowing privileged
-  users to gain op or voice status, logging channel events, providing
-  information, hosting games, etc.
+Today, Eggdrop remains actively maintained and continues to add modern features while preserving backward compatibility with older configurations and scripts.
 
-  One of the features that makes Eggdrop stand out from other bots is module
-  and Tcl scripting support. With scripts and modules, you can make the bot
-  perform almost any task you want. They can do anything from preventing
-  floods to greeting users and banning advertisers from channels.
+What is Eggdrop?
+----------------
 
-  You can also link multiple Eggdrop bots together to form a botnet.
-  This can allow bots to op each other securely, control floods efficiently,
-  and even link channels across multiple IRC networks. It also allows the
-  Eggdrops share user lists, ban lists, exempt/invite lists, and ignore
-  lists with other bots if userfile sharing is enabled. This allows users
-  to have the same access on every bot on your botnet. It also allows the
-  bots to distribute tasks such as opping and banning users. See doc/BOTNET
-  for information on setting up a botnet.
+Eggdrop is a free, open-source IRC bot released under the GNU General Public License v2. It is feature-rich and designed to be easily used and extended by IRC users of all skill levels.
 
-  Eggdrop is always being improved and adjusted because there are bugs to
-  be fixed and features to be added (if the users demand  them, and they
-  make actually sense). In fact, it existed for several years as v0.7 -
-  v0.9 before finally going 1.0. This version of Eggdrop is part of the
-  1.9 tree. A valiant effort has been made to chase down and destroy bugs.
+An IRC bot is a program that:
 
-  To use Eggdrop, you need:
+- Sits on IRC channels as a normal user
+- Performs automated tasks
+- Responds to commands
+- Protects channels from abuse
 
-    * Some sort of Unix account
+Common Eggdrop Functions
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-    * A pretty good knowledge of IRC and Unix, including how to compile
-      programs, how to read, and what DCC chat is, at absolute minimum.
+- **Channel Protection** — Ban spammers and abusers, manage op/voice status
+- **User Management** — Maintain access lists, flags, and permissions
+- **Automated Tasks** — Greet users, log events, provide information
+- **Channel Linking** — Form botnets to manage multiple channels across networks
+- **Scripting** — Extend functionality with Tcl and Python scripts
+- **Games and Fun** — Host games, fun commands, entertainment
 
-    * About 5-7 MB of disk space. The Eggdrop tarball is about 5.4 MB
-      unpacked.
+What Makes Eggdrop Stand Out
+-----------------------------
 
-    * Tcl -- Eggdrop cannot compile without Tcl installed on your shell.
+1. **Extensibility**
+   - Tcl scripting for ease of customization
+   - Python scripting for advanced users
+   - Module system for C-based extensions
+   - Large community with ready-made scripts
 
-  Copyright (C) 1999 - 2025 Eggheads Development Team
+2. **Flexibility**
+   - Botnets allow multiple bots to work together
+   - Userfile sharing across bots
+   - Per-channel settings and customization
+   - Works on any Unix-like system
+
+3. **Stability and Compatibility**
+   - 30+ years of active development
+   - Production-ready for mission-critical channels
+   - Scripts from 1.6 still work in 1.10
+   - Smooth migration path between versions
+
+4. **Modern Features**
+   - TLS 1.2 and 1.3 support (opssl)
+   - IRCv3 capabilities
+   - SASL authentication
+   - IPv6 support
+   - Python 3.8+ integration
+
+5. **Community**
+   - Active development team
+   - Responsive to feature requests
+   - Helpful community on #eggdrop (Libera.Chat)
+   - Extensive documentation
+
+System Requirements
+-------------------
+
+To run Eggdrop, you need:
+
+**Essential**:
+
+- Unix-like operating system (Linux, BSD, macOS, etc.)
+- Tcl 8.5.0 or newer (with development headers)
+- 5-10 MB of disk space (much less than historical versions)
+- Basic knowledge of Unix and IRC
+
+**Recommended**:
+
+- Modern Linux distribution (Ubuntu, Debian, Fedora, etc.)
+- 50-100 MB disk space for databases, logs, and scripts
+- TLS certificates for secure connections
+- Python 3.8+ if using Python scripts
+
+**Optional**:
+
+- zlib for compression support
+- Python 3.8+ for Python scripting
+- A dedicated shell account or VPS
+
+Platform Support
+----------------
+
+Eggdrop officially supports:
+
+- **Linux** (primary platform, all distributions)
+- **macOS** (Intel and Apple Silicon)
+- **BSD** (FreeBSD, OpenBSD, NetBSD)
+- **Cygwin** (Windows via Cygwin layer)
+- **Docker** (official Docker image available)
+
+Licensing
+---------
+
+Eggdrop is released under the **GNU General Public License v2 (GPL v2)**.
+
+This means:
+
+- **Free to use** — No licensing fees
+- **Free to modify** — Change the source code
+- **Free to distribute** — Share with others
+- **Required to share changes** — If you distribute modified versions, you must provide source
+
+For the complete license, see the LICENSE file in the source distribution.
+
+Getting Started
+---------------
+
+**Minimum Setup** (5 minutes):
+
+1. Install Tcl and Meson
+2. Download and build Eggdrop
+3. Run ``./eggdrop --setup mybot.toml`` (interactive wizard)
+4. Start the bot: ``./eggdrop mybot.toml``
+5. Introduce yourself: ``/msg mybot hello``
+
+**Full Setup** (30-60 minutes):
+
+1. Review the documentation (this site)
+2. Configure your bot's settings
+3. Add Tcl scripts
+4. Set up channels and user permissions
+5. Test and deploy
+
+Version History
+---------------
+
+**Current Series (1.10.x)**: Feature-complete production release with modern architecture
+
+- **1.10.1** (May 2026) — Latest stable
+- **1.10.0** (April 2026) — Major release with feature completion
+
+**Previous Series**:
+
+- **1.9.x** — SASL, IRCv3, Meson build system
+- **1.8.x** — TLS support, IPv6 support
+- **1.6.21** — Legacy version, no longer maintained
+
+**EOL Versions**: 1.6 and earlier are end-of-life and not supported.
+
+Eggdrop Community
+-----------------
+
+**Official Channels**:
+
+- **#eggdrop** on Libera.Chat — Official support channel
+- **#eggheads** on Libera.Chat — Development discussion
+- **GitHub** — https://github.com/eggheads/eggdrop (issues, PRs, discussions)
+- **Website** — https://www.eggheads.org
+
+**Help**:
+
+When asking for help:
+
+- Read the documentation first
+- Check GitHub issues for similar problems
+- Provide error messages and relevant config details
+- Follow IRC etiquette (no CAPS, no spam, no excessive messages)
+
+Contributing
+------------
+
+Eggheads welcomes contributions:
+
+- **Bug reports** — GitHub Issues
+- **Feature requests** — GitHub Discussions
+- **Code contributions** — GitHub Pull Requests
+- **Documentation improvements** — GitHub PRs to doc/sphinx_source/
+- **Scripts and modules** — Share on forums or GitHub
+
+See the CONTRIBUTING file in the source distribution for guidelines.
+
+Credits
+-------
+
+Eggdrop was created by **Robey Pointer** in 1993 and is now maintained by the **Eggheads Development Team**.
+
+Original concept and design: Robey Pointer
+
+Current active maintainers and contributors: See the source repository and git history at https://github.com/eggheads/eggdrop
+
+Thousands of users and script authors have contributed to Eggdrop's success over three decades.
+
+Next Steps
+----------
+
+- `Installation Guide <../install/install.html>`_ — Get Eggdrop running
+- `First Steps <../tutorials/firststeps.html>`_ — Basic commands and setup
+- `Core Settings <../using/core.html>`_ — Configuration reference
+- `IRC Bot Concepts <../tutorials/setup.html>`_ — Understand IRC botting
+
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999 - 2025 Eggheads Development Team

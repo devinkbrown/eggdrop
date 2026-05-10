@@ -1,86 +1,219 @@
-Last revised: June 27, 2019
+Last revised: May 10, 2026
 
 Ident Module
 
-This module adds Eggdrop support for the externally-provided oident
-service, or alternatively the ability for Eggdrop to act as its own
-ident daemon.
+This module provides ident daemon support for proper IRC username
+(ident) identification. IRC servers query port 113 for ident; this module
+allows the bot to answer those queries with a custom ident instead of
+the system username.
 
-Traditionally, an IRC server queries port 113 on an irc client's host to
-determine the ident for the client. The client's host normally replies
-with the username of the account. If the host machine is running oident
-as its ident service, Eggdrop can now interact with oident to instead
-reply with a custom ident specified by Eggdrop (oidentd is an external
-service not specific to Eggdrop nor maintained by Eggheads developers,
-thus no support for it can be given).
+INSTALLATION
 
-Alternatively, this module can also allow Eggdrop to act as its own
-ident daemon, answering queries from the IRC server directly. While this
-option may be of use to a very specific group of people, it requires
-additional external configuration via root access. Because most modern
-OSs do not allow user-level programs to bind to port 113, required by
-this option, a user must either:
+Add to [modules] section in eggdrop.toml:
 
--   Allow Eggdrop to bind to ports <1024 via the command:
+  [modules]
+  load = [
+    "ident",
+  ]
 
-        sudo setcap "cap_net_bind_service=+ep" /path/to/eggdrop
 
-    Warning: this will allow Eggdrop to any port below 1024, potentially
-    allowing a user to impersonate a standard system service with
-    Eggdrop
+CONFIGURATION
 
--   Use iptables to re-route ident queries destined for port 113 to
-    a >1024 port that Eggdrop can bind to, for example by running:
+Ident settings are in the [ident] section:
 
-        sudo iptables -t nat -A PREROUTING -i eth0 -p tcp --dport \
-        113 -j REDIRECT --to-port <ident port in config>'
+  [ident]
+  ident_method = 0
 
-Additionally, using Eggdrop as a built-in ident daemon can cause issues
-when running multiple bots from the same account. The ident server is
-only activated and bound to the configured ident port while Eggdrop is
-connecting to an IRC server, but only one Eggdrop can bind to port 113
-at a time. If multiple bots were to start at the same time, such as
-after a netsplit or host reboot, only one bot can bind to port 113 at a
-time, creating ident conflicts. Thus, this option is best suited for
-single-bot environments.
+      Ident method:
+        0 = built-in ident daemon (bot answers port 113 queries)
+        1 = use system ident service (oidentd, pidentd)
 
-This module requires:
+  ident_port = 113
 
-    -   oident to be running on your shell host, configured to allow
-        user spoofing, for the oidentd method.
+      Port for built-in ident server. Standard port 113 (requires
+      additional setup on most systems). Can use alternative port like
+      2113 if port 113 is unavailable or requires root.
 
-Put this line into your Eggdrop configuration file to load the ident
-module:
 
-    loadmodule ident
+HOW IDENT WORKS
 
-There are also some variables you can set in your config file:
+Traditional ident (RFC 1413):
 
-  set ident-method 0
+  1. IRC server connects to port 113 on bot's machine
+  2. Server sends: "port1, port2\n" (query)
+  3. Bot replies: "port1, port2 : USERID : OS : username\n"
+  4. Server accepts username as the bot's ident
 
-      
+The ident module answers these queries automatically.
 
-      This sets which ident method you wish to use:
 
-          
+METHOD 0: BUILT-IN IDENT DAEMON
 
-          0 = oidentd / Your bot will overwrite $HOME/.oidentd.conf right before
+The bot runs its own ident server on port 113 (or configured port).
 
-              opening the socket to the IRC server with the global
-              reply.
+Advantages:
+  - No external dependencies
+  - Full control over ident responses
+  - Works with custom usernames
 
-          1 = Builtin / Your bot will automatically turn its builtin identd on and
+Disadvantages:
+  - Requires port 113 access (usually requires root)
+  - Linux systems need special setup (see below)
+  - Conflicts if multiple bots run from same account
 
-              off when needed so it shouldn't conflict with other
-              identds that do the same. Ident port 113 is normally
-              restricted to privileged processes on UNIX systems.
+Setup for Linux (non-root):
 
-  set ident-port 113
+  Option A: Use setcap (modern Linux)
+    sudo setcap "cap_net_bind_service=+ep" /path/to/eggdrop
 
-      This sets the port which port Eggdrop will attempt to bind to for
-      option 1 of ident-method. Most OSs do not allow non-privileged
-      programs such as Eggdrop to bind to ports <1024; please read the
-      beginning of this document for potential ways to implement this
-      setting.
+  Option B: Use iptables port forwarding (alternative)
+    sudo iptables -t nat -A PREROUTING -i eth0 -p tcp \
+      --dport 113 -j REDIRECT --to-port 2113
 
-Copyright (C) 2019 - 2025 Eggheads Development Team
+    Then in eggdrop.toml:
+      [ident]
+      ident_port = 2113
+
+  Option C: Run as root (not recommended)
+    Not recommended for security reasons.
+
+
+METHOD 1: SYSTEM IDENT SERVICE (oidentd)
+
+Use external oidentd service (if installed):
+
+  [ident]
+  ident_method = 1
+
+Advantages:
+  - No need for port 113 access (oidentd handles it)
+  - Works with multiple bots on same account
+  - No bot-level setup needed
+
+Disadvantages:
+  - Requires oidentd installed and running
+  - Less control over ident responses
+  - Requires oidentd configuration
+
+Setup oidentd:
+
+  Install: sudo apt-get install oidentd (Debian/Ubuntu)
+  Start:   sudo systemctl start oidentd
+  Config:  /etc/oidentd.conf (customize ident responses)
+
+
+EXAMPLE CONFIGURATION
+
+Built-in ident (with setcap):
+
+  [ident]
+  ident_method = 0
+  ident_port = 113
+
+  Prerequisites:
+    sudo setcap "cap_net_bind_service=+ep" /path/to/eggdrop
+
+      Bot runs ident daemon on standard port 113.
+
+
+Built-in ident (alternative port):
+
+  [ident]
+  ident_method = 0
+  ident_port = 2113
+
+  Prerequisites (iptables):
+    sudo iptables -t nat -A PREROUTING -i eth0 -p tcp \
+      --dport 113 -j REDIRECT --to-port 2113
+
+      Bot runs ident daemon on port 2113, iptables redirects 113->2113.
+
+
+System oidentd:
+
+  [ident]
+  ident_method = 1
+
+  Prerequisites:
+    sudo apt-get install oidentd
+    sudo systemctl start oidentd
+
+      Use system oidentd service (external).
+
+
+USERNAME CONFIGURATION
+
+Default ident username is set in [bot] section:
+
+  [bot]
+  username = "lamest"
+
+When ident module is loaded, IRC servers receive:
+  USERID response: "lamest" (from username setting)
+
+To change ident dynamically, you must reload the ident module or modify
+the username setting.
+
+
+DEPENDENCIES
+
+The ident module has no hard dependencies.
+
+Optional:
+  - For method 1: oidentd must be installed and running
+
+
+TROUBLESHOOTING
+
+Ident not working:
+  - Verify ident module is loaded (.modules).
+  - Check IRC server logs for ident query attempts.
+  - Try connecting to IRC server; check if ident is queried.
+
+Port 113 access denied (non-root):
+  - Use setcap: sudo setcap "cap_net_bind_service=+ep" /path/to/eggdrop
+  - OR use alternative port (2113) with iptables redirect.
+  - OR use method 1 (oidentd).
+
+"Permission denied" binding to port 113:
+  - This is normal without root or setcap.
+  - Solution: Use setcap (recommended) or alternative port.
+
+Ident queries timing out:
+  - Check firewall allows port 113 (or alternative port).
+  - Verify bot can bind to configured port.
+  - Check IRC server can reach port 113 on bot's machine.
+
+Multiple bots on same account failing:
+  - Use method 1 (oidentd) which handles multiple bots.
+  - OR use different ports with IP binding.
+
+System oidentd (method 1) not working:
+  - Verify oidentd is installed: which oidentd
+  - Start oidentd: sudo systemctl start oidentd
+  - Check oidentd running: sudo systemctl status oidentd
+  - Review /etc/oidentd.conf for configuration.
+
+
+SECURITY NOTES
+
+- Ident queries can reveal bot's username.
+- Some networks rely on ident for abuse tracking.
+- IRC operators can use ident to identify bots.
+- Changing ident doesn't hide bot identity (other methods needed).
+- For privacy, consider methods that report different ident (consult
+  oidentd documentation).
+
+
+NOTES
+
+- Ident queries are rare on modern IRC networks (most don't bother).
+- Some networks require ident to connect (verify with network admin).
+- Port 113 access requires special setup on modern Linux systems.
+- Built-in method works well for single bots.
+- System oidentd better for multiple bots from same account.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

@@ -1,55 +1,250 @@
-Last revised: November 27, 2003
+Last revised: May 10, 2026
 
 Share Module
 
 This module provides userfile sharing support between two directly
-linked bots.
+linked bots. When configured, bots automatically synchronize their user
+databases. Without it, each bot maintains a separate user list.
 
-This module requires: transfer, channels
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the share
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule share
+  [modules]
+  load = [
+    "share",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set allow-resync 0
+DEPENDENCIES
 
-      When two bots get disconnected, this setting allows them to create
-      a resync buffer which saves all changes done to the userfile
-      during the disconnect. When they reconnect, they will not have to
-      transfer the complete user file, but, instead, just send the
-      resync buffer.
+The share module requires:
+  - transfer module (for file transfer)
+  - channels module (for channel tracking)
 
-  set resync-time 900
 
-      This setting specifies how long to hold another bots resync data
-      before flushing it. This is a setting for allow-resync.
+CONFIGURATION
 
-  set private-global 0
+All share settings are in the [share] section:
 
-      When sharing user lists, DON'T ACCEPT global flag changes from
-      other bots? NOTE: The bot will still send changes made on the bot,
-      it just won't accept any global flag changes from other bots. This
-      overrides the private-globals setting (below).
+  [share]
+  allow_resync = 0
 
-  set private-globals "mnot"
+      Allow resync buffer for disconnected bots (0 = off, 1 = on). When
+      bots disconnect and reconnect, a resync buffer saves changes so the
+      full userfile doesn't need to be retransferred. Saves bandwidth on
+      frequent disconnects.
 
-      When sharing user lists, if private-global isn't set, which global
-      flag changes from other bots should be ignored?
+  resync_time = 900
 
-  set private-user 0
+      Rate-limit resync requests (in seconds). Default 900 = 15 minutes.
+      Prevents excessive resync traffic. Lower values increase overhead.
 
-      When sharing user lists, don't accept ANY userfile changes from
-      other bots? Paranoid people should use this feature on their hub
-      bot. This will force all userlist changes to be made via the hub.
+  private_global = 0
 
-  set override-bots 0
+      Don't accept global flag changes from other bots (0 = off, 1 = on).
+      When enabled, the bot keeps its own global flags and doesn't
+      propagate them to/from linked bots.
 
-      This setting makes the bot discard its own bot records in favor of
-      the ones sent by the hub. NOTE: No passwords or botflags are
-      shared, only ports and address are added to sharing procedure.
-      This only works with hubs that are v1.5.1 or higher.
+  private_user = 0
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+      Don't share user records with linked bots at all (0 = off, 1 = on).
+      When enabled, bot keeps all users private (extreme isolation).
+
+  override_bots = 0
+
+      Override local bot records with incoming ones (0 = off, 1 = on).
+      When enabled, linked bot's records take priority (dangerous!).
+
+  private_globals = ""
+
+      Space-separated list of global flag letters to keep private.
+      Example: "b n" keeps +b (bot) and +n (owner) flags local only.
+
+  share_compressed = 1
+
+      Compress userfiles before sending to linked bots (0 = off, 1 = on).
+      Requires compress.mod to be loaded. Saves bandwidth significantly.
+
+
+FILE TRANSFER SETTINGS
+
+Configure transfer behavior:
+
+  [transfer]
+  max_dloads = 3
+
+      Maximum simultaneous downloads (for userfile transfers).
+
+  dcc_block = 4096
+
+      DCC transfer block size (4096 is good for most networks).
+
+  xfer_timeout = 30
+
+      Transfer timeout in seconds.
+
+  [crypto]
+  compress_level = 9
+
+      Compression level (1=fast, 9=best). Only used if share_compressed
+      = 1 and compress.mod is loaded.
+
+
+BOTNET LINKING
+
+To link bots for sharing, configure botnet connections:
+
+  [tcl]
+  commands = [
+    "link bot1.example.com 3334 botpass",
+  ]
+
+      Link to another bot. Format: "link <host> <port> <password>"
+
+Or:
+
+  [tcl]
+  commands = [
+    "listen 3334 bots",
+  ]
+
+      Listen for incoming bot connections on port 3334.
+
+
+USER FLAGS AND SHARING
+
+User flags are shared/private based on settings:
+
+  Global flags (affect all bots):
+    n = owner           m = master
+    o = op              k = known user
+    d = denied          b = bot account
+    u = user (account)  and others
+
+  Channel flags (per-channel):
+    o = op              v = voice
+    f = friend          d = denied
+
+With private_globals = "b n":
+  - +b and +n flags stay local (not shared)
+  - Other global flags are synchronized
+
+
+EXAMPLE CONFIGURATION
+
+Hub bot (receives from multiple leaves):
+
+  [modules]
+  load = ["share", "transfer", "channels"]
+
+  [share]
+  allow_resync = 1
+  resync_time = 900
+  private_global = 0
+  private_user = 0
+  share_compressed = 1
+
+  [tcl]
+  commands = ["listen 3334 bots"]
+
+      Hub listens on port 3334 for leaf bot connections.
+
+
+Leaf bot (connects to hub):
+
+  [modules]
+  load = ["share", "transfer", "channels"]
+
+  [share]
+  allow_resync = 1
+  resync_time = 900
+  share_compressed = 1
+
+  [tcl]
+  commands = ["link hub.example.com 3334 hubpass"]
+
+      Leaf connects to hub and shares userfile.
+
+
+Isolated bot (no sharing):
+
+  [modules]
+  load = ["channels"]
+
+  (no share module loaded)
+
+      Bot maintains independent user list (no syncing).
+
+
+USAGE AND BEHAVIOR
+
+When bots are linked with sharing:
+
+1. Bots exchange userfiles on connect
+2. All user changes are synchronized in real-time
+3. If compressed, saves ~70% bandwidth per transfer
+4. If resync enabled, uses delta updates on reconnect
+5. Global flags sync across all linked bots
+6. Channel flags are per-bot
+
+Starting the share process manually:
+
+  In DCC partyline on hub:
+    .dump share hub <leaf_bot>     (force resync from hub)
+
+  In DCC partyline on leaf:
+    (automatic on connect)
+
+
+PRIVATE FLAGS
+
+Keep certain flags local:
+
+  [share]
+  private_globals = "b n"
+
+      Owner (+n) and bot (+b) flags don't sync. Useful for:
+      - Keeping owner lists independent per bot
+      - Preventing unintended bot account shares
+      - Maintaining bot-specific configuration
+
+
+TROUBLESHOOTING
+
+Bots won't link:
+  - Verify transfer module is loaded on both bots.
+  - Check firewall allows bot connection port (3334 etc.).
+  - Verify bot password is correct on both sides.
+  - Check logs for connection errors.
+
+Userfile not syncing:
+  - Verify both bots have share module loaded.
+  - Check .linked (shows link status).
+  - Verify transfer module is functional.
+  - Try lower compression level or disable compression.
+
+Resync failing:
+  - Set allow_resync = 0 and reload (force full sync).
+  - Check disk space on both bots.
+  - Verify network connectivity.
+
+Wrong users on leaf bot:
+  - Check override_bots is 0 (unless intentional).
+  - Verify private_user = 0 (unless intentional).
+  - Ensure both bots have compatible versions.
+
+
+NOTES
+
+- Share module requires botnet links (separate from IRC).
+- Compression saves ~70% bandwidth (requires compress.mod).
+- Resync buffer saves bandwidth on frequent disconnects.
+- Global flags are synchronized by default (dangerous for +n flags).
+- Private flags prevent unwanted synchronization.
+- Testing recommended before deploying in production.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

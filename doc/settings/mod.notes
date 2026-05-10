@@ -1,47 +1,232 @@
-Last revised: January 1, 2002
+Last revised: May 10, 2026
 
 Notes Module
 
-This module provides support for storing of notes for users from each
-other. Note sending between currently online users is supported in the
-core, this is only for storing the notes for later retrieval.
+This module provides support for storing notes between users. Notes are
+messages left for offline users that are displayed when the user next
+joins or logs in. Note sending between online users is supported in core;
+this module handles persistent storage.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the notes
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule notes
+  [modules]
+  load = [
+    "notes",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set notefile "LamestBot.notes"
+CONFIGURATION
 
-      Set here the filename where private notes between users are
-      stored.
+All notes settings are in the [notes] section:
 
-  set max-notes 50
+  [notes]
+  notefile = "LamestBot.notes"
 
-      Set here the maximum number of notes to allow to be stored for
-      each user (to prevent flooding).
+      Filename where notes are stored. Path is relative to the bot's
+      working directory. The file is stored in LMDB format by default
+      (store_backend setting in [paths]).
 
-  set note-life 60
+  max_notes = 50
 
-      Set here how long (in days) to store notes before expiring them.
+      Maximum notes stored per user. Prevents flooding. Once a user
+      reaches this limit, no new notes can be stored until they read
+      and delete some.
 
-  set allow-fwd 0
+  note_life = 60
 
-      Set this to 1 if you want to allow users to specify a forwarding
-      address for forwarding notes to another account on another bot.
+      Note lifetime in days. Notes older than this are deleted
+      automatically. Set to 0 for notes that never expire.
 
-  set notify-users 1
+  allow_fwd = 0
 
-      Set this to 1 if you want the bot to let people know hourly if
-      they have any notes.
+      Allow note forwarding to other user accounts (0 = off, 1 = on).
+      When enabled, users can forward notes to another handle using the
+      .fwd command. Useful in botnets where users have accounts on
+      multiple bots.
 
-  set notify-onjoin 1
+  notify_users = 0
 
-      Set this to 1 if you want the bot to let people know on join if
-      they have any notes.
+      Notify users hourly of waiting notes (0 = off, 1 = on). If enabled,
+      users receive a message every hour listing how many notes they have.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+  notify_onjoin = 1
+
+      Notify users on IRC join if they have notes (0 = off, 1 = on).
+      Recommended: keep at 1 so users know to check notes when they join.
+
+
+NOTE SYSTEM BEHAVIOR
+
+Sending a note:
+
+  User1 can send a note to User2 using:
+    /msg botnick note user2 My message here
+
+  Or in DCC partyline:
+    .note user2 My message
+
+Receiving notes:
+
+  User2 joins IRC or DCC and sees:
+    "You have 3 notes waiting"
+
+  In DCC partyline, .notes lists notes. User can read with:
+    .note #1    (read note #1)
+    .note del 1 (delete note #1)
+
+Forwarding notes (if allow_fwd = 1):
+
+  User2 can forward a note to User3:
+    .fwd 1 user3  (forward note #1 to user3)
+
+
+NOTE EXPIRATION
+
+Notes expire based on note_life setting:
+
+  note_life = 60   (default): Notes expire after 60 days
+  note_life = 0    (never):   Notes never expire (use .note del)
+  note_life = 1    (daily):   Notes expire after 1 day
+
+Expiration is checked:
+  - When the user logs in (DCC or IRC hello)
+  - During hourly maintenance (if notify_users = 1)
+  - Manually with .expire command
+
+Expired notes are automatically deleted.
+
+
+STORING AND PERSISTENCE
+
+Notes are stored in:
+  - LMDB database (default, crash-safe)
+  - Flat-file format (if store_backend = "flat")
+
+Path is controlled by [paths]:
+
+  [paths]
+  notefile = "LamestBot.notes"
+
+Notes persist across:
+  - Bot restarts
+  - Userfile backups
+  - Userfile sharing with linked bots
+
+
+EXAMPLE CONFIGURATION
+
+Standard setup (most common):
+
+  [notes]
+  notefile = "LamestBot.notes"
+  max_notes = 50
+  note_life = 60
+  allow_fwd = 0
+  notify_users = 0
+  notify_onjoin = 1
+
+      Users can store up to 50 notes. Notes last 60 days. Users are
+      notified on join.
+
+
+Minimal notes (disable most):
+
+  [notes]
+  notefile = "LamestBot.notes"
+  max_notes = 10
+  note_life = 7
+  allow_fwd = 0
+  notify_users = 0
+  notify_onjoin = 1
+
+      Only 10 notes per user, expire after 7 days. Minimal overhead.
+
+
+Full notes with forwarding:
+
+  [notes]
+  notefile = "LamestBot.notes"
+  max_notes = 100
+  note_life = 30
+  allow_fwd = 1
+  notify_users = 1
+  notify_onjoin = 1
+
+      100 notes per user, 30-day lifetime. Forwarding enabled.
+      Hourly notifications if notes waiting.
+
+
+DCC COMMANDS
+
+In DCC partyline, users can:
+
+  .notes [n]              List notes (page n)
+  .note <n>              Read note n
+  .note <nick> <msg>     Send note to nick
+  .note del <n>          Delete note n
+  .note all-read         Mark all notes read
+  .note all-del          Delete all notes
+  .fwd <n> <nick>        Forward note n to nick (if allow_fwd = 1)
+  .expire                Manually expire old notes
+
+
+INTEGRATION WITH BOTNET SHARING
+
+If share.mod is loaded with share_compressed = 1, notes can be
+synchronized across linked bots. Each bot maintains its own notes file,
+but sharing helps keep botnets coordinated.
+
+Note sharing is NOT enabled by default. Configure if needed:
+
+  [share]
+  allow_resync = 1
+
+      Allow note data to be shared during resync.
+
+
+DEPENDENCIES
+
+The notes module has no required dependencies. It works standalone.
+
+Optional:
+  - share module (for botnet note synchronization)
+  - channels module (if you want notes in channel mode)
+
+
+NOTES
+
+- Notes are per-user, not per-channel.
+- Max_notes prevents storage DoS attacks.
+- Note_life should be reasonable (1-180 days is typical).
+- Forwarding is useful in large botnets with multiple bots.
+- Hourly notifications (notify_users) add overhead; disable if not needed.
+- Notes are stored securely in the same database as users.
+
+
+TROUBLESHOOTING
+
+Notes not being stored:
+  - Check notefile path is correct and writable.
+  - Verify notes module is loaded (check .modules).
+  - Check max_notes isn't at limit (user needs space).
+
+Users not notified on join:
+  - Verify notify_onjoin = 1.
+  - Check user's notice window isn't closed.
+  - Some IRC clients hide server notices by default.
+
+Forwarding doesn't work:
+  - Ensure allow_fwd = 1.
+  - Verify target user exists and is valid handle.
+  - Check for typos in .fwd command.
+
+Notes expiring too quickly:
+  - Increase note_life setting.
+  - Set to 0 if notes should never expire.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

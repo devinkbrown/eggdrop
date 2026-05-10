@@ -1,47 +1,197 @@
-Last revised: September 26, 2010
+Last revised: May 10, 2026
 
 DNS Module
 
-This module provides asynchronous dns support. This will avoid long
-periods where the bot just hangs there, waiting for a hostname to
-resolve, which will often let it timeout on all other connections.
+This module provides asynchronous (non-blocking) DNS resolution. Without
+it, the bot hangs while doing hostname lookups, which can cause timeouts
+and disconnections. With it, DNS queries happen in the background while
+the bot remains responsive.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the dns
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule dns
+  [modules]
+  load = [
+    "dns",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set dns-servers "8.8.8.8 8.8.4.4"
+CONFIGURATION
 
-      In case your bot has trouble finding dns servers or you want to
-      use specific ones, you can set them here. The value is a list of
-      dns servers. The relative order doesn't matter. You can also
-      specify a non-standard port. The default is to use the system
-      specified dns servers. You don't need to modify this normally.
+All DNS settings are in the [dns] section:
 
-  set dns-cache 86400
+  [dns]
+  dns_maxsends = 4
 
-      Specify how long should the DNS module cache replies at maximum.
-      The value must be in seconds. Note that it will respect the TTL of
-      the reply and this is just an upper boundary.
+      Max DNS queries to send per polling pass. Higher values = faster
+      resolution but more network traffic. Default 4 is good for most
+      setups.
 
-  set dns-negcache 600
+  dns_retrydelay = 3
 
-      Specify how long should the DNS module cache negative replies
-      (NXDOMAIN, DNS Lookup failed). The value must be in seconds.
+      Seconds before retrying a failed DNS query. Too low = network
+      traffic, too high = slow lookups. Default 3 seconds.
 
-  set dns-maxsends 4
+  dns_cache = 86400
 
-      How many times should the DNS module resend the query for a given
-      domain if it receives no reply?
+      Cache successful DNS results for N seconds. Default 86400 = 24
+      hours. Set to 0 to disable caching (not recommended).
 
-  set dns-retrydelay 3
+      Caching prevents:
+      - Repeated lookups for same hostname
+      - DNS server queries
+      - Network traffic
 
-      Specify how long should the DNS module wait for a reply before
-      resending the query. The value must be in seconds.
+      Respects DNS TTL (time-to-live) from the server; cache is an
+      upper bound.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+  dns_negcache = 600
+
+      Cache negative results (NXDOMAIN, lookup failed) for N seconds.
+      Default 600 = 10 minutes. Prevents repeated failed lookups.
+
+  dns_servers = "1.1.1.1 8.8.8.8"
+
+      Space-separated list of DNS server IPs to use. Leave empty to use
+      system /etc/resolv.conf (default). Set if you want specific DNS
+      servers or have network isolation.
+
+      Examples:
+        "8.8.8.8"                    (Google)
+        "1.1.1.1 1.0.0.1"            (Cloudflare)
+        "208.67.222.222"             (OpenDNS)
+
+
+EXAMPLE CONFIGURATION
+
+Standard async DNS (recommended):
+
+  [modules]
+  load = ["dns"]
+
+  [dns]
+  dns_maxsends = 4
+  dns_retrydelay = 3
+  dns_cache = 86400
+  dns_negcache = 600
+
+      Async DNS with 24-hour caching. Default settings.
+
+
+Custom DNS servers:
+
+  [modules]
+  load = ["dns"]
+
+  [dns]
+  dns_servers = "8.8.8.8 8.8.4.4"
+  dns_cache = 86400
+  dns_negcache = 600
+
+      Use Google's DNS servers instead of system default.
+
+
+Aggressive caching (reduce DNS traffic):
+
+  [modules]
+  load = ["dns"]
+
+  [dns]
+  dns_cache = 604800         # 7 days
+  dns_negcache = 3600        # 1 hour
+  dns_maxsends = 2
+
+      Longer caching reduces DNS queries significantly.
+
+
+No caching (always fresh):
+
+  [modules]
+  load = ["dns"]
+
+  [dns]
+  dns_cache = 60             # 1 minute
+  dns_negcache = 60          # 1 minute
+  dns_maxsends = 4
+
+      Minimal caching for environments needing fresh DNS info.
+
+
+PERFORMANCE BENEFITS
+
+DNS module prevents bot hangs during hostname lookups:
+
+  Without dns.mod:
+    1. User joins IRC
+    2. Bot starts hostname lookup (blocking)
+    3. Bot unresponsive for 1-5+ seconds
+    4. Can cause IRC disconnections due to timeouts
+
+  With dns.mod:
+    1. User joins IRC
+    2. Bot starts async DNS lookup (non-blocking)
+    3. Bot continues operating normally
+    4. Lookup completes in background
+    5. Results cached for next query
+
+Caching further improves performance:
+  - Common hostnames (IRC servers) cached
+  - Repeat lookups return instantly
+  - Reduces DNS server queries
+
+
+SYSTEM DNS CONFIGURATION
+
+If dns_servers is empty, uses system default from /etc/resolv.conf.
+
+Most Linux systems:
+  /etc/resolv.conf contains nameserver entries
+
+To verify:
+  cat /etc/resolv.conf
+
+To use specific DNS permanently, either:
+  1. Set dns_servers in eggdrop.toml (per-bot)
+  2. Edit /etc/resolv.conf (system-wide)
+  3. Configure DHCP client (dhclient, NetworkManager)
+
+
+DEPENDENCIES
+
+The dns module has no external dependencies.
+
+
+NOTES
+
+- DNS module is highly recommended for all bots.
+- Async resolution prevents bot hangs.
+- Caching reduces DNS lookups significantly.
+- Respects DNS TTL (time-to-live).
+- IPv6 (AAAA) lookups also supported.
+
+
+TROUBLESHOOTING
+
+DNS lookups still slow:
+  - Check dns_cache isn't too low (try 86400).
+  - Verify dns_servers are correct and accessible.
+  - Monitor network connectivity.
+  - Check DNS server responsiveness (nslookup test).
+
+"Unknown host" errors:
+  - Verify dns_servers are correct.
+  - Check network can reach DNS servers (ping test).
+  - Check /etc/resolv.conf is correct (if using system default).
+  - Try lower dns_negcache (stale negative cache).
+
+Hostname lookups failing:
+  - Verify DNS servers are reachable.
+  - Check firewall allows DNS (port 53 UDP).
+  - Try public DNS servers (8.8.8.8, 1.1.1.1).
+  - Check for DNS recursion issues.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

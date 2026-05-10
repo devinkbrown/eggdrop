@@ -1,32 +1,50 @@
-Last revised: January 1, 2002
-
 Console Module
 
-This module provides storage of console settings when you exit the bot
-or type .store on the partyline.
+This module persists console settings across bot restarts and partyline
+sessions.
 
-This module requires: none
+REQUIREMENTS
+
+None.
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the console
 module:
 
     loadmodule console
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set console-autosave 1
+set console-autosave 1
 
-      Save users console settings automatically? Otherwise, they have to
-      use the .store command.
+  Save users' console settings automatically on exit. Set to 0 to require
+  the .store partyline command for manual saving.
 
-  set force-channel 0
+set force-channel 0
 
-      If a user doesn't have any console settings saved, which channel
-      do you want them automatically put on?
+  Default channel number for users without saved console settings. Set to
+  a channel number (0-9) to place new users on a specific channel by
+  default. Set to 0 to place on the default channel.
 
-  set info-party 0
+set info-party 0
 
-      Enable this setting if a user's global info line should be
-      displayed when they join a botnet channel.
+  Display users' global info line when they join a botnet channel. Set to
+  1 to enable.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+DESCRIPTION
+
+The console module stores each user's console preferences (channel
+selection, console modes, and other partyline settings) so that when
+they disconnect and reconnect, their previous settings are restored.
+
+This is useful for:
+- Preserving users' console channel selections across restarts
+- Maintaining console mode preferences (message levels, etc.)
+- Saving partyline layout preferences
+
+If console-autosave is enabled (recommended), changes are saved
+automatically. Otherwise, users must type .store on the partyline to
+save their settings manually.
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

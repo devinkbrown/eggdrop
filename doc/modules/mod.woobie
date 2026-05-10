@@ -1,15 +1,134 @@
-Last revised: December 31, 2001
-
 Woobie Module
 
-This is for demonstrative purposes only. If you are looking for starting
-point in writing modules, woobie is the right thing.
+This is a demonstrative module intended as a template and starting point
+for developing custom Eggdrop modules.
 
-This module requires: none
+REQUIREMENTS
+
+None.
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the woobie
 module:
 
     loadmodule woobie
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+CONFIGURATION
+
+No configuration options are available.
+
+DESCRIPTION
+
+The woobie module serves as a minimal, well-documented example of module
+structure and API usage. It is not intended for production use but rather
+as educational material for developers.
+
+SOURCE CODE LOCATION
+
+The woobie module source is located at:
+
+    src/mod/woobie.mod/woobie.c
+
+STUDY GUIDE
+
+If you are writing a custom module, examine woobie.c to learn:
+
+1. Module structure: required entry points (MODULE_start, MODULE_close,
+   MODULE_expmem, MODULE_report)
+
+2. Function exports: how to create and manage MODULE_table
+
+3. Hook registration: adding and removing hooks for periodic functions
+
+4. Memory management: using nmalloc and nfree safely
+
+5. Error handling: returning appropriate error strings
+
+6. Logging: using putlog for debugging
+
+For comprehensive module development documentation, see
+doc/modules/writing-modules.
+
+GETTING STARTED
+
+To create your own module based on woobie:
+
+1. Copy src/mod/woobie.mod to src/mod/mymodule.mod
+2. Rename woobie.c to mymodule.c
+3. Replace all instances of 'woobie' with 'mymodule' in:
+   - mymodule.c (MODULE_NAME define)
+   - meson.build
+4. Modify the module's functionality as desired
+5. Build with: meson setup builddir/ && ninja -C builddir/
+
+MODULE API REFERENCE
+
+The module has access to the Eggdrop function table through the global
+'Function *global' pointer. See src/mod/module.h for available functions:
+
+Memory
+  nmalloc, nfree
+
+Hooks
+  add_hook, del_hook
+
+Modules
+  module_register, module_undepend, module_find, module_load, module_unload
+
+Tcl Integration
+  add_tcl_commands, rem_tcl_commands
+  add_tcl_ints, rem_tcl_ints
+  add_tcl_strings, rem_tcl_strings
+  add_builtins, rem_builtins
+
+I/O
+  dprintf, putlog
+
+Each function is well-documented in module.h with parameter descriptions.
+
+BEST PRACTICES
+
+When creating modules, follow these guidelines (demonstrated by woobie):
+
+1. Use static for internal functions to reduce symbol bloat
+
+2. Keep MODULE_start simple; defer complex initialization to hooks
+
+3. Always return NULL on success; non-NULL error strings on failure
+
+4. Clean up all allocated resources in MODULE_close
+
+5. Use proper error handling — never assume operations succeed
+
+6. Document your module's configuration options clearly
+
+7. Test memory with the .status partyline command
+
+For more detailed guidelines, see doc/modules/writing-modules.
+
+EXAMPLE OUTPUT
+
+When loaded, woobie produces minimal output. Check bot logs for:
+  "[module] Woobie module loaded"
+
+DOCUMENTATION TEMPLATE
+
+Use woobie as a template for writing module documentation:
+
+1. Brief one-line description
+2. Requirements section
+3. Loading instructions
+4. Configuration options
+5. Description section with usage examples
+6. Troubleshooting if applicable
+
+QUESTIONS?
+
+For questions on module development, visit the Eggdrop community:
+
+  - IRC: #eggdrop on Libera Chat
+  - GitHub: https://github.com/eggheads/eggdrop
+  - Forums: https://www.eggheads.org/forums
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

@@ -1,36 +1,64 @@
-Last revised: February 12, 2002
-
 CTCP Module
 
-This module provides the normal ctcp replies that you would expect.
-Without it loaded, CTCP CHAT will not work.
+This module provides standard CTCP (Client-to-Client Protocol) replies.
+It is required for CTCP CHAT functionality.
 
-This module requires: server
+REQUIREMENTS
+
+  - server module
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the ctcp
 module:
 
     loadmodule ctcp
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set ctcp-mode 0
+set ctcp-mode 0
 
-      Set here how the ctcp module should answer ctcps. There are 3
-      possible operating modes:
+  Controls how the bot answers CTCP requests. Three operating modes:
 
-        --- --------------------------------------------------------------
-        0   Normal behavior is used.
+    0 — Normal: answer all standard CTCP requests
+    1 — Restricted: ignore all CTCPs except CHAT and PING from +o users
+    2 — Rate-limited: answer all CTCPs but limit replies per second
 
-        1   The bot ignores all ctcps, except for CHAT and PING requests
-            by users with the +o flag.
+  Set ctcp-mode to 1 to make the bot less detectable by network scanners.
 
-        2   Normal behavior is used, however the bot will not answer more
-            than X ctcps in Y seconds (defined by 'set flood-ctcp').
-        --- --------------------------------------------------------------
+set ctcp-version "eggdrop v1.10.1"
 
-There are also several variables to help make your bot less noticeable.
-They are: ctcp-version, ctcp-finger, and ctcp-userinfo. You can use set
-to set them to values you'd like.
+  Response string for CTCP VERSION requests. Customize to change the
+  reported version.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+set ctcp-finger "I'm a bot"
+
+  Response string for CTCP FINGER requests.
+
+set ctcp-userinfo "Eggdrop bot"
+
+  Response string for CTCP USERINFO requests.
+
+DESCRIPTION
+
+The CTCP module implements standard CTCP replies to common requests like:
+
+  VERSION   — bot version
+  PING      — round-trip time test
+  TIME      — current time
+  FINGER    — user info
+  USERINFO  — user information
+
+Without this module, the bot cannot handle CTCP CHAT connections from
+partyline users on IRC.
+
+SECURITY NOTES
+
+Use ctcp-mode 1 to limit CTCP responses to trusted users only. This
+reduces the bot's visibility to network scanners and potential attackers.
+
+Standard CTCP commands will still be answered for users with the +o flag,
+while other users will receive minimal information, making the bot appear
+less like an automated bot to casual IRC users.
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

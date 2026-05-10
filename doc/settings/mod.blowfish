@@ -1,17 +1,160 @@
-Last revised: January 28, 2003
+Last revised: May 10, 2026
 
 Blowfish Module
 
-  Eggdrop can encrypt your userfile, so users can have secure passwords.
-  Please note that when you change your encryption method later (i.e.
-  using other modules like a md5 module), you can't use your current
-  userfile anymore. Eggdrop will not start without an encryption module.
+This module provides legacy Blowfish encryption support for user
+passwords. It is kept for backwards compatibility with existing userfiles.
+For new installations, PBKDF2 (via pbkdf2 module) is strongly recommended.
 
-  This module requires: none
+INSTALLATION
 
-  Put this line into your Eggdrop configuration file to load the
-  blowfish module:
+Add to [modules] section in eggdrop.toml:
 
-      loadmodule blowfish
+  [modules]
+  load = [
+    "blowfish",
+  ]
 
-  Copyright (C) 2000 - 2025 Eggheads Development Team
+
+PURPOSE
+
+The blowfish module enables the bot to:
+  - Decrypt passwords encrypted with Blowfish in existing userfiles
+  - Support users with Blowfish-encrypted passwords
+  - Maintain compatibility with older Eggdrop installations
+
+Eggdrop requires at least one encryption module to function. PBKDF2 is
+the modern standard; Blowfish is for legacy support only.
+
+
+ENCRYPTION METHODS
+
+Eggdrop now supports multiple password encryption methods:
+
+  pbkdf2   Modern (recommended). Uses PBKDF2-SHA256/SHA512 with 16000
+           iterations. Fast and secure. Configurable.
+
+  blowfish Legacy (backwards compatible). Encrypts passwords using
+           Blowfish cipher. Older than PBKDF2; still secure for existing
+           passwords.
+
+Both modules can be loaded simultaneously to support mixed userfiles
+(some users with Blowfish passwords, others with PBKDF2).
+
+
+CONFIGURATION
+
+The blowfish module requires no configuration in eggdrop.toml. Simply
+load it:
+
+  [modules]
+  load = [
+    "blowfish",
+  ]
+
+Password encryption behavior is controlled in [crypto]:
+
+  [crypto]
+  pbkdf2_re_encode = 1
+
+      When enabled (1), old Blowfish passwords are automatically re-encoded
+      to PBKDF2 when the user logs in. Recommended for gradual migration.
+      Set to 0 to keep passwords in original format indefinitely.
+
+  blowfish_use_mode = "cbc"
+
+      Blowfish cipher mode: "cbc" or "ecb". Default "cbc" is more secure.
+      Leave as default unless you have a specific reason to change it.
+
+
+DEPENDENCIES
+
+The blowfish module has no external dependencies.
+
+
+MODERN SETUP (RECOMMENDED)
+
+For new installations, use PBKDF2 instead:
+
+  [modules]
+  load = [
+    "pbkdf2",      # Modern encryption (use this)
+    "blowfish",    # Legacy support (load if migrating)
+  ]
+
+  [crypto]
+  pbkdf2_method = "SHA256"       # or SHA512
+  pbkdf2_rounds = 16000
+  pbkdf2_re_encode = 1           # Migrate old Blowfish to PBKDF2
+
+This setup:
+  - Uses PBKDF2 for new passwords
+  - Supports existing Blowfish passwords
+  - Auto-migrates to PBKDF2 on user login
+
+
+LEGACY SETUP (BACKWARDS COMPATIBLE)
+
+If you must use Blowfish only:
+
+  [modules]
+  load = [
+    "blowfish",    # Blowfish only (legacy)
+  ]
+
+  [crypto]
+  blowfish_use_mode = "cbc"
+
+This setup uses Blowfish for all passwords. Not recommended for new bots.
+
+
+MIGRATION PATH
+
+To migrate from Blowfish to PBKDF2:
+
+  Step 1: Load both modules
+    [modules]
+    load = ["pbkdf2", "blowfish"]
+
+  Step 2: Enable auto-migration
+    [crypto]
+    pbkdf2_re_encode = 1
+
+  Step 3: Have users log in
+    Users' passwords are automatically re-encoded to PBKDF2 on login.
+
+  Step 4: After migration complete (monitor logs), remove blowfish
+    [modules]
+    load = ["pbkdf2"]
+
+
+NOTES
+
+- Blowfish is no longer the default encryption method.
+- PBKDF2 is significantly more resistant to brute-force attacks.
+- The pbkdf2 module is required for modern security.
+- Both modules can coexist during migration.
+- Auto-migration (pbkdf2_re_encode = 1) is recommended.
+- No manual password conversion needed; it happens automatically on login.
+
+
+TROUBLESHOOTING
+
+"Encryption module required" error:
+  - Load either blowfish or pbkdf2 (or both).
+  - At least one encryption module must be loaded.
+
+Can't decrypt old passwords:
+  - Ensure blowfish module is loaded (for old userfiles).
+  - Check blowfish_use_mode matches the original (usually "cbc").
+  - Verify userfile wasn't corrupted.
+
+Re-encoding to PBKDF2 not happening:
+  - Ensure pbkdf2_re_encode = 1.
+  - Users must log in to trigger re-encoding.
+  - Check logs for re-encode events.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

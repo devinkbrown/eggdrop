@@ -47,14 +47,14 @@ channel.
 ENABLING EGGDROP ACCOUNT TRACKING
 
 By default, the Eggdrop config file will attempt to enable all the
-capabilities required for account tracking. There are two settings to
-pay attention to :
+capabilities required for account tracking. In eggdrop.toml, set these
+options to 1 (true) to request the required capabilities:
 
     # To request the account-notify feature via CAP, set this to 1
-    set account-notify 1
+    account-notify = 1
 
     # To request the extended-join feature via CAP, set this to 1
-    set extended-join 1
+    extended-join = 1
 
 The ability of a server to support WHOX queries is determined via a
 server's ISUPPORT (005) reply. If a server supports WHOX queries,

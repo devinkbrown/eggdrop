@@ -1,331 +1,453 @@
-Eggdrop Bind Internals
-======================
+Module Internals and Bind Architecture
+=======================================
 
-This document is intended for C developers who want to understand how Eggdrop’s Tcl binds or C binds work.
+This document describes how Eggdrop's module and bind system works. It's intended for C developers extending Eggdrop.
 
-For documentation purposes the “dcc” bind type is used as an example.
+**Note**: This documentation applies to Eggdrop 1.10 with C23, libop utilities, and the Meson build system.
 
-It already exists and is suitable to illustrate the details of bind handling in Eggdrop.
-
-Note: All code snippets are altered for brevity and simplicity, see original source code for the full and current versions.
-
-General Workflow To Create a New Bind
--------------------------------------
-
-To create a new type of bind, there are generally three steps. First, you must add the new bind type to the `Bind Table`_. Once you have registered the bind type with the bind table, you must create a `C Function`_ that will be called to perform the functionality you wish to occur when the bind is triggered. Finally, once the C code supporting the new bind has been finished, the new Tcl binding is ready to be used in a Tcl script.
-
-.. _Bind Table:
-
-Adding a New Bind Type to the Bind Table
-----------------------------------------
-
-The bind is added to the bind table is by calling, either at module initialization or startup
-
-.. code-block:: C
-
-  /* Global symbol, available to other C files with
-   * extern p_tcl_bind_list H_dcc;
-   */
-  p_tcl_bind_list H_dcc;
-
-  /* Creating the bind table:
-   * @param[in] const char *name Limited in length, see tclhash.h
-   * @param[in] int flags        HT_STACKABLE or 0
-   * @param[in] IntFunc          Function pointer to C handler
-   * @return    p_tcl_bind_list  aka (tcl_bind_list_t *)
-   */
-  H_dcc = add_bind_table("dcc", 0, builtin_dcc);
-
-What the :code:`C handler` does is explained later, because a lot happens before it is actually called. :code:`IntFunc` is a generic function pointer that returns an :code:`int` with arbitrary arguments.
-
-:code:`H_dcc` can be exported from core and imported into modules as any other variable or function. That should be explained in a separate document.
-
-.. _HT_STACKABLE:
-
-Stackable Binds: HT_STACKABLE
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-:code:`HT_STACKABLE` means that multiple binds can exist for the same mask. An example of what happens when NOT using this flag shown in the code block below.
-
-.. code-block:: Tcl
-
-  bind dcc - test proc1; # not stackable
-  bind dcc - test proc2; # overwrites the first one, only proc2 will be called
-
-To enable this feature, you must set the second argument to ``add_bind_table()`` with ``HT_STACKABLE``. Using ``HT_STACKABLE`` does not automatically call all the binds that match, see the bind flags listed in `Triggering any Bind`_ section for details on the partner flags ``BIND_STACKABLE`` and ``BIND_WANTRET`` used in ``check_tcl_bind()``.
-
-.. _C Function:
-
-Adding Bind Functionality
--------------------------
-
-A C function must created that will be called when the bind is triggered. Importantly, the function is designed to accept specific arguments passed by Tcl.
-
-.. code-block:: C
-
-  int check_tcl_dcc(const char *cmd, int idx, const char *args) {
-    struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-    int x;
-    char s[11];
-
-    get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
-    egg_snprintf(s, sizeof s, "%ld", dcc[idx].sock);
-    Tcl_SetVar(interp, "_dcc1", (char *) dcc[idx].nick, 0);
-    Tcl_SetVar(interp, "_dcc2", (char *) s, 0);
-    Tcl_SetVar(interp, "_dcc3", (char *) args, 0);
-    x = check_tcl_bind(H_dcc, cmd, &fr, " $_dcc1 $_dcc2 $_dcc3",
-                    MATCH_PARTIAL | BIND_USE_ATTR | BIND_HAS_BUILTINS);
-    /* snip ..., return code handling */
-    return 0;
-  }
-
-The global Tcl variables :code:`$_dcc1 $_dcc2 $_dcc3` are used as temporary string variables and passed as arguments to the registered Tcl proc.
-
-This shows which arguments the callbacks in Tcl get:
-
-* the nickname of the DCC chat user (handle of the user)
-* the IDX (socket id) of the partyline so :code:`[putdcc]` can respond back
-* another string argument that depends on the caller
-
-The call to :code:`check_tcl_dcc` can be found in the DCC parsing in `src/dcc.c`.
-
-Using the Bind in Tcl
----------------------
-
-After the bind table is created with :code:`add_bind_table`, Tcl procs can already be registered to this bind by calling
-
-.. code-block:: Tcl
-
-  bind dcc -|- test myproc
-  proc myproc {args} {
-    putlog "myproc was called, argument list: '[join $args ',']'"
-    return 0
-  }
-
-Of course it is not clear so far:
-
-* If flags :code:`-|-` matter for this bind at all and what they are checked against
-* If channel flags have a meaning or global/bot only
-* What :code:`test` is matched against to see if the bind should trigger
-* Which arguments :code:`myproc` receives, the example just accepts all arguments
-
-.. _triggering_any_bind:
-
-Triggering any Bind
+Module Architecture
 -------------------
 
-`check_tcl_bind` is used by all binds and does the following
+Eggdrop Modules are C code compiled into dynamically-linked ``.so`` files (or static ``.a`` files) that are loaded at runtime.
 
-.. code-block:: C
+Module Structure
+^^^^^^^^^^^^^^^^
 
-  /* Generic function to call one/all matching binds
-   * @param[in] tcl_bind_list_t *tl      Bind table (e.g. H_dcc)
-   * @param[in] const char *match        String to match the bind-masks against
-   * @param[in] struct flag_record *atr  Flags of the user calling the bind
-   * @param[in] const char *param        Arguments to add to the bind callback proc (e.g. " $_dcc1 $_dcc2 $_dcc3")
-   * @param[in] int match_type           Matchtype and various flags
-   * @returns   int                      Match result code
-   */
+Every module has:
 
-  /* Source code changed, only illustrative */
-  int check_tcl_bind(tcl_bind_list_t *tl, const char *match, struct flag_record *atr, const char *param, int match_type) {
-    int x = BIND_NOMATCH;
-    for (tm = tl->first; tm && !finish; tm_last = tm, tm = tm->next) {
-      /* Check if bind mask matches */
-      if (!check_bind_match(match, tm->mask, match_type))
-        continue;
-      for (tc = tm->first; tc; tc = tc->next) {
-        /* Check if the provided flags suffice for this command. */
-        if (check_bind_flags(&tc->flags, atr, match_type)) {
-          tc->hits++;
-          /* not much more than Tcl_Eval(interp, "<procname> <arguments>"); and grab the result */
-          x = trigger_bind(tc->func_name, param, tm->mask);
-        }
-      }
+1. **Module header** — Copyright/license information
+2. **Module initialization** — Startup code registering with Eggdrop core
+3. **Module table** — Exports functions to Eggdrop
+4. **Feature implementations** — Commands, binds, hooks
+5. **Module shutdown** — Cleanup code
+
+Basic Module Template
+^^^^^^^^^^^^^^^^^^^^^
+
+::
+
+  #define MODULE_NAME "mymodule"
+
+  #undef global
+  static Function *global = NULL;
+  EXPORT_SCOPE char *mymodule_start();
+
+  static int mymodule_expmem(void) { return 0; }
+  static void mymodule_report(int idx, int details) { }
+
+  char *mymodule_start(Function *global_funcs)
+  {
+    global = global_funcs;
+    module_register(MODULE_NAME, mymodule_table, 1, 0);
+
+    if (!module_depend(MODULE_NAME, "eggdrop", 110, 0)) {
+      module_undepend(MODULE_NAME);
+      return "Eggdrop 1.10.0 or later required";
     }
-    return x;
+    return NULL;
   }
+
+  static char *mymodule_close(void)
+  {
+    module_undepend(MODULE_NAME);
+    return NULL;
+  }
+
+  static Function mymodule_table[] = {
+    (Function) mymodule_start,
+    (Function) mymodule_close,
+    (Function) mymodule_expmem,
+    (Function) mymodule_report,
+  };
+
+Build System Integration
+------------------------
+
+Eggdrop uses **Meson** for building. Modules are automatically detected and compiled.
+
+Module Directory Structure
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+::
+
+  src/mod/mymodule/
+  ├── meson.build        # Meson build file
+  └── mymodule.c         # Source code
+
+Example meson.build
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+  mymodule = static_library('mymodule',
+    'mymodule.c',
+    include_directories: [includes],
+    install: true,
+    install_dir: get_option('prefix') / 'modules'
+  )
+
+Building Modules
+^^^^^^^^^^^^^^^^
+
+Modules are built automatically with the main Eggdrop build::
+
+  meson setup builddir
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/eggdrop
+
+Compiled modules appear in ``modules/`` directory of the install.
+
+Bind System
+-----------
+
+Eggdrop's bind system is how IRC events trigger Tcl scripts. Binds connect C code to Tcl callbacks.
+
+Bind Types
+^^^^^^^^^^
+
+Common built-in binds:
+
+- **pub** — Public channel messages (non-bot commands)
+- **msg** — Private messages from users
+- **join** — User joins channel
+- **part** — User leaves channel
+- **kick** — User is kicked
+- **mode** — Channel mode changes
+- **topic** — Channel topic changes
+- **account** — User authenticates
+- **dcc** — Partyline commands
+- **server** — Server messages
+
+Creating a Custom Bind
+^^^^^^^^^^^^^^^^^^^^^^
+
+To create a bind in a module:
+
+1. Declare a bind handle::
+
+     static p_tcl_bind_list H_mybind;
+
+2. Register the bind in startup::
+
+     H_mybind = add_bind_table("mybind", HT_STACKABLE, mybind_2char);
+
+3. Define the argument handler::
+
+     static int mybind_2char STDVAR
+     {
+       Function F = (Function) cd;
+       BADARGS(3, 3, " arg1 arg2");
+       CHECKVALIDITY(mybind_2char);
+       F(argv[1], argv[2]);
+       return TCL_OK;
+     }
+
+4. Create a trigger function::
+
+     int check_tcl_mybind(char *arg1, char *arg2)
+     {
+       struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+       Tcl_SetVar(interp, "_mybind1", arg1, 0);
+       Tcl_SetVar(interp, "_mybind2", arg2, 0);
+       return check_tcl_bind(H_mybind, "mask", &fr,
+                             " $_mybind1 $_mybind2",
+                             MATCH_MASK | BIND_STACKABLE);
+     }
+
+5. Call it from C code when event occurs::
+
+     check_tcl_mybind(data1, data2);
+
+6. Unregister in shutdown::
+
+     del_bind_table(H_mybind);
 
 Bind Flags
 ^^^^^^^^^^
 
-The last argument to :code:`check_tcl_bind` in `check_tcl_dcc` sets additional configurations for the bind. These are the allowed defined values:
+When creating a bind table::
 
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| **Value**         | **Description**                                                                                                               |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| MATCH_PARTIAL     | Check the triggering value against the beginning of the bind mask, ie DIR triggers a mask for DIRECTORY (case insensitive)    |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| MATCH_EXACT       | Check the triggering value exactly against the bind mask value (case insensitive)                                             |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| MATCH_CASE        | Check the triggering value exactly against the bind mask value (case sensitive)                                               |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| MATCH_MASK        | Check if the bind mask is matched against the triggering value as a wildcarded value                                          |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| MATCH_MODE        | Special mode for `bind mode` similar to `MATCH_MASK`. This uses case-insensitive matching before the first space in the mask, |
-|                   | (the channel), and then case sensitive after the first space (the modes)                                                      |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| MATCH_CRON        | Check the triggering value against a bind mask formatted as a cron entry, ie "30 7 6 7 5 " triggers a mask for "30 7 * * * "  |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| BIND_USE_ATTR     | Check the flags of the user match the flags required to trigger the bind                                                      |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| BIND_STACKABLE    | Allow one mask to be re-used to call multiple Tcl proc. Must be used with HT_STACKABLE_                                       |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| BIND_WANTRET      | With stacked binds, if the called Tcl proc called returns a '1', halt processing any further binds triggered by the action    |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
-| BIND_STACKRET     | Used with BIND_WANTRET; allow stacked binds to continue despite receiving a '1'                                               |
-+-------------------+-------------------------------------------------------------------------------------------------------------------------------+
+- **HT_STACKABLE** — Multiple binds per mask allowed
+- **0** (default) — Only one bind per mask (overwrites previous)
 
-Bind Return Values
-^^^^^^^^^^^^^^^^^^
-The value returned by the bind is often matched against a desired value to return a '1' (often used with BIND_WANTRET and BIND_STACKRET) to the calling function.
+When triggering a bind with ``check_tcl_bind()``::
 
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| **Value**      | **Description**                                                                                              |
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| BIND_NOMATCH   | The bind was not triggered due to not meeting the criteria set for the bind                                  |
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| BIND_AMBIGUOUS | The triggering action matched multiple non-stackable binds                                                   |
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| BIND_MATCHED   | The bind criteria was met, but the Tcl proc it tried to call could not be found                              |
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| BIND_EXECUTED  | The bind criteria was met and the Tcl proc was called                                                        |
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| BIND_EXEC_LOG  | The bind criteria was met, the Tcl proc was called, and Eggdrop logged the bind being called                 |
-+----------------+--------------------------------------------------------------------------------------------------------------+
-| BIND_QUIT      | Sentinel value to signal that quit was triggered by the target leaving the partyline or filesys area.        |
-|                | (Virtual bind to CMD_LEAVE)                                                                                  |
-+----------------+--------------------------------------------------------------------------------------------------------------+
+- **BIND_STACKABLE** — Call all matching binds, not just first
+- **BIND_WANTRET** — Bind can return a value to C code
+- **BIND_USE_ATTR** — Use flag record for filtering
+- **MATCH_MASK** — Use mask matching (wildcards)
+- **MATCH_PARTIAL** — Partial matching allowed
+- **BIND_HAS_BUILTINS** — Has built-in handler
 
-Note: For a bind type to be stackable it needs to be registered with :code:`HT_STACKABLE` AND :code:`check_tcl_bind` must be called with :code:`BIND_STACKABLE`.
+Tcl Commands from Modules
+--------------------------
 
-C Binding
----------
+Modules can add Tcl commands that scripts can call.
 
-To create a C function that is called by the bind, Eggdrop provides the :code:`add_builtins` function.
+Adding a Tcl Command
+^^^^^^^^^^^^^^^^^^^^
 
-.. code-block:: C
+1. Create a Tcl command function::
 
-  /* Add a list of C function callbacks to a bind
-   * @param[in] tcl_bind_list_t *  the bind type (e.g. H_dcc)
-   * @param[in] cmd_t *            a NULL-terminated table of binds:
-   * cmd_t *mycmds = {
-   *   {char *name, char *flags, IntFunc function, char *tcl_name},
-   *   ...,
-   *   {NULL, NULL, NULL, NULL}
-   * };
-   */
-  void add_builtins(tcl_bind_list_t *tl, cmd_t *cc) {
-    char p[1024];
-    cd_tcl_cmd tclcmd;
+     static int tcl_mycommand STDVAR
+     {
+       BADARGS(2, 3, " arg ?optional?");
 
-    tclcmd.name = p;
-    tclcmd.callback = tl->func;
-    for (i = 0; cc[i].name; i++) {
-      /* Create Tcl command with automatic or given names *<bindtype>:<funcname>, e.g.
-       * - H_raw {"324", "", got324, "irc:324"} => *raw:irc:324
-       * - H_dcc {"boot", "t", cmd_boot, NULL} => *dcc:boot
-       */
-      egg_snprintf(p, sizeof p, "*%s:%s", tl->name, cc[i].funcname ? cc[i].funcname : cc[i].name);
-      /* arbitrary void * can be included, we include C function pointer */
-      tclcmd.cdata = (void *) cc[i].func;
-      add_cd_tcl_cmd(tclcmd);
-      bind_bind_entry(tl, cc[i].flags, cc[i].name, p);
-    }
+       if (strcmp(argv[1], "test") == 0) {
+         Tcl_AppendResult(irp, "Success!", NULL);
+         return TCL_OK;
+       }
+       Tcl_AppendResult(irp, "Unknown subcommand", NULL);
+       return TCL_ERROR;
+     }
+
+2. Create a command table::
+
+     static tcl_cmds mytcl[] = {
+       {"mycommand", tcl_mycommand},
+       {NULL, NULL}
+     };
+
+3. Export in module table (module startup needs to register)
+
+Using libop Utilities
+---------------------
+
+Eggdrop 1.10 uses **libop** for common operations. Prefer libop over raw C library functions.
+
+Common libop Functions
+^^^^^^^^^^^^^^^^^^^^^^
+
+**String handling**::
+
+  op_strbuf_t *sb = op_strbuf_new();
+  op_strbuf_append(sb, "Hello");
+  op_strbuf_append(sb, " World");
+  char *result = op_strbuf_str(sb);
+  op_strbuf_delete(sb);
+
+**Memory management**::
+
+  void *ptr = op_malloc(size);
+  void *ptr2 = op_realloc(ptr, newsize);
+  op_free(ptr);
+
+**List operations**::
+
+  op_list_t *list = op_list_new();
+  op_list_append(list, data);
+  op_list_foreach(list, cb);
+  op_list_delete(list);
+
+**Hash tables**::
+
+  op_hash_t *hash = op_hash_new();
+  op_hash_set(hash, key, value);
+  char *val = op_hash_get(hash, key);
+  op_hash_delete(hash);
+
+Module Loading and Registration
+--------------------------------
+
+Module Lifecycle
+^^^^^^^^^^^^^^^^
+
+1. **Discovery** — Meson finds modules in src/mod/
+2. **Compilation** — Module compiled to ``.so`` file
+3. **Installation** — Module copied to modules/ directory
+4. **Loading** — Eggdrop loads module on startup (if in config)
+5. **Initialization** — Module's `*_start()` function called
+6. **Runtime** — Module provides features to scripts/bot
+7. **Shutdown** — Module's `*_close()` function called (on unload)
+
+Module Dependency Declaration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Modules can depend on other modules::
+
+  if (!module_depend(MODULE_NAME, "server", 110, 0)) {
+    return "Requires server module";
   }
 
-It automatically creates Tcl commands (e.g. :code:`*dcc:cmd_boot`) that will call the `C handler` from `add_bind_table` in the first section `Bind Table`_ and it gets a context (void \*) argument with the C function it is supposed to call (e.g. `cmd_boot()`).
+Format: ``module_depend(name, other_module, major_version, minor_version)``
 
-Now we can actually look at the C function handler for dcc as an example and what it has to implement.
+Memory Management
+-----------------
 
-C Handler
----------
+Eggdrop modules must properly manage memory:
 
-The example handler for DCC looks as follows
+**Rules**:
 
-.. code-block:: C
+1. Always allocate via ``op_malloc()`` or ``op_realloc()``
+2. Always free via ``op_free()``
+3. Report memory usage in ``*_expmem()`` function
+4. Clean up on module unload
 
-  /* Typical Tcl_Command arguments, just like e.g. tcl_putdcc is a Tcl/C command for [putdcc] */
-  static int builtin_dcc (ClientData cd, Tcl_Interp *irp, int argc, char *argv[]) {
-    int idx;
-    /* F: The C function we want to call, if the bind is okay, e.g. cmd_boot() */
-    Function F = (Function) cd;
+**Example**::
 
-    /* Task of C function: verify argument count and syntax as any Tcl command */
-    BADARGS(4, 4, " hand idx param");
+  static int mymodule_expmem(void)
+  {
+    int size = 0;
+    size += sizeof(my_structure) * num_items;
+    return size;
+  }
 
-    /* C Macro only used in C handlers for bind types, sanity checks the Tcl proc name
-     * for *<bindtype>:<name> and that we are in the right C handler
-     */
-    CHECKVALIDITY(builtin_dcc);
+Thread Safety
+-------------
 
-    idx = findidx(atoi(argv[2]));
-    if (idx < 0) {
-        Tcl_AppendResult(irp, "invalid idx", NULL);
-        return TCL_ERROR;
-    }
+Eggdrop 1.10 is **NOT thread-safe**. Modules must NOT:
 
-    /* Call the desired C function, e.g. cmd_boot() with their arguments */
-    F(dcc[idx].user, idx, argv[3]);
-    Tcl_ResetResult(irp);
-    Tcl_AppendResult(irp, "0", NULL);
+- Create threads
+- Use locks/mutexes
+- Assume concurrent execution
+
+All Eggdrop code runs in a single event loop.
+
+Error Handling
+--------------
+
+Module API Functions
+^^^^^^^^^^^^^^^^^^^^
+
+**Return values**:
+
+- Functions returning status use -1 for error, 0 for success
+- Functions returning data return pointer or NULL on error
+- Tcl commands return TCL_OK or TCL_ERROR
+
+**Error messages**:
+
+- Use ``Tcl_AppendResult()`` for Tcl errors
+- Use ``putlog()`` for logging errors to bot log
+
+Testing Modules
+---------------
+
+Test your module before deploying:
+
+1. **Compile and install**::
+
+     ninja -C builddir
+     meson install -C builddir --destdir=/path/to/eggdrop
+
+2. **Load in config**::
+
+     [modules]
+     load = ["mymodule"]
+
+3. **Check loading**::
+
+     ./eggdrop -t eggdrop.toml
+     .module
+
+4. **Test features**::
+
+     # For Tcl commands
+     .tcl mycommand test
+
+     # For binds, trigger from IRC
+     # For partyline commands, test on partyline
+
+Debugging Modules
+-----------------
+
+**Enable debug build**::
+
+  meson setup builddir -Dbuildtype=debug
+  ninja -C builddir
+
+**Use debugger**::
+
+  gdb ./eggdrop
+  (gdb) run -t eggdrop.toml
+
+**Check logs**::
+
+  tail -f logs/eggdrop.log
+
+**Partyline debugging**::
+
+  .module          # List loaded modules
+  .status          # Check overall bot status
+  .tcl puts "Test" # Execute Tcl code
+
+Best Practices
+--------------
+
+1. **Use libop for common operations** — Consistency, safety, maintainability
+2. **Follow code style** — See src/mod/ examples for Eggdrop style
+3. **Document your code** — Comments explaining non-obvious logic
+4. **Handle errors gracefully** — Don't crash the bot
+5. **Memory cleanup** — Properly free all allocations
+6. **Test thoroughly** — Before distributing
+7. **Version correctly** — Use semantic versioning
+8. **Declare dependencies** — Via ``module_depend()``
+
+Example: Simple Timer Module
+-----------------------------
+
+::
+
+  #define MODULE_NAME "mytimer"
+
+  #undef global
+  static Function *global = NULL;
+  EXPORT_SCOPE char *mytimer_start();
+
+  static int mytimer_expmem(void) { return 0; }
+  static void mytimer_report(int idx, int details) { }
+
+  static int tcl_timer STDVAR
+  {
+    BADARGS(2, 2, " seconds");
+    int seconds = atoi(argv[1]);
+    timer(seconds, NULL, NULL);
+    Tcl_AppendResult(irp, "Timer set", NULL);
     return TCL_OK;
   }
 
-This is finally the part where we see the arguments a C function gets for a DCC bind as opposed to a Tcl proc.
-
-:code:`F(dcc[idx].user, idx, argv[3])`:
-
-* User information as struct userrec *
-* IDX as int
-* The 3rd string argument from the Tcl call to \*dcc:cmd_boot, which was :code:`$_dcc3` which was :code:`args` to :code:`check_tcl_dcc` which was everything after the dcc command
-
-So this is how we register C callbacks for binds with the correct arguments
-
-.. code-block:: C
-
-  /* We know the return value is ignored because the return value of F
-   * in builtin_dcc is ignored, so it can be void, but for other binds
-   * it could be something else and used in the C handler for the bind.
-   */
-  void cmd_boot(struct userrec *u, int idx, char *par) { /* snip */ }
-
-  cmd_t *mycmds = {
-    {"boot", "t", (IntFunc) cmd_boot, NULL /* automatic name: *dcc:boot */},
-    {NULL, NULL, NULL, NULL}
+  static tcl_cmds mytimer_cmds[] = {
+    {"timer", tcl_timer},
+    {NULL, NULL}
   };
-  add_builtins(H_dcc, mycmds);
 
-Summary
--------
+  char *mytimer_start(Function *global_funcs)
+  {
+    global = global_funcs;
+    module_register(MODULE_NAME, mytimer_table, 1, 0);
+    if (!module_depend(MODULE_NAME, "eggdrop", 110, 0)) {
+      module_undepend(MODULE_NAME);
+      return "Eggdrop 1.10+ required";
+    }
+    return NULL;
+  }
 
-In summary, this is how the dcc bind is called:
+  static char *mytimer_close(void)
+  {
+    module_undepend(MODULE_NAME);
+    return NULL;
+  }
 
-* :code:`check_tcl_dcc()` creates Tcl variables :code:`$_dcc1 $_dcc2 $_dcc3` and lets :code:`check_tcl_bind` call the binds
-* Tcl binds are done at this point
-* C binds mean the Tcl command associated with the bind is :code:`*dcc:boot` which calls :code:`builtin_dcc` which gets :code:`cmd_boot` as ClientData cd argument
-* :code:`gbuildin_dcc` performs some sanity checking to avoid crashes and then calls :code:`cmd_boot()` aka :code:`F()` with the arguments it wants C callbacks to have
+  static Function mytimer_table[] = {
+    (Function) mytimer_start,
+    (Function) mytimer_close,
+    (Function) mytimer_expmem,
+    (Function) mytimer_report,
+  };
 
-Example edited and annotated gdb backtrace in :code::`cmd_boot` after doing :code:`.boot test` on the partyline as user :code:`thommey` with typical owner flags.
-::
+See Also
+--------
 
-  #0  cmd_boot (u=0x55e8bd8a49b0, idx=4, par=0x55e8be6a0010 "test") at cmds.c:614
-      *u = {next = 0x55e8bd8aec90, handle = "thommey", flags = 8977024, flags_udef = 0, chanrec = 0x55e8bd8aeae0, entries = 0x55e8bd8a4a10}
-  #1  builtin_dcc (cd=0x55e8bbf002d0 <cmd_boot>, irp=0x55e8bd59b1c0, argc=4, argv=0x55e8bd7e3e00) at tclhash.c:678
-      idx = 4
-      argv = {0x55e8be642fa0 "*dcc:boot", 0x55e8be9f6bd0 "thommey", 0x55e8be7d9020 "4", 0x55e8be6a0010 "test", 0x0}
-      F = 0x55e8bbf002d0 <cmd_boot>
-  #5  Tcl_Eval (interp=0x55e8bd59b1c0, script = "*dcc:boot $_dcc1 $_dcc2 $_dcc3") from /usr/lib/x86_64-linux-gnu/libtcl8.6.so
-      Tcl: return $_dcc1 = "thommey"
-      Tcl: return $_dcc2 = "4"
-      Tcl: return $_dcc3 = "test"
-      Tcl: return $lastbind = "boot" (set automatically by trigger_bind)
-  #8  trigger_bind (proc=proc@entry=0x55e8bd5efda0 "*dcc:boot", param=param@entry=0x55e8bbf4112b " $_dcc1 $_dcc2 $_dcc3", mask=mask@entry=0x55e8bd5efd40 "boot") at tclhash.c:742
-  #9  check_tcl_bind (tl=0x55e8bd5eecb0 <H_dcc>, match=match@entry=0x7ffcf3f9dac1 "boot", atr=atr@entry=0x7ffcf3f9d100, param=param@entry=0x55e8bbf4112b " $_dcc1 $_dcc2 $_dcc3", match_type=match_type@entry=80) at tclhash.c:942
-      proc = 0x55e8bd5efda0 "*dcc:boot"
-      mask = 0x55e8bd5efd40 "boot"
-      brkt = 0x7ffcf3f9dac6 "test"
-  #10 check_tcl_dcc (cmd=cmd@entry=0x7ffcf3f9dac1 "boot", idx=idx@entry=4, args=0x7ffcf3f9dac6 "test") at tclhash.c:974
-      fr = {match = 5, global = 8977024, udef_global = 0, bot = 0, chan = 0, udef_chan = 0}
-  #11 dcc_chat (idx=idx@entry=4, buf=<optimized out>, i=<optimized out>) at dcc.c:1068
-      v = 0x7ffcf3f9dac1 "boot"
+- `Writing Modules <writing.html>`_ — Module creation guide
+- `Core API <../using/tcl-commands.html>`_ — Tcl command reference
+- Eggdrop source code — ``src/mod/`` directory for examples
+- ``src/main.h`` — Core data structures and API
+
+Resources
+---------
+
+- Eggdrop GitHub: https://github.com/eggheads/eggdrop
+- Eggheads Forum: https://www.eggheads.org
+- #eggdrop on Libera.Chat
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

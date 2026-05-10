@@ -1,32 +1,214 @@
-Last revised: January 1, 2002
+Last revised: May 10, 2026
 
 Console Module
 
-This module provides storage of console settings when you exit the bot
-or type .store on the partyline.
+This module provides persistent storage of DCC console settings across
+bot restarts. Without it, users lose their console preferences every
+time the bot restarts.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the console
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule console
+  [modules]
+  load = [
+    "console",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set console-autosave 1
+CONFIGURATION
 
-      Save users console settings automatically? Otherwise, they have to
-      use the .store command.
+All console settings are in the [console] section:
 
-  set force-channel 0
+  [console]
+  console = "mkcoblxs"
 
-      If a user doesn't have any console settings saved, which channel
-      do you want them automatically put on?
+      Default console flags shown when a user connects to DCC. Uses the
+      same flag format as logfiles (see core.settings for flag meanings).
 
-  set info-party 0
+      Common flag combinations:
+        "mkcoblxs" = msgs/cmds/kicks/info/bot/linked/xfer/server (default)
+        "mco"      = msgs/cmds/info (minimal)
+        "mkocp"    = msgs/kicks/info/cmds/public (channels + activity)
+        "*"        = all flags (verbose)
 
-      Enable this setting if a user's global info line should be
-      displayed when they join a botnet channel.
+      Flag definitions:
+        m = private messages, ctcps
+        k = kicks, bans, mode changes
+        c = commands
+        o = info, errors
+        b = bot linking messages
+        l = linked bot messages
+        x = file transfers
+        s = server notices, connects
+        j = joins, parts, quits, netsplits
+        p = public channel text
+        d = debug information
+        e = misc errors
+        g = raw outgoing share traffic
+        h = raw incoming share traffic
+        1-8 = user-defined levels (for Tcl scripts)
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+      Note: raw traffic flags (d, h, r, t, u, v, g) are restricted to
+      +n (permanent owner) users for security (they can reveal passwords).
+
+  console_autosave = 1
+
+      Auto-save console settings when user changes them (0 = off, 1 = on).
+      Set to 0 if you want to force users to .store manually.
+
+  force_channel = 0
+
+      If a user has no saved console settings, force them into a channel
+      view (0 = off, 1 = on). Set to 1 to show #channel by default.
+
+  info_party = 0
+
+      Show user global info line in party-line (botnet console)
+      (0 = off, 1 = on). Set to 1 to display info when users join
+      botnet channels.
+
+
+CONSOLE FLAGS IN DETAIL
+
+Message type flags:
+
+  m = Private messages and CTCP queries to the bot
+  p = Public text on IRC channels
+  c = Commands issued on the party-line
+  b = Bot linking and unlinking messages
+  j = Joins, parts, quits, netsplits on channels
+  k = Kicks, bans, mode changes
+  s = Server notices, connects, disconnects
+  o = Miscellaneous info and error messages (IMPORTANT)
+
+Raw traffic flags (security-restricted):
+
+  r = raw incoming IRC server traffic (password risk!)
+  v = raw outgoing IRC server traffic
+  t = raw incoming botnet traffic
+  u = raw outgoing botnet traffic
+  g = raw outgoing share traffic
+  h = raw incoming share traffic
+  d = misc debug information
+  e = misc errors
+  x = file transfers and file-area commands
+  l = linked bot messages
+  w = wallops
+
+User-defined levels 1-8 can be used by Tcl scripts for custom logging.
+
+
+EXAMPLE CONFIGURATIONS
+
+Minimal console (just messages and commands):
+
+  [console]
+  console = "mc"
+  console_autosave = 1
+
+      Users see only private messages and commands. Most common for
+      regular users.
+
+
+Verbose console (everything):
+
+  [console]
+  console = "*"
+  console_autosave = 1
+
+      Users see all activity. Good for debugging or ops monitoring.
+
+
+Channel-focused console:
+
+  [console]
+  console = "jpko"
+  console_autosave = 1
+  force_channel = 1
+
+      Focus on channel activity (joins, parts, kicks, info). New users
+      default to a channel view.
+
+
+Security-conscious console (no raw traffic for anyone):
+
+  [console]
+  console = "mkcob"
+  console_autosave = 1
+
+      Exclude raw traffic flags (d, h, r, t, u, v, g). Users can't see
+      raw traffic even if they try to enable it.
+
+
+RUNTIME BEHAVIOR
+
+When a DCC user connects to the bot:
+
+1. Console module loads their saved console settings (if they exist).
+2. If no saved settings exist:
+   - Use [console].console as default
+   - If force_channel = 1, show them a channel view
+3. User can change settings with .console command
+4. If console_autosave = 1, changes are saved immediately
+5. If console_autosave = 0, user must .store to save
+
+Example .console usage:
+
+  .console +m-k          (add msgs, remove kicks)
+  .console *             (enable all flags)
+  .console #channel      (switch to #channel view)
+  .console .party        (switch to party-line)
+
+
+PERSISTENT STORAGE
+
+Console settings are stored in the LMDB database (or flat-file if
+store_backend = "flat"). The storage format includes:
+
+- User handle
+- Console flags
+- Last viewed channel/party-line
+- Timestamp of last modification
+
+Settings persist across bot restarts.
+
+
+DEPENDENCIES
+
+The console module has no external dependencies. It works with:
+  - Any storage backend (LMDB or flat-file)
+  - Any loaded modules
+
+
+NOTES
+
+- Console flags are per-user, not global. Each user has their own
+  settings.
+- Raw traffic flags (d, h, r, t, u, v, g) are restricted to +n (owner)
+  users for security.
+- Changing console settings at runtime updates the display immediately.
+- The .store command is optional if console_autosave = 1.
+- Console settings can be reset with .reset command (if available).
+
+
+TROUBLESHOOTING
+
+User's console settings not saving:
+  - Check console_autosave is set to 1.
+  - Verify user has write permission to database.
+  - Check bot has write permissions to store location.
+
+Console flags not applying:
+  - Verify user's console settings with .console (no args).
+  - Check for typos in flag names.
+  - Ensure bot has loaded console module (check .modules).
+
+Raw traffic flags not visible:
+  - Ensure user has +n flag (permanent owner status).
+  - Raw flags (d, h, r, t, u, v, g) are restricted to owners.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

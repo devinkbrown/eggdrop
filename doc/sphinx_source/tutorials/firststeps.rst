@@ -1,181 +1,362 @@
-Common First Steps
-==================
+First Steps with Eggdrop
+========================
 
-Log on to the partyline
------------------------
-Now that your bot is online, you'll want to join the partyline to further use the bot. First, read what it tells you when you started it up::
+Congratulations! Your Eggdrop is running. Now it's time to learn the basic commands and set it up for your channels.
 
-  STARTING BOT IN USERFILE CREATION MODE.
-  Telnet to the bot and enter 'NEW' as your nickname.
-  OR go to IRC and type:  /msg BotNick hello
-  This will make the bot recognize you as the master.
+Connecting to the Partyline
+----------------------------
 
-You can either telnet to the bot, or connect to the bot using DCC Chat. To telnet, you'll either need a program like Putty (Windows), or you can do it from the command line of your shell using the telnet command::
+The **partyline** is your command interface with the bot. You can connect via:
 
-  telnet <IP of bot> <listen port>
+1. **Telnet** (command line):
 
-You can find the IP and port the bot is listening on by a) remembering what you set in the config file ;) or b) reading the display the bot presented when it started up. Look for a line that looks similar to this::
+   ::
 
-  Listening for telnet connections on 2.4.6.9:3183 (all).
+     telnet <bot-ip> <listen-port>
 
-This tells you that the bot is listening on IP 2.4.6.9, port 3183. If you see 0.0.0.0 listed, that means Eggdrop is listening on all available IPs on that particular host.
+   Example::
 
+     telnet 192.168.1.100 3333
 
-If you choose not to telnet to connect to the partyline, you can either ``/dcc chat BotNick`` or ``/ctcp BotNick chat``. If one of those methods does not work for you, try the other. Once you're on the bot for the first time, type ``.help`` for a short list of available commands, or ``.help all`` for a more thorough list.
+   Find the listen port in your bot's startup message (e.g., "Listening for telnet connections on ...").
 
-Common first steps
-------------------
+2. **DCC Chat** (IRC client):
 
-To learn more about any of these commands, type .help <command> on the partyline. It will provide you the syntax you need, as well as a short description of how to use the command.
+   ::
 
-Join a Channel
-^^^^^^^^^^^^^^
+     /dcc chat <botnick>
 
-To tell the Eggdrop to join a channel, use::
+   Or::
 
-  .+chan #channel
+     /ctcp <botnick> chat
 
-Add a User
-^^^^^^^^^^
+3. **First time setup**:
 
-To add a user to the bot, use::
+   When you first start the bot, it tells you how to introduce yourself::
 
-  .+user <handle> 
+     STARTING BOT IN USERFILE CREATION MODE.
+     Telnet to the bot and enter 'NEW' as your nickname.
+     OR go to IRC and type: /msg BotNick hello
 
-Add a Host to a User
+   Choose one method to introduce yourself as the master/owner.
+
+Introducing Yourself
 ^^^^^^^^^^^^^^^^^^^^
 
-The handle is the name that the bot uses to track a user. No matter what nickname on IRC a user uses, a single handle is used to track the user by their hostmask. To add a hostmask of a user to a handle, use::
+**Via IRC** (easiest):
 
-  .+host <handle> <hostmask>
+::
 
-where the hostmask is in the format of <nick>!<ident>@hostname.com . Wildcards can be used; common formats are \*!\*@hostname.com for static hosts, or \*!ident@*.foo.com for dynamic hostnames.
+  /msg <botnick> hello
 
-Assign Permission Flags
+This adds you as the owner of the bot. You'll get a note confirming it worked.
+
+**Via Partyline**:
+
+1. Telnet or DCC chat to the bot
+2. When prompted for a nickname, type ``NEW``
+3. You'll be added as the owner
+
+**Set a Password**:
+
+Once you're recognized as the owner, set a password::
+
+  /msg <botnick> pass mypassword
+
+Or on the partyline::
+
+  .chpass mypassword
+
+Basic Partyline Commands
+------------------------
+
+Type ``.help`` for a list of commands. Common first commands:
+
+::
+
+  .help                    # List all commands
+  .help <command>          # Help for a specific command
+  .status                  # Show bot status
+  .join #channel           # Join a channel
+  .part #channel           # Leave a channel
+  .+chan #channel          # Add a channel (permanent)
+  .-chan #channel          # Remove a channel
+  .+user <handle>          # Add a user
+  .-user <handle>          # Remove a user
+  .+host <handle> mask     # Add a hostmask to a user
+  .chattr <handle> +flag   # Set user flags
+  .chanset #channel opt    # Configure a channel
+  .op #channel nick        # Op a user in a channel
+  .deop #channel nick      # Remove op from a user
+
+Common First Steps
+------------------
+
+Join Your First Channel
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-To assign an access level to a user, first read ``.help whois`` for a listing of possible access levels and their corresponding flags. Then, assign the desired flag to the user with::
+Tell the bot to join a channel::
 
-  .chattr <handle> <+flag>
+  .+chan #mychannel
 
-So to grant a user the voice flag, you would do::
+The bot will join the channel and remember it between restarts (if you use ``.+chan`` instead of ``.join``).
 
-  .chattr handle +v
+Check the bot is there::
 
-It is important to note that, when on the partyline, you want to use the handle of the user, not their current nickname.
+  /join #mychannel
+
+Add Your First User
+^^^^^^^^^^^^^^^^^^^
+
+Add a user with a handle (nickname for the bot to track them)::
+
+  .+user YourHandle
+
+Grant Yourself Op Flag
+^^^^^^^^^^^^^^^^^^^^^^^
+
+To give yourself channel op ability, add the ``o`` flag::
+
+  .chattr YourHandle +o
+
+Other useful flags:
+
+- ``o`` — Channel op
+- ``m`` — Master (high privilege)
+- ``n`` — Owner (highest privilege)
+- ``v`` — Voice
+- ``f`` — Friend (won't be kicked)
+- ``b`` — Bot user (can link botnets)
+- ``h`` — Help file access
+- ``p`` — Partyline access
+
+See ``.help whois`` for the full flag list.
+
+Add Your Hostmask
+^^^^^^^^^^^^^^^^^
+
+The bot recognizes users by hostmask (nick!ident@host). Add yours so the bot knows who you are::
+
+  /whois YourNick
+
+Find your hostmask (looks like ``YourNick!ident@example.com``), then::
+
+  .+host YourHandle *!*@example.com
+
+Or use a pattern to match your ISP::
+
+  .+host YourHandle *!ident@*.isp.com
 
 Configure Channel Settings
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Finally, Eggdrop is often used to moderate and control channels. This is done via the ``.chanset`` command. To learn more about the (numerous!) settings that can be used to control a channel, read::
+The bot can enforce channel modes and protect ops. Configure a channel with::
 
-  .help chaninfo
+  .chanset #mychannel protectops 1
 
-Common uses involve setting channels modes. This can be done with the chanmode channel setting::
+Useful channel settings:
 
-  .chanset #channel chanmode +snt
+- ``protectops 1`` — Re-op users with ``+o`` flag if deopped (recommended)
+- ``enforcebans 1`` — Kick users matching bans
+- ``dynamicbans 1`` — Only activate bans when needed (cleaner)
+- ``autoop 1`` — Auto-op users with ``+o`` flag (risky, use protectops instead)
 
-which will enforce the s, n, and t flags on a channel.
+Advanced: Bans and Exempts
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Automatically restarting an Eggdrop
------------------------------------
+Ban a user from the channel::
 
-A common question asked by users is, how can I configure Eggdrop to automatically restart should it die, such as after a reboot? Historically, Eggdrop relied on the host's crontab system to run a script (called botchk) every ten minutes to see if the eggdrop is running. If the eggdrop is not running, the script will restart the bot, with an optional email sent to the user informing them of the action. Newer Linux systems come with systemd, which can provide better real-time monitoring of processes such as Eggdrop. You probably want to use systemd if your system has it.
+  .ban #mychannel *!*@badhost.com
 
-Crontab Method
-^^^^^^^^^^^^^^
+Remove a ban::
 
-1. Enter the directory you installed your Eggdrop to. Most commonly, this is ~/eggdrop (also known as /home/<username>/eggdrop).
+  .unban #mychannel *!*@badhost.com
 
-2. Just humor us- run ``./scripts/autobotchk`` without any arguments and read the options available to you. They're listed there for a reason! 
+Exempt a hostmask from bans::
 
-3. If you don't want to customize anything via the options listed in #2, you can install a crontab job to start Eggdrop simply by running::
+  .exempt #mychannel *!*@goodhost.com
 
-    ./scripts/autobotchk yourEggdropConfigNameHere.conf 
+Auto-Restart on Crash/Reboot
+-----------------------------
 
-4. Review the output of the script, and verify your new crontab entry by typing::
+Eggdrop includes a helper script to set up automatic restarts.
 
-    crontab -l
+**Systemd** (recommended for modern Linux):
 
-By default, it should create an entry that looks similar to::
+::
 
-    0,10,20,30,40,50 * * * * /home/user/bot/scripts/YourEggdrop.botchk 2>&1
+  ./scripts/autobotchk eggdrop.toml -systemd
 
-This will run the generated botchk script every ten minutes and restart your Eggdrop if it is not running during the check. Also note that if you run autobotchk from the scripts directory, you'll have to manually specify your config file location with the -dir option. To remove a crontab entry, use ``crontab -e`` to open the crontab file in your system's default editor and remove the crontab line.
+Then control the bot with::
 
-Systemd Method (Newer Linux Systems)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  systemctl --user start <botnick>.service     # Start
+  systemctl --user stop <botnick>.service      # Stop
+  systemctl --user restart <botnick>.service   # Restart
+  systemctl --user enable <botnick>.service    # Auto-start on boot
+  systemctl --user disable <botnick>.service   # Don't auto-start
 
-1. Enter the directory you installed your Eggdrop to. Most commonly, this is ~/eggdrop (also known as /home/<username>/eggdrop).
+**Crontab** (older systems):
 
-2. Install the systemd job for Eggdrop simply by running::
+::
 
-    ./scripts/autobotchk yourEggdropConfigNameHere.conf -systemd
+  ./scripts/autobotchk eggdrop.toml
 
-3. Note the output at the end of the script informing you of the command you can use to start/stop the Eggdrop in thee future. For example, to manually start the Eggdrop, use::
+This runs the botchk script every 10 minutes and restarts the bot if it crashed.
 
-    systemctl --user start <botname>.service
+Verify with::
 
-To stop Eggdrop, use::
+  crontab -l
 
-    systemctl --user stop <botname>.service
+SASL Authentication
+-------------------
 
-To rehash (not reload) Eggdrop, use::
+SASL allows the bot to authenticate with NickServ before joining channels. This is useful if your network requires identification.
 
-    systemctl --user reload <botname>.service
+**Setup**:
 
-(Yes, we acknowledge the confusion that the systemd reload command will execute the Eggdrop '.rehash' command, not the '.reload' command. Unfortunately, systemd did not consult us when choosing its commands!)
+In your ``eggdrop.toml``, add SASL configuration (check your config for SASL section):
 
-To prevent Eggdrop from automatically running after a system start, use::
+::
 
-    systemctl --user disable <botname>.service 
+  [sasl]
+  mechanism = "SCRAM-SHA-256"
+  username = "YourBotNick"
+  password = "your-password"
 
-To re-enable Eggdrop automatically starting after a system start, use::
+**Mechanisms** (in order of recommendation):
 
-    systemctl --user enable <botname>.service
+1. **SCRAM-SHA-256** — Secure, recommended
+2. **SCRAM-SHA-512** — Stronger version
+3. **EXTERNAL** — Certificate-based (requires TLS certs)
+4. **ECDH-X25519-CHALLENGE** — Elliptic curve
+5. **PLAIN** — Simple (use only over TLS)
 
-Authenticating with NickServ
-----------------------------
+**For Libera.Chat**:
 
-Many IRC features require you to authenticate with NickServ to use them. You can do this from your config file by searching for the line::
+Most users use SCRAM-SHA-256 with their registered account. Set ``username`` to your registered bot nick and ``password`` to your NickServ password.
 
-    #  putserv "PRIVMSG NickServ :identify <password>"
+**Testing SASL**:
 
-in your config file. Uncomment it by removing the '#' sign and then replace <password> with your password. Your bot will now authenticate with NickServ each time it joins a server.
+Check the bot's status::
 
-Setting up SASL authentication
-------------------------------
+  .status
 
-Simple Authentication and Security Layer (SASL) is becoming a prevalant method of authenticating with IRC services such as NickServ prior to your client finalizing a connection to the IRC server, eliminating the need to /msg NickServ to identify yourself. In other words, you can authenticate with NickServ and do things like receive a cloaked hostmask before your client ever appears on the IRC server. Eggdrop supports three methods of SASL authentication, set via the sasl-mechanism setting:
+Look for "Authenticated" in the output. If SASL worked, the bot is identified immediately on connect.
 
-* **PLAIN**: To use this method, set sasl-mechanism to 0. This method passes the username and password (set in the sasl-username and sasl-password config file settings) to the IRC server in plaintext. If you only connect to the IRC server using a connection protected by SSL/TLS this is a generally safe method of authentication; however you probably want to avoid this method if you connect to a server on a non-protected port as the exchange itself is not encrypted.
+Basic Scripting
+---------------
 
-* **ECDSA-NIST256P-CHALLENGE**: To use this method, set sasl-mechanism to 1. This method uses a public/private keypair to authenticate, so no username/password is required. Not all servers support this method. If your server does support this, you must generate a certificate pair. You can use any ECDSA key generation tool; for example with the openssl command-line tool (if available on your system)::
+Eggdrop uses Tcl for scripting. Here's a simple example:
 
-    openssl ecparam -genkey -name prime256v1 -out eggdrop-ecdsa.pem
+**File: ``greet.tcl``**::
 
-  You will need to determine your public key fingerprint by using::
+  proc greet_user {nick host handle chan} {
+    putserv "PRIVMSG $chan :Welcome $nick!"
+  }
 
-    openssl ec -noout -text -conv_form compressed -in eggdrop-ecdsa.pem | grep '^pub:' -A 3 | tail -n 3 | tr -d ' \n:' | xxd -r -p | base64
+  bind join - * greet_user
 
-  Then, authenticate with your NickServ service and register your public certificate with NickServ. On Libera for example, it is done by::
+**To load**:
 
-    /msg NickServ set pubkey <fingerprint string from above goes here>
+1. Save as ``scripts/greet.tcl``
+2. Add to ``eggdrop.toml``:
 
-* **EXTERNAL**: To use this method, set sasl-mechanism to 2. This method allows you to use other TLS certificates to connect to the IRC server, if the IRC server supports it. An EXTERNAL authentication method usually requires you to connect to the IRC server using TLS. There are many ways to generate certificates; you can generate a self-signed certificate by running ``make sslcert`` from the Eggdrop source directory, or use any standard certificate generation tool. For example, if the openssl command-line tool is available::
+   ::
 
-    openssl req -new -x509 -nodes -keyout eggdrop.key -out eggdrop.crt
+     [scripts]
+     files = ["greet.tcl"]
 
-You will need to determine your public key fingerprint by using::
+3. Restart bot or type ``.reload`` on partyline
 
-    openssl x509 -in eggdrop.crt -outform der | sha1sum -b | cut -d' ' -f1
+**What it does**: Greets users when they join the channel.
 
-Then, ensure you have those keys loaded in the ssl-privatekey and ssl-certificate settings in the config file. Finally, to add this certificate to your NickServ account, type::
+See `Writing Scripts <firstscript.html>`_ for more examples.
 
-    /msg NickServ cert add <fingerprint string from above goes here>
+Common Issues
+-------------
 
-* **SCRAM-SHA-256**: To use this method, set sasl-mechanism to 3.
+Bot Doesn't Appear in Channel
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-* **SCRAM-SHA-512**: To use this method, set sasl-mechanism to 4.
+- Bot is not online: Check ``.status`` on partyline
+- Bot not joined channel: Use ``.+chan #channel`` to add
+- Bot has no op: Bot can't enforce bans/kicks without op
+- Server rejected bot: Check bot logs
 
-* **ECDH-X25519-CHALLENGE**: To use this method, set sasl-mechanism to 5. This method uses X25519 key exchange for authentication.
+Can't Connect to Partyline
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- Wrong port: Check listen port in startup message
+- Firewall blocking: Ensure port is open
+- Wrong IP: Use bot's hostname or IP from ``ifconfig``
+- Bot crashed: Check logs, restart bot
+
+Users Not Getting Op
+^^^^^^^^^^^^^^^^^^^^
+
+- User doesn't have ``+o`` flag: Use ``.chattr handle +o``
+- User hostmask doesn't match: Use ``.+host`` to add their mask
+- ``protectops`` not enabled: Use ``.chanset #channel protectops 1``
+- Bot needs channel op to give op
+
+Forgot Your Password
+^^^^^^^^^^^^^^^^^^^^
+
+If you're still owner:
+
+::
+
+  .chpass YourHandle newpassword
+
+If you lost owner access:
+
+1. Stop the bot
+2. Delete or rename the user file
+3. Restart with ``./eggdrop -m eggdrop.toml``
+4. Introduce yourself again as the new owner
+
+Next Steps
+----------
+
+- `Core Configuration <../using/core.html>`_ — Full config reference
+- `User Management <../using/users.html>`_ — User flags and permissions
+- `Channel Management <../using/features.html>`_ — Channel features
+- `Writing Scripts <firstscript.html>`_ — Tcl scripting guide
+- `TLS Setup <tlssetup.html>`_ — Secure connections
+- `Botnet Configuration <../using/botnet.html>`_ — Link multiple bots
+
+Key Concepts
+------------
+
+**Handle**: Bot's name for a user (tracks by hostmask, not nickname)
+
+**Flags**: Permissions assigned to users (``o`` = op, ``m`` = master, etc.)
+
+**Hostmask**: Pattern identifying a user (``nick!ident@host``)
+
+**Partyline**: Command interface with the bot (telnet/DCC chat)
+
+**Chanset**: Per-channel settings (protectops, enforcebans, etc.)
+
+**Module**: Optional feature loaded at startup (channels, server, notes, etc.)
+
+**Script**: Tcl code that extends bot functionality
+
+Getting Help
+------------
+
+If you're stuck:
+
+1. Type ``.help <command>`` on the partyline
+2. Check the documentation (this site)
+3. Ask in #eggdrop on Libera.Chat
+4. Check bot logs: ``tail logs/eggdrop.log``
+
+Be ready to provide:
+
+- Bot version: ``.version``
+- Channel info: ``.chanset #channel``
+- User info: ``.userinfo <handle>``
+- Any error messages from the log
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

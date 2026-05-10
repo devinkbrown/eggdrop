@@ -1,47 +1,97 @@
-Last revised: January 1, 2002
-
 Notes Module
 
-This module provides support for storing of notes for users from each
-other. Note sending between currently online users is supported in the
-core, this is only for storing the notes for later retrieval.
+This module provides persistent note storage between users, allowing
+offline message delivery and forwarding across botnets.
 
-This module requires: none
+REQUIREMENTS
+
+None.
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the notes
 module:
 
     loadmodule notes
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set notefile "LamestBot.notes"
+set notefile "LamestBot.notes"
 
-      Set here the filename where private notes between users are
-      stored.
+  Filename where private notes are stored. This file persists across
+  bot restarts and backups.
 
-  set max-notes 50
+set max-notes 50
 
-      Set here the maximum number of notes to allow to be stored for
-      each user (to prevent flooding).
+  Maximum number of notes per user. Prevents flooding by limiting
+  storage. Set to 0 for unlimited (not recommended for large botnets).
 
-  set note-life 60
+set note-life 60
 
-      Set here how long (in days) to store notes before expiring them.
+  Expiration time for notes in days. Notes older than this are
+  automatically deleted. Set to 0 to never expire.
 
-  set allow-fwd 0
+set allow-fwd 0
 
-      Set this to 1 if you want to allow users to specify a forwarding
-      address for forwarding notes to another account on another bot.
+  Allow users to specify a forwarding address on another bot. Set to 1
+  to enable forwarding to accounts on linked bots. This requires share
+  module connectivity between bots.
 
-  set notify-users 1
+set notify-users 1
 
-      Set this to 1 if you want the bot to let people know hourly if
-      they have any notes.
+  Notify users hourly if they have unread notes. Set to 0 to disable
+  hourly notifications.
 
-  set notify-onjoin 1
+set notify-onjoin 1
 
-      Set this to 1 if you want the bot to let people know on join if
-      they have any notes.
+  Notify users when they join the partyline if they have unread notes.
+  Set to 0 to require manual checking.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+PARTYLINE COMMANDS
+
+Users can interact with notes via the partyline:
+
+  .notes              — display all notes
+  .note <user> <msg>  — send a note to a user
+  .delnote <num>      — delete a specific note by number
+  .fwd <user>         — set forwarding address (if allow-fwd is 1)
+
+DESCRIPTION
+
+The notes module stores messages from users to other users for later
+delivery. This is useful for:
+
+- Offline messaging on large botnets
+- Communication across time zones
+- Persistent message logs
+
+Notes are automatically expired after note-life days and are deleted
+when the total exceeds max-notes per user.
+
+FORWARDING
+
+If allow-fwd is enabled, users can forward notes to other accounts via
+linked bots using the .fwd command. This requires:
+
+1. Bots must be linked via botnet (share module or direct link)
+2. Receiving account must exist on the target bot
+3. Both bots must have notes module loaded
+
+EXAMPLES
+
+Basic configuration for a medium-sized botnet:
+
+    loadmodule notes
+    set notefile "LamestBot.notes"
+    set max-notes 50
+    set note-life 30
+    set notify-users 1
+    set notify-onjoin 1
+
+Unlimited notes with forwarding:
+
+    set max-notes 0
+    set note-life 0
+    set allow-fwd 1
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

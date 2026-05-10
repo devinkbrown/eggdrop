@@ -1,593 +1,265 @@
-Eggdrop Compile Guide and FAQ
-Last revised: May 14, 2023
-    _____________________________________________________________________
+Eggdrop Build Guide
 
-                        Eggdrop Compile Guide and FAQ
+Eggdrop Build Guide and FAQ
 
+  This guide will help you successfully build and install Eggdrop using
+  the Meson build system. Suggestions come from various contributors.
+  If you think something should be added, please submit an issue at
+  https://github.com/eggheads/eggdrop/issues.
 
-  This guide may help you successfully compile Eggdrop. Suggestions are by
-  various contributors. If you think something should be added, please send
-  an e-mail to bugs@eggheads.org. Note that in this document, text between
-  a '<' and a '>' should be replaced (without the '<' and '>').
-
-  NOTE: This is not a 'quick install' guide. See the INSTALL file for basic
-  setup information. This is intended to help you compile the bot on uncommon
-  operating systems, or work past problems encountered during compile.
-
+  NOTE: This is not a 'quick install' guide. See the INSTALL file for
+  basic setup information. This guide is intended to help you build the
+  bot on uncommon operating systems or work past problems encountered
+  during the build.
 
   Contents:
-    Compile Guide:
-      A. Standard compile process (Linux, FreeBSD, NetBSD, OpenBSD, etc)
-      B. HP-UX B.11.*
-      C. Ultrix
-      D. macOS (previously OS X and originally Mac OS X)
-      E. AIX
-      F. IRIX
-      G. Solaris / SunOS
-      H. Cygwin / Windows
-      I. Haiku
-      J. Tcl Detection and Installation
+    Build Guide:
+      A. Requirements
+      B. Standard build process (Linux, FreeBSD, macOS, etc.)
+      C. Build options and configuration
+      D. Platform-specific notes
+      E. Tcl detection and installation
+      F. Troubleshooting
 
     Frequently Asked Questions:
-      1. I get a lot of warnings.
-      2. I get a 'strip terminated with signal 6' error during compile/install,
-         or another error related to 'strip'.
-      3. 'DIR' undeclared (and a whole bunch of others) (AIX 4)
-      4. 'fd_set' undeclared (and a whole bunch of others) (AIX 4)
-      5. Unresolved or undefined symbols: ldclose, ldopen, ldnshread (AIX 3)
-      6. Unsatisfied symbols 'shl_findsym' and 'shl_load' (HP-UX 9)
-      7. Compile stops at the last minute with "ld fatal signal 11"! (Linux)
-      8. Undefined references in net.o (SunOS)
-      9. I experience problems starting the configure script (AIX/various)
-     10. I get a 'make: Permission denied' error when I type 'make config'
-         or 'make' (FreeBSD / *BSD)
-     11. I get a 'make: Fatal error in reader: Makefile, line 21: Badly formed
-         macro assignment' error when I type 'make config' (OpenIndiana)
-     12. I get a 'gmake: readlink: Command not found' error when I type 'gmake
-         install' (OpenIndiana)
-     13. I get '/usr/bin/ld: cannot find -lpthread' (OpenWrt)
-     14. I get 'configure: error: C compiler cannot create executables
-         (Alpine Linux)
-
-
-  Compile Guide
-    This will tell you how to compile Eggdrop on various operating systems.
-    If you have gotten Eggdrop to compile on an operating system not listed
-    here, please let the development team know how, at eggdev@eggheads.org.
-    Please tell us what, if any, special steps were required to compile the
-    bot. Also, any compiler warnings/etc, and the 'config.log' and 'config.h'
-    files would be helpful. The development team does not have access to the
-    resources needed to test portability on uncommon operating systems, so
-    your help is greatly appreciated.
-
-    A. Standard compile process (Linux, FreeBSD, NetBSD, OpenBSD, etc)
-
-      Eggdrop automatically selects the most efficient I/O event back-end
-      available on your platform:
-
-        Linux with liburing   → io_uring  (best performance)
-        Linux (kernel ≥ 2.6) → epoll
-        FreeBSD / OpenBSD /
-        NetBSD / macOS        → kqueue    (best performance on BSD/macOS)
-        All other platforms   → select()  (portable fallback)
-
-      No user action is needed; the build system detects and enables the
-      appropriate back-end automatically.
-
-      1. Type './configure' from the Eggdrop directory. Some of the options
-         that can be given to ./configure are explained below.
-
-           --enable-strip
-             If you want to create a smaller binary, you can use this option.
-             HOWEVER, this will remove debugging symbols and make bug reports
-             almost completely useless, and is not recommended. If disk space
-             is very limited, however, it might help to enable this.
-
-           --with-tcllib
-           --with-tclinc
-             See 'I. Tcl Detection and Installation' below (at the end of this
-             compile guide).
-
-           --with-handlen=
-             Configure the handle length of the bot. Allowed values are
-             numbers from 9 to 32 inclusive.
+      1. I get build warnings—is that a problem?
+      2. I get a compile error with C23 features
+      3. How do I enable/disable modules?
+      4. How do I cross-compile Eggdrop?
 
-           --disable-tls
-             You can disable TLS if desired. TLS is provided by opssl,
-             which is bundled with Eggdrop and built automatically as
-             a meson subproject. No external TLS library is needed.
-             Look at doc/TLS for more information.
 
-      2. Type either 'make config', or 'make iconfig' to determine which
-         modules will be compiled.
+  REQUIREMENTS
 
-      3. Type 'make' from the Eggdrop directory, or to force a statically
-         linked module bot, type 'make static'. Otherwise, the Makefile will
-         use whatever type of compile the configure script determined your
-         system will support. Dynamic is always the better way to go if
-         possible. You can force a dynamic build with 'make eggdrop'. There
-         are also the 'debug' and 'sdebug' (static-debug) options, which will
-         give more detailed output on a crash. This will help the development
-         team track down the crash and fix the bug. Debug and sdebug will take
-         a little longer to compile and will enlarge the binary a bit, but
-         it's worth it if you want to support Eggdrop development.
+  - Meson 0.63 or later
+  - Ninja build system
+  - C compiler with C23 support (GCC 11+, Clang 13+, or later)
+  - Tcl 8.5 or later (required)
+  - Python 3.6+ (optional, for Python scripting support)
 
-      4. Eggdrop must be installed in a directory somewhere. This is
-         accomplished by typing 'make install'.
+  Eggdrop bundles its own TLS library (opssl), so no external TLS
+  library installation is needed. IPv6 support is always compiled in.
 
-         This will install the Eggdrop in your home directory in a directory
-         called 'eggdrop' (i.e. /home/user/eggdrop).
+  A. Standard build process (Linux, FreeBSD, macOS, etc.)
 
-         If you want to install to a different directory, use:
+  1. From the Eggdrop directory, configure the build:
 
-           make install DEST=<directory>
+       meson setup builddir
 
-         For example:
+     Some common meson options:
+       -Dtls=disabled        disable TLS support (not recommended)
+       -Dmodule-python=true  enable Python scripting support
+       -Dprefix=/custom/path install to a custom directory
+       -Dbuildtype=debug     build with debug symbols for crash analysis
 
-           make install DEST=/home/user/otherdir
+  2. Build Eggdrop:
 
+       ninja -C builddir
 
-    B. HP-UX B.11.*
-      Follow the standard compile process in Section A. To compile dynamically
-      (with module support), use 'make eggdrop' instead of 'make'.
+  3. Install Eggdrop:
 
-      During a linking in a dynamic build, you may experience an error such as:
+       ninja -C builddir install
 
-        gcc -pipe -fPIC -shared -o ../eggdrop bg.o botcmd.o botmsg.o botnet.o
-        chanprog.o cmds.o dcc.o dccutil.o dns.o flags.o language.o match.o
-        main.o mem.o misc.o misc_file.o modules.o net.o rfc1459.o tcl.o
-        tcldcc.o tclhash.o tclmisc.o tcluser.o userent.o userrec.o users.o
-        -L/usr/local/lib -ltcl8.4 -lm -ldld -lnsl md5/md5c.o compat/*.o `cat
-        mod/mod.xlibs`
-        /usr/ccs/bin/ld: DP relative code in file bg.o - shared library must be
-        position independent. Use +z or +Z to recompile.
-        collect2: ld returned 1 exit status
-        *** Error exit code 1
+     By default, this installs to ~/eggdrop. To install elsewhere, set
+     the prefix during step 1 with -Dprefix=/desired/path.
 
-      If you know the cause of this error, please contact the Eggheads
-      Development Team at eggdev@eggheads.org.
+  4. (Optional) Generate TLS certificates for your bot:
 
-      Note that on HP-UX, the SHLIB_PATH environment variable should be used
-      instead of LD_LIBRARY_PATH.
+       cd ~/eggdrop
+       make sslcert
 
+     Or for non-interactive certificate generation:
 
-    C. Ultrix
-      There are some known problems with 'make' and Eggdrop on Ultrix systems.
-      We recommend using 'gmake' (GNU make) for this reason, as in the steps
-      below.
+       make sslsilent
 
-      If your system does not have 'gmake', you can download it from:
+  B. Advanced build options
 
-        ftp.gnu.org/pub/gnu/make/
+  - List all available build options:
 
-      It can be installed in your home directory, as with Tcl, but that is
-      beyond the scope of this document. Read the INSTALL file that comes with
-      gmake.
+      meson configure builddir
 
-      Following these steps should work:
+  - Modify options after initial setup:
 
-        1. Depending on what shell your using:
+      meson configure builddir -Doption=value
 
-            bash/ksh:
-              export LD_LIBRARY_PATH=<path to DIRECTORY containing Tcl library>:${LD_LIBRARY_PATH}
+  - Build with optimizations for a specific CPU:
 
-            csh/tcsh/tclsh:
-              setenv LD_LIBRARY_PATH <path to DIRECTORY containing Tcl library>:${LD_LIBRARY_PATH}
+      meson setup builddir -Dcpu_family=x86_64 -Dcpu=native
 
-          2. Run the following command from your Eggdrop compilation directory
-             (this is all one command):
+  C. Platform-specific notes
 
-            sh5 ./configure --with-tclinc='<full path to tcl.h>'
-            --with-tcllib='<full path to Tcl library>'
+  Linux
 
-          3. Type 'gmake config' or 'gmake iconfig' to configure modules.
+    Eggdrop automatically detects and uses the most efficient I/O
+    backend available:
 
-          4. Type 'gmake'. If you experience problems during linking, or while
-             building modules, try using 'gmake static', for a static build,
-             instead.
+      - io_uring (best performance, Linux 5.6+)
+      - epoll (Linux 2.6+)
+      - select() (portable fallback)
 
-          5. To install Eggdrop, type 'gmake install'.
+    No additional configuration is needed.
 
-             This will install the Eggdrop in your home directory in a
-             directory called 'eggdrop' (i.e. /home/user/eggdrop).
+  macOS
 
-             If you want to install to a different directory, use:
+    Eggdrop uses the kqueue I/O event backend on macOS, which provides
+    efficient event-driven networking without the overhead of select().
 
-               gmake install DEST=<directory>
+    TLS is provided by opssl, which is bundled and built automatically.
+    No external TLS library (such as OpenSSL) needs to be installed.
 
-             For example:
+    If you need to install Tcl on macOS:
 
-               gmake install DEST=/home/user/otherdir
+      brew install tcl-tk
 
+    Make sure Meson can find Tcl by setting the PKG_CONFIG_PATH:
 
-    D. macOS
-      Follow the standard compile process in Section A. To compile dynamically
-      (with module support), use 'make eggdrop' instead of 'make'.
+      export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
 
-      Eggdrop uses the kqueue I/O event back-end on macOS (detected via
-      sys/event.h), which provides efficient event-driven networking without
-      the overhead of select().
+  FreeBSD / OpenBSD / NetBSD
 
-      To get third-party modules to compile, you may need to edit the module's
-      Makefile and add "$(XLIBS) $(MODULE_XLIBS)" to the end of the
-      ../../../MODULE.$(MOD_EXT) target's $(LD) line.
+    Eggdrop uses the kqueue I/O backend on BSD systems for efficient
+    event handling.
 
-      For example:
+    Install required dependencies:
 
-        ../../../mymodule.$(MOD_EXT): ../mymodule.o
-        $(LD) -o ../../../mymodule.$(MOD_EXT) ../mymodule.o
-        $(STRIP) ../../../mymodule.$(MOD_EXT)
+      pkg install meson ninja tcl
 
-      Would become:
+    Then follow the standard build process in Section A.
 
-        ../../../mymodule.$(MOD_EXT): ../mymodule.o
-        $(LD) -o ../../../mymodule.$(MOD_EXT) ../mymodule.o $(XLIBS) $(MODULE_XLIBS)
-        $(STRIP) ../../../mymodule.$(MOD_EXT)
+  Cygwin / Windows
 
-      If you notice a module that requires these changes, it would probably be
-      a good idea to let the module's developer know, so it can be fixed.
+    1. Download and install Cygwin (www.cygwin.com). Make sure to
+       install the following packages: gcc, meson, ninja, tcl-devel,
+       pkg-config.
 
-      Note that on macOS, the DYLD_LIBRARY_PATH environment variable should
-      be used instead of LD_LIBRARY_PATH.
+    2. Extract the Eggdrop source:
 
-      TLS is provided by opssl, which is bundled with Eggdrop and built
-      automatically. No external TLS library (such as OpenSSL) needs to
-      be installed.
+         tar -zxf eggdrop-1.10.1.tar.gz
+         cd eggdrop-1.10.1
 
+    3. Build and install:
 
-    E. AIX
-      Follow the standard compile process in Section A. To compile dynamically
-      (with module support), use 'make eggdrop' instead of 'make'.
+         meson setup builddir
+         ninja -C builddir
+         ninja -C builddir install DESTDIR=/your/install/path
 
-      Note that on AIX, the LIBPATH environment variable should be used instead
-      of LD_LIBRARY_PATH.
+  Cross-compilation
 
+    To cross-compile Eggdrop, create a Meson cross file and pass it
+    to meson setup:
 
-    F. IRIX
-      Follow the standard compile process in Section A. To compile dynamically
-      (with module support), use 'make eggdrop' instead of 'make'.
+      [binaries]
+      c = 'arm-linux-gnueabihf-gcc'
+      ar = 'arm-linux-gnueabihf-ar'
 
-      Note that on IRIX, the LD_LIBRARYN32_PATH and LD_LIBRARY64_PATH environment
-      variables should be used instead of LD_LIBRARY_PATH.
+      [properties]
+      c_args = ['-march=armv7-a']
+      c_link_args = ['-march=armv7-a']
 
+    Then:
 
-    G. Solaris / SunOS
-      Follow the standard compile process in Section A. To compile dynamically
-      (with module support), use 'make eggdrop' instead of 'make'.
+      meson setup builddir --cross-file=cross.ini
 
-      Note that on Solaris / SunOS, the LD_LIBRARY_PATH_32 and LD_LIBRARY_PATH_64
-      environment variables may need to be set instead of (or in addition to, to
-      be safe) LD_LIBRARY_PATH.
+  D. Tcl detection and installation
 
+    If Meson cannot automatically detect Tcl on your system, you can
+    manually specify its location:
 
-    H. Cygwin / Windows
-      To compile and install Eggdrop on windows, perform the steps listed
-      below.
+      meson setup builddir -Dtcl_include_path=/path/to/tcl/include \
+        -Dtcl_lib_path=/path/to/tcl/lib
 
-        1. Download and install Cygwin (www.cygwin.com). Make sure to install
-           things like GCC, zlib, minires, autoconf, and automake. DO NOT
-           install the Tcl provided by Cygwin's installer. After installing,
-           open the Cygwin bash prompt.
+    To compile Tcl from source in your home directory:
 
-        2. Download and install TCL 8.5.9. You can get Tcl for Cygwin at
-           http://prdownloads.sourceforge.net/windrop/tcl-8.5.9.tar.gz.
-           http://prdownloads.sourceforge.net/windrop/tcl-8.4.1.tar.gz.
-           Extract this to the Cygwin root directory:
+      1. Download Tcl from https://www.tcl.tk/
+      2. Extract and compile:
 
-             cd /
-             tar -zxf tcl-8.5.9.tar.gz
+           tar -zxf tcl<VERSION>-src.tar.gz
+           cd tcl<VERSION>/unix
+           ./configure --prefix=$HOME/tcl
+           make
+           make install
 
-        3. Download Eggdrop from https://geteggdrop.com/ to your home directory.
-           This is usually something like 'C:\cygwin\home\<username>\'. After
-           downloading, extract the Eggdrop tarball:
+      3. Configure Eggdrop to use your Tcl installation:
 
-             tar -zxf eggdrop-1.9.2.tar.gz
+           export LD_LIBRARY_PATH=$HOME/tcl/lib:$LD_LIBRARY_PATH
+           meson setup builddir -Dtcl_include_path=$HOME/tcl/include \
+             -Dtcl_lib_path=$HOME/tcl/lib
 
-        4. Run './configure --enable-strip'. Debugging information under
-           Windows is basically useless to the development team, and this will
-           reduce the size of your Eggdrop binary.
+  E. Troubleshooting
 
-        5. Type either 'make config', or 'make iconfig' to determine which
-           modules will be compiled.
+  1. I get build warnings—is that a problem?
 
-        6. Compile the bot using 'make eggdrop'.
+    Build warnings do not necessarily indicate problems. As long as the
+    build completes successfully, there is nothing to worry about.
+    However, if you encounter errors (not warnings), the build will fail.
 
-        7. Install the bot by typing 'make install DEST=<install path>'.
-           For example:
+  2. I get a compile error with C23 features
 
-             make install DEST='C:/eggdrop/'
+    Ensure your C compiler supports C23. Update your compiler:
 
-           Make sure to enclose the destination directory/folder in single
-           quotes (''), especially if it contains spaces.
+      GCC:   version 11 or later
+      Clang: version 13 or later
 
-        8. Perform the following commands:
+    If using an older compiler, update it before attempting to build
+    Eggdrop.
 
-             cd 'C:/<install path>/' (example: cd 'C:/eggdrop')
-             rm modules
-             rm eggdrop.exe
-             mv eggdrop.exe-1.9.2 eggdrop.exe
-             mv modules-1.9.2 modules
+  3. How do I enable/disable modules?
 
-        9. Create a 'lib' directory and copy needed libraries using the
-           following commands. This assumes that you installed your Eggdrop in
-           'C:\eggdrop'. If you chose a different installation path, replace
-           'C:/eggdrop' in the following steps with your installation
-           directory, replacing all '\'s with '/'s.
+    During meson setup, specify which modules to build. For example, to
+    disable the Python module:
 
-             cp /bin/cygwin1.dll 'C:/eggdrop'
-             cp /usr/local/bin/libtcl8.5.dll 'C:/eggdrop'
-             cp /usr/local/bin/tclpip84.dll 'C:/eggdrop'
-             cp /bin/cyggcc_s-1.dll 'C:/eggdrop'
+      meson setup builddir -Dmodule-python=false
 
-             mkdir C:/eggdrop/lib
-             cp -r /usr/local/lib/tcl 'C:/eggdrop/lib'
-             cp -r /usr/local/lib/tcl8.5 'C:/eggdrop/lib'
+    List all available module options with:
 
-             cp /bin/cygz.dll 'C:/eggdrop' (if you selected compress.mod)
+      meson configure builddir | grep module-
 
+  4. "Tcl not found" or "Could not find dependency Tcl with any of the
+     specified package managers"
 
-    I. Haiku
-      If you compile Tcl from source and it breaks with a thread error 
-      (and --disable-threads doesn't help), you can workaround this by
-      removing the 'pkgs/thread<VERSION>' directory.
+    Meson cannot detect Tcl on your system. Install Tcl development
+    files:
 
-      Note that on Haiku, the LIBRARY_PATH environment variable must be used
-      instead of LD_LIBRARY_PATH.
+      Linux (Ubuntu/Debian):
+        apt-get install tcl-dev
 
+      Linux (Fedora/RHEL):
+        dnf install tcl-devel
 
-    J. Tcl Detection and Installation
-      If ./configure does not correctly detect the location of your Tcl
-      library and header file, or if you experience errors related to Tcl
-      during linking, perform these steps:
+      macOS:
+        brew install tcl-tk
 
-        1. Depending on what shell your using:
+      FreeBSD:
+        pkg install tcl
 
-          bash/ksh:
-            export LD_LIBRARY_PATH=<path to DIRECTORY containing Tcl library>:${LD_LIBRARY_PATH}
+    Then try again. If it still fails, manually specify Tcl paths as
+    described in Section D.
 
-          csh/tcsh/tclsh:
-            setenv LD_LIBRARY_PATH <path to DIRECTORY containing Tcl library>:${LD_LIBRARY_PATH}
+  5. "Meson" or "Ninja" not found
 
-          Note that some OS's use a different environment variable to tell
-          ld where to look for a library. See the notes for your specific OS
-          above (if applicable).
+    Install Meson and Ninja:
 
-        2. Run the following command from your Eggdrop compilation directory
-           (this is all one command):
+      Linux (Ubuntu/Debian):
+        apt-get install meson ninja-build
 
-          ./configure --with-tclinc='<full path to tcl.h>'
-          --with-tcllib='<full path to Tcl library>'
+      Linux (Fedora/RHEL):
+        dnf install meson ninja-build
 
-        3. Continue compiling the bot as outlined in Section A., starting
-           with 'make config'.
+      macOS:
+        brew install meson ninja
 
-        If you do not have Tcl installed on your system, you can compile it in
-        your /home directory. Download Tcl from Tcl's SourceForge project page
-        at https://sourceforge.net/projects/tcl/, or from ActiveState at
-        https://www.activestate.com/products/tcl/. Read Tcl's README file for
-        help with compiling and installing it. After you compile Tcl, follow
-        the steps above to allow Eggdrop to detect Tcl.
+      FreeBSD:
+        pkg install meson ninja
 
+  6. Permission denied when running ninja install
 
-  Frequently Asked Questions
-    1. I get a lot of warnings.
+    If you do not have permission to write to the installation
+    directory, use sudo:
 
-      Warnings do not necessarily mean anything bad. As long as the compile
-      completes, there is really nothing to worry about. Generally, we try to
-      avoid warnings. We try to fix the warnings we are aware of. If you
-      experience warnings, you can let us know by e-mailing bugs@eggheads.org.
-      If you feel like fixing them yourself, please do so and send us a patch
-      (as described in doc/PATCH_HOWTO). Thanks.
+      sudo ninja -C builddir install
 
+    Or specify a different installation directory during setup:
 
-    2. I get a 'strip terminated with signal 6' error during compile/install,
-       or another error related to 'strip'.
+      meson setup builddir --prefix=$HOME/eggdrop
 
-      collect2: strip terminated with signal 6 [IOT/Abort trap]
-      *** Exit 1
-      Stop.
-      *** Exit 1
-      Stop.
-
-      Don't use the --enable-strip ./configure option.
-
-
-    3. 'DIR' undeclared (and a whole bunch of others) (AIX 4)
-
-      gcc -c -O2 -fno-strength-reduce -I.. -DHAVE_CONFIG_H  filedb.c
-      filedb.c: In function `filedb_update':
-      filedb.c:209: `DIR' undeclared (first use this function)
-      filedb.c:209: (Each undeclared identifier is reported only once
-      filedb.c:209: for each function it appears in.)
-      filedb.c:209: `dir' undeclared (first use this function)
-      filedb.c:209: parse error before `*'
-      filedb.c:217: warning: assignment makes pointer from integer without a cast
-      filedb.c:218: `name' undeclared (first use this function)
-      filedb.c:218: dereferencing pointer to incomplete type
-      filedb.c:220: dereferencing pointer to incomplete type
-      filedb.c:220: dereferencing pointer to incomplete type
-      filedb.c:224: dereferencing pointer to incomplete type
-      filedb.c:224: dereferencing pointer to incomplete type
-      filedb.c:225: dereferencing pointer to incomplete type
-      filedb.c:230: `s' undeclared (first use this function)
-      filedb.c:231: `st' undeclared (first use this function)
-      filedb.c:232: `fdb' undeclared (first use this function)
-      filedb.c:232: `where' undeclared (first use this function)
-      filedb.c:237: `fdb1' undeclared (first use this function)
-      filedb.c:253: warning: assignment makes pointer from integer without a cast
-      make: The error code from the last command is 1.
-
-      The configure script didn't detect that this particular system had dirent.h
-      and sys/dir.h. The solution is to add -DHAVE_DIRENT_H -DHAVE_SYS_DIR_H to
-      the Makefile's CFLGS line:
-
-        CFLGS = -DHAVE_DIRENT_H -DHAVE_SYS_DIR_H
-
-
-    4. 'fd_set' undeclared (and a whole bunch of others) (AIX 4)
-
-      gcc -c -O2 -fno-strength-reduce -I.. -DHAVE_CONFIG_H -DHAVE_DIRENT_H -DHAVE_SYS_DIR_H net.c
-      net.c: In function `sockread':
-      net.c:390: `fd_set' undeclared (first use this function)
-      net.c:390: (Each undeclared identifier is reported only once
-      net.c:390: for each function it appears in.)
-      net.c:390: parse error before `fd'
-      net.c:396: `fd' undeclared (first use this function)
-      make: The error code from the last command is 1.
-
-      Again, this seems that one of configure's components (sed, awk,
-      or something along those lines) is broken, and configure failed to
-      detect that this system needed sys/select.h. The solution is to add
-      -DHAVE_SYS_SELECT_H to the Makefile's CFLGS line:
-
-        CFLGS = -DHAVE_DIRENT_H -DHAVE_SYS_DIR_H -DHAVE_SYS_SELECT_H
-
-
-    5. Unresolved or undefined symbols: ldclose, ldopen, ldnshread (AIX 3)
-
-      cc -s -o eggdrop chan.o chanprog.o chanset.o cmds.o dcc.o dccutil.o
-      filedb.o fileq.o files.o gotdcc.o hash.o main.o match.o mem.o misc.o
-      mode.o msgcmds.o msgnotice.o net.o tandcmd.o tandem.o tcl.o tclhash.o
-      userrec.o users.o -L/home2/f/foster/lib -ltcl7.5 -lm
-         0706-317 ERROR: Unresolved or undefined symbols detected:
-                         Symbols in error (followed by references) are dumped to the load map.
-                         The -bloadmap:<filename> option will create a load map.
-         .ldclose
-         .ldopen
-         .ldnshread
-         make: 1254-004 The error code from the last command is 8.
-
-      Apparently, what is happening is a library called ld is required. Either
-      configure doesn't know it is needed, it simply can't find it, or maybe
-      this is a unique case. The solution is to have ld linked in with the final
-      binary.
-
-      Edit your Makefile and find the line that looks something like this:
-
-        GMAKE = ${MAKE} 'CC=cc' 'AWK=awk' 'OBJS=${OBJS}' 'TCLLIBFN=tcl7.5.a'\
-                'CFLAGS=${CFLAGS}' 'XREQ=${XREQ}' 'XLIBS= -L/home2/f/foster/lib -ltcl7.5 -lm'\
-                'TCLLIB=${TCLLIB}' 'RANLIB=ranlib' 'STRIP=-s'
-
-      Add in -lld into the XLIBS assignment, like this:
-
-        GMAKE = ${MAKE} 'CC=cc' 'AWK=awk' 'OBJS=${OBJS}' 'TCLLIBFN=tcl7.5.a'\
-                'CFLAGS=${CFLAGS}' 'XREQ=${XREQ}' 'XLIBS=-lld -L/home2/f/foster/lib -ltcl7.5 -lm'\
-                'TCLLIB=${TCLLIB}' 'RANLIB=ranlib' 'STRIP=-s'
-
-
-    6. Unsatisfied symbols 'shl_findsym' and 'shl_load' (HP-UX 9)
-
-      gcc -s -o eggdrop chan.o chanprog.o chanset.o cmds.o dcc.o
-      dccutil.o filedb.o fileq.o files.o gotdcc.o hash.o main.o match.o
-      mem.o misc.o mode.o msgcmds.o msgnotice.o net.o tandcmd.o tandem.o
-      tcl.o tclhash.o userrec.o users.o -L/home/hltran/tcl/lib -ltcl7.5 -lm
-         /bin/ld: Unsatisfied symbols:
-            shl_findsym (code)
-            shl_load (code)
-         collect2: ld returned 1 exit status
-         *** Error code 1
-         Stop.
-
-      Upgrade to a later version of Tcl. The following should also work.
-
-      Edit your Makefile and find the line that looks something like this:
-
-        GMAKE = ${MAKE} 'CC=gcc' 'AWK=awk' 'OBJS=${OBJS}' 'TCLLIBFN=tcl7.5.a'\
-                'CFLAGS=${CFLAGS}' 'XREQ=${XREQ}' 'XLIBS= -L/usr/local/lib -ltcl7.5 -lm'\
-                'TCLLIB=${TCLLIB}' 'RANLIB=:' 'STRIP='
-
-      Add in -ldl into the XLIBS assignment, like this:
-
-        GMAKE = ${MAKE} 'CC=gcc' 'AWK=awk' 'OBJS=${OBJS}' 'TCLLIBFN=tcl7.5.a'\
-                'CFLAGS=${CFLAGS}' 'XREQ=${XREQ}' 'XLIBS=-ldl -L/usr/local/lib -ltcl7.5 -lm'\
-                'TCLLIB=${TCLLIB}' 'RANLIB=:' 'STRIP='
-
-
-    7. Compile stops at the last minute with "ld fatal signal 11"! (Linux)
-
-      This seems to be caused by a non-ELF Tcl library binary, and the compiler
-      doesn't seem to like it. Download and install Tcl in your home directory
-      using the steps in 'E. Tcl Detection and Installation' in the Compile
-      Guide above.
-
-
-    8. Undefined references in net.o (SunOS)
-
-                     First
-      Undefined    Referenced
-       Symbol       In file
-
-      socket          net.o
-      gethostbyname   net.o
-      accept          net.o
-      bind            net.o
-      setsockopt      net.o
-      gethostbyaddr   net.o
-      getsockname     net.o
-      gethostname     net.o
-      listen          net.o
-      connect         net.o
-      ld: fatal: Symbol referencing errors. No output written to eggdrop
-
-      This seems to be caused by a few libraries not being detected by the
-      auto-configure script; it is relatively easy to fix. Edit your Makefile.
-      Note that yours may be slightly different than this one when it comes to
-      the Tcl library, but here is the way it probably is:
-
-        GMAKE = ${MAKE} 'CC=gcc' 'AWK=awk' 'OBJS=${OBJS}' 'TCLLIBFN=tcl.a'\
-                'CFLAGS=${CFLAGS}' 'XREQ=${XREQ}' 'XLIBS= -L/usr/local/lib -ltcl -lm'\
-                'TCLLIB=${TCLLIB}' 'RANLIB=:' 'STRIP='
-
-      Here is what you need to change it to:
-
-        GMAKE = ${MAKE} 'CC=gcc' 'AWK=awk' 'OBJS=${OBJS}' 'TCLLIBFN=tcl.a'\
-                'CFLAGS=${CFLAGS}' 'XREQ=${XREQ}' 'XLIBS=-lsocket -ldl -lnsl -L/usr/local/lib -ltcl -lm'\
-                'TCLLIB=${TCLLIB}' 'RANLIB=:' 'STRIP='
-
-      You are adding three libraries to be linked in: socket, dl, and nsl. This
-      will resolve the net.o errors.
-
-
-    9. I experience problems starting the configure script (AIX/various)
-
-      If you receive file descriptor or bad interpreter errors when attempting
-      to run the configure script, try running 'sh configure' or 'bash configure'
-      instead of './configure'. This problem seems to show up on many AIX
-      machines.
-
-
-    10. I get a 'make: Permission denied' error when I type 'make config' or
-        'make' (FreeBSD / *BSD)
-
-      This is caused by a bug in FreeBSD (and possibly other BSDs as well).
-      A simple 'cd .', or changing to a different directory and then changing
-      back, usually fixes this.
-
-    11. I get a 'make: Fatal error in reader: Makefile, line 21: Badly formed
-        macro assignment' error when I type 'make config' (OpenIndiana)
-
-      OpenIndiana does not use GNU make. Eggdrop uses a GNU make extension in
-      it's Makefile. Install and use GNU make on OpenIndiana.
-
-    12. I get a 'gmake: readlink: Command not found' error when I type 'gmake
-        install' (OpenIndiana)
-
-      Install gnu-coreutils on OpenIndiana.
-
-    13. I get '/usr/bin/ld: cannot find -lpthread' (OpenWrt)
-
-      Pthread primitives are part of the core libc.so library. To satisfy
-      -lpthread, create an empty AR archive (a static library) somewhere in the
-      library search path. E.g.:
-
-        ar -rc /usr/lib/libpthread.a
-
-    14. I get 'configure: error: C compiler cannot create executables
-        (Alpine Linux)
-
-      Install the musl c library implementation used by Alpine:
-        apk add musl-dev
-    _____________________________________________________________________
-
-   Copyright (C) 1997 Robey Pointer
-   Copyright (C) 1999 - 2025 Eggheads Development Team
+  Copyright (C) 1997 Robey Pointer
+  Copyright (C) 1999 - 2025 Eggheads Development Team

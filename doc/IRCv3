@@ -1,72 +1,134 @@
-IRCv3 support Last revised: November 27, 2021
+IRCv3 Support
 
-IRCv3 support
+IRCv3 Support in Eggdrop
 
-This document provides information about IRCv3 capabilities, as defined
-via specifications documented by the IRCv3 working group
-(https://ircv3.net/). Support for some of these specifications was added
-starting with version 1.9.0, and more capabilities are added as possible
-with new versions.
+  This document provides information about IRCv3 capabilities supported
+  by Eggdrop. IRCv3 is a set of standards defined by the IRCv3 working
+  group (https://ircv3.net/). Support for these specifications was added
+  starting with Eggdrop 1.9.0, with more capabilities added in
+  subsequent versions.
 
-ABOUT
+ABOUT IRCv3
 
-As more and more IRC servers began to develop and implement their own
-versions of the IRC protocol (generally defined in RFC1459 and RFC2812),
-a working group comprised of server, client, and bot developers decided
-to work together to document these features to make their implementation
-defined and standardized across servers. What emerged was the IRCv3 set
-of standards. The specifications developed by the IRCv3 working group
-was designed to be backwards compatible and are generally implemented
-via a CAP (capability) request sent at the initialization of an IRC
-session. A client can optinoally request these "extra" capabilities be
-enabled through the CAP request, with the assumption that the client can
-then support the capability requested and enabled. Not all servers or
-clients support the same capabilities, a general support list can be via
-the appropriate support table link at https://ircv3.net/.
+  As IRC servers began developing their own protocol extensions beyond
+  the basic RFC 1459/2812 standard, server and client developers created
+  the IRCv3 working group to document and standardize these features.
+  IRCv3 specifications are designed to be backward compatible and are
+  typically implemented via CAP (capability) requests sent during IRC
+  session initialization.
 
-USAGE
+  Clients can optionally request additional IRCv3 capabilities, with the
+  assumption that the client can then support the requested capability.
+  Not all servers or clients support the same capabilities. See
+  https://ircv3.net/ for comprehensive support information.
 
-Within eggdrop.conf, several common IRCv3-defined capabilities are
-enabled simply changing their setting to '1'. Other capabilities without
-explicit settings in eggdrop.conf may be requested by adding them in a
-space-separated list to the cap-request setting. For more information on
-what a specific IRCv3-defined capability does, please consult
-https://ircv3.net/irc/.
+ENABLING IRCV3 CAPABILITIES IN EGGDROP
+
+  Within eggdrop.toml, many common IRCv3 capabilities can be enabled by
+  changing their setting to 1 (true). For example:
+
+    # Request the account-notify capability
+    account-notify = 1
+
+    # Request the echo-message capability
+    echo-message = 1
+
+  Additional capabilities not explicitly configured can be requested via
+  the cap-request setting as a space-separated list:
+
+    cap-request = ["custom-cap-1", "custom-cap-2"]
+
+  For information on what a specific IRCv3 capability does, see
+  https://ircv3.net/irc/.
 
 SUPPORTED CAP CAPABILITIES
 
-The following capabilities are supported by Eggdrop:
+  Eggdrop supports the following IRCv3 capabilities:
 
-  -   CAP/CAP 302 requests
-  -   SASL 3.2
-  -   account-notify
-  -   account-tag
-  -   away-notify
-  -   BOT 005 mode
-  -   cap-notify
-  -   chghost
-  -   echo-message
-  -   extended-join
-  -   invite-notify
-  -   message-tags
-  -   Monitor
-  -   server-time
-  -   setname
-  -   userhost-in-names
-  -   +typing
+  Core:
+  - CAP / CAP 302 (capability negotiation)
+  - SASL 3.2 (authentication)
 
-ERRATA
+  Channel:
+  - account-notify (notify when users authenticate/deauthenticate)
+  - account-tag (tag with account name in messages)
+  - away-notify (notify when users go away)
+  - cap-notify (notify when server capabilities change)
+  - chghost (notify when user's host changes)
+  - echo-message (server echoes client's own messages)
+  - extended-join (include account name in JOIN messages)
+  - invite-notify (notify of INVITE commands)
+  - message-tags (support for message tags)
+  - Monitor (watch specific nicknames for online/offline changes)
+  - server-time (include timestamp in messages)
+  - setname (notify when user's real name changes)
+  - userhost-in-names (include userhost in NAMES list)
+  - typing (notify when user is typing)
 
--   Enabling echo-message will cause Eggdrop to trigger PUB/PUBM binds
-    on its own messages (because now it can actually see them). This may
-    cause unintentional functionality with some scripts
--   Enabling userhost-in-names will cause Eggdrop's internal mechanisms
-    to mark a channel's userlist as synch'd upon receiving the NAMES
-    list after a join, instead of waiting for a full WHO listing. This
-    is done because the assumption is that userhost-in-names was enabled
-    as a response to WHO queries being disabled on a server, which
-    prevents Eggdrop from populating its userlist. To avoid unintended
-    functionality, it is suggested that this capability only be enabled
-    on servers that disable WHO queries.
+IMPORTANT NOTES
 
-Copyright (C) 2010 - 2025 Eggheads Development Team
+Echo-message
+
+  Enabling echo-message causes Eggdrop to see and trigger on its own
+  messages. This may cause unintended behavior with some scripts if
+  they trigger on PUB/PUBM events. Review your scripts before enabling
+  this capability on servers that support it.
+
+Userhost-in-names
+
+  Enabling userhost-in-names causes Eggdrop to mark a channel's userlist
+  as synchronized upon receiving the NAMES list after joining, rather
+  than waiting for a full WHO listing. This optimization is only safe if
+  the server disables WHO queries (which is why userhost-in-names is
+  typically enabled).
+
+  Enable this capability only on servers that actually disable WHO
+  queries to avoid unintended synchronization behavior.
+
+ACCOUNT TRACKING
+
+  For detailed information on using account tracking features, see
+  doc/ACCOUNTS.
+
+  Account tracking requires three capabilities to work properly:
+  - extended-join (to see accounts on JOIN)
+  - account-notify (to see account changes after JOIN)
+  - WHOX (to populate accounts when bot joins a channel)
+
+CHECKING CAPABILITY STATUS
+
+  While Eggdrop is running, join the partyline and type:
+
+    .status
+
+  If all required capabilities are enabled on the server, you'll see:
+
+    Loaded module information:
+      Account tracking: Enabled
+
+  If some capabilities are missing, you'll see:
+
+    Loaded module information:
+      Account tracking: Best-effort (Missing capabilities: extended-join)
+
+  For more detailed capability information:
+
+    .status all
+
+CHECKING SERVER CAPABILITIES
+
+  From the partyline, you can check which capabilities the IRC server
+  supports using:
+
+    .tcl cap ls
+
+  This displays the list of capabilities the server advertises. If you
+  don't see a capability you need, your server doesn't support it.
+
+  For WHOX support (used for account tracking):
+
+    .tcl issupport isset WHOX
+
+  Returns 1 if WHOX is supported, 0 otherwise.
+
+  Copyright (C) 2010 - 2025 Eggheads Development Team

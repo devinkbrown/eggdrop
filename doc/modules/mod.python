@@ -1,14 +1,11 @@
-Using the Python Module
+Python Module
 
-Eggdrop includes a Python module that allows scripts to be written in
-Python instead of (or in addition to) Tcl.  In this build, Tcl is an
-optional build dependency: you can build without Tcl and use Python as
-the sole scripting engine.
+This module adds a Python 3 interpreter to Eggdrop, enabling Python
+scripts as an alternative or supplement to Tcl scripting.
 
 SYSTEM REQUIREMENTS
 
-Eggdrop requires Python and the Python development libraries to be
-installed.  On Debian/Ubuntu:
+Python 3.8 or later with development libraries. On Debian/Ubuntu:
 
     sudo apt install python3 python3-dev python3-is-python3
 
@@ -16,113 +13,84 @@ On Fedora/RHEL:
 
     sudo dnf install python3 python3-devel
 
-The minimum supported Python version is 3.8.  The Global Interpreter
-Lock (GIL) is required for thread safety; free-threaded Python builds
-(--disable-gil, PEP 703) are not supported.
+The Global Interpreter Lock (GIL) is required for thread safety.
+Free-threaded Python builds (PEP 703) are not supported.
 
-Tcl is NOT required.  A build with -Dtcl=disabled and Python available
-is fully functional for scripting.
+BUILD OPTIONS
 
-BUILDING WITHOUT TCL
-
-To build Eggdrop without Tcl and use Python as the only scripting engine:
+Python is optional. To build without Tcl and use Python only:
 
     meson setup builddir/ -Dtcl=disabled
     ninja -C builddir/
 
-In this mode all [scripts] entries in your TOML config are loaded via
-python.mod automatically.  All standard bind tables (pub, msg, join,
-part, kick, mode, nick, sign, notc, ctcp, raw, time, cron, dcc, evnt,
-and the server.mod / irc.mod tables) are pre-created so Python binds
-fire correctly without Tcl.
+This creates a fully functional bot using only Python for scripting.
+All standard bind tables (pub, msg, join, part, kick, mode, etc.) are
+pre-created and work without Tcl.
 
-LOADING PYTHON
+LOADING
 
 Put this line into your Eggdrop configuration file to load the python
 module:
 
     loadmodule python
 
-To load a Python script from your TOML config file:
+LOADING PYTHON SCRIPTS
+
+TOML Configuration
+
+To load scripts from your TOML config:
 
     [scripts]
-    load = ["scripts/myscript.py"]
+    load = ["scripts/myscript.py", "scripts/another.py"]
 
-If you are using the legacy Tcl config format, you can also use:
+Legacy Tcl Config
+
+In legacy Tcl configs, use:
 
     pysource scripts/myscript.py
 
-If you need to install dependencies we recommend using virtual
-environments, see https://docs.python.org/3/library/venv.html for more
-details.
+PYTHON DEPENDENCIES
 
-To create the virtual environment in a hidden directory called .venv
-(only necessary once):
+Use virtual environments to isolate dependencies:
 
     cd eggdrop && python3 -m venv .venv
+    source .venv/bin/activate
+    pip install requests
 
-To install a python package in the above .venv directory (in this
-example, the requests package):
+Always activate the venv when starting the bot:
 
-    cd eggdrop && source .venv/bin/activate && pip install requests
+    source .venv/bin/activate && ./eggdrop
 
-Starting eggdrop with activated venv (must be run every time for proper
-functionality):
+SCRIPT RELOADING
 
-    cd eggdrop && source .venv/bin/activate && ./eggdrop
+Python script reloading is currently unsupported. Manual unbinding of
+previous binds is required. Example pattern:
 
-You always need to start Eggdrop with the activated venv to set the
-necessary environment variables.
+    # Global to track binds
+    if 'MY_BINDS' in globals():
+      for bind_obj in MY_BINDS:
+        bind_obj.unbind()
+      del MY_BINDS
 
-RELOADING PYTHON SCRIPTS
+    MY_BINDS = []
 
-Unfortunately, reloading python scripts with rehash like Tcl scripts is
-currently unsupported. Scripts can unbind their existing binds and
-re-bind them on being loaded again (see the bind section). For now, you
-should restart your bot when the Python scripts change.
+    # Create binds
+    MY_BINDS.append(bind("join", "*", "*", on_join))
+    MY_BINDS.append(bind("pub", "o", "!cmd", on_command))
 
-You can (should?) also write scripts that manually unload their binds
-upon a rehash, example code looks like this:
+Restart the bot when scripts change, or implement manual rebinding.
 
-    # Create a list to track the join binds
-    if 'JOIN_BINDS' in globals():
-      for joinbind in JOIN_BINDS:
-        joinbind.unbind()
-      del JOIN_BINDS
+THREADING AND ASYNC
 
-    JOIN_BINDS = list()
+Python scripts run in the main Eggdrop thread but can safely use async
+and threading. Both asyncio and regular threads work correctly.
 
-    <...>
+EGGTOOLS.PY — MODERN SCRIPTING LIBRARY
 
-    # Create the binds in the script like this
-    JOIN_BINDS.append(bind("join", "*", "*", joinGreetUser))
-    JOIN_BINDS.append(bind("join", "o", "*", joinGreetOp))
+scripts/eggtools.py provides high-level bindings with decorators,
+type hints, and utility functions:
 
-MULTITHREADING AND ASYNC
-
-pysource loads a Python script in the main Eggdrop thread but is free to
-use both async Python and threads.
-
-EGGTOOLS.PY — MODERN PYTHON SCRIPTING LIBRARY
-
-scripts/eggtools.py is a modern Python utility library for Eggdrop script
-authors.  It replaces the legacy alltools.tcl and provides:
-
-  - Decorator-based bind registration (@on_pub, @on_join, @on_msg, etc.)
-  - Type-annotated wrappers for the full eggdrop C API
-  - Member dataclass for channel member introspection
-  - Timer helpers: timer(), utimer(), reptimer(), killtimer()
-  - MONITOR helpers: monitor_add(), monitor_del(), monitor_list()
-  - IRCX and IRCv3 helpers (ircxwhisper, chathistory, markread)
-  - Twitch wrappers: twitchmods(), twitchvips(), ismod(), isvip()
-  - Bot management: die(), restart(), rehash()
-  - User entry: getinfo/setinfo, getcomment/setcomment, gethosts
-  - Channel settings: chanset()
-  - alltools.tcl-compatible string aliases
-
-Quick example:
-
-    import eggtools
+Decorators
 
     @eggtools.on_pub("*", "!hello")
     def greet(nick, host, handle, channel, text):
@@ -133,187 +101,163 @@ Quick example:
         if not eggtools.isbotnick(nick):
             eggtools.privmsg(channel, f"Welcome, {nick}!")
 
-    # Fire once after 5 minutes
-    eggtools.timer(lambda: eggtools.putlog("5 min up!"), 5)
+    @eggtools.on_msg("-")
+    def reply(nick, host, handle, text):
+        eggtools.privmsg(nick, f"You said: {text}")
+
+    @eggtools.on_mode()
+    def on_mode_change(nick, host, handle, channel, mode, target):
+        eggtools.putlog(f"Mode change in {channel}: {mode} {target}")
+
+Timer Helpers
+
+    # Fire once after 300 seconds
+    eggtools.timer(lambda: eggtools.putlog("5 min up!"), 300)
 
     # Fire every 60 seconds
     eggtools.reptimer(lambda: eggtools.privmsg("#chan", "tick!"), 60)
 
-EGGDROP PYTHON COMMANDS (eggdrop module)
+    # Kill a timer
+    timer_id = eggtools.timer(func, 120)
+    eggtools.killtimer(timer_id)
 
-The eggdrop module exposes the following functions directly.
-For a higher-level interface, use eggtools.py instead.
+Low-Level eggdrop Module
 
-BIND FUNCTIONS
+Direct access to Eggdrop C API:
 
-bind(type, flags, mask, callback)
+IRC Output
 
-    Register a Python function as an eggdrop bind.  Returns a
-    PythonBind object with an unbind() method.
+    eggdrop.putserv(text)      — normal queue
+    eggdrop.putquick(text)     — fast queue
+    eggdrop.putnow(text)       — immediate
+    eggdrop.puthelp(text)      — help queue
+    eggdrop.putlog(text, level, channel)
+    eggdrop.tagmsg(tag, target) — IRCv3
 
-    Example:
-        def on_join(nick, host, handle, channel):
-            eggdrop.putserv(f"PRIVMSG {channel} :Welcome, {nick}!")
-        eggdrop.bind("join", "-|-", "*", on_join)
+Channel Queries
 
-IRC OUTPUT FUNCTIONS
+    eggdrop.channels()             — list of channel names
+    eggdrop.botname()              — bot's nick
+    eggdrop.isonchan(nick, chan)   — bool
+    eggdrop.getchanhost(nick, chan) — "user@host" or None
+    eggdrop.chanlist(channel)      — list of member dicts
+    eggdrop.getchan_topic(channel) — topic or None
+    eggdrop.chanbans(channel)      — list of ban dicts
+    eggdrop.chanexempts(channel)   — list of exempt dicts
+    eggdrop.chaninvites(channel)   — list of invite dicts
 
-putserv(text)    — queue a raw IRC line (normal server queue)
-putquick(text)   — queue a raw IRC line (quick/mode queue)
-putnow(text)     — send a raw IRC line immediately, bypassing queues
-putdcc(idx, text) — send text to a DCC party-line connection by index
-puthelp(text)    — queue a raw IRC line to the help/notice queue
-putlog(text[, level[, channel]]) — write to the eggdrop log
-tagmsg(tag, target) — send an IRCv3 TAGMSG
+Member Status
 
-IRCv3 / CAPABILITY COMMANDS
+    eggdrop.isop(nick, channel)     — bool
+    eggdrop.ishalfop(nick, channel) — bool
+    eggdrop.isvoice(nick, channel)  — bool
+    eggdrop.botisop(channel)        — bool
+    eggdrop.wasop(nick, channel)    — was op before split
 
-cap(action, arg) — send CAP commands:
-    cap("req", "extended-join")   -> CAP REQ :extended-join
-    cap("raw", "LS")              -> CAP LS
+User Database
 
-CHANNEL QUERY FUNCTIONS
+    eggdrop.validuser(handle)       — bool
+    eggdrop.adduser(handle, mask)   — bool
+    eggdrop.deluser(handle)         — bool
+    eggdrop.finduser(nick!user@host) — handle or None
+    eggdrop.nick2hand(nick, chan)   — handle or None
+    eggdrop.passwdok(handle, passwd) — bool
+    eggdrop.chattr(handle, flags, chan) — modify flags
+    eggdrop.save()                  — write userfile
 
-channels()                   — list of channel names the bot is in
-botname()                    — bot's current IRC nickname
-isonchan(nick, channel)      — True if nick is on channel
-getchanhost(nick, channel)   — "user@host" of nick, or None
-chanlist(channel)            — list of member dicts for channel
-findircuser(nick[, channel]) — member dict for nick, or None
-chanset(channel)             — dict of channel config settings
-chanbans(channel)            — list of ban dicts (mask, who, time)
-chanexempts(channel)         — list of exempt dicts
-chaninvites(channel)         — list of invite dicts
-getchanidle(nick, channel)   — idle minutes for nick, or -1
-getchan_topic(channel)       — topic string, or None
+Ignore List
 
-CHANNEL MEMBER STATUS
+    eggdrop.isignore(mask)          — bool
+    eggdrop.newignore(mask, who, comment, minutes)
+    eggdrop.killignore(mask)        — bool
+    eggdrop.ignorelist()            — list of dicts
 
-isop(nick, channel)          — True if nick has op (@)
-ishalfop(nick, channel)      — True if nick has half-op (%)
-isvoice(nick, channel)       — True if nick has voice (+)
-isaway(nick, channel)        — True if nick is marked away
-botisop(channel)             — True if bot has op
-botishalfop(channel)         — True if bot has half-op
-botisvoice(channel)          — True if bot has voice
-botonchan([channel])         — True if bot is on channel
-wasop(nick, channel)         — True if nick was op before netsplit
-washalfop(nick, channel)     — True if nick was halfop before netsplit
-isircbot(nick[, channel])    — True if nick is a bot (IRCv3/005)
-getaccount(nick, channel)    — IRC account name, or None
-isidentified(nick, channel)  — True if nick is identified to services
-account2nicks(acct[, chan])  — list nicks with given IRC account
-hand2nicks(handle[, chan])   — list nicks for a handle
+DCC Management
 
-HANDLE / NICK RESOLUTION
+    eggdrop.dccused()               — count
+    eggdrop.dcclist(type)           — list of dicts
+    eggdrop.killdcc(idx, reason)    — disconnect
 
-nick2hand(nick, channel)     — eggdrop handle for nick, or None
-hand2nick(handle, channel)   — nick of user with handle, or None
-isbotnick(nick)              — True if nick is the bot's nick
+Bot Network
 
-USER DATABASE
+    eggdrop.bots()                  — list of linked bots
+    eggdrop.islinked(botnick)       — bool
+    eggdrop.putbot(botnick, msg)    — send to bot
+    eggdrop.putallbots(msg)         — broadcast
 
-countusers()                 — number of users in the userlist
-validuser(handle)            — True if handle exists
-finduser(host)               — handle matching nick!user@host, or None
-userlist()                   — list of all user handles
-adduser(handle[, mask])      — add a user; returns True on success
-deluser(handle)              — delete a user; returns True on success
-addhost(handle, mask)        — add a hostmask to a user
-delhost(handle, mask)        — remove a hostmask from a user
-chattr(handle[, changes[, chan]]) — get/modify user flags
-matchattr(handle, flags[, chan])  — True if user has flags
-passwdok(handle, password)   — True if password matches
-chhandle(old, new)           — rename a user
-save()                       — write userfile to disk
+Bot Control
 
-USER ENTRY FIELDS
+    eggdrop.die(reason)             — shutdown
+    eggdrop.restart()               — restart
+    eggdrop.rehash()                — rehash config
 
-getinfo(handle)              — INFO line, or None
-setinfo(handle, info)        — set INFO line ("" to clear)
-getcomment(handle)           — COMMENT field, or None
-setcomment(handle, comment)  — set COMMENT field ("" to clear)
-gethosts(handle)             — list of hostmask strings
-getaccount_str(handle)       — IRC account from userdb, or None
+Utilities
 
-IGNORE LIST
+    eggdrop.rand(n)                 — random 0 to n-1
+    eggdrop.unixtime()              — Unix timestamp
+    eggdrop.duration(seconds)       — human-readable
+    eggdrop.stripcodes(flags, text) — strip IRC codes
+    eggdrop.matchstr(pattern, text) — glob match
 
-isignore(mask)               — True if mask matches an ignore
-newignore(mask, who, comment[, lifetime]) — add ignore (minutes)
-killignore(mask)             — remove ignore; returns True if found
-ignorelist()                 — list of ignore dicts
+TWITCH INTEGRATION (requires twitch module)
 
-DCC MANAGEMENT
+    eggdrop.twitchmods(channel)     — space-sep mods or error
+    eggdrop.twitchvips(channel)     — space-sep VIPs or error
+    eggdrop.ismod(nick, channel)    — bool
+    eggdrop.isvip(nick, channel)    — bool
 
-hand2idx(handle)             — DCC socket for handle, or -1
-idx2hand(sock)               — nick for DCC socket, or None
-killdcc(sock[, reason])      — disconnect a DCC connection
-dcclist([type])              — list of DCC connection dicts
-dccused()                    — number of active DCC connections
+eggtools wrappers:
 
-BOT NETWORKING
+    import eggtools
+    mods = eggtools.twitchmods("#channel")
+    if eggtools.ismod("somenick"):
+        eggtools.privmsg("#channel", "Hi mod!")
 
-putbot(botnick, msg)         — zapf message to linked bot
-putallbots(msg)              — broadcast zapf to all bots
-islinked(botnick)            — True if bot is linked
-bots()                       — list of all linked bot names
+DNS-OVER-TLS (TLS + Tcl builds only)
 
-BOT MANAGEMENT
+    eggdrop.dnsdot()                 — status
+    eggdrop.dnsdot("on", "1.1.1.1") — enable to Cloudflare
+    eggdrop.dnsdot("off")            — disable
 
-die([reason])                — shut down the bot
-restart()                    — save userfile and restart
-rehash()                     — save userfile and rehash config
+Returns: "off" or "on <host>:<port>"
 
-MISCELLANEOUS UTILITIES
+TCL BRIDGE (Tcl builds only)
 
-rand(n)                      — random integer in [0, n)
-unixtime()                   — current Unix timestamp
-duration(seconds)            — human-readable time string
-maskhost(nick, userhost)     — create a standard IRC hostmask
-stripcodes(flags, text)      — strip IRC formatting codes
-matchstr(pattern, string)    — True if string matches IRC glob
-
-IRCX / OPHION COMMANDS
-
-ircxprop(target, prop[, value]) — get/set an IRCX channel property
-ircxaccess(channel, action[, level[, mask]]) — manage IRCX access list
-ircxcreate(channel[, modes])    — send IRCX CREATE command
-ircxnegotiate()                 — send IRCX negotiate command
-
-TWITCH COMMANDS (requires twitch module)
-
-twitchmods(channel)          — space-separated mod list, or error
-twitchvips(channel)          — space-separated VIP list, or error
-ismod(nick[, channel])       — True if nick is a mod
-isvip(nick[, channel])       — True if nick is a VIP
-
-TCL BRIDGE (HAVE_TCL builds only)
-
-parse_tcl_list(string)  — convert a Tcl list string to a Python list
-parse_tcl_dict(string)  — convert a Tcl dict string to a Python dict
-
-DNS COMMANDS (HAVE_TCL builds only, requires dns module and TLS support)
-
-dnsdot([action[, server[, port[, "-noverify"]]]])
-  Query or configure DNS-over-TLS (DoT, RFC 7858).
-
-  eggdrop.dnsdot()                          — returns status string
-  eggdrop.dnsdot("on", "1.1.1.1")          — enable DoT to Cloudflare
-  eggdrop.dnsdot("on", "9.9.9.9", 853)     — enable DoT to Quad9, explicit port
-  eggdrop.dnsdot("on", "::1", 853, "-noverify") — skip cert check
-  eggdrop.dnsdot("off")                     — revert to plain UDP
-
-  Status return values: "off", "on <host>:<port>", "connecting <host>:<port>"
-  Raises eggdrop.error on invalid arguments or when TLS is unavailable.
-
-eggdrop.tcl module — exposes all Tcl functions to Python.  Import
-individual functions or the whole module:
+For builds with both Tcl and Python:
 
     from eggdrop.tcl import putserv, putlog
+    eggdrop.tcl.source("scripts/legacy.tcl")
 
-Arguments are auto-converted: None -> "", list/tuple -> Tcl list,
-dict -> Tcl dict, everything else -> str().
-Return values are strings; use parse_tcl_list / parse_tcl_dict to
-convert list/dict returns.
+Arguments are auto-converted. Returns are strings; use parse functions
+for complex types.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+EXAMPLE SCRIPT
+
+    import eggtools
+    import time
+
+    @eggtools.on_pub("*", "!time")
+    def cmd_time(nick, host, handle, channel, text):
+        t = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        eggtools.privmsg(channel, f"Time: {t}")
+
+    @eggtools.on_join("-|n")
+    def greet_new(nick, host, handle, channel):
+        eggtools.privmsg(channel, f"Welcome to {channel}, {nick}!")
+
+    # Announce uptime every hour
+    def announce_uptime():
+        uptime_str = eggtools.duration(
+          int(time.time()) - eggtools.unixtime()
+        )
+        eggtools.privmsg("#ops", f"Bot uptime: {uptime_str}")
+
+    eggtools.reptimer(announce_uptime, 3600)
+
+MULTITHREADING
+
+Python's asyncio works correctly in the main bot thread. Standard
+threading also works for background tasks. However, do not block the
+main thread for extended periods.
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

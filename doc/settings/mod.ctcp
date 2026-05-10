@@ -1,36 +1,179 @@
-Last revised: February 12, 2002
+Last revised: May 10, 2026
 
 CTCP Module
 
-This module provides the normal ctcp replies that you would expect.
-Without it loaded, CTCP CHAT will not work.
+This module provides CTCP (Client-To-Client Protocol) functionality
+including CTCP CHAT, VERSION, FINGER, TIME, and PING replies. Without
+this module, CTCP CHAT will not work.
 
-This module requires: server
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the ctcp
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule ctcp
+  [modules]
+  load = [
+    "ctcp",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set ctcp-mode 0
+CONFIGURATION
 
-      Set here how the ctcp module should answer ctcps. There are 3
-      possible operating modes:
+CTCP replies are customized in the [ctcp] section:
 
-        --- --------------------------------------------------------------
-        0   Normal behavior is used.
+  [ctcp]
+  ctcp_version = "Eggdrop v1.10.1 (Linux)"
 
-        1   The bot ignores all ctcps, except for CHAT and PING requests
-            by users with the +o flag.
+      Custom CTCP VERSION reply. Leave commented to use default
+      Eggdrop version string. Example output: "Eggdrop v1.10.1 (Linux)"
 
-        2   Normal behavior is used, however the bot will not answer more
-            than X ctcps in Y seconds (defined by 'set flood-ctcp').
-        --- --------------------------------------------------------------
+  ctcp_finger = "Eggdrop v1.10.1 (Linux)"
 
-There are also several variables to help make your bot less noticeable.
-They are: ctcp-version, ctcp-finger, and ctcp-userinfo. You can use set
-to set them to values you'd like.
+      Custom CTCP FINGER reply. Often shows operator or bot info.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+  ctcp_userinfo = "Eggdrop v1.10.1 (Linux)"
+
+      Custom CTCP USERINFO reply. Can display bot status or admin info.
+
+IRC protocol settings affecting CTCP are in the [irc] section:
+
+  [irc]
+  ctcp_mode = 0
+
+      CTCP reply mode:
+        0 = reply to all CTCP queries (normal behavior)
+        1 = ignore all CTCP (except CHAT/PING from +o users)
+        2 = reply to CTCP only in channels, not private
+
+  answer_ctcp = 3
+
+      Max CTCP requests to answer per burst. Set to 0 to answer all
+      requests without limit (not recommended).
+
+  flood_ctcp = "3:60"
+
+      CTCP flood protection: N requests per S seconds. Example:
+      "3:60" = kick/ignore user if they send 3+ CTCP requests in
+      60 seconds.
+
+  lowercase_ctcp = 0
+
+      Fold CTCP command names to lowercase before matching (0/1).
+      Set to 1 if you need case-insensitive CTCP matching.
+
+
+STANDARD CTCP RESPONSES
+
+The bot handles these CTCP queries automatically:
+
+  CTCP VERSION
+      Replies with custom ctcp_version string (if set) or default
+      Eggdrop version. Used by IRC clients to identify bot.
+
+  CTCP FINGER
+      Replies with custom ctcp_finger string (if set) or bot info.
+
+  CTCP USERINFO
+      Replies with custom ctcp_userinfo string (if set) or bot status.
+
+  CTCP TIME
+      Replies with current server time.
+
+  CTCP PING
+      Echoes back the request. Tests connectivity.
+
+  CTCP CHAT
+      Initiates a DCC CHAT connection (if DCC port is open).
+      Reply text: "Using old protocol" or similar.
+
+
+ADVANCED SETTINGS
+
+Flood protection and ignore handling:
+
+  [behaviour]
+  ignore_time = 15
+
+      Ignore duration in seconds for CTCP flood violators.
+
+  trigger_on_ignore = 0
+
+      Fire bindings even when source is on ignore list (0/1).
+      Normally, ignored users won't trigger CTCP responses.
+
+
+EXAMPLE CONFIGURATION
+
+  [modules]
+  load = ["ctcp"]
+
+  [ctcp]
+  ctcp_version = "Eggdrop v1.10 (Linux x86_64)"
+  ctcp_finger = "I am a bot. Do not use CTCP on me!"
+  ctcp_userinfo = "Eggdrop IRC bot"
+
+  [irc]
+  ctcp_mode = 0
+  answer_ctcp = 3
+  flood_ctcp = "3:60"
+
+      Standard CTCP setup with custom replies and flood protection
+      (3 CTCP per 60 seconds).
+
+
+  [modules]
+  load = ["ctcp"]
+
+  [irc]
+  ctcp_mode = 1
+
+      Ignore all CTCP except CHAT/PING from ops. Good for privacy.
+
+
+  [modules]
+  load = ["ctcp"]
+
+  [irc]
+  ctcp_mode = 2
+  answer_ctcp = 5
+
+      Reply to CTCP only in channels, not private. Allow 5 replies
+      per burst. Good for selective visibility.
+
+
+DEPENDENCIES
+
+The ctcp module requires:
+  - server module (to send CTCP replies)
+
+Optional but recommended:
+  - transfer module (for DCC CHAT and file transfers)
+
+
+NOTES
+
+- CTCP VERSION replies help IRCops identify bots; consider customizing.
+- CTCP FLOOD protection is important to prevent abuse.
+- answer_ctcp = 0 means unlimited; not recommended (DoS risk).
+- Custom replies can hide bot identity for privacy.
+- CTCP CHAT requires an open DCC listen port (see [tcl].commands).
+
+
+TROUBLESHOOTING
+
+CTCP CHAT not working:
+  - Verify transfer module is loaded.
+  - Check DCC listen port is open: "listen 3333 all" in [tcl].commands.
+  - Verify bot's IP/hostname is correct (test with /ctcp botnick chat).
+  - Check firewall isn't blocking DCC ports.
+
+CTCP replies showing as "unknown command":
+  - Ensure ctcp module is loaded.
+  - Check IRC network doesn't filter CTCP (rare).
+
+Too many CTCP queries flooding:
+  - Lower answer_ctcp value (e.g., 1 or 2).
+  - Lower flood_ctcp threshold (e.g., "2:60").
+  - Increase ignore_time in [behaviour].
+
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

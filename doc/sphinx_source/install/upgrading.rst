@@ -1,67 +1,205 @@
 Upgrading Eggdrop
 =================
 
-  It is easy to upgrade Eggdrop to a new version! To have a full picture of the changes made since your last upgrade, we recommend reading the NEWS file. Upgrades from the 1.8 and 1.9 lines of Eggdrop should take place with little to no issues. While the config file, user files, and channel files can all be reused, it is recommended to review the NEWS files for each release to identify new configuration settings that have been added.
+Upgrading Eggdrop to a newer version is straightforward. We recommend reading the NEWS file in the source distribution to understand changes since your last upgrade. Most configuration files, user files, and channel files are compatible across 1.8, 1.9, and 1.10.x releases.
 
-  For support, feel free to visit us on Libera #eggdrop.
+For support, visit us on Libera #eggdrop or https://www.eggheads.org.
+
+Backup Before Upgrading
+-----------------------
+
+Before upgrading, back up your existing Eggdrop installation:
+
+- ``.toml`` configuration file (or ``.conf`` if upgrading from older versions)
+- ``.user`` user file
+- ``.chan`` channel file
+- ``.db`` LMDB database files (if using LMDB storage)
+
+These files are generally not overwritten during installation, but backups prevent accidental data loss.
 
 How to Upgrade
 --------------
 
-  To upgrade to a newer version of Eggdrop, first backup your .config file, .user file, and .chan file. While they are saved and should not be overwritten by the upgrade process, it never hurts to make anothere copy :)
+1. **Review changes**
 
-  Next, view the NEWS file to see what changes have been made, paying particular attention to the config file section to see what new/different commands have been added. Update your config file appropriately.
+   Read the NEWS file in the source distribution to identify breaking changes and new configuration options that may apply to your setup.
 
-  Then, simply follow the same steps you followed to install Eggdrop previously. Download the source, unzip/untar it, and run the './configure', 'make config', 'make', and 'make install' commands. Restart your Eggdrop and you will be up and running with the latest version of Eggdrop.
+2. **Back up your files** (as described above)
 
-Must-read changes for Eggdrop v1.10
------------------------------------
+3. **Download and extract the new source**
 
-These are NOT all the changes or new settings; rather just the "killer" changes that may directly affect Eggdrop's previous performance without modification.
+   From release tarball::
 
-Config file changes
+     tar xzf eggdrop-1.10.1.tar.gz
+     cd eggdrop-1.10.1
+
+   Or from git::
+
+     git clone https://github.com/eggheads/eggdrop.git
+     cd eggdrop
+
+4. **Build with Meson** (see `Installing Eggdrop <install.html>`_)
+
+   ::
+
+     meson setup builddir
+     ninja -C builddir
+     meson install -C builddir --destdir=/path/to/install
+
+5. **Update your configuration file**
+
+   Review the sample ``eggdrop.toml.sample`` or your old config file and make any necessary updates. See `Core Settings <../using/core.html>`_ for the complete configuration reference.
+
+6. **Restart Eggdrop**
+
+   Stop your running bot and start the new version::
+
+     ./eggdrop eggdrop.toml
+
+7. **Verify operation**
+
+   Check logs and verify the bot is connecting and behaving as expected.
+
+Major Changes in Eggdrop 1.10
+-----------------------------
+
+Configuration File Format
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Eggdrop 1.10 uses **TOML format** for configuration files (``eggdrop.toml``), replacing the old ``.conf`` format.
+
+**Migration from 1.8/1.9 .conf files:**
+
+- The bot does NOT automatically convert old .conf files
+- Use the ``--setup`` wizard to generate a new TOML config interactively::
+
+    ./eggdrop --setup mybot.toml
+
+- Or manually review a sample TOML file and recreate your settings
+
+See `Core Settings <../using/core.html>`_ for the complete TOML configuration reference.
+
+Userfile Encryption
 ^^^^^^^^^^^^^^^^^^^
 
-To migrate from a 1.8 to a |majversion| Eggdrop, some changes are suggested to be made in your configuration file:
+Eggdrop 1.10 uses **PBKDF2** for password hashing, replacing the older Blowfish module.
 
-* Eggdrop has deprecated the blowfish module for password hashing in favor of the PBKDF2 module. This is a BIG change which, if done carelessly, has the potential to render stored passwords useless. Please see doc/PBKDF2 for information on how to properly migrate your userfiles and passwords to the new module.
+**If upgrading from 1.8 or 1.9:**
 
-* Eggdrop 1.9 switched from the "set servers {}" syntax to the "server add" command. For example, if your configuration file previously had::
+- Existing Blowfish-encrypted userfiles are still supported (the ``blowfish`` module is available for backward compatibility)
+- **Migration to PBKDF2 is recommended** for better security
+- See `PBKDF2 Info <../using/pbkdf2info.html>`_ for step-by-step migration instructions
 
-    set servers {
-      my.server.com:6667
-    }
+**Never perform password migration carelessly**—improper handling can render userfiles inaccessible.
 
-  you should now instead use::
-
-    server add my.server.com 6667
-
-  Please read the config file for additional examples
-
-* Eggdrop no longer requires the '-n' flag to start Eggdrop in terminal mode.
-
-
-Modules
-^^^^^^^
-
-While most 3rd party modules that worked on older Eggdrop versions should still work with Eggdrop |majversion|, many of them contain a version check that only allows them to run on 1.6.x bots. We have removed the version check from some of the more popular modules provide them at `<https://ftp.eggheads.org/pub/eggdrop/modules/1.10/>`_
-
-Scripts
-^^^^^^^
-
-All 3rd party Tcl scripts that worked with Eggdrop versions as early as v1.6 should still fully work with Eggdrop |majversion|.
-
-Botnet
-^^^^^^
-
-In Eggdrop v1.8, Eggdrop bots would automatically attempt to upgrade any botnet link to an SSL/TLS connection. Since v1.9, the user is required to explicitly request an SSL/TLS connection by prefixing the port with a '+'. If you wish your botnet to take advantage of encryption, use the .chaddr command to update your ports to start with a '+'.
-
-Tcl Commands
+Build System
 ^^^^^^^^^^^^
 
-A lot of backwards-compatible additions and changes have been made to Tcl commands. Please look at doc/tcl-commands.doc to see them.
+Eggdrop 1.10 uses **Meson and Ninja** for building, replacing the older autoconf/configure system.
 
-Documentation
+**Build steps are now:**
+
+::
+
+  meson setup builddir
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/install
+
+See `Installing Eggdrop <install.html>`_ for full build instructions.
+
+TLS Library
+^^^^^^^^^^^
+
+Eggdrop 1.10 includes **opssl**, a custom bundled TLS library (TLS 1.2 and 1.3 support).
+
+- No external OpenSSL or wolfSSL installation needed
+- TLS certificates can still be generated with ``./scripts/genssl.sh``
+- See `TLS Setup <../tutorials/tlssetup.html>`_ for details
+
+Module System
 ^^^^^^^^^^^^^
 
-Documentation has been updated to reflect new and removed commands and variables.
+**Loading modules:**
+
+Modules are now specified in the ``[modules]`` section of ``eggdrop.toml``:
+
+::
+
+  [modules]
+  load = [
+    "pbkdf2",
+    "blowfish",
+    "channels",
+    "server",
+    "ctcp",
+    "irc",
+    "notes",
+    "console",
+    "uptime",
+  ]
+
+Third-party modules from Eggdrop 1.6, 1.8, and 1.9 should generally work with 1.10 if they do not contain version-checking code. See `Modules <../modules/included.html>`_ for a list of included modules.
+
+Scripts and Tcl Commands
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+- All Tcl scripts from Eggdrop 1.6 and later should work with 1.10
+- Consult `Tcl Commands <../using/tcl-commands.html>`_ for command reference
+- No action required unless you use deprecated commands (see NEWS file)
+
+Botnet Links
+^^^^^^^^^^^^
+
+- TLS/SSL botnet links require explicitly enabling with a ``+`` prefix on the port
+- Plaintext botnet links still work but are not recommended
+- Use ``.chaddr`` to update port prefixes if needed
+
+IRCv3 and SASL
+^^^^^^^^^^^^^^
+
+Eggdrop 1.10 supports modern IRCv3 capabilities and multiple SASL mechanisms:
+
+- SASL PLAIN
+- SASL ECDSA-NIST256P-CHALLENGE
+- SASL EXTERNAL
+- SASL SCRAM-SHA-256
+- SASL SCRAM-SHA-512
+- SASL ECDH-X25519-CHALLENGE
+
+See `Accounts <../using/accounts.html>`_ for configuration.
+
+Troubleshooting Upgrades
+------------------------
+
+Old config file format not working?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``./eggdrop --setup`` to generate a new TOML config, or manually convert settings using the sample ``eggdrop.toml.sample`` as a template.
+
+Userfile passwords invalid after upgrade?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+See `PBKDF2 Info <../using/pbkdf2info.html>`_ for migration instructions. If you skipped the blowfish module, install it temporarily to migrate passwords.
+
+Bot crashes or won't start?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Try starting in foreground mode to see error messages::
+
+     ./eggdrop -t eggdrop.toml
+
+2. Check the config file syntax (TOML files are strict about formatting)
+3. Ensure all required settings are present (see sample config)
+4. Check file permissions (config and user files should be readable by the bot)
+
+Next Steps
+----------
+
+After upgrading, review:
+
+- `Core Settings <../using/core.html>`_ — configuration reference
+- `First Steps <../tutorials/firststeps.html>`_ — getting started guide
+- `Features <../using/features.html>`_ — available functionality
+
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999 - 2025 Eggheads Development Team

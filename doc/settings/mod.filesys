@@ -1,200 +1,266 @@
-Last revised: Dec 30, 2017
+Last revised: May 10, 2026
 
 Filesys Module
 
-This module provides an area within the bot where users can store and
-manage files. With this module, the bot is usable as a file server.
+This module provides a built-in file server. Users can browse, download,
+and upload files via DCC. Without it, the bot cannot function as a file
+server.
 
-This module requires: transfer
+INSTALLATION
 
-CONFIG FILE SETUP
+Add to [modules] section in eggdrop.toml:
 
-Put this line into your Eggdrop configuration file to load the filesys
-module:
+  [modules]
+  load = [
+    "filesys",
+  ]
 
-    loadmodule filesys
 
-There are also some variables you can set in your config file:
+DEPENDENCIES
 
-  set files-path "/home/mydir/eggdrop/filesys"
+The filesys module requires:
+  - transfer module (for DCC transfers)
 
-      Set here the 'root' directory for the file system.
 
-  set incoming-path "/home/mydir/eggdrop/filesys/incoming"
+CONFIGURATION
 
-      If you want to allow uploads, set this to the directory uploads
-      should be put into. Set this to "" if you don't want people to
-      upload files to your bot.
+All filesys settings are in the [filesys] section:
 
-  set upload-to-pwd 0
+  [filesys]
+  files_path = "/home/mydir/filesys"
 
-      If you don't want to have a central incoming directory, but
-      instead want uploads to go to the current directory that a user is
-      in, set this setting to 1.
+      Root directory of the file system visible to users. All files
+      the bot serves must be under this directory. Users cannot browse
+      outside this directory.
 
-  set filedb-path ""
+      Example paths:
+        "./filesys"                (relative to bot dir)
+        "/home/botuser/filesys"    (absolute)
+        "/var/www/botfiles"        (web-served files)
 
-      Eggdrop creates a '.filedb' file in each subdirectory of your file
-      area to keep track of its own file system information. If you
-      can't do that (for example, if the dcc path isn't owned by you, or
-      you just don't want it to do that) specify a path here where you'd
-      like all of the database files to be stored instead.
+  incoming_path = "/home/mydir/filesys/incoming"
 
-  set max-file-users 20
+      Directory for user uploads. Set to empty string "" to disable
+      uploads. Must be under files_path.
 
-      Set here the maximum number of people that can be in the file area
-      at once. Setting this to 0 makes it effectively infinite.
+      Example:
+        "/home/botuser/filesys/incoming"
 
-  set max-filesize 1024
+  upload_to_pwd = 0
 
-      Set here the maximum allowable file size that will be received (in
-      KB). Setting this to 0 makes it effectively infinite.
+      Upload files to current directory instead of incoming_path
+      (0 = off, 1 = on). When 0, uploads go to incoming_path.
+      When 1, uploads go to whatever directory the user is browsing.
 
-PARTYLINE USAGE
+  filedb_path = ""
 
-.files
+      Path to file database. Eggdrop creates a '.filedb' file in each
+      filesys subdirectory to track file metadata. If filedb_path is set,
+      all .filedb files go to this directory instead (useful if you can't
+      write to filesys directories directly).
 
-  Moves you into the file transfer sub-system, if it has been enabled on
-  this bot. From there you can browse through the files online and use
-  dcc file transfers to download and upload.
+  max_file_users = 20
 
-.cancel <file> [file] ...
+      Maximum concurrent file-area users. Limits simultaneous access.
 
-  Tells the bot to stop sending a file that is pending (either queued,
-  waiting, or in the process of being transferred).
+  max_filesize = 1024
 
-.cd <directory>
+      Maximum uploadable file size in kilobytes. Prevents huge uploads.
+      Example: 1024 = 1 MB max.
 
-  Changes your current directory if possible. this works exactly like
-  the unix command.
 
-.cp <source> <dst>
+EXAMPLE CONFIGURATION
 
-  Copies a file or group of files from one place to another.
+Standard file server (with uploads):
 
-.desc <file> <description>
+  [modules]
+  load = ["filesys", "transfer"]
 
-  Changes the description for a file. if you are a master or file
-  janitor, you can change the description for any file. otherwise you
-  can only change the descriptions for files you have uploaded.
+  [filesys]
+  files_path = "./filesys"
+  incoming_path = "./filesys/incoming"
+  upload_to_pwd = 0
+  max_file_users = 20
+  max_filesize = 1024
 
-  The description is restricted to 3 lines of 60 characters each, and is
-  broken up between words. you can force a line break by putting a '|'
-  in the comment.
+      Standard setup with uploads to incoming directory.
 
-.filestats <user> [clear]
 
-  Reports on the users upload & download statistics. Optional argument
-  'clear' clears a users upload and download statistics.
+Read-only file server (no uploads):
 
-.stats
+  [modules]
+  load = ["filesys", "transfer"]
 
-  Clears a users upload & download statistics.
+  [filesys]
+  files_path = "/var/www/botfiles"
+  incoming_path = ""
+  max_file_users = 50
+  max_filesize = 0
 
-.get <filename> [nickname]
+      Read-only file server, no uploads, higher user limit.
 
-  Sends you the file(s) requested, over IRC. you should get a DCC SEND
-  notice on IRC, and have your client accept it. if your nickname on IRC
-  is different than the one you use on the bot, you should specify a
-  nickname too. you can also use that to send files to other people. if
-  a file you want is actually on another bot, it may take a little bit
-  longer so be patient. if that bot isn't on the botnet right now, it
-  will say the file isn't available.
 
-  There is a limit to the number of transfers you can have going
-  simultaneously, so if you go over this limit, the remainder of your
-  file requests will be queued. As the first files finish transferring,
-  the queued files will be sent.
+Upload-friendly file server:
 
-.hide <file> [files] ...
+  [modules]
+  load = ["filesys", "transfer"]
 
-  Marks a file as hidden, so that normal users can't see it. Only a
-  master or file janitor using %b'lsa'%b can see hidden files.
+  [filesys]
+  files_path = "./filesys"
+  incoming_path = "./filesys/incoming"
+  upload_to_pwd = 1
+  max_file_users = 30
+  max_filesize = 5120
 
-.ln <bot:filepath> <localfile>
+      Allow uploads to current directory, 5 MB file limit.
 
-  Creates a link to a file on another bot. The filepath has to be
-  complete, like '/gifs/uglyman.gif'. If the bot is not connected to the
-  botnet, nobody will be able to download the file until that bot
-  connects again. The local filename can be anything you want.
 
-  Example: ln Snowbot:/gifs/uglyman.gif ugly.gif
+DIRECTORY STRUCTURE
 
-.ls [filemask]
+Typical filesys layout:
 
-  Displays the files in the current directory. Subdirectories are shown
-  with "<DIR>" next to them, and other files will display their size
-  (typically in kilobytes), who uploaded them (and when), and how many
-  times each file has been downloaded. If a description of the file
-  exists, it is displayed below the filename. You can restrict the file
-  listing by specifying a mask, just like in unix.
+  filesys/
+    ├── file1.txt           (downloadable files)
+    ├── file2.zip
+    ├── subdir/
+    │   ├── file3.txt
+    │   └── .filedb         (metadata for subdir/)
+    └── incoming/           (upload directory)
+        └── uploaded_file.txt
 
-.mkdir <dir> [flags [channel]]
+Users can:
+  /msg bot files                 (list root files)
+  /msg bot cd subdir             (browse subdirectory)
+  /msg bot ls                    (list current directory)
+  /msg bot get file1.txt         (download file)
+  /msg bot upload file.txt       (upload file, if allowed)
 
-  Creates a subdirectory from this one, with the given name. If flags
-  are specified, then those flags are required to enter or even see the
-  directory. You can even specify a channel that the flags are matched
-  against. You can use the %b'mkdir'%b command again to alter or remove
-  those flags.
 
-.mv <source> <dest>
+PERMISSIONS
 
-  Moves a file or group of files from one place to another (it can also
-  be used to rename files).
+Filesystem permissions must allow bot to read/write:
 
-.pending
+  Readable by bot:
+    chmod 755 filesys/
 
-  Gives you a listing of every file you've requested which is still
-  waiting, queued, or in the process of transferring. It shows you the
-  nickname on IRC that the file is being sent to, and, if the transfer
-  is in progress, tells you how far along the transfer is.
+  Writable by bot (for uploads):
+    chmod 775 filesys/incoming/
 
-.pwd
+  On shared systems:
+    chown botuser:botgroup filesys/
+    chmod 755 filesys/
 
-  Tells you what your current directory is.
 
-.quit
+FILE DATABASE METADATA
 
-  Exits the file system.
+Each filesys subdirectory can have a .filedb file containing:
+  - File descriptions
+  - Upload dates
+  - User metadata
+  - File access info
 
-rm <file> [files] ...
+The bot creates/updates .filedb automatically unless you use filedb_path
+to centralize them.
 
-  Erase a file for good.
 
-.rmdir <dir>
+DCC FILE SERVER COMMANDS
 
-  Removes an existing directory, if there are no files in it.
+Users interact with filesys via /msg commands:
 
-.share <file> [files] ...
+  /msg bot files [dir]          List files in directory
+  /msg bot cd <dir>             Change directory
+  /msg bot pwd                  Show current directory
+  /msg bot ls                   List files (verbose)
+  /msg bot get <file>           Download file
+  /msg bot upload <file>        Upload file (if enabled)
+  /msg bot mkdir <dir>          Create directory (if allowed)
+  /msg bot del <file>           Delete file (if allowed)
 
-  Marks a file as shared. This means that other bots can get the file
-  remotely for users on their file systems. By default, files are marked
-  as unshared.
 
-.optimize
+UPLOAD BEHAVIOR
 
-  Cleans up the current directory's database. If you have a large
-  directory with many files you may want to use this command if you
-  experience slow-downs/delays over time. Normally, the db should clean
-  up itself though.
+When upload_to_pwd = 0 (default):
+  - Files upload to incoming_path
+  - User sees them in incoming directory
+  - Admin can move/organize later
 
-.unhide
+When upload_to_pwd = 1:
+  - Files upload to current directory
+  - User controls where files go
+  - More flexible but less organized
 
-  Makes a file be not hidden any more.
 
-.unshare <file> [file] ...
+SECURITY CONSIDERATIONS
 
-  Removes the shared tag from a file.
+File server security best practices:
 
-.filesys module
+  1. Set max_filesize to reasonable value (prevent huge uploads)
+  2. Use incoming_path to quarantine uploads (scan for malware)
+  3. Monitor disk usage (uploads can fill disk)
+  4. Use file permissions to restrict uploads to safe users
+  5. Disable uploads (incoming_path = "") if not needed
+  6. Consider antivirus scanning on uploads
+  7. Regular backups of filesys directory
 
-  This module provides an area within the bot where users can store and
-  manage files. With this module, the bot is usable as a file server.
 
-  The following commands are provided by the filesys module:
+EXAMPLE FILE STRUCTURE
 
-  For filesystem users:
+For a large deployment:
 
-      files
+  /home/botuser/filesys/
+    ├── README.txt              (instructions)
+    ├── scripts/                (shell scripts)
+    │   ├── coolscript.sh
+    │   └── .filedb
+    ├── configs/                (config files)
+    │   ├── eggdrop.toml
+    │   └── .filedb
+    ├── incoming/               (uploads)
+    │   └── (uploaded files)
+    └── archive/                (old files)
+        └── .filedb
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+
+TROUBLESHOOTING
+
+Users can't browse files:
+  - Check files_path exists and is readable by bot.
+  - Check directory permissions (755 minimum).
+  - Verify filesys module is loaded (.modules).
+
+Uploads aren't working:
+  - Check incoming_path exists and is writable by bot (775).
+  - Check max_filesize isn't too low.
+  - Verify transfer module is loaded.
+  - Check user has file-transfer permissions.
+
+Permission denied errors:
+  - Fix directory permissions: chmod 755 filesys/
+  - Fix incoming permissions: chmod 775 filesys/incoming/
+  - Verify bot user owns directories: chown botuser filesys/
+
+Disk space warnings:
+  - Lower max_filesize to reduce upload sizes.
+  - Monitor incoming/ directory.
+  - Implement upload quotas (via Tcl).
+  - Regular cleanup of old uploads.
+
+
+DEPENDENCIES
+
+  - transfer module (required for DCC)
+  - Optionally: antivirus tools (for upload scanning)
+
+
+NOTES
+
+- File server enables DCC send/get functionality.
+- Uploads must be explicitly enabled (incoming_path set).
+- File database (.filedb) tracks metadata automatically.
+- Directory structure is flexible; organize as needed.
+- Security is admin's responsibility (permissions, quotas, etc.).
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

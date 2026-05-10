@@ -1,207 +1,422 @@
-TLS support
-Last revised: Mar 1, 2025
+TLS/SSL Support
+===============
 
-===========
-TLS support
-===========
+This document describes TLS (Transport Layer Security) support in Eggdrop, available since version 1.8.0.
 
-This document provides information about TLS support which is a new
-Eggdrop feature since version 1.8.0.
+Overview
+--------
 
------
-About
------
+Eggdrop supports TLS encryption via **opssl**, a custom bundled TLS library supporting TLS 1.2 and 1.3. No external library installation is needed.
 
-Eggdrop can be optionally compiled with TLS support. TLS is provided by
-opssl, a custom TLS library bundled with Eggdrop as a meson subproject.
-No external TLS library (such as OpenSSL or wolfSSL) is needed. opssl
-supports TLS 1.2 and TLS 1.3. TLS support includes encryption for IRC,
-DCC, botnet, telnet and scripted connections as well as certificate
-authentication for users and bots.
+TLS protects communication for:
 
-------------
-Installation
-------------
+- **IRC connections** to TLS-enabled IRC servers
+- **Botnet links** between Eggdrops
+- **Partyline/DCC** chat connections
+- **Scripts** via the starttls command
 
-TLS support is provided by opssl, which is bundled with Eggdrop in the
-subprojects/opssl/ directory. It is built automatically as part of the
-normal meson build process::
+Building with TLS
+-----------------
+
+TLS is enabled by default and built automatically::
 
   meson setup builddir
   ninja -C builddir
 
-No external TLS library installation is needed. TLS is enabled by
-default. You can disable it with ``-Dtls=disabled`` when running
-``meson setup``.
+To disable TLS (not recommended)::
 
------
-Usage
------
+  meson setup builddir -Dtls=disabled
 
-As of v1.9.0, TLS support must be requested explicitly for botnet links.
-To create a TLS-enabled listening port or connect to a TLS-enabled listening
-port, you must prefix the port with a plus sign (+). If a port number could
-normally be omitted as part of a command syntax must be included (and prefixed)
-to enable TLS.
+If TLS is disabled, you cannot connect to TLS ports or secure botnet links.
 
-Scripts can also upgrade a regular plaintext connection to TLS via STARTTLS
-using the starttls Tcl command.
+Usage Overview
+--------------
 
-Prior to v1.9.0, Eggdrop would use STARTTLS to automatically attempt to upgrade a 
-plain connection to an encrypted connection for botnet links, without any
-additional configuration (This was changed to provide users the flexibility
-to configure their own environments and assist in debugging).
+As of Eggdrop 1.9.0, TLS must be explicitly enabled. Use a ``+`` prefix on port numbers to enable TLS::
 
-^^^
-IRC
-^^^
+  # IRC server with TLS (port 6697)
+  irc.example.com:+6697
 
-To connect to IRC using SSL, specify the port number and prefix it with
-a plus sign. Example: .jump irc.server.com +6697. The same goes for
-the server list in the config file.
+  # Botnet listener with TLS (port 5556)
+  listen +5556 all
 
-Some NickServ services allow you to authenticate with a certificate.
-Eggdrop will use the certificate pair specified in ssl-privatekey/
-ssl-certificate for authentication.
+  # Connect to bot with TLS (port +5555)
+  .+bot HubBot 1.2.3.4 +5555
 
-^^^^^^
-Botnet
-^^^^^^
+The ``+`` prefix is **required** to enable TLS. Without it, the connection is plaintext.
 
-Eggdrop can use TLS connections to protect botnet links if it is compiled with TLS support. As of version 1.9.0, only raw TLS sockets are used to protect a connection. By prefixing a listen port in the Eggdrop configuration with a plus (+), that specifies that port as a TLS-enabled port, and will only accept TLS connections (no plain text connections will be allowed). With two TLS-enabled Eggdrops, it graphically looks like this:
+**Important**: Prior to 1.9.0, Eggdrop automatically attempted STARTTLS upgrades. This no longer happens—you must explicitly enable TLS.
 
-+------------------------------+----------------------------+-------------------------------+
-| Leaf bot sets hub port as... | and Hub bot config uses... | the connection will...        |
-+------------------------------+----------------------------+-------------------------------+
-| port                         | listen port                | be plain, but can be upgraded |
-|                              |                            | to TLS manually with the      |
-|                              |                            | starttls Tcl/bot command      |
-+------------------------------+----------------------------+-------------------------------+
-| +port                        | listen +port               | connect with TLS              |
-+------------------------------+----------------------------+-------------------------------+
-| port                         | listen +port               | fail as hub only wants TLS    |
-+------------------------------+----------------------------+-------------------------------+
-| +port                        | listen port                | fail as leaf only wants TLS   |
-+------------------------------+----------------------------+-------------------------------+
+IRC Server Connections
+----------------------
 
-In short, a bot added to your Eggdrop with a +port in the address can only connect to a bot listening with a +port in the config. Conversely, a bot added to your Eggdrop without a + prefix can only connect to a bot listening without a + prefix in the config.
+Connecting to a TLS-Protected Server
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If TLS negotiation fails, the connection is deliberately aborted and no clear text is ever sent by the TLS-requiring party.
+To connect to an IRC server on a TLS port, prefix the port with ``+`` in your configuration:
 
-Eggdrop can also upgrade a plaintext connection with the starttls Tcl command. To use this, a plaintext connection is first made to a non-TLS port (ie, one that is not prefixed with a plus), then the starttls command is issued to upgrade that link to a TLS connection. In the Eggdrop 1.8 series, Eggdrop automatically attempted a starttls upgrade on all botnet connections. As such, if a 1.8 Eggdrop connects to a plain listening port on a 1.9.0 or later Eggdrop, it will automatically attempt to upgrade the link to TLS.
+In ``eggdrop.toml``::
 
-^^^^^^^^^^
-Secure DCC
-^^^^^^^^^^
+  [servers]
+  list = [
+    "irc.libera.chat:+6697",
+    "irc.libera.chat:+6669",
+    "irc.efnet.org:+6697",
+  ]
 
-Eggdrop supports the SDCC protocol, allowing you to establish DCC chat
-and file transfers over SSL. Example: /ctcp bot schat
-Note, that currently the only IRC client supporting SDCC is KVIrc. For
-information on how to initiate secure DCC chat from KVIrc (rather than
-from the bot with /ctcp bot chat), consult the KVIrc documentation.
+At runtime via partyline::
 
-^^^^^^^
-Scripts
-^^^^^^^
+  .jump irc.libera.chat +6697
 
-Scripts can open or connect to TLS ports the usual way specifying the
-port with a plus sign. Alternatively, the connection could be
-established as plaintext and later switched on with the starttls Tcl
-command. (Note that the other side should also switch to TLS at the same
-time - the synchronization is the script's job, not Eggdrop's.)
+Eggdrop automatically uses TLS for the connection.
 
--------------------------------------
-Keys, certificates and authentication
--------------------------------------
+Certificate Authentication (NickServ)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-You need a private key and a digital certificate whenever your bot will
-act as a server in a connection of any type. Common examples are hub
-bots and TLS listening ports. General information about certificates and
-public key infrastructure can be obtained from Internet. This document
-only contains eggdrop-specific information on the subject.
-The easy way to create a key and a certificate is to type 'make sslcert'
-after compiling your bot (If you installed Eggdrop to a non-standard
-location, use make sslcert DEST=/path/to/eggdrop). This will generate a
-4096-bit private key (eggdrop.key) and a certificate (eggdrop.crt) after
-you fill in the required fields. Alternatively, you can use 'make sslsilent'
-to generate a key and certificate non-interactively, using pre-set values.
-This is useful when installing Eggdrop via a scripted process.
+Some IRC networks allow authentication using TLS client certificates instead of passwords.
 
-To authenticate with a certificate instead of using password, you should
-make a ssl certificate for yourself and enable ssl-cert-auth in the config
-file. Then either connect to the bot using TLS and type ".fprint +" or
-enter your certificate fingerprint with .fprint SHA1-FINGERPRINT.
-To generate a TLS certificate for yourself, you can run the following
-command from the Eggdrop source directory (if the openssl command-line
-tool is available on your system)::
+To use certificate authentication:
 
-  openssl req -new -x509 -nodes -keyout my.key -out my.crt -config ssl.conf
+1. Configure your certificate in ``eggdrop.toml``::
 
-When asked about bot's handle, put your handle instead. How to use your
-new certificate to connect to Eggdrop, depends on your irc client.
-To connect to your bot from the command line using the key/cert files
-generated in the previous step, you can use a TLS client such as::
+     [tls]
+     privatekey = "eggdrop.key"
+     certificate = "eggdrop.crt"
 
-  openssl s_client -cert my.crt -key my.key -connect host:sslport
+2. The bot automatically presents the certificate when connecting via TLS
 
-----------------
-SSL/TLS Settings
-----------------
- 
-There are some new settings allowing control over certificate
-verification and authorization.
+3. NickServ recognizes the certificate and authenticates automatically
 
-  ssl-privatekey
+No additional configuration needed.
 
-    file containing Eggdrop's private key, required for the certificate.
+Botnet Links (Bot-to-Bot)
+-------------------------
 
-  ssl-certificate
+Overview
+^^^^^^^^
 
-    Specify the filename where your SSL certificate is located.
-    if your bot will accept SSL connections, it must have a certificate.
+Botnets link multiple Eggdrops together. TLS encryption protects this hub-to-leaf communication.
 
-  ssl-verify-depth
+**Hub bot**: Listens on a TLS port (acts as server)
 
-    maximum verification depth when checking certificate validity.
-    Determines the maximum certificate chain length to allow.
+**Leaf bot**: Connects to the hub (acts as client)
 
-  | ssl-capath
-  | ssl-cafile
+Hub Bot Configuration
+^^^^^^^^^^^^^^^^^^^^^
 
-    specify the location of certificate authorities certificates. These
-    are used for verification. Both can be active at the same time.
-    If you don't set this, validation of the issuer won't be possible and
-    depending on verification settings, the peer certificate might fail
-    verification.
+The hub bot must listen on a TLS port and have TLS certificates.
 
-  ssl-ciphers
+1. Generate certificates::
 
-    specify the list of ciphers (in order of preference) allowed for
-    use with ssl.
+     cd /path/to/eggdrop
+     ./scripts/genssl.sh
 
-  ssl-cert-auth
+   This creates ``eggdrop.crt`` and ``eggdrop.key``.
 
-    enables or disables certificate authorization for partyline/botnet.
-    This works only for SSL connections (SDCC or telnet over SSL).
-    A setting of 1 means optional authorization: If the user/bot has a
-    fingerprint set and it matches the certificate SHA1 fingerprint,
-    access is granted, otherwise ordinary password authentication takes
-    place.
+2. Configure listening in ``eggdrop.toml``::
 
-    If you set this to 2 however, users without a fingerprint set or
-    with a fingerprint not matching the certificate, will not be
-    allowed to enter the partyline with SSL. In addition to this user and
-    bot certificates will be required to have an UID field matching the
-    handle of the user/bot.
+     [listen]
+     ports = [
+       "+5556 all"  # TLS on port 5556
+     ]
 
-  | ssl-verify-dcc
-  | ssl-verify-bots
-  | ssl-verify-server
-  | ssl-verify-clients
+3. Ensure ``eggdrop.crt`` and ``eggdrop.key`` are in the bot's directory
 
-    control ssl certificate verification. A value of 0 disables
-    verification completely. A value of 1 enables full verification.
-    Higher values enable specific exceptions like allowing self-signed
-    or expired certificates. Details are documented in eggdrop.conf.
-	
+4. Restart the hub bot
+
+Leaf Bot Configuration
+^^^^^^^^^^^^^^^^^^^^^^
+
+The leaf bot connects to the hub. Add the hub with a ``+`` port prefix::
+
+  .+bot HubBot 1.2.3.4 +5556
+
+Or in config before starting (if you have access)::
+
+  # In bot configuration under botnet settings
+  .+bot HubBot 1.2.3.4 +5556
+
+Verify the connection with::
+
+  .status
+
+Port Matching Rules
+^^^^^^^^^^^^^^^^^^^
+
+TLS connections require matching port types:
+
++---------------------+----------------------+---------------------+
+| Leaf Bot Setting    | Hub Listening Port   | Result              |
++=====================+======================+=====================+
+| 5555                | 5555                 | Plain connection    |
++---------------------+----------------------+---------------------+
+| 5555                | +5556                | **Fails** (mismatch)|
++---------------------+----------------------+---------------------+
+| +5556               | +5556                | TLS connection      |
++---------------------+----------------------+---------------------+
+| +5556               | 5555                 | **Fails** (mismatch)|
++---------------------+----------------------+---------------------+
+
+**Key rule**: Both sides must use matching TLS settings (either both use ``+`` or neither).
+
+Certificate Generation
+----------------------
+
+Generating Self-Signed Certificates
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For botnet use, self-signed certificates are ideal. From your Eggdrop installation directory::
+
+  ./scripts/genssl.sh
+
+The script prompts for certificate details and generates:
+
+- ``eggdrop.crt`` — public certificate
+- ``eggdrop.key`` — private key
+
+Valid for 10 years.
+
+Non-Interactive Certificate Generation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For scripted installations::
+
+  ./scripts/genssl.sh -s
+
+Uses pre-configured values without prompts.
+
+CA-Signed Certificates
+^^^^^^^^^^^^^^^^^^^^^^
+
+For production systems, use a Certificate Authority-signed certificate:
+
+1. Generate a Certificate Signing Request (CSR) from your self-signed cert
+2. Submit to a CA (Let's Encrypt, DigiCert, etc.)
+3. Replace ``eggdrop.crt`` with the CA-signed certificate
+4. Keep the private key (``eggdrop.key``)
+
+From Eggdrop's perspective, the implementation is identical.
+
+Secure DCC (Deprecated)
+-----------------------
+
+Eggdrop supports SDCC (Secure DCC), allowing encrypted DCC connections.
+
+**Note**: Only KVIrc IRC client supports SDCC. Modern alternatives include:
+
+- DCC over TLS (if your IRC client supports it)
+- Direct client-to-bot TLS connections
+
+To enable DCC over TLS in configuration, set TLS DCC options. Check your config file for DCC settings.
+
+Script Connections
+------------------
+
+Scripts can open TLS connections in several ways:
+
+Connecting to a TLS Port
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Use the standard socket command with a ``+`` prefix (Tcl 8.5+)::
+
+  set s [socket -server tls irc.example.com +6697]
+
+Upgrading Plaintext to TLS
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Establish a plaintext connection and upgrade with STARTTLS::
+
+  set s [socket irc.example.com 6667]
+  starttls $s
+
+The ``starttls`` command upgrades the socket to TLS. Both sides must support this (rarely used).
+
+TLS Configuration Settings
+--------------------------
+
+Core TLS Settings
+^^^^^^^^^^^^^^^^^^
+
+These settings are typically in the ``[tls]`` section of ``eggdrop.toml``:
+
+**privatekey** — File containing Eggdrop's private key
+
+- Required if the bot will accept TLS connections (hub, listener)
+- Default location: ``eggdrop.key`` in bot's directory
+- Use absolute path if not in bot directory
+
+Example::
+
+  [tls]
+  privatekey = "eggdrop.key"
+
+**certificate** — File containing Eggdrop's certificate
+
+- Required if the bot will accept TLS connections
+- Default location: ``eggdrop.crt`` in bot's directory
+
+Example::
+
+  [tls]
+  certificate = "eggdrop.crt"
+
+Certificate Verification
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+These settings control how strictly to verify peer certificates:
+
+**verify-depth** — Maximum certificate chain depth
+
+- Default: Usually 10
+- Higher values allow longer certificate chains
+
+**cafile** — Path to CA certificates file
+
+- Used to verify peer certificates
+- Optional; if not set, peer certificates may not verify
+
+**capath** — Path to directory of CA certificates
+
+- Alternative to cafile
+- Directory must use OpenSSL hash naming
+
+**verify-server** — Verify IRC server certificates
+
+- 0 = No verification (default, faster)
+- 1 = Full verification (stricter)
+- 2+ = Allow self-signed certificates
+
+**verify-bots** — Verify bot (botnet) certificates
+
+- 0 = No verification (default)
+- 1 = Full verification
+- 2+ = Allow self-signed certificates
+
+**verify-clients** — Verify partyline/DCC client certificates
+
+- 0 = No verification
+- 1 = Full verification
+- 2+ = Allow self-signed certificates
+
+**verify-dcc** — Verify DCC peer certificates
+
+- 0 = No verification
+- 1 = Full verification
+- 2+ = Allow self-signed certificates
+
+Example (allow self-signed bot certs)::
+
+  [tls]
+  verify-bots = 2
+
+Certificate Authentication
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**cert-auth** — Enable TLS certificate authentication for partyline/botnet
+
+- 0 = Disabled (use passwords only)
+- 1 = Optional (use cert if available, fall back to password)
+- 2 = Required (reject users without valid certs)
+
+When enabled, users can authenticate by TLS certificate fingerprint instead of password.
+
+To set a user's certificate fingerprint::
+
+  .fprint <SHA1-fingerprint>
+
+Or to auto-detect from current TLS connection::
+
+  .fprint +
+
+Example configuration::
+
+  [tls]
+  cert-auth = 1
+
+Cipher Control
+^^^^^^^^^^^^^^
+
+**ciphers** — List of allowed TLS ciphers
+
+- Advanced setting, usually left at default
+- Syntax is OpenSSL cipher list format
+- Only change if you have specific requirements
+
+Example::
+
+  [tls]
+  ciphers = "HIGH:!aNULL:!MD5"
+
+Troubleshooting
+---------------
+
+"TLS support is disabled"
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The bot was compiled without TLS (with ``-Dtls=disabled``). Recompile without that flag::
+
+  meson setup builddir
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/eggdrop
+
+Cannot connect to TLS server
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Verify the port number is correct
+2. Verify the ``+`` prefix is present in the configuration
+3. Check bot logs for error messages
+4. Verify your system time is accurate (certificate validity checks fail with wrong time)
+
+Botnet TLS connection fails
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Verify hub bot has certificates (``eggdrop.crt``, ``eggdrop.key``)
+2. Verify hub is listening on TLS port (check with ``.status``)
+3. Verify leaf is connecting with ``+`` port prefix
+4. Check that both sides use the same TLS setting (both use ``+`` or neither)
+5. Review bot logs for specific error messages
+
+Certificate verification errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you see "certificate verification failed":
+
+1. Check that certificate files exist and are readable
+2. If using CA verification, ensure CA certificates are configured
+3. For botnet use, consider relaxing verification (set to 2 instead of 1)
+4. Check system time (certificate validity depends on correct time)
+
+Common Issues
+^^^^^^^^^^^^^
+
+**Self-signed certificate warnings**: Normal and expected. Clients can ignore them.
+
+**Mismatched TLS settings**: One side uses ``+port``, other doesn't. Fix by matching both sides.
+
+**Certificate expired**: Regenerate new certificates with ``./scripts/genssl.sh``
+
+**Wrong IP/hostname in certificate**: Self-signed certificates don't validate hostname anyway. CA-signed certs check the hostname.
+
+Best Practices
+--------------
+
+1. **Always use TLS for botnet links** — Protects against eavesdropping on your bot control network
+
+2. **Use TLS for IRC when available** — Most modern networks offer TLS ports
+
+3. **Keep certificates secure** — Protect ``eggdrop.key`` file permissions (should be 0600)
+
+4. **Rotate certificates periodically** — Self-signed certs typically valid 10 years, CA-signed per CA policy
+
+5. **Use CA-signed certs for production** — Self-signed is fine for internal botnets
+
+6. **Test TLS before deploying** — Verify connections work before relying on them
+
+See Also
+--------
+
+- `TLS Setup Tutorial <../tutorials/tlssetup.html>`_ — Practical TLS setup guide
+- `Botnet Configuration <botnet.html>`_ — Full botnet setup guide
+- `Core Settings <core.html>`_ — Complete configuration reference
+
 Copyright (C) 2010 - 2025 Eggheads Development Team

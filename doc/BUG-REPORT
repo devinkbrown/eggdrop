@@ -1,122 +1,130 @@
-=====================================================================
-              Eggheads Eggdrop 1.9 Bug Report Form
-=====================================================================
+Eggheads Eggdrop Bug Report Form
 
-By reporting bugs, you help to improve the quality of Eggdrop which
-naturally results in a more stable bot. The more information you
-provide, the easier and more likely it is for the dev team to fix the
-bug. Please add everything that you think is important, in addition
-to the information requested in this form. Thanks.
+Eggheads Eggdrop Bug Report Form
 
-NOTE: First check https://github.com/eggheads/eggdrop/issues to see if
-      the bug you want to report is already fixed. Also, please
-      upgrade to the latest eggdrop version to see if the bug is fixed
-      before reporting.
+  By reporting bugs, you help improve the quality of Eggdrop and make
+  it more stable. The more information you provide, the easier it is
+  for the development team to fix the bug. Please add everything you
+  think is important, in addition to the information requested in this
+  form. Thank you.
 
-Instructions:
-[1]  Please complete as many fields as possible.
-[2]  Create a new issue at https://github.com/eggheads/eggdrop/issues
-     and submit the completed report
-  -or-
-[2]  Email the completed report to: bugs@eggheads.org
+  IMPORTANT: First check https://github.com/eggheads/eggdrop/issues to
+  see if the bug you want to report is already fixed. Also, please
+  upgrade to the latest Eggdrop version to see if the bug is fixed
+  before reporting.
 
-DO NOT SEND HTML E-MAIL TO THE LISTS.
+INSTRUCTIONS
 
-=====================================================================
-1) INFORMATION ABOUT YOUR EGGDROP
+  [1] Complete as many fields as possible.
 
-1.1) Eggdrop version:
-     1.9._
+  [2] Create a new issue at:
+      https://github.com/eggheads/eggdrop/issues
 
-1.2) Make type:
-     ( ) dynamic
-     ( ) static
-     ( ) debug
-     ( ) sdebug
+      -or-
 
-1.3) List of any options passed to ./configure:
+      Email the completed report to: bugs@eggheads.org
 
-1.4) List of patches and/or modules you use:
+  DO NOT SEND HTML EMAIL.
 
-=====================================================================
-2) INFORMATION ABOUT TCL
+SECTION 1: INFORMATION ABOUT YOUR EGGDROP
 
-2.1) Tcl library version:
-     ( ) 8.5._
-     ( ) 8.6._
-     ( ) Other - Which? ____
+  1.1) Eggdrop version:
+       1.10._
 
-2.2) Tcl scripts used:
-     [ ] alltools
-     [ ] sentinel
-     [ ] getops
-     [ ] others - Please mention all others:
+  1.2) Build type:
+       ( ) release (normal meson build)
+       ( ) debug (meson -Dbuildtype=debug)
+       ( ) custom (please specify): ____________________
 
-=====================================================================
-3) INFORMATION ABOUT THE OS
+  1.3) Meson options used (if any):
+       Example: -Dtls=disabled -Dmodule-python=true
+       ____________________________________________________
 
-3.1) OS type:
-     ( ) BeOS
-     ( ) Cygwin
-     ( ) Darwin/Mac OS X
-     ( ) Dell SVR4
-     ( ) DragonFly BSD
-     ( ) FreeBSD/TrueOS
-     ( ) Haiku
-     ( ) HP-UX
-     ( ) IRIX
-     ( ) Linux
-     ( ) Lynx
-     ( ) NetBSD
-     ( ) NeXT
-     ( ) OpenBSD
-     ( ) OSF/Tru64
-     ( ) QNX
-     ( ) SINIX
-     ( ) Solaris/SunOS/OpenIndiana
-     ( ) Ultrix
-     ( ) Windows Subsystem for Linux (WSL)
-     ( ) Other - Which? _____________
+  1.4) List of any patches and/or modules you use:
+       ____________________________________________________
 
-3.2) OS Version/Release: _____________
+SECTION 2: INFORMATION ABOUT TCL
 
-=====================================================================
-4) BUG DETAILS
+  2.1) Tcl library version:
+       ( ) 8.5
+       ( ) 8.6
+       ( ) 9.0
+       ( ) Other - Which? ____
 
-4.1) The logged last context (example: Last context: userent.c/973 []):
+  2.2) Tcl scripts used:
+       [ ] alltools
+       [ ] sentinel
+       [ ] getops
+       [ ] others - Please list all others:
+           ____________________________________________________
 
-4.2) If the bot wrote to the file DEBUG, copy the text -contents- of
-     that file here (NOTE: It should be about 20 lines of info, but it
-     could be a few lines more):
+SECTION 3: INFORMATION ABOUT THE OS
 
-4.3) Your comments and a description of the bug:
+  3.1) OS type:
+       ( ) Linux
+       ( ) macOS / Darwin
+       ( ) FreeBSD
+       ( ) OpenBSD
+       ( ) NetBSD
+       ( ) Cygwin
+       ( ) WSL (Windows Subsystem for Linux)
+       ( ) HP-UX
+       ( ) Solaris
+       ( ) Other - Which? _____________
 
-4.4) Can you cause the bug condition to repeat? If so, please outline
-     step by step what causes the error:
+  3.2) OS Version/Release: _____________
 
-4.5) Do you have ideas on what is wrong that causes this error?
-     Please list them:
+  3.3) C compiler used (e.g., gcc 12, clang 15):
+       ____________________________________________________
 
-4.6) Do you have ideas on how to correct it?  Please list them:
+SECTION 4: BUG DETAILS
 
-4.7) Other comments?
+  4.1) The logged last context (if available; example: userent.c/973):
+       ____________________________________________________
 
-4.8) If the bot dumped a 'core' file when it crashed, it would be *very*
-     useful if you could paste gdb's output during the following steps:
-     First call gdb
+  4.2) If Eggdrop wrote to the DEBUG file, copy the contents here
+       (typically 20-30 lines):
+       ____________________________________________________
+
+  4.3) Description of the bug:
+       ____________________________________________________
+
+  4.4) Can you cause the bug condition to repeat? If so, please outline
+       step by step what causes the error:
+       ____________________________________________________
+
+  4.5) Do you have ideas on what is wrong that causes this error?
+       Please list them:
+       ____________________________________________________
+
+  4.6) Do you have ideas on how to correct it? Please list them:
+       ____________________________________________________
+
+  4.7) Other comments:
+       ____________________________________________________
+
+  4.8) If Eggdrop dumped a core file when it crashed, it would be very
+       useful if you could paste gdb's output during the following steps:
+
+       First, call gdb:
          $ gdb eggdrop -c core
-     (systemd users could try coredumpctl)
-     and then enter 'bt' on gdb's command line:
+
+       (Systemd users could try: coredumpctl)
+
+       Then, enter 'bt' on gdb's command line:
          (gdb) bt
-     (even more information could be obtained with 'bt full')
-     Keep your core file for at least one week, so that the dev team
-     can ask for further information if needed. However, don't send
-     us the core file unless we ask for it.
 
-     NOTE: If this is a bug you can reproduce, please compile with
-           make debug and follow the above step. It can greatly help
-           find and fix the bug.
+       (Even more information with 'bt full')
 
-=====================================================================
+       Keep your core file for at least one week so the development
+       team can ask for further information if needed. Do not send the
+       core file unless asked.
 
-End of bug report form - Thank you for helping us improve Eggdrop.
+       NOTE: If this is a reproducible bug, please compile with:
+         meson setup builddir -Dbuildtype=debug
+         ninja -C builddir
+
+       This provides better debugging information. It's worth the extra
+       compile time to help fix the bug.
+
+  Copyright (C) 1999 - 2025 Eggheads Development Team

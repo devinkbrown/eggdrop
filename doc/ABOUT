@@ -1,4 +1,4 @@
-About Eggdrop Last revised: July 27, 2010
+About Eggdrop
 
 About Eggdrop
 
@@ -39,20 +39,29 @@ About Eggdrop
 
   Eggdrop is always being improved and adjusted because there are bugs
   to be fixed and features to be added (if the users demand them, and
-  they make actually sense). In fact, it existed for several years as
-  v0.7 -v0.9 before finally going 1.0. This version of Eggdrop is part
-  of the 1.9 tree. A valiant effort has been made to chase down and
-  destroy bugs.
+  they make actually sense). This version of Eggdrop is part of the
+  1.10 tree.
 
   To use Eggdrop, you need:
 
-    -   Some sort of Unix account
+    -   A Unix-like system (Linux, macOS, BSD, Cygwin, etc.)
     -   A pretty good knowledge of IRC and Unix, including how to
         compile programs, how to read, and what DCC chat is, at absolute
         minimum.
-    -   About 5-7 MB of disk space. The Eggdrop tarball is about 5.4 MB
-        unpacked.
-    -   Tcl -- Eggdrop cannot compile without Tcl installed on your
-        shell.
+    -   About 8-10 MB of disk space. The unpacked source archive is
+        approximately 10 MB.
+    -   Tcl 8.5 or later. Eggdrop cannot compile without Tcl installed.
+    -   A C compiler with C23 support (GCC 11+, Clang 13+, or later).
+
+  Optional dependencies:
+
+    -   Python 3.6 or later (for Python scripting support)
+    -   liburing (Linux only, for high-performance I/O)
+
+  Eggdrop uses a modern TOML configuration format (eggdrop.toml) and
+  the Meson build system. TLS support (TLS 1.2/1.3) is bundled via the
+  opssl library—no external TLS library installation is needed. For
+  data storage, Eggdrop supports pluggable backends: LMDB (default,
+  high-performance) or flat-file (legacy compatibility).
 
   Copyright (C) 1999 - 2025 Eggheads Development Team

@@ -1,60 +1,104 @@
 Directory Contents - doc/settings/
-Last revised: April 16, 2003
-    _____________________________________________________________________
+
+Last revised: May 10, 2026
+________________________________________________________________________
 
                       Directory Contents - doc/settings
 
 
   core.settings
-    All module-independent Eggdrop settings are documented here.
+
+    Documentation for core Eggdrop configuration settings. Covers bot
+    identity, servers, channels, networking, TLS/SSL, security, logging,
+    file paths, and behavior settings. All settings are shown in TOML
+    format (the recommended configuration format).
 
   mod.assoc
-    Documentation for the assoc module is provided in this file.
+
+    Documentation for the assoc module. Provides party-line channel naming
+    and aliasing support.
 
   mod.blowfish
-    Documentation for the blowfish module is provided in this file.
+
+    Documentation for the blowfish module. Provides legacy blowfish
+    password encryption support (consider using PBKDF2 for new
+    installations).
 
   mod.channels
-    Documentation for the channels module is provided in this file.
+
+    Documentation for the channels module. Provides channel tracking,
+    management, and per-channel configuration.
 
   mod.compress
-    Documentation for the compress module is provided in this file.
+
+    Documentation for the compress module. Provides zlib compression for
+    userfile transfers over botnet links.
 
   mod.console
-    Documentation for the console module is provided in this file.
+
+    Documentation for the console module. Provides persistent DCC console
+    settings across bot restarts.
 
   mod.ctcp
-    Documentation for the ctcp module is provided in this file.
+
+    Documentation for the ctcp module. Provides CTCP functionality and
+    customizable CTCP responses.
 
   mod.dns
-    Documentation for the dns module is provided in this file.
+
+    Documentation for the dns module. Provides asynchronous DNS resolution
+    with caching.
 
   mod.filesys
-    Documentation for the filesys module is provided in this file.
+
+    Documentation for the filesys module. Provides built-in file server
+    functionality with upload/download support.
+
+  mod.ident
+
+    Documentation for the ident module. Provides ident daemon support
+    for proper IRC username identification.
 
   mod.irc
-    Documentation for the irc module is provided in this file.
+
+    Documentation for the irc module. Provides core IRC protocol support
+    and mode/ban handling.
 
   mod.notes
-    Documentation for the notes module is provided in this file.
+
+    Documentation for the notes module. Provides note storage for offline
+    users.
 
   mod.seen
-    Documentation for the seen module is provided in this file.
+
+    Documentation for the seen module. Provides basic !seen command
+    functionality.
 
   mod.server
-    Documentation for the server module is provided in this file.
+
+    Documentation for the server module. Provides core IRC server
+    connection support and SASL authentication.
 
   mod.share
-    Documentation for the share module is provided in this file.
+
+    Documentation for the share module. Provides userfile sharing with
+    linked bots on the botnet.
 
   mod.transfer
-    Documentation for the transfer module is provided in this file.
+
+    Documentation for the transfer module. Provides DCC SEND/GET and
+    userfile transfer support.
 
   mod.uptime
-    Documentation for the uptime module is provided in this file.
+
+    Documentation for the uptime module. Provides uptime reporting to
+    https://www.eggheads.org/uptime/
 
   mod.woobie
-    Documentation for the woobie module is provided in this file.
-    ________________________________________________________________________
 
-  Copyright (C) 2003 - 2025 Eggheads Development Team
+    Documentation for the woobie module. Provides WooBIE protocol support
+    for backwards compatibility.
+
+________________________________________________________________________
+
+  Copyright (C) 1999 - 2025 Eggheads Development Team

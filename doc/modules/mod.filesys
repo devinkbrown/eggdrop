@@ -1,200 +1,252 @@
-Last revised: Dec 30, 2017
-
 Filesys Module
 
-This module provides an area within the bot where users can store and
-manage files. With this module, the bot is usable as a file server.
+This module provides a file transfer subsystem where users can store,
+browse, and manage files. It makes Eggdrop usable as a file server.
 
-This module requires: transfer
+REQUIREMENTS
 
-CONFIG FILE SETUP
+  - transfer module
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the filesys
 module:
 
     loadmodule filesys
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set files-path "/home/mydir/eggdrop/filesys"
+set files-path "/home/mydir/eggdrop/filesys"
 
-      Set here the 'root' directory for the file system.
+  Root directory for the file system. All file operations are relative to
+  this path.
 
-  set incoming-path "/home/mydir/eggdrop/filesys/incoming"
+set incoming-path "/home/mydir/eggdrop/filesys/incoming"
 
-      If you want to allow uploads, set this to the directory uploads
-      should be put into. Set this to "" if you don't want people to
-      upload files to your bot.
+  Directory where users upload files. Set to "" (empty string) to disable
+  uploads.
 
-  set upload-to-pwd 0
+set upload-to-pwd 0
 
-      If you don't want to have a central incoming directory, but
-      instead want uploads to go to the current directory that a user is
-      in, set this setting to 1.
+  Instead of uploads going to incoming-path, put them in the user's
+  current directory. Set to 1 to enable. Useful for distributed uploads.
 
-  set filedb-path ""
+set filedb-path ""
 
-      Eggdrop creates a '.filedb' file in each subdirectory of your file
-      area to keep track of its own file system information. If you
-      can't do that (for example, if the dcc path isn't owned by you, or
-      you just don't want it to do that) specify a path here where you'd
-      like all of the database files to be stored instead.
+  Path where .filedb index files are stored. By default, Eggdrop creates
+  .filedb in each subdirectory to track file metadata.
 
-  set max-file-users 20
+  Set this to a specific directory if:
+  - The filesys path isn't owned by you
+  - You want all indices in one place
+  - You have permission issues with subdirectories
 
-      Set here the maximum number of people that can be in the file area
-      at once. Setting this to 0 makes it effectively infinite.
+set max-file-users 20
 
-  set max-filesize 1024
+  Maximum simultaneous users in the filesys. Set to 0 for unlimited (not
+  recommended for large botnets).
 
-      Set here the maximum allowable file size that will be received (in
-      KB). Setting this to 0 makes it effectively infinite.
+set max-filesize 1024
 
-PARTYLINE USAGE
+  Maximum file size (in KB) allowed for uploads. Set to 0 for unlimited.
 
-.files
+ACCESSING THE FILESYS
 
-  Moves you into the file transfer sub-system, if it has been enabled on
-  this bot. From there you can browse through the files online and use
-  dcc file transfers to download and upload.
+From the partyline, type:
 
-.cancel <file> [file] ...
+    .files
 
-  Tells the bot to stop sending a file that is pending (either queued,
-  waiting, or in the process of being transferred).
+This enters the file transfer subsystem where you can browse and manage
+files using the commands below.
 
-.cd <directory>
+PARTYLINE COMMANDS
 
-  Changes your current directory if possible. this works exactly like
-  the unix command.
+Directory Navigation
 
-.cp <source> <dst>
+  .pwd
 
-  Copies a file or group of files from one place to another.
+    Print working directory.
 
-.desc <file> <description>
+  .cd <directory>
 
-  Changes the description for a file. if you are a master or file
-  janitor, you can change the description for any file. otherwise you
-  can only change the descriptions for files you have uploaded.
+    Change directory. Use ".." to go to parent directory.
 
-  The description is restricted to 3 lines of 60 characters each, and is
-  broken up between words. you can force a line break by putting a '|'
-  in the comment.
+File Listing
 
-.filestats <user> [clear]
+  .ls [mask]
 
-  Reports on the users upload & download statistics. Optional argument
-  'clear' clears a users upload and download statistics.
+    List files in current directory. Optional glob mask filters results.
+    Output shows:
+    - Subdirectories marked with <DIR>
+    - File size in KB
+    - Uploader name and timestamp
+    - Download count
+    - Description (if set)
 
-.stats
+File Management
 
-  Clears a users upload & download statistics.
+  .get <filename> [nickname]
 
-.get <filename> [nickname]
+    Request file transfer via DCC SEND. Specify alternate IRC nick to
+    send to a different user.
 
-  Sends you the file(s) requested, over IRC. you should get a DCC SEND
-  notice on IRC, and have your client accept it. if your nickname on IRC
-  is different than the one you use on the bot, you should specify a
-  nickname too. you can also use that to send files to other people. if
-  a file you want is actually on another bot, it may take a little bit
-  longer so be patient. if that bot isn't on the botnet right now, it
-  will say the file isn't available.
+  .cancel <file> [file] ...
 
-  There is a limit to the number of transfers you can have going
-  simultaneously, so if you go over this limit, the remainder of your
-  file requests will be queued. As the first files finish transferring,
-  the queued files will be sent.
+    Cancel pending or in-progress transfers.
 
-.hide <file> [files] ...
+  .pending
 
-  Marks a file as hidden, so that normal users can't see it. Only a
-  master or file janitor using %b'lsa'%b can see hidden files.
+    List all queued and active transfers with progress status.
 
-.ln <bot:filepath> <localfile>
+  .cp <source> <dest>
 
-  Creates a link to a file on another bot. The filepath has to be
-  complete, like '/gifs/uglyman.gif'. If the bot is not connected to the
-  botnet, nobody will be able to download the file until that bot
-  connects again. The local filename can be anything you want.
+    Copy file(s) or directories. Supports globs: .cp *.txt backup/
 
-  Example: ln Snowbot:/gifs/uglyman.gif ugly.gif
+  .mv <source> <dest>
 
-.ls [filemask]
+    Move or rename files/directories.
 
-  Displays the files in the current directory. Subdirectories are shown
-  with "<DIR>" next to them, and other files will display their size
-  (typically in kilobytes), who uploaded them (and when), and how many
-  times each file has been downloaded. If a description of the file
-  exists, it is displayed below the filename. You can restrict the file
-  listing by specifying a mask, just like in unix.
+  .mkdir <dir> [flags [channel]]
 
-.mkdir <dir> [flags [channel]]
+    Create subdirectory with optional access flags:
+    - flags: user flags required to enter
+    - channel: restrict flags to specific channel
 
-  Creates a subdirectory from this one, with the given name. If flags
-  are specified, then those flags are required to enter or even see the
-  directory. You can even specify a channel that the flags are matched
-  against. You can use the %b'mkdir'%b command again to alter or remove
-  those flags.
+  .rmdir <dir>
 
-.mv <source> <dest>
+    Remove directory (must be empty).
 
-  Moves a file or group of files from one place to another (it can also
-  be used to rename files).
+  .rm <file> [file] ...
 
-.pending
+    Delete file(s). Use with caution; deletion is permanent.
 
-  Gives you a listing of every file you've requested which is still
-  waiting, queued, or in the process of transferring. It shows you the
-  nickname on IRC that the file is being sent to, and, if the transfer
-  is in progress, tells you how far along the transfer is.
+  .share <file> [files] ...
 
-.pwd
+    Mark file(s) as shared. Other bots can fetch shared files via the
+    botnet.
 
-  Tells you what your current directory is.
+  .unshare <file> [file] ...
 
-.quit
+    Unmark file(s) as shared.
 
-  Exits the file system.
+  .hide <file> [files] ...
 
-rm <file> [files] ...
+    Mark file(s) hidden. Only visible to masters and file janitors using
+    .lsa command.
 
-  Erase a file for good.
+  .unhide <file> [file] ...
 
-.rmdir <dir>
+    Unmark file(s) as hidden.
 
-  Removes an existing directory, if there are no files in it.
+File Metadata
 
-.share <file> [files] ...
+  .desc <file> <description>
 
-  Marks a file as shared. This means that other bots can get the file
-  remotely for users on their file systems. By default, files are marked
-  as unshared.
+    Set or change file description. Limited to 3 lines of 60 chars,
+    word-wrapped. Use '|' to force line breaks.
 
-.optimize
+    Example: .desc readme.txt Important|documentation|for setup
 
-  Cleans up the current directory's database. If you have a large
-  directory with many files you may want to use this command if you
-  experience slow-downs/delays over time. Normally, the db should clean
-  up itself though.
+  .ln <bot:filepath> <localfile>
 
-.unhide
+    Create a link to a file on another bot. Example:
 
-  Makes a file be not hidden any more.
+      .ln Snowbot:/gifs/uglyman.gif ugly.gif
 
-.unshare <file> [file] ...
+    Useful for sharing files across botnet without copying.
 
-  Removes the shared tag from a file.
+Statistics
 
-.filesys module
+  .stats
 
-  This module provides an area within the bot where users can store and
-  manage files. With this module, the bot is usable as a file server.
+    Display your upload/download statistics for current session.
 
-  The following commands are provided by the filesys module:
+  .filestats <user> [clear]
 
-  For filesystem users:
+    Show another user's statistics (if you're a master or file janitor).
+    Optional 'clear' argument resets their stats.
 
-      files
+Maintenance
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+  .optimize
+
+    Clean up current directory's .filedb index. Use if you experience
+    slowdowns after many file additions/deletions.
+
+Navigation
+
+  .quit
+
+    Exit the file subsystem and return to normal partyline.
+
+FILESYSTEM PERMISSIONS
+
+File access is controlled by user flags in the channels module:
+
+- +o flag: op access (can manage ops, can modify files)
+- +m flag: master access (full control)
+- Directory-specific flags: set with .mkdir
+
+Users without appropriate flags cannot see or access restricted
+directories.
+
+CROSS-BOT SHARING
+
+If share module is loaded:
+
+1. Mark files as shared: .share myfile.txt
+2. Other bots can reference via: .ln thisbot:path/myfile.txt localname
+3. Users on other bots can download via botnet link
+
+QUOTAS AND LIMITS
+
+Storage limits:
+
+- max-filesize: per-file upload limit (0 = unlimited)
+- max-file-users: concurrent users (0 = unlimited)
+
+Note: Eggdrop does not enforce disk quota. Set these based on your disk
+space and network bandwidth.
+
+EXAMPLES
+
+Basic filesys setup:
+
+    loadmodule filesys
+    set files-path "filesys"
+    set incoming-path "filesys/incoming"
+    set max-filesize 10240
+
+Large botnet file server:
+
+    set files-path "/var/eggdrop/files"
+    set incoming-path "/var/eggdrop/files/uploads"
+    set max-filesize 100000
+    set max-file-users 50
+
+Distributed uploads (each user uploads to own dir):
+
+    set upload-to-pwd 1
+    set incoming-path ""
+
+TROUBLESHOOTING
+
+Files not visible:
+
+1. Check user flags (.chattr <user>)
+2. Verify directory permissions (not bot permissions)
+3. Check if files are hidden (.unhide)
+
+Slow performance:
+
+1. Run .optimize in the directory
+2. Reduce max-file-users if too many concurrent
+3. Check disk I/O: iostat -x 1
+
+Upload failures:
+
+1. Verify incoming-path exists and is writable
+2. Check disk space
+3. Check max-filesize setting
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

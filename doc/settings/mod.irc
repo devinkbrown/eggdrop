@@ -1,172 +1,328 @@
-Last revised: August 21, 2004
+Last revised: May 10, 2026
 
 IRC Module
 
-This module controls the bots interaction on IRC. It allows the bot to
-join channels, etc. You have to load this if you want your bot to come
-on irc.
+This module provides core IRC protocol support including mode handling,
+ban/exempt/invite management, user tracking, and flood protection. It
+works in tandem with the server module to implement full IRC compliance.
 
-  This module requires: server, channels
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the irc
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule irc
+  [modules]
+  load = [
+    "irc",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set bounce-bans 1
+CONFIGURATION
 
-      Set this to 1 if you want to bounce all server bans.
+All IRC settings are in the [irc] section. See core.settings for complete
+documentation. Key settings:
 
-  set bounce-exempts 0
+  [irc]
+  net_type = "EFnet"
 
-      Set this to 1 if you want to bounce all server exemptions (+e
-      modes). This is disabled if use-exempts is disabled.
+      IRC network type. Affects mode/ban handling and defaults.
 
-  set bounce-invites 0
+      Valid values:
+        EFnet       (standard IRC network)
+        IRCnet      (European IRC network)
+        Undernet    (hybrid network)
+        DALnet      (Undernet derivative)
+        Libera      (Freenode successor)
+        QuakeNet    (game-focused network)
+        Rizon       (anime/gaming network)
+        Twitch      (streaming platform)
+        Ophion      (IRCX-capable modern server; enables +q owner mode)
 
-      Set this to 1 if you want to bounce all server invitations (+I
-      modes). This is disabled if use-invites is disabled.
+  nick_len = 0
 
-  set bounce-modes 0
+      Maximum nick length. 0 = auto-detect via ISUPPORT NICKLEN
+      (recommended). Only override if network doesn't send ISUPPORT.
 
-      Set this to 1 if you want to bounce all server modes.
+      Typical defaults by net_type:
+        EFnet = 9          IRCnet = 15        Undernet = 30
+        Libera = 30        Rizon = 30         Ophion = 30
 
-  set max-modes 30
+  ctcp_mode = 0
 
-      There is a global limit for +b/+e/+I modes. This limit should be
-      set to the same value as max-bans for networks that do not support
-      +e/+I.
+      CTCP reply mode:
+        0 = reply to all CTCP queries
+        1 = ignore all CTCP queries
+        2 = reply to CTCP only in channels (not in private)
 
-  set max-bans 30
+  bounce_bans = 0
+  bounce_exempts = 0
+  bounce_invites = 0
+  bounce_modes = 0
 
-      Set here the maximum number of bans you want the bot to set on a
-      channel. Eggdrop will not place any more bans if this limit is
-      reached. Undernet currently allows 45 bans, IRCnet allows 30,
-      EFnet allows 100, and DALnet allows 100.
+      Prevent the bot from reversing bans/exempts/invites/modes set by
+      other bots. Set to 1 to prevent auto-reversal (useful for
+      cooperation with other bots).
 
-  set max-exempts 20
+  learn_users = 0
 
-      Set here the maximum number of exempts you want Eggdrop to set on
-      a channel. Eggdrop will not place any more exempts if this limit
-      is reached.
+      Learn new users from IRC userbase (0 = off, 1 = on). Not
+      recommended; can lead to userfile bloat.
 
-  set max-invites 20
+  allow_hello = 1
 
-      Set here the maximum number of invites you want Eggdrop to set on
-      a channel. Eggdrop will not place any more invites if this limit
-      is reached.
+      Allow /msg hello to add new users. Requires learn_users = 1 or
+      -m startup flag. Disable with 0 to prevent user creation via MSG.
 
-  set use-exempts 0
-  set use-invites 0
+  allow_addhost = 1
 
-    These settings should be left commented unless the default values
-    are being overridden. By default, exempts and invites are on for
-    EFnet and IRCnet, but off for all other large networks. This
-    behavior can be modified with the following 2 flags. If your network
-    doesn't support +e/+I modes then you will be unable to use these
-    features.
+      Allow /msg addhost command for adding hostmasks. Disable with 0
+      to restrict hostmask management.
 
-  set learn-users 0
+  mode_buf_length = 200
 
-      If you want people to be able to add themselves to the bot's
-      userlist with the default userflags (defined above in the config
-      file) via the 'hello' msg command, set this to 1.
+      Character buffer for mode strings. Increase for networks with
+      stricter mode-line limits (rare).
 
-  set wait-split 600
+  opchars = "@"
 
-      Set here the time (in seconds) to wait for someone to return from
-      a netsplit (i.e. wasop will expire afterwards). Set this to 1500
-      on IRCnet since its nick delay stops after 30 minutes.
+      Characters that grant op status. Usually "@". Some networks use
+      "@+" to include halfops.
 
-  set wait-info 180
+  no_chanrec_info = 0
 
-      Set here the time (in seconds) that someone must have been
-      off-channel before re-displaying their info line.
+      Suppress info if no channel record exists for user (0 = off,
+      1 = on). Set to 1 to be more selective about info display.
 
-  set mode-buf-length 200
+  prevent_mixing = 1
 
-      Set this to the maximum number of bytes to send in the arguments
-      of modes sent to the server. Most servers default this to 200.
+      Prevent mixing ban types (IP-only vs. nick!user@host) in the same
+      ban list. Recommended: 1.
 
-  unbind msg - hello *msg:hello
-  bind msg - myword *msg:hello
 
-    Many IRCops find bots by seeing if they reply to 'hello' in a msg.
-    You can change this to another word by un-commenting these two lines
-    and changing "myword" to the word wish to use instead of'hello'. It
-    must be a single word.
+MESSAGE FLOOD PROTECTION
 
-  unbind msg - ident *msg:ident
-  unbind msg - addhost *msg:addhost Many takeover attempts occur due to
-  lame users blindly /msg ident'ing to
+  flood_msg = "5:60"
 
-    the bot and attempting to guess passwords. We now unbind this
-    command by default to discourage them. You can enable this command
-    by un-commenting these two lines.
+      Private message flood limit: N messages per S seconds. Example:
+      "5:60" = 5 messages in 60 seconds triggers protection.
 
-  set opchars "@"
-  #set opchars "@&~"
+  flood_ctcp = "3:60"
 
-    Some IRC servers are using some non-standard op-like channel
-    prefixes/modes. Define them here so the bot can recognize them. Just
-    "@" should be fine for most networks. Un-comment the second line for
-    some UnrealIRCds.
+      CTCP request flood limit: N requests per S seconds.
 
-  set no-chanrec-info 0
 
-      If you are so lame you want the bot to display peoples info lines,
-      even when you are too lazy to add their chanrecs to a channel, set
-      this to 1. NOTE This means every user with an info line will have
-      their info line displayed on EVERY channel they join (provided
-      they have been gone longer than wait-info).
+CAPABILITY NEGOTIATION (CAP)
 
-These were the core irc module settings. There are more settings for
-'net-type' IRCnet and Efnet. net-type has to be set in the server module
-config section.
+The bot automatically requests:
+  - multi-prefix
+  - account-notify (if enabled)
+  - extended-join (if enabled)
+  - batch, labeled-response, msgid (auto if available)
+  - Ophion-specific capabilities (if net_type = Ophion)
 
-Use the following settings only if you set 'net-type' to IRCnet!
+Optional capabilities:
 
-  set prevent-mixing 1
+  account_notify = 1
 
-      At the moment, the current IRCnet IRCd version (2.10) doesn't
-      support the mixing of b, o and v modes with e and I modes. This
-      might be changed in the future, so use 1 at the moment for this
-      setting.
+      Request ACCOUNT-NOTIFY (tells bot when account changes) (0/1).
 
-  Use the following settings only if you set 'net-type' to Efnet!
+  extended_join = 1
 
-  set kick-method 1
+      Request EXTENDED-JOIN (includes account in JOIN) (0/1).
 
-      If your network supports more users per kick command then 1, you
-      can change this behavior here. Set this to the number of users to
-      kick at once, or set this to 0 for all at once.
+  away_notify = 0
 
-  set modes-per-line 3
+      Request away-notify (receive AWAY notices) (0/1).
 
-      Some networks allow you to stack lots of channel modes into one
-      line. They're all guaranteed to support at least 3, so that's the
-      default. If you know your network supports more, you may want to
-      adjust this. This setting is limited to 6, although if you want to
-      use a higher value, you can modify this by changing the value of
-      MODES_PER_LINE_MAX in src/chan.h and recompiling the bot.
+  invite_notify = 0
 
-  set include-lk 1
+      Request invite-notify (receive INVITE in channel) (0/1).
 
-      Some networks don't include the +l limit and +k or -k key modes in
-      the modes-per-line (see above) limitation. Set include-lk to 0 for
-      these networks.
+  message_tags = 0
 
-  set use-354 0
+      Enable IRCv3 message-tags (0/1).
 
-      Set this to 1 if your network uses IRCu2.10.01 specific /who
-      requests. Eggdrop can, therefore, ask only for exactly what's
-      needed.
+  account_tag = 0
 
-  set rfc-compliant 1
+      Include account in tagged messages (0/1).
 
-      If your network doesn't use rfc 1459 compliant string matching
-      routines, set this to 0.
+  echo_message = 0
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+      Receive own PRIVMSGs back from server (0/1).
+
+  cap_request = ""
+
+      Additional CAP names (space-separated) beyond built-ins.
+
+
+ADVANCED MODE HANDLING
+
+  modes_per_line = 3
+
+      Number of modes per MODE command. Most networks allow 3-6;
+      auto-set by net_type.
+
+  kick_method = 1
+
+      0 = single KICK per user
+      1 = multi-user KICK per command (more efficient)
+
+  include_lk = 1
+
+      Include +l (limit) and +k (key) in current mode tracking.
+      Set to 0 only for unusual networks.
+
+  rfc_compliant = 1
+
+      RFC-compliant mode-change tracking. Set to 0 for Undernet.
+
+  use_354 = 0
+
+      Use ircu-style short 354 responses to /WHO (Undernet only).
+
+  invite_key = 1
+
+      Track channel invites by key (+I modes with key argument).
+
+  max_bans = 30
+  max_exempts = 20
+  max_invites = 20
+  max_modes = 30
+
+      Maximum limits for bans/exempts/invites/modes per channel. Auto-set
+      by net_type; override only if needed.
+
+  check_mode_r = 0
+
+      Check for IRCnet +r (registered-only) channel mode (0/1).
+
+  use_penalties = 0
+
+      Use server-side message penalty accounting (IRCnet). Auto-set when
+      net_type = IRCnet.
+
+  use_fastdeq = 0
+
+      Fast dequeue algorithm for Undernet/ircu (0/1/2/3). Auto-set by
+      net_type.
+
+
+SERVER CONNECTION HOOKS
+
+Tcl scripts executed during connection:
+
+  init_server = ""
+
+      Raw IRC commands sent immediately after bot registers. Example:
+      "UMODE2 +x" for invisible hostmask.
+
+      Better approach in TOML:
+        [tcl]
+        commands = ["rawsend {MODE botnick +x}"]
+
+  connect_server = ""
+
+      Raw commands before connection registration (rarely needed; used
+      for bnc/proxy auth).
+
+  stackable_commands = ""
+
+      Space-separated server commands that can be merged to reduce queue
+      usage.
+
+  stackable2_commands = ""
+
+      Secondary stackable commands list.
+
+
+PROXY / FIREWALL
+
+  firewall = "socks.example.com:1080"
+
+      SOCKS4/5 or Sun passthru proxy. Prefix with '!' for Sun telnet
+      passthru.
+
+      Examples:
+        "socks.example.com:1080"      (SOCKS proxy)
+        "!firewall.example.com:5000"  (Sun telnet passthru)
+
+
+CTCP CUSTOMIZATION
+
+  [ctcp]
+  ctcp_version = "Eggdrop v1.10.1"
+  ctcp_finger = "Eggdrop v1.10.1"
+  ctcp_userinfo = "Eggdrop v1.10.1"
+
+      Custom CTCP VERSION/FINGER/USERINFO replies. Leave commented
+      to use defaults.
+
+
+EXAMPLE CONFIGURATION
+
+  [irc]
+  net_type = "Libera"
+  nick_len = 0
+  ctcp_mode = 0
+  bounce_bans = 0
+  learn_users = 0
+  allow_hello = 1
+  prevent_mixing = 1
+  account_notify = 1
+  extended_join = 1
+  server_cycle_wait = 60
+  server_timeout = 60
+  keep_nick = 1
+  msg_rate = 2
+
+  [ctcp]
+  ctcp_version = "Eggdrop v1.10.1 (Linux)"
+
+      Connect to Libera Chat with:
+      - Auto-detect nick length via ISUPPORT
+      - Standard CTCP handling
+      - User account tracking (ACCOUNT-NOTIFY)
+      - 60-second reconnect delay
+      - Custom CTCP VERSION
+
+
+DEPENDENCIES
+
+The irc module requires:
+  - server module (for server connection)
+  - channels module (for channel tracking)
+
+Without these, the irc module cannot operate.
+
+
+NOTES
+
+- Network type (net_type) should match your actual IRC network.
+- Mode handling varies by network; defaults are auto-set.
+- CTCP replies can be customized to hide bot identity if needed.
+- Cap negotiation is automatic for supported capabilities.
+- Flood protection settings apply to individual users/messages.
+
+
+TROUBLESHOOTING
+
+Bot doesn't enforce channel modes:
+  - Verify bot has ops on the channel (+o).
+  - Check chanmode setting in [[chanset]] block.
+  - Verify net_type matches actual network.
+
+User flood protection isn't working:
+  - Check flood thresholds (flood_chan, flood_msg, etc.).
+  - Verify ignore_time setting in [behaviour].
+  - Ensure channel doesn't have dynamicbans=false.
+
+CTCP replies showing wrong version:
+  - Uncomment [ctcp] section and set custom strings.
+  - Leave commented to use default Eggdrop version.
+
+Modes not being tracked correctly:
+  - Check net_type matches network.
+  - Verify include_lk, rfc_compliant settings.
+  - Check max_modes limit is not exceeded.
+
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

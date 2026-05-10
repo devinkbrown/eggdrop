@@ -1,17 +1,49 @@
-Last revised: January 28, 2003
-
 Blowfish Module
 
-  Eggdrop can encrypt your userfile, so users can have secure passwords.
-  Please note that when you change your encryption method later (i.e.
-  using other modules like a md5 module), you can't use your current
-  userfile anymore. Eggdrop will not start without an encryption module.
+This module provides Blowfish encryption for legacy compatibility and
+string encryption in Tcl scripts. For new installations and password
+hashing, use the pbkdf2 module instead.
 
-  This module requires: none
+REQUIREMENTS
 
-  Put this line into your Eggdrop configuration file to load the
-  blowfish module:
+None.
 
-      loadmodule blowfish
+LOADING
 
-  Copyright (C) 2000 - 2025 Eggheads Development Team
+Put this line into your Eggdrop configuration file to load the blowfish
+module:
+
+    loadmodule blowfish
+
+CONFIGURATION
+
+No configuration options are required.
+
+DESCRIPTION
+
+The blowfish module is deprecated for password hashing but remains
+required for two purposes:
+
+1. String Encryption in Tcl Scripts
+
+   If your Tcl scripts use Blowfish encryption/decryption functions
+   (encrypt, decrypt, blowfish_encrypt, etc.), you must load this
+   module.
+
+2. Userfile Migration
+
+   When migrating userfiles from Eggdrop 1.8 or earlier to 1.10+, load
+   both blowfish and pbkdf2 modules together. Eggdrop will automatically
+   hash passwords with PBKDF2 upon first user login, then you can safely
+   remove the blowfish module.
+
+IMPORTANT NOTES
+
+- Do NOT load this module alone for new bots. Load pbkdf2 instead.
+- Password hashing now uses PBKDF2 (SHA-256, SHA-384, or SHA-512).
+- Blowfish encryption is still available for legacy Tcl scripts.
+- This module cannot be unloaded while active DCC CHAT sessions exist.
+
+For password hashing details, see mod.pbkdf2.
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

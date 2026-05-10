@@ -1,81 +1,291 @@
-Account tracking in Eggdrop
-===========================
+Account Tracking and SASL
+==========================
 
-In Eggdrop 1.9.3, Eggdrop added the ability to associate nicknames with the service accounts they are logged into. It is IMPORTANT to note that Eggdrop's ability to do this is dependent on an IRC server's implementation of three features- the IRCv3 extended-join capability, the IRCv3 account-notify capability, and WHOX support. All three of these features must be supported by the server and, in the case of extended-join and account-notify, requested by Eggdrop in order for Eggdrop to maintain "perfect" association between nicknames and account statuses.
+Eggdrop 1.10 provides two account-related features:
 
-Required Server Capabilities
-----------------------------
-You're going to see this repeated a lot- the IRC server must support three features in order for Eggdrop to accurately associate accounts with nicknames. These three features allow Eggdrop to always know the current association between an account and a nickname by getting account statuses of users already on a channel when it joins, new users joining a channel, and users who authenticate while on a channel.
+1. **Account Tracking** — Associate IRC users with their authenticated accounts
+2. **SASL** — Authenticate the bot itself with NickServ or other services
 
-extended-join
-^^^^^^^^^^^^^
-`extended-join <https://ircv3.net/specs/extensions/extended-join>`_ is an IRCv3-defined capability that adds the account name of a user to the JOIN message sent by the IRC server, alerting clients that a new member has joined a channel. Enabling this capability allows Eggdrop to immediately determine the account name associated with a user joining a channel
+Account Tracking
+----------------
 
-account-notify
-^^^^^^^^^^^^^^
-`account-notify <https://ircv3.net/specs/extensions/account-notify>`_ is an IRCv3-defined capability that sends a message to a channel when a member of the channel either authenticates or deauthenticates from their account. Enabling this capability allows Eggdrop to immediately associate an account to a channel member when they authenticate or deauthenticate.
+Account tracking allows Eggdrop to know which user on IRC is logged into which service account. This is useful for scripts that react to authenticated users.
 
-WHOX
-^^^^
-'WHOX <https://ircv3.net/specs/extensions/whox>`_ is a server feature that allows a client to request custom fields to be returned in a WHO response. If a server supports this capability, Eggdrop sends a WHOX query to the server when it joins a channel, allowing it to immediately determine accounts associated with channel members when Eggdrop joins a channel.
+Requirements
+^^^^^^^^^^^^
 
-Enabling Eggdrop Account Tracking
----------------------------------
-By default, the Eggdrop config file will attempt to enable all the capabilities required for account tracking. There are two settings to pay attention to
+Account tracking requires the IRC server to support three features:
+
+1. **extended-join** (IRCv3)
+   - Adds account name to JOIN messages
+   - Allows Eggdrop to know account on user join
+
+2. **account-notify** (IRCv3)
+   - Notifies when users authenticate/deauthenticate
+   - Allows Eggdrop to update account status in real-time
+
+3. **WHOX**
+   - Custom WHO responses
+   - Allows Eggdrop to query accounts for existing channel members
+
+All three are required for full accuracy. Modern networks (Libera.Chat, DALnet, etc.) support all three.
+
+Enabling Account Tracking
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Eggdrop requests account tracking capabilities by default. In your ``eggdrop.toml``, you can control this:
+
 ::
 
-  # To request the account-notify feature via CAP, set this to 1
-  set account-notify 1
+  # Request extended-join capability
+  extended-join = true
 
-  # To request the extended-join feature via CAP, set this to 1
-  set extended-join 1
+  # Request account-notify capability
+  account-notify = true
 
-The ability of a server to support WHOX queries is determined via a server's ISUPPORT (005) reply. If a server supports WHOX queries, Eggdrop will automatically enable this feature.
+Set these to ``false`` to disable (not recommended unless the server doesn't support them).
 
-Checking Account-tracking Status
---------------------------------
-While Eggdrop is running, join the partyline and type `.status`. If account-tracking is enabled (both the server supports and Eggdrop has requested), you'll see this line
-::
+Checking Account Tracking Status
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-  Loaded module information:
-    #eggdroptest        : (not on channel)
-    Channels: #eggdroptest (trying)
-    Account tracking: Enabled           <--- This line
-    Online as: BeerBot (BeerBot)
+On the partyline, type::
 
-Otherwise, the prompt will tell you which required capability is missing/not enabled
-::
+  .status
 
-  Loaded module information:
-    #eggdroptest        :   2 members, enforcing "+tn" (greet)
-    Channels: #eggdroptest (need ops)
-    Account tracking: Best-effort (Missing capabilities: extended-join, see .status all for details)      <---- This line
-    Online as: Eggdrop (Eggdrop)
+Look for a line like::
 
-Determining if a Server Supports Account Capabilities
------------------------------------------------------
-A server announces the capabilities it supports via a CAP request. If you have Tcl enabled on the partyline (or via a raw message from a client), you can send `.tcl cap ls` and see if the extended-join and account-notify capabilities are supported by the server. If they are not listed, the server does not support it.
+  Account tracking: Enabled
 
-A server announces if it supports WHOX via its ISUPPORT (005) announcement. If you have Tcl enabled on the partyline, you can send `.tcl issupport isset WHOX` and if it returns '1', WHOX is supported by the server.
+If account tracking is not enabled, you'll see::
+
+  Account tracking: Best-effort (Missing capabilities: extended-join, account-notify)
+
+**Full account tracking** = server supports all three features, Eggdrop has requested them
+
+**Best-effort** = server supports some but not all features. Eggdrop updates account info when it sees it, but cannot guarantee completeness.
 
 Best-Effort Account Tracking
-----------------------------
-If a server only supports some, but not all, of the required capabilities, Eggdrop will switch to 'best effort' account tracking. This means Eggdrop will update account statuses whenever it sees account information, but in this mode Eggdrop cannot guarantee that all account associations are up to date.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If a server does not support extended-join, Eggdrop will not be able to determine the account associated with a user when they join. Eggdrop can update this information by sending a WHOX to the server.
+If the server doesn't fully support all three features, Eggdrop runs in "best-effort" mode:
 
-If a server does not support account-notify, Eggdrop will not be able to determine the account associated with a user if they authenticate/deauthenticate from their account after joining a channel. Eggdrop can update this information by sending a WHOX to the server.
+- **No extended-join**: Can't determine account when user joins; updates with WHOX later
+- **No account-notify**: Can't track authentication; updates with WHOX later
+- **No WHOX**: Can't query existing channel members; updates when they talk
 
-If a server does not support WHOX, Eggdrop will not be able to determine the accounts associated with users already on a channel before Eggdrop joined. There is no reliable way to update this information.
+**Supplementary: account-tag**
 
-One workaround to significantly increase the accuracy of account tracking for scripts in a 'best effort' scenario would be to issue a WHOX query (assuming the server supports it), wait for the reply from the server, and then query for the account information.
+The ``account-tag`` capability attaches account info to every message. Enable it for better accuracy in best-effort mode::
 
-account-tag
-^^^^^^^^^^^
-One supplementary capability that can assist a best-effort account tracking scenario is the IRCv3-defined `account-tag capability <https://ircv3.net/specs/extensions/account-tag>`_. The account-tag capability attaches a tag with the account name associated with the user sending a command. Enabling this capability allows Eggdrop to update its account tracking every time a user talks in channel, sets a mode, sends a kick, etc. While still not able to offer the same level of accuracy as enabling the "main three" account tracking features, it can increase the overall accuracy of the account list. Additionally, binds that react to user activity (pub, kick, mode, etc) containing account-tag will update the internal account list prior to executing the associated callback, so looking up the account name in the callback can be considered accurate.
+  account-tag = true
 
-Using Accounts with Tcl Scripts
--------------------------------
-The Eggdrop Tcl ACCOUNT bind is triggered whenever an existing account record stored by Eggdrop is modified, such as a user de/authenticating to their account while in a channel, or information such as an account-tag being seen that updates an existing user. However, the ACCOUNT bind will NOT be triggered for the creation of a new user record, such as a user joining a channel. The bind is triggered for every channel the user is seen on- this means if a user is present with Eggdrop on four channels, the bind will be executed four times, each time with a different channel variable being passed to the associated Tcl procedure. Additionally, in a best-effort account tracking situation, Eggdrop will update the account associated with a user on all channels, not just the channel the event is seen on (and thus resulting in a bind trigger for each channel the user is on).
+This updates Eggdrop's account tracking every time a user talks, improving accuracy.
 
-In order to trigger Tcl script events to cover all instances where a user logs in, you need to pair an ACCOUNT bind with a JOIN bind. This will allow you to execute account-based events when a user joins as well as if they authenticate after joining. 
+Using Accounts in Scripts
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``ACCOUNT`` bind is triggered when a user's account status changes:
+
+::
+
+  bind account * * handle_account
+
+  proc handle_account {account nick host handle chan} {
+    putlog "User $nick authenticated as $account in $chan"
+  }
+
+**Important**: ACCOUNT bind triggers for status **changes**, not user joins. Pair it with a JOIN bind to catch both:
+
+::
+
+  bind join * * handle_join
+  bind account * * handle_account
+
+  proc handle_join {nick host handle chan} {
+    putlog "User $nick (account: [getchanuser $nick $chan]) joined $chan"
+  }
+
+  proc handle_account {account nick host handle chan} {
+    putlog "User $nick authenticated as $account in $chan"
+  }
+
+Checking Accounts in Scripts
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Get a user's account in a script:
+
+::
+
+  # Get account for a user in a channel
+  set account [getchanuser $nick $chan account]
+  if {$account ne ""} {
+    putlog "User $nick is authenticated as $account"
+  } else {
+    putlog "User $nick is not authenticated"
+  }
+
+SASL Authentication
+-------------------
+
+SASL (Simple Authentication and Security Layer) allows the bot to authenticate itself with a service (NickServ) when connecting to IRC.
+
+Supported SASL Mechanisms
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Eggdrop 1.10 supports:
+
+- **PLAIN** — Simple username/password (use only over TLS)
+- **SCRAM-SHA-256** — Secure salted password hashing (recommended)
+- **SCRAM-SHA-512** — Stronger version of SCRAM-SHA-256
+- **EXTERNAL** — Certificate-based authentication
+- **ECDSA-NIST256P-CHALLENGE** — Elliptic curve challenge
+- **ECDH-X25519-CHALLENGE** — Elliptic curve Diffie-Hellman
+
+**Recommendation**: Use SCRAM-SHA-256 or SCRAM-SHA-512. PLAIN is only safe over TLS.
+
+Configuring SASL
+^^^^^^^^^^^^^^^^
+
+SASL is configured per-network. Most networks use the same mechanism for all connections, but some allow multiple mechanisms.
+
+In ``eggdrop.toml``, configuration is typically in a ``[sasl]`` section or network-specific settings. Check your config file for SASL settings.
+
+**Example: SCRAM-SHA-256**::
+
+  # In your Tcl script or config
+  sasl-mechanism SCRAM-SHA-256
+  sasl-username "botnick"
+  sasl-password "mypassword"
+
+**Example: EXTERNAL (certificate-based)**::
+
+  sasl-mechanism EXTERNAL
+  # Requires TLS certs (eggdrop.crt, eggdrop.key)
+
+SASL Authentication Flow
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Bot connects to IRC server via TLS (recommended)
+2. Server announces SASL support via CAP
+3. Eggdrop sends AUTHENTICATE message
+4. Server responds with challenge (depends on mechanism)
+5. Eggdrop sends authentication response
+6. Server grants access or denies
+
+If SASL succeeds, the bot is identified immediately, before joining channels.
+
+Common SASL Configurations
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Libera.Chat with SCRAM-SHA-256**::
+
+  [bot]
+  nick = "MyBot"
+
+  [servers]
+  list = ["irc.libera.chat:+6697"]
+
+  # SASL settings (add to config as appropriate)
+  # mechanism: SCRAM-SHA-256
+  # account: MyBot
+  # password: <your-password>
+
+**DALnet with EXTERNAL (certificate auth)**::
+
+  [bot]
+  nick = "MyBot"
+
+  [servers]
+  list = ["irc.dalnet.net:+6697"]
+
+  [tls]
+  privatekey = "eggdrop.key"
+  certificate = "eggdrop.crt"
+
+  # SASL settings
+  # mechanism: EXTERNAL
+  # (no password needed)
+
+Troubleshooting SASL
+^^^^^^^^^^^^^^^^^^^^
+
+**SASL authentication failed**
+
+- Wrong password: Verify the password matches NickServ records
+- Wrong username: Check that the account name matches
+- Server doesn't support the mechanism: Try PLAIN or SCRAM-SHA-256
+- TLS connection required: Ensure you're connecting via TLS (port prefixed with ``+``)
+
+**Bot connects but isn't identified**
+
+- SASL not configured: Add SASL settings to config
+- SASL mechanism not supported by server: Try a different mechanism
+- Network doesn't use SASL: Some networks use only NickServ commands
+
+**How to manually identify if SASL fails**
+
+If SASL fails, you can manually identify via partyline:
+
+::
+
+  .msg NickServ identify <password>
+
+Or use a Tcl script to identify after connecting:
+
+::
+
+  proc identify {} {
+    putserv "PRIVMSG NickServ :IDENTIFY <password>"
+  }
+
+  bind evnt * "connected" identify
+
+Account Differences: SASL vs. Account Tracking
+-----------------------------------------------
+
+**SASL** = Bot authentication (bot logs into its account)
+
+- Happens at connection time
+- Bot becomes "identified" on the network
+- Grants ops or special privileges to the bot
+
+**Account Tracking** = User authentication tracking (knowing which user is logged in)
+
+- Happens during channel operation
+- Eggdrop tracks which users are logged into accounts
+- Scripts can react to user authentication
+
+Both are independent features. You can use:
+
+- SASL only (bot is identified, but doesn't track users)
+- Account tracking only (tracks users, but bot doesn't identify itself)
+- Both (bot is identified AND user authentication is tracked)
+
+Best Practices
+--------------
+
+1. **Use TLS for SASL connections** — PLAIN mechanism requires TLS
+2. **Prefer SCRAM-SHA-256 or SCRAM-SHA-512** — More secure than PLAIN
+3. **Use EXTERNAL if server supports it** — Certificate-based, most secure
+4. **Enable account tracking** — Useful for scripts that need to know account status
+5. **Pair ACCOUNT and JOIN binds** — Catch both join and authentication events
+6. **Store passwords securely** — Don't hardcode in scripts; use config file
+
+See Also
+--------
+
+- `Accounts Tutorial <../tutorials/firststeps.html>`_ — Practical account setup
+- `TLS Setup <tlssetup.html>`_ — TLS certificate configuration
+- `Core Settings <core.html>`_ — Configuration reference
+- `Tcl Commands <tcl-commands.html>`_ — Scripting reference
+
+IRC Standards
+-------------
+
+- `IRCv3 SASL <https://ircv3.net/specs/extensions/sasl-3.1>`_
+- `IRCv3 extended-join <https://ircv3.net/specs/extensions/extended-join>`_
+- `IRCv3 account-notify <https://ircv3.net/specs/extensions/account-notify>`_
+- `IRCv3 account-tag <https://ircv3.net/specs/extensions/account-tag>`_
+- `WHOX <https://ircv3.net/specs/extensions/whox>`_
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

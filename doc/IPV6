@@ -1,80 +1,118 @@
-IPv6 support Last revised: Mar 24, 2021
+IPv6 Support
 
-IPv6 support
+IPv6 Support in Eggdrop
 
-This document provides information about IPv6 support which is a new
-eggdrop feature since version 1.8.0.
+  Eggdrop has full IPv6 support and is compiled with it by default. IPv6
+  support allows Eggdrop to make and accept connections over IPv6
+  networks. Every type of TCP connection can use IPv6, including IRC
+  connections, DCC, file transfers, botnet links, Tcl script connections,
+  telnet, and ident lookups.
 
-ABOUT
+REQUIREMENTS
 
-Eggdrop can be compiled with IPv6 support. To make use of this, you need
-an IPv6-enabled OS and IPv6 connectivity. Every possible type of TCP
-connection can be established over IPv6 now, which includes IRC
-connections, DCC connections, file transfer, botnet connections, Tcl
-script connections initiated with the listen/connect commands, telnet
-and ident lookups.
+  To use IPv6:
 
-INSTALLATION
+  - Your operating system must support IPv6
+  - You must have IPv6 connectivity (either native or via tunneling)
+  - Your IRC server must support IPv6 connections
 
-./configure and install as usual, the configure script will detect if
-your system supports IPv6 and will enable it automatically. You can
-override this behavior and manually enable or disable IPv6 with
-./configure --enable-ipv6 or ./configure --disable-ipv6. Older operating
-systems may have limited or no support for IPv6. Linux 2.4 & 2.6,
-FreeBSD, NetBSD, OpenBSD and Mac OS X all have full IPv6 support. MS
-Windows has proper support beginning with Windows Vista. XP's IPv6 stack
-has some limitations and needs to be manually installed and enabled.
-Cygwin includes IPv6 only since version 1.7. Unofficial patches are
-available for 1.5.x.
+  Most modern operating systems have IPv6 support out of the box:
+  - Linux 2.4+ with full IPv6 support
+  - macOS with full IPv6 support
+  - FreeBSD, OpenBSD, NetBSD with full IPv6 support
+  - Windows Vista and later (limitations on XP)
+  - Cygwin 1.7+ (earlier versions have no IPv6 support)
 
 USAGE
 
-You can use IPv6 addresses wherever you could specify IPv4 ones. IPs and
-hostnames are interchangeable everywhere. For certain settings and
-commands, you can enclose IPv6 addresses in square brackets to prevent
-the colon character (:) from being interpreted as a port separator.
-These are documented in the help files and the html documentation, so
-you can consult them when in doubt.
+  IPv6 addresses can be used wherever IPv4 addresses are used. For
+  server connections, IRC servers, DCC, and botnet links, simply use an
+  IPv6 address instead of an IPv4 address:
 
-CTCP CHAT/CHAT4/CHAT6
+    [[servers]]
+    host = "irc.example.com"        # hostname (IPv4 or IPv6)
+    host = "2001:db8::1"            # IPv6 literal address
+    host = "[2001:db8::1]"          # IPv6 with port separator
 
-When a user sends a CTCP chat request, the request is passed to the bot
-via the IRC server, hiding the user's IP. Since Eggdrop is unable to
-'see' the type IP of the user is using (IPv4 or IPv6), it is thus unable
-to determine whether it should send back an IPv4 or an IPv6 address for
-the user to connect to. To work around this problem, the CHAT4 and CHAT6
-commands were added to Eggdrop to force it to present an IPv4 or IPv6
-address for use with a DCC connection, respectively. Otherwise, the
-traditional CHAT command will likely result in the Eggdrop presenting an
-IPv4 address to the user. So in short, if you're on an IPv6 address and
-want to use CTCP CHAT to initiate a DCC session for the partyline, use
-CHAT6, not CHAT as the CTCP argument.
+  When an IPv6 address contains colons (:), enclose it in square
+  brackets to prevent the colon from being interpreted as a port
+  separator. This is necessary only when the port must be explicitly
+  specified in the same setting.
 
-SETTINGS
+CTCP CHAT4/CHAT6 COMMANDS
 
-There are four new IPv6 related config variables:
+  When a user sends a CTCP CHAT request, the request passes through the
+  IRC server, which hides the user's actual IP address. Since Eggdrop
+  cannot determine whether the user is using IPv4 or IPv6, it must guess
+  which type of address to send back.
 
-  vhost4
+  To work around this ambiguity:
 
-    set this to use a specific vhost with IPv4 connections. Can contain
-    either an IP address or a hostname.
+  - Use CHAT4 to force an IPv4 DCC connection
+  - Use CHAT6 to force an IPv6 DCC connection
+  - Use CHAT for automatic detection (usually defaults to IPv4)
 
-  vhost6
+  Example from IRC:
 
-    set this to use a specific vhost with IPv6 connections. Can contain
-    either an IPv6 address or a hostname.
+    /ctcp bot CHAT6
 
-  prefer-ipv6
+  This forces Eggdrop to present an IPv6 address for the DCC connection.
 
-    when a connection can be established through both IPv4 and IPv6. You
-    can set this to 1 to prefer IPv6 or to 0 to prefer IPv4.
+CONFIGURATION SETTINGS
 
-Other affected variables:
+  The following settings in eggdrop.toml control IPv6 behavior:
 
-  my-ip and my-hostname are removed now. Their function is split between
-  vhost4 and the listen command.
+  vhost4 (string)
 
-  nat-ip works with IPv4 as it used to. It has no meaning for IPv6 and
-  is not queried for IPv6 connections.
+    Set this to use a specific virtual host (bind address) for IPv4
+    connections. Can contain either an IPv4 address or a hostname that
+    resolves to an IPv4 address.
 
-Copyright (C) 2010 - 2025 Eggheads Development Team
+    Example:
+      vhost4 = "192.0.2.1"
+
+  vhost6 (string)
+
+    Set this to use a specific virtual host (bind address) for IPv6
+    connections. Can contain either an IPv6 address or a hostname that
+    resolves to an IPv6 address.
+
+    Example:
+      vhost6 = "2001:db8::1"
+
+  prefer-ipv6 (integer)
+
+    When a connection can be established through both IPv4 and IPv6,
+    set this to control which protocol is preferred:
+
+      0 - Prefer IPv4 (default)
+      1 - Prefer IPv6
+
+    Example:
+      prefer-ipv6 = 1
+
+BOTNET OVER IPv6
+
+  Botnet connections can use IPv6. In the hub's eggdrop.toml, configure
+  an IPv6 listening port:
+
+    listen = ["*" 4400]      # IPv4
+    listen = ["[::1]" 4400]  # IPv6 (localhost)
+    listen = ["::" 4400]     # IPv6 (all interfaces)
+
+  Then, in the leaf bot's configuration, add the hub with an IPv6
+  address:
+
+    [[botnet]]
+    handle = "HubBot"
+    address = "2001:db8::1"
+    port = 4400
+
+COMPATIBILITY NOTES
+
+  - IPv4 and IPv6 connections can coexist on the same Eggdrop instance
+  - DNS resolution automatically uses both IPv4 and IPv6 records
+  - Older IRC clients may not support IPv6 DCC
+  - Some firewalls may block IPv6—ensure your network allows it
+
+  Copyright (C) 2010 - 2025 Eggheads Development Team

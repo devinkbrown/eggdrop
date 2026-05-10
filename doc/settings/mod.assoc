@@ -1,14 +1,213 @@
-Last revised: January 1, 2002
+Last revised: May 10, 2026
 
 Assoc Module
 
-This module provides assoc support, i.e. naming channels on the botnet.
+This module provides channel aliasing support for party-line (botnet)
+operations. Users can give friendly names to botnet channels instead of
+remembering channel numbers.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the assoc
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule assoc
+  [modules]
+  load = [
+    "assoc",
+  ]
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+
+FEATURES
+
+The assoc module allows:
+  - Assigning aliases to botnet channels (e.g., "dev" instead of ".5")
+  - Easy switching between channels (.goto dev)
+  - Persistent associations stored in userfile
+  - Per-user channel aliases
+
+Example:
+
+  Without assoc: .console .5    (confusing channel number)
+  With assoc:    .console dev   (friendly name)
+
+
+USAGE
+
+In DCC partyline, users can:
+
+  .assoc <name> <channel>    Set association (e.g., .assoc dev .5)
+  .goto <name>               Switch to associated channel
+  .assoc                      List all associations
+
+Examples:
+
+  .assoc dev .5              (associate name "dev" with channel .5)
+  .assoc ops .3              (associate name "ops" with channel .3)
+  .goto dev                  (switch to channel .5 via alias)
+  .assoc                      (list all associations)
+  .reset assoc               (clear associations)
+
+
+BOTNET CHANNELS
+
+Botnet channels are numbered:
+
+  .0 = main (system channel)
+  .1 to .99 = user-defined channels
+
+Typical botnet structure:
+
+  .0 = main/hub channel
+  .1 = operations
+  .2 = help/support
+  .3 = development
+  .4 = testing
+  .5 = archive
+  etc.
+
+With assoc module, you can name these instead of remembering numbers.
+
+
+EXAMPLE SETUP
+
+In a botnet with multiple channels:
+
+  .assoc main .0             (main hub channel)
+  .assoc ops .1              (operations channel)
+  .assoc dev .2              (development channel)
+  .assoc test .3             (testing channel)
+  .assoc help .4             (help/support channel)
+
+Then users can:
+  .goto main                 (switch to .0)
+  .goto ops                  (switch to .1)
+  .goto dev                  (switch to .2)
+
+
+PERSISTENT STORAGE
+
+Associations are stored per-user in the bot's userfile. When a user:
+  - Logs out and back in, associations are preserved
+  - Changes accounts, associations are per-account
+  - Is given new flags, existing associations remain
+
+Users can have different associations than other users.
+
+
+DEPENDENCIES
+
+The assoc module has no external dependencies.
+
+
+CONFIGURATION
+
+No specific configuration required. Simply load the module:
+
+  [modules]
+  load = ["assoc"]
+
+
+EXAMPLE CONFIGURATION
+
+Standard botnet with assoc:
+
+  [modules]
+  load = ["channels", "console", "assoc"]
+
+  [[chanset]]
+  channel = "#egghelp"
+  chanmode = "+nts"
+
+  [tcl]
+  commands = [
+    "listen 3334 bots",  # Listen for botnet connections
+  ]
+
+      Botnet hub with channel aliasing support.
+
+
+ADVANCED USAGE
+
+Channel switches:
+
+  .console                   (show current channel)
+  .console .1                (switch to channel .1)
+  .console main              (if "main" is associated with .1)
+  .goto dev                  (if "dev" is associated)
+
+Listing associations:
+
+  .assoc                      (list your associations)
+
+Clearing associations:
+
+  .reset assoc               (remove all your associations)
+
+
+COMPARISON WITH BOTNET CHANNELS
+
+Without assoc:
+  .console .1     (numeric channel, hard to remember)
+  .console .2     (what was .2 again?)
+  .console .3     (easy to mix up)
+
+With assoc:
+  .console ops    (meaningful name)
+  .console dev    (clear purpose)
+  .console help   (self-explanatory)
+
+
+TROUBLESHOOTING
+
+Associations not saving:
+  - Verify assoc module is loaded (.modules).
+  - Ensure user is in userfile.
+  - Check bot has write permission to userfile.
+
+Can't use .goto command:
+  - Verify assoc module is loaded.
+  - Ensure association exists (.assoc to list).
+  - Check spelling of association name.
+
+Associations lost after restart:
+  - Check userfile is being saved (default: yes).
+  - Verify .save in DCC partyline (or .store).
+  - Ensure bot has write permission to userfile.
+
+Wrong channel displayed:
+  - Verify association is correct (.assoc).
+  - Check .console shows current channel.
+  - Ensure channel exists and bot is running.
+
+
+NOTES
+
+- Associations are per-user, not global.
+- Botnet must be set up to use these features (see [tcl].commands).
+- Associations make botnet navigation much easier.
+- Compatible with all botnet configurations.
+- No performance impact.
+
+
+BOTNET SETUP REFERENCE
+
+To enable botnet functionality:
+
+  [tcl]
+  commands = [
+    "listen 3334 bots",                # Listen for bot connections
+  ]
+
+Hub bot configuration:
+
+  [tcl]
+  commands = ["listen 3334 bots"]
+
+Leaf bot configuration:
+
+  [tcl]
+  commands = ["link hub.example.com 3334 botpass"]
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

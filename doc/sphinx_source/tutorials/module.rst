@@ -1,107 +1,357 @@
 Writing a Basic Eggdrop Module
 ==============================
 
-An Eggdrop module is a piece of C code that can be loaded (or unloaded) onto the core Eggdrop code. A module differs from a Tcl script in that modules must be compiled and then loaded, whereas scripts can be edited and loaded directly. Importantly, a module can be written to create new Eggdrop-specific Tcl commands and binds that a user can then use in a Tcl script. For example, the server module loaded by Eggdrop is what creates the "jump" Tcl command, which causes tells the Eggdrop to jump to the next server in its server list.
+An Eggdrop module is a C code component that can be loaded or unloaded at runtime. Unlike Tcl scripts, modules must be compiled and are more powerful—they can create new Tcl commands, binds, and extend Eggdrop's core functionality.
 
-There are a few required functions a module must perform in order to properly work with Eggdrop
+Examples:
+
+- The ``server`` module creates the ``jump`` Tcl command
+- The ``channels`` module provides channel management
+- The ``pbkdf2`` module implements secure password hashing
+
+Module Structure
+----------------
+
+Every module requires:
+
+1. A module header (copyright/license)
+2. Module registration code (startup/shutdown)
+3. Function tables (exports to Eggdrop)
+4. Optionally: partyline commands, Tcl commands, Tcl binds
+
+Building Modules
+----------------
+
+Eggdrop uses **Meson** for building. Modules are compiled automatically if placed in the correct location.
+
+Module Location
+^^^^^^^^^^^^^^^
+
+Create a directory in ``src/mod/`` with your module name::
+
+  src/mod/mymodule/
+  ├── meson.build
+  └── mymodule.c
+
+Sample ``meson.build``::
+
+  mymodule = static_library('mymodule',
+    'mymodule.c',
+    include_directories: [includes],
+    install: true,
+    install_dir: get_option('prefix') / 'modules'
+  )
+
+Building
+^^^^^^^^
+
+Modules are compiled automatically with the main build::
+
+  meson setup builddir
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/eggdrop
+
+Compiled modules are placed in the ``modules/`` directory of your Eggdrop installation.
 
 Module Header
 -------------
 
-A module should include license information. This tells other open source users how they are allowed to use the code. Eggdrop uses GPL 2.0 licensing, and our license information looks like this::
+Begin your module with copyright and license information::
 
   /*
-  * This program is free software; you can redistribute it and/or
-  * modify it under the terms of the GNU General Public License
-  * as published by the Free Software Foundation; either version 2
-  * of the License, or (at your option) any later version.
-  *
-  * This program is distributed in the hope that it will be useful,
-  * but WITHOUT ANY WARRANTY; without even the implied warranty of
-  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  * GNU General Public License for more details.
-  *
-  * You should have received a copy of the GNU General Public License
-  * along with this program; if not, write to the Free Software
-  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-  */
+   * This program is free software; you can redistribute it and/or
+   * modify it under the terms of the GNU General Public License
+   * as published by the Free Software Foundation; either version 2
+   * of the License, or (at your option) any later version.
+   *
+   * This program is distributed in the hope that it will be useful,
+   * but WITHOUT ANY WARRANTY; without even the implied warranty of
+   * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   * GNU General Public License for more details.
+   *
+   * You should have received a copy of the GNU General Public License
+   * along with this program; if not, write to the Free Software
+   * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+   */
 
 Required Code
 -------------
 
-For this section, you don't necessarily need to understand what it is doing, but this code is required for a module to function. If you want to learn more about this, check out :ref:`writing_module`
+Every module must include these elements. You don't need to understand every detail, but the code is required.
 
-You'll next want to name your module::
+Module Name
+^^^^^^^^^^^
 
-  #define MODULE_NAME "woobie"
+Define your module's name::
 
-Declare your own function tables (again, you don't need to understand this part; you just need to copy/paste it)::
+  #define MODULE_NAME "mymodule"
+
+Function Tables
+^^^^^^^^^^^^^^^
+
+Declare function tables and global scope::
 
   #undef global
   static Function *global = NULL, *server_funcs = NULL;
-  EXPORT_SCOPE char *woobie_start();
+  EXPORT_SCOPE char *mymodule_start();
 
-Next are two memory-related functions used by the core Eggdrop .status and .module commands::
+Memory Reporting Functions
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-  static int woobie_expmem()
+These functions are called by ``.status`` and ``.module`` commands::
+
+  static int mymodule_expmem(void)
   {
     int size = 0;
+
+    /* Count any allocated memory here */
 
     return size;
   }
 
-  static void woobie_report(int idx, int details)
+  static void mymodule_report(int idx, int details)
   {
     if (details) {
-      int size = woobie_expmem();
+      int size = mymodule_expmem();
 
       dprintf(idx, "    Using %d byte%s of memory\n", size,
               (size != 1) ? "s" : "");
     }
   }
 
+Module Startup
+^^^^^^^^^^^^^^
+
 This function is called when Eggdrop loads the module::
 
-  char *woobie_start(Function *global_funcs)
+  char *mymodule_start(Function *global_funcs)
   {
     global = global_funcs;
 
-    /* Register the module. */
-    module_register(MODULE_NAME, woobie_table, 2, 1);
-    /*                                            ^--- minor module version
-     *                                         ^------ major module version
-     *                           ^-------------------- module function table
+    /* Register the module */
+    module_register(MODULE_NAME, mymodule_table, 1, 0);
+    /*                                            ^--- minor version
+     *                                         ^------ major version
+     *                           ^-------------------- function table
      *              ^--------------------------------- module name
      */
 
-    if (!module_depend(MODULE_NAME, "eggdrop", 108, 0)) {
+    /* Declare dependencies */
+    if (!module_depend(MODULE_NAME, "eggdrop", 110, 0)) {
       module_undepend(MODULE_NAME);
-      return "This module requires Eggdrop 1.8.0 or later.";
+      return "This module requires Eggdrop 1.10.0 or later.";
     }
 
-This next function is used to unload the module::
+    return NULL;  /* Success */
+  }
 
-  static char *woobie_close()
+Module Shutdown
+^^^^^^^^^^^^^^^
+
+This function is called when Eggdrop unloads the module::
+
+  static char *mymodule_close(void)
   {
     module_undepend(MODULE_NAME);
     return NULL;
   }
 
-This creates a function table that is exported to Eggdrop. In other words, these are commands that are made available to the Eggdrop core and other modules. At minimum, the following functions must be exported::
+Function Export Table
+^^^^^^^^^^^^^^^^^^^^^
 
-  static Function woobie_table[] = {
-    (Function) woobie_start,
-    (Function) woobie_close,
-    (Function) woobie_expmem,
-    (Function) woobie_report,
+Export functions available to Eggdrop and other modules::
+
+  static Function mymodule_table[] = {
+    (Function) mymodule_start,
+    (Function) mymodule_close,
+    (Function) mymodule_expmem,
+    (Function) mymodule_report,
   };
 
-At this point, you should have a module that compiles and can be loaded by Eggdrop- but doesn't really do anything yet. We'll change that in the next section!
+At this point, you have a loadable but non-functional module. The following sections add features.
 
-Adding a Partyline Command
+Adding Partyline Commands
 --------------------------
 
-A partyline command function accepts three arguments- a pointer to the user record of the user that called the command; the idx the user was on when calling the command; and a pointer to the arguments appended to the command. A command should immediately log that it was called to the LOG_CMDS log level, and then run its desired code. This simple example prints "WOOBIE" to the partyline idx of the user that called it::
+A partyline command function accepts:
+
+1. A user record (user details)
+2. An idx (connection index)
+3. Arguments string
+
+Example::
+
+  static int cmd_mycommand(struct userrec *u, int idx, char *par)
+  {
+    putlog(LOG_CMDS, "*", "#%s# mycommand", dcc[idx].nick);
+    dprintf(idx, "Hello from mymodule!\n");
+    return 0;
+  }
+
+Command Table
+^^^^^^^^^^^^^
+
+Register commands in a command table::
+
+  static cmd_t mycommands[] = {
+    /* name        flags  function        tcl-name   */
+    {"mycommand",  "",    cmd_mycommand,  NULL},
+    {NULL,         NULL,  NULL,           NULL}  /* End marker */
+  };
+
+The ``tcl-name`` field can link to a Tcl command name, or ``NULL`` for partyline-only.
+
+Adding Tcl Commands
+-------------------
+
+Tcl commands extend functionality for scripts. Example::
+
+  static int tcl_myfunction STDVAR
+  {
+    BADARGS(2, 2, " arg");
+
+    if (strcmp(argv[1], "hello") == 0) {
+      Tcl_AppendResult(irp, "Hello, world!", NULL);
+      return TCL_OK;
+    } else {
+      Tcl_AppendResult(irp, "Unknown argument", NULL);
+      return TCL_ERROR;
+    }
+  }
+
+**BADARGS Macro**: Validates argument count:
+
+- First arg: minimum arguments (including command name)
+- Second arg: maximum arguments
+- Third arg: help text
+
+Example: ``BADARGS(2, 4, " name ?date? ?place?")`` requires 1-3 args.
+
+Tcl Command Table
+^^^^^^^^^^^^^^^^^
+
+Register Tcl commands::
+
+  static tcl_cmds mytcl[] = {
+    {"myfunction",  tcl_myfunction},
+    {NULL,          NULL}  /* End marker */
+  };
+
+Now scripts can call::
+
+  myfunction hello
+
+Adding Tcl Binds
+----------------
+
+Binds are triggered by specific IRC events (e.g., messages, joins). Binds allow scripts to react to events.
+
+Declaring Bind Types
+^^^^^^^^^^^^^^^^^^^^
+
+First, declare a bind handle::
+
+  static p_tcl_bind_list H_myevent;
+
+Register it in ``mymodule_start()``::
+
+  H_myevent = add_bind_table("myevent", HT_STACKABLE, myevent_2char);
+
+And remove it in ``mymodule_close()``::
+
+  del_bind_table(H_myevent);
+
+**HT_STACKABLE**: Multiple binds of the same type are allowed. Use ``HT_NORMAL`` to allow only one.
+
+Defining Bind Arguments
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Create a function that defines what arguments the bind receives. For a 2-argument bind::
+
+  static int myevent_2char STDVAR
+  {
+    Function F = (Function) cd;
+
+    BADARGS(3, 3, " arg1 arg2");
+
+    CHECKVALIDITY(myevent_2char);
+    F(argv[1], argv[2]);
+    return TCL_OK;
+  }
+
+For a 3-argument bind::
+
+  static int myevent_3char STDVAR
+  {
+    Function F = (Function) cd;
+
+    BADARGS(4, 4, " arg1 arg2 arg3");
+
+    CHECKVALIDITY(myevent_3char);
+    F(argv[1], argv[2], argv[3]);
+    return TCL_OK;
+  }
+
+Calling the Bind
+^^^^^^^^^^^^^^^^
+
+When an event occurs that should trigger the bind, call it from module code::
+
+  int check_tcl_myevent(char *arg1, char *arg2)
+  {
+    int x;
+    char mask[1024];
+    struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+
+    snprintf(mask, sizeof mask, "%s %s", arg1, arg2);
+    Tcl_SetVar(interp, "_myevent1", arg1, 0);
+    Tcl_SetVar(interp, "_myevent2", arg2, 0);
+    x = check_tcl_bind(H_myevent, mask, &fr, " $_myevent1 $_myevent2",
+          MATCH_MASK | BIND_STACKABLE);
+    return (x == BIND_EXEC_LOG);
+  }
+
+Scripts can then bind to your event::
+
+  bind myevent - * my_event_handler
+
+  proc my_event_handler {arg1 arg2} {
+    putlog "Event triggered: $arg1 $arg2"
+  }
+
+Compiling and Testing
+---------------------
+
+#. Place your module in ``src/mod/yourmodule/``
+#. Rebuild Eggdrop::
+
+     ninja -C builddir
+     meson install -C builddir --destdir=/path/to/eggdrop
+
+#. Load the module in ``eggdrop.toml``::
+
+     [modules]
+     load = ["yourmodule"]
+
+#. Restart Eggdrop
+
+#. Check that it loaded::
+
+     .status
+
+Example: Simple "Woobie" Module
+-------------------------------
+
+Here's a complete minimal module::
+
+  #define MODULE_NAME "woobie"
+
+  #undef global
+  static Function *global = NULL;
+  EXPORT_SCOPE char *woobie_start();
+
+  static int woobie_expmem(void) { return 0; }
+  static void woobie_report(int idx, int details) {}
 
   static int cmd_woobie(struct userrec *u, int idx, char *par)
   {
@@ -110,121 +360,42 @@ A partyline command function accepts three arguments- a pointer to the user reco
     return 0;
   }
 
-If you add partyline commands, you need to create a table which links the new command name to the function it should call. This can be done like so::
-
-  static cmd_t mywoobie[] = {
-    /* command  flags  function     tcl-name */
-    {"woobie",  "",    cmd_woobie,  NULL},
-    {NULL,      NULL,  NULL,        NULL}  /* Mark end. */
+  static cmd_t woobie_cmds[] = {
+    {"woobie", "", cmd_woobie, NULL},
+    {NULL, NULL, NULL, NULL}
   };
-
-The tcl-name field can be a name for a Tcl command that will also call the partyline command, or it can be left as NULL.
-
-Adding a Tcl Command
---------------------
-
-Eggdrop uses the Tcl C API library to interact with the Tcl interpreter. Learning this API is outside the scope of this tutorial, but this example Tcl command will echo the provided argument::
-
-
-  static int tcl_echome STDVAR {
-    BADARGS(2, 2, " arg");
-
-    if (strcmp(argv[1], "llama") {
-      Tcl_AppendResult(irp, "You said: ", argv[1], NULL);
-      return TCL_OK;
-    } else {
-      Tcl_AppendResult(irp, "illegal word!");
-      return TCL_ERROR;
-    }
-  }
-
-A few notes on this example. BADARGS is a macro that checks the input provided to the Tcl command. The first argument BADARGS accepts is the minimum number of parameters the Tcl command must accept (including the command itself). The second argument is the maximum number of parameters that BADARGS will accept. The third argument is the help text that will be displayed if these boundaries are exceeded. For example, BADARGS(2, 4, " name ?date? ?place?") requires at least one argument to be passed, and a maximum of three arguments. Eggdrop code style is to enclose optional arguments between qusetion marks in the help text.
-
-Similar to adding a partyline command, you also have to create a function table for a new Tcl command::
-
-  static tcl_cmds mytcl[] = {
-    {"echome",           tcl_echome},
-    {NULL,                   NULL}   /* Required to mark end of table */
-  };
-
-And now the newly-created Tcl command 'echome' is available for use in a script!
-
-Adding a Tcl Bind
------------------
-
-A Tcl bind is a command that is activated when a certain condition is met. With Eggdrop, these are usually linked to receiving messages or other IRC events. To create a bind, you must first register the bind type with Eggdrop when the module is loaded (you added the woobie_start() and woobie_close functions earlier, you still need all that earlier code in here as well)::
-
-  static p_tcl_bind_list H_woob;
-
-  ...
 
   char *woobie_start(Function *global_funcs)
   {
-    ...
-    H_woob = add_bind_table("woobie", HT_STACKABLE, woobie_2char);  
+    global = global_funcs;
+    module_register(MODULE_NAME, woobie_table, 1, 0);
+
+    if (!module_depend(MODULE_NAME, "eggdrop", 110, 0)) {
+      module_undepend(MODULE_NAME);
+      return "Eggdrop 1.10+ required";
+    }
+    return NULL;
   }
 
-And then remove the binds when the module is unloaded::
-
-  static char *woobie_close()
+  static char *woobie_close(void)
   {
-    ...
-    del_bind_table(H_woob);
+    module_undepend(MODULE_NAME);
+    return NULL;
   }
 
-Here, "woobie" is the name of the bind (similar to the PUB, MSG, JOIN types of binds you already see in tcl-commands.doc). HT_STACKABLE means you can have multiple binds of this type. "woobie_2char" defines how many arguments the bind will take, and we'll talk about that next.
+  static Function woobie_table[] = {
+    (Function) woobie_start,
+    (Function) woobie_close,
+    (Function) woobie_expmem,
+    (Function) woobie_report,
+  };
 
-Defining bind arguments
-^^^^^^^^^^^^^^^^^^^^^^^
+Resources
+---------
 
-The following code example defines a bind that will take two arguments::
+- `Module Internals <../modules/internals.html>`_ — advanced module topics
+- `Tcl Commands <../using/tcl-commands.html>`_ — built-in Tcl command reference
+- Eggdrop source ``src/mod/`` — example modules
 
-  static int woobie_2char STDVAR
-  {
-    Function F = (Function) cd;
-
-    BADARGS(3, 3, " nick chan");
-
-    CHECKVALIDITY(woobie_2char);
-    F(argv[1], argv[2]);
-    return TCL_OK;
-  }
-
-And this example defines a bind that will take three arguments::
-
-  static int woobie_3char STDVAR
-  {
-    Function F = (Function) cd;
-
-    BADARGS(4, 4, " foo bar moo");
-
-    CHECKVALIDITY(woobie_3char);
-    F(argv[1], argv[2], argv[3]);
-    return TCL_OK;
-  }
-
-Like before, BADARGS still checks that the number of arguments passed is correct, and outputs help text if it is not. The rest is boilerplate code to pass the arguments when the bind is called.
-
-Calling the Bind
-^^^^^^^^^^^^^^^^
-
-To call the bind, Eggdrop coding style is to name that function "check_tcl_bindname". So here, whenever we reach a point in code that should trigger the bind, we'll call check_tcl_woobie() and pass the arguments we defined- in this case, two arguments that woobie_2char was created to handle. Here is some sample code::
-
-  check_tcl_woobie(chan, nick);
-
-
-  static int check_tcl_woobie(char *chan, char *nick, char *userhost) {
-    int x;
-    char mask[1024];
-    struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-
-    snprintf(mask, sizeof mask, "%s %s!%s",
-                                  chan, nick, userhost);
-    Tcl_SetVar(interp, "_woob1", nick ? (char *) nick : "", 0);
-    Tcl_SetVar(interp, "_woob2", chan, 0);
-    x = check_tcl_bind(H_woob, mask, &fr, " $_woob1 $_woob2",
-          MATCH_MASK | BIND_STACKABLE);
-    return (x == BIND_EXEC_LOG);
-  }
-
-Now that we have encountered a condition that triggers the bind type (in code by calling ``check_tcl_woobie()`` ), we need to check it against the binds the user has loaded in scripts and see if it matches those conditions. This is done with ``check_tcl_bind()``, called with the bind type, the userhost of the user, the flag record of the user if it exists, the bind arguments, and bind options. We can configure how we want to check the triggering action against the bind, and we can further use the return value from ``check_tcl_bind()`` to take additional action by Eggdrop. You can read more about the specific values used in ``check_tcl_bind`` in :ref:`triggering_any_bind`
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999 - 2025 Eggheads Development Team

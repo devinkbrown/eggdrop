@@ -1,61 +1,141 @@
-Eggdrop Tricks Last revised: Jun 02, 2021
+Eggdrop Tricks and Advanced Tips
 
 Advanced Tips
 
-Here are some little tricks that you may or may not know about, which
-aren't documented in other areas.
+  Here are some advanced tips and tricks that might not be documented
+  elsewhere, along with configuration tweaks for better performance and
+  functionality.
 
 RENAMING COMMANDS
 
-You can rename a built-in command by binding over it. To rename
-'.status' to '.report', you'd do:
+  You can rename a built-in partyline command by binding over it. To
+  rename '.status' to '.report', you'd do:
 
     unbind dcc - status *dcc:status
     bind dcc m report *dcc:status
 
-The first line removes the built-in binding on '.status', and the second
-line binds '.report' to the built-in status function.
+  The first line removes the built-in binding on '.status', and the
+  second line binds '.report' to the built-in status function.
+
+  You can rename most DCC commands this way, as long as you know the
+  internal function name (which usually matches the command name).
 
 KEEPING LOGS
 
-If you don't want your logfiles to be deleted after two days and don't
-want the bot to create a new logfile each new day, then set
-'keep-all-logs' to 0 and 'switch-logfiles-at' to 2500 in your bot's
-config file to make it keeping one logfile all the time. This is not
-recommended on high traffic channels.
+  If you don't want your logfiles to be deleted after two days and don't
+  want the bot to create a new logfile each new day, set these options
+  in eggdrop.toml:
+
+    keep-all-logs = false
+    switch-logfiles-at = 2500
+
+  This makes Eggdrop keep one logfile continuously. Note: this is not
+  recommended on high-traffic channels as the logfile can grow very
+  large.
+
+  To keep logs indefinitely while still rotating daily, set:
+
+    keep-all-logs = true
+    switch-logfiles-at = 0
 
 SELF-LOGGING
 
-Because of how traditional IRC works, Eggdrop doesn't capture outgoing
-messages to its logfile. However, if the server you are on supports the
-IRCv3 capability "echo-message", you can request this capability to be
-enabled by the server in your config file. This will cause the server to
-send Eggdrop'd public messages back, thereby allowing those messages to
-be logged.
+  Because of how traditional IRC works, Eggdrop doesn't capture its own
+  outgoing messages to the logfile. However, if your IRC server supports
+  the IRCv3 capability "echo-message", you can enable it in eggdrop.toml:
+
+    cap-request = ["echo-message"]
+
+  This causes the server to send Eggdrop's public messages back to the
+  bot, allowing those messages to be logged like any other message.
 
 MODIFYING DEFAULT STRINGS
 
-You can modify Eggdrop's output in the partyline, kick messages, and
-other texts by editing core.english.lang in the language directory.
+  You can modify Eggdrop's output in the partyline, kick messages, and
+  other text by editing the language file located at:
+
+    <eggdrop-dir>/lang/core.english.lang
+
+  This file contains all the default message strings. Simply edit the
+  strings you want to change. After editing, restart the bot for changes
+  to take effect.
 
 MODULARIZING YOUR CONFIG FILE
 
-You can export parts of your config file to separate files. For example,
-if you have several config files which differ from themselves only by
-the nickname and the used servers, you can export them to an own file
-and link it with the 'source' Tcl command, similar to a script. The
-advantage of this is that you have to edit/upload only the small file
-instead of the big one. This technique is also useful if you want to
-maintain the same channel settings, etc across your botnet.
+  You can export parts of your config file to separate files and source
+  them. For example, if you have several config files which differ only
+  by nickname and servers, you can export them to separate files:
+
+    # Main config file
+    set mybot "BotName"
+    source "common-settings.toml"
+    source "servers.toml"
+
+  This way, you only need to edit the small files instead of the large
+  main config file. This technique is also useful for maintaining
+  consistent channel settings across a botnet.
 
 VARIABLES IN YOUR CONFIG
 
-You can use variables in your config file, since it's really just a
-normal Tcl file. For example, you can set 'userfile' and 'chanfile' to
-"yourbot.user" and "yourbot.chan" using the following method:
+  Since the Tcl interpreter can read the config file, you can use Tcl
+  variables. For example:
 
-    set myvar "yourbot"
-    set userfile "$myvar.user"
-    set chanfile "$myvar.chan"
+    set mybot "MyBot"
+    set userfile "$mybot.user"
+    set chanfile "$mybot.chan"
 
-Copyright (C) 1999 - 2025 Eggheads Development Team
+  This allows you to define values once and reuse them, making config
+  maintenance easier.
+
+IMPROVING PERFORMANCE
+
+  For high-traffic bots, consider these settings in eggdrop.toml:
+
+    # Increase the userfile save frequency (seconds)
+    save-userfile-every = 300
+
+    # Increase the channel file save frequency (seconds)
+    save-chanfile-every = 300
+
+    # Reduce the frequency of writing backups
+    # (they're time-consuming on large userfiles)
+
+  Building Eggdrop with optimization flags can also improve performance:
+
+    meson setup builddir -Dbuildtype=release
+
+  This removes debugging symbols and enables compiler optimizations.
+
+DEBUGGING SCRIPT ISSUES
+
+  If you're debugging a Tcl script, you can enable Tcl tracing:
+
+    set tcl_traceExec 1
+
+  Add this to your config file to see Tcl commands being executed. This
+  can help identify which commands are causing issues. Remove it once
+  you've identified the problem, as it has a performance impact.
+
+  For more detailed debugging, enable the -g flag during compilation:
+
+    meson setup builddir -Dbuildtype=debug
+
+  This includes debugging symbols that help in post-mortem analysis of
+  crashes. See doc/BUG-REPORT for more information.
+
+MONITORING MEMORY USAGE
+
+  For long-running bots, monitor memory usage with:
+
+    .status memory
+
+  On the partyline (if memory tracking is compiled in). This shows
+  memory allocated to various internal structures.
+
+  If memory usage grows continuously, there might be a memory leak. Open
+  an issue at https://github.com/eggheads/eggdrop/issues with memory
+  usage information.
+
+COPYRIGHT
+
+  Copyright (C) 1999 - 2025 Eggheads Development Team

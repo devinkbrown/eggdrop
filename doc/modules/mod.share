@@ -1,55 +1,127 @@
-Last revised: November 27, 2003
-
 Share Module
 
-This module provides userfile sharing support between two directly
-linked bots.
+This module enables userfile sharing between two directly-linked bots on
+a botnet.
 
-This module requires: transfer, channels
+REQUIREMENTS
+
+  - transfer module
+  - channels module
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the share
 module:
 
     loadmodule share
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set allow-resync 0
+set allow-resync 0
 
-      When two bots get disconnected, this setting allows them to create
-      a resync buffer which saves all changes done to the userfile
-      during the disconnect. When they reconnect, they will not have to
-      transfer the complete user file, but, instead, just send the
-      resync buffer.
+  Enable resynchronization buffers when bots disconnect. When enabled,
+  the bots save changes made during disconnection. Upon reconnection, they
+  only transfer the resync buffer instead of the entire userfile, saving
+  bandwidth. Set to 1 to enable.
 
-  set resync-time 900
+set resync-time 900
 
-      This setting specifies how long to hold another bots resync data
-      before flushing it. This is a setting for allow-resync.
+  Duration (seconds) to hold another bot's resync data before flushing it.
+  Default: 900 (15 minutes). Requires allow-resync to be enabled.
 
-  set private-global 0
+set private-global 0
 
-      When sharing user lists, DON'T ACCEPT global flag changes from
-      other bots? NOTE: The bot will still send changes made on the bot,
-      it just won't accept any global flag changes from other bots. This
-      overrides the private-globals setting (below).
+  Don't accept global flag changes from other bots. Set to 1 to prevent
+  other bots from modifying global (+m, +n, +o, +t) flags. The bot will
+  still send its own flag changes. This overrides private-globals setting.
 
-  set private-globals "mnot"
+set private-globals "mnot"
 
-      When sharing user lists, if private-global isn't set, which global
-      flag changes from other bots should be ignored?
+  Specific global flags to ignore from other bots. Individual characters:
+    m — master
+    n — owner
+    o — op
+    t — take-ops
 
-  set private-user 0
+  Default: "mnot" (ignore all global flag changes)
 
-      When sharing user lists, don't accept ANY userfile changes from
-      other bots? Paranoid people should use this feature on their hub
-      bot. This will force all userlist changes to be made via the hub.
+set private-user 0
 
-  set override-bots 0
+  Don't accept ANY userfile changes from other bots. Set to 1 on hub bots
+  to prevent all updates from leaf bots. Paranoid but safe approach.
 
-      This setting makes the bot discard its own bot records in favor of
-      the ones sent by the hub. NOTE: No passwords or botflags are
-      shared, only ports and address are added to sharing procedure.
-      This only works with hubs that are v1.5.1 or higher.
+set override-bots 0
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+  Discard local bot records in favor of hub bot records. Set to 1 to use
+  hub's bot info exclusively. Passwords and botflags are never shared,
+  only ports and addresses.
+
+  Requires hub bot v1.5.1 or higher.
+
+DESCRIPTION
+
+The share module allows two bots linked via a botnet connection to
+maintain synchronized userlists. Changes made on one bot are reflected
+on the other, reducing admin overhead for multi-bot setups.
+
+Typical configurations:
+
+Hub-and-Leaf
+
+  A central hub bot shares a userfile with multiple leaf bots. All user
+  management is done on the hub, and changes propagate to leaves.
+
+Peer-to-Peer
+
+  Two bots of equal standing share a userfile bidirectionally. Changes on
+  either bot sync to the other.
+
+RESYNCHRONIZATION
+
+When allow-resync is enabled and two bots disconnect and reconnect:
+
+  1. The bots create a "resync buffer" of all changes during disconnect
+  2. Upon reconnection, only the resync buffer is transferred
+  3. This saves significant bandwidth vs. full userfile transfer
+  4. Resync buffers expire after resync-time seconds if not used
+
+Resync requires both bots to be v1.9.0 or higher.
+
+FLAG SYNCHRONIZATION
+
+By default, flag changes are synchronized except for those listed in
+private-globals. Use private-global 1 to completely disable global flag
+synchronization.
+
+Example: to prevent master (+m) flag from syncing:
+
+  set private-globals "m"
+
+This allows other flags (+n, +o, +t) to sync but keeps +m local.
+
+SECURITY NOTES
+
+- Passwords and botflags are NEVER shared over the botnet
+- Use private-user 1 on hub bots to prevent unauthorized userfile changes
+- Verify botnet links are using SASL or DCC CHAT for authentication
+- Private and channel flags are always synchronized
+
+BANDWIDTH OPTIMIZATION
+
+To minimize bandwidth during userfile transfers:
+
+1. Load the compress module for compressed transfers
+2. Enable allow-resync to avoid full transfers on reconnection
+3. Use TLS for encrypted botnet links (if configured)
+
+TROUBLESHOOTING
+
+If userfile changes aren't syncing:
+
+1. Check that both bots have the share module loaded
+2. Verify bots are linked: use .bots command on partyline
+3. Check private-global and private-globals settings
+4. Examine bot logs for sync errors
+5. Try manual sync: .sync command on partyline
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

@@ -1,19 +1,67 @@
-Last revised: Mar 14, 2023
-
 Seen Module
 
-This module provides very basic seen commands via msg, on channel or via
-dcc. This module works only for users in the bot's userlist. If you are
-looking for a better and more advanced seen module, try the gseen module
-originally written by G'Quann and forked/updated to work with modern
-Eggdrop by mortmann. You can find it at
-https://github.com/michaelortmann/gseen.mod.
+This module provides basic seen commands via message, channel, or DCC for
+tracking when users were last seen online.
 
-This module requires: none
+REQUIREMENTS
+
+None.
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the seen
 module:
 
     loadmodule seen
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+CONFIGURATION
+
+No configuration options are required.
+
+DESCRIPTION
+
+The seen module tracks the last activity of users in the bot's userlist.
+It stores when each user was last seen and provides commands to query
+that information.
+
+USAGE
+
+The seen module responds to user queries about when others were last
+online. It only tracks users who are in the bot's userlist — random IRC
+users are not tracked.
+
+Queries can be made via:
+  - Private message (.seen <user>)
+  - Channel message (.seen <user> on #channel)
+  - Partyline DCC console
+
+LIMITATIONS
+
+- Only tracks users in the bot's userlist
+- Does not track random IRC users
+- Limited functionality compared to advanced seen modules
+
+ALTERNATIVES
+
+For more advanced seen functionality, use the gseen module, which
+provides:
+  - Enhanced tracking and search
+  - Better performance on large botnets
+  - Extended statistics
+
+gseen is maintained at https://github.com/michaelortmann/gseen.mod
+
+EXAMPLE
+
+    .seen john
+    .seen john on #lamest
+
+INTEGRATION WITH CHANNELS MODULE
+
+If the channels module is loaded, enable seen per-channel with:
+
+    channel set #mychannel +seen
+
+This allows the bot to respond to .seen requests on that channel.
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

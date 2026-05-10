@@ -1,18 +1,202 @@
-Last revised: Mar 14, 2023
+Last revised: May 10, 2026
 
 Seen Module
 
-This module provides very basic seen commands via msg, on channel or via
-dcc. This module works only for users in the bot's userlist. If you are
-looking for a better and more advanced seen module, try the gseen module,
-originally by G'Quann and forked/maintained by mortmann. You can find it at
-https://github.com/michaelortmann/gseen.mod.
+This module provides a basic !seen command that tracks when users in the
+bot's userlist were last seen on IRC. Note: This is a basic implementation.
+For a more advanced seen module with more features, consider using gseen:
+https://github.com/michaelortmann/gseen.mod
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the seen
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule seen
+  [modules]
+  load = [
+    "seen",
+  ]
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+
+FEATURES
+
+The seen module tracks:
+  - Last time each user was seen on IRC
+  - Last channel visited
+  - Reason for leaving (quit, part, kick)
+
+Per-channel setting:
+
+  [[chanset]]
+  channel = "#somechannel"
+  seen = true
+
+      Enable !seen command in this channel (true = enable, false =
+      disable).
+
+
+USAGE
+
+Users can query the !seen command:
+
+  On IRC channel:
+    !seen <nick>           (in #channel with seen=true)
+
+  Via DCC partyline:
+    .seen <nick>
+
+Example:
+  User: !seen john
+  Bot:  john was last seen 2 hours ago on #general saying "goodbye"
+
+Users in the bot's userlist can also use in private:
+  /msg bot seen <nick>
+
+
+LIMITATIONS
+
+This module only tracks users in the bot's userlist. It does not:
+  - Track users not in the userfile
+  - Provide detailed activity logs
+  - Show idle time (only last activity)
+  - Record conversation history
+  - Work across multiple bots (local tracking only)
+
+For more advanced functionality, consider gseen.mod:
+  https://github.com/michaelortmann/gseen.mod
+
+
+EXAMPLE CONFIGURATION
+
+Basic setup:
+
+  [modules]
+  load = ["seen"]
+
+  [[chanset]]
+  channel = "#general"
+  seen = true
+
+  [[chanset]]
+  channel = "#help"
+  seen = true
+
+      Enables !seen command in #general and #help channels.
+
+
+Per-channel control:
+
+  [[chanset]]
+  channel = "#public"
+  seen = true        # Public channel, enable !seen
+
+  [[chanset]]
+  channel = "#secret"
+  seen = false       # Private channel, disable !seen
+
+      Control !seen per-channel based on privacy settings.
+
+
+DEPENDENCIES
+
+The seen module has no external dependencies.
+
+
+HOW IT WORKS
+
+The bot automatically tracks:
+  - JOIN events (user enters channel)
+  - PART events (user leaves channel)
+  - QUIT events (user disconnects)
+  - KICK events (user is kicked)
+  - PRIVMSG/NOTICE events (user sends message)
+
+When !seen is used, the bot reports the most recent activity for that
+user.
+
+
+PERSISTENCE
+
+Seen data is stored in memory during the bot's runtime. When the bot
+restarts:
+  - All seen data is lost
+  - Tracking starts fresh
+
+To persist seen data across restarts, use gseen.mod instead.
+
+
+TECHNICAL DETAILS
+
+Seen tracking uses user records from the userfile:
+  - Bot must have the user in its userlist
+  - Unknown IRC users are not tracked
+  - Bot tracks only known users (security/privacy)
+
+Data stored per user:
+  - Last activity timestamp
+  - Last channel visited
+  - Reason for leaving (quit/part/kick)
+
+
+EXAMPLE OUTPUT
+
+  !seen john
+    john was last seen 5 hours ago on #general saying "good night"
+
+  !seen mary
+    mary was last seen 30 minutes ago on #help
+
+  !seen unknown_user
+    unknown_user is currently online on #general
+
+  !seen old_user
+    old_user has not been seen in over 1 month
+
+
+COMPARISON WITH GSEEN
+
+Basic seen module (this one):
+  + Simple, built-in
+  - No persistence across restarts
+  - Limited statistics
+  - No detailed logging
+
+GSEEN module (external):
+  + Persistent tracking
+  + Detailed activity logs
+  + Statistics (average activity, etc.)
+  + Works across multiple bots
+  + More customizable
+  - Requires separate installation
+  - More resource overhead
+
+
+TROUBLESHOOTING
+
+!seen not working:
+  - Verify seen module is loaded (.modules).
+  - Check seen = true for the channel ([[chanset]]).
+  - Verify user is in the bot's userfile.
+  - Ensure the user has been on IRC recently.
+
+Always shows "not seen" for valid users:
+  - User may not be in bot's userfile (user must exist).
+  - Bot may have just started (no history yet).
+  - User hasn't been on since bot started.
+
+!seen shows wrong time:
+  - Check bot's system time (date command).
+  - Verify timezone settings ([bot].timezone).
+  - Restart bot to clear in-memory tracking.
+
+
+NOTES
+
+- Seen data is in-memory (lost on restart).
+- Only tracks users in the userfile.
+- Basic module suitable for small channels.
+- For production use, consider gseen.mod for persistence.
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

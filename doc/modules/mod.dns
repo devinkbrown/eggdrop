@@ -1,63 +1,104 @@
-Last revised: September 26, 2010
-
 DNS Module
 
-This module provides asynchronous dns support. This will avoid long
-periods where the bot just hangs there, waiting for a hostname to
-resolve, which will often let it timeout on all other connections.
+This module provides asynchronous DNS resolution to prevent the bot from
+blocking during hostname lookups.
 
-This module requires: none
+REQUIREMENTS
 
-Put this line into your Eggdrop configuration file to load the dns
-module:
+None. When TLS support is available, DNS-over-TLS is supported.
+
+LOADING
+
+Put this line into your Eggdrop configuration file to load the dns module:
 
     loadmodule dns
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set dns-servers "8.8.8.8 8.8.4.4"
+set dns-servers "8.8.8.8 8.8.4.4"
 
-      In case your bot has trouble finding dns servers or you want to
-      use specific ones, you can set them here. The value is a list of
-      dns servers. The relative order doesn't matter. You can also
-      specify a non-standard port. The default is to use the system
-      specified dns servers. You don't need to modify this normally.
+  Explicit DNS servers to use. Space-separated list of IP addresses.
+  If not specified, the system's configured DNS servers are used.
 
-  set dns-cache 86400
+  You can also specify non-standard ports (default 53):
 
-      Specify how long should the DNS module cache replies at maximum.
-      The value must be in seconds. Note that it will respect the TTL of
-      the reply and this is just an upper boundary.
+    set dns-servers "8.8.8.8 8.8.4.4:5353"
 
-  set dns-negcache 600
+set dns-cache 86400
 
-      Specify how long should the DNS module cache negative replies
-      (NXDOMAIN, DNS Lookup failed). The value must be in seconds.
+  Maximum TTL for cached DNS replies in seconds. Replies older than this
+  are discarded. Default: 86400 (24 hours). Respects the TTL from DNS
+  responses as a lower boundary.
 
-  set dns-maxsends 4
+set dns-negcache 600
 
-      How many times should the DNS module resend the query for a given
-      domain if it receives no reply?
+  Cache time for negative replies (NXDOMAIN, lookup failed) in seconds.
+  Default: 600 (10 minutes). Negative caches prevent repeated lookups
+  for nonexistent domains.
 
-  set dns-retrydelay 3
+set dns-maxsends 4
 
-      Specify how long should the DNS module wait for a reply before
-      resending the query. The value must be in seconds.
+  Number of times to resend a query if no reply is received. Default: 4.
+  Increase for unreliable networks.
 
-DNS-over-TLS (DoT)
+set dns-retrydelay 3
 
-  When Eggdrop is built with TLS support, all DNS queries can be sent over
-  an encrypted TLS/TCP connection to a DoT resolver (RFC 7858) instead of
-  plain UDP.  Use the dnsdot Tcl command in your config or scripts:
+  Delay (in seconds) before resending a query. Default: 3. Increase for
+  slow or congested networks.
 
-    dnsdot on 1.1.1.1          # Cloudflare, port 853, verify cert
-    dnsdot on 9.9.9.9          # Quad9, malware-blocking, privacy-focused
-    dnsdot on 1.1.1.1 853      # explicit port
-    dnsdot on ::1 853 -noverify  # allow self-signed certificate
-    dnsdot off                 # revert to plain UDP
-    dnsdot                     # query status (returns off / on <host>:<port>)
+DNS-OVER-TLS (DoT)
 
-  Python scripts (Tcl builds) can call eggdrop.dnsdot(...) with the same
-  arguments — see the python module documentation for details.
+When Eggdrop is built with TLS support, DNS queries can be sent over
+encrypted TLS/TCP connections to DoT (DNS-over-TLS, RFC 7858) resolvers.
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+Tcl Configuration
+
+Use the dnsdot Tcl command in your config or scripts:
+
+    dnsdot on 1.1.1.1              # Cloudflare, port 853
+    dnsdot on 9.9.9.9              # Quad9 (malware-blocking)
+    dnsdot on 1.1.1.1 853          # explicit port
+    dnsdot on ::1 853 -noverify    # IPv6, skip cert verification
+    dnsdot off                     # revert to plain UDP
+    dnsdot                         # query status
+
+Returns "off" or "on <host>:<port>" to indicate the current state.
+
+Python Configuration
+
+Python scripts (in Tcl-enabled builds) can call eggdrop.dnsdot() with
+identical arguments:
+
+    import eggdrop
+    eggdrop.dnsdot("on", "1.1.1.1")      # enable DoT
+    eggdrop.dnsdot()                      # check status
+    eggdrop.dnsdot("off")                 # disable DoT
+
+See the Python module documentation for details.
+
+DESCRIPTION
+
+The DNS module uses asynchronous, non-blocking DNS resolution via
+libc's async resolver or a builtin implementation. This prevents the
+bot from hanging during hostname lookups, which is critical for
+maintaining IRC connectivity.
+
+Caching significantly reduces lookups for frequently accessed hosts.
+Negative caching prevents repeated failed lookups for nonexistent
+hostnames.
+
+DNS-over-TLS encrypts queries to prevent ISP/network monitoring of
+DNS traffic. This is useful for privacy-conscious deployments.
+
+TROUBLESHOOTING
+
+If DNS resolution is slow or failing:
+
+1. Check dns-servers — ensure they are reachable
+2. Increase dns-retrydelay and dns-maxsends for unreliable networks
+3. Test manual lookups: use the .dnslookup partyline command
+4. Check system DNS configuration: cat /etc/resolv.conf
+5. For DoT issues, verify TLS connectivity: openssl s_client -connect \
+   resolver:853
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

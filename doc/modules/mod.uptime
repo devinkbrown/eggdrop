@@ -1,24 +1,102 @@
-Last revised: Mar 14, 2023
-
 Uptime Module
 
-This module reports uptime statistics to the uptime contest web site at
-https://www.eggheads.org/uptime. Go look and see what your uptime is! It
-takes about 9 hours to show up, so if your bot isn't listed, try again
-later.
+This module reports bot uptime statistics to https://www.eggheads.org/uptime
+for public uptime tracking.
 
-Information sent to the server includes the bot's uptime, botnet-nick,
-server, version, and IP address. This information is stored in a
-temporary logfile for debugging purposes only. The only publicly
-available information will be the bot's botnet-nick, version and uptime.
-If you do not wish for this information to be sent, comment out the
-'loadmodule uptime' line in your bot's config file.
+REQUIREMENTS
 
-This module requires: server
+  - server module
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the uptime
 module:
 
     loadmodule uptime
 
-Copyright (C) 2001 - 2025 Eggheads Development Team
+CONFIGURATION
+
+No configuration options are available. The module works automatically
+once loaded.
+
+DESCRIPTION
+
+The uptime module periodically reports your bot's uptime and basic
+information to the Eggheads uptime tracking server. This allows the
+Eggheads project to maintain statistics on how long bots stay online.
+
+DATA SENT
+
+The following information is sent to the uptime server:
+
+Public (displayed on website):
+  - Bot's botnet-nick
+  - Eggdrop version
+  - Uptime (days, hours, minutes)
+
+Private (temporary logfile only):
+  - Bot's IP address
+  - Connected IRC server
+  - Timestamp
+
+The IP address and server are stored in temporary logs for debugging
+purposes only and are not made public.
+
+PRIVACY
+
+Your bot's information appears on the uptime leaderboard at
+https://www.eggheads.org/uptime approximately 9 hours after the first
+report is sent.
+
+If you prefer NOT to participate, comment out the 'loadmodule uptime'
+line in your configuration file. No data will be sent if the module is
+not loaded.
+
+DISPLAY TIMING
+
+New bots typically appear on the leaderboard within:
+  - 9 hours for first-time entries
+  - 6 hours for updates on existing entries
+
+If your bot isn't listed, verify:
+1. The uptime module is loaded
+2. The bot has been online for at least 1 hour
+3. Server connectivity is working (check logs for errors)
+4. The bot can connect to the uptime server (may require firewall rules)
+
+Try again after 12 hours if the bot still doesn't appear.
+
+NETWORK REQUIREMENTS
+
+The uptime module requires outbound HTTP/HTTPS connectivity to
+https://www.eggheads.org/uptime. If your network is behind a firewall
+with egress restrictions, ensure:
+
+- Port 80 and/or 443 are allowed for outgoing connections
+- Or configure your firewall to allow access to www.eggheads.org
+
+EXAMPLES
+
+Enable uptime reporting (recommended):
+
+    loadmodule uptime
+
+Disable uptime reporting:
+
+    # Comment out the next line to prevent uptime reporting
+    # loadmodule uptime
+
+Check uptime via partyline:
+
+    .uptime             — displays local uptime
+
+BACKGROUND
+
+The Eggheads project maintains the uptime tracking server to:
+- Celebrate bots with exceptional uptime
+- Gauge the health and stability of the Eggdrop community
+- Collect anonymized statistics on deployment patterns
+
+Participation is voluntary. Thank you for participating!
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

@@ -1,39 +1,47 @@
 Eggdrop, an open source IRC bot
 ===============================
 
-Eggdrop is a free, open source software program built to assist in managing an IRC channel. It is the world's oldest actively-maintained IRC bot and was designed to be easily used and expanded on via it's ability to run Tcl scripts. Eggdrop can join IRC channels and perorm automated tasks such as protecting the channel from abuse, assisting users obtain their op/voice status, provide information and greetings, host games, etc.
+Eggdrop is a free, open source IRC bot that has been actively maintained since 1993. It was designed to be easily used and expanded via Tcl and Python scripting. Eggdrop can join IRC channels and perform automated tasks such as protecting the channel from abuse, managing user access, providing information and greetings, hosting games, and much more.
 
-Some things you can do with Eggdrop
------------------------------------
+Features
+--------
 
-Eggdrop has a large number of features, such as:
+Eggdrop includes a comprehensive set of features:
 
-* `Channel Management <using/users.html>`_
-* Running Tcl Scripts
-* `Integration of the most current IRCv3 capabilities <using/ircv3.html>`_
-* `The ability to link multiple Eggdrops together and share userfiles <using/botnet.html>`_
-* `TLS Support <using/tls.html>`_
-* `IPv6 Support <using/ipv6.html>`_
-* `Twitch Support <using/twitchinfo.html>`_
-* ... and much much more!
+* `Channel Management <using/users.html>`_ — op/voice/ban/kick automation
+* `Tcl and Python Scripting <tutorials/firstscript.html>`_ — extend functionality with custom scripts
+* `IRCv3 Support <using/ircv3.html>`_ — integration with modern IRC capabilities
+* `Botnets <using/botnet.html>`_ — link multiple Eggdrops and share userfiles
+* `TLS/SSL Support <using/tls.html>`_ — secure connections to IRC networks and botnets
+* `IPv6 Support <using/ipv6.html>`_ — full IPv6 connectivity
+* `Twitch Gaming <using/twitchinfo.html>`_ — specialized Twitch IRC support
+* `LMDB or Flat-File Storage <using/users.html>`_ — persistent user databases
+* `SASL Authentication <using/accounts.html>`_ — secure account authentication
+* `Module System <modules/included.html>`_ — loadable feature modules
 
-How to get Eggdrop
-------------------
+Obtaining Eggdrop
+-----------------
 
-The Eggdrop project source code is hosted at https://github.com/eggheads/eggdrop. You can clone it via git, or alternatively a copy of the current stable snapshot is located at https://geteggdrop.com. Additional information can be found on the official Eggdrop webpage at https://www.eggheads.org. For more information, see `Installing Eggdrop <install/install.html>`_
+The Eggdrop source code is available at https://github.com/eggheads/eggdrop. Clone via git or download a snapshot from https://geteggdrop.com. Official information is at https://www.eggheads.org.
 
-How to install Eggdrop
-----------------------
+Quick Start
+-----------
 
-Installation Pre-requisites
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Prerequisites
+^^^^^^^^^^^^^
 
-Eggdrop requires Tcl (and its development header files) to be present on the system it is compiled on. TLS support is provided by opssl, a custom TLS library bundled with Eggdrop. No external TLS library installation is needed.
+Eggdrop requires:
+
+* **Tcl Development Library** (8.5.0 or higher) — the Tcl interpreter and headers
+* **Meson and Ninja** — the build system
+* **Python 3.8+** (optional) — if using the Python module
+
+**TLS Support**: Eggdrop includes opssl, a custom bundled TLS library. No external library installation needed.
 
 Installation
 ^^^^^^^^^^^^
 
-A guide to quickly installing Eggdrop can be found here.
+See `Installing Eggdrop <install/install.html>`_ for detailed installation instructions.
 
 Where to find more help
 -----------------------

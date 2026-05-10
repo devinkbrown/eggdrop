@@ -1,710 +1,1379 @@
-Last revised: March 8, 2026
+Last revised: May 10, 2026
 
 Eggdrop Core Settings
 
-This file describes the syntax and all the settings of your Eggdrop
-configuration file. Please note that you don't need to set all of these
-variables to make your bot work properly.
+This file documents all core Eggdrop configuration settings. Settings
+are organized by section and shown in TOML format (the recommended
+configuration format). See eggdrop.toml in the root directory for a
+fully-commented example configuration.
 
-CONFIG FILE FORMATS
+CONFIGURATION FILE FORMATS
 
-Eggdrop supports two configuration file formats. The format is
-auto-detected from the file extension:
+Eggdrop supports two configuration file formats, auto-detected by file
+extension:
 
   .toml  Modern TOML format (recommended). No Tcl knowledge needed,
          no shebang line, no 'chmod u+x'. Sections group related
-         settings together. Example:
-
-             [bot]
-             username = "lamest"
-             admin    = "Lamer <email: lamer@lamest.lame.org>"
+         settings logically.
 
          To generate an initial TOML config interactively:
-
-             eggdrop --setup mybot.toml
+           eggdrop --setup mybot.toml
 
          To migrate an existing .conf to TOML:
+           python3 scripts/conf2toml.py mybot.conf mybot.toml
 
-             python3 scripts/conf2toml.py mybot.conf mybot.toml
+  .conf  Legacy Tcl-script format (fully supported). Uses 'set' commands
+         and Tcl expressions. Requires no file extension tricks.
 
-  other  Legacy Tcl-script format (.conf). Still fully supported.
-         The first line used to contain a shebang for direct execution;
-         this is no longer needed or recommended. Example:
 
-             set username "lamest"
-             set admin "Lamer <email: lamer@lamest.lame.org>"
+MODULES SECTION [modules]
 
-Settings below are shown in TOML format first, with the legacy Tcl
-equivalent in parentheses for reference.
+The [modules] section specifies which modules to load at startup. Module
+files are located in the mod_path directory (see [paths] section).
 
-BASIC SETTINGS
+  load = [
+    "pbkdf2",     # Generation-2 PBKDF2 password encryption (recommended)
+    "blowfish",   # Legacy blowfish encryption support
+    "channels",   # Channel tracking and management
+    "server",     # Core IRC server connection support
+    "ctcp",       # CTCP functionality
+    "irc",        # Basic IRC protocol handling
+    "notes",      # Store notes for offline users
+    "console",    # Persist console settings across restarts
+    "uptime",     # Report bot uptime to eggheads.org
+  ]
 
-You can change the basic Eggdrop appearance and behavior in this
-section.
+      List of modules to load at startup. Include only modules you
+      actually need. Each module must be a valid .so / .dll file in
+      mod_path. Comment out lines with # to disable a module.
 
-  username = "lamest"                    (set username "lamest")
 
-      This setting defines the username the bot uses on IRC. This
-      setting has no effect if an ident daemon is running on your bot's
-      machine.
+BOT IDENTITY SECTION [bot]
 
-  set admin "Lamer <email: lamer@lamest.lame.org>"
+  nick = "Lamestbot"
 
-      This setting defines which contact person should be shown in
-      .status, /msg help, and other places. You really should include
-      this information.
+      Primary nickname used on IRC and the botnet. Required. Must be
+      3-30 characters.
 
-  set network "SomeIrcNetwork"
+  altnick = "Llamab?t"
 
-      This setting is used only for info to share with others on your
-      botnet. Set this to the IRC network your bot is connected to.
+      Alternate nickname if the primary nick is taken. The '?' character
+      is replaced with a random digit (0-9). Example: "Bot?" becomes
+      "Bot3", "Bot7", etc. Required, but can be similar to primary nick.
 
-  set timezone "EST"
+  realname = "/msg LamestBot hello"
 
-      This setting defines which timezone is your bot in. It's used for
-      internal routines as well as for logfile timestamping and
-      scripting purposes. The timezone string specifies the name of the
-      timezone and must be three or more alphabetic characters. For
-      example, Central European Time(UTC+1) should be "CET".
+      IRC GECOS / "real name" field shown in WHOIS. Cannot be blank.
+      This is informational only; keep it brief.
 
-  set offset "5"
+  username = "lamest"
 
-      The offset setting specifies the time value to be added to the
-      local time to get Coordinated Universal Time (UTC aka GMT). The
-      offset is positive if the local timezone is west of the Prime
-      Meridian and negative if it is east. The value (in hours) must be
-      between -23 and 23. For example, if the timezone is UTC+1, the
-      offset is -1.
+      IRC username (ident). Ignored if an ident daemon is running on the
+      bot's machine. Also called the "user" field. Typically 1-10
+      characters.
 
-  set env(TZ) "$timezone $offset" (disabled by default)
+  admin = "Lamer <email: lamer@lamest.lame.org>"
 
-      If you don't want to use the timezone setting for scripting
-      purposes only, but instead everywhere possible, then use this
-      setting.
+      Contact person shown in .status, /msg help, and other places.
+      Should include name and email/contact info.
 
-  set vhost4 "99.99.0.0"
-  set vhost4 "virtual.host.com"
-    If you're using virtual hosting (your machine has more than 1 IP),
-  you may want to specify the particular IP to bind to. You can specify
-  either by hostname or by IP. Note that this is not used for listening.
-  Use the 'listen' command to specify the listening address.
+  network = "I.didn't.edit.my.config.file.net"
 
-  set vhost6 "2001:db8:618:5c0:263::"
-  set vhost6 "my.ipv6.host.com"
-    IPv6 vhost to bind to for outgoing IPv6 connections. You can set it
-  to any valid IPv6 address or hostname, resolving to an IPv6 address.
-  Note that this is not used for listening. Use the 'listen' command to
-  specify the listening address.
+      IRC network name (informational; shared with linked bots on the
+      botnet). Helps identify which network the bot is on.
 
-  set prefer-ipv6 "1"
+  timezone = "EST"
 
-      Prefer IPv6 over IPv4 for connections and dns resolution. If the
-      preferred protocol family is not supported, other possible
-      families will be tried.
+      Timezone name (3+ letters). Used for logfile timestamps and Tcl
+      scripting. Examples: EST, UTC, CET, JST. Must be 3+ alphabetic
+      characters.
 
-  addlang "english"
+  offset = "5"
 
-      If you want to have your Eggdrop messages displayed in another
-      language, change this command to match your preferences. An
-      alternative would be to set the environment variable EGG_LANG to
-      that value.
+      UTC offset in hours. Positive = west of Prime Meridian, negative
+      = east. Range: -23 to +23. For UTC+1 (CET), use offset = "-1". For
+      UTC-5 (EST), use offset = "5".
 
-      Languages included with Eggdrop: Danish, English, French, Finnish,
-      German.
+  owner = "MyNick, MyOtherNick"
 
-LOG FILES
+      Comma-separated list of bot owner handles (required on first run).
+      On initial startup, if no user file exists, the bot creates it
+      automatically with these handles as USER_MASTER | USER_OWNER.
 
-Eggdrop is capable of logging various things, from channel chatter to
-partyline commands and file transfers.
+  botnet_nick = "LlamaBot"
 
-Logfiles are normally kept for 24 hours. Afterwards, they will be
-renamed to "(logfilename).yesterday". After 48 hours, they will be
-overwritten by the logfile of the next day.
+      Optional separate nickname for botnet links. If unset, defaults to
+      the IRC nick. Useful for bots linking across untrusted botnets.
 
-  set max-logs 20
+  pidfile = "pid.LamestBot"
 
-      This is the maximum number of concurrent logfiles that can be
-      opened for writing at one time. At most, this value should be the
-      maximum number of channels you expect to create log files for.
-      There is no value for 'infinity'; very few cases should ever
-      require more than 20. A decrease to this value while running will
-      require a restart (not rehash) of the bot. However, don't decrease
-      it below 5.
+      Optional pidfile path. Defaults to "pid.<botnet_nick>" if unset.
+      The pidfile stores the bot's process ID for monitoring/restart
+      scripts.
 
-  set max-logsize 0
+  notify_newusers = "$owner"
 
-      This is the maximum size of your logfiles. Set it to 0 to disable.
-      This value is in kilobytes, so '550' would mean cycle logs when it
-      reaches the size of 550 kilobytes. Note that this only works if
-      you have keep-all-logs set to 0 (OFF).
+      User/handle to notify when a new user joins via /msg hello. Use
+      "$owner" to notify all owners. Can be a single handle or list.
 
-  set quick-logs 0
+  default_flags = "hp"
 
-      This could be good if you have had a problem with logfiles filling
-      your quota/hard disk or if you log +p and publish it to the web,
-      and you need more up-to-date info. Note that this setting might
-      increase the CPU usage of your bot (on the other hand it will
-      decrease your RAM usage).
+      Default user flags for new users added via /msg hello. Common flags:
+      h = hub, p = party-line access. See .help flags for complete list.
 
-  set raw-log 0
+  whois_fields = "url birthday"
 
-      This setting allows you the logging of raw incoming server traffic
-      via console/log flag 'r', raw outgoing server traffic via
-      console/log mode 'v', raw incoming botnet traffic via console/log
-      mode 't', raw outgoing botnet traffic via console/log mode 'u',
-      raw outgoing share traffic via console/log mode 'g', and raw
-      incoming share traffic via console/log mode 'h'. These flags can
-      create a large security hole, allowing people to see user
-      passwords. This is now restricted to +n users only. Please choose
-      your owners with care.
+      User-defined fields displayed in .whois output. Space-separated.
+      Custom fields can be set via /msg and displayed here.
 
-logfile <logflags> <channel> "logs/logfile"
 
-    This setting tells the bot what should be logged, from where, and to
-    which file.
+SERVERS SECTION [servers]
 
-    Logfile flags:
+  list = [
+    "you.need.to.change.this:6667",
+    "another.example.com:6669:password",
+    "2001:db8:618:5c0:263:::6669:password",
+    "ssl.example.net:+7000",
+  ]
 
-        --- ------------------------------------------------------
-        b   information about bot linking and userfile sharing
+      Server list. The bot cycles through this list when disconnected.
+      YOU MUST CHANGE THESE to your IRC network's actual servers.
 
-        c   commands
+      Format options:
+        host:port               Plain TCP connection
+        host:+port              SSL/TLS connection (+ prefix)
+        host:port:password      Server password (Tcl login)
+        host:+port:password     SSL/TLS with password
 
-        d   misc debug information
+      IPv6 addresses must be in [brackets]:port format in the list.
 
-        g   raw outgoing share traffic
+      Examples:
+        "irc.example.net:6667"           (plain, default port 6667)
+        "irc.example.net:+6697"          (SSL, custom port)
+        "irc.example.net:6667:mypass"    (with server password)
+        "[::1]:6667"                     (IPv6 localhost)
 
-        h   raw incoming share traffic
 
-        j   joins, parts, quits, and netsplits on the channel
+CHANNELS SECTION [channels]
 
-        k   kicks, bans, and mode changes on the channel
+  list = ["#egghelp"]
 
-        l   linked bot messages
+      Channels the bot should join at startup. These can be static
+      (defined in config) or dynamic (added at runtime via .channel add).
 
-        m   private msgs, notices and ctcps to the bot
 
-        o   misc info, errors, etc (IMPORTANT STUFF)
+PER-CHANNEL SETTINGS [[chanset]]
 
-        p   public text on the channel
+Create a [[chanset]] block for each channel to customize its behavior.
+The channel must exist in [channels].list or be added at runtime.
 
-        r   raw incoming server traffic
+  channel = "#name"
 
-        s   server connects, disconnects, and notices
+      Channel name (required; must be first key in block).
 
-        t   raw incoming botnet traffic
+  chanmode = "+modes"
 
-        u   raw outgoing botnet traffic
+      Channel modes the bot enforces. Example: "+nts" forces +n (no
+      external messages), +t (topic by ops), +s (secret). The bot will
+      add/remove modes to match this setting.
 
-        v   raw outgoing server traffic
+  idle_kick = 30
 
-        w   wallops (make sure the bot sets +w in init-server)
+      Kick idle users after N minutes (0 = disabled). Checked every 60s.
 
-        x   file transfers and file-area commands
-        --- ------------------------------------------------------
+  stopnethack_mode = 0
 
-    Note that modes d, h, r, t, and v can fill disk quotas quickly.
-    There are also eight user-defined levels (1-8) which can be used by
-    Tcl scripts.
+      Netsplit protection strictness (0=off, 1-6 = increasing strictness).
+      Modes 1-4 prevent serverops after netsplits. Modes 5-6 adapt based
+      on +bitch flag.
 
-    Each logfile belongs to a certain channel. Events of type 'k', 'j',
-    and 'p' are logged to whatever channel they happened on. Most other
-    events are currently logged to every channel. You can make a logfile
-    belong to all channels by assigning it to channel "*".
+  revenge_mode = 0
 
-    Examples:
+      How aggressively to punish users who deop/kick/ban the bot:
+        0 = deop user
+        1 = deop + set +d (deny) flag
+        2 = deop + +d + kick
+        3 = deop + +d + kick + ban
 
-        logfile mco * "logs/eggdrop.log"
-        logfile jpk #lamest "logs/lamest.log"
+  ban_type = 3
 
-    In 'eggdrop.log', put private msgs/ctcps, commands, misc info, and
-    errors from any channel.
+      Ban mask format for auto-bans:
+        0 = *!user@host          1 = *!*user@host
+        2 = *!*@host             3 = *!*user@*.host (default)
+        4 = *!*@*.host           5 = nick!user@host
+        6 = nick!*user@host      7 = nick!*@host
+        8 = nick!*user@*.host    9 = nick!*@*.host
 
-    In 'lamest.log', log all joins, parts, kicks, bans, public chatter,
-    and mode changes from #lamest.
+      Types 10-19: same as 0-9, but use '?' wildcard instead of '*'
+      Types 20-29: same as 0-9, but use '.' (dot) wildcard instead of '*'
+      Types 30-39: same as 0-9, but omit the hostname entirely
 
-    set log-time 1 Use this feature to timestamp entries in the log
-    file.
+  ban_time = 120
 
-    set timestamp-format "[%H:%M:%S]" Set the following to the timestamp
-    for the logfile entries. Popular times might be "[%H:%M]" (hour,
-    min), or "[%H:%M:%S]" (hour, min, sec). Read 'man strftime' for more
-    formatting options. Keep it below 32 chars.
+      Temporary ban lifetime in minutes (0 = permanent).
 
-    set keep-all-logs 0 If you want to keep your logfiles forever, turn
-    this setting on. All logfiles will get the suffix ".[day, 2
-    digits][month, 3 letters][year, 4 digits]". Note that your
-    quota/hard-disk might be filled by this, so check your logfiles
-    often and download them.
+  exempt_time = 60
 
-    set switch-logfiles-at 300 You can specify when Eggdrop should
-    switch logfiles and start fresh. use military time for this setting.
-    300 is the default, and describes 03:00 (AM).
+      Temporary exempt (+e) lifetime in minutes.
 
-    set quiet-save 0 "Writing user file..." and "Writing channel
-    file..." messages won't be logged anymore if this option is enabled.
-    If you set it to 2, the "Backing up user file..." and "Backing up
-    channel file..." messages will also not be logged. In addition to
-    this, you can disable the "Switching logfiles..." and the new date
-    message at midnight, by setting this to 3.
+  invite_time = 60
 
-    set logfile-suffix ".%d%b%Y" If keep-all-logs is 1, this setting
-    will define the suffix of the logfiles. The default will result in a
-    suffix like "04May2000". "%Y%m%d" will produce the often used
-    yyyymmdd format. Read the strftime manpages for more options. NOTE:
-    On systems which don't support strftime, the default format will
-    always be used.
+      Temporary invite (+I) lifetime in minutes.
 
-CONSOLE SETTINGS
+  flood_chan = "20:60"
 
-  set console "mkcoblxs"
+      Public message flood protection: N lines per S seconds. Example:
+      "20:60" = kick if user sends 20+ lines in 60 seconds.
 
-      This is the default console mode. It uses the same event flags as
-      the log files do. The console channel is automatically set to your
-      "primary" channel, which is set in the modules section of the
-      config file. Masters can change their console channel and modes
-      with the '.console' command.
+  flood_ctcp = "3:60"
 
-FILE AND DIRECTORY SETTINGS
+      CTCP flood threshold: N requests per S seconds.
 
-  set userfile "LamestBot.user"
+  flood_join = "5:60"
 
-      Specify here the filename your userfile should be saved as.
+      Join flood threshold: N joins per S seconds (stops join-floods).
 
-  set pidfile "pid.LamestBot"
+  flood_kick = "3:10"
 
-      Specify here the filename Eggdrop will save its pid to. If no
-      pidfile is specified, pid.(botnet-nick) will be used.
+      Kick flood threshold: N kicks per S seconds (prevents kick wars).
 
-  set help-path "help/"
+  flood_deop = "3:10"
 
-      Specify here where Eggdrop should look for help files. Don't
-      modify this setting unless you know what you're doing!
+      Deop flood threshold: N deops per S seconds.
 
-  set text-path "text/"
+  flood_nick = "5:60"
 
-      Specify here where Eggdrop should look for text files. This is
-      used for certain Tcl and DCC commands.
+      Nick-change flood threshold: N changes per S seconds.
 
-  set motd "text/motd"
+  aop_delay = "5:30"
 
-      The MOTD (Message Of The day) is displayed when people dcc chat or
-      telnet to the bot. Look at doc/TEXT-SUBSTITUTIONS for options.
+      Random delay (N-M seconds) before auto-opping a user. Prevents
+      sync-racing with other bots. Example: "5:30" = 5-30 sec delay.
 
-  set telnet-banner "text/banner"
+  need_op = "script"
 
-      This banner will be displayed on telnet connections. Look at
-      doc/text-substitutions.doc for options.
+      Tcl script executed when the bot needs ops on the channel. Can
+      request ops from channel admins, issue commands, etc.
 
-  set userfile-perm 0600
+  need_invite = "script"
 
-      This specifies what permissions the user, channel, and notes files
-      should be set to. The octal values are the same as for the chmod
-      system command.
+      Tcl script executed when the bot is kicked and needs an invite.
 
-      To remind you:
+  need_key = "script"
 
-          |      u  g  o           u  g  o           u  g  o
-          |0600  rw-------   0400  r--------   0200  -w-------    u - user
-          |0660  rw-rw----   0440  r--r-----   0220  -w--w----    g - group
-          |0666  rw-rw-rw-   0444  r--r--r--   0222  -w--w--w-    o - others
+      Tcl script executed when the bot needs the channel key (+k).
 
-      Note that the default 0600 is the most secure one and should only
-      be changed if you need your files for shell scripting or other
-      external applications.
+  need_unban = "script"
 
-  set mod-path "modules/"
+      Tcl script executed when the bot is banned (+b mask).
 
-      This path specifies the path were Eggdrop should look for its
-      modules. If you run the bot from the compilation directory, you
-      will want to set this to "". If you use 'make install' (like all
-      good kiddies do ;), this is a fine default. Otherwise, use your
-      head :).
+  need_limit = "script"
 
-BOTNET/DCC/TELNET SETTINGS
+      Tcl script executed when the channel reaches user limit (+l).
 
-Settings in this section should be unimportant for you until you deal
-with botnets (multiple Eggdrops connected together to maximize
-efficiency). You should read doc/BOTNET before modifying these settings.
+  ownerkey = "s3cr3t"
 
-  set botnet-nick "LlamaBot" (disabled by default)
+      OWNERKEY credential for +q (owner) mode on Ophion/IRCX servers.
+      Providing this key on JOIN grants +q automatically.
 
-      If you want to use a different nickname on the botnet than you use
-      on IRC (i.e. if you're on an un-trusted botnet), un-comment this
-      line and set it to the nick you would like to use.
+  ircx_create = true
 
-  listen <port> <mode>
+      Create the channel via IRCX CREATE command if it does not exist
+      (Ophion servers only).
 
-      This opens a telnet port by which you and other bots can interact
-      with the Eggdrop by telneting in.
+  ircx_create_modes = "+nts"
 
-      There are more options for the listen command in
-      doc/tcl-commands.doc. Note that if you are running more than one
-      bot on the same machine, you will want to space the telnet ports
-      at LEAST 5 apart, although 10 is even better.
+      Modes applied immediately after channel creation (Ophion only).
 
-      Valid ports are typically anything between 1025 and 65535 assuming
-      the port is not already in use.
+  Boolean channel flags (true/false):
 
-      If you would like the bot to listen for users and bots in separate
-      ports, use the following format:
+    autoop = false
+        Auto-op users with +o flag on join (insecure; prefer protectops).
 
-          listen 3333 bots
-          listen 4444 users
+    autohalfop = false
+        Auto-halfop users with +l flag on join.
 
-      If you wish to use only one port, use this format:
+    autovoice = false
+        Auto-voice users with +v flag on join.
 
-          listen 3333 all
+    bitch = true
+        Only users with +o flag may hold ops (strict op restriction).
 
-      You can setup a SSL port by prepending a plus sign to it:
+    cycle = false
+        Cycle (PART/JOIN) the channel when all ops are deoped.
 
-          listen +5555 all
+    dontkickops = true
+        Never kick ops. Prevents fighting with other bots.
 
-      You need to un-comment this line and change the port number in
-      order to open the listen port. You should not keep this set
-      to 3333.
+    dynamicbans = true
+        Activate bans only when needed (reduces ban list size).
 
-  set remote-boots 2
+    dynamicexempts = true
+        Activate exempts only when needed.
 
-      This setting defines whether or not people can boot users on the
-      Eggdrop from other bots in your botnet. Valid settings are:
+    dynamicinvites = true
+        Activate invites only when needed.
 
-        --- ----------------------------
-        0   allow no outside boots
+    enforcebans = true
+        Kick users matching an active ban when ban is set.
 
-        1   allow boots from sharebots
+    greet = true
+        Announce user's info line when they join the channel.
 
-        2   allow any boots
-        --- ----------------------------
+    inactive = false
+        Skip this channel (preserves settings; don't join).
 
-  set share-unlinks 1
+    nodesynch = false
+        Allow non-ops to set modes (prevents mode-fighting with services).
 
-      This setting prohibits Eggdrop to unlink from share bots if an
-      remote bots tells so.
+    protectfriends = false
+        Re-op users with +f flag if deopped.
 
-  set protect-telnet 0
+    protecthalfops = false
+        Re-halfop users with +l flag if dehalfopped.
 
-      This setting will drop telnet connections not matching a known
-      host.
+    protectops = true
+        Re-op users with +o flag if deopped (recommended).
 
-  set dcc-sanitycheck 0
+    revenge = true
+        Punish users who deop/kick/ban the bot or valid ops.
 
-      This setting will make the bot ignore DCC chat requests which
-      appear to have bogus information on the grounds that the user may
-      have been trying to make the bot connect to somewhere that will
-      get it into trouble, or that the user has a broken client, in
-      which case the connect wouldn't work anyway.
+    revengebot = false
+        Like revenge, but only triggered by other bots.
 
-  set ident-timeout 5
+    secret = false
+        Hide this channel from botnet listings.
 
-      This setting defines the time in seconds the bot should wait for
-      ident reply before the lookup fails. The default ident on timeout
-      is 'telnet'.
+    seen = true
+        Respond to !seen queries in the channel.
 
-  set require-p 0
+    shared = true
+        Share channel user data with linked bots.
 
-      Define here whether or not a +o user still needs the +p flag to
-      dcc the bot.
+    static = true
+        Channel cannot be removed dynamically (.channel del disabled).
 
-  set open-telnets 0
+    statuslog = false
+        Log channel status line every 5 minutes.
 
-      If you want people allow to telnet in and type 'NEW' to become a
-      new user, set this to 1. This is similar to the 'hello' msg
-      command. The protect-telnet setting must be set to 0 to use this.
+    userbans = true
+        Allow users to set bans directly (disable to restrict).
 
-  set stealth-telnets 0
+    userexempts = true
+        Allow users to set exempts directly.
 
-      If you don't want Eggdrop to identify itself as an Eggdrop on a
-      telnet connection, set this setting to 1. Eggdrop will display
-      'Nickname' instead.
+    userinvites = true
+        Allow users to set invites directly.
 
-  set use-telnet-banner 0
 
-      If you want Eggdrop to display a banner when telneting in, set
-      this setting to 1. The telnet banner is set by 'set
-      telnet-banner'.
+CHANNEL DEFAULTS (channels.mod)
 
-  set connect-timeout 15
+These settings set the default behavior for all channels. Individual
+channels can override via [[chanset]] blocks.
 
-      This setting defines a time in seconds that the bot should wait
-      before a dcc chat, telnet, or relay connection times out.
+  use_info = 1
 
-  set dcc-flood-thr 3
+      Show user info/URL in public channels (0 = disable).
 
-      Specify here the number of lines to accept from a user on the
-      partyline within 1 second before they are considered to be
-      flooding and therefore get booted.
+  allow_ps = 0
 
-  set telnet-flood 5:60
+      Allow -p and -s modes simultaneously (requires server support).
 
-      Define here how many telnet connection attempts in how many
-      seconds from the same host constitute a flood. The correct format
-      is Attempts:Seconds.
+  share_greet = 0
 
-  set paranoid-telnet-flood 1
+      Share greeting messages with other linked bots.
 
-      If you want telnet-flood to apply even to +f users, set this
-      setting to 1.
+  default_chanmode = "nt"
 
-  set resolve-timeout 15
+      Default channel modes enforced on managed channels. Examples:
+      "nt" = +n (no external), +t (topic by ops)
+      "nts" = +n +t +s (secret)
 
-      Set here the amount of seconds before giving up on
-      hostname/address lookup (you might want to increase this if you
-      are on a slow network).
+  default_ban_time = 120
 
-ADVANCED SETTINGS
+      Default temporary ban lifetime in minutes (0 = permanent).
 
-  set firewall "!sun-barr.ebay:3666"
+  default_exempt_time = 60
 
-      Set this to your socks host if your Eggdrop sits behind a
-      firewall. If you use a Sun "telnet passthru" firewall, prefix the
-      host with a "!".
+      Default exempt (+e) lifetime in minutes.
 
-  set nat-ip "127.0.0.1"
+  default_invite_time = 60
 
-      If you have a NAT firewall (you box has an IP in one of the
-      following ranges: 192.168.0.0-192.168.255.255,
-      172.16.0.0-172.31.255.255, 10.0.0.0-10.255.255.255 and your
-      firewall transparently changes your address to a unique address
-      for your box) or you have IP masquerading between you and the rest
-      of the world, and /dcc chat, /ctcp chat or userfile sharing aren't
-      working, enter your outside IP here. This IP is used for transfers
-      only, and has nothing to do with the vhost4/6 or listen settings.
-      You may still need to set them.
+      Default invite (+I) lifetime in minutes.
 
-  set reserved-portrange 2010:2020
+  default_ban_type = 3
 
-      If you want all dcc file transfers to use a particular portrange
-      either because you're behind a firewall, or for other security
-      reasons, set it here.
+      Default ban mask type (see ban_type above for codes).
 
-  set ignore-time 15
+  default_idle_kick = 0
 
-      Set the time in minutes that temporary ignores should last.
+      Default idle kick timeout in minutes (0 = disabled).
 
-  set hourly-updates 00
+  default_flood_chan = "15:60"
 
-      Define here what Eggdrop considers 'hourly'. All calls to it,
-      including such things as note notifying or userfile saving, are
-      affected by this.
+      Default public message flood threshold: N lines per S seconds.
 
-      Example:
+  default_flood_deop = "3:10"
 
-          set hourly-updates 15
+      Default deop flood threshold.
 
-      The bot will save its userfile 15 minutes past every hour.
+  default_flood_kick = "3:10"
 
-  set owner "MrLame, MrsLame"
+      Default kick flood threshold.
 
-      Un-comment this line and set the list of owners of the bot. You
-      NEED to change this setting.
+  default_flood_join = "5:60"
 
-  set notify-newusers "$owner"
+      Default join flood threshold.
 
-      Who should a note be sent to when new users are learned?
+  default_flood_ctcp = "3:60"
 
-  set default-flags "hp"
+      Default CTCP flood threshold.
 
-      Enter the flags that all new users should get by default. See
-      '.help whois' on the partyline for a list of flags and their
-      descriptions.
+  default_flood_nick = "5:60"
 
-  set whois-fields "url birthday"
+      Default nick-change flood threshold.
 
-      Enter all user-defined fields that should be displayed in a
-      '.whois'. This will only be shown if the user has one of these
-      extra fields. You might prefer to comment this out and use the
-      userinfo1.0.tcl script which provides commands for changing all of
-      these.
+  default_aop_delay = "5:30"
 
-  #unbind dcc n tcl *dcc:tcl
+      Default auto-op delay (N-M seconds).
 
-  #unbind dcc n set *dcc:set
+  default_stopnethack_mode = 0
 
-      Uncomment these two lines if you wish to disable the .tcl and .set
-      commands. If you select your owners wisely, you should be okay
-      leaving these enabled.
+      Default netsplit protection strictness (0 = off).
 
-  set must-be-owner 1
+  default_revenge_mode = 0
 
-      If you enable this setting, only permanent owners (owner setting)
-      will be able to use .tcl and .set. Moreover, if you want to only
-      let permanent owners use .dump, then set this to 2.
+      Default revenge mode (0 = off, 1-3 = increasing strictness).
 
-  unbind dcc n simul *dcc:simul
 
-      Comment out this line to add the 'simul' partyline command (owners
-      can manipulate other people on the party line). Please select
-      owners wisely and use this command ethically!
+LOGGING SECTION [logging]
 
-  set max-dcc 50
+  entries = [
+    "mco * logs/eggdrop.log",
+    "jpk #lamest logs/lamest.log",
+  ]
 
-      Set here the maximum number of dcc connections you will allow. You
-      can increase this later, but never decrease it.
+      Logfile entries. Format: "flags channel logfile"
 
-  set allow-dk-cmds 1
+      Flags (combine letters):
+        b = bot linking / userfile sharing
+        c = commands
+        d = debug information
+        e = misc errors
+        g = raw outgoing share traffic
+        h = raw incoming share traffic
+        j = joins, parts, quits, netsplits
+        k = kicks, bans, mode changes
+        m = private msgs, ctcps
+        o = info, errors (IMPORTANT)
+        p = public channel text
+        s = server notices, connects
+        * = all flags
 
-      Enable this setting if you want +d & +k users to use commands
-      bound as -|-.
+      User-defined levels 1-8 can be used by Tcl scripts.
 
-  set dupwait-timeout 5
+      Channel field: specific channel name or "*" for all channels.
+      Examples:
+        "mco * logs/eggdrop.log"       (core events to all channels)
+        "jpk #general logs/general.log"(joins/parts/kicks in #general)
 
-      If your Eggdrop rejects bots that actually have already
-      disconnected from another hub, but the disconnect information has
-      not yet spread over the botnet due to lag, use this setting. The
-      bot will wait dupwait-timeout seconds before it checks again and
-      then finally reject the bot.
+  max_logs = 20
 
-  set cidr-support 0
+      Maximum concurrent open logfiles (minimum 5). Decrease requires
+      bot restart, not rehash.
 
-      Enables cidr support for b/e/I modes if set to 1. This means the
-      bot will understand and match modes in cidr notation, and will be
-      able to put and enforce such bans or unban itself, if banned with
-      a cidr mask. Do NOT set this, if your network/server does not
-      support cidr!
+  max_logsize = 0
 
-SSL SETTINGS
+      Maximum logfile size in kilobytes (0 = unlimited). Causes rotation
+      when size is exceeded (if keep_all_logs = 0).
 
-Settings in this section take effect when eggdrop is compiled with TLS
-support.
+  raw_log = 0
 
-  set ssl-privatekey "eggdrop.key"
+      Log raw IRC/botnet traffic (0=off, 1=on). Creates security risk
+      (passwords visible); +n users only. Use with extreme caution.
 
-      File containing your private key, needed for the SSL certificate
-      (see below). You can generate a key and certificate by running
-      'make sslcert' after building, or use any standard tool to
-      create a PEM-format private key. This is required for SSL
-      hubs/listen ports, secure file transfer and /ctcp botnick schat.
+  log_time = 1
 
-  set ssl-certificate "eggdrop.crt"
+      Add timestamps to log entries (0 = off, 1 = on).
 
-      Specify the filename where your SSL certificate is located. If you
-      don't set this, eggdrop will not be able to act as a server in SSL
-      connections, as with most ciphers a certificate and a private key
-      are required on the server side. Must be in PEM format. You can
-      generate a key and certificate by running 'make sslcert' after
-      building. This is required for SSL hubs/listen ports, secure file
-      transfer and /ctcp botnick schat.
+  timestamp_format = "[%H:%M:%S]"
 
-  set ssl-verify-depth 9
+      Strftime format for timestamps. Keep under 32 characters. Examples:
+      "[%H:%M]"      (hour:minute)
+      "[%H:%M:%S]"   (hour:minute:second)
+      "[%Y-%m-%d %H:%M:%S]"  (full datetime)
 
-      Sets the maximum depth for the certificate chain verification that
-      shall be allowed for ssl. When certificate verification is
-      enabled, any chain exceeding this depth will fail verification.
+  keep_all_logs = 0
 
-  set ssl-capath "/etc/ssl/"
-  set ssl-cafile ""
-    Specify the location at which CA certificates for verification
-  purposes are located. These certificates are trusted. If you don't set
-  this, certificate verification will not work.
+      Keep all logfiles forever with date suffixes (0 = off, 1 = on).
+      Dates are added via logfile_suffix.
 
-  set ssl-ciphers ""
+  logfile_suffix = ".%d%b%Y"
 
-      Specify the list of ciphers (in order of preference) allowed for
-      use with ssl. The cipher list is one or more cipher strings
-      separated by colons, commas or spaces. Unavailable ciphers are
-      silently ignored unless no usable cipher could be found.
+      Date suffix format (when keep_all_logs = 1). Examples:
+      ".%d%b%Y"      (04May2000)
+      ".%Y%m%d"      (20000504)
+      ".%Y-%m-%d"    (2000-05-04)
+      Uses strftime(3) formatting.
 
-  set ssl-cert-auth 0
+  switch_logfiles_at = 300
 
-      Enable certificate authorization. Set to 1 to allow users and bots
-      to identify automatically by their certificate fingerprints.
-      Setting it to 2 to will force fingerprint logins. With a value of
-      2, users without a fingerprint set or with a certificate UID not
-      matching their handle won't be allowed to login on SSL enabled
-      telnet ports. Fingerprints must be set in advance with the .fprint
-      and .chfinger commands. NOTE: this setting has no effect on
-      plain-text ports.
+      Hour and minute (24h format, HHMM) when logfiles rotate. Default:
+      300 = 03:00 (3 AM). Set to 0 for midnight.
 
-  You can control SSL certificate verification using the following
-  variables. All of them are flag-based. You can set them by adding
-  together the numbers for all exceptions you want to enable. By default
-  certificate verification is disabled and all certificates are assumed
-  to be valid.
 
-  The options are the following:
+FILE PATHS SECTION [paths]
 
-      ---- ---------------------------------------------
-      0    disable verification
+  userfile = "LamestBot.user"
 
-      1    enable certificate verification
+      Userfile storage location (old flat-file format name, for
+      reference). Actual storage uses LMDB by default.
 
-      2    allow self-signed certificates
+  chanfile = "LamestBot.chan"
 
-      4    don't check peer common or alt names
+      Channel file name (legacy; kept for compatibility).
 
-      8    allow expired certificates
+  userfile_perm = "0600"
 
-      16   allow certificates which are not valid yet
+      File permissions (octal) on userfile/chanfile. Default 0600 is
+      most secure (owner read/write only).
 
-      32   allow revoked certificates
-      ---- ---------------------------------------------
+  store_backend = "lmdb"
 
-  set ssl-verify-dcc 0
+      Storage backend: "lmdb" (recommended, atomic) or "flat" (legacy
+      text files). LMDB is crash-safe and faster.
 
-      Control certificate verification for DCC chats (only /dcc chat
-      botnick)
+  store_path = ""
 
-  set ssl-verify-bots 0
+      Path to LMDB database file. Defaults to "<botnet_nick>.mdb" if
+      empty.
 
-      Control certificate verification for linking to hubs
+  help_path = "help/"
 
-  set ssl-verify-clients 0
+      Help files directory (relative or absolute path).
 
-      Control certificate verification for SSL listening ports. This
-      includes leaf bots connecting, users telneting in and /ctcp bot
-      chat.
+  text_path = "text/"
 
-MODULES
+      Text files directory for MOTD, banner, etc.
 
-After the core settings, you should start loading modules. Modules are
-loaded by the command "loadmodule <module>". Eggdrop looks for modules
-in the directory you specified by the module-path setting in the files
-and directories section.
+  motd = "text/motd"
 
-Please note that for different configurations, different modules are
-needed. Four examples:
+      MOTD (Message of The Day) shown on DCC/telnet connect.
 
-  Channel Security Bot:
+  telnet_banner = "text/banner"
 
-      This bot needs the channels, blowfish, console, dns, irc, and (if
-      you like) ctcp modules loaded. More is not needed and makes the
-      bot slower.
+      Banner displayed before the login prompt on telnet.
 
-  Public IRC Bot:
+  mod_path = "modules/"
 
-      A public bot should have all modules available loaded since they
-      provide all functions for everyday use.
+      Module directory containing compiled .so / .dll files.
 
-  Secure Filesys Bot:
+  notefile = "LamestBot.notes"
 
-      This bot needs all normal IRC operating modules, but not the
-      notes, seen, ctcp or share modules.
+      Notes file location (used by notes module).
 
-  Limbo Bot:
 
-      A limbo bot (serves as a botnet hub outside IRC) just needs the
-      channels, console, dns, and maybe notes or share modules loaded.
-      Of course, blowfish needs to be loaded here, too.
+NETWORKING SECTION [network]
 
-SCRIPTS
+  vhost4 = "99.99.0.0"
 
-The scripts section should be placed at the end of the config file. All
-modules should be loaded and their variables should be set at this
-point.
+      IPv4 address to bind to for outgoing connections (multi-homed
+      hosts). Can be hostname or IP. Does NOT affect listening; use
+      listen Tcl command for that.
 
-  source scripts/script.tcl
+  vhost6 = "2001:db8::c001:b07"
 
-      This line loads script.tcl from the scripts directory inside your
-      Eggdrop's directory. All scripts should be put there, although you
-      can place them where you like as long as you can supply a fully
-      qualified path to them.
+      IPv6 address to bind to for outgoing connections. Can be hostname
+      or IPv6 address.
 
-      Some commonly loaded scripts are alltools.tcl and action.fix.tcl.
+  nat_ip = "127.0.0.1"
 
-      The appropriate source lines are:
+      External IP address for NAT setups (home routers, masquerading).
+      Used for DCC transfers only, not for server connections. Try this
+      if /dcc chat or userfile sharing fails behind a firewall.
 
-          source scripts/alltools.tcl
-          source scripts/action.fix.tcl
+  listen_addr = ""
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+      Address to listen on for DCC/telnet (empty = all interfaces).
+      On multi-homed hosts, set to the specific interface the bot should
+      accept connections on.
+
+  prefer_ipv6 = 0
+
+      Prefer IPv6 over IPv4 for DNS resolution and connections
+      (0 = off, 1 = on).
+
+  default_port = 6667
+
+      Default IRC port when none specified in server entry.
+
+  connect_timeout = 15
+
+      Seconds before IRC connection attempt times out.
+
+  resolve_timeout = 5
+
+      DNS lookup timeout in seconds (commented out = use system default).
+
+  reserved_portrange = "2010:2020"
+
+      Port range for DCC transfers (security / firewall).
+      Format: "start:end". All DCC will use ports in this range.
+
+  dns_dot_server = "1.1.1.1"
+
+      DNS-over-TLS server IP (optional). Enables encrypted DNS queries.
+
+  dns_dot_port = 853
+
+      DNS-over-TLS port (standard: 853).
+
+  dns_dot_servername = "cloudflare-dns.com"
+
+      Server name for DNS-over-TLS (used in TLS handshake).
+
+
+SSL / TLS SETTINGS SECTION [ssl]
+
+Settings for SSL/TLS connections. The bot uses opssl, a bundled TLS
+library (no external OpenSSL/WolfSSL dependency).
+
+  ssl_privatekey = "eggdrop.key"
+
+      Path to private key file (PEM format). Required for SSL listening
+      ports and DCC SSL connections. Generate via 'make sslcert' or
+      standard tools.
+
+  ssl_certificate = "eggdrop.crt"
+
+      Path to SSL certificate file (PEM format). Required for SSL
+      listening ports, DCC SSL, and bot-to-bot SSL links. Generate via
+      'make sslcert' or standard tools.
+
+  ssl_capath = "/etc/ssl/"
+
+      Directory containing trusted CA certificates for verification. Used
+      when ssl_verify_server = 1 or other certificate checks are enabled.
+
+  ssl_cafile = ""
+
+      Single CA certificate file for verification (alternative to
+      ssl_capath).
+
+  ssl_ciphers = ""
+
+      Ciphersuite specification (colon-separated, OpenSSL format).
+      Leave empty for defaults. Advanced option; only set if you know
+      what you're doing.
+
+  ssl_dhparam = "dhparam.pem"
+
+      Diffie-Hellman parameters file for forward secrecy. Optional; opssl
+      may use built-in parameters.
+
+  ssl_chain_depth = 9
+
+      Maximum certificate chain depth for verification.
+
+  ssl_cert_auth = 0
+
+      Enable certificate-based authentication (0=off, 1=optional,
+      2=required). Set to 2 to force fingerprint logins on SSL telnet.
+
+  ssl_verify_dcc = 0
+
+      Verify certificates for DCC chats. Bitfield combining:
+        0 = disable, 1 = enable, 2 = self-signed OK, 4 = skip name check,
+        8 = expired OK, 16 = not-yet-valid OK, 32 = revoked OK
+
+  ssl_verify_bots = 0
+
+      Verify certificates for bot-to-bot SSL links (same bitfield).
+
+  ssl_verify_clients = 0
+
+      Verify certificates from clients on SSL listen ports.
+
+  ssl_verify_server = 0
+
+      Verify SSL for IRC server connections (same bitfield). Set to 1 to
+      reject self-signed or invalid server certificates.
+
+
+SECURITY SECTION [security]
+
+  must_be_owner = 1
+
+      Restrict dangerous commands to permanent owners:
+        0 = anyone (SECURITY RISK)
+        1 = permanent owners only (.tcl, .set)
+        2 = permanent owners only (.tcl, .set, .dump)
+
+  stealth_telnets = 0
+
+      Hide "Eggdrop" from DCC/telnet banners (0 = show, 1 = hide).
+
+  stealth_prompt = "\n\nNickname.\n"
+
+      Custom login prompt when stealth_telnets = 1.
+
+  require_p = 1
+
+      Require password for DCC chat (0 = off, 1 = on). Users need +p
+      flag or valid password to connect via DCC.
+
+  open_telnets = 0
+
+      Allow telnet connections without a password. DANGEROUS! 0 = off,
+      1 = on. Typically combined with learn_users or allow_hello.
+
+  protect_telnet = 0
+
+      Drop telnet connections from unknown hosts (0 = off, 1 = on).
+
+  dcc_sanitycheck = 0
+
+      Sanity-check DCC filenames to prevent path traversal (0 = off,
+      1 = on).
+
+  dcc_flood_thr = 3
+
+      Max lines per second from a DCC user before flood-kick.
+
+  telnet_flood = "16:60"
+
+      Telnet connection attempts threshold: N attempts per S seconds.
+      Prevents brute-force attacks.
+
+  paranoid_telnet_flood = 1
+
+      Apply telnet_flood to +f (friend) users too (0 = off, 1 = on).
+
+  cidr_support = 0
+
+      Enable CIDR notation for bans/exempts/invites (0 = off, 1 = on).
+      Only enable if your IRC network supports CIDR.
+
+  show_uname = 1
+
+      Include OS name/release in .status output (0 = off, 1 = on).
+
+
+BEHAVIOR SECTION [behaviour]
+
+  max_socks = 100
+
+      Maximum simultaneous socket connections.
+
+  allow_dk_cmds = 1
+
+      Allow +d and +k users to use commands bound as "-|-" (0 = off,
+      1 = on).
+
+  dupwait_timeout = 5
+
+      Seconds before re-checking a duplicate bot claim. Handles delayed
+      disconnect notifications on slow botnets.
+
+  check_stoned = 1
+
+      Max seconds between server pings before assuming server is stoned
+      (unresponsive). The bot will disconnect and reconnect.
+
+  serverror_quit = 1
+
+      Quit on unrecognized server error codes (0 = off, 1 = on).
+
+  max_queue_msg = 300
+
+      Max queued server messages before dropping the queue (flood
+      protection).
+
+  trigger_on_ignore = 0
+
+      Fire bindings even when source is on ignore list (0 = off, 1 = on).
+
+  exclusive_binds = 0
+
+      Prevent duplicate binds from being added (0 = allow duplicates,
+      1 = reject duplicates).
+
+  double_mode = 1
+
+      Stack MODE commands sent to server (0 = off, 1 = on).
+
+  double_server = 1
+
+      Stack other server commands (0 = off, 1 = on).
+
+  double_help = 1
+
+      Stack help requests (0 = off, 1 = on).
+
+  optimize_kicks = 1
+
+      Combine multi-user KICKs into fewer commands (0 = off, 1 = on).
+
+  stack_limit = 4
+
+      Maximum recursion depth for bind stacks.
+
+  hourly_updates = 0
+
+      Minute offset (0-59) for hourly tasks (notes, userfile save, etc).
+      Example: 15 = run hourly tasks at 15 minutes past the hour.
+
+  ignore_time = 15
+
+      Ignore duration in seconds for flood protection.
+
+  remote_boots = 2
+
+      Who can boot users from other bots:
+        0 = no outside boots
+        1 = boots from sharebots only
+        2 = any boots allowed
+
+  share_unlinks = 1
+
+      Propagate unlink commands across the botnet (0 = off, 1 = on).
+
+  wait_split = 600
+
+      Seconds before assuming a split user has quit (netsplit recovery).
+
+  wait_info = 180
+
+      Seconds before no longer displaying split-info.
+
+  ident_timeout = 5
+
+      IRC ident (username) lookup timeout in seconds.
+
+  use_telnet_banner = 0
+
+      Display text/banner at telnet login prompt (0 = off, 1 = on).
+
+  force_expire = 0
+
+      Expire bans/exempts/invites even when bot is alone on channel
+      (0 = off, 1 = on).
+
+  share_greet = 0
+
+      Share channel greeting messages with linked bots (0 = off, 1 = on).
+
+
+IRC / SERVER MODULE SETTINGS SECTION [irc]
+
+  net_type = "EFnet"
+
+      IRC network type. Affects mode/ban handling. Values:
+      EFnet, IRCnet, Undernet, DALnet, Libera, QuakeNet, Rizon, Twitch,
+      Ophion. Use "Ophion" for IRCX support.
+
+  nick_len = 0
+
+      Max nick length (0 = auto-detect via ISUPPORT NICKLEN). Override
+      only if network doesn't send ISUPPORT or you need a hard cap.
+      Default varies by net_type: EFnet=9, IRCnet=15, Undernet=30, etc.
+
+  ctcp_mode = 0
+
+      CTCP reply mode:
+        0 = reply to all CTCP
+        1 = ignore all CTCP
+        2 = reply to CTCP in channel only
+
+  bounce_bans = 0
+
+      Don't reverse bans set by other bots (0 = off, 1 = on).
+
+  bounce_exempts = 0
+
+      Don't reverse exempts set by other bots (0 = off, 1 = on).
+
+  bounce_invites = 0
+
+      Don't reverse invites set by other bots (0 = off, 1 = on).
+
+  bounce_modes = 0
+
+      Don't reverse modes set by other bots (0 = off, 1 = on).
+
+  learn_users = 0
+
+      Learn new users from the IRC userbase (0 = off, 1 = on). Not
+      recommended for most setups; can clutter the userfile.
+
+  allow_hello = 1
+
+      Allow /msg hello to add new users (0 = disable, 1 = enable).
+      Requires learn_users = 1 or -m startup flag.
+
+  allow_addhost = 1
+
+      Allow /msg addhost <pass> <hostmask> command (0 = off, 1 = on).
+
+  mode_buf_length = 200
+
+      Character buffer for mode strings. Increase for networks with
+      stricter limits.
+
+  opchars = "@"
+
+      Characters that grant op status (usually "@" or "@+").
+
+  no_chanrec_info = 0
+
+      Suppress info if no channel record exists for user (0 = off,
+      1 = on).
+
+  prevent_mixing = 1
+
+      Prevent mixing ban types (IP-only vs. nick!user@host) (0 = off,
+      1 = on).
+
+  server_cycle_wait = 60
+
+      Seconds between reconnect attempts after disconnection.
+
+  server_timeout = 60
+
+      Seconds before an IRC server is declared unresponsive (no PING
+      reply). Bot will disconnect and reconnect.
+
+  keep_nick = 1
+
+      Try to reclaim bot's primary nick if in use (0 = off, 1 = on).
+
+  quiet_reject = 1
+
+      Silently drop INVITE/KICK/MODE while bot has no channel record
+      (0 = off, 1 = on).
+
+  lowercase_ctcp = 0
+
+      Fold incoming CTCP commands to lowercase before matching (0 = off,
+      1 = on).
+
+  answer_ctcp = 3
+
+      Max CTCP requests to answer per burst (0 = answer all).
+
+  msg_rate = 2
+
+      Max messages per second to server (server queue rate limit).
+
+  account_notify = 1
+
+      Request ACCOUNT-NOTIFY capability (0 = off, 1 = on).
+
+  extended_join = 1
+
+      Request EXTENDED-JOIN capability (0 = off, 1 = on).
+
+  away_notify = 0
+
+      Request away-notify capability (0 = off, 1 = on).
+
+  invite_notify = 0
+
+      Request invite-notify capability (0 = off, 1 = on).
+
+  message_tags = 0
+
+      Enable IRCv3 message-tags capability (0 = off, 1 = on).
+
+  account_tag = 0
+
+      Include account in tagged messages (0 = off, 1 = on).
+
+  echo_message = 0
+
+      Receive own PRIVMSGs back from server (0 = off, 1 = on).
+
+  cap_request = ""
+
+      Additional CAP capabilities beyond built-in set (space-separated).
+
+  init_server = ""
+
+      Raw IRC commands sent immediately after bot registers. Example:
+      "UMODE2 +x" to set invisible hostmask.
+
+  connect_server = ""
+
+      Raw IRC commands sent before connection registration (rarely used).
+
+  stackable_commands = ""
+
+      Space-separated list of server commands that can be merged to
+      reduce queue usage.
+
+  stackable2_commands = ""
+
+      Secondary stackable commands list.
+
+  firewall = "socks.example.com:1080"
+
+      SOCKS4/5 or Sun telnet passthru proxy. Prefix with '!' for Sun
+      passthru. Example: "socks.example.com:1080" or
+      "!firewall.example.com:5000" for Sun passthru.
+
+
+SASL AUTHENTICATION SECTION [sasl]
+
+SASL (Simple Authentication and Security Layer) authenticates the bot
+with IRC services during connection registration.
+
+  sasl = 0
+
+      Enable SASL:
+        0 = off (default)
+        1 = on (optional; bot works without it)
+        2 = required (bot disconnects if SASL fails)
+
+  sasl_mechanism = 0
+
+      Authentication mechanism:
+        0 = PLAIN               (username + password, plaintext)
+        1 = ECDSA-NIST256P-CHALLENGE
+        2 = EXTERNAL            (client certificate)
+        3 = SCRAM-SHA-256
+        4 = SCRAM-SHA-512
+        5 = ECDH-X25519-CHALLENGE
+
+  sasl_username = "MyNick"
+
+      SASL username (PLAIN/SCRAM mechanisms only).
+
+  sasl_password = "hunter2"
+
+      SASL password (PLAIN/SCRAM mechanisms). ONLY use over SSL/TLS;
+      never plaintext!
+
+  sasl_ecdsa_key = "eggdrop.pem"
+
+      Path to ECDSA private key file (ECDSA-NIST256P-CHALLENGE).
+
+  sasl_x25519_key = "eggdrop-x25519.pem"
+
+      Path to X25519 private key file (ECDH-X25519-CHALLENGE).
+
+  sasl_continue = 1
+
+      Continue connecting if SASL fails (0 = fail; 1 = continue).
+
+  sasl_timeout = 15
+
+      Seconds before SASL handshake times out.
+
+
+CTCP REPLIES SECTION [ctcp]
+
+Customize CTCP VERSION, FINGER, USERINFO responses. Leave commented to
+use default Eggdrop version string.
+
+  ctcp_version = "Eggdrop v1.10.1 (Linux)"
+
+      Custom CTCP VERSION reply.
+
+  ctcp_finger = "Eggdrop v1.10.1 (Linux)"
+
+      Custom CTCP FINGER reply.
+
+  ctcp_userinfo = "Eggdrop v1.10.1 (Linux)"
+
+      Custom CTCP USERINFO reply.
+
+
+IRCX / OPHION SUPPORT SECTION [ircx]
+
+IRCX (Internet Relay Chat eXtended) adds channel properties, access
+lists, and +q owner mode. Ophion is a modern IRCv3 server implementing
+IRCX. To enable: set net_type = "Ophion" in [irc] section.
+
+  ircx_auto_negotiate = 1
+
+      Send IRCX command after login automatically (0 = off, 1 = on).
+      Set to 0 for deferred manual negotiation via ircxnegotiate.
+
+  ircx_ownerkey = ""
+
+      Global OWNERKEY for ircxautoowner when no channel-specific key is
+      set. Providing this on JOIN grants +q (owner).
+
+Tcl commands available when connected to Ophion:
+
+  ircxprop <target> <propname> [value]
+      Read or write channel/user properties.
+
+  ircxaccess <channel> list|add|del [level] [mask]
+      Manage channel access lists (OWNER, HOST, VOICE, GRANT, DENY).
+
+  ircxcreate <channel> [modes]
+      Create a channel (bot becomes +q owner automatically).
+
+  ircxautoowner <channel> [ownerkey] [create 0|1] [modes]
+      Configure channel for auto-owner on each server connect.
+
+  ircxnegotiate
+      Manually trigger IRCX negotiation (sends IRCX command).
+
+  botisowner [channel]
+      Returns 1 if bot has +q on channel.
+
+  isowner <nick> <channel>
+      Returns 1 if nick has +q on channel.
+
+
+DCC / FILE TRANSFER SECTION [transfer]
+
+  max_dloads = 3
+
+      Maximum simultaneous downloads (DCC SEND/XFER).
+
+  dcc_block = 0
+
+      DCC transfer block size in bytes (0 = single send).
+
+  xfer_timeout = 30
+
+      Seconds before idle DCC transfer times out.
+
+  sharefail_unlink = 0
+
+      Delete partially-received files when share transfer fails
+      (0 = off, 1 = on).
+
+
+USERFILE SHARING SECTION [share]
+
+Controls how bot shares its user database with linked bots on botnet.
+Requires share.mod and an established botnet link.
+
+  allow_resync = 0
+
+      Allow other bots to request full userfile resync (0 = off, 1 = on).
+
+  resync_time = 900
+
+      Seconds before sending a requested resync (rate-limiting).
+
+  private_global = 0
+
+      Don't share global user flags with linked bots (0 = off, 1 = on).
+
+  private_user = 0
+
+      Don't share user records with linked bots at all (0 = off, 1 = on).
+
+  override_bots = 0
+
+      Override local bot records with incoming ones (0 = off, 1 = on).
+
+  private_globals = ""
+
+      Space-separated list of global flag letters to keep private.
+      Example: "b n" keeps +b (bot) and +n (owner) flags local.
+
+  share_compressed = 1
+
+      Compress userfiles before sending to linked bots (requires
+      compress.mod) (0 = off, 1 = on).
+
+
+FILE SERVER SECTION [filesys]
+
+Provides built-in file server functionality. Requires filesys.mod.
+
+  files_path = "/home/mydir/filesys"
+
+      Root path of the file system visible to users.
+
+  incoming_path = "/home/mydir/filesys/incoming"
+
+      Directory for user uploads.
+
+  upload_to_pwd = 0
+
+      Upload files to current directory instead of incoming_path
+      (0 = off, 1 = on).
+
+  filedb_path = ""
+
+      Optional file database path (defaults to "files.mdb").
+
+  max_file_users = 20
+
+      Maximum concurrent file-area users.
+
+  max_filesize = 1024
+
+      Max uploadable file size in kilobytes.
+
+
+NOTES MODULE SECTION [notes]
+
+Provides note storage for offline users.
+
+  max_notes = 50
+
+      Maximum notes stored per user (prevents flooding).
+
+  note_life = 60
+
+      Note lifetime in days (0 = forever).
+
+  allow_fwd = 0
+
+      Allow note forwarding to other user accounts (0 = off, 1 = on).
+
+  notify_users = 0
+
+      Notify users hourly of waiting notes (0 = off, 1 = on).
+
+  notify_onjoin = 1
+
+      Notify users on IRC join if they have notes (0 = off, 1 = on).
+
+
+DNS MODULE SECTION [dns]
+
+Built-in async DNS resolver with caching. These settings are ignored if
+dns.mod is not loaded.
+
+  dns_maxsends = 4
+
+      Max DNS queries per polling pass.
+
+  dns_retrydelay = 3
+
+      Seconds before retrying a failed DNS query.
+
+  dns_cache = 86400
+
+      Cache successful DNS results for N seconds (default: 24 hours).
+
+  dns_negcache = 600
+
+      Cache negative (NXDOMAIN) results for N seconds (default: 10 min).
+
+  dns_servers = "1.1.1.1 8.8.8.8"
+
+      Space-separated list of DNS server IPs. Leave empty to use system
+      /etc/resolv.conf.
+
+
+CONSOLE MODULE SECTION [console]
+
+Provides persistent DCC console settings across restarts.
+
+  console = "mkcoblxs"
+
+      Default console flags shown on DCC connect. Uses same flags as
+      logfiles (m=msgs, k=kicks, c=commands, o=info, b=bot, l=linked,
+      x=xfer, s=server).
+
+  console_autosave = 1
+
+      Auto-save console settings on change (0 = off, 1 = on).
+
+  force_channel = 0
+
+      Force all DCC users into a channel view (0 = off, 1 = on).
+
+  info_party = 0
+
+      Show info in the party-line (0 = off, 1 = on).
+
+
+PASSWORD / ENCRYPTION SECTION [crypto]
+
+  pbkdf2_method = "SHA256"
+
+      PBKDF2 hash method: SHA256 or SHA512.
+
+  pbkdf2_rounds = 16000
+
+      PBKDF2 iteration count (higher = slower but more secure).
+
+  pbkdf2_re_encode = 1
+
+      Auto-re-encode legacy passwords to PBKDF2 on user login
+      (0 = off, 1 = on).
+
+  blowfish_use_mode = "cbc"
+
+      Blowfish encryption mode: cbc or ecb.
+
+  compress_level = 9
+
+      Compression level for compress.mod (1=fast, 9=best). Only used when
+      compress.mod is loaded and share_compressed = 1.
+
+
+IDENT MODULE SECTION [ident]
+
+Provides ident daemon support for proper IRC username identification.
+
+  ident_method = 0
+
+      Ident method:
+        0 = built-in ident daemon
+        1 = use system identd
+
+  ident_port = 113
+
+      Port for built-in ident server (standard: 113).
+
+
+TCL SECTION [tcl]
+
+Execute Tcl code in the config file. Two methods:
+
+  commands = [
+    "unbind dcc n simul *dcc:simul",
+    "listen 3333 all",
+  ]
+
+      Array of individual Tcl statements, executed in order. Good for
+      one-liners like unbind, listen, channel set.
+
+  code = """
+    proc greet_join {nick host hand chan} {
+      putserv "PRIVMSG $chan :Welcome to $chan, $nick!"
+    }
+    bind join - * greet_join
+  """
+
+      Multi-line Tcl script block (triple-quoted string). Ideal for proc
+      definitions, bind chains, complex logic. Executed after commands[].
+
+Both run after all settings and modules are loaded, so they can
+reference any setting or loaded module.
+
+
+TCML SCRIPTS SECTION [scripts]
+
+  load = [
+    "scripts/autoscripts.tcl",
+    "scripts/alltools.tcl",
+    "scripts/action.fix.tcl",
+  ]
+
+      Tcl script files to load. Paths are relative to eggdrop install
+      directory. Loaded after [tcl] section.
+
+
+HELP FILES SECTION [help]
+
+  load = [
+    "userinfo.help",
+  ]
+
+      Help files to load. Paths relative to help_path.
+
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

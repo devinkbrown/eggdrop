@@ -40,11 +40,9 @@ What is Eggdrop?
     bots to distribute tasks such as opping and banning users. See doc/BOTNET
     for information on setting up a botnet.
 
-    Eggdrop is always being improved and adjusted because there are bugs to
-    be fixed and features to be added (if the users demand them and they make
-    actually sense). In fact, it existed for several years as v0.7 - v0.9
-    before finally going 1.0. This version of Eggdrop is part of the 1.9 tree.
-    A valiant effort has been made to chase down and destroy bugs.
+    Eggdrop is actively maintained and regularly improved with bug fixes and
+    requested features. Version 1.10.1 represents feature completeness with
+    extensive testing and production-ready stability.
 
     This README file contains information about how to get Eggdrop, command
     line options for Eggdrop, what you may need to do when upgrading from

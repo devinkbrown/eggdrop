@@ -1,361 +1,498 @@
 .. _writing_module:
 
-How to Write an Eggdrop Module
-==============================
+Writing an Eggdrop Module
+==========================
 
-Note: This is for a simple module of 1 source file.
+This guide shows how to create a simple Eggdrop module. Eggdrop 1.10 uses Meson for building modules.
 
-  1. Create a src/mod/MODULE.mod directory in your Eggdrop directory (where
-     MODULE is the module name) and cd to it.
+Module Basics
+-------------
 
-  2. Copy the file 'Makefile' from src/mod/woobie.mod and replace all
-     occurrences of 'woobie' with your module name. This should ensure
-     that your module gets compiled.
+An Eggdrop module is:
 
-  3. Next, you want to create a file called MODULE.c (MODULE is the module
-     name again).
+- A C code file (or multiple files)
+- Compiled to a ``.so`` (shared object) or ``.a`` (static) file
+- Loaded at runtime via configuration
+- Can add Tcl commands, binds, partyline commands, and more
 
-  4. You MUST include the following in your source code::
+Module Structure
+^^^^^^^^^^^^^^^
 
-      #define MODULE_NAME "module-name"
+Minimal module setup::
 
-    This should be defined to the same name you will be using when you load
-    your module.
+  src/mod/mymodule/
+  ├── meson.build
+  └── mymodule.c
 
-    ::
+Step-by-Step: Create Your Module
+---------------------------------
 
-      #define MAKING_MODULENAME
+Step 1: Create the Directory
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    MODULENAME is the name of your module (MODULE_NAME), but in all caps.
+Create a new module directory::
 
-    ::
+  mkdir -p src/mod/mymodule
+  cd src/mod/mymodule
 
-      #include "../module.h"
+Step 2: Create meson.build
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    This provides access to Eggdrop's global function table. Examine
-    src/mod/module.h closely to find a list of functions available.
+Create ``src/mod/mymodule/meson.build``::
 
-    ::
+  mymodule = static_library('mymodule',
+    'mymodule.c',
+    include_directories: [includes],
+    install: true,
+    install_dir: get_option('prefix') / 'modules'
+  )
 
-      #include any other standard c header files you might need. 
+**Variables**:
 
-    Note that stdio.h, string.h, stdlib.h, and sys/types.h are already included.
+- ``mymodule`` — Arbitrary name (doesn't have to match module name)
+- ``'mymodule.c'`` — Source file(s)
+- ``includes`` — Eggdrop include directories (set by main meson.build)
+- ``install: true`` — Install the compiled module
+- ``install_dir`` — Where to install (modules/ directory)
 
-    ::
- 
-      Function *global;
+For multiple source files::
 
-    This variable provides access to all the Eggdrop functions; without it,
-    you can't call any Eggdrop functions (the module won't even load).
+  mymodule = static_library('mymodule',
+    'mymodule.c',
+    'helper.c',
+    include_directories: [includes],
+    install: true,
+    install_dir: get_option('prefix') / 'modules'
+  )
 
-Module requirements
--------------------
+Step 3: Create Module Source Code
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In most modules, all functions/variables (except global and MODULE_start)
-should be static. This will drastically reduce the size of modules on
-decent systems.
+Create ``src/mod/mymodule/mymodule.c``::
 
-Throughout this step, MODULE refers to the module name. Note that
-"MODULE_NAME" should literally be "MODULE_NAME".
+  #include "../module.h"
+  #define MODULE_NAME "mymodule"
 
-MODULE_start
-^^^^^^^^^^^^
-::
+  #undef global
+  static Function *global = NULL;
+  EXPORT_SCOPE char *mymodule_start();
 
-  char *MODULE_start(Function *func_table)
+  /* Memory tracking */
+  static int mymodule_expmem(void)
+  {
+    return 0;  /* Return total bytes allocated by module */
+  }
 
-This function is called when the module is first loaded. There are
-several things that need to be done in this function
+  /* Status reporting */
+  static void mymodule_report(int idx, int details)
+  {
+    if (details) {
+      int size = mymodule_expmem();
+      dprintf(idx, "    Using %d byte%s of memory\n", size,
+              (size != 1) ? "s" : "");
+    }
+  }
 
-::
+  /* Partyline command example */
+  static int cmd_hello(struct userrec *u, int idx, char *par)
+  {
+    putlog(LOG_CMDS, "*", "#%s# hello", dcc[idx].nick);
+    dprintf(idx, "Hello from mymodule!\n");
+    return 0;
+  }
 
-  global = func_table;
-
-This allows you to make calls to the global function table.
-
-::
-
-  module_register(MODULE_NAME, MODULE_table, MAJOR, MINOR);
-
-This records details about the module for other modules and Eggdrop
-itself to access. MAJOR and MINOR are ints, where MAJOR is the
-module's major version number and MINOR is a minor version number.
-MODULE_table is a function table (see below).
-
-::
-
-  module_depend(MODULE_NAME, "another-module", MAJOR, MINOR);
-  
-This lets Eggdrop know that your module NEEDS "another-module" of
-major version 'MAJOR' and at least minor version 'MINOR' to run,
-and hence should try to load it if it's not already loaded. This
-will return 1 on success, or 0 if it can't be done (at which stage
-you should return an error).
-
-Any other initialization stuff you desire should also be included in
-this function. See below for various things you can do.
-
-You also will need to return a value. Returning NULL implies the
-module loaded successfully. Returning a non-NULL STRING is an error
-message. The module (and any other dependent modules) will stop
-loading and an error will be returned.
-
-MODULE_table
-^^^^^^^^^^^^
-
-::
-
-  static Function *MODULE_table = {
-         MODULE_start,
-         MODULE_close,
-         MODULE_expmem,
-         MODULE_report,
-         any_other_functions,
-         you_want_to_export
+  /* Command table */
+  static cmd_t hello_cmds[] = {
+    {"hello", "", cmd_hello, NULL},
+    {NULL, NULL, NULL, NULL}
   };
 
-This is a table of functions which any other module can access. The
-first 4 functions are FIXED. You MUST have them; they provide important
-module information.
+  /* Tcl command example */
+  static int tcl_hello STDVAR
+  {
+    BADARGS(1, 1, "");
+    Tcl_AppendResult(irp, "Hello from Tcl!", NULL);
+    return TCL_OK;
+  }
 
-MODULE_close ()
-^^^^^^^^^^^^^^^
-::
+  /* Tcl command table */
+  static tcl_cmds hello_tcl[] = {
+    {"hello", tcl_hello},
+    {NULL, NULL}
+  };
 
-  static char *MODULE_close ()
+  /* Module startup */
+  char *mymodule_start(Function *global_funcs)
+  {
+    global = global_funcs;
 
-This is called when the module is unloaded. Apart from tidying any
-relevant data (I suggest you be thorough, we don't want any trailing
-garbage from modules), you MUST do the following:
+    /* Register the module */
+    module_register(MODULE_NAME, mymodule_table, 1, 0);
+    /*                                            ^--- minor version
+     *                                         ^------ major version
+     */
 
-::
+    /* Declare dependencies */
+    if (!module_depend(MODULE_NAME, "eggdrop", 110, 0)) {
+      module_undepend(MODULE_NAME);
+      return "This module requires Eggdrop 1.10.0 or later.";
+    }
 
-  module_undepend(MODULE_NAME);
+    return NULL;  /* Return NULL on success */
+  }
 
-This lets Eggdrop know your module no longer depends on any other
-modules.
+  /* Module shutdown */
+  static char *mymodule_close(void)
+  {
+    module_undepend(MODULE_NAME);
+    return NULL;
+  }
 
-Return a value. NULL implies success; any non-NULL STRING implies
-that the module cannot be unloaded for some reason, and hence the
-bot should not unload it (see the blowfish module for an example).
+  /* Module export table */
+  static Function mymodule_table[] = {
+    (Function) mymodule_start,
+    (Function) mymodule_close,
+    (Function) mymodule_expmem,
+    (Function) mymodule_report,
+  };
 
-MODULE_expmem
-^^^^^^^^^^^^^
-::
+Step 4: Build the Module
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-  static int MODULE_expmem ()
+Meson automatically discovers modules. Rebuild Eggdrop::
 
-  This should tally all memory you allocate/deallocate within the module
-  (using nmalloc, nfree, etc) in bytes. It's used by memory debugging to
-  track memory faults, and it is used by .status to total up memory usage.
+  cd /path/to/eggdrop
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/install
 
-MODULE_report
-^^^^^^^^^^^^^
+Your module is compiled and installed to ``modules/mymodule.so``.
 
-::
+Step 5: Load the Module
+^^^^^^^^^^^^^^^^^^^^^^^
 
-  static void MODULE_report (int idx)
-  
-This should provide a relatively short report of the module's status
-(for the module and status commands).
+In ``eggdrop.toml``, add to the modules section::
 
-These functions are available to modules. MANY more available functions
-can be found in src/mod/module.h.
+  [modules]
+  load = [
+    "pbkdf2",
+    "channels",
+    "server",
+    "irc",
+    "mymodule",  # Your new module
+  ]
 
-Additional functions
-^^^^^^^^^^^^^^^^^^^^
+Step 6: Test the Module
+^^^^^^^^^^^^^^^^^^^^^^^
 
-nmalloc
-"""""""
-::
+Start the bot in terminal mode::
 
-  void *nmalloc(int j);
+  ./eggdrop -t eggdrop.toml
 
-This allocates j bytes of memory.
+Check that your module loaded::
 
-nfree
-"""""
-::
+  .module
 
-  void nfree(void *a);
+You should see ``mymodule`` listed.
 
-This frees an nmalloc'd block of memory.
-
-Context
-"""""""
-
-::
-
-  Context;
-
-Actually a macro -- records the current position in execution (for
-debugging). Using Context is no longer recommended, because it uses
-too many resources and a core file provides much more information.
-
-dprintf
-"""""""
-::
-
-  void dprintf(int idx, char *format, ...)
-
-This acts like a normal printf() function, but it outputs to
-log/socket/idx. idx is a normal dcc idx, or if < 0 is a sock number.
-
-  Other destinations::
-
-    DP_LOG    - send to log file
-    DP_STDOUT - send to stdout
-    DP_MODE   - send via mode queue to the server
-    DP_SERVER - send via normal queue to the server
-    DP_HELP   - send via help queue to server
-
-module_entry
-""""""""""""
-::
-
-  const module_entry *module_find(char *module_name, int major, int minor);
-
-Searches for a loaded module (matching major, >= minor), and returns
-info about it.
+Test your commands (if you added any):
 
 ::
 
-  Members of module_entry:
+  .hello                    # Test partyline command
+  .tcl hello                # Test Tcl command
 
-  char *name;      - module name
-  int major;       - real major version
-  int minor;       - real minor version
-  Function *funcs; - function table (see above)
+Module Template
+---------------
 
-module_rename
-"""""""""""""
-::
+Here's a minimal but complete module template::
 
-  void module_rename(char *old_module_name, char *new_module_name)
+  #include "../module.h"
+  #define MODULE_NAME "mymodule"
 
-This renames a module from old_module_name to new_module_name.
+  #undef global
+  static Function *global = NULL;
+  EXPORT_SCOPE char *mymodule_start();
 
-add_hook/del_hook
-"""""""""""""""""
-::
+  static int mymodule_expmem(void) { return 0; }
+  static void mymodule_report(int idx, int details) { }
 
-  void add_hook(int hook_num, Function *funcs)
-  void del_hook(int hook_num, Function *funcs)
+  char *mymodule_start(Function *global_funcs)
+  {
+    global = global_funcs;
+    module_register(MODULE_NAME, mymodule_table, 1, 0);
+    if (!module_depend(MODULE_NAME, "eggdrop", 110, 0)) {
+      module_undepend(MODULE_NAME);
+      return "Eggdrop 1.10+ required";
+    }
+    return NULL;
+  }
 
-These are used for adding or removing hooks to/from Eggdrop code that
-are triggered on various events. Valid hooks are::
+  static char *mymodule_close(void)
+  {
+    module_undepend(MODULE_NAME);
+    return NULL;
+  }
 
-     HOOK_SECONDLY   - called every second
-     HOOK_MINUTELY   - called every minute
-     HOOK_5MINUTELY  - called every 5 minutes
-     HOOK_HOURLY     - called every hour (hourly-updates minutes past)
-     HOOK_DAILY      - called when the logfiles are switched
+  static Function mymodule_table[] = {
+    (Function) mymodule_start,
+    (Function) mymodule_close,
+    (Function) mymodule_expmem,
+    (Function) mymodule_report,
+  };
 
-     HOOK_READ_USERFILE - called when the userfile is read
-     HOOK_USERFILE      - called when the userfile is written
-     HOOK_PRE_REHASH    - called just before a rehash
-     HOOK_REHASH        - called just after a rehash
-     HOOK_IDLE          - called whenever the dcc connections have been
-                          idle for a whole second
-     HOOK_BACKUP        - called when a user/channel file backup is done
-     HOOK_LOADED        - called when Eggdrop is first loaded
-     HOOK_DIE           - called when Eggdrop is about to die
+Copy this, rename all occurrences of ``mymodule``, and add your features.
 
-module_load/unload
-""""""""""""""""""
-::
+Adding Features
+---------------
 
-  char *module_unload (char *module_name);
-  char *module_load (char *module_name);
+Partyline Commands
+^^^^^^^^^^^^^^^^^^
 
-Tries to load or unload the specified module; returns 0 on success, or
-an error message.
+A partyline command is called from ``.commandname`` on the partyline::
 
-add/rem_tcl_commands
-""""""""""""""""""""
-::
+  static int cmd_mycommand(struct userrec *u, int idx, char *par)
+  {
+    putlog(LOG_CMDS, "*", "#%s# mycommand %s", dcc[idx].nick, par);
+    dprintf(idx, "You called mycommand with: %s\n", par);
+    return 0;
+  }
 
-  void add_tcl_commands(tcl_cmds *tab);
-  void rem_tcl_commands(tcl_cmds *tab);
+  static cmd_t mycommands[] = {
+    {"mycommand", "o", cmd_mycommand, NULL},
+    {NULL, NULL, NULL, NULL}
+  };
 
-Provides a quick way to create and remove a table of Tcl commands. The
-table is in the form of::
+The second parameter is **flags required** to use the command (``o`` = op, ``m`` = master, ``""`` = everyone).
 
-      {char *func_name, Function *function_to_call}
+Tcl Commands
+^^^^^^^^^^^^
 
-Use { NULL, NULL } to indicate the end of the list.
+A Tcl command is called from ``.tcl commandname`` or from scripts::
 
-add/rem_tcl_ints
-""""""""""""""""
-::
+  static int tcl_mycommand STDVAR
+  {
+    BADARGS(2, 3, " required ?optional?");
 
-  void add_tcl_ints(tcl_ints *);
-  void rem_tcl_ints(tcl_ints *);
+    if (argc < 2) {
+      Tcl_AppendResult(irp, "Wrong number of arguments", NULL);
+      return TCL_ERROR;
+    }
 
-Provides a quick way to create and remove a table of links from C
-int variables to Tcl variables (add_tcl_ints checks to see if the Tcl
-variable exists and copies it over the C one). The format of table is::
+    Tcl_AppendResult(irp, "You passed: ", argv[1], NULL);
+    return TCL_OK;
+  }
 
-      {char *variable_name, int *variable, int readonly}
+  static tcl_cmds mytcl[] = {
+    {"mycommand", tcl_mycommand},
+    {NULL, NULL}
+  };
 
-Use {NULL, NULL, 0} to indicate the end of the list.
+**BADARGS macro**: Checks argument count and provides help text::
 
-add/rem_tcl_strings
-"""""""""""""""""""
-::
+  BADARGS(min, max, "help text")
 
-  void add_tcl_strings(tcl_strings *);
-  void rem_tcl_strings(tcl_strings *);
+Tcl Binds
+^^^^^^^^^
 
-Provides a quick way to create and remove a table of links from C
-string variables to Tcl variables (add_tcl_ints checks to see if the
-Tcl variable exists and copies it over the C one). The format of table
-is::
+A bind is triggered by an IRC event::
 
-  {char *variable_name, char *string, int length, int flags}
+  static p_tcl_bind_list H_myevent;
 
-Use {NULL, NULL, 0, 0} to indicate the end of the list. Use 0 for
-length if you want a const string. Use STR_DIR for flags if you want a
-'/' constantly appended; use STR_PROTECT if you want the variable set
-in the config file, but not during normal usage.
+  static int myevent_2char STDVAR
+  {
+    Function F = (Function) cd;
+    BADARGS(3, 3, " arg1 arg2");
+    CHECKVALIDITY(myevent_2char);
+    F(argv[1], argv[2]);
+    return TCL_OK;
+  }
 
-add/rem_builtins
-""""""""""""""""
-::
+  char *mymodule_start(Function *global_funcs)
+  {
+    global = global_funcs;
+    module_register(MODULE_NAME, mymodule_table, 1, 0);
+    H_myevent = add_bind_table("myevent", HT_STACKABLE, myevent_2char);
+    return NULL;
+  }
 
-  void add_builtins(p_tcl_hash_list table, cmd_t *cc);
-  void rem_builtins(p_tcl_hash_list table, cmd_t *cc);
+  static char *mymodule_close(void)
+  {
+    del_bind_table(H_myevent);
+    module_undepend(MODULE_NAME);
+    return NULL;
+  }
 
-This adds binds to one of Eggdrop's bind tables. The format of the
-table is::
+Then trigger from C code::
 
-  {char *command, char *flags, Function *function, char *displayname}
+  int check_tcl_myevent(char *arg1, char *arg2)
+  {
+    int x;
+    struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+    Tcl_SetVar(interp, "_myevent1", arg1, 0);
+    Tcl_SetVar(interp, "_myevent2", arg2, 0);
+    x = check_tcl_bind(H_myevent, "mask", &fr, " $_myevent1 $_myevent2",
+                       MATCH_MASK | BIND_STACKABLE);
+    return (x == BIND_EXEC_LOG);
+  }
 
-Use {NULL, NULL, NULL, NULL} to indicate the end of the list.
+And in Tcl scripts::
 
-This works EXACTLY like the Tcl 'bind' command. displayname is what Tcl
-sees this function's proc name as (in .binds all).
+  bind myevent - * my_handler
 
-function is called with exactly the same args as a Tcl binding is with
-type conversion taken into account (e.g. idx's are ints). Return values
-are much the same as Tcl bindings. Use int 0/1 for those which require
-0/1, or char * for those which require a string (auch as filt). Return
-nothing if no return value is required.
+  proc my_handler {arg1 arg2} {
+    putlog "Event: $arg1 $arg2"
+  }
 
-putlog
-""""""
-::
+Module Dependencies
+-------------------
 
-  void putlog (int logmode, char *channel, char *format, ...)
+If your module requires another module, declare it::
 
-Adds text to a logfile (determined by logmode and channel). This text
-will also output to any users' consoles if they have the specified
-console mode enabled.
+  if (!module_depend(MODULE_NAME, "channels", 110, 0)) {
+    module_undepend(MODULE_NAME);
+    return "Requires channels module";
+  }
 
-What to do with a module?
--------------------------
+Format: ``module_depend(name, required_module, major_version, minor_version)``
 
-If you have written a module and feel that you wish to share it with the
-rest of the Eggdrop community, find us in #eggdrop on Libera. Make sure you
-have a nice descriptive text (modulename.desc) to describe it, and make sure
-to mention in your text file which version Eggdrop the module is written for.
+Common Dependencies
+^^^^^^^^^^^^^^^^^^^
+
+- **server** — IRC server support (almost always needed)
+- **channels** — Channel management (if working with channels)
+- **irc** — Basic IRC (if doing IRC operations)
+
+Memory Management
+-----------------
+
+**Always report memory usage**::
+
+  static int mymodule_expmem(void)
+  {
+    int size = 0;
+    size += sizeof(my_structure) * num_items;
+    return size;  /* Total bytes allocated */
+  }
+
+**Always clean up**::
+
+  static char *mymodule_close(void)
+  {
+    /* Free all allocated memory */
+    op_free(mydata);
+    del_bind_table(H_mybind);
+    module_undepend(MODULE_NAME);
+    return NULL;
+  }
+
+Use libop utilities for memory::
+
+  void *ptr = op_malloc(size);
+  op_free(ptr);
+
+Useful Include Files
+--------------------
+
+Available headers in ``src/``::
+
+  #include "module.h"      /* Core module API */
+  #include "main.h"        /* Core data structures */
+  #include "misc.h"        /* Utility functions */
+  #include "tcl.h"         /* Tcl interpreter */
+  #include "lib/libop.h"   /* libop utilities */
+
+Building and Testing
+--------------------
+
+**Compile**::
+
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/eggdrop
+
+**Check build output**::
+
+  ninja -C builddir -v
+
+**Test loading**::
+
+  ./eggdrop -t eggdrop.toml
+  .module
+
+**View logs**::
+
+  tail -f logs/eggdrop.log
+
+**Debug with gdb**::
+
+  gdb ./eggdrop
+  (gdb) run -t eggdrop.toml
+
+Common Module Pitfalls
+----------------------
+
+**Module won't load**
+
+- Meson.build has syntax error
+- Missing ``EXPORT_SCOPE`` on start function
+- Missing function table
+- Wrong include path
+
+**Bot crashes on module load**
+
+- Uninitialized global variable
+- Missing NULL terminator in tables
+- Bad pointer dereference
+
+**Commands don't work**
+
+- Command table not registered
+- Wrong flags required
+- Command function not in table
+
+**Memory leaks**
+
+- Forgetting to ``op_free()``
+- Not reporting in ``expmem()``
+- Not cleaning up in ``close()``
+
+Examples
+--------
+
+See ``src/mod/`` for examples:
+
+- **woobie.c** — Minimal example (recommended starting point)
+- **server.c** — Complex module with binds
+- **channels.c** — Full-featured module
+
+Best Practices
+--------------
+
+1. **Start with the template** — Use minimal example as base
+2. **Use libop** — Standard utilities for memory, strings, etc.
+3. **Document your code** — Comments for non-obvious logic
+4. **Test thoroughly** — Before distributing
+5. **Follow style** — Consistent with Eggdrop codebase
+6. **Clean up properly** — All allocated memory freed
+7. **Report memory** — In ``expmem()`` function
+8. **Declare dependencies** — Via ``module_depend()``
+
+Next Steps
+----------
+
+- `Module Internals <internals.html>`_ — Detailed architecture reference
+- `Included Modules <included.html>`_ — List of built-in modules
+- Eggdrop source — ``src/mod/`` for real-world examples
+
+See Also
+--------
+
+- `Tcl Commands <../using/tcl-commands.html>`_ — Tcl API reference
+- `Core Settings <../using/core.html>`_ — Configuration reference
+
+Resources
+---------
+
+- GitHub: https://github.com/eggheads/eggdrop
+- #eggdrop on Libera.Chat
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

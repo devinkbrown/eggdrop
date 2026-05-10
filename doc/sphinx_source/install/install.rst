@@ -4,113 +4,162 @@
 Installing Eggdrop
 =======================================
 
-This is the quick install guide; if you have had little or no experience
-with UNIX or Eggdrop, READ THE README FILE NOW! This file is best for
-experienced users.
+This is the quick install guide. If you are new to Eggdrop or UNIX-like systems, **READ the README file first**. This guide assumes familiarity with command-line tools.
 
-For more information on compiling Eggdrop, see the Compile Guide in
-doc/COMPILE-GUIDE (and of course, the README FILE).
+For advanced topics, see the README file and the build system documentation.
 
-Quick Startup
+Prerequisites
 -------------
 
-Eggdrop uses the GNU autoconfigure scripts to make things easier.
+Before installing Eggdrop, ensure you have:
 
-1. Type './configure' from the Eggdrop directory. The configure script
-     will determine how your system is set up and figure out how to
-     correctly compile Eggdrop. It will also try to find Tcl, which is
-     required to compile.
+1. **Tcl Development Library** (8.5.0 or newer)
+   - Includes both the Tcl runtime and development headers
+   - Install via your system package manager (e.g., ``tcl-dev`` on Debian, ``tcl-devel`` on Fedora)
+   - Verify with: ``tclsh`` (should give you a ``%`` prompt; type ``exit`` to quit)
 
-2. Type either 'make config' or 'make iconfig' to determine which
-     modules will be compiled. 'make config' compiles the default modules
-     (everything but woobie.mod). If you want to choose which modules to
-     compile, use 'make iconfig'.
+2. **Meson and Ninja** (build tools)
+   - Install via your system package manager (e.g., ``meson ninja-build`` on Debian)
 
-3. Type 'make' from the Eggdrop directory, or to force a statically
-     linked module bot, type 'make static'. Otherwise, the Makefile will
-     compile whatever type of bot the configure script determined your
-     system will support. Dynamic is always the better way to go if
-     possible. There are also the 'debug' and 'sdebug' (static-debug)
-     options, which will give more detailed output on a (highly unlikely :)
-     crash. This will help the development team track down the crash and
-     fix the bug. Debug and sdebug will take a little longer to compile
-     and will enlarge the binary a bit, but it's worth it if you want to
-     support Eggdrop development.
+3. **Python 3.8+** (optional, only if you want the Python module)
 
-4. Eggdrop must be installed in a directory somewhere. This is
-     accomplished by entering the UNIX command::
+4. **zlib** (optional, only if you want the compression module)
 
-       make install
+**TLS Support Note**: Eggdrop includes opssl, a custom bundled TLS library that supports TLS 1.2 and 1.3. No external library installation is needed. TLS can be disabled at build time if desired.
 
-     This will install the Eggdrop in your home directory in a directory
-     called 'eggdrop' (i.e. /home/user/eggdrop).
+Quick Build and Install
+-----------------------
 
-     If you want to install to a different directory, use::
+1. Extract the Eggdrop source code
 
-           make install DEST=<directory>
+   From a release tarball::
 
-     For example::
+     tar xzf eggdrop-1.10.1.tar.gz
+     cd eggdrop-1.10.1
 
-       make install DEST=/home/user/otherdir
+   Or from git::
 
-     Note that you must use full path for every file to be correctly
-     installed.
+     git clone https://github.com/eggheads/eggdrop.git
+     cd eggdrop
 
-5. Since version 1.8, Eggdrop can use TLS to protect botnet links. TLS is provided by opssl, a custom TLS library bundled with Eggdrop -- no external TLS library installation is needed. If you intend on protecting botnet traffic between Eggdrops, you must generate TLS certificates by running::
+2. Configure the build with Meson
 
-        make sslcert
+   From the Eggdrop source directory, run::
 
-     Or, if you installed your eggdrop to a different directory in step 4, you
-     will want to run:
+     meson setup builddir
 
-       make sslcert DEST=<directory>
+   This creates a build directory and detects your system configuration. Meson will automatically find Tcl and other required libraries.
 
-    For those using scripts to install Eggdrop, you can non-interactively
-    generate a key and certificate by running:
+   To customize the build, use options like::
 
-       make sslsilent
+     meson setup builddir -Dtls=disabled    # Disable TLS support
+     meson setup builddir -Dpython=enabled  # Enable Python module
 
-     Read docs/TLS for more info on this process.
+   To see all available options::
 
-[The following steps are performed in the directory you just installed Eggdrop into from the previous step]
+     meson setup builddir --help
 
-6. Edit your config file completely.
+3. Compile Eggdrop
 
-7. Start the bot with the "-m" option to create a user file, i.e. ::
+   From the source directory::
 
-       ./eggdrop -m LamestBot.conf
+     ninja -C builddir
 
-8. When starting the bot in the future, drop the "-m". If you have edited
-     your config file correctly, you can type::
+   This compiles the bot and all enabled modules. The build output is in ``builddir/``.
 
-       chmod u+x <my-config-file-name>
+4. Install to a destination directory
 
-     For example::
+   Default installation (to your home directory under ``eggdrop/``)::
 
-       chmod u+x LamestBot.conf
+     meson install -C builddir
 
-     From then on, you will be able to use your config file as a shell
-     script. You can just type "./LamestBot.conf" from your shell prompt
-     to start up your bot. For this to work, the top line of your script
-     MUST contain the correct path to the Eggdrop executable.
+   Install to a custom location::
 
-9. It's advisable to run your bot via crontab, so that it will
-     automatically restart if the machine goes down or (heaven forbid)
-     the bot should crash. Eggdrop includes a helper script to auto-generate either a systemd or crontab entry. To add a systemd job, run::
+     meson install -C builddir --destdir=/path/to/install
 
-        ./scripts/autobotchk [yourconfig.conf] -systemd
+   For example::
 
-    or to add a crontab job, run::
+     meson install -C builddir --destdir=$HOME/mybot
 
-        ./scripts/autobotchk [yourconfig.conf]
+5. Generate TLS certificates (optional but recommended)
 
-10. Smile. You have an Eggdrop!
+   If you plan to use TLS for botnet links or IRC connections, generate certificates::
 
-Cygwin Requirements (Windows)
-----------------------------------------
+     cd /path/to/installed/eggdrop
+     ./scripts/genssl.sh
 
-Eggdrop requires the following packages to be added from the Cygwin
-installation tool prior to compiling:
+   This creates ``eggdrop.crt`` and ``eggdrop.key`` in the install directory.
+
+   For scripted/non-interactive generation::
+
+     ./scripts/genssl.sh -s
+
+   Read `TLS Setup <../tutorials/tlssetup.html>`_ for more information.
+
+6. Edit your configuration file
+
+   A sample configuration file is provided at ``eggdrop.toml.sample``. Copy and customize it::
+
+     cp eggdrop.toml.sample eggdrop.toml
+     # Edit eggdrop.toml with your text editor
+
+   See `Core Settings <../using/core.html>`_ for a complete guide to configuration options.
+
+7. Create a user file (first run)
+
+   Start the bot with the ``-m`` flag to create a user file::
+
+     ./eggdrop -m eggdrop.toml
+
+   This creates the user file with the owner(s) specified in the configuration.
+
+8. Start the bot normally
+
+   From future runs, simply::
+
+     ./eggdrop eggdrop.toml
+
+   Or run in foreground/terminal mode for debugging::
+
+     ./eggdrop -t eggdrop.toml
+
+9. Set up automatic restarts (optional)
+
+   Eggdrop includes a helper script to set up systemd or crontab monitoring::
+
+     ./scripts/autobotchk eggdrop.toml -systemd
+
+   Or for crontab::
+
+     ./scripts/autobotchk eggdrop.toml
+
+   See the README file for more autobotchk options.
+
+Build Options Reference
+-----------------------
+
+Common Meson build options for Eggdrop:
+
++------------------+---------------------+------------------------------------------+
+| Option           | Default             | Description                              |
++==================+=====================+==========================================+
+| ``-Dtls``        | ``enabled``         | TLS 1.2/1.3 support (opssl bundled)      |
++------------------+---------------------+------------------------------------------+
+| ``-Dpython``     | ``disabled``        | Python 3.8+ module support               |
++------------------+---------------------+------------------------------------------+
+| ``-Dcompression``| ``disabled``        | Zlib compression module                  |
++------------------+---------------------+------------------------------------------+
+| ``-Dwebui``      | ``disabled``        | Web UI module (requires TLS)             |
++------------------+---------------------+------------------------------------------+
+
+To enable an option::
+
+  meson setup builddir -Doption=enabled
+
+Cygwin/Windows Requirements
+---------------------------
+
+Eggdrop can be compiled on Windows via Cygwin. Install the following packages via the Cygwin installer:
 
 ::
 
@@ -118,28 +167,130 @@ installation tool prior to compiling:
   Devel:        gcc-core, git, make, meson, ninja
   Libs:         zlib-devel
 
+Then follow the standard build instructions above.
+
 Modules
 -------
 
-Modules are small pieces of code that can either be compiled into the
-binary or can be compiled separately into a file. This allows for a much
-smaller binary.
+Modules are optional feature components that can be loaded at runtime via the configuration file. They are compiled during the normal build process.
 
-If there are any modules that you have made or downloaded, you can add
-them to the bot by placing them in the /src/mod directory with a mod
-extension. They will be automatically compiled during make for you.
-They must have a valid Makefile and, of course, be compatible with
-the rest of the Eggdrop source.
+**Built-in modules** (always compiled):
 
-If you wish to add a module at a later time, follow the same steps in
-paragraph 2. After you have moved the appropriate files, you will only
-need to type 'make modules' to compile only the modules portion of the
-bot.
+- ``pbkdf2`` — Generation-2 userfile encryption
+- ``blowfish`` — Legacy userfile encryption support
+- ``channels`` — Channel tracking and management
+- ``server`` — Core IRC server support
+- ``ctcp`` — CTCP protocol support
+- ``irc`` — Basic IRC functionality
+- ``notes`` — Offline message storage
+- ``console`` — Partyline settings persistence
+- ``uptime`` — Uptime reporting
 
-This is the end. If you read to this point, hopefully you have also read
-the README file. If not, then READ IT!&@#%@!
+**Optional modules** (enable in ``eggdrop.toml``):
 
-Have fun with Eggdrop!
+- ``transfer`` — DCC SEND/GET and userfile transfer
+- ``share`` — Userfile sharing between botnets
+- ``compress`` — Compression for file transfer
+- ``filesys`` — Built-in file server
+- ``seen`` — !seen command functionality
+- ``assoc`` — Party-line channel naming
+- ``ident`` — Ident daemon support
+- ``twitch`` — Twitch gaming service support
+- ``python`` — Python 3.8+ scripting
+- ``webui`` — Browser-based administration UI
 
-  Copyright (C) 1997 Robey Pointer
-  Copyright (C) 1999 - 2025 Eggheads Development Team
+To load modules, edit the ``[modules]`` section in your ``eggdrop.toml``.
+
+Custom Modules
+^^^^^^^^^^^^^^
+
+Third-party modules can be added to the ``src/mod/`` directory before building. Meson will automatically detect and compile them. Modules must include proper Meson build integration.
+
+Advanced Build Topics
+---------------------
+
+Rebuilding
+^^^^^^^^^^
+
+To rebuild after changing source code or configuration options::
+
+  ninja -C builddir
+  meson install -C builddir --destdir=/path/to/install
+
+Static vs. Dynamic Builds
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Eggdrop uses dynamic modules by default (modules are separate ``.so`` files loaded at runtime). This provides flexibility and smaller binary size. Dynamic builds are recommended for most users.
+
+If you need a static build, use::
+
+  meson setup builddir -Ddefault_library=static
+
+Debug Builds
+^^^^^^^^^^^^
+
+For debug builds with additional logging and debugging symbols::
+
+  meson setup builddir -Dbuildtype=debug
+  ninja -C builddir
+
+This produces larger binaries but helps the Eggdrop developers track down and fix issues. Please include debug information when reporting crashes.
+
+Troubleshooting
+---------------
+
+Build fails with "tcl.h not found"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Install the Tcl development headers. On Debian/Ubuntu::
+
+  sudo apt-get install tcl-dev
+
+On Fedora/RHEL::
+
+  sudo dnf install tcl-devel
+
+On macOS::
+
+  brew install tcl-tk
+
+Build fails with "Meson not found"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Install Meson. On most systems::
+
+  sudo apt-get install meson        # Debian/Ubuntu
+  sudo dnf install meson            # Fedora/RHEL
+  brew install meson                # macOS
+
+Build fails with other dependency errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Run ``meson setup builddir --wipe`` to clear the build directory and start fresh::
+
+  rm -rf builddir
+  meson setup builddir
+
+Then try again. If the issue persists, check that all prerequisites are installed.
+
+Uninstalling
+------------
+
+To remove Eggdrop, simply delete the installation directory::
+
+  rm -rf /path/to/installed/eggdrop
+
+User files and configuration files are not deleted automatically.
+
+Next Steps
+----------
+
+After installation, see:
+
+- `First Steps with Eggdrop <../tutorials/firststeps.html>`_ — basic setup and commands
+- `Core Settings <../using/core.html>`_ — configuration reference
+- `TLS Setup <../tutorials/tlssetup.html>`_ — secure connections
+- `Writing Scripts <../tutorials/firstscript.html>`_ — Tcl/Python scripting
+
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999 - 2025 Eggheads Development Team

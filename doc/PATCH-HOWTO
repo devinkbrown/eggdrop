@@ -1,37 +1,126 @@
+Patching and Contributing to Eggdrop
+
 Patching Eggdrop
 
-Eggdrop is an open source project that depends on contributions of its
-users- like you! If you come across a feature you'd like to see
-implemented, find a bug, or think the documentation could be made more
-clear, you can open an issue on GitHub to discuss your ideas, and then
-submit a Pull Request to implement it!
+  Eggdrop is an open source project that depends on contributions from
+  users like you. If you come across a feature you'd like to see
+  implemented, find a bug, or think the documentation could be clearer,
+  you can open an issue on GitHub to discuss your ideas and then submit
+  a Pull Request to implement it.
 
 SUBMITTING A PATCH VIA GITHUB
 
-To create a patch via github:
+  To create and submit a patch via GitHub:
 
-  1.  Fork the eggdrop git repo by logging in to your GitHub account and
-      clicking the fork button at the top of the screen. Follow the
-      directions it provides to configure your local repo.
+  1. Fork the eggdrop repository:
 
-  2.  Enter the local directory and create a new branch for your patch:
+     Visit https://github.com/eggheads/eggdrop and click the fork
+     button. Follow the directions provided to configure your local
+     clone.
 
-          git checkout -b <DescriptiveBranchName>
+  2. Create a new branch for your changes:
 
-  3.  Make your changes
+       git checkout -b <DescriptiveBranchName>
 
-  4.  Once you confirm your patch works, push the changes back to your
-      GitHub repo - this is usually done by something similar to:
+     For example:
 
-          git push origin <DescriptiveBranchName>
+       git checkout -b fix-ipv6-crash
+       git checkout -b feature-better-logging
 
-  5.  Create a pull request by clicking on the "Pull Request" button on
-      your GitHub page. Select the appropriate branches (usually
-      eggheads/eggdrop/develop and yourUserName/eggdrop/YourBranchName)
+  3. Make your changes and test them thoroughly:
 
-  6.  Fill in the Pull Request template and submit
+       meson setup builddir
+       ninja -C builddir
+       # Test your changes before committing
 
-  7.  Pour yourself a cold one and bask in the warm feeling of
-      contributing to the open source community! Karma++!
+  4. Commit your changes with a clear, descriptive message:
 
-Copyright (C) 1999 - 2025 Eggheads Development Team
+       git add <files>
+       git commit -m "brief description of change
+
+       Longer explanation if needed. Reference issue #123 if applicable."
+
+  5. Push your changes to your GitHub fork:
+
+       git push origin <DescriptiveBranchName>
+
+  6. Create a Pull Request:
+
+     Visit your GitHub fork and click the "Compare & pull request"
+     button. Select the appropriate branches (usually
+     eggheads/eggdrop:develop and your-user/eggdrop:your-branch-name).
+
+  7. Fill in the Pull Request template and submit.
+
+  8. Pour yourself a cold one and bask in the warm feeling of
+     contributing to the open source community! Karma++!
+
+CREATING A PATCH FILE (ALTERNATIVE METHOD)
+
+  If you prefer to create a patch file instead of using GitHub:
+
+  1. Make your changes in a clean checkout of Eggdrop.
+
+  2. Create a patch file:
+
+       git diff > my-fix.patch
+
+  3. Email the patch file to: bugs@eggheads.org
+
+  Make sure your patch:
+    - Applies cleanly to the develop branch
+    - Does not introduce unnecessary whitespace changes
+    - Includes a clear description of what it fixes or adds
+    - Is accompanied by any relevant test cases
+
+COMMIT MESSAGE FORMAT
+
+  Follow this format for commit messages:
+
+    <type>: <brief description>
+
+    <optional longer explanation>
+
+  Where <type> is one of:
+    - feat: A new feature
+    - fix: A bug fix
+    - refactor: Code refactoring without feature/fix changes
+    - docs: Documentation updates
+    - test: Test additions or fixes
+    - chore: Build system, dependency, or tooling changes
+    - perf: Performance improvements
+
+  Examples:
+
+    fix: prevent crash on invalid IPv6 address
+    refactor: simplify botnet handshake logic
+    feat: add support for SASL SCRAM-SHA-512
+    docs: update TLS configuration examples
+
+PULL REQUEST GUIDELINES
+
+  To increase the likelihood your PR will be merged:
+
+  1. Make sure your PR addresses a single concern or feature.
+
+  2. Include tests for new functionality.
+
+  3. Update documentation if your change affects user-visible behavior.
+
+  4. Ensure all tests pass:
+
+       meson test -C builddir
+
+  5. Check for compiler warnings:
+
+       ninja -C builddir
+       # Fix any warnings
+
+  6. Keep your commits clean and atomic (one logical change per commit).
+
+  7. Reference related issues in your PR description:
+
+       Fixes #123
+       Related to #456
+
+  Copyright (C) 1999 - 2025 Eggheads Development Team

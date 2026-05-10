@@ -1,488 +1,347 @@
-Last revised: October 25, 2010
+Last revised: May 10, 2026
 
 Channels Module
 
-This module provides channel related support for the bot. Without it,
-you won't be able to make the bot join a channel or save channel
-specific userfile information.
+This module provides channel tracking and management for the bot. Without
+it, the bot cannot join channels or maintain channel-specific user
+information.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the channels
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule channels
+  [modules]
+  load = [
+    "channels",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set chanfile "LamestBot.chan"
+CONFIGURATION
 
-      Enter here the filename where dynamic channel settings are stored.
+Channel defaults (applies to all channels):
 
-  set force-expire 0
+  [channels]
+  list = ["#egghelp", "#lamest"]
 
-      Set this setting to 1 if you want your bot to expire
-      bans/exempts/invites set by other opped bots on the channel.
+      Channels the bot joins at startup. Can be static (defined here) or
+      dynamic (added via .channel add command at runtime).
 
-  set share-greet 0
+  use_info = 1
 
-      Set this setting to 1 if you want your bot to share user greets
-      with other bots on the channel if sharing user data.
+      Show user info/URL in public channels (0 = off, 1 = on).
 
-  set use-info 1
+  allow_ps = 0
 
-      Set this setting to 1 if you want to allow users to store an info
-      line.
+      Allow +p and +s channel modes simultaneously. Requires server
+      support; leave at 0 unless your network allows it.
 
-  set allow-ps 0
+  share_greet = 0
 
-      Set this setting to 1 if you want to allow both +p and +s channel
-      modes to be enforced at the same time by the chanmode channel
-      setting. Make sure your server supports +ps mixing or you may get
-      endless mode floods.
+      Share greeting messages with other linked bots (0 = off, 1 = on).
 
-  channel add #channel { SETTINGS }
+  default_chanmode = "nt"
 
-      Add each static channel you want your bot to sit in using this
-      command. There are many different possible settings you can insert
-      into this command, which are explained below.
+      Default channel modes enforced on all managed channels. Examples:
+      "nt" = +n (no external messages) +t (topic by ops)
+      "nts" = +n +t +s (secret channel)
 
-      chanmode +/-<modes>
+      The bot will add/remove modes to match this setting.
 
-          This setting makes the bot enforce channel modes. It will
-          always add the +<modes> and remove the -<modes> modes.
+  default_ban_time = 120
 
-      idle-kick 0
+      Default lifetime (in minutes) for temporary bans. 0 = permanent ban.
 
-          This setting will make the bot check every minute for idle
-          users. Set this to 0 to disable idle check.
+  default_exempt_time = 60
 
-      stopnethack-mode 0
+      Default lifetime (in minutes) for temporary exempts.
 
-          This setting will make the bot de-op anyone who enters the
-          channel with serverops. There are seven different modes for
-          this settings:
+  default_invite_time = 60
 
-            +---+--------------------------------------------------------+
-            | 0 | turn off                                               |
-            +---+--------------------------------------------------------+
-            | 1 | isoptest (allow serverop if registered op)             |
-            +---+--------------------------------------------------------+
-            | 2 | wasoptest (allow serverop if user had op before split) |
-            +---+--------------------------------------------------------+
-            | 3 | allow serverop if isop or wasop                        |
-            +---+--------------------------------------------------------+
-            | 4 | allow serverop if isop and wasop.                      |
-            +---+--------------------------------------------------------+
-            | 5 |   If the channel is -bitch, see stopnethack-mode 3     |
-            |   |                                                        |
-            |   | ---                                                    |
-            |   | -----------------------------------------------------+ |
-            |   |                                                        |
-            |   |     If the channel is +bitch, see stopnethack-mode 1   |
-            | - |                                                        |
-            |   |                                                        |
-            |   |                                                        |
-            |   |                                                        |
-            +---+--------------------------------------------------------+
-            | 6 |   If the channel is -bitch, see stopnethack-mode 2     |
-            |   |                                                        |
-            |   | ---                                                    |
-            |   | -----------------------------------------------------+ |
-            |   |                                                        |
-            |   |     If the channel is +bitch, see stopnethack-mode 4   |
-            | - |                                                        |
-            |   |                                                        |
-            |   |                                                        |
-            |   |                                                        |
-            +---+--------------------------------------------------------+
+      Default lifetime (in minutes) for temporary invites.
 
-      revenge-mode 0
+  default_ban_type = 3
 
-          This settings defines how the bot should punish bad users when
-          revenging. There are four possible settings:
+      Default ban mask type. Values:
+        0 = *!user@host          1 = *!*user@host
+        2 = *!*@host             3 = *!*user@*.host (default)
+        4 = *!*@*.host           5 = nick!user@host
+        6 = nick!*user@host      7 = nick!*@host
+        8 = nick!*user@*.host    9 = nick!*@*.host
 
-              --- -------------------------------------------------------------------
-              0   Deop the user.
+      Types 10-19: same as 0-9, but use '?' wildcard
+      Types 20-29: same as 0-9, but use '.' wildcard
+      Types 30-39: same as 0-9, but omit hostname entirely
 
-              1   Deop the user and give them the +d flag for the channel.
+  default_idle_kick = 0
 
-              2   Deop the user, give them the +d flag for the channel, and kick
-                  them.
+      Kick idle users after N minutes (0 = disabled). Checked every 60s.
 
-              3   Deop the user, give them the +d flag for the channel, kick, and ban
-                  them.
-              --- -------------------------------------------------------------------
+  default_flood_chan = "15:60"
 
-      ban-type 3
+      Public message flood threshold: N lines per S seconds. Example:
+      "15:60" = kick if user sends 15+ lines in 60 seconds.
 
-  This setting defines what type of bans should eggdrop place for +k
-  users or when revenge-mode is 3. Available types are:
+  default_flood_deop = "3:10"
 
-      --- ------------------------
-      0   *!user@host
+      Deop flood threshold: N deops per S seconds.
 
-      1   *!*user@host
+  default_flood_kick = "3:10"
 
-      2   *!*@host
+      Kick flood threshold: N kicks per S seconds.
 
-      3   *!*user@*.host
+  default_flood_join = "5:60"
 
-      4   !*@.host
+      Join flood threshold: N joins per S seconds.
 
-      5 n ick!user@host
+  default_flood_ctcp = "3:60"
 
-      6 n ick!*user@host
+      CTCP flood threshold: N requests per S seconds.
 
-      7 n ick!*@host
+  default_flood_nick = "5:60"
 
-      8 n ick!*user@*.host
+      Nick-change flood threshold: N changes per S seconds.
 
-      9 n ick!*@*.host
-      --- ------------------------
+  default_aop_delay = "5:30"
 
-  You can also specify types from 10 to 19 which correspond to types 0
-  to 9, but instead of using a * wildcard to replace portions of the
-  host, only numbers in hostnames are replaced with the '?' wildcard.
-  Same is valid for types 20-29, but instead of '?', the '' wildcard
-  will be used. Types 30-39 set the host to ''.
+      Auto-op delay: N-M seconds (random). Prevents sync-racing with
+      other bots. Example: "5:30" = 5-30 second delay before auto-opping.
 
-    ban-time 120
+  default_stopnethack_mode = 0
 
-        Set here how long temporary bans will last (in minutes). If you
-        set this setting to 0, the bot will never remove them.
+      Netsplit protection strictness (0 = off, 1-6 = increasing levels).
+      Modes 1-4 prevent de-opped serverops. Modes 5-6 adapt based on
+      channel +bitch flag. See per-channel settings for details.
 
-    exempt-time 60
+  default_revenge_mode = 0
 
-        Set here how long temporary exempts will last (in minutes). If
-        you set this setting to 0, the bot will never remove them. The
-        bot will check the exempts every X minutes, but will not remove
-        the exempt if a ban is set on the channel that matches that
-        exempt. Once the ban is removed, then the exempt will be removed
-        the next time the bot checks. Please note that this is an IRCnet
-        feature.
+      How to punish users who deop/kick/ban the bot:
+        0 = deop user
+        1 = deop + set +d (deny) flag
+        2 = deop + +d + kick
+        3 = deop + +d + kick + ban
 
-    invite-time 60
 
-        Set here how long temporary invites will last (in minutes). If
-        you set this setting to 0, the bot will never remove them. The
-        bot will check the invites every X minutes, but will not remove
-        the invite if a channel is set to +i. Once the channel is -i
-        then the invite will be removed the next time the bot checks.
-        Please note that this is an IRCnet feature.
+PER-CHANNEL SETTINGS
 
-    aop-delay (minimum:maximum)
+Create a [[chanset]] block for each channel to customize behavior. The
+channel must exist in [channels].list or be added at runtime.
 
-        This is used for autoop, autohalfop, autovoice. If an op or
-        voice joins a channel while another op or voice is pending, the
-        bot will attempt to put both modes on one line.
+  [[chanset]]
+  channel = "#egghelp"
+  chanmode = "+nts"
+  idle_kick = 30
+  bitch = true
+  protectops = true
 
-            -------------- -----------------------------------------
-            aop-delay 0    No delay is used.
+      All per-channel settings override the defaults above. Available
+      settings:
 
-            aop-delay X    An X second delay is used.
+      chanmode = "+modes"
+          Channel modes enforced on this channel.
 
-            aop-delay X:Y  A random delay between X and Y is used.
-            -------------- -----------------------------------------
+      idle_kick = N
+          Kick idle users after N minutes (0 = disabled).
 
-        need-op { putserv "PRIVMSG #lamest :op me cos i'm lame!" }
+      stopnethack_mode = N
+          Netsplit protection strictness (0-6):
+            0 = off
+            1 = isoptest (allow serverop if registered op)
+            2 = wasoptest (allow serverop if op before split)
+            3 = allow serverop if isop or wasop
+            4 = allow serverop if isop and wasop
+            5 = if -bitch: mode 3, if +bitch: mode 1
+            6 = if -bitch: mode 2, if +bitch: mode 4
 
-            This setting will make the bot run the script enclosed in
-            braces if it does not have ops. This must be shorter than
-            120 characters. If you use scripts like getops.tcl or
-            botnetop.tcl, you don't need to set this setting.
+      revenge_mode = N
+          Punishment for bad actors (0-3):
+            0 = deop
+            1 = deop + +d flag
+            2 = deop + +d + kick
+            3 = deop + +d + kick + ban
 
-        need-invite { putserv "PRIVMSG #lamest :let me in!" }
+      ban_type = N
+          Ban mask format (see default_ban_type above).
 
-            This setting will make the bot run the script enclosed in
-            braces if it needs an invite to the channel. This must be
-            shorter than 120 characters. If you use scripts like
-            getops.tcl or botnetop.tcl, you don't need to set this
-            setting.
+      ban_time = N
+          Temporary ban lifetime in minutes (0 = permanent).
 
-        need-key { putserv "PRIVMSG #lamest :let me in!" }
+      exempt_time = N
+          Temporary exempt lifetime in minutes.
 
-            This setting will make the bot run the script enclosed in
-            braces if it needs the key to the channel. This must be
-            shorter than 120 characters. If you use scripts like
-            getops.tcl or botnetop.tcl, you don't need to set this
-            setting.
+      invite_time = N
+          Temporary invite lifetime in minutes.
 
-        need-unban { putserv "PRIVMSG #lamest :let me in!" }
+      flood_chan = "N:S"
+          Public message flood: N lines per S seconds.
 
-            This setting will make the bot run the script enclosed in
-            braces if it needs to be unbanned on the channel. This must
-            be shorter than 120 characters. If you use scripts like
-            getops.tcl or botnetop.tcl, you don't need to set this
-            setting.
+      flood_ctcp = "N:S"
+          CTCP flood threshold.
 
-        need-limit { putserv "PRIVMSG #lamest :let me in!" }
+      flood_join = "N:S"
+          Join flood threshold.
 
-            This setting will make the bot run the script enclosed in
-            braces if it needs the limit to be raised on the channel.
-            This must be shorter than 120 characters. If you use scripts
-            like getops.tcl or botnetop.tcl, you don't need to set this
-            setting.
+      flood_kick = "N:S"
+          Kick flood threshold.
 
-        flood-chan 15:60
+      flood_deop = "N:S"
+          Deop flood threshold.
 
-            Set here how many channel messages in how many seconds from
-            one host constitutes a flood. Setting this to 0, 0:X or X:0
-            disables text flood protection for the channel, where X is
-            an integer >= 0.
+      flood_nick = "N:S"
+          Nick-change flood threshold.
 
-        flood-deop 3:10
+      aop_delay = "N:M"
+          Auto-op delay: N-M seconds (random).
 
-            Set here how many deops in how many seconds from one host
-            constitutes a flood. Setting this to 0, 0:X or X:0 disables
-            deop flood protection for the channel, where X is an
-            integer >= 0.
+      need_op = "tcl_script"
+          Tcl script executed when bot needs ops on channel.
 
-        flood-kick 3:10
+      need_invite = "tcl_script"
+          Tcl script executed when bot needs an invite.
 
-            Set here how many kicks in how many seconds from one host
-            constitutes a flood. Setting this to 0, 0:X or X:0 disables
-            kick flood protection for the channel, where X is an
-            integer >= 0.
+      need_key = "tcl_script"
+          Tcl script executed when bot needs the channel key (+k).
 
-        flood-join 5:60
+      need_unban = "tcl_script"
+          Tcl script executed when bot is banned.
 
-            Set here how many joins in how many seconds from one host
-            constitutes a flood. Setting this to 0, 0:X or X:0 disables
-            join flood protection for the channel, where X is an
-            integer >= 0.
+      need_limit = "tcl_script"
+          Tcl script executed when channel reaches user limit.
 
-        flood-ctcp 3:60
+      ownerkey = "key"
+          OWNERKEY credential for +q owner mode (Ophion/IRCX only).
 
-            Set here how many channel ctcps in how many seconds from one
-            host constitutes a flood. Setting this to 0, 0:X or X:0
-            disables ctcp flood protection for the channel, where X is
-            an integer >= 0.
+      ircx_create = true/false
+          Create channel via IRCX CREATE if it doesn't exist (Ophion).
 
-        flood-nick 5:60
+      ircx_create_modes = "+modes"
+          Modes applied after IRCX CREATE (Ophion only).
 
-            Set here how many nick changes in how many seconds from one
-            host constitutes a flood. Setting this to 0, 0:X or X:0
-            disables nick flood protection for the channel, where X is
-            an integer >= 0.
+  Boolean channel flags (true = enable, false = disable):
 
-  channel set <chan> +/-<setting>
+      autoop = false
+          Auto-op users with +o flag on join. Not recommended; use
+          protectops instead.
 
-      There are many different options for channels which you can
-      define. They can be enabled or disabled by a plus or minus in
-      front of them.
+      autohalfop = false
+          Auto-halfop users with +l flag on join.
 
-      A complete list of all available channel settings:
+      autovoice = false
+          Auto-voice users with +v flag on join.
 
-        enforcebans
+      bitch = true
+          Only users with +o flag may hold ops (strict op restriction).
 
-            When a ban is set, kick people who are on the channel and
-            match the ban?
+      cycle = false
+          Cycle (PART/JOIN) the channel when all ops are deoped.
 
-        dynamicbans
+      dontkickops = true
+          Never kick ops. Prevents fighting with other bots.
 
-            Only activate bans on the channel when necessary? This keeps
-            the channel's ban list from getting excessively long. The
-            bot still remembers every ban, but it only activates a ban
-            on the channel when it sees someone join who matches that
-            ban.
+      dynamicbans = true
+          Activate bans only when needed (reduces ban list).
 
-        userbans
+      dynamicexempts = true
+          Activate exempts only when needed.
 
-            Allow bans to be made by users directly? If turned off, the
-            bot will require all bans to be made through the bot's
-            console.
+      dynamicinvites = true
+          Activate invites only when needed.
 
-        dynamicexempts
+      enforcebans = true
+          Kick users matching a ban when the ban is set.
 
-            Only activate exempts on the channel when necessary? This
-            keeps the channel's exempt list from getting excessively
-            long. The bot still remembers every exempt, but it only
-            activates a exempt on the channel when it sees a ban set
-            that matches the exempt. The exempt remains active on the
-            channel for as long as the ban is still active.
+      greet = true
+          Announce user's info line when they join.
 
-        userexempts
+      inactive = false
+          Skip this channel (don't join). Preserves settings.
 
-            Allow exempts to be made by users directly? If turned off,
-            the bot will require all exempts to be made through the
-            bot's console.
+      nodesynch = false
+          Allow non-ops to set modes (prevents mode-fighting with
+          services).
 
-        dynamicinvites
+      protectfriends = false
+          Re-op users with +f flag if deopped.
 
-            Only activate invites on the channel when necessary? This
-            keeps the channel's invite list from getting excessively
-            long. The bot still remembers every invite, but the invites
-            are only activated when the channel is set to invite only
-            and a user joins after requesting an invite. Once set, the
-            invite remains until the channel goes to -i.
+      protecthalfops = false
+          Re-halfop users with +l flag if dehalfopped.
 
-        userinvites
+      protectops = true
+          Re-op users with +o flag if deopped. Recommended.
 
-            Allow invites to be made by users directly? If turned off,
-            the bot will require all invites to be made through the
-            bot's console.
+      revenge = true
+          Punish users who deop/kick/ban the bot or valid ops.
 
-        autoop
+      revengebot = false
+          Like revenge, but only triggered by other bots.
 
-            Op users with the +o flag as soon as they join the channel?
-            This is insecure and not recommended.
+      secret = false
+          Hide this channel from botnet listings.
 
-        autohalfop
+      seen = true
+          Respond to !seen queries in the channel.
 
-            Halfop users with the +l flag as soon as they join the
-            channel? This is insecure and not recommended.
+      shared = true
+          Share channel user data with linked bots.
 
-        bitch
+      static = true
+          Channel cannot be removed dynamically (.channel del disabled).
 
-            Only let users with the +o flag have op on the channel?
+      statuslog = false
+          Log channel status line every 5 minutes.
 
-        greet
+      userbans = true
+          Allow users to set bans directly (disable to restrict).
 
-            Say a user's info line when they join the channel?
+      userexempts = true
+          Allow users to set exempts directly.
 
-        protectops
+      userinvites = true
+          Allow users to set invites directly.
 
-            Re-op a user with the +o flag if they get deopped?
 
-        protecthalfops
+EXAMPLE CONFIGURATION
 
-            Re-halfop a user with the +l flag if they get dehalfopped?
+  [[chanset]]
+  channel = "#general"
+  chanmode = "+nts"
+  protectops = true
+  revenge_mode = 1
+  idle_kick = 30
 
-        protectfriends
+      This channel:
+      - Enforces +n +t +s modes
+      - Re-ops users with +o flag if deopped
+      - Deos and flags users who deop the bot
+      - Kicks idle users after 30 minutes
 
-            Re-op a user with the +f flag if they get deopped?
 
-        statuslog
+  [[chanset]]
+  channel = "#private"
+  chanmode = "+insk mykey"
+  bitch = true
+  protectops = true
+  cycle = false
+  dynamicbans = true
 
-            Log the channel status line every 5 minutes? This shows the
-            bot's status on the channel (op, voice, etc.), the channel's
-            modes, and the total number of members, ops, voices, regular
-            users, and +b, +e, and +I modes on the channel. A sample
-            status line follows:
+      Private channel with:
+      - Invite-only (+i), no externals (+n), secret (+s), keyed (+k)
+      - Strict ops only (+bitch)
+      - Re-op users on deop
+      - Dynamic bans (only active when needed)
 
-              [01:40] @#lamest (+istn) : [m/1 o/1 v/4 n/7 b/1 e/5 I/7]
 
-        revenge
+DEPENDENCIES
 
-            Remember people who deop/kick/ban the bot, valid ops, or
-            friends and punish them? Users with the +f flag are exempt
-            from revenge.
+This module has no external dependencies. It requires only the core
+Eggdrop engine.
 
-        revengebot
+NOTES
 
-            This is similar to to the 'revenge' option, but it only
-            triggers if a bot gets deopped, kicked or banned.
+- Channel settings persist in the LMDB database or flat-file store.
+- Per-channel settings override defaults defined in [channels] section.
+- Changes to .chanset at runtime are saved and persist across restarts.
+- The bot must have ops to enforce channel modes and bans.
+- Ban expiration is controlled by ban_time, exempt_time, invite_time.
 
-        autovoice
 
-            Voice users with the +v flag when they join the channel?
-
-        secret
-
-            Prevent this channel from being listed on the botnet?
-
-        shared
-
-            Share channel-related user info for this channel?
-
-        cycle
-
-            Cycle the channel when it has no ops?
-
-        dontkickops
-
-            Do you want the bot not to be able to kick users who have
-            the +o flag, letting them kick-flood for instance to protect
-            the channel against clone attacks?
-
-        inactive
-
-            This prevents the bot from joining the channel (or makes it
-            leave the channel if it is already there). It can be useful
-            to make the bot leave a channel without losing its settings,
-            channel-specific user flags, channel bans, and without
-            affecting sharing.
-
-        seen
-
-            Respond to seen requests in the channel? The seen module
-            must be loaded for this to work.
-
-        nodesynch
-
-            Allow non-ops to perform channel modes? This can stop the
-            bot from fighting with services such as ChanServ, or from
-            kicking IRCops when setting channel modes without having
-            ops.
-
-        static
-
-            Allow only permanent owners to remove the channel?
-
-  The following settings are used as default values when you .+chan
-  #chan or .tcl channel add #chan. Look in the section above for
-  explanation of every option.
-
-    set default-flood-chan 15:60
-
-    set default-flood-deop 3:10
-
-    set default-flood-kick 3:10
-
-    set default-flood-join 5:60
-
-    set default-flood-ctcp 3:60
-
-    set default-flood-nick 5:60
-
-    set default-aop-delay 5:30
-
-    set default-idle-kick 0
-
-    set default-chanmode "nt"
-
-    set default-stopnethack-mode 0
-
-    set default-revenge-mode 0
-
-    set default-ban-type 3
-
-    set default-ban-time 120
-
-    set default-exempt-time 60
-
-    set default-invite-time 60
-
-    set default-chanset {
-
-        -autoop
-        -autovoice
-        -bitch
-        +cycle
-        +dontkickops
-        +dynamicbans
-        +dynamicexempts
-        +dynamicinvites
-        -enforcebans
-        +greet
-        -inactive
-        -nodesynch
-        -protectfriends
-        +protectops
-        -revenge
-        -revengebot
-        -secret
-        -seen
-        +shared
-        -statuslog
-        +userbans
-        +userexempts
-        +userinvites
-        -protecthalfops
-        -autohalfop
-        -static
-
-    }
-
-  Copyright (C) 2000 - 2025 Eggheads Development Team
+Copyright (C) 1999 - 2025 Eggheads Development Team

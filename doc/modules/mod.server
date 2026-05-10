@@ -1,268 +1,237 @@
-Last revised: October 25, 2010
-
 Server Module
 
-This module provides the core server support. You have to load this if
-you want your bot to come on IRC. Not loading this is equivalent to the
-old NO_IRC define.
+This module provides core server connectivity. It is required for IRC
+connections.
 
-This module requires: none
+REQUIREMENTS
+
+None.
+
+LOADING
 
 Put this line into your Eggdrop configuration file to load the server
 module:
 
     loadmodule server
 
-There are also some variables you can set in your config file:
+CONFIGURATION
 
-  set net-type Efnet
+set net-type Libera
 
-      What is your network? Possible allowed values are Efnet, IRCnet,
-      Undernet, DALnet, Libera, freenode, Quakenet, Rizon, Other. If the
-      network you use is not listed, using "Other" is a good sane choice
-      and can be customized with settings both here and in the IRC
-      module sections of the config file.
+  Network type. Affects mode handling and default settings. Valid values:
+    Efnet, IRCnet, Undernet, DALnet, Libera, freenode, Quakenet,
+    Rizon, Twitch, Other
 
-  set nick "LamestBot"
+  Use "Other" for networks not listed. This can be customized further in
+  config with additional settings.
 
-      Set the nick the bot uses on IRC, and on the botnet unless you
-      specify a separate botnet-nick, here.
+set nick "LamestBot"
 
-  set altnick "L?m?stB?t"
+  Bot's IRC nickname. If unavailable, altnick is used.
 
-      Set the alternative nick which the bot uses on IRC if the nick
-      specified by 'set nick' is unavailable. All '?' characters will be
-      replaced by random numbers.
+set altnick "L?m?stB?t"
 
-  set keep-nick 1
+  Alternative nickname when primary is taken. '?' is replaced with random
+  digits. Example: L?m?st becomes L7m9st
 
-      This setting makes the bot try to get his original nickname back
-      if its primary nickname is already in use.
+set keep-nick 1
 
-  set realname "/msg LamestBot hello"
+  Continuously attempt to reclaim the primary nickname if it becomes
+  available. Set to 0 to keep the current nick.
 
-      Set here what to display in the real-name field for the bot.
+set realname "/msg LamestBot hello"
 
-      bind evnt - init-server evnt:init_server
-      proc evnt:init_server {type} {
-        global botnick
-        putquick "MODE $botnick +i-ws"
-      }
+  Real name displayed in /WHOIS. Can be used as a contact message.
 
-  ... is Tcl scripting that is run immediately after connecting to a
-  server.
+set init-server { putquick "MODE $botnick +i-ws" }
 
-      set init-server { putquick "MODE $botnick +i-ws" }
+  Tcl script executed immediately after connecting to server. Limited to
+  120 characters (deprecated; use evnt bind instead).
 
-  ... is Tcl scripting that is run immediately after connecting to a
-  server. It is limited to 120 characters, and is depriciated due to the
-  EVNT bind (see doc/tcl-commands.doc).
+  Modern approach:
 
-      set connect-server { putlog "Connecting to server." }
+    bind evnt - init-server evnt:init_server
+    proc evnt:init_server {type} {
+      global botnick
+      putquick "MODE $botnick +i-ws"
+    }
 
-  ... is Tcl scripting that is run immediately before connecting to a
-  server. It is limited to 120 characters, and is depriciated due to the
-  EVNT bind (see doc/tcl-commands.doc).
+set connect-server { putlog "Connecting to server." }
 
-      set disconnect-server { putlog "Disconnected from server." }
+  Tcl script executed before connecting. Limited to 120 characters
+  (deprecated; use evnt bind instead).
 
-  ... is a Tcl script that is run immediately after disconnecting from a
-  server. It is limited to 120 characters, and is depriciated due to the
-  EVNT bind (see doc/tcl-commands.doc).
+set disconnect-server { putlog "Disconnected from server." }
 
-      set servers {
-        you.need.to.change.this:6667
-        another.example.com:7000:password
-        [2001:db8:618:5c0:263::]:6669:password
-        ssl.example.net:+6697
-      }
+  Tcl script executed after disconnecting. Limited to 120 characters
+  (deprecated; use evnt bind instead).
 
-  ... is the bot's server list. The bot will start at the first server
-  listed, and cycle through them whenever it gets disconnected. You need
-  to change these servers to YOUR network's servers.
+set servers {
+  irc.libera.chat:6667
+  irc.libera.chat:+6697
+  irc.example.com:7000:password
+  [2001:db8:618:5c0:263::]:6669
+}
 
-    The format is:
+  List of servers to connect to. Format:
 
-        server[:port[:password]]
+    server[:port[:password]]
 
-    Prefix the port with a plus sign to attempt a SSL connection:
+  Prefix port with + for SSL/TLS:
 
-        server:+port[:password]
+    server:+port[:password]
 
-    Both the port and password fields are optional; however, if you want
-    to set a password or use SSL you must also set a port. If a port
-    isn't specified it will default to your default-port setting.
+  Default port is 6667 unless specified. Passwords are optional.
 
-  set default-port 6667
+set default-port 6667
 
-      Set the default port which should be used if none is specified
-      with '.jump' or in 'set servers'.
+  Default port when not specified in server list or .jump command.
 
-  set msg-rate 2
+set msg-rate 2
 
-      Number of seconds to wait between transmitting queued lines to the
-      server. Lower this value at your own risk. ircd is known to start
-      flood control at 512 bytes/2 seconds.
+  Seconds between sending queued lines to server. Minimum 2 (ircd flood
+  control at 512 bytes/2s). Lower values risk K-lines. Increase on
+  networks with stricter flood protection.
 
-  set ssl-verify-servers 0
+set ssl-verify-servers 0
 
-      Control certificate verification for servers. You can set this by
-      adding together the numbers for all exceptions you want to enable.
-      By default certificate verification is disabled and all
-      certificates are assumed to be valid. The numbers are the
-      following:
+  Certificate verification for SSL/TLS connections. Sum the values for
+  your desired exceptions:
 
-      The numbers are the following:
+    0  — disable verification (accept all certs)
+    1  — enable verification
+    2  — allow self-signed certificates
+    4  — don't check common/alt names
+    8  — allow expired certificates
+    16 — allow not-yet-valid certificates
+    32 — allow revoked certificates
 
-          ---- ---------------------------------------------
-          0    disable verification
+  Example: set ssl-verify-servers 3 (verify + allow self-signed)
 
-          1    enable certificate verification
+  Default: 0 (trust all certs, useful for private networks)
 
-          2    allow self-signed certificates
+set server-cycle-wait 60
 
-          4    don't check peer common or alt names
+  Seconds to wait before trying next server after disconnect. Set to 0 to
+  connect immediately (risk of K-line). Default: 60 seconds.
 
-          8    allow expired certificates
+set server-timeout 60
 
-          16   allow certificates which are not valid yet
+  Seconds to wait for a response when connecting before giving up and
+  trying the next server.
 
-          32   allow revoked certificates
-          ---- ---------------------------------------------
+set check-stoned 1
 
-  set server-cycle-wait 60
+  Monitor for "stoned" servers (connection dead but not detected by ircd).
+  Set to 1 to enable periodic checks.
 
-      This setting defines how long Eggdrop should wait before moving
-      from one server to another on disconnect. If you set 0 here,
-      Eggdrop will not wait at all and will connect instantly. Setting
-      this too low could result in your bot being K:Lined.
+set serverror-quit 1
 
-  set server-timeout 60
+  Quit the bot if it receives an ERROR message from the server. Set to 0
+  to ignore server errors.
 
-      Set here how long Eggdrop should wait for a response when
-      connecting to a server before giving up and moving on to next
-      server.
+set max-queue-msg 300
 
-  set check-stoned 1
+  Maximum lines to queue to the server. Increase when sending large text
+  dumps. Most bots only need 300.
 
-      Set this to 1 if Eggdrop should check for stoned servers? (where
-      the server connection has died, but Eggdrop hasn't been notified
-      yet).
+set quiet-reject 1
 
-  set serverror-quit 1
+  Suppress error messages when rejecting DCC CHAT, SEND, or message
+  commands. Reduces bot visibility to scanners.
 
-      If you want your bot to exit the server if it receives an ERROR
-      message, set this to 1.
+FLOOD PROTECTION
 
-  set max-queue-msg 300
+set flood-msg 5:60
 
-      Set here the maximum number of lines to queue to the server. If
-      you're going to dump large chunks of text to people over IRC, you
-      will probably want to raise this. 300 is fine for most people
-      though.
+  Message flood: 5 msgs per 60 seconds triggers flood protection.
+  Set to 0:0 to disable.
 
-  set quiet-reject 1
+set flood-ctcp 3:60
 
-      This setting makes the bot squelch the error message when
-      rejecting a DCC CHAT, SEND or message command. Normally, Eggdrop
-      notifies the user that the command has been rejected because they
-      don't have access. Note that sometimes IRC server operators detect
-      bots that way.
+  CTCP flood: 3 CTCPs per 60 seconds. Set to 0 to disable.
 
-  set flood-msg 5:60
+set answer-ctcp 3
 
-      Set here how many msgs in how many seconds from one host
-      constitutes a flood. If you set this to 0:0, msg flood protection
-      will be disabled.
+  Answer at most 3 CTCPs per request burst.
 
-  set flood-ctcp 3:60
+set lowercase-ctcp 0
 
-      Set here how many ctcps in how many seconds from one host are
-      recognized as a flood. Not specifying or using number = 0 will not
-      check against ctcp floods.
+  Answer lowercase CTCP requests (non-RFC compliant). Set to 1 for mIRC
+  compatibility.
 
-  set answer-ctcp 3
+set trigger-on-ignore 0
 
-      Set how many ctcps should be answered at once here.
+  Trigger binds for ignored users. Set to 1 to process binds even when
+  the user is on the ignore list.
 
-  set lowercase-ctcp 0
+set exclusive-binds 0
 
-      If you want your bot to answer lower case ctcp requests (non
-      rfc-compliant), set this setting to 1. mIRC will do this, most
-      other clients will not.
+  Make MSGM and PUBM binds exclusive of MSG and PUB. Advanced; only set
+  to 1 if you understand the implications.
 
-  set trigger-on-ignore 0
+QUEUING
 
-      If you want Eggdrop to trigger binds for ignored users, set this
-      to 1.
+set double-mode 0
 
-  set exclusive-binds 0
+  Allow duplicate messages in mode queue.
 
-      This setting configures PUBM and MSGM binds to be exclusive of PUB
-      and MSG binds. This means if a MSGM bind with the mask "help"
-      exists and is triggered, any MSG bindings with "help" in their
-      mask will not be triggered. Don't enable this unless you know what
-      you are doing!
+set double-server 0
 
-  set double-mode 0
+  Allow duplicate messages in server queue.
 
-      Allow identical messages in the mode queue?
+set double-help 0
 
-  set double-server 0
+  Allow duplicate messages in help queue.
 
-      Allow identical messages in the server queue?
+set use-penalties 1
 
-  set double-help 0
+  Enable penalty tracking (mostly for IRCnet). Eggdrop tracks server-side
+  penalty points and throttles commands to avoid excess flood. Highly
+  recommended.
 
-      Allow identical messages in the help queue?
+set optimize-kicks 1
 
-  set use-penalties 1 (default on net-type IRCnet)
+  Optimize the kick queue. Options:
+    0 — disabled
+    1 — summarize kicks (recommended)
+    2 — trace nicks and parts (very CPU intensive)
 
-      This enables Eggdrop's penalty calculation. Every command Eggdrop
-      sends to the IRC server raises its penalty points. If Eggdrop
-      reaches a server limit, it gets disconnected with "excess flood"
-      message. Eggdrop is able to count internal those penalty points,
-      too and take measures against excess flooding. Note: it's highly
-      advised to turn this on!
+SASL AUTHENTICATION
 
-  set optimize-kicks 1
+Modern networks support SASL for server authentication:
 
-      This optimizes the kick queue. It also traces nick changes and
-      parts in the channel and changes the kick queue accordingly. There
-      are three different options for this setting:
+    sasl-mechanism PLAIN
+    sasl-username mybot
+    sasl-password mypassword
 
-          --- ------------------------------------------------------------------
-          0   Turn it off.
+Supported mechanisms:
+  PLAIN
+  EXTERNAL
+  ECDSA-NIST256P-CHALLENGE
+  ECDH-X25519-CHALLENGE
+  SCRAM-SHA-256
+  SCRAM-SHA-512
 
-          1   Optimize the kick queue by summarizing kicks.
+EXAMPLES
 
-          2   Trace nick changes and parts on the channel and change the queue
-              accordingly. For example, bot will not try to kick users who have
-              already parted the channel.
-          --- ------------------------------------------------------------------
+Basic configuration for Libera Chat:
 
-      ATTENTION: Setting 2 is very CPU intensive.
+    set net-type Libera
+    set nick "MyBot"
+    set altnick "MyBot_"
+    set servers {
+      irc.libera.chat:6667
+      irc.libera.chat:+6697
+    }
+    set keep-nick 1
 
-There are additional settings for 'net-type' Efnet.
+IRCnet with stricter settings:
 
-  net-type 5 specific features:
+    set net-type IRCnet
+    set msg-rate 2
+    set server-cycle-wait 120
+    set server-timeout 30
+    set use-penalties 1
 
-  Attention: Use this settings only if you set 'net-type' to Efnet!
-
-    set check-mode-r 1
-
-        This settings defines how umode +r is understood by Eggdrop.
-        Some networks use +r to indicate a restricted connection. If
-        this is your case, and you want your bot to leave restricted
-        servers and jump to the next server on its list, then set it
-        to 1. Please note, this setting is automatically set to 0 for
-        net-type of Efnet, Undernet, and DALnet, and set to 1 for
-        net-type IRCNet.
-
-    set nick-len 9
-
-        This setting allows you to specify the maximum nick-length
-        supported by your network. The default setting is 9. The maximum
-        supported length by Eggdrop is 32.
-
-  Copyright (C) 2000 - 2025 Eggheads Development Team
+Copyright (C) 1999 - 2025 Eggheads Development Team

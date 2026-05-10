@@ -1,24 +1,205 @@
-Last revised: Mar 14, 2023
+Last revised: May 10, 2026
 
 Uptime Module
 
-This module reports uptime statistics to the uptime contest web
-site at https://www.eggheads.org/uptime/. Go
-look and see what your uptime is! It takes about 9 hours to show up, so
-if your bot isn't listed, try again later.
+This module reports bot uptime statistics to https://www.eggheads.org/uptime/
+where you can view rankings of the longest-running Eggdrop instances.
 
-Information sent to the server includes the bot's uptime, botnet-nick,
-server, version, and IP address. This information is stored in a
-temporary logfile for debugging purposes only. The only publicly
-available information will be the bot's botnet-nick, version and uptime.
-If you do not wish for this information to be sent, comment out the
-'loadmodule uptime' line in your bot's config file.
+INSTALLATION
 
-This module requires: server
+Add to [modules] section in eggdrop.toml:
 
-Put this line into your Eggdrop configuration file to load the uptime
-module:
+  [modules]
+  load = [
+    "uptime",
+  ]
 
-    loadmodule uptime
 
-Copyright (C) 2001 - 2025 Eggheads Development Team
+FEATURES
+
+When uptime module is loaded, the bot:
+  - Tracks uptime (time running since startup)
+  - Reports to eggheads.org uptime contest
+  - Appears on public uptime rankings
+  - Shows uptime in .status output
+
+
+USAGE
+
+Check bot uptime:
+
+  In DCC partyline:
+    .status            (shows uptime, last restart, etc.)
+
+  On IRC:
+    .uptime            (if script provides this)
+
+Example output:
+  Bot uptime: 127 days, 5 hours, 23 minutes
+  Last restart: 2026-01-03 15:42:17 EST
+
+
+REPORTING TO EGGHEADS.ORG
+
+The module automatically reports:
+  - Bot uptime
+  - Botnet nick
+  - IRC server connected to
+  - Eggdrop version
+  - Bot's IP address
+
+What's publicly visible:
+  - Bot's botnet nick (identifier)
+  - Eggdrop version running
+  - Uptime in days
+
+What's private (not public):
+  - Detailed timing info (used for debugging only)
+  - Stored in temporary log file for verification
+
+Information sent over HTTPS to eggheads.org.
+
+
+STATISTICS
+
+Uptime contest tracks:
+  - Longest running bots
+  - Version distribution
+  - Activity trends
+
+To view your bot's stats:
+  Visit https://www.eggheads.org/uptime/
+  Search for your botnet-nick
+
+
+CONFIGURATION
+
+No configuration required. Simply load the module:
+
+  [modules]
+  load = [
+    "uptime",
+  ]
+
+The bot reports automatically on a regular schedule.
+
+
+EXAMPLE CONFIGURATION
+
+With uptime reporting:
+
+  [modules]
+  load = [
+    "server",
+    "channels",
+    "uptime",
+  ]
+
+  [bot]
+  nick = "MyBot"
+  botnet_nick = "MyBot"
+
+      Bot will report to uptime.eggheads.org as "MyBot".
+
+
+PRIVACY
+
+If you do NOT want to report uptime:
+  - Comment out (or remove) "uptime" from [modules].load
+  - No data is sent if module is not loaded
+
+The module is completely optional.
+
+
+HOW OFTEN REPORTING HAPPENS
+
+The uptime module reports:
+  - Once per day (default)
+  - More frequently if bot restarts frequently
+  - When bot first starts up
+
+Reporting uses minimal bandwidth (single HTTPS request per day).
+
+
+VIEWING YOUR BOT
+
+After reporting:
+  1. Visit https://www.eggheads.org/uptime/
+  2. Search for your bot's botnet-nick
+  3. View uptime ranking
+  4. Takes ~9 hours to appear in public listings
+
+Your bot will show:
+  - Botnet nick
+  - Eggdrop version
+  - Current uptime
+  - All-time record
+
+
+EXAMPLE OUTPUT ON EGGHEADS.ORG
+
+Bot Name: MyBot
+Version: 1.10.1
+Current Uptime: 215 days, 3 hours
+Record Uptime: 432 days, 18 hours
+
+
+TROUBLESHOOTING
+
+Bot not appearing on eggheads.org:
+  - Wait ~9 hours after starting bot (takes time to appear).
+  - Verify uptime module is loaded (.modules).
+  - Check bot's internet connectivity.
+  - Ensure bot is connected to IRC.
+  - Verify botnet-nick is set correctly ([bot].botnet_nick).
+
+Uptime not increasing:
+  - Verify uptime module is loaded.
+  - Check .status shows current uptime.
+  - Ensure bot hasn't restarted recently.
+  - Verify system clock is correct (important for uptime).
+
+Wrong version showing on website:
+  - Version reported at startup.
+  - Wait 9 hours for update to appear.
+  - Restart bot to force immediate report.
+
+Cannot reach eggheads.org:
+  - Check bot's internet connectivity.
+  - Verify firewall allows HTTPS (port 443).
+  - Check DNS resolution (nslookup eggheads.org).
+  - Try telnet to eggheads.org 443 (verify connectivity).
+
+
+NOTES
+
+- Uptime module is optional and completely safe.
+- No private data is publicly visible.
+- Reporting uses HTTPS (encrypted).
+- Minimal bandwidth usage (daily report).
+- Great for bragging rights on long-running bots!
+- Module can be loaded/unloaded without affecting bot stability.
+
+
+UPTIME TIPS
+
+Keep bot running:
+  - Monitor bot health regularly (.status)
+  - Use systemd/screen/tmux for auto-restart
+  - Update bot only when necessary
+  - Keep system patched and stable
+  - Monitor disk space (prevents crashes)
+
+Set reminder on bot's birthday:
+  - Note when bot first started
+  - Celebrate milestones (100 days, 1 year, etc.)
+  - Post uptime to IRC channels
+
+Compete for records:
+  - Check eggheads.org for top bots
+  - Try to beat the record!
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team

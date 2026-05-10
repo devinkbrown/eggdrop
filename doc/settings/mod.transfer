@@ -1,48 +1,224 @@
-Last revised: January 1, 2002
+Last revised: May 10, 2026
 
 Transfer Module
 
-The transfer module provides DCC SEND/GET support and userfile transfer
-support for userfile sharing.
+This module provides DCC SEND/GET (file transfer) support and userfile
+transfer between linked bots on the botnet. Without it, DCC file
+transfers and bot-to-bot file sharing will not work.
 
-This module requires: none
+INSTALLATION
 
-Put this line into your Eggdrop configuration file to load the transfer
-module:
+Add to [modules] section in eggdrop.toml:
 
-    loadmodule transfer
+  [modules]
+  load = [
+    "transfer",
+  ]
 
-There are also some variables you can set in your config file:
 
-  set max-dloads 3
+CONFIGURATION
 
-      Set here the maximum number of simultaneous downloads to allow for
-      each user.
+All transfer settings are in the [transfer] section:
 
-  set dcc-block 0
+  [transfer]
+  max_dloads = 3
 
-      Set here the block size for dcc transfers. ircII uses 512 bytes,
-      but admits that may be too small. 1024 is standard these days. Set
-      this to 0 to use turbo-dcc (recommended).
+      Maximum simultaneous downloads (DCC SEND/GET). Set this to the
+      number of downloads you want to allow at once. Note: transfers
+      consume bot resources; too high can cause lag.
 
-  set copy-to-tmp 1
+  dcc_block = 0
 
-      Enable this setting if you want to copy files to a temporary
-      location before sending or receiving them. This might be useful
-      for file stability, but if your directories are NFS mounted, it's
-      a pain. Setting this to 1 is not advised for big files or if
-      you're low on disk space.
+      DCC transfer block size in bytes. Set to 0 for single send (less
+      reliable but simpler). Typical: 0 or 1024-8192. Higher values
+      (4096-8192) are more efficient on fast networks.
 
-  set xfer-timeout 30
+  xfer_timeout = 30
 
-      Set here the time (in seconds) to wait before an inactive transfer
-      times out.
+      Seconds before an idle DCC transfer times out. If no data is
+      transferred for this long, the transfer is abandoned.
 
-  set sharefail-unlink 1
 
-      By default, Eggdrop will abort the linking process if userfile
-      sharing is enabled but the userfile transfer fails. Set this to 0
-      to keep the bots linked if the userfile transfer fails and retry
-      every minute (both bots must be v1.9.0 or higher).
+SHARE TRANSFER SETTINGS
 
-Copyright (C) 2000 - 2025 Eggheads Development Team
+When userfile sharing is enabled with linked bots:
+
+  [transfer]
+  sharefail_unlink = 0
+
+      Delete partially-received files when share transfer fails
+      (0 = off, 1 = on). Set to 1 to clean up failed transfers.
+
+  [share]
+  share_compressed = 1
+
+      Compress userfiles before sending to linked bots (requires
+      compress.mod). Set to 1 for faster sharing, 0 to send uncompressed.
+
+      Note: Requires compress.mod to be loaded.
+
+  [crypto]
+  compress_level = 9
+
+      Compression level (1=fast, 9=best). Higher values = smaller files
+      but slower compression. Default 9 is best for most uses.
+
+
+NETWORK CONFIGURATION
+
+For DCC transfers to work properly, configure:
+
+  [network]
+  nat_ip = "127.0.0.1"
+
+      External IP for DCC transfers (if behind NAT). Use your external
+      IP from the internet. Leave blank if not behind a firewall.
+
+  reserved_portrange = "2010:2020"
+
+      Port range for DCC transfers. Set if behind a firewall with
+      limited port range. Format: "start:end".
+
+  [tcl]
+  commands = ["listen 3333 all"]
+
+      Open a DCC/telnet port. Required for users to connect via DCC.
+      For TLS: "listen +3333 all"
+
+
+DCC SENDING / RECEIVING
+
+File sending:
+
+  /msg botnick send <file>           (send file to you via DCC)
+  /dcc get botnick <file>            (from IRC client)
+
+In DCC partyline:
+
+  .send <user> <file>                (send file to user)
+
+File receiving (if filesys module loaded):
+
+  /msg botnick get <file>            (receive file from bot)
+
+
+USERFILE SHARING
+
+When multiple bots are linked on a botnet, transfer module handles:
+
+  - Automatic userfile sync between bots
+  - Compressed transfer (if compress.mod loaded)
+  - Failed transfer recovery
+  - Partial file cleanup
+
+Configure sharing:
+
+  [share]
+  allow_resync = 1
+
+      Allow other bots to request userfile resync (0/1).
+
+  resync_time = 900
+
+      Rate-limit resync requests (900 seconds = 15 minutes).
+
+
+EXAMPLE CONFIGURATION
+
+Standard DCC file transfer:
+
+  [modules]
+  load = ["transfer"]
+
+  [transfer]
+  max_dloads = 3
+  dcc_block = 4096
+  xfer_timeout = 30
+
+  [network]
+  reserved_portrange = "2010:2020"
+
+  [tcl]
+  commands = ["listen 3333 all"]
+
+      Allow 3 concurrent downloads, 4KB blocks, 30s timeout.
+      Use port range 2010-2020 and listen on port 3333.
+
+
+With compression and sharing:
+
+  [modules]
+  load = ["transfer", "compress", "share"]
+
+  [transfer]
+  max_dloads = 3
+  dcc_block = 4096
+  xfer_timeout = 30
+
+  [share]
+  allow_resync = 1
+  resync_time = 900
+  share_compressed = 1
+
+  [crypto]
+  compress_level = 9
+
+      Userfile sharing with compression level 9 (best).
+
+
+Minimal (TLS only):
+
+  [modules]
+  load = ["transfer"]
+
+  [transfer]
+  max_dloads = 1
+  dcc_block = 0
+  xfer_timeout = 60
+
+  [tcl]
+  commands = ["listen +4444 all"]
+
+      Single download, TLS-only (+ prefix), listen on port 4444.
+
+
+DEPENDENCIES
+
+The transfer module requires:
+  - Server module (for DCC commands)
+  - Optionally: compress module (for share_compressed)
+
+
+NOTES
+
+- DCC transfers require a listen port (see [tcl].commands).
+- Large files should use higher dcc_block values (4096-8192).
+- Slow networks may need higher xfer_timeout.
+- Compression helps on slow/congested links (requires compress.mod).
+- Partial file cleanup (sharefail_unlink) prevents disk clutter.
+
+
+TROUBLESHOOTING
+
+DCC transfers not working:
+  - Verify transfer module is loaded (.modules).
+  - Check listen port is open: "listen 3333 all" in [tcl].commands.
+  - Verify bot's IP is correct (check nat_ip if behind NAT).
+  - Check firewall allows DCC ports (2010-2020 or custom range).
+  - Ensure user has appropriate flags to send/receive files.
+
+Transfer timeouts:
+  - Increase xfer_timeout (try 60 or 90).
+  - Check for network congestion.
+  - Lower dcc_block value (try 1024 for slower networks).
+
+Userfile sharing failing:
+  - Verify both bots have transfer module loaded.
+  - Check share.mod is loaded and configured.
+  - Verify compress.mod is loaded if share_compressed = 1.
+  - Check resync_time isn't too strict (try lowering to 300).
+
+
+COPYRIGHT
+
+Copyright (C) 1999 - 2025 Eggheads Development Team
