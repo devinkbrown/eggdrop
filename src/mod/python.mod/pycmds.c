@@ -2265,6 +2265,112 @@ static PyObject *py_tagmsg(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* knock(channel) — send KNOCK to request invite to a channel */
+static PyObject *py_knock(PyObject *self, PyObject *args)
+{
+  char *channel;
+
+  if (!PyArg_ParseTuple(args, "s", &channel))
+    return nullptr;
+  dprintf(DP_SERVER, "KNOCK %s\n", channel);
+  Py_RETURN_NONE;
+}
+
+/* redact(target, msgid, reason=None) — retract a previously sent message */
+static PyObject *py_redact(PyObject *self, PyObject *args)
+{
+  char *target, *msgid;
+  char *reason = nullptr;
+
+  if (!PyArg_ParseTuple(args, "ss|s", &target, &msgid, &reason))
+    return nullptr;
+  if (reason && reason[0])
+    dprintf(DP_SERVER, "REDACT %s %s :%s\n", target, msgid, reason);
+  else
+    dprintf(DP_SERVER, "REDACT %s %s\n", target, msgid);
+  Py_RETURN_NONE;
+}
+
+/* ircxlistx(filter=None) — send IRCX LISTX command */
+static PyObject *py_ircxlistx(PyObject *self, PyObject *args)
+{
+  char *filter = nullptr;
+
+  if (!PyArg_ParseTuple(args, "|s", &filter))
+    return nullptr;
+  if (filter && filter[0])
+    dprintf(DP_SERVER, "LISTX %s\n", filter);
+  else
+    dprintf(DP_SERVER, "LISTX\n");
+  Py_RETURN_NONE;
+}
+
+/* ircxrequest(target, tag, text) — send IRCX REQUEST */
+static PyObject *py_ircxrequest(PyObject *self, PyObject *args)
+{
+  char *target, *tag, *text;
+
+  if (!PyArg_ParseTuple(args, "sss", &target, &tag, &text))
+    return nullptr;
+  dprintf(DP_SERVER, "REQUEST %s %s :%s\n", target, tag, text);
+  Py_RETURN_NONE;
+}
+
+/* ircxreply(target, tag, text) — send IRCX REPLY */
+static PyObject *py_ircxreply(PyObject *self, PyObject *args)
+{
+  char *target, *tag, *text;
+
+  if (!PyArg_ParseTuple(args, "sss", &target, &tag, &text))
+    return nullptr;
+  dprintf(DP_SERVER, "REPLY %s %s :%s\n", target, tag, text);
+  Py_RETURN_NONE;
+}
+
+/* ircxmodex(target, modes=None) — send IRCX MODEX */
+static PyObject *py_ircxmodex(PyObject *self, PyObject *args)
+{
+  char *target, *modes = nullptr;
+
+  if (!PyArg_ParseTuple(args, "s|s", &target, &modes))
+    return nullptr;
+  if (modes && modes[0])
+    dprintf(DP_SERVER, "MODEX %s %s\n", target, modes);
+  else
+    dprintf(DP_SERVER, "MODEX %s\n", target);
+  Py_RETURN_NONE;
+}
+
+/* ircxevent(subcmd, event=None, mask=None) — send IRCX EVENT */
+static PyObject *py_ircxevent(PyObject *self, PyObject *args)
+{
+  char *subcmd, *event = nullptr, *mask = nullptr;
+
+  if (!PyArg_ParseTuple(args, "s|ss", &subcmd, &event, &mask))
+    return nullptr;
+  if (mask && mask[0])
+    dprintf(DP_SERVER, "EVENT %s %s %s\n", subcmd, event, mask);
+  else if (event && event[0])
+    dprintf(DP_SERVER, "EVENT %s %s\n", subcmd, event);
+  else
+    dprintf(DP_SERVER, "EVENT %s\n", subcmd);
+  Py_RETURN_NONE;
+}
+
+/* ircxregister(target, password=None) — send REGISTER command */
+static PyObject *py_ircxregister(PyObject *self, PyObject *args)
+{
+  char *target, *password = nullptr;
+
+  if (!PyArg_ParseTuple(args, "s|s", &target, &password))
+    return nullptr;
+  if (password && password[0])
+    dprintf(DP_SERVER, "REGISTER %s %s\n", target, password);
+  else
+    dprintf(DP_SERVER, "REGISTER %s\n", target);
+  Py_RETURN_NONE;
+}
+
 /* cap(action, arg) — send IRCv3 CAP commands
  * action='req', capability — send CAP REQ :capability
  * action='raw', subcmd    — send a raw CAP subcmd */
@@ -5429,9 +5535,17 @@ static PyMethodDef MyPyMethods[] = {
     {"ircxaccess",    py_ircxaccess,    METH_VARARGS, "manage IRCX access list (channel, list|add|del, [level], [mask])"},
     {"ircxcreate",    py_ircxcreate,    METH_VARARGS, "create an IRCX channel (CREATE channel [modes])"},
     {"ircxnegotiate", py_ircxnegotiate, METH_NOARGS,  "send IRCX negotiate command to enable IRCX mode"},
+    {"ircxlistx",     py_ircxlistx,     METH_VARARGS, "extended channel listing: ircxlistx([filter])"},
+    {"ircxrequest",   py_ircxrequest,   METH_VARARGS, "send IRCX REQUEST: ircxrequest(target, tag, text)"},
+    {"ircxreply",     py_ircxreply,     METH_VARARGS, "send IRCX REPLY: ircxreply(target, tag, text)"},
+    {"ircxmodex",     py_ircxmodex,     METH_VARARGS, "query/set extended modes: ircxmodex(target[, modes])"},
+    {"ircxevent",     py_ircxevent,     METH_VARARGS, "manage EVENT subscriptions: ircxevent(subcmd[, event[, mask]])"},
+    {"ircxregister",  py_ircxregister,  METH_VARARGS, "register nick or channel: ircxregister(target[, password])"},
     /* Server / network helpers */
     {"puthelp",  py_puthelp,  METH_VARARGS, "queue a raw IRC line to the help/notice queue"},
     {"tagmsg",   py_tagmsg,   METH_VARARGS, "send an IRCv3 TAGMSG (tag, target)"},
+    {"knock",    py_knock,    METH_VARARGS, "send KNOCK to request invite: knock(channel)"},
+    {"redact",   py_redact,   METH_VARARGS, "retract a message: redact(target, msgid[, reason])"},
     {"cap",      py_cap,      METH_VARARGS, "send IRCv3 CAP command: cap('req', cap) or cap('raw', subcmd)"},
 #ifdef HAVE_TCL
     {"parse_tcl_list", py_parse_tcl_list, METH_VARARGS, "convert a Tcl list string to a Python list"},

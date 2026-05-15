@@ -845,6 +845,84 @@ static int tcl_ircxnegotiate STDVAR
   return TCL_OK;
 }
 
+/* knock <channel> — send KNOCK to an invite-only channel */
+static int tcl_knock STDVAR {
+  BADARGS(2, 2, " channel");
+  dprintf(DP_SERVER, "KNOCK %s\n", argv[1]);
+  return TCL_OK;
+}
+
+/* redact <target> <msgid> ?reason? — send REDACT to retract a message */
+static int tcl_redact STDVAR {
+  BADARGS(3, 4, " target msgid ?reason?");
+  if (argc == 4)
+    dprintf(DP_SERVER, "REDACT %s %s :%s\n", argv[1], argv[2], argv[3]);
+  else
+    dprintf(DP_SERVER, "REDACT %s %s\n", argv[1], argv[2]);
+  return TCL_OK;
+}
+
+/* ircxlistx ?filter? — send LISTX with optional filter string */
+static int tcl_ircxlistx STDVAR {
+  BADARGS(1, 2, " ?filter?");
+  if (argc == 2)
+    dprintf(DP_SERVER, "LISTX %s\n", argv[1]);
+  else
+    dprintf(DP_SERVER, "LISTX\n");
+  return TCL_OK;
+}
+
+/* ircxrequest <target> <tag> <text> — send IRCX REQUEST */
+static int tcl_ircxrequest STDVAR {
+  BADARGS(4, 4, " target tag text");
+  dprintf(DP_SERVER, "REQUEST %s %s :%s\n", argv[1], argv[2], argv[3]);
+  return TCL_OK;
+}
+
+/* ircxreply <target> <tag> <text> — send IRCX REPLY */
+static int tcl_ircxreply STDVAR {
+  BADARGS(4, 4, " target tag text");
+  dprintf(DP_SERVER, "REPLY %s %s :%s\n", argv[1], argv[2], argv[3]);
+  return TCL_OK;
+}
+
+/* ircxmodex <target> ?modes? — send IRCX MODEX */
+static int tcl_ircxmodex STDVAR {
+  BADARGS(2, 3, " target ?modes?");
+  if (argc == 3)
+    dprintf(DP_SERVER, "MODEX %s %s\n", argv[1], argv[2]);
+  else
+    dprintf(DP_SERVER, "MODEX %s\n", argv[1]);
+  return TCL_OK;
+}
+
+/* ircxevent <subcmd> ?args? — send IRCX EVENT commands
+ * ircxevent add <event> ?mask?
+ * ircxevent delete <event>
+ * ircxevent clear ?event?
+ * ircxevent list ?event? */
+static int tcl_ircxevent STDVAR {
+  BADARGS(2, 4, " subcmd ?event? ?mask?");
+  op_strbuf_t buf;
+  op_strbuf_init(&buf);
+  op_strbuf_append_cstr(&buf, "EVENT");
+  for (int i = 1; i < argc; i++)
+    op_strbuf_appendf(&buf, " %s", argv[i]);
+  dprintf(DP_SERVER, "%s\n", op_strbuf_str(&buf));
+  op_strbuf_free(&buf);
+  return TCL_OK;
+}
+
+/* ircxregister <email|#channel> ?password? — send REGISTER command */
+static int tcl_ircxregister STDVAR {
+  BADARGS(2, 3, " email|#channel ?password?");
+  if (argc == 3)
+    dprintf(DP_SERVER, "REGISTER %s %s\n", argv[1], argv[2]);
+  else
+    dprintf(DP_SERVER, "REGISTER %s\n", argv[1]);
+  return TCL_OK;
+}
+
 static tcl_cmds my_tcl_cmds[] = {
   {"jump",          tcl_jump},
   {"cap",           tcl_cap},
@@ -856,6 +934,8 @@ static tcl_cmds my_tcl_cmds[] = {
   {"putquick",      tcl_putquick},
   {"putnow",        tcl_putnow},
   {"tagmsg",        tcl_tagmsg},
+  {"knock",         tcl_knock},
+  {"redact",        tcl_redact},
   {"server",        tcl_server},
   {"getaccount",    tcl_getaccount},
   {"isidentified",  tcl_isidentified},
@@ -866,5 +946,11 @@ static tcl_cmds my_tcl_cmds[] = {
   {"ircxcreate",    tcl_ircxcreate},
   {"ircxautoowner", tcl_ircxautoowner},
   {"ircxnegotiate", tcl_ircxnegotiate},
+  {"ircxlistx",     tcl_ircxlistx},
+  {"ircxrequest",   tcl_ircxrequest},
+  {"ircxreply",     tcl_ircxreply},
+  {"ircxmodex",     tcl_ircxmodex},
+  {"ircxevent",     tcl_ircxevent},
+  {"ircxregister",  tcl_ircxregister},
   {nullptr,         nullptr}
 };

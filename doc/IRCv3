@@ -47,23 +47,54 @@ SUPPORTED CAP CAPABILITIES
 
   Core:
   - CAP / CAP 302 (capability negotiation)
+  - cap-notify (auto-request new caps when server advertises mid-session)
   - SASL 3.2 (authentication)
+  - standard-replies (structured FAIL/WARN/NOTE responses)
 
   Channel:
   - account-notify (notify when users authenticate/deauthenticate)
   - account-tag (tag with account name in messages)
   - away-notify (notify when users go away)
-  - cap-notify (notify when server capabilities change)
   - chghost (notify when user's host changes)
   - echo-message (server echoes client's own messages)
   - extended-join (include account name in JOIN messages)
   - invite-notify (notify of INVITE commands)
   - message-tags (support for message tags)
   - Monitor (watch specific nicknames for online/offline changes)
+  - multi-prefix (show all prefix modes in NAMES and WHO)
   - server-time (include timestamp in messages)
   - setname (notify when user's real name changes)
   - userhost-in-names (include userhost in NAMES list)
-  - typing (notify when user is typing)
+
+  Messaging:
+  - batch (IRCv3 batch framing for grouped messages)
+  - labeled-response (correlate outbound messages with server echoes)
+  - msgid (unique message IDs for deduplication)
+  - draft/multiline (multi-line message batches)
+  - draft/read-marker (last-read sync across sessions)
+  - TAGMSG (client-tags-only message delivery)
+
+  Modern features:
+  - bot (IRCv3 bot mode — auto-sets +B on connect)
+  - draft/typing (typing indicators via TAGMSG)
+  - draft/react (message reactions via TAGMSG)
+  - draft/message-redaction (REDACT command to retract messages)
+  - draft/channel-rename (RENAME command — channels renamed in place)
+  - draft/chathistory / chathistory (scrollback retrieval)
+
+  Security:
+  - sts (Strict Transport Security — warns on plaintext, shows TLS port)
+
+  IRCX / Ophion extensions:
+  - KNOCK (request invite to invite-only channels)
+  - PROP / ACCESS / WHISPER (IRCX channel properties)
+  - REQUEST / REPLY (IRCX typed client-to-client messaging)
+  - LISTX (extended channel listing with filters)
+  - MODEX (extended named-mode queries and changes)
+  - EVENT (oper event monitoring subscriptions)
+  - REGISTER (account and channel registration)
+  - ophion/prop-notify (channel property change notifications)
+  - ophion/multi-prefix (extended prefix visibility)
 
 IMPORTANT NOTES
 

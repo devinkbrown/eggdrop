@@ -406,6 +406,12 @@ static int got001(char *from, char *msg)
   if (net_type_int == NETT_OPHION && ircx_auto_negotiate)
     ircx_send_negotiate();
 
+  {
+    struct capability *botcap = find_capability("bot");
+    if (botcap && botcap->enabled)
+      dprintf(DP_MODE, "MODE %s +B\n", botname);
+  }
+
   if (!x)
     return 0;
 
@@ -1801,6 +1807,31 @@ static int gotcap(char *from, char *msg) {
         /* IRCv3 draft/read-marker: MARKREAD last-read sync across sessions */
         if (!current->enabled)
           add_req(current->name);
+      } else if (!strcmp(current->name, "cap-notify")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/typing") ||
+                 !strcmp(current->name, "typing")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/react") ||
+                 !strcmp(current->name, "react")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/message-redaction") ||
+                 !strcmp(current->name, "message-redaction")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "draft/channel-rename") ||
+                 !strcmp(current->name, "channel-rename")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "bot")) {
+        if (!current->enabled)
+          add_req(current->name);
+      } else if (!strcmp(current->name, "utf8-only")) {
+        if (!current->enabled)
+          add_req(current->name);
       }
       /* Add any custom capes the user listed */
       {
@@ -1835,6 +1866,35 @@ static int gotcap(char *from, char *msg) {
       else
         dprintf(DP_MODE, "CAP END\n");
       op_strbuf_free(&cape_req);
+    }
+    /* IRCv3 STS (Strict Transport Security): if the server advertises sts
+     * with a port= value and we're on a plaintext connection, warn the user
+     * so they know to switch to the TLS port. */
+    {
+      struct capability *stscap = find_capability("sts");
+      if (stscap && stscap->value) {
+        struct cap_values *v = stscap->value;
+        while (v) {
+          if (!strncmp(v->name, "port=", 5)) {
+            const char *port = v->name + 5;
+  
+#ifdef TLS
+            if (!use_ssl)
+#endif
+              putlog(LOG_SERV, "*",
+                     "STS: Server offers Strict Transport Security — "
+                     "TLS port %s is available. Consider using +%s in your "
+                     "server list for an encrypted connection.", port, port);
+#ifdef TLS
+            else
+              putlog(LOG_DEBUG, "*", "STS: TLS connection confirmed "
+                     "(server advertises port %s)", port);
+#endif
+            break;
+          }
+          v = v->next;
+        }
+      }
     }
   } else if (!strcmp(cmd, "LIST")) {
     putlog(LOG_SERV, "*", "CAP: Negotiated CAP capabilities: %s", msg);
@@ -1923,6 +1983,27 @@ static int gotcap(char *from, char *msg) {
   } else if (!strcmp(cmd, "NEW")) {
     putlog(LOG_SERV, "*", "CAP: %s capabilities now available", msg);
     add_capabilities(msg);
+    {
+      op_strbuf_t newreq;
+      op_strbuf_init(&newreq);
+      char *saveptr = nullptr;
+      char *newmsg = op_strdup(msg);
+      char *tok = strtok_r(newmsg, " ", &saveptr);
+      while (tok) {
+        char *eq = strchr(tok, '=');
+        if (eq) *eq = '\0';
+        current = find_capability(tok);
+        if (current && !current->enabled) {
+          current->requested = 1;
+          op_strbuf_appendf(&newreq, " %s", tok);
+        }
+        tok = strtok_r(nullptr, " ", &saveptr);
+      }
+      op_free(newmsg);
+      if (!op_strbuf_empty(&newreq))
+        dprintf(DP_MODE, "CAP REQ :%s\n", op_strbuf_str(&newreq));
+      op_strbuf_free(&newreq);
+    }
   } else if (!strcmp(cmd, "DEL")) {
       putlog(LOG_SERV, "*", "CAP: %s capabilities no longer available", msg);
       del_capabilities(msg);
@@ -2281,6 +2362,202 @@ static int gotaccess(char *from, char *msg)
   return 0;
 }
 
+/* RENAME — IRCv3 draft/channel-rename.
+ * :nick!user@host RENAME #old #new :reason
+ * The server renames a channel.  Clients that negotiated the capability
+ * receive this instead of a KICK+JOIN pair. */
+static int gotrename(char *from, char *msg)
+{
+  char *nick, *oldchan, *newchan;
+  struct chanset_t *chan;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  oldchan = newsplit(&msg);
+  newchan = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_MISC, oldchan, "RENAME: %s renamed %s to %s (%s)",
+         nick, oldchan, newchan, msg);
+
+  chan = findchan(oldchan);
+  if (!chan)
+    chan = findchan_by_dname(oldchan);
+  if (chan) {
+    chan_htab_del(chan);
+    strlcpy(chan->dname, newchan, sizeof chan->dname);
+    strlcpy(chan->name, newchan, sizeof chan->name);
+    chan_htab_add(chan);
+  }
+  return 0;
+}
+
+/* REDACT — IRCv3 draft/message-redaction.
+ * :nick!user@host REDACT <target> <msgid> [:reason]
+ * Notifies that a previously sent message should be hidden. */
+static int gotredact(char *from, char *msg)
+{
+  char *nick, *target, *msgid;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  target = newsplit(&msg);
+  msgid  = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_SERV, target, "REDACT: %s redacted message %s on %s%s%s",
+         nick, msgid, target, msg[0] ? ": " : "", msg);
+  return 0;
+}
+
+/* KNOCK — channel knock notification from another user.
+ * :nick!user@host KNOCK #channel
+ * Someone is requesting an invite to an invite-only channel. */
+static int gotknock(char *from, char *msg)
+{
+  char *nick, *channel;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  channel = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_MISC, channel, "KNOCK: %s is requesting access to %s",
+         nick, channel);
+  return 0;
+}
+
+/* REQUEST — IRCX typed client-to-client message.
+ * :nick!user@host REQUEST <target> <tag> :text */
+static int gotrequest(char *from, char *msg)
+{
+  char *nick, *target, *tag;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  target = newsplit(&msg);
+  tag    = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_SERV, target, "REQUEST from %s tag=%s on %s: %s",
+         nick, tag, target, msg);
+  return 0;
+}
+
+/* REPLY — IRCX typed reply to a previous REQUEST.
+ * :nick!user@host REPLY <target> <tag> :text */
+static int gotreply(char *from, char *msg)
+{
+  char *nick, *target, *tag;
+
+  if (strchr(from, '!'))
+    nick = splitnick(&from);
+  else
+    nick = from;
+
+  target = newsplit(&msg);
+  tag    = newsplit(&msg);
+  fixcolon(msg);
+
+  putlog(LOG_SERV, target, "REPLY from %s tag=%s on %s: %s",
+         nick, tag, target, msg);
+  return 0;
+}
+
+/* 811 RPL_LISTXSTART — IRCX extended channel list header */
+static int got811(char *from, char *msg)
+{
+  putlog(LOG_SERV, "*", "IRCX: LISTX listing started");
+  return 0;
+}
+
+/* 812 RPL_LISTXENTRY — IRCX extended channel list entry.
+ * :<server> 812 <nick> <channel> <modes> <members> <created> <topictime> :<topic> */
+static int got812(char *from, char *msg)
+{
+  char *nick, *channel, *modes, *members, *created, *topictime;
+
+  nick      = newsplit(&msg);
+  channel   = newsplit(&msg);
+  modes     = newsplit(&msg);
+  members   = newsplit(&msg);
+  created   = newsplit(&msg);
+  topictime = newsplit(&msg);
+  fixcolon(msg);
+
+  (void)nick;
+  putlog(LOG_SERV, "*", "IRCX LISTX: %s [%s] %s members created=%s topic=%s: %s",
+         channel, modes, members, created, topictime, msg);
+  return 0;
+}
+
+/* 813 RPL_LISTXPICS — IRCX PICS label for a LISTX entry */
+static int got813(char *from, char *msg)
+{
+  char *nick, *channel;
+
+  nick    = newsplit(&msg);
+  channel = newsplit(&msg);
+  fixcolon(msg);
+  (void)nick;
+
+  putlog(LOG_SERV, "*", "IRCX LISTX: %s PICS=%s", channel, msg);
+  return 0;
+}
+
+/* 816 RPL_LISTXTRUNC — IRCX LISTX output truncated */
+static int got816(char *from, char *msg)
+{
+  putlog(LOG_SERV, "*", "IRCX: LISTX output truncated (too many results)");
+  return 0;
+}
+
+/* 817 RPL_LISTXEND — IRCX LISTX listing complete */
+static int got817(char *from, char *msg)
+{
+  putlog(LOG_SERV, "*", "IRCX: LISTX listing complete");
+  return 0;
+}
+
+/* 806 RPL_MODEXLIST — IRCX MODEX mode listing */
+static int got806(char *from, char *msg)
+{
+  char *nick, *target;
+
+  nick   = newsplit(&msg);
+  target = newsplit(&msg);
+  fixcolon(msg);
+  (void)nick;
+
+  putlog(LOG_SERV, "*", "IRCX MODEX: %s modes: %s", target, msg);
+  return 0;
+}
+
+/* 807 RPL_MODEXEND — IRCX MODEX listing complete */
+static int got807(char *from, char *msg)
+{
+  char *nick, *target;
+
+  nick   = newsplit(&msg);
+  target = newsplit(&msg);
+  (void)nick;
+
+  putlog(LOG_SERV, "*", "IRCX MODEX: %s end of modes", target);
+  return 0;
+}
+
 /* Handle IRCX ISUPPORT token: when server sends ISUPPORT with IRCX token,
  * automatically negotiate IRCX mode if ircx_auto_negotiate is set.
  */
@@ -2332,11 +2609,23 @@ static cmd_t my_raw_binds[] = {
   {"802",          "",   (IntFunc) got802,          nullptr},
   {"803",          "",   (IntFunc) got803,          nullptr},
   {"804",          "",   (IntFunc) got804,          nullptr},
+  {"806",          "",   (IntFunc) got806,          nullptr},
+  {"807",          "",   (IntFunc) got807,          nullptr},
+  {"811",          "",   (IntFunc) got811,          nullptr},
+  {"812",          "",   (IntFunc) got812,          nullptr},
+  {"813",          "",   (IntFunc) got813,          nullptr},
+  {"816",          "",   (IntFunc) got816,          nullptr},
+  {"817",          "",   (IntFunc) got817,          nullptr},
   /* Note: 901 (ERR_NOTIRCX) and 902 (ERR_ALREADYIRCX) overlap with SASL
    * numerics (RPL_LOGGEDOUT, ERR_NICKLOCKED) — sasl.c handles those. */
   {"PROP",         "",   (IntFunc) gotprop,         nullptr},
   {"ACCESS",       "",   (IntFunc) gotaccess,       nullptr},
   {"WHISPER",      "",   (IntFunc) gotwhisper,      nullptr},
+  {"REQUEST",      "",   (IntFunc) gotrequest,      nullptr},
+  {"REPLY",        "",   (IntFunc) gotreply,        nullptr},
+  {"RENAME",       "",   (IntFunc) gotrename,       nullptr},
+  {"REDACT",       "",   (IntFunc) gotredact,       nullptr},
+  {"KNOCK",        "",   (IntFunc) gotknock,        nullptr},
   {"NICK",         "",   (IntFunc) gotnick,         nullptr},
   {"ERROR",        "",   (IntFunc) goterror,        nullptr},
 /* ircu2.10.10 has a bug when a client is throttled ERROR is sent wrong */

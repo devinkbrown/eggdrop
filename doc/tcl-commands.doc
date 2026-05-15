@@ -184,6 +184,29 @@ tagmsg <tags> <target>
 
   Module: server
 
+knock <channel>
+
+  Description: sends a KNOCK command to request an invite to the
+  specified invite-only channel. The server must support the KNOCK
+  command (check ISUPPORT). The bot must not already be a member
+  of the channel.
+
+  Returns: nothing
+
+  Module: server
+
+redact <target> <msgid> [reason]
+
+  Description: sends a REDACT command to retract a previously sent
+  message. Requires the draft/message-redaction (or message-redaction)
+  capability to be negotiated with the server. target is the channel or
+  nickname context, msgid is the unique message ID returned by the
+  server (via the msgid tag), and reason is an optional explanation.
+
+  Returns: nothing
+
+  Module: server
+
 server add <ip/host> [[+]port [password]]
 
   Description: adds a server to the list of servers Eggdrop will connect
@@ -4025,6 +4048,68 @@ the Tcl proc, and an explanation.
     context     - space-separated context tokens between code and
                   description (may be empty)
     description - human-readable description
+
+  Module: server
+
+ircxlistx [filter]
+
+  Description: sends an IRCX LISTX command to the server for extended
+  channel listing. filter is an optional comma-separated list of
+  criteria: <N (max members), >N (min members), #pattern (glob),
+  C>N/C<N (creation time), T>N/T<N (topic age), TOPICONLY,
+  MODES:xyz. Results arrive as server numerics 811-817.
+
+  Returns: nothing
+
+  Module: server
+
+ircxrequest <target> <tag> <text>
+
+  Description: sends an IRCX REQUEST message. target is a channel or
+  nickname. tag identifies the request type (application-defined).
+  text is the message content.
+
+  Returns: nothing
+
+  Module: server
+
+ircxreply <target> <tag> <text>
+
+  Description: sends an IRCX REPLY message in response to a previous
+  REQUEST. target is a nickname. tag identifies the request type.
+
+  Returns: nothing
+
+  Module: server
+
+ircxmodex <target> [modes]
+
+  Description: sends an IRCX MODEX command. Without modes, queries the
+  extended (named) mode list for the target. With modes, sets or unsets
+  named modes. Target can be #channel or #channel,nick.
+
+  Returns: nothing
+
+  Module: server
+
+ircxevent <subcmd> [event] [mask]
+
+  Description: sends an IRCX EVENT command for oper event monitoring.
+  subcmd is one of: add, delete, change, clear, list. event is one
+  of: CHANNEL, MEMBER, USER, SERVER, BROADCAST. mask is an optional
+  glob pattern filter.
+
+  Returns: nothing
+
+  Module: server
+
+ircxregister <email|#channel> [password]
+
+  Description: sends a REGISTER command. If the first argument starts
+  with # or &, registers a channel to the caller's account. Otherwise,
+  registers a new account with the given email and password.
+
+  Returns: nothing
 
   Module: server
 

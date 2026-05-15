@@ -1,8 +1,68 @@
 
-Eggdrop Changes (Last Updated 2026-05-15):
+Eggdrop Changes (Last Updated 2026-05-16):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-05-16 * ircv3: added cap-notify — server can advertise new
+               capabilities mid-session and the bot auto-requests them.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircv3: added bot mode (IRCv3 bot capability) — bot
+               automatically sets user mode +B on connect when the
+               server advertises the "bot" CAP.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircv3: added draft/typing, draft/react capability
+               negotiation — the bot now requests typing indicators
+               and message reaction capabilities from the server.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircv3: added draft/message-redaction — incoming REDACT
+               commands are parsed and logged.  New Tcl command
+               "redact" and Python function redact() send REDACT to
+               retract a previously sent message.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircv3: added draft/channel-rename — incoming RENAME
+               commands are handled: the bot's internal channel hash
+               is re-keyed so findchan()/findchan_by_dname() continue
+               to work under the new name.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * irc: added KNOCK handler — incoming KNOCK messages are
+               logged.  New Tcl command "knock" and Python function
+               knock() send KNOCK to request access to invite-only
+               channels.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircv3: added STS (Strict Transport Security) awareness —
+               the bot detects the sts CAP value and logs a warning on
+               plaintext connections recommending the TLS port.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircx: added REQUEST/REPLY handler — incoming IRCX typed
+               messages are parsed and logged.  New Tcl commands
+               ircxrequest/ircxreply and Python functions.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircx: added LISTX reply numerics (811-817) — IRCX
+               extended channel listing responses are parsed and logged.
+               New Tcl command "ircxlistx" and Python ircxlistx().
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircx: added MODEX reply numerics (806-807) — extended
+               mode listing responses.  New Tcl command "ircxmodex"
+               and Python ircxmodex().
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircx: added EVENT command — Tcl ircxevent and Python
+               ircxevent() for managing oper event subscriptions.
+               [Patch by: devinkbrown]
+
+  2026-05-16 * ircx: added REGISTER command — Tcl ircxregister and
+               Python ircxregister() for account/channel registration.
+               [Patch by: devinkbrown]
 
   2026-05-15 * security: replaced weak PRNG (random()/srandom()) with
                cryptographically secure getrandom(2) across the entire
