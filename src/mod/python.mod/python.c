@@ -47,8 +47,8 @@
 static PyObject *pirp, *pglobals;
 
 #undef global
-static Function *global = NULL, *channels_funcs = NULL, *irc_funcs = NULL,
-                *server_funcs = NULL;
+static Function *global = nullptr, *channels_funcs = nullptr, *irc_funcs = nullptr,
+                *server_funcs = nullptr;
 static PyThreadState *_pythreadsave;
 #include "pycmds.c"
 #include "tclpython.c"
@@ -65,7 +65,7 @@ static int python_expmem(void)
 
   sys = PyImport_ImportModule("sys");
   if (sys) {
-    result = PyObject_CallMethod(sys, "getallocatedblocks", NULL);
+    result = PyObject_CallMethod(sys, "getallocatedblocks", nullptr);
     if (result) {
       blocks = PyLong_AsSsize_t(result);
       Py_DECREF(result);
@@ -116,6 +116,7 @@ static char *init_python() {
   config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/bin/python3", venv);
     const char *venvpython = op_strbuf_str(&_b);
     /* Validate the venv executable exists and is runnable before telling
@@ -152,7 +153,7 @@ static char *init_python() {
   /* PyDateTime_IMPORT expands to a PyCapsule_Import() call that can fail and
    * set a pending Python exception.  Clear any exception it leaves behind so
    * subsequent API calls are not short-circuited by a stale error indicator.
-   * PyDateTimeAPI being NULL is caught when it is actually used (unlikely at
+   * PyDateTimeAPI being nullptr is caught when it is actually used (unlikely at
    * startup; the datetime module is always present in CPython). */
   PyDateTime_IMPORT;
   PyErr_Clear();
@@ -165,7 +166,7 @@ static char *init_python() {
   pirp = PyImport_AddModule("__main__");
   if (!pirp) {
     /* Should never happen after a successful Py_InitializeFromConfig, but
-     * guard anyway: PyModule_GetDict(NULL) is an immediate segfault. */
+     * guard anyway: PyModule_GetDict(nullptr) is an immediate segfault. */
     Py_DECREF(pmodule);
     return "Python: Fatal error: could not get __main__ module";
   }
@@ -196,7 +197,7 @@ static char *init_python() {
   PyRun_SimpleString("import eggdrop");
   PyRun_SimpleString("sys.displayhook = eggdrop.__displayhook__");
 
-  return NULL;
+  return nullptr;
 }
 
 static void python_report(int idx, int details)
@@ -277,5 +278,5 @@ char *python_start(Function *global_funcs)
 #endif
   add_hook(HOOK_PRE_SELECT, (Function)python_gil_unlock);
   add_hook(HOOK_POST_SELECT, (Function)python_gil_lock);
-  return NULL;
+  return nullptr;
 }

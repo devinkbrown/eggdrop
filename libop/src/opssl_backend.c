@@ -978,7 +978,9 @@ op_get_ssl_certfp(op_fde_t *const F, uint8_t certfp[const OP_SSL_CERTFP_LEN], co
 	if (peer_cert == NULL)
 		return 0;
 
-	return make_certfp(peer_cert, certfp, method);
+	const int len = make_certfp(peer_cert, certfp, method);
+	opssl_x509_free(peer_cert);
+	return len;
 }
 
 int

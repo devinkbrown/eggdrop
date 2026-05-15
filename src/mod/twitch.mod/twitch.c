@@ -45,11 +45,11 @@
 
 
 #undef global
-static Function *global = NULL, *server_funcs = NULL;
+static Function *global = nullptr, *server_funcs = nullptr;
 
 static p_tcl_bind_list H_ccht, H_cmsg, H_htgt, H_wspr, H_wspm, H_rmst, H_usst, H_usrntc;
 
-twitchchan_t *twitchchan = NULL;
+twitchchan_t *twitchchan = nullptr;
 
 /* Check if word appears as a whole word in a space-separated list. */
 static int twitch_word_in_list(const char *list, const char *word)
@@ -57,7 +57,7 @@ static int twitch_word_in_list(const char *list, const char *word)
   size_t wlen = strlen(word);
   const char *p = list;
 
-  while ((p = strstr(p, word)) != NULL) {
+  while ((p = strstr(p, word)) != nullptr) {
     if ((p == list || p[-1] == ' ') &&
         (p[wlen] == '\0' || p[wlen] == ' '))
       return 1;
@@ -66,7 +66,7 @@ static int twitch_word_in_list(const char *list, const char *word)
   return 0;
 }
 static char cap_request[55];
-static op_bh *tchan_bh = NULL;
+static op_bh *tchan_bh = nullptr;
 
 /* valuevar must be used immediately without calling back into Tcl, refcount is not increased */
 #define GET_MSGTAG_VALUE_STR(tags, key, valuevar, errctx) do {                                              \
@@ -117,7 +117,7 @@ static twitchchan_t *findtchan_by_dname(char *name)
   for (chan = twitchchan; chan; chan = chan->next)
     if (!rfc_casecmp(chan->dname, name))
       return chan;
-  return NULL;
+  return nullptr;
 }
 
 /* Remove given characters from a string */
@@ -136,14 +136,14 @@ char *traced_keepnick(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   const char *value;
 
   if (flags & TCL_TRACE_DESTROYED) {
-    Tcl_TraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);
+    Tcl_TraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, nullptr);
   }
   value = Tcl_GetVar2(irp, name1, name2, TCL_GLOBAL_ONLY);
   if (value && strcmp(value, "0")) {
     putlog(LOG_MISC, "*", "Twitch: keep-nick is forced to be 0 when twitch.mod is loaded");
     Tcl_SetVar2(irp, name1, name2, "0", TCL_GLOBAL_ONLY);
   }
-  return NULL;
+  return nullptr;
 }
 
 static void cmd_twcmd(struct userrec *u, int idx, char *par) {
@@ -211,8 +211,9 @@ static void cmd_userstate(struct userrec *u, int idx, char *par) {
 
 static int check_tcl_clearchat(char *chan, char *nick) {
   int x;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
   Tcl_SetVar(interp, "_ccht1", nick ? (char *) nick : "", 0);
@@ -225,8 +226,9 @@ static int check_tcl_clearchat(char *chan, char *nick) {
 
 static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
   int x;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
   Tcl_SetVar(interp, "_cmsg1", nick, 0);
@@ -241,8 +243,9 @@ static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
 
 static int check_tcl_hosttarget(char *chan, char *nick, char *viewers) {
   int x;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, nick);
   Tcl_SetVar(interp, "_htgt1", nick, 0);
@@ -257,14 +260,14 @@ static int check_tcl_hosttarget(char *chan, char *nick, char *viewers) {
 
 static int check_tcl_whisper(char *from, char *cmd, char *msg) {
   char buf[UHOSTMAX], *uhost=buf, *nick, *hand;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  struct userrec *u = NULL;
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
+  struct userrec *u = nullptr;
   int x;
 
   strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   u = get_user_by_host(from);
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   hand = (u ? u->handle : "*");
   Tcl_SetVar(interp, "_wspr1", nick, 0);
   Tcl_SetVar(interp, "_wspr2", uhost, 0);
@@ -277,9 +280,10 @@ static int check_tcl_whisper(char *from, char *cmd, char *msg) {
 
 static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
   char buf[UHOSTMAX], *uhost=buf, *nick, *hand;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-  struct userrec *u = NULL;
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
+  struct userrec *u = nullptr;
   op_strbuf_t args_buf;
+  op_strbuf_init(&args_buf);
   int x;
 
   strlcpy(uhost, from, sizeof buf);
@@ -290,7 +294,7 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
     op_strbuf_appendf(&args_buf, "%s", cmd);
   const char *args = op_strbuf_str(&args_buf);
   u = get_user_by_host(from);
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   hand = (u ? u->handle : "*");
   Tcl_SetVar(interp, "_wspm1", nick, 0);
   Tcl_SetVar(interp, "_wspm2", uhost, 0);
@@ -304,34 +308,37 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
 
 static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_rmst1", chan, 0);
   Tcl_SetVar(interp, "_rmst2", Tcl_GetString(tags), 0);
-  check_tcl_bind(H_rmst, op_strbuf_str(&_b), NULL, " $_rmst1 $_rmst2",
+  check_tcl_bind(H_rmst, op_strbuf_str(&_b), nullptr, " $_rmst1 $_rmst2",
         MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&_b);
 }
 
 static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usst1", chan, 0);
   Tcl_SetVar(interp, "_usst2", Tcl_GetString(tags), 0);
-  check_tcl_bind(H_usst, op_strbuf_str(&_b), NULL, " $_usst1 $_usst2",
+  check_tcl_bind(H_usst, op_strbuf_str(&_b), nullptr, " $_usst1 $_usst2",
         MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&_b);
 }
 
 static void check_tcl_usernotice(char *chan, char *msg, Tcl_Obj *tags) {
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
   Tcl_SetVar(interp, "_usrntc1", chan, 0);
   Tcl_SetVar(interp, "_usrntc2", Tcl_GetString(tags), 0);
   Tcl_SetVar(interp, "_usrntc3", msg ? msg : "", 0);
-  check_tcl_bind(H_usrntc, op_strbuf_str(&_b), NULL, " $_usrntc1 $_usrntc2 $_usrntc3",
+  check_tcl_bind(H_usrntc, op_strbuf_str(&_b), nullptr, " $_usrntc1 $_usrntc2 $_usrntc3",
         MATCH_MASK | BIND_STACKABLE);
   op_strbuf_free(&_b);
 }
@@ -427,7 +434,7 @@ static int gotclearmsg(char *from, char *msg, Tcl_Obj *tags) {
 }
 
 static int gotclearchat(char *from, char *msg) {
-  char *nick=NULL, *chan=NULL;
+  char *nick=nullptr, *chan=nullptr;
 
   chan = newsplit(&msg);
   fixcolon(msg);
@@ -444,6 +451,7 @@ static int gotclearchat(char *from, char *msg) {
 static int gothosttarget(char *from, char *msg) {
   char *nick, *chan, *viewers;
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   chan = newsplit(&msg);
   fixcolon(msg);
@@ -478,8 +486,8 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
 
   {
     int done = 0;
-    __attribute__((unused)) Tcl_DictSearch s;
-    __attribute__((unused)) Tcl_Obj *value, *key;
+    [[maybe_unused]] Tcl_DictSearch s;
+    [[maybe_unused]] Tcl_Obj *value, *key;
 
     for (Tcl_DictObjFirst(interp, tags, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
       char *k = Tcl_GetString(key), *v = Tcl_GetString(value);
@@ -534,8 +542,8 @@ static int gotroomstate(char *from, char *chan, Tcl_Obj *tags) {
 
   {
     int done = 0;
-    __attribute__((unused)) Tcl_DictSearch s;
-    __attribute__((unused)) Tcl_Obj *value, *key;
+    [[maybe_unused]] Tcl_DictSearch s;
+    [[maybe_unused]] Tcl_Obj *value, *key;
 
     for (Tcl_DictObjFirst(interp, tags, &s, &key, &value, &done); !done; Tcl_DictObjNext(&s, &key, &value, &done)) {
       char *k = Tcl_GetString(key), *v = Tcl_GetString(value);
@@ -631,23 +639,17 @@ static int tcl_userstate STDVAR {
 
   Tcl_DStringInit(&usdict);     /* Create a dict to capture userstate values */
   if (!(tchan = findtchan_by_dname(argv[1]))) {
-    Tcl_AppendResult(irp, "No userstate found for channel", NULL);
+    Tcl_AppendResult(irp, "No userstate found for channel", nullptr);
     return TCL_ERROR;
   }
-  Tcl_DStringAppendElement(&usdict, "badge-info");
-  Tcl_DStringAppendElement(&usdict, int_to_base10(tchan->userstate.badge_info));
-  Tcl_DStringAppendElement(&usdict, "badges");
-  Tcl_DStringAppendElement(&usdict, tchan->userstate.badges ? tchan->userstate.badges : "");
-  Tcl_DStringAppendElement(&usdict, "color");
-  Tcl_DStringAppendElement(&usdict, tchan->userstate.color);
-  Tcl_DStringAppendElement(&usdict, "display-name");
-  Tcl_DStringAppendElement(&usdict, tchan->userstate.display_name);
-  Tcl_DStringAppendElement(&usdict, "emote-sets");
-  Tcl_DStringAppendElement(&usdict, tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "");
-  Tcl_DStringAppendElement(&usdict, "mod");
-  Tcl_DStringAppendElement(&usdict, int_to_base10(tchan->userstate.mod));
+  tcl_dict_append(&usdict, "badge-info", int_to_base10(tchan->userstate.badge_info));
+  tcl_dict_append(&usdict, "badges", tchan->userstate.badges ? tchan->userstate.badges : "");
+  tcl_dict_append(&usdict, "color", tchan->userstate.color);
+  tcl_dict_append(&usdict, "display-name", tchan->userstate.display_name);
+  tcl_dict_append(&usdict, "emote-sets", tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "");
+  tcl_dict_append(&usdict, "mod", int_to_base10(tchan->userstate.mod));
 
-  Tcl_AppendResult(irp, Tcl_DStringValue(&usdict), NULL);
+  Tcl_AppendResult(irp, Tcl_DStringValue(&usdict), nullptr);
   Tcl_DStringFree(&usdict);
   return TCL_OK;
 }
@@ -658,10 +660,10 @@ static int tcl_twitchmods STDVAR {
   BADARGS(2, 2, " chan");
 
   if (!(tchan = findtchan_by_dname(argv[1]))) {
-    Tcl_AppendResult(irp, "No such channel", NULL);
+    Tcl_AppendResult(irp, "No such channel", nullptr);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, tchan->mods ? tchan->mods : "", NULL);
+  Tcl_AppendResult(irp, tchan->mods ? tchan->mods : "", nullptr);
   return TCL_OK;
 }
 
@@ -671,10 +673,10 @@ static int tcl_twitchvips STDVAR {
   BADARGS(2, 2, " chan");
 
   if (!(tchan = findtchan_by_dname(argv[1]))) {
-    Tcl_AppendResult(irp, "No such channel", NULL);
+    Tcl_AppendResult(irp, "No such channel", nullptr);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, tchan->vips ? tchan->vips : "", NULL);
+  Tcl_AppendResult(irp, tchan->vips ? tchan->vips : "", nullptr);
   return TCL_OK;
 }
 
@@ -683,7 +685,7 @@ static int tcl_twitchvips STDVAR {
  * is unreliable on Twitch
  */
 static int tcl_ismod STDVAR {
-  twitchchan_t *tchan, *thechan=NULL;
+  twitchchan_t *tchan, *thechan=nullptr;
 
   BADARGS(2, 3, " nick ?channel?");
 
@@ -691,7 +693,7 @@ static int tcl_ismod STDVAR {
     tchan = findtchan_by_dname(argv[2]);
     thechan = tchan;
     if (!thechan) {
-      Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
   } else {
@@ -699,17 +701,17 @@ static int tcl_ismod STDVAR {
   }
   /* If there's no mods, no reason to even check, eh? */
   if (!tchan->mods || !tchan->mods[0]) {
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
-  while (tchan && (thechan == NULL || thechan == tchan)) {
+  while (tchan && (thechan == nullptr || thechan == tchan)) {
     if (tchan->mods && twitch_word_in_list(tchan->mods, argv[1])) {
-      Tcl_AppendResult(irp, "1", NULL);
+      Tcl_AppendResult(irp, "1", nullptr);
       return TCL_OK;
     }
     tchan = tchan->next;
   }
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -719,7 +721,7 @@ static int tcl_ismod STDVAR {
  * is unreliable on Twitch
  */
 static int tcl_isvip STDVAR {
-  twitchchan_t *tchan, *thechan = NULL;
+  twitchchan_t *tchan, *thechan = nullptr;
 
   BADARGS(2, 3, " nick ?channel?");
 
@@ -727,7 +729,7 @@ static int tcl_isvip STDVAR {
     tchan = findtchan_by_dname(argv[2]);
     thechan = tchan;
     if (!thechan) {
-      Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
   } else {
@@ -735,17 +737,17 @@ static int tcl_isvip STDVAR {
   }
   /* If there's no VIPs, no reason to even check, eh? */
   if (!tchan->vips || !tchan->vips[0]) {
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
-  while (tchan && (thechan == NULL || thechan == tchan)) {
+  while (tchan && (thechan == nullptr || thechan == tchan)) {
     if (tchan->vips && twitch_word_in_list(tchan->vips, argv[1])) {
-      Tcl_AppendResult(irp, "1", NULL);
+      Tcl_AppendResult(irp, "1", nullptr);
       return TCL_OK;
     }
     tchan = tchan->next;
   }
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -758,21 +760,16 @@ static int tcl_roomstate STDVAR {
 
   Tcl_DStringInit(&rsdict);     /* Create a dict to capture roomstate values */
   if (!(tchan = findtchan_by_dname(argv[1]))) {
-    Tcl_AppendResult(irp, "No roomstate found for channel", NULL);
+    Tcl_AppendResult(irp, "No roomstate found for channel", nullptr);
     return TCL_ERROR;
   }
-  Tcl_DStringAppendElement(&rsdict, "emote-only");
-  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->emote_only));
-  Tcl_DStringAppendElement(&rsdict, "followers-only");
-  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->followers_only));
-  Tcl_DStringAppendElement(&rsdict, "r9k");
-  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->r9k));
-  Tcl_DStringAppendElement(&rsdict, "slow");
-  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->slow));
-  Tcl_DStringAppendElement(&rsdict, "subs-only");
-  Tcl_DStringAppendElement(&rsdict, int_to_base10(tchan->subs_only));
+  tcl_dict_append(&rsdict, "emote-only", int_to_base10(tchan->emote_only));
+  tcl_dict_append(&rsdict, "followers-only", int_to_base10(tchan->followers_only));
+  tcl_dict_append(&rsdict, "r9k", int_to_base10(tchan->r9k));
+  tcl_dict_append(&rsdict, "slow", int_to_base10(tchan->slow));
+  tcl_dict_append(&rsdict, "subs-only", int_to_base10(tchan->subs_only));
 
-  Tcl_AppendResult(irp, Tcl_DStringValue(&rsdict), NULL);
+  Tcl_AppendResult(irp, Tcl_DStringValue(&rsdict), nullptr);
   Tcl_DStringFree(&rsdict);
   return TCL_OK;
 }
@@ -783,7 +780,7 @@ static int tcl_twcmd STDVAR {
   BADARGS(3, 4, " chan cmd ?arg?");
 
   if (argv[1][0] != '#') {
-    Tcl_AppendResult(irp, "Invalid channel", NULL);
+    Tcl_AppendResult(irp, "Invalid channel", nullptr);
     return TCL_ERROR;
   }
   dprintf(DP_SERVER, "PRIVMSG %s :/%s %s", argv[1], argv[2],
@@ -832,10 +829,10 @@ static void twitch_report(int idx, int details)
 
 static cmd_t mydcc[] = {
   /* command  flags  function     tcl-name */
-  {"roomstate", "",     (IntFunc) cmd_roomstate,   NULL},
-  {"userstate", "",     (IntFunc) cmd_userstate,   NULL},
-  {"twcmd",     "o|o",  (IntFunc) cmd_twcmd,       NULL},
-  {NULL,        NULL,   NULL,                      NULL}  /* Mark end. */
+  {"roomstate", "",     (IntFunc) cmd_roomstate,   nullptr},
+  {"userstate", "",     (IntFunc) cmd_userstate,   nullptr},
+  {"twcmd",     "o|o",  (IntFunc) cmd_twcmd,       nullptr},
+  {nullptr,        nullptr,   nullptr,                      nullptr}  /* Mark end. */
 };
 
 static tcl_cmds mytcl[] = {
@@ -846,25 +843,25 @@ static tcl_cmds mytcl[] = {
   {"twitchvips", tcl_twitchvips},
   {"ismod",           tcl_ismod},
   {"isvip",           tcl_isvip},
-  {NULL,                   NULL}
+  {nullptr,                   nullptr}
 };
 
 /*
 static tcl_ints my_tcl_ints[] = {
-  {NULL,                NULL,                       0}
+  {nullptr,                nullptr,                       0}
 };
 */
 
 static tcl_strings my_tcl_strings[] = {
   {"cap-request",   cap_request,    55,     STR_PROTECT},
-  {NULL,            NULL,           0,                0}
+  {nullptr,            nullptr,           0,                0}
 };
 
 static cmd_t twitch_raw[] = {
   {"CLEARCHAT",     "",     (IntFunc) gotclearchat,      "twitch:clearchat"},
   {"HOSTTARGET",    "",     (IntFunc) gothosttarget, "twitch:gothosttarget"},
   {"JOIN",          "",     (IntFunc) gotjoin,             "twitch:gotjoin"},
-  {NULL,            NULL,   NULL,                                      NULL}
+  {nullptr,            nullptr,   nullptr,                                      nullptr}
 };
 
 static cmd_t twitch_rawt[] = {
@@ -874,7 +871,7 @@ static cmd_t twitch_rawt[] = {
   {"USERSTATE",  "",    (IntFunc) gotuserstate,   "twitch:gotuserstate"},
   {"USERNOTICE", "",    (IntFunc) gotusernotice, "twitch:gotusernotice"},
   {"NOTICE",     "",    (IntFunc) gotnotice,         "twitch:gotnotice"},
-  {NULL,         NULL,  NULL,                                      NULL}
+  {nullptr,         nullptr,  nullptr,                                      nullptr}
 };
 
 
@@ -887,17 +884,17 @@ static char *twitch_close(void)
     twitch_free_tchan(tchan);
     tchan = next;
   }
-  twitchchan = NULL;
+  twitchchan = nullptr;
   if (tchan_bh) {
     op_bh_destroy(tchan_bh);
-    tchan_bh = NULL;
+    tchan_bh = nullptr;
   }
 
   rem_builtins(H_dcc, mydcc);
   rem_builtins(H_raw, twitch_raw);
   rem_builtins(H_rawt, twitch_rawt);
   rem_tcl_commands(mytcl);
-  Tcl_UntraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);
+  Tcl_UntraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, nullptr);
   // rem_tcl_ints(my_tcl_ints);
   rem_tcl_strings(my_tcl_strings);
   del_bind_table(H_ccht);
@@ -909,34 +906,34 @@ static char *twitch_close(void)
   del_bind_table(H_usst);
   del_bind_table(H_usrntc);
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 /* Non-TCL exports for Python module access (twitch_table indices 12-15) */
 
-/* twitch_getmods(chan) — return mods string for channel, or NULL if not found */
+/* twitch_getmods(chan) — return mods string for channel, or nullptr if not found */
 static char *twitch_getmods(char *chan)
 {
   twitchchan_t *tchan = findtchan_by_dname(chan);
   if (!tchan)
-    return NULL;
+    return nullptr;
   return tchan->mods ? tchan->mods : "";
 }
 
-/* twitch_getvips(chan) — return vips string for channel, or NULL if not found */
+/* twitch_getvips(chan) — return vips string for channel, or nullptr if not found */
 static char *twitch_getvips(char *chan)
 {
   twitchchan_t *tchan = findtchan_by_dname(chan);
   if (!tchan)
-    return NULL;
+    return nullptr;
   return tchan->vips ? tchan->vips : "";
 }
 
 /* twitch_ismod(nick, chan) — 1=mod, 0=not mod, -1=channel not found.
- * If chan is NULL, searches all channels. */
+ * If chan is nullptr, searches all channels. */
 static int twitch_ismod(char *nick, char *chan)
 {
-  twitchchan_t *tchan, *thechan = NULL;
+  twitchchan_t *tchan, *thechan = nullptr;
 
   if (chan) {
     thechan = findtchan_by_dname(chan);
@@ -946,7 +943,7 @@ static int twitch_ismod(char *nick, char *chan)
   } else {
     tchan = twitchchan;
   }
-  while (tchan && (thechan == NULL || thechan == tchan)) {
+  while (tchan && (thechan == nullptr || thechan == tchan)) {
     if (tchan->mods && twitch_word_in_list(tchan->mods, nick))
       return 1;
     tchan = tchan->next;
@@ -955,10 +952,10 @@ static int twitch_ismod(char *nick, char *chan)
 }
 
 /* twitch_isvip(nick, chan) — 1=vip, 0=not vip, -1=channel not found.
- * If chan is NULL, searches all channels. */
+ * If chan is nullptr, searches all channels. */
 static int twitch_isvip(char *nick, char *chan)
 {
-  twitchchan_t *tchan, *thechan = NULL;
+  twitchchan_t *tchan, *thechan = nullptr;
 
   if (chan) {
     thechan = findtchan_by_dname(chan);
@@ -968,7 +965,7 @@ static int twitch_isvip(char *nick, char *chan)
   } else {
     tchan = twitchchan;
   }
-  while (tchan && (thechan == NULL || thechan == tchan)) {
+  while (tchan && (thechan == nullptr || thechan == tchan)) {
     if (tchan->vips && twitch_word_in_list(tchan->vips, nick))
       return 1;
     tchan = tchan->next;
@@ -1051,12 +1048,12 @@ char *twitch_start(Function *global_funcs)
     Tcl_SetVar(interp, "cap-request",
           "twitch.tv/commands twitch.tv/membership twitch.tv/tags", 0);
     /* keep-nick causes ISONs to be sent, which are not supported */
-    if ((value = Tcl_GetVar2(interp, "keep-nick", NULL, TCL_GLOBAL_ONLY)) && strcmp(value, "0")) {
+    if ((value = Tcl_GetVar2(interp, "keep-nick", nullptr, TCL_GLOBAL_ONLY)) && strcmp(value, "0")) {
       putlog(LOG_MISC, "*", "Twitch: keep-nick is forced to be 0 when twitch.mod is loaded");
     }
   }
-  Tcl_SetVar2(interp, "keep-nick", NULL, "0", TCL_GLOBAL_ONLY);
-  Tcl_TraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, NULL);
+  Tcl_SetVar2(interp, "keep-nick", nullptr, "0", TCL_GLOBAL_ONLY);
+  Tcl_TraceVar(interp, "keep-nick", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_keepnick, nullptr);
 
   /* Add command table to bind list */
   add_builtins(H_dcc, mydcc);
@@ -1065,5 +1062,5 @@ char *twitch_start(Function *global_funcs)
   add_tcl_commands(mytcl);
   // add_tcl_ints(my_tcl_ints);
   add_tcl_strings(my_tcl_strings);
-  return NULL;
+  return nullptr;
 }

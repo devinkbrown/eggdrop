@@ -56,10 +56,10 @@
 #include "filelist.h"
 
 static p_tcl_bind_list H_fil;
-static Function *transfer_funcs = NULL;
+static Function *transfer_funcs = nullptr;
 
 #undef global /* Needs to be undef'd because of fcntl.h. */
-static Function *global = NULL;
+static Function *global = nullptr;
 
 /* Root dcc directory */
 static char dccdir[121] = "";
@@ -96,31 +96,31 @@ static struct dcc_table DCC_FILES = {
   DCT_MASTER | DCT_VALIDIDX | DCT_SHOWWHO | DCT_SIMUL | DCT_CANBOOT | DCT_FILES,
   eof_dcc_files,
   dcc_files,
-  NULL,
-  NULL,
+  nullptr,
+  nullptr,
   disp_dcc_files,
   expmem_dcc_files,
   kill_dcc_files,
   out_dcc_files,
-  NULL
+  nullptr
 };
 
 static struct user_entry_type USERENTRY_DCCDIR = {
-  NULL,                         /* always NULL ;) */
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
+  nullptr,                         /* always nullptr ;) */
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
   "DCCDIR",
-  NULL
+  nullptr
 };
 
 #include "files.c"
@@ -135,7 +135,7 @@ static struct user_entry_type USERENTRY_DCCDIR = {
 static int check_tcl_fil(char *cmd, int idx, char *args)
 {
   int x;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.file->chat->con_chan);
   Tcl_SetVar(interp, "_fil1", dcc[idx].nick, 0);
@@ -278,7 +278,7 @@ static void tell_file_stats(int idx, char *hand)
   float fr = (-1.0), kr = (-1.0);
 
   u = get_user_by_handle(userlist, hand);
-  if (u == NULL)
+  if (u == nullptr)
     return;
   if (!(fs = get_user(&USERENTRY_FSTAT, u))) {
     dprintf(idx, "No file statistics for %s.\n", hand);
@@ -350,7 +350,7 @@ static int cmd_files(struct userrec *u, int idx, char *par)
 static int _dcc_send(int idx, char *filename, char *nick, int resend)
 {
   int x;
-  char *nfn, *buf = NULL;
+  char *nfn, *buf = nullptr;
 
   if (strlen(nick) > NICKMAX)
     nick[NICKMAX] = 0;
@@ -396,7 +396,7 @@ static int _dcc_send(int idx, char *filename, char *nick, int resend)
     return 0;
   }
   nfn = strrchr(filename, '/');
-  if (nfn == NULL)
+  if (nfn == nullptr)
     nfn = filename;
   else
     nfn++;
@@ -407,7 +407,7 @@ static int _dcc_send(int idx, char *filename, char *nick, int resend)
 
     malloc_strcpy(buf, nfn);
     p = nfn = buf;
-    while ((p = strchr(p, ' ')) != NULL)
+    while ((p = strchr(p, ' ')) != nullptr)
       *p = '_';
   }
 
@@ -421,7 +421,7 @@ static int _dcc_send(int idx, char *filename, char *nick, int resend)
 
 static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
 {
-  char *s = NULL;
+  char *s = nullptr;
   int x;
 
   if (nick && strlen(nick) > NICKMAX)
@@ -432,7 +432,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
            fn, dcc[idx].nick);
     return 0;
   }
-  if (strchr(fn, '/') != NULL) {
+  if (strchr(fn, '/') != nullptr) {
     dprintf(idx, "Filename cannot have '/' in it...\n");
     putlog(LOG_FILES, "*", "Refused dcc %sget %s from [%s]", resend ? "re" : "",
            fn, dcc[idx].nick);
@@ -440,6 +440,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     if (dir[0])
       op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dir, fn);
     else
@@ -460,6 +461,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
   /* Already have too many transfers active for this user?  queue it */
   if (at_limit(nick)) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
     queue_file(op_strbuf_str(&_b), fn, dcc[idx].nick, nick);
     op_strbuf_free(&_b);
@@ -480,9 +482,9 @@ static int builtin_fil STDVAR
   BADARGS(4, 4, " hand idx param");
 
   CHECKVALIDITY(builtin_fil);
-  idx = findanyidx(atoi(argv[2]));
+  idx = findanyidx(egg_atoi(argv[2]));
   if (idx < 0 || dcc[idx].type != &DCC_FILES) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
 
@@ -558,22 +560,22 @@ static void out_dcc_files(int idx, char *buf, void *x)
 }
 
 static cmd_t mydcc[] = {
-  {"files", "-",  cmd_files, NULL},
-  {NULL,    NULL, NULL,      NULL}
+  {"files", "-",  cmd_files, nullptr},
+  {nullptr,    nullptr, nullptr,      nullptr}
 };
 
 static tcl_strings mystrings[] = {
   {"files-path",    dccdir,      120, STR_DIR | STR_PROTECT},
   {"incoming-path", dccin,       120, STR_DIR | STR_PROTECT},
   {"filedb-path",   filedb_path, 120, STR_DIR | STR_PROTECT},
-  {NULL,            NULL,        0,                       0}
+  {nullptr,            nullptr,        0,                       0}
 };
 
 static tcl_ints myints[] = {
   {"max-filesize",    &dcc_maxsize, 0},
   {"max-file-users",    &dcc_users, 0},
   {"upload-to-pwd",  &upload_to_cd, 0},
-  {NULL,                      NULL, 0}
+  {nullptr,                      nullptr, 0}
 };
 
 static struct dcc_table DCC_FILES_PASS = {
@@ -581,13 +583,13 @@ static struct dcc_table DCC_FILES_PASS = {
   0,
   eof_dcc_files,
   dcc_files_pass,
-  NULL,
+  nullptr,
   tout_dcc_files_pass,
   disp_dcc_files_pass,
   expmem_dcc_files,
   kill_dcc_files,
   out_dcc_files,
-  NULL
+  nullptr
 };
 
 
@@ -602,7 +604,7 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
                              char *text)
 #endif
 {
-  char *param, *ip, *prt, *buf = NULL, *msg;
+  char *param, *ip, *prt, *buf = nullptr, *msg;
   int atr = u ? u->flags : 0, j = 0;
 
   if (text[j] == '"') {
@@ -635,18 +637,18 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
   } else {
     ip = newsplit(&msg);
     prt = newsplit(&msg);
-    if (atoi(prt) < 1024 || atoi(prt) > 65535) {
+    if (egg_atoi(prt) < 1024 || egg_atoi(prt) > 65535) {
       /* Invalid port */
       dprintf(DP_HELP, "NOTICE %s :%s (invalid port)\n", nick,
               DCC_CONNECTFAILED1);
       putlog(LOG_FILES, "*", "Refused dcc send %s (%s): invalid port", param,
              nick);
-    } else if (atoi(msg) == 0) {
+    } else if (egg_atoi(msg) == 0) {
       dprintf(DP_HELP, "NOTICE %s :Sorry, file size info must be included.\n",
               nick);
       putlog(LOG_FILES, "*", "Refused dcc send %s (%s): no file size",
              param, nick);
-    } else if (dcc_maxsize && (atoi(msg) > (dcc_maxsize * 1024))) {
+    } else if (dcc_maxsize && (egg_atoi(msg) > (dcc_maxsize * 1024))) {
       dprintf(DP_HELP, "NOTICE %s :Sorry, file too large.\n", nick);
       putlog(LOG_FILES, "*", "Refused dcc send %s (%s): file too large", param,
              nick);
@@ -663,7 +665,7 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
                nick, from);
         return;
       }
-      dcc[i].port = atoi(prt);
+      dcc[i].port = egg_atoi(prt);
       (void) setsockname(&dcc[i].sockname, ip, dcc[i].port, 0);
       dcc[i].sock = -1;
 #ifdef TLS
@@ -672,9 +674,10 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
       dcc[i].user = u;
       strlcpy(dcc[i].nick, nick, sizeof dcc[i].nick);
       strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
-      dcc[i].u.dns->cbuf = get_data_ptr(strlen(param) + 1);
-      strcpy(dcc[i].u.dns->cbuf, param);
-      dcc[i].u.dns->ibuf = atoi(msg);
+      size_t _len = strlen(param) + 1;
+      dcc[i].u.dns->cbuf = get_data_ptr(_len);
+      strlcpy(dcc[i].u.dns->cbuf, param, _len);
+      dcc[i].u.dns->ibuf = egg_atoi(msg);
       dcc[i].u.dns->dns_type = RES_HOSTBYIP;
       dcc[i].u.dns->dns_success = filesys_dcc_send_hostresolved;
       dcc[i].u.dns->dns_failure = filesys_dcc_send_hostresolved;
@@ -709,6 +712,7 @@ static char *mktempfile(char *filename)
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
     tempname = op_strbuf_steal(&_b);
   }
@@ -723,6 +727,7 @@ static void filesys_dcc_send_hostresolved(int i)
   int len = dcc[i].u.dns->ibuf, j;
 
   op_strbuf_t _prt;
+  op_strbuf_init(&_prt);
   op_strbuf_appendf(&_prt, "%s", int_to_base10(dcc[i].port));
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].u.dns->host, &dcc[i].sockname,
                            dcc[i].u.dns->host, (char *)op_strbuf_str(&_prt))) {
@@ -737,11 +742,13 @@ static void filesys_dcc_send_hostresolved(int i)
   if (param[0] == '.')
     param[0] = '_';
   /* Save the original filename */
-  dcc[i].u.xfer->origname = get_data_ptr(strlen(param) + 1);
-  strcpy(dcc[i].u.xfer->origname, param);
+  size_t _len1 = strlen(param) + 1;
+  dcc[i].u.xfer->origname = get_data_ptr(_len1);
+  strlcpy(dcc[i].u.xfer->origname, param, _len1);
   tempf = mktempfile(param);
-  dcc[i].u.xfer->filename = get_data_ptr(strlen(tempf) + 1);
-  strcpy(dcc[i].u.xfer->filename, tempf);
+  size_t _len2 = strlen(tempf) + 1;
+  dcc[i].u.xfer->filename = get_data_ptr(_len2);
+  strlcpy(dcc[i].u.xfer->filename, tempf, _len2);
   /* We don't need the temporary buffers anymore */
   my_free(tempf);
   my_free(param);
@@ -751,6 +758,7 @@ static void filesys_dcc_send_hostresolved(int i)
 
     if (p) {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s%s/", dccdir, p);
       strlcpy(dcc[i].u.xfer->dir, op_strbuf_str(&_b), sizeof(dcc[i].u.xfer->dir));
       op_strbuf_free(&_b);
@@ -761,6 +769,7 @@ static void filesys_dcc_send_hostresolved(int i)
   dcc[i].u.xfer->length = len;
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
     s1 = op_strbuf_steal(&_b);
   }
@@ -787,7 +796,7 @@ static void filesys_dcc_send_hostresolved(int i)
       }
     /* Put uploads in a temp file first */
     dcc[i].u.xfer->f = tmpfile();
-    if (dcc[i].u.xfer->f == NULL) {
+    if (dcc[i].u.xfer->f == nullptr) {
       debug1("filesys: filesys_dcc_send_hostresolved(): tmpfile(): error: %s", strerror(errno));
       dprintf(DP_HELP,
               "NOTICE %s :Can't create file `%s' (temp dir error)\n",
@@ -801,7 +810,7 @@ static void filesys_dcc_send_hostresolved(int i)
         dcc[i].type->eof(i);
 #ifdef TLS
       else if (dcc[i].ssl && ssl_handshake(dcc[i].sock, TLS_CONNECT, tls_vfydcc,
-                                           LOG_FILES, dcc[i].host, NULL))
+                                           LOG_FILES, dcc[i].host, nullptr))
         dcc[i].type->eof(i);
 #endif
     }
@@ -815,7 +824,7 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
 {
   char *param, *ip, *prt, buf[512], *msg = buf;
   struct userrec *u = get_user_by_handle(userlist, handle);
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   if (strcasecmp(object, botname))
     return 0;
@@ -855,7 +864,7 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
   } else {
     ip = newsplit(&msg);
     prt = newsplit(&msg);
-    if (atoi(prt) < 1024 || atoi(prt) > 65535) {
+    if (egg_atoi(prt) < 1024 || egg_atoi(prt) > 65535) {
       /* Invalid port */
       if (!quiet_reject)
         dprintf(DP_HELP, "NOTICE %s :%s (invalid port)\n", nick,
@@ -864,7 +873,7 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
       return 1;
     }
     int i = new_dcc(&DCC_FILES_PASS, sizeof(struct file_info));
-    dcc[i].sock = open_telnet(i, ip, atoi(prt));
+    dcc[i].sock = open_telnet(i, ip, egg_atoi(prt));
     if (dcc[i].sock < 0) {
       lostdcc(i);
       if (!quiet_reject)
@@ -889,7 +898,7 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
 
 static cmd_t myctcp[] = {
   {"DCC", "",   filesys_DCC_CHAT, "files:DCC"},
-  {NULL,  NULL, NULL,                    NULL}
+  {nullptr,  nullptr, nullptr,                    nullptr}
 };
 
 static void init_server_ctcps(char *module)
@@ -902,7 +911,7 @@ static void init_server_ctcps(char *module)
 
 static cmd_t myload[] = {
   {"server", "",   (IntFunc) init_server_ctcps, "filesys:server"},
-  {NULL,     NULL, NULL,                                     NULL}
+  {nullptr,     nullptr, nullptr,                                     nullptr}
 };
 
 static int filesys_expmem(void)
@@ -966,7 +975,7 @@ static char *filesys_close(void)
   del_entry_type(&USERENTRY_DCCDIR);
   del_lang_section("filesys");
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *filesys_start(Function *global_funcs);
@@ -1015,7 +1024,7 @@ char *filesys_start(Function *global_funcs)
   add_entry_type(&USERENTRY_DCCDIR);
   DCC_FILES_PASS.timeout_val = &password_timeout;
   add_lang_section("filesys");
-  return NULL;
+  return nullptr;
 }
 
 static int is_valid(void)

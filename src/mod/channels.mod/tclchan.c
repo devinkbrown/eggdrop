@@ -31,12 +31,12 @@ static int tcl_killban STDVAR
 
   BADARGS(2, 2, " ban");
 
-  if (u_delban(NULL, argv[1], 1) > 0) {
+  if (u_delban(nullptr, argv[1], 1) > 0) {
     for (chan = chanset; chan; chan = chan->next)
       add_mode(chan, '-', 'b', argv[1]);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   } else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -48,14 +48,14 @@ static int tcl_killchanban STDVAR
 
   chan = findchan_by_dname(argv[1]);
   if (!chan) {
-    Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (u_delban(chan, argv[2], 1) > 0) {
     add_mode(chan, '-', 'b', argv[2]);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   } else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -65,12 +65,12 @@ static int tcl_killexempt STDVAR
 
   BADARGS(2, 2, " exempt");
 
-  if (u_delexempt(NULL, argv[1], 1) > 0) {
+  if (u_delexempt(nullptr, argv[1], 1) > 0) {
     for (chan = chanset; chan; chan = chan->next)
       add_mode(chan, '-', 'e', argv[1]);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   } else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -82,14 +82,14 @@ static int tcl_killchanexempt STDVAR
 
   chan = findchan_by_dname(argv[1]);
   if (!chan) {
-    Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (u_delexempt(chan, argv[2], 1) > 0) {
     add_mode(chan, '-', 'e', argv[2]);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   } else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -99,12 +99,12 @@ static int tcl_killinvite STDVAR
 
   BADARGS(2, 2, " invite");
 
-  if (u_delinvite(NULL, argv[1], 1) > 0) {
+  if (u_delinvite(nullptr, argv[1], 1) > 0) {
     for (chan = chanset; chan; chan = chan->next)
       add_mode(chan, '-', 'I', argv[1]);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   } else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -116,14 +116,14 @@ static int tcl_killchaninvite STDVAR
 
   chan = findchan_by_dname(argv[1]);
   if (!chan) {
-    Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (u_delinvite(chan, argv[2], 1) > 0) {
     add_mode(chan, '-', 'I', argv[2]);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   } else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -137,19 +137,19 @@ static int tcl_stick STDVAR
   if (argc == 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_setsticky_ban(chan, argv[1], !strncmp(argv[0], "un", 2) ? 0 : 1))
       ok = 1;
   }
-  if (!ok && u_setsticky_ban(NULL, argv[1], !strncmp(argv[0], "un", 2) ?
+  if (!ok && u_setsticky_ban(nullptr, argv[1], !strncmp(argv[0], "un", 2) ?
       0 : 1))
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -163,19 +163,19 @@ static int tcl_stickinvite STDVAR
   if (argc == 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_setsticky_invite(chan, argv[1], !strncmp(argv[0], "un", 2) ? 0 : 1))
       ok = 1;
   }
-  if (!ok && u_setsticky_invite(NULL, argv[1], !strncmp(argv[0], "un", 2) ?
+  if (!ok && u_setsticky_invite(nullptr, argv[1], !strncmp(argv[0], "un", 2) ?
       0 : 1))
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -189,19 +189,19 @@ static int tcl_stickexempt STDVAR
   if (argc == 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_setsticky_exempt(chan, argv[1], !strncmp(argv[0], "un", 2) ? 0 : 1))
       ok = 1;
   }
-  if (!ok && u_setsticky_exempt(NULL, argv[1], !strncmp(argv[0], "un", 2) ?
+  if (!ok && u_setsticky_exempt(nullptr, argv[1], !strncmp(argv[0], "un", 2) ?
       0 : 1))
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -215,7 +215,7 @@ static int tcl_isban STDVAR
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_equals_mask(chan->bans, chan->bans_ht, argv[1]))
@@ -225,16 +225,16 @@ static int tcl_isban STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if (u_equals_mask(global_bans, global_bans_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -248,7 +248,7 @@ static int tcl_isexempt STDVAR
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_equals_mask(chan->exempts, chan->exempts_ht, argv[1]))
@@ -258,16 +258,16 @@ static int tcl_isexempt STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if (u_equals_mask(global_exempts, global_exempts_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -281,7 +281,7 @@ static int tcl_isinvite STDVAR
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_equals_mask(chan->invites, chan->invites_ht, argv[1]))
@@ -291,16 +291,16 @@ static int tcl_isinvite STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if (u_equals_mask(global_invites, global_invites_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -315,7 +315,7 @@ static int tcl_isbansticky STDVAR
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_sticky_mask(chan->bans, chan->bans_ht, argv[1]))
@@ -325,16 +325,16 @@ static int tcl_isbansticky STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if (u_sticky_mask(global_bans, global_bans_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -348,7 +348,7 @@ static int tcl_isexemptsticky STDVAR
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_sticky_mask(chan->exempts, chan->exempts_ht, argv[1]))
@@ -358,16 +358,16 @@ static int tcl_isexemptsticky STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if (u_sticky_mask(global_exempts, global_exempts_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -381,7 +381,7 @@ static int tcl_isinvitesticky STDVAR
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
     if (!chan) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_sticky_mask(chan->invites, chan->invites_ht, argv[1]))
@@ -391,16 +391,16 @@ static int tcl_isinvitesticky STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if (u_sticky_mask(global_invites, global_invites_ht, argv[1]) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -413,8 +413,8 @@ static int tcl_ispermban STDVAR
 
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_equals_mask(chan->bans, chan->bans_ht, argv[1]) == 2)
@@ -424,16 +424,16 @@ static int tcl_ispermban STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if ((u_equals_mask(global_bans, global_bans_ht, argv[1]) == 2) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -446,8 +446,8 @@ static int tcl_ispermexempt STDVAR
 
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_equals_mask(chan->exempts, chan->exempts_ht, argv[1]) == 2)
@@ -457,16 +457,16 @@ static int tcl_ispermexempt STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if ((u_equals_mask(global_exempts, global_exempts_ht, argv[1]) == 2) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -479,8 +479,8 @@ static int tcl_isperminvite STDVAR
 
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_equals_mask(chan->invites, chan->invites_ht, argv[1]) == 2)
@@ -490,16 +490,16 @@ static int tcl_isperminvite STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if ((u_equals_mask(global_invites, global_invites_ht, argv[1]) == 2) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -512,8 +512,8 @@ static int tcl_matchban STDVAR
 
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_match_mask_trie(chan->bans, chan->ban_ip_trie, argv[1]))
@@ -523,16 +523,16 @@ static int tcl_matchban STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if ((u_match_mask(global_bans, argv[1])) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -545,8 +545,8 @@ static int tcl_matchexempt STDVAR
 
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, argv[1]))
@@ -556,16 +556,16 @@ static int tcl_matchexempt STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if ((u_match_mask(global_exempts, argv[1])) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -578,8 +578,8 @@ static int tcl_matchinvite STDVAR
 
   if (argc >= 3) {
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[2], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (u_match_mask_trie(chan->invites, chan->invite_ip_trie, argv[1]))
@@ -589,16 +589,16 @@ static int tcl_matchinvite STDVAR
     if (!strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
-      Tcl_AppendResult(irp, "invalid flag", NULL);
+      Tcl_AppendResult(irp, "invalid flag", nullptr);
       return TCL_ERROR;
     }
   }
   if ((u_match_mask(global_invites, argv[1])) && chanarg)
     ok = 1;
   if (ok)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -613,8 +613,8 @@ static int tcl_newchanban STDVAR
   BADARGS(5, 7, " channel ban creator comment ?lifetime? ?options?");
 
   chan = findchan_by_dname(argv[1]);
-  if (chan == NULL) {
-    Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+  if (chan == nullptr) {
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (argc == 7) {
@@ -623,7 +623,7 @@ static int tcl_newchanban STDVAR
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[6], " (must be one of: ",
-                       "sticky, none)", NULL);
+                       "sticky, none)", nullptr);
       return TCL_ERROR;
     }
   }
@@ -668,7 +668,7 @@ static int tcl_newban STDVAR
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[5], " (must be one of: ",
-                       "sticky, none)", NULL);
+                       "sticky, none)", nullptr);
       return TCL_ERROR;
     }
   }
@@ -686,10 +686,10 @@ static int tcl_newban STDVAR
     op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  if (u_addban(NULL, op_strbuf_str(&ban_b), (char *)op_strbuf_str(&from_b),
+  if (u_addban(nullptr, op_strbuf_str(&ban_b), (char *)op_strbuf_str(&from_b),
                op_strbuf_str(&cmt_b), expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
-      for (chan = chanset; chan != NULL; chan = chan->next)
+      for (chan = chanset; chan != nullptr; chan = chan->next)
         ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan,
             (char *)op_strbuf_str(&ban_b), sticky);
   op_strbuf_free(&ban_b);
@@ -708,8 +708,8 @@ static int tcl_newchanexempt STDVAR
   BADARGS(5, 7, " channel exempt creator comment ?lifetime? ?options?");
 
   chan = findchan_by_dname(argv[1]);
-  if (chan == NULL) {
-    Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+  if (chan == nullptr) {
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (argc == 7) {
@@ -718,7 +718,7 @@ static int tcl_newchanexempt STDVAR
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[6], " (must be one of: ",
-                       "sticky, none)", NULL);
+                       "sticky, none)", nullptr);
       return TCL_ERROR;
     }
   }
@@ -761,7 +761,7 @@ static int tcl_newexempt STDVAR
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[5], " (must be one of: ",
-                       "sticky, none)", NULL);
+                       "sticky, none)", nullptr);
       return TCL_ERROR;
     }
   }
@@ -779,7 +779,7 @@ static int tcl_newexempt STDVAR
     op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  u_addexempt(NULL, (char *)op_strbuf_str(&exempt_b),
+  u_addexempt(nullptr, (char *)op_strbuf_str(&exempt_b),
               (char *)op_strbuf_str(&from_b),
               (char *)op_strbuf_str(&cmt_b), expire_time, sticky);
   for (chan = chanset; chan; chan = chan->next)
@@ -800,8 +800,8 @@ static int tcl_newchaninvite STDVAR
   BADARGS(5, 7, " channel invite creator comment ?lifetime? ?options?");
 
   chan = findchan_by_dname(argv[1]);
-  if (chan == NULL) {
-    Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+  if (chan == nullptr) {
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (argc == 7) {
@@ -810,7 +810,7 @@ static int tcl_newchaninvite STDVAR
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[6], " (must be one of: ",
-                       "sticky, none)", NULL);
+                       "sticky, none)", nullptr);
       return TCL_ERROR;
     }
   }
@@ -853,7 +853,7 @@ static int tcl_newinvite STDVAR
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[5], " (must be one of: ",
-                       "sticky, none)", NULL);
+                       "sticky, none)", nullptr);
       return TCL_ERROR;
     }
   }
@@ -871,7 +871,7 @@ static int tcl_newinvite STDVAR
     op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  u_addinvite(NULL, (char *)op_strbuf_str(&invite_b),
+  u_addinvite(nullptr, (char *)op_strbuf_str(&invite_b),
               (char *)op_strbuf_str(&from_b),
               (char *)op_strbuf_str(&cmt_b), expire_time, sticky);
   for (chan = chanset; chan; chan = chan->next)
@@ -1020,6 +1020,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
 
     if (ul->type == UDEF_FLAG) {
       op_strbuf_t t;
+      op_strbuf_init(&t);
       op_strbuf_appendf(&t, "%c%s",
                getudef(ul->values, chan->dname) ? '+' : '-', ul->name);
       Tcl_AppendElement(irp, op_strbuf_str(&t));
@@ -1027,6 +1028,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
     } else if (ul->type == UDEF_INT) {
       char *x;
       op_strbuf_t b_buf;
+      op_strbuf_init(&b_buf);
       op_strbuf_appendf(&b_buf, "%" PRIdPTR, getudef(ul->values, chan->dname));
       args[0] = ul->name;
       args[1] = op_strbuf_str(&b_buf);
@@ -1037,6 +1039,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
     } else if (ul->type == UDEF_STR) {
       char *p = (char *) getudef(ul->values, chan->dname);
       op_strbuf_t buf;
+      op_strbuf_init(&buf);
 
       if (!p)
         p = "{}";
@@ -1058,7 +1061,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
 static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
 {
   char s[121], *str;
-  EGG_CONST char **argv = NULL;
+  EGG_CONST char **argv = nullptr;
   Tcl_Size argc = 0;
   struct udef_struct *ul;
 
@@ -1153,6 +1156,7 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
       Tcl_Free((char *) argv);
     } else {
       op_strbuf_t t;
+      op_strbuf_init(&t);
       op_strbuf_appendf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
       APPEND_KEYVAL(ul->name, op_strbuf_str(&t));
       op_strbuf_free(&t);
@@ -1165,95 +1169,102 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
 static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
                            char *setting)
 {
-  char s[121], *str = NULL;
-  EGG_CONST char **argv = NULL;
+  char s[121], *str = nullptr;
+  EGG_CONST char **argv = nullptr;
   Tcl_Size argc = 0;
   struct udef_struct *ul;
 
   if (!strcmp(setting, "chanmode"))
     get_mode_protect(chan, s, sizeof s);
   else if (!strcmp(setting, "need-op")) {
-    Tcl_AppendResult(irp, chan->need_op, NULL);
+    Tcl_AppendResult(irp, chan->need_op, nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "need-invite")) {
-    Tcl_AppendResult(irp, chan->need_invite, NULL);
+    Tcl_AppendResult(irp, chan->need_invite, nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "need-key")) {
-    Tcl_AppendResult(irp, chan->need_key, NULL);
+    Tcl_AppendResult(irp, chan->need_key, nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "need-unban")) {
-    Tcl_AppendResult(irp, chan->need_unban, NULL);
+    Tcl_AppendResult(irp, chan->need_unban, nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "need-limit")) {
-    Tcl_AppendResult(irp, chan->need_limit, NULL);
+    Tcl_AppendResult(irp, chan->need_limit, nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "idle-kick")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->idle_kick), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->idle_kick), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "stopnethack-mode") || !strcmp(setting, "stop-net-hack")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->stopnethack_mode), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->stopnethack_mode), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "revenge-mode")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->revenge_mode), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->revenge_mode), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "ban-type")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->ban_type), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->ban_type), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "ban-time")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->ban_time), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->ban_time), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "exempt-time")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->exempt_time), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->exempt_time), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "invite-time")) {
-    Tcl_AppendResult(irp, int_to_base10(chan->invite_time), NULL);
+    Tcl_AppendResult(irp, int_to_base10(chan->invite_time), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "flood-chan")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-ctcp")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-join")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-kick")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->flood_kick_thr, chan->flood_kick_time);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-deop")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->flood_deop_thr, chan->flood_deop_time);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "flood-nick")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->flood_nick_thr, chan->flood_nick_time);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
   else if (!strcmp(setting, "aop-delay")) {
     op_strbuf_t t;
+    op_strbuf_init(&t);
     op_strbuf_appendf(&t, "%d %d", chan->aop_min, chan->aop_max);
-    Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+    Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
     op_strbuf_free(&t);
     return TCL_OK;
   }
@@ -1295,7 +1306,7 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
     }
     if (!ul || !ul->name) {
       /* Error if it wasn't found. */
-      Tcl_AppendResult(irp, "Unknown channel setting.", NULL);
+      Tcl_AppendResult(irp, "Unknown channel setting.", nullptr);
       return TCL_ERROR;
     }
 
@@ -1305,20 +1316,21 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
         str = "{}";
       Tcl_SplitList(irp, str, &argc, &argv);
       if (argc > 0)
-        Tcl_AppendResult(irp, argv[0], NULL);
+        Tcl_AppendResult(irp, argv[0], nullptr);
       Tcl_Free((char *) argv);
     } else {
       /* Flag or int, all the same. */
       op_strbuf_t t;
+      op_strbuf_init(&t);
       op_strbuf_appendf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
-      Tcl_AppendResult(irp, op_strbuf_str(&t), NULL);
+      Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
       op_strbuf_free(&t);
     }
     return TCL_OK;
   }
 
   /* Ok, if we make it this far, the result is "s". */
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, s, nullptr);
   return TCL_OK;
 }
 
@@ -1339,12 +1351,12 @@ static int tcl_channel STDVAR
     BADARGS(3, -1, " set channel-name ?options?");
 
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
+    if (chan == nullptr) {
       if (chan_hack == 1)
         return TCL_OK;          /* Ignore channel settings for a static
                                  * channel which has been removed from
                                  * the config */
-      Tcl_AppendResult(irp, "no such channel record", NULL);
+      Tcl_AppendResult(irp, "no such channel record", nullptr);
       return TCL_ERROR;
     }
     return tcl_channel_modify(irp, chan, argc - 3, &argv[3]);
@@ -1353,8 +1365,8 @@ static int tcl_channel STDVAR
     BADARGS(3, 4, " get channel-name ?setting-name?");
 
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "no such channel record", NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "no such channel record", nullptr);
       return TCL_ERROR;
     }
     if (argc == 4)
@@ -1366,8 +1378,8 @@ static int tcl_channel STDVAR
     BADARGS(3, 3, " info channel-name");
 
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "no such channel record", NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "no such channel record", nullptr);
       return TCL_ERROR;
     }
     return tcl_channel_info(irp, chan);
@@ -1376,15 +1388,15 @@ static int tcl_channel STDVAR
     BADARGS(3, 3, " remove channel-name");
 
     chan = findchan_by_dname(argv[2]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "no such channel record", NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "no such channel record", nullptr);
       return TCL_ERROR;
     }
     remove_channel(chan);
     return TCL_OK;
   }
   Tcl_AppendResult(irp, "unknown channel command: should be one of: ",
-                   "add, set, get, info, remove", NULL);
+                   "add, set, get, info, remove", nullptr);
   return TCL_ERROR;
 }
 
@@ -1425,8 +1437,8 @@ static int tcl_banlist STDVAR
 
   if (argc == 2) {
     chan = findchan_by_dname(argv[1]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
       return TCL_ERROR;
     }
     return tcl_do_masklist(chan->bans, irp);
@@ -1443,8 +1455,8 @@ static int tcl_exemptlist STDVAR
 
   if (argc == 2) {
     chan = findchan_by_dname(argv[1]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
       return TCL_ERROR;
     }
     return tcl_do_masklist(chan->exempts, irp);
@@ -1461,8 +1473,8 @@ static int tcl_invitelist STDVAR
 
   if (argc == 2) {
     chan = findchan_by_dname(argv[1]);
-    if (chan == NULL) {
-      Tcl_AppendResult(irp, "invalid channel: ", argv[1], NULL);
+    if (chan == nullptr) {
+      Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
       return TCL_ERROR;
     }
     return tcl_do_masklist(chan->invites, irp);
@@ -1486,7 +1498,7 @@ static int tcl_savechannels STDVAR
   BADARGS(1, 1, "");
 
   if (!chanfile[0]) {
-    Tcl_AppendResult(irp, "no channel file", NULL);
+    Tcl_AppendResult(irp, "no channel file", nullptr);
     return TCL_ERROR;
   }
   write_channels();
@@ -1498,7 +1510,7 @@ static int tcl_loadchannels STDVAR
   BADARGS(1, 1, "");
 
   if (!chanfile[0]) {
-    Tcl_AppendResult(irp, "no channel file", NULL);
+    Tcl_AppendResult(irp, "no channel file", nullptr);
     return TCL_ERROR;
   }
   read_channels(1, 1);
@@ -1512,10 +1524,10 @@ static int tcl_validchan STDVAR
   BADARGS(2, 2, " channel");
 
   chan = findchan_by_dname(argv[1]);
-  if (chan == NULL)
-    Tcl_AppendResult(irp, "0", NULL);
+  if (chan == nullptr)
+    Tcl_AppendResult(irp, "0", nullptr);
   else
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   return TCL_OK;
 }
 
@@ -1526,12 +1538,12 @@ static int tcl_isdynamic STDVAR
   BADARGS(2, 2, " channel");
 
   chan = findchan_by_dname(argv[1]);
-  if (chan != NULL)
+  if (chan != nullptr)
     if (!channel_static(chan)) {
-      Tcl_AppendResult(irp, "1", NULL);
+      Tcl_AppendResult(irp, "1", nullptr);
       return TCL_OK;
     }
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -1546,7 +1558,7 @@ static int tcl_getchaninfo STDVAR
   if (!u || (u->flags & USER_BOT))
     return TCL_OK;
   get_handle_chaninfo(argv[1], argv[2], s, sizeof s);
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, s, nullptr);
   return TCL_OK;
 }
 
@@ -1557,12 +1569,12 @@ static int tcl_setchaninfo STDVAR
   BADARGS(4, 4, " handle channel info");
 
   chan = findchan_by_dname(argv[2]);
-  if (chan == NULL) {
-    Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+  if (chan == nullptr) {
+    Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
     return TCL_ERROR;
   }
   if (!strcasecmp(argv[3], "none")) {
-    set_handle_chaninfo(userlist, argv[1], argv[2], NULL);
+    set_handle_chaninfo(userlist, argv[1], argv[2], nullptr);
     return TCL_OK;
   }
   set_handle_chaninfo(userlist, argv[1], argv[2], argv[3]);
@@ -1578,13 +1590,13 @@ static int tcl_setlaston STDVAR
 
   u = get_user_by_handle(userlist, argv[1]);
   if (!u) {
-    Tcl_AppendResult(irp, "No such user: ", argv[1], NULL);
+    Tcl_AppendResult(irp, "No such user: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   if (argc == 4)
-    t = (time_t) atoi(argv[3]);
+    t = (time_t) egg_atoi(argv[3]);
   if (argc == 3 && ((argv[2][0] != '#') && (argv[2][0] != '&')))
-    t = (time_t) atoi(argv[2]);
+    t = (time_t) egg_atoi(argv[2]);
   if (argc == 2 || (argc == 3 && ((argv[2][0] != '#') && (argv[2][0] != '&'))))
     set_handle_laston("*", u, t);
   else
@@ -1600,19 +1612,19 @@ static int tcl_addchanrec STDVAR
 
   u = get_user_by_handle(userlist, argv[1]);
   if (!u) {
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
   if (!findchan_by_dname(argv[2])) {
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
-  if (get_chanrec(u, argv[2]) != NULL) {
-    Tcl_AppendResult(irp, "0", NULL);
+  if (get_chanrec(u, argv[2]) != nullptr) {
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
   (void)add_chanrec(u, argv[2]);
-  Tcl_AppendResult(irp, "1", NULL);
+  Tcl_AppendResult(irp, "1", nullptr);
   return TCL_OK;
 }
 
@@ -1624,15 +1636,15 @@ static int tcl_delchanrec STDVAR
 
   u = get_user_by_handle(userlist, argv[1]);
   if (!u) {
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
-  if (get_chanrec(u, argv[2]) == NULL) {
-    Tcl_AppendResult(irp, "0", NULL);
+  if (get_chanrec(u, argv[2]) == nullptr) {
+    Tcl_AppendResult(irp, "0", nullptr);
     return TCL_OK;
   }
   del_chanrec(u, argv[2]);
-  Tcl_AppendResult(irp, "1", NULL);
+  Tcl_AppendResult(irp, "1", nullptr);
   return TCL_OK;
 }
 
@@ -1645,21 +1657,21 @@ static int tcl_haschanrec STDVAR
   BADARGS(3, 3, " handle channel");
 
   chan = findchan_by_dname(argv[2]);
-  if (chan == NULL) {
-    Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+  if (chan == nullptr) {
+    Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
     return TCL_ERROR;
   }
   u = get_user_by_handle(userlist, argv[1]);
   if (!u) {
-    Tcl_AppendResult(irp, "No such user: ", argv[1], NULL);
+    Tcl_AppendResult(irp, "No such user: ", argv[1], nullptr);
     return TCL_ERROR;
   }
   chanrec = get_chanrec(u, chan->dname);
   if (chanrec) {
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
     return TCL_OK;
   }
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -1681,7 +1693,7 @@ static int tcl_setudef STDVAR
     type = UDEF_STR;
   else {
     Tcl_AppendResult(irp, "invalid type. Must be one of: flag, int, str",
-                     NULL);
+                     nullptr);
     return TCL_ERROR;
   }
   initudef(type, argv[2], 1);
@@ -1703,7 +1715,7 @@ static int tcl_renudef STDVAR
     type = UDEF_STR;
   else {
     Tcl_AppendResult(irp, "invalid type. Must be one of: flag, int, str",
-                     NULL);
+                     nullptr);
     return TCL_ERROR;
   }
   for (ul = udef; ul; ul = ul->next) {
@@ -1714,7 +1726,7 @@ static int tcl_renudef STDVAR
     }
   }
   if (!found) {
-    Tcl_AppendResult(irp, "not found", NULL);
+    Tcl_AppendResult(irp, "not found", nullptr);
     return TCL_ERROR;
   } else
     return TCL_OK;
@@ -1735,7 +1747,7 @@ static int tcl_deludef STDVAR
     type = UDEF_STR;
   else {
     Tcl_AppendResult(irp, "invalid type. Must be one of: flag, int, str",
-                     NULL);
+                     nullptr);
     return TCL_ERROR;
   }
   for (ul = udef; ul; ul = ul->next) {
@@ -1761,7 +1773,7 @@ static int tcl_deludef STDVAR
     }
   }
   if (!found) {
-    Tcl_AppendResult(irp, "not found", NULL);
+    Tcl_AppendResult(irp, "not found", nullptr);
     return TCL_ERROR;
   } else
     return TCL_OK;
@@ -1783,7 +1795,7 @@ static int tcl_getudefs STDVAR
       type = UDEF_STR;
     else {
       Tcl_AppendResult(irp, "invalid type. Valid types are: flag, int, str",
-                       NULL);
+                       nullptr);
       return TCL_ERROR;
     }
   }
@@ -1808,7 +1820,7 @@ static int tcl_chansettype STDVAR
       !strcmp(argv[1], "need-key") ||
       !strcmp(argv[1], "need-unban") ||
       !strcmp(argv[1], "need-limit")) {
-    Tcl_AppendResult(irp, "str", NULL);
+    Tcl_AppendResult(irp, "str", nullptr);
   /* Couplets */
   } else if (!strcmp(argv[1], "flood-chan") ||
              !strcmp(argv[1], "flood-ctcp") ||
@@ -1817,7 +1829,7 @@ static int tcl_chansettype STDVAR
              !strcmp(argv[1], "flood-deop") ||
              !strcmp(argv[1], "flood-nick") ||
              !strcmp(argv[1], "aop-delay")) {
-    Tcl_AppendResult(irp, "pair", NULL);
+    Tcl_AppendResult(irp, "pair", nullptr);
   /* Integers now */
   } else if (!strcmp(argv[1], "idle-kick") ||
              !strcmp(argv[1], "stopnethack-mode") ||
@@ -1826,7 +1838,7 @@ static int tcl_chansettype STDVAR
              !strcmp(argv[1], "ban-time") ||
              !strcmp(argv[1], "exempt-time") ||
              !strcmp(argv[1], "invite-time")) {
-    Tcl_AppendResult(irp, "int", NULL);
+    Tcl_AppendResult(irp, "int", nullptr);
   /* Last, but not least - flags */
   } else if (!strcmp(argv[1], "enforcebans") ||
              !strcmp(argv[1], "dynamicbans") ||
@@ -1854,7 +1866,7 @@ static int tcl_chansettype STDVAR
              !strcmp(argv[1], "userexempts") ||
              !strcmp(argv[1], "dynamicinvites") ||
              !strcmp(argv[1], "userinvites")) {
-    Tcl_AppendResult(irp, "flag", NULL);
+    Tcl_AppendResult(irp, "flag", nullptr);
   } else {
     /* Must be a UDEF. */
     for (ul = udef; ul && ul->name; ul = ul->next) {
@@ -1862,20 +1874,20 @@ static int tcl_chansettype STDVAR
         break;
     }
     if (!ul || !ul->name) {
-      Tcl_AppendResult(irp, "unknown channel setting.", NULL);
+      Tcl_AppendResult(irp, "unknown channel setting.", nullptr);
       return TCL_ERROR;
     }
     if (ul->type == UDEF_STR)
-      Tcl_AppendResult(irp, "str", NULL);
+      Tcl_AppendResult(irp, "str", nullptr);
     else if (ul->type == UDEF_INT)
-      Tcl_AppendResult(irp, "int", NULL);
+      Tcl_AppendResult(irp, "int", nullptr);
     else if (ul->type == UDEF_FLAG)
-      Tcl_AppendResult(irp, "flag", NULL);
+      Tcl_AppendResult(irp, "flag", nullptr);
     else
         /* won't happen unless some day we create
          * a new type and forget to add it here
          */
-      Tcl_AppendResult(irp, "unknown", NULL);
+      Tcl_AppendResult(irp, "unknown", nullptr);
   }
 
   return TCL_OK;
@@ -1935,5 +1947,5 @@ static tcl_cmds channels_cmds[] = {
   {"getudefs",             tcl_getudefs},
   {"chansettype",       tcl_chansettype},
   {"haschanrec",         tcl_haschanrec},
-  {NULL,                           NULL}
+  {nullptr,                           nullptr}
 };

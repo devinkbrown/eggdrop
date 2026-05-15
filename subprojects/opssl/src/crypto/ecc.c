@@ -107,11 +107,11 @@ static const p384_fe_t p384_r2 = {
     0x0000000200000000ULL, 0x0000000000000001ULL, 0x0000000000000000ULL
 };
 
-static const p384_fe_t p384_minus3_mont = {
+static const p384_fe_t p384_minus3_mont __attribute__((unused)) = {
     0xFFFFFFFDFFFFFFFFULL, 0xFFFFFFFF00000002ULL, 0xFFFFFFFCFFFFFFFBULL,
     0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0x00000000FFFFFFFFULL
 };
-static const p384_fe_t p384_b3_mont = {
+static const p384_fe_t p384_b3_mont __attribute__((unused)) = {
     0xC1ED74C220EF3FEDULL, 0x54521950F8B3AEB3ULL, 0xB4E849CE082BAB23ULL,
     0x148DD99AE9F194CFULL, 0x7699F0B869F62A6FULL, 0x00000000228165DEULL
 };
@@ -296,14 +296,15 @@ static void p256_fe_sub(p256_fe_t r, const p256_fe_t a, const p256_fe_t b) {
     t[3] = d3 - borrow;
     borrow = b3 | (t[3] > d3);
 
-    /* If underflow, add p */
-    __int128 acc = (unsigned __int128)t[0] + (borrow ? p256_p[0] : 0);
+    /* Constant-time conditional add of p: mask = all-ones if underflow, all-zeros otherwise */
+    uint64_t mask = -borrow;
+    __int128 acc = (unsigned __int128)t[0] + (p256_p[0] & mask);
     r[0] = (uint64_t)acc; acc >>= 64;
-    acc += (unsigned __int128)t[1] + (borrow ? p256_p[1] : 0);
+    acc += (unsigned __int128)t[1] + (p256_p[1] & mask);
     r[1] = (uint64_t)acc; acc >>= 64;
-    acc += (unsigned __int128)t[2] + (borrow ? p256_p[2] : 0);
+    acc += (unsigned __int128)t[2] + (p256_p[2] & mask);
     r[2] = (uint64_t)acc; acc >>= 64;
-    acc += (unsigned __int128)t[3] + (borrow ? p256_p[3] : 0);
+    acc += (unsigned __int128)t[3] + (p256_p[3] & mask);
     r[3] = (uint64_t)acc;
 }
 
@@ -367,41 +368,116 @@ static void p256_point_add(p256_point_t *r, const p256_point_t *p, const p256_po
 }
 
 static void p256_point_dbl(p256_point_t *r, const p256_point_t *p) {
-    p256_point_add(r, p, p);
+    /* dbl-1998-cmo for a=-3 in homogeneous projective coordinates:
+     * w = 3*X^2 + a*Z^2 = 3*(X^2 - Z^2)  (since a=-3)
+     * s = Y*Z, B = X*Y*s, h = w^2 - 8*B
+     * X3 = 2*h*s
+     * Y3 = w*(4*B - h) - 8*Y^2*s^2
+     * Z3 = 8*s^3 */
+    p256_fe_t xx, zz, w, s, ss, b, h, x3, y3, z3, t1, t2;
+
+    p256_fe_mul(xx, p->x, p->x);
+    p256_fe_mul(zz, p->z, p->z);
+
+    /* w = 3*(XX - ZZ) */
+    p256_fe_sub(t1, xx, zz);
+    p256_fe_add(w, t1, t1);
+    p256_fe_add(w, w, t1);
+
+    p256_fe_mul(s, p->y, p->z);
+    p256_fe_mul(b, p->x, p->y);
+    p256_fe_mul(b, b, s);
+
+    /* h = w^2 - 8*B */
+    p256_fe_mul(h, w, w);
+    p256_fe_add(t1, b, b);   /* 2B */
+    p256_fe_add(t1, t1, t1); /* 4B */
+    p256_fe_add(t2, t1, t1); /* 8B */
+    p256_fe_sub(h, h, t2);
+
+    /* X3 = 2*h*s */
+    p256_fe_mul(x3, h, s);
+    p256_fe_add(x3, x3, x3);
+
+    /* Y3 = w*(4*B - h) - 8*Y^2*s^2 */
+    p256_fe_sub(t2, t1, h);   /* 4B - h */
+    p256_fe_mul(y3, w, t2);
+    p256_fe_mul(ss, s, s);
+    p256_fe_mul(t1, p->y, p->y);
+    p256_fe_mul(t1, t1, ss);
+    p256_fe_add(t1, t1, t1);  /* 2*Y^2*s^2 */
+    p256_fe_add(t1, t1, t1);  /* 4*Y^2*s^2 */
+    p256_fe_add(t1, t1, t1);  /* 8*Y^2*s^2 */
+    p256_fe_sub(y3, y3, t1);
+
+    /* Z3 = 8*s^3 */
+    p256_fe_mul(z3, ss, s);
+    p256_fe_add(z3, z3, z3);
+    p256_fe_add(z3, z3, z3);
+    p256_fe_add(z3, z3, z3);
+
+    /* Constant-time identity passthrough: if input Z == 0 (identity),
+     * the formula produces (0:0:0) which is not a valid representation.
+     * Restore the input (which is identity) using a constant-time select. */
+    uint64_t z_or = p->z[0] | p->z[1] | p->z[2] | p->z[3];
+    uint64_t nz = (z_or | (uint64_t)(-(int64_t)z_or)) >> 63; /* 1 if z!=0 */
+    uint64_t id_mask = (uint64_t)(-(int64_t)(1u ^ nz));       /* ~0 if identity */
+    for (int i = 0; i < 4; i++) {
+        r->x[i] = ecc_ct_select(id_mask, p->x[i], x3[i]);
+        r->y[i] = ecc_ct_select(id_mask, p->y[i], y3[i]);
+        r->z[i] = ecc_ct_select(id_mask, p->z[i], z3[i]);
+    }
 }
 
 
+static void p256_point_ct_swap(p256_point_t *a, p256_point_t *b, uint64_t swap) {
+    /* swap=1 exchanges a and b; swap=0 is a no-op. No branches on swap. */
+    uint64_t mask = -(uint64_t)swap;
+    for (int i = 0; i < 4; i++) {
+        uint64_t t;
+        t = mask & (a->x[i] ^ b->x[i]); a->x[i] ^= t; b->x[i] ^= t;
+        t = mask & (a->y[i] ^ b->y[i]); a->y[i] ^= t; b->y[i] ^= t;
+        t = mask & (a->z[i] ^ b->z[i]); a->z[i] ^= t; b->z[i] ^= t;
+    }
+}
+
 static void p256_point_mul(p256_point_t *r, const p256_fe_t scalar, const p256_point_t *p) {
-    p256_point_t acc;
-    memset(&acc, 0, sizeof(p256_point_t));
-    int started = 0;
+    /* Montgomery ladder: constant-time scalar multiplication.
+     * R0 starts as the identity point (0 : Montgomery_1 : 0), R1 = P.
+     * The complete addition formula correctly handles Z=0 identity inputs.
+     * The doubling formula is patched to return identity when Z=0 (see above).
+     * Processing all 256 bits from bit 255 down to bit 0 ensures correctness
+     * for any scalar in [0, 2^256), including those where the leading bit is 0. */
+    p256_point_t R0, R1;
+
+    /* Identity in Montgomery projective coordinates: (0 : R mod p : 0)
+     * where R mod p = 2^256 mod p is the Montgomery constant for P-256. */
+    static const p256_fe_t p256_mont1 = {
+        0x0000000000000001ULL, 0xFFFFFFFF00000000ULL,
+        0xFFFFFFFFFFFFFFFFULL, 0x00000000FFFFFFFEULL
+    };
+    memset(&R0, 0, sizeof(R0));
+    memcpy(R0.y, p256_mont1, sizeof(p256_fe_t));
+
+    memcpy(&R1, p, sizeof(p256_point_t));
 
     for (int i = 255; i >= 0; i--) {
-        if (started)
-            p256_point_dbl(&acc, &acc);
         uint64_t bit = (scalar[i / 64] >> (i % 64)) & 1;
-        if (bit) {
-            if (!started) {
-                memcpy(&acc, p, sizeof(p256_point_t));
-                started = 1;
-            } else {
-                p256_point_add(&acc, &acc, p);
-            }
-        }
+        p256_point_ct_swap(&R0, &R1, bit);
+        p256_point_add(&R1, &R0, &R1);
+        p256_point_dbl(&R0, &R0);
+        p256_point_ct_swap(&R0, &R1, bit);
     }
 
-    if (!started) {
-        memset(r, 0, sizeof(p256_point_t));
-    } else {
-        p256_fe_t zi;
-        p256_fe_inv(zi, acc.z);
-        p256_fe_mul(r->x, acc.x, zi);
-        p256_fe_mul(r->y, acc.y, zi);
-        r->z[0] = 0x0000000000000001ULL;
-        r->z[1] = 0xFFFFFFFF00000000ULL;
-        r->z[2] = 0xFFFFFFFFFFFFFFFFULL;
-        r->z[3] = 0x00000000FFFFFFFEULL;
-    }
+    /* Result is R0; normalize to affine (Z = R mod p, the Montgomery 1) */
+    p256_fe_t zi;
+    p256_fe_inv(zi, R0.z);
+    p256_fe_mul(r->x, R0.x, zi);
+    p256_fe_mul(r->y, R0.y, zi);
+    r->z[0] = 0x0000000000000001ULL;
+    r->z[1] = 0xFFFFFFFF00000000ULL;
+    r->z[2] = 0xFFFFFFFFFFFFFFFFULL;
+    r->z[3] = 0x00000000FFFFFFFEULL;
 }
 
 
@@ -437,18 +513,20 @@ static void p384_fe_mul(p384_fe_t r, const p384_fe_t a, const p384_fe_t b) {
         t[7] = 0;
     }
 
-    /* Conditional subtraction of p */
-    int borrow = 0;
+    /* Constant-time conditional subtraction of p.
+     * Always compute sub[] = t - p; then select sub if t >= p, t otherwise.
+     * need_sub = all-ones when t[6] >= borrow (no underflow into phantom limb). */
+    uint64_t borrow = 0;
     uint64_t sub[6];
     for (int i = 0; i < 6; i++) {
         __uint128_t diff = (__uint128_t)t[i] - p384_p[i] - borrow;
         sub[i] = (uint64_t)diff;
-        borrow = (diff >> 64) != 0;
+        borrow = (uint64_t)(diff >> 127); /* 1 if underflow, else 0 */
     }
-    if (t[6] >= (uint64_t)borrow)
-        memcpy(r, sub, 48);
-    else
-        memcpy(r, t, 48);
+    /* need_sub: all-ones if t[6] >= borrow (subtraction valid), all-zeros otherwise */
+    uint64_t need_sub = -(uint64_t)(t[6] >= borrow);
+    for (int i = 0; i < 6; i++)
+        r[i] = (sub[i] & need_sub) | (t[i] & ~need_sub);
 }
 
 static void p384_fe_add(p384_fe_t r, const p384_fe_t a, const p384_fe_t b) {
@@ -669,46 +747,53 @@ static void p384_point_add(p384_point_t *r, const p384_point_t *p, const p384_po
     memcpy(r->z, z3, sizeof(p384_fe_t));
 }
 
-static int p384_fe_is_zero(const p384_fe_t a) {
+static int __attribute__((unused)) p384_fe_is_zero(const p384_fe_t a) {
     return (a[0] | a[1] | a[2] | a[3] | a[4] | a[5]) == 0;
 }
 
+static void p384_point_ct_swap(p384_point_t *a, p384_point_t *b, uint64_t swap) {
+    uint64_t mask = -(uint64_t)swap;
+    for (int i = 0; i < 6; i++) {
+        uint64_t t;
+        t = mask & (a->x[i] ^ b->x[i]); a->x[i] ^= t; b->x[i] ^= t;
+        t = mask & (a->y[i] ^ b->y[i]); a->y[i] ^= t; b->y[i] ^= t;
+        t = mask & (a->z[i] ^ b->z[i]); a->z[i] ^= t; b->z[i] ^= t;
+    }
+}
+
 static void p384_point_mul(p384_point_t *r, const p384_fe_t scalar, const p384_point_t *p) {
-    /* Double-and-add from MSB. Result starts as identity (Z=0). */
-    p384_point_t acc;
-    memset(&acc, 0, sizeof(p384_point_t));
-    int started = 0;
+    /* Montgomery ladder: constant-time scalar multiplication.
+     * Invariant: R1 - R0 = P throughout the loop.
+     * add-1998-cmo-2 produces Z3=0 when either input has Z=0 — it cannot
+     * propagate a non-identity through an identity argument.  Avoid this by
+     * initializing R0=P, R1=2P and consuming the top bit via a swap. */
+    p384_point_t R0, R1;
 
-    for (int i = 383; i >= 0; i--) {
-        if (started) {
-            p384_point_dbl(&acc, &acc);
-        }
+    memcpy(&R0, p, sizeof(p384_point_t));
+    p384_point_dbl(&R1, p);
+
+    uint64_t top_bit = (scalar[383 / 64] >> (383 % 64)) & 1;
+    p384_point_ct_swap(&R0, &R1, top_bit);
+
+    for (int i = 382; i >= 0; i--) {
         uint64_t bit = (scalar[i / 64] >> (i % 64)) & 1;
-        if (bit) {
-            if (!started) {
-                memcpy(&acc, p, sizeof(p384_point_t));
-                started = 1;
-            } else {
-                p384_point_add(&acc, &acc, p);
-            }
-        }
+        p384_point_ct_swap(&R0, &R1, bit);
+        p384_point_add(&R1, &R0, &R1);
+        p384_point_dbl(&R0, &R0);
+        p384_point_ct_swap(&R0, &R1, bit);
     }
 
-    if (!started) {
-        memset(r, 0, sizeof(p384_point_t));
-    } else {
-        /* Normalize to affine projective (z = R mod p) */
-        p384_fe_t zi;
-        p384_fe_inv(zi, acc.z);
-        p384_fe_mul(r->x, acc.x, zi);
-        p384_fe_mul(r->y, acc.y, zi);
-        r->z[0] = 0xFFFFFFFF00000001ULL;
-        r->z[1] = 0x00000000FFFFFFFFULL;
-        r->z[2] = 0x0000000000000001ULL;
-        r->z[3] = 0;
-        r->z[4] = 0;
-        r->z[5] = 0;
-    }
+    /* Normalize result to affine (z = R mod p, the Montgomery 1) */
+    p384_fe_t zi;
+    p384_fe_inv(zi, R0.z);
+    p384_fe_mul(r->x, R0.x, zi);
+    p384_fe_mul(r->y, R0.y, zi);
+    r->z[0] = 0xFFFFFFFF00000001ULL;
+    r->z[1] = 0x00000000FFFFFFFFULL;
+    r->z[2] = 0x0000000000000001ULL;
+    r->z[3] = 0;
+    r->z[4] = 0;
+    r->z[5] = 0;
 }
 
 /* ─── P-521 Field Arithmetic (Mersenne prime p = 2^521 - 1) ────────────── */
@@ -895,19 +980,38 @@ static void p521_point_add(p521_point_t *r, const p521_point_t *p, const p521_po
     memcpy(r->z, z3, sizeof(p521_fe_t));
 }
 
-static void p521_point_mul(p521_point_t *r, const p521_fe_t scalar, const p521_point_t *p) {
-    p521_point_t acc;
-    memset(&acc, 0, sizeof(p521_point_t));
-    int started = 0;
-    for (int i = 520; i >= 0; i--) {
-        if (started) p521_point_dbl(&acc, &acc);
-        if ((scalar[i / 64] >> (i % 64)) & 1) {
-            if (!started) { memcpy(&acc, p, sizeof(p521_point_t)); started = 1; }
-            else p521_point_add(&acc, &acc, p);
-        }
+static void p521_point_ct_swap(p521_point_t *a, p521_point_t *b, uint64_t swap) {
+    uint64_t mask = -(uint64_t)swap;
+    for (int i = 0; i < 9; i++) {
+        uint64_t t;
+        t = mask & (a->x[i] ^ b->x[i]); a->x[i] ^= t; b->x[i] ^= t;
+        t = mask & (a->y[i] ^ b->y[i]); a->y[i] ^= t; b->y[i] ^= t;
+        t = mask & (a->z[i] ^ b->z[i]); a->z[i] ^= t; b->z[i] ^= t;
     }
-    if (!started) memset(r, 0, sizeof(p521_point_t));
-    else memcpy(r, &acc, sizeof(p521_point_t));
+}
+
+static void p521_point_mul(p521_point_t *r, const p521_fe_t scalar, const p521_point_t *p) {
+    /* Montgomery ladder: constant-time scalar multiplication.
+     * R0 starts as the all-zero identity (Z=0). The add-1998-cmo-2 formula
+     * produces Z3=0 when either input has Z=0, so initialization is safe.
+     * Result is returned in projective form; callers normalize. */
+    p521_point_t R0, R1;
+
+    memcpy(&R0, p, sizeof(p521_point_t));
+    p521_point_dbl(&R1, p);
+
+    uint64_t top_bit = (scalar[520 / 64] >> (520 % 64)) & 1;
+    p521_point_ct_swap(&R0, &R1, top_bit);
+
+    for (int i = 519; i >= 0; i--) {
+        uint64_t bit = (scalar[i / 64] >> (i % 64)) & 1;
+        p521_point_ct_swap(&R0, &R1, bit);
+        p521_point_add(&R1, &R0, &R1);
+        p521_point_dbl(&R0, &R0);
+        p521_point_ct_swap(&R0, &R1, bit);
+    }
+
+    memcpy(r, &R0, sizeof(p521_point_t));
 }
 
 
@@ -1101,18 +1205,130 @@ static int rfc6979_generate_k(p256_fe_t k, const p256_fe_t private_key, const ui
     len = 32; opssl_hmac(OPSSL_HMAC_SHA256, K, 32, v, 32, v, &len);
     len = 32; opssl_hmac(OPSSL_HMAC_SHA256, K, 32, v, 32, temp, &len);
 
-    /* Convert to field element */
     for (int i = 0; i < 4; i++) {
         k[i] = 0;
-        for (int j = 0; j < 8; j++) {
-            k[i] |= ((uint64_t)temp[i * 8 + j]) << (56 - j * 8);
-        }
+        for (int j = 0; j < 8; j++)
+            k[i] |= ((uint64_t)temp[(3 - i) * 8 + j]) << (56 - j * 8);
     }
 
     opssl_memzero(K, 32); opssl_memzero(v, 32); opssl_memzero(priv_bytes, 32);
     return OPSSL_SUCCESS;
 }
 
+
+/* ─── Point-on-curve validation ────────────────────────────────────────── */
+/*
+ * Verify that an affine point (x, y) lies on the curve y^2 = x^3 + ax + b
+ * where a = -3 for all three NIST primes.
+ * All inputs are in raw (non-Montgomery) form.
+ * Returns 1 if the point is valid and on the curve, 0 otherwise.
+ */
+
+static int p256_point_on_curve(const p256_fe_t x_raw, const p256_fe_t y_raw) {
+    /* P-256 b (raw little-endian limbs) */
+    static const p256_fe_t b_raw = {
+        0x3BCE3C3E27D2604BULL, 0x651D06B0CC53B0F6ULL,
+        0xB3EBBD55769886BCULL, 0x5AC635D8AA3A93E7ULL
+    };
+    /* minus3 raw = p - 3 */
+    static const p256_fe_t minus3_raw = {
+        0xFFFFFFFFFFFFFFFCULL, 0x00000000FFFFFFFFULL,
+        0x0000000000000000ULL, 0xFFFFFFFF00000001ULL
+    };
+
+    p256_fe_t x, y, b, m3;
+    p256_fe_t lhs, rhs, t1, t2;
+
+    /* Convert inputs to Montgomery form */
+    p256_fe_to_mont(x, x_raw);
+    p256_fe_to_mont(y, y_raw);
+    p256_fe_to_mont(b, b_raw);
+    p256_fe_to_mont(m3, minus3_raw);
+
+    /* lhs = y^2 */
+    p256_fe_sqr(lhs, y);
+
+    /* rhs = x^3 + a*x + b = x^3 - 3*x + b */
+    p256_fe_sqr(t1, x);             /* x^2 */
+    p256_fe_mul(rhs, t1, x);        /* x^3 */
+    p256_fe_mul(t2, m3, x);         /* -3*x */
+    p256_fe_add(rhs, rhs, t2);      /* x^3 - 3*x */
+    p256_fe_add(rhs, rhs, b);       /* x^3 - 3*x + b */
+
+    /* Constant-time comparison: lhs == rhs */
+    uint64_t diff = (lhs[0] ^ rhs[0]) | (lhs[1] ^ rhs[1]) |
+                    (lhs[2] ^ rhs[2]) | (lhs[3] ^ rhs[3]);
+    return diff == 0;
+}
+
+static int p384_point_on_curve(const p384_fe_t x_raw, const p384_fe_t y_raw) {
+    /* P-384 b (raw little-endian limbs) */
+    static const p384_fe_t b_raw = {
+        0x2A85C8EDD3EC2AEFULL, 0xC656398D8A2ED19DULL,
+        0x0314088F5013875AULL, 0x181D9C6EFE814112ULL,
+        0x988E056BE3F82D19ULL, 0xB3312FA7E23EE7E4ULL
+    };
+    /* minus3 raw = p - 3 */
+    static const p384_fe_t minus3_raw = {
+        0x00000000FFFFFFFCULL, 0xFFFFFFFF00000000ULL,
+        0xFFFFFFFFFFFFFFFEULL, 0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL
+    };
+
+    p384_fe_t x, y, b, m3;
+    p384_fe_t lhs, rhs, t1, t2;
+
+    p384_fe_to_mont(x, x_raw);
+    p384_fe_to_mont(y, y_raw);
+    p384_fe_to_mont(b, b_raw);
+    p384_fe_to_mont(m3, minus3_raw);
+
+    p384_fe_mul(lhs, y, y);
+
+    p384_fe_mul(t1, x, x);
+    p384_fe_mul(rhs, t1, x);
+    p384_fe_mul(t2, m3, x);
+    p384_fe_add(rhs, rhs, t2);
+    p384_fe_add(rhs, rhs, b);
+
+    uint64_t diff = (lhs[0] ^ rhs[0]) | (lhs[1] ^ rhs[1]) | (lhs[2] ^ rhs[2]) |
+                    (lhs[3] ^ rhs[3]) | (lhs[4] ^ rhs[4]) | (lhs[5] ^ rhs[5]);
+    return diff == 0;
+}
+
+static int p521_point_on_curve(const p521_fe_t x_raw, const p521_fe_t y_raw) {
+    /* P-521 b (raw little-endian limbs, 521 bits) */
+    static const p521_fe_t b_raw = {
+        0xEF451FD46B503F00ULL, 0x3573DF883D2C34F1ULL,
+        0x1652C0BD3BB1BF07ULL, 0x56193951EC7E937BULL,
+        0xB8B489918EF109E1ULL, 0xA2DA725B99B315F3ULL,
+        0x929A21A0B68540EEULL, 0x953EB9618E1C9A1FULL,
+        0x0000000000000051ULL
+    };
+    /* minus3 = p - 3: limb[0] -= 3 from all-ones, rest unchanged */
+    static const p521_fe_t minus3_raw = {
+        0xFFFFFFFFFFFFFFFCULL, 0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
+        0x00000000000001FFULL
+    };
+    /* P-521 uses raw (non-Montgomery) field arithmetic */
+    p521_fe_t lhs, rhs, t1, t2;
+
+    p521_fe_mul(lhs, y_raw, y_raw);
+
+    p521_fe_mul(t1, x_raw, x_raw);
+    p521_fe_mul(rhs, t1, x_raw);
+    p521_fe_mul(t2, minus3_raw, x_raw);
+    p521_fe_add(rhs, rhs, t2);
+    p521_fe_add(rhs, rhs, b_raw);
+
+    uint64_t diff = 0;
+    for (int i = 0; i < 9; i++)
+        diff |= (lhs[i] ^ rhs[i]);
+    return diff == 0;
+}
 
 static int encode_point_uncompressed(uint8_t *out, size_t *out_len,
                                     const void *point, opssl_curve_t curve) {
@@ -1204,20 +1420,16 @@ int opssl_ecdh_keygen(opssl_ecdh_ctx_t *ctx) {
     if (!ctx) return 0;
 
     if (ctx->curve == OPSSL_CURVE_P256) {
-        /* Generate random private key */
         uint8_t key_bytes[32];
         if (opssl_random_bytes(key_bytes, 32) != 0) return 0;
 
-        /* Convert to field element */
         for (int i = 0; i < 4; i++) {
             ctx->key.p256.private_key[i] = 0;
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 8; j++)
                 ctx->key.p256.private_key[i] |=
-                    ((uint64_t)key_bytes[i * 8 + j]) << (56 - j * 8);
-            }
+                    ((uint64_t)key_bytes[(3 - i) * 8 + j]) << (56 - j * 8);
         }
 
-        /* Compute public key Q = private_key * G */
         p256_point_mul(&ctx->key.p256.public_key, ctx->key.p256.private_key, &p256_g);
 
         ctx->has_private = 1;
@@ -1225,20 +1437,16 @@ int opssl_ecdh_keygen(opssl_ecdh_ctx_t *ctx) {
         return 1;
 
     } else if (ctx->curve == OPSSL_CURVE_P384) {
-        /* Generate random private key */
         uint8_t key_bytes[48];
         if (opssl_random_bytes(key_bytes, 48) != 0) return 0;
 
-        /* Convert to field element */
         for (int i = 0; i < 6; i++) {
             ctx->key.p384.private_key[i] = 0;
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 8; j++)
                 ctx->key.p384.private_key[i] |=
-                    ((uint64_t)key_bytes[i * 8 + j]) << (56 - j * 8);
-            }
+                    ((uint64_t)key_bytes[(5 - i) * 8 + j]) << (56 - j * 8);
         }
 
-        /* Compute public key Q = private_key * G */
         p384_point_mul(&ctx->key.p384.public_key, ctx->key.p384.private_key, &p384_g);
 
         ctx->has_private = 1;
@@ -1248,15 +1456,15 @@ int opssl_ecdh_keygen(opssl_ecdh_ctx_t *ctx) {
     } else if (ctx->curve == OPSSL_CURVE_P521) {
         uint8_t key_bytes[66];
         if (opssl_random_bytes(key_bytes, 66) != 0) return 0;
-        key_bytes[0] &= 0x01; /* Ensure < 2^521 */
+        key_bytes[0] &= 0x01;
 
         for (int i = 0; i < 8; i++) {
             ctx->key.p521.private_key[i] = 0;
             for (int j = 0; j < 8; j++)
                 ctx->key.p521.private_key[i] |=
-                    ((uint64_t)key_bytes[i * 8 + j]) << (56 - j * 8);
+                    ((uint64_t)key_bytes[(7 - i) * 8 + 2 + j]) << (56 - j * 8);
         }
-        ctx->key.p521.private_key[8] = ((uint64_t)key_bytes[64] << 8) | key_bytes[65];
+        ctx->key.p521.private_key[8] = ((uint64_t)key_bytes[0] << 8) | key_bytes[1];
         ctx->key.p521.private_key[8] &= 0x1FFULL;
 
         p521_point_mul(&ctx->key.p521.public_key, ctx->key.p521.private_key, &p521_g);
@@ -1303,6 +1511,10 @@ int opssl_ecdh_derive(opssl_ecdh_ctx_t *ctx, const uint8_t *peer_pub, size_t pee
             }
         }
 
+        /* Reject points not on the curve (invalid-curve attack defense) */
+        if (!p256_point_on_curve(x_coord, y_coord))
+            return 0;
+
         /* Convert to Montgomery form */
         p256_fe_to_mont(peer_point.x, x_coord);
         p256_fe_to_mont(peer_point.y, y_coord);
@@ -1346,6 +1558,10 @@ int opssl_ecdh_derive(opssl_ecdh_ctx_t *ctx, const uint8_t *peer_pub, size_t pee
                 y_coord[i] |= ((uint64_t)peer_pub[49 + (5 - i) * 8 + j]) << (56 - j * 8);
             }
         }
+
+        /* Reject points not on the curve (invalid-curve attack defense) */
+        if (!p384_point_on_curve(x_coord, y_coord))
+            return 0;
 
         /* Convert to Montgomery form */
         p384_fe_to_mont(peer_point.x, x_coord);
@@ -1392,6 +1608,11 @@ int opssl_ecdh_derive(opssl_ecdh_ctx_t *ctx, const uint8_t *peer_pub, size_t pee
                     fe[i] |= ((uint64_t)src[65 - i * 8 - j]) << (j * 8);
             fe[8] = ((uint64_t)src[0] << 8) | src[1];
         }
+
+        /* Reject points not on the curve (invalid-curve attack defense) */
+        if (!p521_point_on_curve(peer_point.x, peer_point.y))
+            return 0;
+
         peer_point.z[0] = 1;
         for (int i = 1; i < 9; i++) peer_point.z[i] = 0;
 
@@ -1441,16 +1662,13 @@ int opssl_ecdsa_keygen(opssl_ecdsa_ctx_t *ctx) {
         uint8_t key_bytes[32];
         if (opssl_random_bytes(key_bytes, 32) != 0) return 0;
 
-        /* Convert to field element */
         for (int i = 0; i < 4; i++) {
             ctx->key.p256.private_key[i] = 0;
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 8; j++)
                 ctx->key.p256.private_key[i] |=
-                    ((uint64_t)key_bytes[i * 8 + j]) << (56 - j * 8);
-            }
+                    ((uint64_t)key_bytes[(3 - i) * 8 + j]) << (56 - j * 8);
         }
 
-        /* Compute public key Q = private_key * G */
         p256_point_mul(&ctx->key.p256.public_key, ctx->key.p256.private_key, &p256_g);
 
         ctx->has_private = 1;
@@ -1461,16 +1679,13 @@ int opssl_ecdsa_keygen(opssl_ecdsa_ctx_t *ctx) {
         uint8_t key_bytes[48];
         if (opssl_random_bytes(key_bytes, 48) != 0) return 0;
 
-        /* Convert to field element */
         for (int i = 0; i < 6; i++) {
             ctx->key.p384.private_key[i] = 0;
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 8; j++)
                 ctx->key.p384.private_key[i] |=
-                    ((uint64_t)key_bytes[i * 8 + j]) << (56 - j * 8);
-            }
+                    ((uint64_t)key_bytes[(5 - i) * 8 + j]) << (56 - j * 8);
         }
 
-        /* Compute public key Q = private_key * G */
         p384_point_mul(&ctx->key.p384.public_key, ctx->key.p384.private_key, &p384_g);
 
         ctx->has_private = 1;
@@ -1675,6 +1890,10 @@ int opssl_ecdsa_set_public(opssl_ecdsa_ctx_t *ctx, const uint8_t *pub, size_t pu
             }
         }
 
+        /* Reject points not on the curve (invalid-curve attack defense) */
+        if (!p256_point_on_curve(x_coord, y_coord))
+            return 0;
+
         /* Convert to Montgomery form */
         p256_fe_to_mont(ctx->key.p256.public_key.x, x_coord);
         p256_fe_to_mont(ctx->key.p256.public_key.y, y_coord);
@@ -1707,6 +1926,10 @@ int opssl_ecdsa_set_public(opssl_ecdsa_ctx_t *ctx, const uint8_t *pub, size_t pu
                 y_coord[i] |= ((uint64_t)pub[49 + (5 - i) * 8 + j]) << (56 - j * 8);
             }
         }
+
+        /* Reject points not on the curve (invalid-curve attack defense) */
+        if (!p384_point_on_curve(x_coord, y_coord))
+            return 0;
 
         /* Convert to Montgomery form */
         p384_fe_to_mont(ctx->key.p384.public_key.x, x_coord);

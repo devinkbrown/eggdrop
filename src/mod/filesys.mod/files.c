@@ -73,7 +73,7 @@ static void add_file(char *dir, char *file, char *nick)
 
 static int welcome_to_files(int idx)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   FILE *f;
   char *p = get_user(&USERENTRY_DCCDIR, dcc[idx].user);
 
@@ -94,10 +94,10 @@ static int welcome_to_files(int idx)
     dcc[idx].u.file->dir[0] = 0;
   /* Does this dir even exist any more? */
   f = filedb_open(dcc[idx].u.file->dir, 0);
-  if (f == NULL) {
+  if (f == nullptr) {
     dcc[idx].u.file->dir[0] = 0;
     f = filedb_open(dcc[idx].u.file->dir, 0);
-    if (f == NULL) {
+    if (f == nullptr) {
       dprintf(idx, "%s", FILES_BROKEN);
       dprintf(idx, "%s", FILES_INVPATH);
       dprintf(idx, "\n\n");
@@ -116,8 +116,8 @@ static int welcome_to_files(int idx)
 static void cmd_optimize(int idx, char *par)
 {
   struct userrec *u = get_user_by_handle(userlist, dcc[idx].nick);
-  FILE *fdb = NULL;
-  char *p = NULL;
+  FILE *fdb = nullptr;
+  char *p = nullptr;
 
   putlog(LOG_FILES, "*", "files: #%s# optimize", dcc[idx].nick);
   p = get_user(&USERENTRY_DCCDIR, u);
@@ -125,8 +125,8 @@ static void cmd_optimize(int idx, char *par)
   if (p) {
     fdb = filedb_open(p, 1);
     if (!fdb) {
-      set_user(&USERENTRY_DCCDIR, u, NULL);
-      p = NULL;
+      set_user(&USERENTRY_DCCDIR, u, nullptr);
+      p = nullptr;
     }
   }
   if (!p)
@@ -146,14 +146,14 @@ static void cmd_optimize(int idx, char *par)
  */
 static int resolve_dir(char *current, char *change, char **real, int idx)
 {
-  char *elem = NULL, *s = NULL, *new = NULL, *work = NULL, *p = NULL;
-  FILE *fdb = NULL;
-  DIR *dir = NULL;
-  filedb_entry *fdbe = NULL;
-  struct flag_record user = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 },
-                     req = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  char *elem = nullptr, *s = nullptr, *new = nullptr, *work = nullptr, *p = nullptr;
+  FILE *fdb = nullptr;
+  DIR *dir = nullptr;
+  filedb_entry *fdbe = nullptr;
+  struct flag_record user = { FR_GLOBAL | FR_CHAN },
+                     req = { FR_GLOBAL | FR_CHAN };
 
-  *real = NULL;
+  *real = nullptr;
   malloc_strcpy(*real, current);
   if (!change[0])
     return 1;                   /* No change? */
@@ -178,7 +178,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
     } else if (!strcmp(elem, "..")) {
       /* Always allowed */
       p = strrchr(*real, '/');
-      if (p == NULL) {
+      if (p == nullptr) {
         /* Can't go back from here? */
         if (!(*real)[0]) {
           my_free(elem);
@@ -199,7 +199,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
         malloc_strcpy(*real, current);
         return 0;
       }
-      filedb_readtop(fdb, NULL);
+      filedb_readtop(fdb, nullptr);
       fdbe = filedb_matchfile(fdb, ftell(fdb), elem);
       filedb_close(fdb);
       if (!fdbe) {
@@ -226,7 +226,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
                       USER_FRIEND;
 
       if (fdbe->flags_req) {
-        break_down_flags(fdbe->flags_req, &req, NULL);
+        break_down_flags(fdbe->flags_req, &req, nullptr);
         if (!flagrec_ok(&req, &user)) {
           free_fdbe(&fdbe);
           my_free(elem);
@@ -249,12 +249,14 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
       }
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s", s, elem);
         work = op_strbuf_steal(&_b);
       }
       malloc_strcpy(*real, work);
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s", dccdir, *real);
         op_free(s);
         s = op_strbuf_steal(&_b);
@@ -270,6 +272,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
   /* Sanity check: does this dir exist? */
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", dccdir, *real);
     op_free(s);
     s = op_strbuf_steal(&_b);
@@ -284,7 +287,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
 
 static void incr_file_gots(char *ppath)
 {
-  char *p, *path = NULL, *destdir = NULL, *fn = NULL;
+  char *p, *path = nullptr, *destdir = nullptr, *fn = nullptr;
   filedb_entry *fdbe;
   FILE *fdb;
 
@@ -295,7 +298,7 @@ static void incr_file_gots(char *ppath)
     return;
   malloc_strcpy(path, ppath);
   p = strrchr(path, '/');
-  if (p != NULL) {
+  if (p != nullptr) {
     *p = 0;
     malloc_strcpy(destdir, path);
     malloc_strcpy(fn, p + 1);
@@ -313,7 +316,7 @@ static void incr_file_gots(char *ppath)
   }
   my_free(path);
   my_free(destdir);
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), fn);
   my_free(fn);
   if (fdbe) {
@@ -350,7 +353,7 @@ static void cmd_cancel(int idx, char *par)
 
 static void cmd_chdir(int idx, char *msg)
 {
-  char *s = NULL;
+  char *s = nullptr;
 
   if (!msg[0]) {
     dprintf(idx, "%s: cd <new-dir>\n", MISC_USAGE);
@@ -371,13 +374,13 @@ static void cmd_chdir(int idx, char *msg)
 
 static void files_ls(int idx, char *par, int showall)
 {
-  char *p, *s = NULL, *destdir = NULL, *mask = NULL;
+  char *p, *s = nullptr, *destdir = nullptr, *mask = nullptr;
   FILE *fdb;
 
   if (par[0]) {
     putlog(LOG_FILES, "*", "files: #%s# ls %s", dcc[idx].nick, par);
     p = strrchr(par, '/');
-    if (p != NULL) {
+    if (p != nullptr) {
       *p = 0;
       malloc_strcpy(s, par);
       malloc_strcpy(mask, p + 1);
@@ -435,7 +438,7 @@ static void cmd_lsa(int idx, char *par)
 static void cmd_reget_get(int idx, char *par, int resend)
 {
   int ok = 0;
-  char *p, *what, *destdir = NULL, *s = NULL;
+  char *p, *what, *destdir = nullptr, *s = nullptr;
   filedb_entry *fdbe;
   FILE *fdb;
   long where = 0;
@@ -459,7 +462,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
     return;
   }
   p = strrchr(what, '/');
-  if (p != NULL) {
+  if (p != nullptr) {
     *p = 0;
     malloc_strcpy_nocheck(s, what);
     memmove(what, p + 1, strlen(p + 1) + 1);
@@ -475,7 +478,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
   fdb = filedb_open(destdir, 0);
   if (!fdb)
     return;
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), what);
   if (!fdbe) {
     filedb_close(fdb);
@@ -489,7 +492,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
     if (!(fdbe->stat & (FILE_HIDDEN | FILE_DIR))) {
       ok = 1;
       if (fdbe->sharelink) {
-        char *bot, *whoto = NULL;
+        char *bot, *whoto = nullptr;
 
         /* This is a link to a file on another bot... */
         bot = op_malloc(strlen(fdbe->sharelink) + 1);
@@ -509,6 +512,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
             malloc_strcpy(whoto, dcc[idx].nick);
           {
             op_strbuf_t _b;
+            op_strbuf_init(&_b);
             op_strbuf_appendf(&_b, "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
             s = op_strbuf_steal(&_b);
           }
@@ -518,6 +522,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
           fdbe->gots++;
           {
             op_strbuf_t _b;
+            op_strbuf_init(&_b);
             op_strbuf_appendf(&_b, "%s:%s", bot, fdbe->sharelink);
             op_free(s);
             s = op_strbuf_steal(&_b);
@@ -558,13 +563,14 @@ static void cmd_get(int idx, char *par)
 static void cmd_file_help(int idx, char *par)
 {
   char *s;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.file->chat->con_chan);
   if (par[0]) {
     putlog(LOG_FILES, "*", "files: #%s# help %s", dcc[idx].nick, par);
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "filesys/%s", par);
       s = op_strbuf_steal(&_b);
     }
@@ -590,7 +596,7 @@ static void cmd_hide(int idx, char *par)
   fdb = filedb_open(dcc[idx].u.file->dir, 0);
   if (!fdb)
     return;
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), par);
   if (!fdbe) {
     filedb_close(fdb);
@@ -632,7 +638,7 @@ static void cmd_unhide(int idx, char *par)
   fdb = filedb_open(dcc[idx].u.file->dir, 0);
   if (!fdb)
     return;
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), par);
   if (!fdbe) {
     filedb_close(fdb);
@@ -674,7 +680,7 @@ static void cmd_share(int idx, char *par)
   fdb = filedb_open(dcc[idx].u.file->dir, 0);
   if (!fdb)
     return;
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), par);
   if (!fdbe) {
     filedb_close(fdb);
@@ -716,7 +722,7 @@ static void cmd_unshare(int idx, char *par)
   fdb = filedb_open(dcc[idx].u.file->dir, 0);
   if (!fdb)
     return;
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), par);
   if (!fdbe) {
     filedb_close(fdb);
@@ -749,7 +755,7 @@ static void cmd_unshare(int idx, char *par)
  */
 static void cmd_ln(int idx, char *par)
 {
-  char *share, *newpath = NULL, *newfn = NULL, *p;
+  char *share, *newpath = nullptr, *newfn = nullptr, *p;
   FILE *fdb;
   filedb_entry *fdbe;
 
@@ -781,7 +787,7 @@ static void cmd_ln(int idx, char *par)
       my_free(newpath);
       return;
     }
-    filedb_readtop(fdb, NULL);
+    filedb_readtop(fdb, nullptr);
     fdbe = filedb_matchfile(fdb, ftell(fdb), newfn);
     if (fdbe) {
       if (!fdbe->sharelink) {
@@ -829,6 +835,7 @@ static void cmd_desc(int idx, char *par)
   }
   /* Fix up desc */
   op_strbuf_t _desc_b;
+  op_strbuf_init(&_desc_b);
   op_strbuf_appendf(&_desc_b, "%s|", par);
   desc = op_strbuf_steal(&_desc_b);
   /* Replace | with linefeeds, limit 5 lines */
@@ -837,7 +844,7 @@ static void cmd_desc(int idx, char *par)
   while ((*q <= 32) && (*q)) /* Zapf leading spaces */
     memmove(q, q + 1, strlen(q));
   p = strchr(q, '|');
-  while (p != NULL) {
+  while (p != nullptr) {
     /* Check length */
     *p = 0;
     if (strlen(q) > 60) {
@@ -859,7 +866,7 @@ static void cmd_desc(int idx, char *par)
       memmove(q, q + 1, strlen(q));
     if (lin == 5) {
       *p = 0;
-      p = NULL;
+      p = nullptr;
     } else
       p = strchr(q, '|');
   }
@@ -870,7 +877,7 @@ static void cmd_desc(int idx, char *par)
     my_free(desc);
     return;
   }
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), fn);
   if (!fdbe) {
     filedb_close(fdb);
@@ -932,7 +939,7 @@ static void cmd_rm(int idx, char *par)
   fdb = filedb_open(dcc[idx].u.file->dir, 0);
   if (!fdb)
     return;
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), par);
   if (!fdbe) {
     filedb_close(fdb);
@@ -944,6 +951,7 @@ static void cmd_rm(int idx, char *par)
     if (!(fdbe->stat & (FILE_HIDDEN | FILE_DIR))) {
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, fdbe->filename);
         s = op_strbuf_steal(&_b);
       }
@@ -974,7 +982,7 @@ static void cmd_mkdir(int idx, char *par)
   FILE *fdb;
   filedb_entry *fdbe;
   int ret;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!par[0]) {
     dprintf(idx, "%s: mkdir <dir> [required-flags] [channel]\n", MISC_USAGE);
@@ -991,7 +999,7 @@ static void cmd_mkdir(int idx, char *par)
   else {
     flags = newsplit(&par);
     chan = newsplit(&par);
-    if (!chan[0] && flags[0] && (strchr(CHANMETA, flags[0]) != NULL)) {
+    if (!chan[0] && flags[0] && (strchr(CHANMETA, flags[0]) != nullptr)) {
       /* Need some extra checking here to make sure we don't mix up
        * the flags with a +channel. <cybah>
        */
@@ -1012,11 +1020,12 @@ static void cmd_mkdir(int idx, char *par)
     fdb = filedb_open(dcc[idx].u.file->dir, 0);
     if (!fdb)
       return;
-    filedb_readtop(fdb, NULL);
+    filedb_readtop(fdb, nullptr);
     fdbe = filedb_matchfile(fdb, ftell(fdb), name);
     if (!fdbe) {
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, name);
         s = op_strbuf_steal(&_b);
       }
@@ -1042,8 +1051,8 @@ static void cmd_mkdir(int idx, char *par)
     if (flags[0]) {
       char buffer[100];
 
-      break_down_flags(flags, &fr, NULL);
-      build_flags(buffer, &fr, NULL);
+      break_down_flags(flags, &fr, nullptr);
+      build_flags(buffer, &fr, nullptr);
       malloc_strcpy_nocheck(fdbe->flags_req, buffer);
       dprintf(idx, FILES_CHGACCESS, name, buffer);
     } else if (!chan[0]) {
@@ -1070,7 +1079,7 @@ static void cmd_rmdir(int idx, char *par)
 {
   FILE *fdb;
   filedb_entry *fdbe;
-  char *s, *name = NULL;
+  char *s, *name = nullptr;
 
   malloc_strcpy(name, par);
   if (name[strlen(name) - 1] == '/')
@@ -1083,7 +1092,7 @@ static void cmd_rmdir(int idx, char *par)
       my_free(name);
       return;
     }
-    filedb_readtop(fdb, NULL);
+    filedb_readtop(fdb, nullptr);
     fdbe = filedb_matchfile(fdb, ftell(fdb), name);
     if (!fdbe) {
       dprintf(idx, "%s", FILES_NOSUCHDIR);
@@ -1101,6 +1110,7 @@ static void cmd_rmdir(int idx, char *par)
     /* Erase '.filedb' and '.files' if they exist */
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s%s/%s/.filedb", dccdir, dcc[idx].u.file->dir, name);
       unlink(op_strbuf_str(&_b));
       op_strbuf_clear(&_b);
@@ -1131,11 +1141,11 @@ static void cmd_rmdir(int idx, char *par)
 
 static void cmd_mv_cp(int idx, char *par, int copy)
 {
-  char *p, *fn, *oldpath = NULL, *s = NULL, *s1, *newfn = NULL;
-  char *newpath = NULL;
+  char *p, *fn, *oldpath = nullptr, *s = nullptr, *s1, *newfn = nullptr;
+  char *newpath = nullptr;
   int ok = 0, only_first = 0, skip_this = 0;
-  FILE *fdb_old = NULL, *fdb_new = NULL;
-  filedb_entry *fdbe_old = NULL, *fdbe_new = NULL;
+  FILE *fdb_old = nullptr, *fdb_new = nullptr;
+  filedb_entry *fdbe_old = nullptr, *fdbe_new = nullptr;
   long where = 0;
 
   fn = newsplit(&par);
@@ -1145,7 +1155,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
     return;
   }
   p = strrchr(fn, '/');
-  if (p != NULL) {
+  if (p != nullptr) {
     *p = 0;
     malloc_strcpy_nocheck(s, fn);
     memmove(fn, p + 1, strlen(p + 1) + 1);
@@ -1163,7 +1173,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
     my_free(newpath);
     /* Destination is not just a directory */
     p = strrchr(s, '/');
-    if (p == NULL) {
+    if (p == nullptr) {
       malloc_strcpy(newfn, s);
       s[0] = 0;
     } else {
@@ -1207,7 +1217,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
     return;
   }
 
-  filedb_readtop(fdb_old, NULL);
+  filedb_readtop(fdb_old, nullptr);
   where = ftell(fdb_old);
   fdbe_old = filedb_matchfile(fdb_old, where, fn);
   if (!fdbe_old) {
@@ -1246,6 +1256,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
     if (!(fdbe_old->stat & (FILE_HIDDEN | FILE_DIR))) {
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         if (oldpath[0])
           op_strbuf_appendf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
         else
@@ -1265,7 +1276,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
         skip_this = 1;
       }
       /* Check for existence of file with same name in new dir */
-      filedb_readtop(fdb_new, NULL);
+      filedb_readtop(fdb_new, nullptr);
       fdbe_new = filedb_matchfile(fdb_new, ftell(fdb_new),
                                   newfn[0] ? newfn : fdbe_old->filename);
       if (fdbe_new) {
@@ -1287,7 +1298,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
           fdbe_new = malloc_fdbe();
           fdbe_new->stat = fdbe_old->stat;
           /* We don't have to worry about any entries to be
-           * NULL, because malloc_strcpy takes care of that.
+           * nullptr, because malloc_strcpy takes care of that.
            */
           malloc_strcpy(fdbe_new->flags_req, fdbe_old->flags_req);
           malloc_strcpy(fdbe_new->chan, fdbe_old->chan);
@@ -1365,7 +1376,7 @@ static int cmd_filestats(int idx, char *par)
     dprintf(idx, "No such user.\n");
   else if (!strcmp(par, "clear") && dcc[idx].user &&
            (dcc[idx].user->flags & USER_JANITOR)) {
-    set_user(&USERENTRY_FSTAT, u, NULL);
+    set_user(&USERENTRY_FSTAT, u, nullptr);
     dprintf(idx, "Cleared filestats for %s.\n", nick);
   } else
     tell_file_stats(idx, nick);
@@ -1387,38 +1398,38 @@ static void filesys_note(int idx, char *par)
 }
 
 static cmd_t myfiles[] = {
-  {"cancel",    "",   (IntFunc) cmd_cancel,    NULL},
-  {"cd",        "",   (IntFunc) cmd_chdir,     NULL},
-  {"chdir",     "",   (IntFunc) cmd_chdir,     NULL},
-  {"cp",        "j",  (IntFunc) cmd_cp,        NULL},
-  {"desc",      "",   (IntFunc) cmd_desc,      NULL},
-  {"filestats", "j",  (IntFunc) cmd_filestats, NULL},
-  {"get",       "",   (IntFunc) cmd_get,       NULL},
-  {"reget",     "",   (IntFunc) cmd_reget,     NULL},
-  {"help",      "",   (IntFunc) cmd_file_help, NULL},
-  {"hide",      "j",  (IntFunc) cmd_hide,      NULL},
-  {"ln",        "j",  (IntFunc) cmd_ln,        NULL},
-  {"ls",        "",   (IntFunc) cmd_ls,        NULL},
-  {"lsa",       "j",  (IntFunc) cmd_lsa,       NULL},
-  {"mkdir",     "j",  (IntFunc) cmd_mkdir,     NULL},
-  {"mv",        "j",  (IntFunc) cmd_mv,        NULL},
-  {"note",      "",   (IntFunc) filesys_note,  NULL},
-  {"pending",   "",   (IntFunc) cmd_pending,   NULL},
-  {"pwd",       "",   (IntFunc) cmd_pwd,       NULL},
-  {"quit",      "",   (IntFunc) CMD_LEAVE,     NULL},
-  {"rm",        "j",  (IntFunc) cmd_rm,        NULL},
-  {"rmdir",     "j",  (IntFunc) cmd_rmdir,     NULL},
-  {"share",     "j",  (IntFunc) cmd_share,     NULL},
+  {"cancel",    "",   (IntFunc) cmd_cancel,    nullptr},
+  {"cd",        "",   (IntFunc) cmd_chdir,     nullptr},
+  {"chdir",     "",   (IntFunc) cmd_chdir,     nullptr},
+  {"cp",        "j",  (IntFunc) cmd_cp,        nullptr},
+  {"desc",      "",   (IntFunc) cmd_desc,      nullptr},
+  {"filestats", "j",  (IntFunc) cmd_filestats, nullptr},
+  {"get",       "",   (IntFunc) cmd_get,       nullptr},
+  {"reget",     "",   (IntFunc) cmd_reget,     nullptr},
+  {"help",      "",   (IntFunc) cmd_file_help, nullptr},
+  {"hide",      "j",  (IntFunc) cmd_hide,      nullptr},
+  {"ln",        "j",  (IntFunc) cmd_ln,        nullptr},
+  {"ls",        "",   (IntFunc) cmd_ls,        nullptr},
+  {"lsa",       "j",  (IntFunc) cmd_lsa,       nullptr},
+  {"mkdir",     "j",  (IntFunc) cmd_mkdir,     nullptr},
+  {"mv",        "j",  (IntFunc) cmd_mv,        nullptr},
+  {"note",      "",   (IntFunc) filesys_note,  nullptr},
+  {"pending",   "",   (IntFunc) cmd_pending,   nullptr},
+  {"pwd",       "",   (IntFunc) cmd_pwd,       nullptr},
+  {"quit",      "",   (IntFunc) CMD_LEAVE,     nullptr},
+  {"rm",        "j",  (IntFunc) cmd_rm,        nullptr},
+  {"rmdir",     "j",  (IntFunc) cmd_rmdir,     nullptr},
+  {"share",     "j",  (IntFunc) cmd_share,     nullptr},
 /* Since we have spelt optimize wrong for so many years, we will
  * keep the old spelling around for the command name for now to
  * avoid problems with people typing .optimise and wondering
  * where it went (guppy:28Nov2001) */
-  {"optimise",  "j",  (IntFunc) cmd_optimize,  NULL},
-  {"optimize",  "j",  (IntFunc) cmd_optimize,  NULL},
-  {"stats",     "",   (IntFunc) cmd_stats,     NULL},
-  {"unhide",    "j",  (IntFunc) cmd_unhide,    NULL},
-  {"unshare",   "j",  (IntFunc) cmd_unshare,   NULL},
-  {NULL,        NULL, NULL,                     NULL}
+  {"optimise",  "j",  (IntFunc) cmd_optimize,  nullptr},
+  {"optimize",  "j",  (IntFunc) cmd_optimize,  nullptr},
+  {"stats",     "",   (IntFunc) cmd_stats,     nullptr},
+  {"unhide",    "j",  (IntFunc) cmd_unhide,    nullptr},
+  {"unshare",   "j",  (IntFunc) cmd_unshare,   nullptr},
+  {nullptr,        nullptr, nullptr,                     nullptr}
 };
 
 
@@ -1429,12 +1440,12 @@ static cmd_t myfiles[] = {
 static int files_reget(int idx, char *fn, char *nick, int resend)
 {
   int i = 0;
-  char *p = NULL, *what = NULL, *destdir = NULL, *s = NULL;
-  filedb_entry *fdbe = NULL;
-  FILE *fdb = NULL;
+  char *p = nullptr, *what = nullptr, *destdir = nullptr, *s = nullptr;
+  filedb_entry *fdbe = nullptr;
+  FILE *fdb = nullptr;
 
   p = strrchr(fn, '/');
-  if (p != NULL) {
+  if (p != nullptr) {
     *p = 0;
     malloc_strcpy(s, fn);
     malloc_strcpy(what, p + 1);
@@ -1455,7 +1466,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
     my_free(destdir);
     return 0;
   }
-  filedb_readtop(fdb, NULL);
+  filedb_readtop(fdb, nullptr);
   fdbe = filedb_matchfile(fdb, ftell(fdb), what);
   if (!fdbe) {
     filedb_close(fdb);
@@ -1471,7 +1482,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
     return 0;
   }
   if (fdbe->sharelink) {
-    char *bot, *whoto = NULL;
+    char *bot, *whoto = nullptr;
 
     /* This is a link to a file on another bot... */
     bot = op_malloc(strlen(fdbe->sharelink) + 1);
@@ -1500,6 +1511,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
       }
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
         s = op_strbuf_steal(&_b);
       }
@@ -1509,6 +1521,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
       fdbe->gots++;
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s:%s", bot, fdbe->sharelink);
         op_free(s);
         s = op_strbuf_steal(&_b);

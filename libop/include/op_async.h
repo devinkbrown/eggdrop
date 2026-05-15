@@ -66,6 +66,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include <op_thread_pool.h>
+
 /* ---- types --------------------------------------------------------------- */
 
 /*
@@ -144,5 +146,12 @@ size_t op_async_pending(void);
  * successfully and the task port has not been shut down.
  */
 bool op_async_active(void);
+
+/*
+ * Compatibility introspection wrappers for consumers that monitor the async
+ * executor without holding its private thread-pool pointer.
+ */
+int op_async_nthreads(void);
+int op_async_get_stats(op_tpool_worker_stats_t *out, int max);
 
 #endif /* LIBOP_ASYNC_H */

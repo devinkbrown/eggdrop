@@ -73,7 +73,7 @@ typedef struct {
 
 static uff_head_t uff_list;
 static char uff_sbuf[512];
-static op_bh *uff_list_bh = NULL;
+static op_bh *uff_list_bh = nullptr;
 
 
 /*
@@ -98,7 +98,7 @@ static int uff_expmem(void)
 }
 
 /* Search for a feature in the uff feature list that matches a supplied
- * feature flag. Returns a pointer to the entry in the list or NULL if
+ * feature flag. Returns a pointer to the entry in the list or nullptr if
  * no feature uses the flag.
  */
 static uff_list_t *uff_findentry_byflag(int flag)
@@ -108,11 +108,11 @@ static uff_list_t *uff_findentry_byflag(int flag)
   for (ul = uff_list.start; ul; ul = ul->next)
     if (ul->entry->flag & flag)
       return ul;
-  return NULL;
+  return nullptr;
 }
 
 /* Search for a feature in the uff feature list. Returns a pointer to the
- * entry in the list or NULL if no such feature exists.
+ * entry in the list or nullptr if no such feature exists.
  */
 static uff_list_t *uff_findentry_byname(char *feature)
 {
@@ -121,14 +121,14 @@ static uff_list_t *uff_findentry_byname(char *feature)
   for (ul = uff_list.start; ul; ul = ul->next)
     if (!strcmp(ul->entry->feature, feature))
       return ul;
-  return NULL;
+  return nullptr;
 }
 
 /* Insert entry into sorted list.
  */
 static void uff_insert_entry(uff_list_t *nul)
 {
-  uff_list_t *ul, *lul = NULL;
+  uff_list_t *ul, *lul = nullptr;
 
   ul = uff_list.start;
   while (ul && ul->entry->priority < nul->entry->priority) {
@@ -136,8 +136,8 @@ static void uff_insert_entry(uff_list_t *nul)
     ul = ul->next;
   }
 
-  nul->prev = NULL;
-  nul->next = NULL;
+  nul->prev = nullptr;
+  nul->next = nullptr;
   if (lul) {
     if (lul->next)
       lul->next->prev = nul;
@@ -250,12 +250,12 @@ static void uf_features_parse(int idx, char *par)
   dcc[idx].u.bot->uff_flags = 0;
 
   /* Parse string */
-  while ((s = strchr(s, ' ')) != NULL) {
+  while ((s = strchr(s, ' ')) != nullptr) {
     *s = '\0';
 
     /* Is the feature available and active? */
     ul = uff_findentry_byname(p);
-    if (ul && (ul->entry->ask_func == NULL || ul->entry->ask_func(idx))) {
+    if (ul && (ul->entry->ask_func == nullptr || ul->entry->ask_func(idx))) {
       dcc[idx].u.bot->uff_flags |= ul->entry->flag; /* Set flag */
       if (op_strbuf_len(&_sb))
         op_strbuf_append_cstr(&_sb, " ");
@@ -280,7 +280,7 @@ static char *uf_features_dump(int idx)
 
   op_strbuf_init(&_sb);
   for (ul = uff_list.start; ul; ul = ul->next)
-    if (ul->entry->ask_func == NULL || ul->entry->ask_func(idx)) {
+    if (ul->entry->ask_func == nullptr || ul->entry->ask_func(idx)) {
       if (op_strbuf_len(&_sb))
         op_strbuf_append_cstr(&_sb, " ");
       op_strbuf_append_cstr(&_sb, ul->entry->feature); /* Add feature to list  */
@@ -303,12 +303,12 @@ static int uf_features_check(int idx, char *par)
   dcc[idx].u.bot->uff_flags = 0;
 
   /* Parse string */
-  while ((s = strchr(s, ' ')) != NULL) {
+  while ((s = strchr(s, ' ')) != nullptr) {
     *s = '\0';
 
     /* Is the feature available and active? */
     ul = uff_findentry_byname(p);
-    if (ul && (ul->entry->ask_func == NULL || ul->entry->ask_func(idx)))
+    if (ul && (ul->entry->ask_func == nullptr || ul->entry->ask_func(idx)))
       dcc[idx].u.bot->uff_flags |= ul->entry->flag; /* Set flag */
     else {
       /* It isn't, and our hub wants to use it! This either happens
@@ -385,8 +385,8 @@ static int uff_ask_override_bots(int idx)
  */
 
 static uff_table_t internal_uff_table[] = {
-  {"overbots", UFF_OVERRIDE, uff_ask_override_bots, 0, NULL, NULL},
-  {"invites",  UFF_INVITE,   NULL,                  0, NULL, NULL},
-  {"exempts",  UFF_EXEMPT,   NULL,                  0, NULL, NULL},
-  {NULL,       0,            NULL,                  0, NULL, NULL}
+  {"overbots", UFF_OVERRIDE, uff_ask_override_bots, 0, nullptr, nullptr},
+  {"invites",  UFF_INVITE,   nullptr,                  0, nullptr, nullptr},
+  {"exempts",  UFF_EXEMPT,   nullptr,                  0, nullptr, nullptr},
+  {nullptr,       0,            nullptr,                  0, nullptr, nullptr}
 };

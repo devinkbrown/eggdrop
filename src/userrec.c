@@ -30,6 +30,7 @@
 #include "modules.h"
 #include "tandem.h"
 #include "egg_store.h"
+#include "async_fileio.h"
 extern struct dcc_t *dcc;
 extern struct chanset_t *chanset;
 extern int default_flags, default_uflags, quiet_save, dcc_total, share_greet,
@@ -38,20 +39,20 @@ extern char ver[], botnetnick[];
 extern time_t now;
 
 int noshare = 1;                   /* don't send out to sharebots       */
-struct userrec *userlist = NULL;   /* user records are stored here      */
+struct userrec *userlist = nullptr;   /* user records are stored here      */
 
 /* libop balloc heaps for fixed-size user record structs.
  * Replaced op_malloc(sizeof(*x)) / op_free(x) with these wrappers everywhere
  * these structs are allocated or freed, giving O(1) slab alloc/free and
  * returning memory to the OS when the heaps are destroyed on shutdown. */
-static op_bh *userrec_heap     = NULL;
-static op_bh *chanuserrec_heap = NULL;
-static op_bh *user_entry_heap  = NULL;
-static op_bh *list_type_heap   = NULL;
-static op_bh *xtra_key_heap    = NULL;
-static op_bh *laston_info_heap = NULL;
-static op_bh *igrec_heap       = NULL;
-static op_bh *maskrec_heap     = NULL;
+static op_bh *userrec_heap     = nullptr;
+static op_bh *chanuserrec_heap = nullptr;
+static op_bh *user_entry_heap  = nullptr;
+static op_bh *list_type_heap   = nullptr;
+static op_bh *xtra_key_heap    = nullptr;
+static op_bh *laston_info_heap = nullptr;
+static op_bh *igrec_heap       = nullptr;
+static op_bh *maskrec_heap     = nullptr;
 
 void userrec_heaps_init(void)
 {
@@ -67,14 +68,14 @@ void userrec_heaps_init(void)
 
 void userrec_heaps_destroy(void)
 {
-  if (userrec_heap)     { op_bh_destroy(userrec_heap);     userrec_heap     = NULL; }
-  if (chanuserrec_heap) { op_bh_destroy(chanuserrec_heap); chanuserrec_heap = NULL; }
-  if (user_entry_heap)  { op_bh_destroy(user_entry_heap);  user_entry_heap  = NULL; }
-  if (list_type_heap)   { op_bh_destroy(list_type_heap);   list_type_heap   = NULL; }
-  if (xtra_key_heap)    { op_bh_destroy(xtra_key_heap);    xtra_key_heap    = NULL; }
-  if (laston_info_heap) { op_bh_destroy(laston_info_heap); laston_info_heap = NULL; }
-  if (igrec_heap)       { op_bh_destroy(igrec_heap);       igrec_heap       = NULL; }
-  if (maskrec_heap)     { op_bh_destroy(maskrec_heap);     maskrec_heap     = NULL; }
+  if (userrec_heap)     { op_bh_destroy(userrec_heap);     userrec_heap     = nullptr; }
+  if (chanuserrec_heap) { op_bh_destroy(chanuserrec_heap); chanuserrec_heap = nullptr; }
+  if (user_entry_heap)  { op_bh_destroy(user_entry_heap);  user_entry_heap  = nullptr; }
+  if (list_type_heap)   { op_bh_destroy(list_type_heap);   list_type_heap   = nullptr; }
+  if (xtra_key_heap)    { op_bh_destroy(xtra_key_heap);    xtra_key_heap    = nullptr; }
+  if (laston_info_heap) { op_bh_destroy(laston_info_heap); laston_info_heap = nullptr; }
+  if (igrec_heap)       { op_bh_destroy(igrec_heap);       igrec_heap       = nullptr; }
+  if (maskrec_heap)     { op_bh_destroy(maskrec_heap);     maskrec_heap     = nullptr; }
 }
 
 struct userrec *alloc_userrec(void)
@@ -173,24 +174,24 @@ void free_maskrec(maskrec *m)
   op_bh_free(maskrec_heap, m);
 }
 
-struct userrec *lastuser = NULL;   /* last accessed user record         */
+struct userrec *lastuser = nullptr;   /* last accessed user record         */
 
 /* Mark a user record as dirty for incremental saves */
-static void mark_user_dirty(struct userrec *u)
+[[maybe_unused]] static void mark_user_dirty(struct userrec *u)
 {
   if (u)
     u->dirty = 1;
 }
 
 /* Mark all users as dirty (called after bulk operations) */
-static void mark_all_users_dirty(void)
+[[maybe_unused]] static void mark_all_users_dirty(void)
 {
   for (struct userrec *u = userlist; u; u = u->next)
     u->dirty = 1;
 }
 
 /* Clear dirty flags for all users (called after successful save) */
-static void clear_all_dirty_flags(void)
+[[maybe_unused]] static void clear_all_dirty_flags(void)
 {
   for (struct userrec *u = userlist; u; u = u->next)
     u->dirty = 0;
@@ -199,17 +200,17 @@ static void clear_all_dirty_flags(void)
 /* Splay-tree index from lowercase handle → userrec *.
  * Maintained by adduser/deluser/change_handle/clear_userlist.
  * Rebuilt lazily on first get_user_by_handle() after a bulk load. */
-static op_htab *user_handle_dict = NULL;
+static op_htab *user_handle_dict = nullptr;
 
 static void user_dict_rebuild(void)
 {
   struct userrec *u;
 
   if (user_handle_dict)
-    op_htab_destroy(user_handle_dict, NULL, NULL);
+    op_htab_destroy(user_handle_dict, nullptr, nullptr);
   user_handle_dict = op_htab_create_istr("userhandles", 64);
   for (u = userlist; u; u = u->next)
-    op_htab_set(user_handle_dict, u->handle, u, NULL);
+    op_htab_set(user_handle_dict, u->handle, u, nullptr);
 }
 
 /* Splay-tree index from IRC account name → userrec *.
@@ -221,7 +222,7 @@ static void user_dict_rebuild(void)
  * Maintained by addaccount_by_handle / del_host_or_account(type=1) /
  * deluser / clear_userlist.  Rebuilt lazily on the first
  * get_user_by_account() call after a bulk load (e.g. readuserfile). */
-static op_htab *user_account_dict = NULL;
+static op_htab *user_account_dict = nullptr;
 
 /* Invalidate (destroy) the account dict so it is lazily rebuilt on the next
  * get_user_by_account() call.  Call this whenever accounts are modified via
@@ -230,8 +231,8 @@ static op_htab *user_account_dict = NULL;
 void user_account_dict_invalidate(void)
 {
   if (user_account_dict) {
-    op_htab_destroy(user_account_dict, NULL, NULL);
-    user_account_dict = NULL;
+    op_htab_destroy(user_account_dict, nullptr, nullptr);
+    user_account_dict = nullptr;
   }
 }
 
@@ -241,16 +242,16 @@ static void user_account_dict_rebuild(void)
   struct list_type *q;
 
   if (user_account_dict)
-    op_htab_destroy(user_account_dict, NULL, NULL);
+    op_htab_destroy(user_account_dict, nullptr, nullptr);
   user_account_dict = op_htab_create_istr("useraccounts", 64);
   for (u = userlist; u; u = u->next)
     for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
       if (q->extra && strcmp(q->extra, "none"))
-        op_htab_set(user_account_dict, q->extra, u, NULL);
+        op_htab_set(user_account_dict, q->extra, u, nullptr);
 }
-maskrec *global_bans = NULL, *global_exempts = NULL, *global_invites = NULL;
-op_htab *global_bans_ht = NULL, *global_exempts_ht = NULL, *global_invites_ht = NULL;
-struct igrec *global_ign = NULL;
+maskrec *global_bans = nullptr, *global_exempts = nullptr, *global_invites = nullptr;
+op_htab *global_bans_ht = nullptr, *global_exempts_ht = nullptr, *global_invites_ht = nullptr;
+struct igrec *global_ign = nullptr;
 int cache_hit = 0, cache_miss = 0; /* temporary cache accounting        */
 int userfile_perm = 0600;          /* Userfile permissions
                                     * (default rw-------)               */
@@ -273,7 +274,7 @@ void *_user_realloc(void *ptr, int size, const char *file, int line)
   return op_realloc(ptr, size);
 }
 
-static __attribute__((unused)) int expmem_mask(struct maskrec *m)
+[[maybe_unused]] static int expmem_mask(struct maskrec *m)
 {
   int result = 0;
 
@@ -309,7 +310,7 @@ static struct userrec *check_dcclist_hand(char *handle)
   for (int i = 0; i < dcc_total; i++)
     if (!strcasecmp(dcc[i].nick, handle))
       return dcc[i].user;
-  return NULL;
+  return nullptr;
 }
 
 /* Search every channel record for the provided nickname. Used in cases where
@@ -317,7 +318,7 @@ static struct userrec *check_dcclist_hand(char *handle)
  */
 memberlist *find_member_from_nick(char *nick) {
   struct chanset_t *chan;
-  memberlist *m = NULL;
+  memberlist *m = nullptr;
 
   for (chan = chanset; chan; chan = chan->next) {
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
@@ -330,7 +331,7 @@ memberlist *find_member_from_nick(char *nick) {
 }
 
 /* Search userlist for a provided account name.
- * Returns: userrecord for user containing the account, or NULL.
+ * Returns: userrecord for user containing the account, or nullptr.
  *
  * Uses user_account_dict (splay tree, O(log n)) when available.
  * Falls back to O(n×m) linear scan if the dict has not been built yet;
@@ -342,7 +343,7 @@ struct userrec *get_user_by_account(const char *acct)
   struct list_type *q;
 
   if (!acct || !acct[0] || !strcmp(acct, "*"))
-    return NULL;
+    return nullptr;
   /* Lazy-build account index after a bulk load (e.g. readuserfile). */
   if (!user_account_dict && userlist)
     user_account_dict_rebuild();
@@ -353,7 +354,7 @@ struct userrec *get_user_by_account(const char *acct)
     for (q = get_user(&USERENTRY_ACCOUNT, u); q; q = q->next)
       if (!rfc_casecmp(q->extra, acct))
         return u;
-  return NULL;
+  return nullptr;
 }
 
 struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
@@ -361,10 +362,10 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
   struct userrec *u, *ret;
 
   if (!handle)
-    return NULL;
+    return nullptr;
   rmspace(handle);
   if (!handle[0] || (handle[0] == '*'))
-    return NULL;
+    return nullptr;
   if (bu == userlist) {
     /* L1: last-accessed record */
     if (lastuser && !strcasecmp(lastuser->handle, handle)) {
@@ -394,12 +395,12 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
         lastuser = u;
       return u;
     }
-  return NULL;
+  return nullptr;
 }
 
 struct userrec *get_user_from_member(memberlist *m)
 {
-  struct userrec *ret = NULL;
+  struct userrec *ret = nullptr;
 
   /* Check positive/negative cache first */
   if (m->user || m->tried_getuser) {
@@ -417,6 +418,7 @@ struct userrec *get_user_from_member(memberlist *m)
   /* Check if there is a user with a matching hostmask if one is provided */
   if ((m->userhost[0] != '\0') && (m->nick[0] != '\0')) {
     op_strbuf_t s;
+    op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s!%s", m->nick, m->userhost);
     ret = get_user_by_host(op_strbuf_str(&s));
     op_strbuf_free(&s);
@@ -434,7 +436,7 @@ getuser_done:
 /* Wrapper function to find an Eggdrop user record based on either a provided
  * channel memberlist record, host, or account. This function will first check
  * a provided memberlist and return the result. If no user record is found (or
- * the memberlist itself was NULL), this function will try again based on a
+ * the memberlist itself was nullptr), this function will try again based on a
  * provided account, and then again on a provided host.
  *
  * When calling this function it is best to provide all available independent
@@ -445,7 +447,7 @@ getuser_done:
 struct userrec *lookup_user_record(memberlist *m, const char *account,
                                    const char *host)
 {
-  struct userrec *u = NULL;
+  struct userrec *u = nullptr;
 
 /* First check for a user record tied to a memberlist */
   if (m) {
@@ -466,7 +468,7 @@ struct userrec *lookup_user_record(memberlist *m, const char *account,
     u = get_user_by_host(host);
     return u;
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Fix capitalization, etc
@@ -476,7 +478,7 @@ void correct_handle(char *handle)
   struct userrec *u;
 
   u = get_user_by_handle(userlist, handle);
-  if (u == NULL || handle == u->handle)
+  if (u == nullptr || handle == u->handle)
     return;
   strlcpy(handle, u->handle, sizeof(handle));
 }
@@ -486,7 +488,7 @@ void correct_handle(char *handle)
  */
 void clear_masks(maskrec *m)
 {
-  maskrec *temp = NULL;
+  maskrec *temp = nullptr;
 
   for (; m; m = temp) {
     temp = m->next;
@@ -512,16 +514,16 @@ void clear_userlist(struct userrec *bu)
     struct chanset_t *cst;
 
     for (int i = 0; i < dcc_total; i++)
-      dcc[i].user = NULL;
+      dcc[i].user = nullptr;
     clear_chanlist();
-    lastuser = NULL;
+    lastuser = nullptr;
     if (user_handle_dict) {
-      op_htab_destroy(user_handle_dict, NULL, NULL);
-      user_handle_dict = NULL;
+      op_htab_destroy(user_handle_dict, nullptr, nullptr);
+      user_handle_dict = nullptr;
     }
     if (user_account_dict) {
-      op_htab_destroy(user_account_dict, NULL, NULL);
-      user_account_dict = NULL;
+      op_htab_destroy(user_account_dict, nullptr, nullptr);
+      user_account_dict = nullptr;
     }
 
     while (global_ign)
@@ -530,17 +532,17 @@ void clear_userlist(struct userrec *bu)
     clear_masks(global_bans);
     clear_masks(global_exempts);
     clear_masks(global_invites);
-    global_exempts = global_invites = global_bans = NULL;
+    global_exempts = global_invites = global_bans = nullptr;
 
     for (cst = chanset; cst; cst = cst->next) {
       clear_masks(cst->bans);
       clear_masks(cst->exempts);
       clear_masks(cst->invites);
 
-      cst->bans = cst->exempts = cst->invites = NULL;
+      cst->bans = cst->exempts = cst->invites = nullptr;
     }
   }
-  /* Remember to set your userlist to NULL after calling this */
+  /* Remember to set your userlist to nullptr after calling this */
 }
 
 /* Find CLOSEST host match
@@ -548,17 +550,17 @@ void clear_userlist(struct userrec *bu)
  */
 struct userrec *get_user_by_host(const char *host)
 {
-  struct userrec *u, *ret = NULL;
+  struct userrec *u, *ret = nullptr;
   struct list_type *q;
   int cnt, i;
   char host2[UHOSTLEN];
 
-  if (host == NULL)
-    return NULL;
+  if (host == nullptr)
+    return nullptr;
   strlcpy(host2, host, sizeof host2);
   rmspace(host2);
   if (!host2[0])
-    return NULL;
+    return nullptr;
   cnt = 0;
   cache_miss++;
   for (u = userlist; u; u = u->next) {
@@ -571,7 +573,7 @@ struct userrec *get_user_by_host(const char *host)
       }
     }
   }
-  if (ret != NULL) {
+  if (ret != nullptr) {
     lastuser = ret;
   }
   return ret;
@@ -633,11 +635,11 @@ int u_pass_match(struct userrec *u, char *pass)
         new = encrypt_pass2(pass);
         if (new) {
           set_user(&USERENTRY_PASS2, u, new);
-          if (remove_pass) { /* implicit e->u.extra != NULL */
+          if (remove_pass) { /* implicit e->u.extra != nullptr */
             e = find_user_entry(&USERENTRY_PASS, u);
             explicit_bzero(e->u.extra, strlen(e->u.extra));
             op_free(e->u.extra);
-            e->u.extra = NULL;
+            e->u.extra = nullptr;
             egg_list_delete((struct list_type **) &(u->entries), (struct list_type *) e);
             op_free(e);
           }
@@ -655,12 +657,12 @@ int write_user(struct userrec *u, FILE *f, int idx)
   struct chanuserrec *ch;
   struct chanset_t *cst;
   struct user_entry *ue;
-  struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL };
 
   fr.global = u->flags;
 
   fr.udef_global = u->flags_udef;
-  build_flags(s, &fr, NULL);
+  build_flags(s, &fr, nullptr);
   if (fprintf(f, "%-10s - %-24s\n", u->handle, s) == EOF)
     return 0;
   for (ch = u->chanrec; ch; ch = ch->next) {
@@ -675,7 +677,7 @@ int write_user(struct userrec *u, FILE *f, int idx)
         fr.match = FR_CHAN;
         fr.chan = ch->flags;
         fr.udef_chan = ch->flags_udef;
-        build_flags(s, &fr, NULL);
+        build_flags(s, &fr, nullptr);
         if (fprintf(f, "! %-20s %" PRId64 " %-10s %s\n", ch->channel, (int64_t) ch->laston, s,
             (((idx < 0) || share_greet) && ch->info) ? ch->info : "") == EOF)
           return 0;
@@ -773,9 +775,9 @@ static void sort_userlist(void)
   struct userrec *last, *p, *c, *n;
 
   again = 1;
-  last = NULL;
+  last = nullptr;
   while ((userlist != last) && (again)) {
-    p = NULL;
+    p = nullptr;
     c = userlist;
     n = c->next;
     again = 0;
@@ -784,7 +786,7 @@ static void sort_userlist(void)
         again = 1;
         c->next = n->next;
         n->next = c;
-        if (p == NULL)
+        if (p == nullptr)
           userlist = n;
         else
           p->next = n;
@@ -802,22 +804,18 @@ static void sort_userlist(void)
  */
 void write_userfile(int idx)
 {
-  FILE *f;
   char s[26];
   struct userrec *u;
   int ok;
 
-  if (userlist == NULL)
-    return;                     /* No point in saving userfile */
+  if (userlist == nullptr)
+    return;
 
-  op_strbuf_t new_userfile;
-  op_strbuf_appendf(&new_userfile, "%s~new", userfile);
-
-  f = fopen(op_strbuf_str(&new_userfile), "w");
-  chmod(op_strbuf_str(&new_userfile), userfile_perm);
-  if (f == NULL) {
+  char *buf = nullptr;
+  size_t buflen = 0;
+  FILE *f = open_memstream(&buf, &buflen);
+  if (f == nullptr) {
     putlog(LOG_MISC, "*", "%s", USERF_ERRWRITE);
-    op_strbuf_free(&new_userfile);
     return;
   }
   if (!quiet_save)
@@ -827,24 +825,25 @@ void write_userfile(int idx)
   ctime_r(&now, s);
   fprintf(f, "#4v: %s -- %s -- written %s", ver, botnetnick, s);
   ok = 1;
-  /* Add all users except the -t user */
   for (u = userlist; u && ok; u = u->next)
     if (strcasecmp(u->handle, EGG_BG_HANDLE) && !write_user(u, f, idx))
       ok = 0;
   if (!ok || !write_ignores(f, -1) || fflush(f)) {
-    putlog(LOG_MISC, "*", "%s (%s)", USERF_ERRWRITE, strerror(ferror(f)));
+    putlog(LOG_MISC, "*", "%s", USERF_ERRWRITE);
     fclose(f);
-    op_strbuf_free(&new_userfile);
+    free(buf);
     return;
   }
   fclose(f);
-  call_hook(HOOK_USERFILE);
-  movefile(op_strbuf_str(&new_userfile), userfile);
-  op_strbuf_free(&new_userfile);
 
-  /* If the LMDB backend is active, also persist to it for crash safety. */
+  call_hook(HOOK_USERFILE);
+
   if (egg_store && egg_store != &egg_store_flat)
     egg_store->save_users(idx);
+
+  /* Hand the serialized buffer to a worker thread for disk I/O.
+   * async_writebuf takes ownership of buf. */
+  async_writebuf(userfile, buf, buflen, userfile_perm);
 }
 
 void backup_userfile(void)
@@ -852,8 +851,9 @@ void backup_userfile(void)
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "%s", USERF_BACKUP);
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%s~bak", userfile);
-  copyfile(userfile, op_strbuf_str(&s));
+  async_copyfile(userfile, op_strbuf_str(&s));
   op_strbuf_free(&s);
 }
 
@@ -872,13 +872,13 @@ int change_handle(struct userrec *u, char *newh)
   check_tcl_nkch(u->handle, newh);
   /* Yes, even send bot nick changes now: */
   if (!noshare && !(u->flags & USER_UNSHARED))
-    shareout(NULL, "h %s %s\n", u->handle, newh);
+    shareout(nullptr, "h %s %s\n", u->handle, newh);
   strlcpy(s, u->handle, sizeof s);
   strlcpy(u->handle, newh, sizeof u->handle);
   u->dirty = 1;  /* Mark as dirty when handle changes */
   if (user_handle_dict) {
     op_htab_del(user_handle_dict,s);
-    op_htab_set(user_handle_dict, u->handle, u, NULL);
+    op_htab_set(user_handle_dict, u->handle, u, nullptr);
   }
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT || dcc[i].type == &DCC_CHAT_PASS) &&
@@ -909,9 +909,9 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
 
   /* u->next=bu; bu=u; */
   strlcpy(u->handle, handle, sizeof u->handle);
-  u->next = NULL;
-  u->chanrec = NULL;
-  u->entries = NULL;
+  u->next = nullptr;
+  u->chanrec = nullptr;
+  u->entries = nullptr;
   u->dirty = 1;  /* New user is dirty */
   if (flags != USER_DEFAULT) {  /* drummer */
     u->flags = flags;
@@ -927,6 +927,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
     strlcpy(xk->key, "created", sizeof(xk->key));
     {
       op_strbuf_t ts;
+      op_strbuf_init(&ts);
       op_strbuf_appendf(&ts, "%" PRId64, (int64_t) now);
       xk->data = op_strdup(op_strbuf_str(&ts));
       op_strbuf_free(&ts);
@@ -939,7 +940,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
 
     strlcpy(hostcopy, host, sizeof hostcopy);
     p = strchr(hostcopy, ',');
-    while (p != NULL) {
+    while (p != nullptr) {
       *p = '?';
       p = strchr(hostcopy, ',');
     }
@@ -951,30 +952,30 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
   noshare = oldshare;
   if ((!noshare) && (handle[0] != '*') && (!(flags & USER_UNSHARED)) &&
       (bu == userlist)) {
-    struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+    struct flag_record fr = { FR_GLOBAL };
     char flags_str[100];
 
     fr.global = u->flags;
 
     fr.udef_global = u->flags_udef;
     build_flags(flags_str, &fr, 0);
-    shareout(NULL, "n %s %s %s %s\n", handle, host && host[0] ? hostcopy : "none",
+    shareout(nullptr, "n %s %s %s %s\n", handle, host && host[0] ? hostcopy : "none",
              pass, flags_str);
   }
-  if (bu == NULL)
+  if (bu == nullptr)
     bu = u;
   else {
-    if ((bu == userlist) && (lastuser != NULL))
+    if ((bu == userlist) && (lastuser != nullptr))
       x = lastuser;
     else
       x = bu;
-    while (x->next != NULL)
+    while (x->next != nullptr)
       x = x->next;
     x->next = u;
     if (bu == userlist) {
       lastuser = u;
       if (user_handle_dict)
-        op_htab_set(user_handle_dict, u->handle, u, NULL);
+        op_htab_set(user_handle_dict, u->handle, u, nullptr);
     }
   }
   return bu;
@@ -985,18 +986,18 @@ void freeuser(struct userrec *u)
   struct user_entry *ue, *ut;
   struct chanuserrec *ch, *z;
 
-  if (u == NULL)
+  if (u == nullptr)
     return;
 
   ch = u->chanrec;
   while (ch) {
     z = ch;
     ch = ch->next;
-    if (z->info != NULL)
+    if (z->info != nullptr)
       op_free(z->info);
     free_chanuserrec(z);
   }
-  u->chanrec = NULL;
+  u->chanrec = nullptr;
   for (ue = u->entries; ue; ue = ut) {
     ut = ue->next;
     if (ue->name) {
@@ -1017,10 +1018,10 @@ void freeuser(struct userrec *u)
 
 int deluser(char *handle)
 {
-  struct userrec *u = userlist, *prev = NULL;
+  struct userrec *u = userlist, *prev = nullptr;
   int fnd = 0;
 
-  while ((u != NULL) && (!fnd)) {
+  while ((u != nullptr) && (!fnd)) {
     if (!strcasecmp(u->handle, handle))
       fnd = 1;
     else {
@@ -1030,12 +1031,12 @@ int deluser(char *handle)
   }
   if (!fnd)
     return 0;
-  if (prev == NULL)
+  if (prev == nullptr)
     userlist = u->next;
   else
     prev->next = u->next;
   if (!noshare && (handle[0] != '*') && !(u->flags & USER_UNSHARED))
-    shareout(NULL, "k %s\n", handle);
+    shareout(nullptr, "k %s\n", handle);
   for (fnd = 0; fnd < dcc_total; fnd++)
     if (dcc[fnd].user == u)
       dcc[fnd].user = 0;        /* Clear any dcc users for this entry,
@@ -1050,7 +1051,7 @@ int deluser(char *handle)
   }
   clear_chanlist();
   freeuser(u);
-  lastuser = NULL;
+  lastuser = nullptr;
   return 1;
 }
 
@@ -1058,7 +1059,7 @@ static int del_host_or_account(char *handle, char *host, int type)
 {
   struct userrec *u;
   struct list_type *q, *qnext, *qprev;
-  struct user_entry *e = NULL;
+  struct user_entry *e = nullptr;
   int i = 0;
 
   u = get_user_by_handle(userlist, handle);
@@ -1081,7 +1082,7 @@ static int del_host_or_account(char *handle, char *host, int type)
       op_free(q->extra);
       op_free(q);
       i++;
-      qprev = NULL;
+      qprev = nullptr;
       q = e->u.extra;
     } else
       q = q->next;
@@ -1092,7 +1093,7 @@ static int del_host_or_account(char *handle, char *host, int type)
           qprev->next = q->next;
         else if (e) {
           e->u.extra = q->next;
-          qprev = NULL;
+          qprev = nullptr;
         }
         op_free(q->extra);
         op_free(q);
@@ -1112,7 +1113,7 @@ static int del_host_or_account(char *handle, char *host, int type)
     }
   }
   if (!noshare && i && !(u->flags & USER_UNSHARED))
-    shareout(NULL, "-%s %s %s\n", type ? "a" : "h", handle, host);
+    shareout(nullptr, "-%s %s %s\n", type ? "a" : "h", handle, host);
   /* For accounts: direct list_type manipulation above bypasses account_set,
    * so invalidate the dict here. set_user("none") at line ~1028 also triggers
    * account_set, but that's an additional redundant invalidate — harmless. */
@@ -1145,9 +1146,9 @@ static void add_host_or_account(char *handle, const char *arg, int type)
   /* Note: set_user already marks u as dirty via userent.c */
   if ((!noshare) && !(u->flags & USER_UNSHARED)) {
     if (u->flags & USER_BOT) {
-      shareout(NULL, "+b%s %s %s\n", type ? "a" : "h", handle, arg);
+      shareout(nullptr, "+b%s %s %s\n", type ? "a" : "h", handle, arg);
     } else {
-      shareout(NULL, "+%s %s %s\n", type ? "a" : "h", handle, arg);
+      shareout(nullptr, "+%s %s %s\n", type ? "a" : "h", handle, arg);
     }
   }
   clear_chanlist();
@@ -1182,7 +1183,7 @@ void touch_laston(struct userrec *u, const char *where, time_t timeval)
     if (where) {
       li->lastonplace = op_strdup(where);
     } else
-      li->lastonplace = NULL;
+      li->lastonplace = nullptr;
     set_user(&USERENTRY_LASTON, u, li);
   } else if (timeval == 1)
     set_user(&USERENTRY_LASTON, u, 0);
@@ -1203,6 +1204,7 @@ struct userrec *get_user_by_nick(char *nick)
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       if (!rfc_casecmp(nick, m->nick)) {
         op_strbuf_t word;
+        op_strbuf_init(&word);
         op_strbuf_appendf(&word, "%s!%s", m->nick, m->userhost);
         struct userrec *r = get_user_by_host(op_strbuf_str(&word));
         op_strbuf_free(&word);
@@ -1211,7 +1213,7 @@ struct userrec *get_user_by_nick(char *nick)
     }
   }
   /* Sorry, no matches */
-  return NULL;
+  return nullptr;
 }
 
 void user_del_chan(char *dname)
@@ -1221,7 +1223,7 @@ void user_del_chan(char *dname)
 
   for (u = userlist; u; u = u->next) {
     ch = u->chanrec;
-    och = NULL;
+    och = nullptr;
     while (ch) {
       if (!rfc_casecmp(dname, ch->channel)) {
         if (och)

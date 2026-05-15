@@ -32,7 +32,7 @@ typedef struct egg_mbuf egg_mbuf_t;
 /*
  * egg_mbuf_alloc -- allocate a new message buffer with the given capacity.
  *
- * Returns NULL on allocation failure.
+ * Returns nullptr on allocation failure.
  */
 egg_mbuf_t *egg_mbuf_alloc(size_t capacity);
 

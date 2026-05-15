@@ -95,7 +95,7 @@ static inline int op_thrd_create(op_thrd_t *t, int (*fn)(void *), void *arg) {
   op__thrd_wrap_t *w = malloc(sizeof *w);
   if (!w) return OP_THRD_NOMEM;
   w->fn = fn; w->arg = arg;
-  *t = CreateThread(NULL, 0, op__thrd_tramp, w, 0, NULL);
+  *t = CreateThread(nullptr, 0, op__thrd_tramp, w, 0, nullptr);
   return *t ? OP_THRD_SUCCESS : OP_THRD_ERROR;
 }
 static inline int op_thrd_join(op_thrd_t t, int *res) {
@@ -125,9 +125,9 @@ static inline int op_thrd_join(op_thrd_t t, int *res) {
 #  define OP_ONCE_INIT                 INIT_ONCE_STATIC_INIT
 static inline void op_call_once(op_once_t *flag, void (*fn)(void)) {
   BOOL pending;
-  if (InitOnceBeginInitialize(flag, 0, &pending, NULL) && pending) {
+  if (InitOnceBeginInitialize(flag, 0, &pending, nullptr) && pending) {
     fn();
-    InitOnceComplete(flag, 0, NULL);
+    InitOnceComplete(flag, 0, nullptr);
   }
 }
 
@@ -161,7 +161,7 @@ static inline int op_thrd_create(op_thrd_t *t, int (*fn)(void *), void *arg) {
   op__thrd_wrap_t *w = malloc(sizeof *w);
   if (!w) return OP_THRD_NOMEM;
   w->fn = fn; w->arg = arg;
-  return pthread_create(t, NULL, op__thrd_tramp, w) ? OP_THRD_ERROR : OP_THRD_SUCCESS;
+  return pthread_create(t, nullptr, op__thrd_tramp, w) ? OP_THRD_ERROR : OP_THRD_SUCCESS;
 }
 static inline int op_thrd_join(op_thrd_t t, int *res) {
   void *rv;
@@ -175,13 +175,13 @@ static inline int op_thrd_join(op_thrd_t t, int *res) {
 #  define op_thrd_exit(code)           pthread_exit((void *)(long)(code))
 #  define op_thrd_equal(a, b)          pthread_equal(a, b)
 
-#  define op_mtx_init(m)               (pthread_mutex_init(m, NULL) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
+#  define op_mtx_init(m)               (pthread_mutex_init(m, nullptr) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
 #  define op_mtx_lock(m)               (pthread_mutex_lock(m) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
 #  define op_mtx_trylock(m)            (pthread_mutex_trylock(m) == 0 ? OP_THRD_SUCCESS : OP_THRD_BUSY)
 #  define op_mtx_unlock(m)             (pthread_mutex_unlock(m) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
 #  define op_mtx_destroy(m)            pthread_mutex_destroy(m)
 
-#  define op_cnd_init(c)               (pthread_cond_init(c, NULL) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
+#  define op_cnd_init(c)               (pthread_cond_init(c, nullptr) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
 #  define op_cnd_wait(c, m)            (pthread_cond_wait(c, m) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
 #  define op_cnd_signal(c)             (pthread_cond_signal(c) ? OP_THRD_ERROR : OP_THRD_SUCCESS)
 #  define op_cnd_broadcast(c)          (pthread_cond_broadcast(c) ? OP_THRD_ERROR : OP_THRD_SUCCESS)

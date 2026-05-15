@@ -43,8 +43,32 @@ test_flags = executable('test_flags',
   dependencies: [libop_dep],
 )
 
+test_botmsg = executable('test_botmsg',
+  'test_botmsg.c',
+  include_directories: test_inc,
+  c_args: test_c_args,
+  dependencies: [libop_dep],
+)
+
+test_net = executable('test_net',
+  'test_net.c',
+  include_directories: test_inc,
+  c_args: test_c_args,
+  dependencies: [libop_dep],
+)
+
+test_misc = executable('test_misc',
+  'test_misc.c',
+  include_directories: test_inc,
+  c_args: test_c_args,
+  dependencies: [libop_dep],
+)
+
 # Register tests with meson
 test('strbuf', test_strbuf)
 test('rfc1459', test_rfc1459)
 test('match', test_match)
 test('flags', test_flags)
+test('botmsg', test_botmsg)
+test('net', test_net)
+test('misc', test_misc)

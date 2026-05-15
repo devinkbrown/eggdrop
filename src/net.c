@@ -40,7 +40,9 @@
 #endif
 #include "main.h"
 #include "modules.h"
+#include "io_thread.h"
 #include <op_commio.h>
+#include <commio-int.h>
 #include <commio-ssl.h>
 
 /* POSIX select(2) type macros — used only for TCL socket handling. */
@@ -127,7 +129,7 @@ static inline int egg_writev(int sock, const struct iovec *iov, int cnt) {
     bufs[i].buf = (char *)iov[i].iov_base;
     bufs[i].len = (ULONG)iov[i].iov_len;
   }
-  if (WSASend((SOCKET)(UINT_PTR)sock, bufs, (DWORD)cnt, &sent, 0, NULL, NULL) == SOCKET_ERROR)
+  if (WSASend((SOCKET)(UINT_PTR)sock, bufs, (DWORD)cnt, &sent, 0, nullptr, nullptr) == SOCKET_ERROR)
     return -1;
   return (int)sent;
 }
@@ -154,15 +156,33 @@ static inline void egg_setnonblock(int sock) {
   fcntl(sock, F_SETFL, O_NONBLOCK);
 }
 #endif /* EGG_NATIVE_WIN32 */
+
+static inline int egg_sock_wouldblock(int e)
+{
+  if (e == EAGAIN)
+    return 1;
+#if EWOULDBLOCK != EAGAIN
+  if (e == EWOULDBLOCK)
+    return 1;
+#endif
+#ifdef EBADSLT
+  if (e == EBADSLT)
+    return 1;
+#endif
+#ifdef ENOTCONN
+  if (e == ENOTCONN)
+    return 1;
+#endif
+  return 0;
+}
+
 extern struct dcc_t *dcc;
 extern int backgrd, use_stderr, resolve_timeout, dcc_total;
-extern _Atomic uint64_t otraffic_irc_today, otraffic_bn_today,
-                        otraffic_dcc_today, otraffic_filesys_today,
-                        otraffic_trans_today, otraffic_unknown_today;
+#include "traffic.h"
 extern time_t online_since;
 
 char nat_ip[INET_ADDRSTRLEN] = ""; /* Public IPv4 to report for systems behind NAT */
-char nat_ip_string[11];
+static char *nat_ip_string = nullptr;
 char listen_ip[121] = "";     /* IP (or hostname) for listening sockets       */
 char vhost[121] = "";         /* IPv4 vhost for outgoing connections          */
 #ifdef IPV6
@@ -173,7 +193,7 @@ char firewall[121] = "";      /* Socks server for firewall.                   */
 int firewallport = 1080;      /* Default port of socks 4/5 firewalls.         */
 char botuser[USERLEN + 1] = "eggdrop"; /* Username of the user running the bot*/
 int dcc_sanitycheck = 0;      /* Do some sanity checking on dcc connections.  */
-sock_list *socklist = NULL;   /* Enough to be safe.                           */
+sock_list *socklist = nullptr;   /* Enough to be safe.                           */
 sigjmp_buf alarmret;          /* Env buffer for alarm() returns.              */
 
 /* Types of proxies */
@@ -227,7 +247,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
   char ip2[EGG_INET_ADDRSTRLEN];
 #ifdef IPV6
   volatile int pref;
-  struct addrinfo *res0 = NULL, *res;
+  struct addrinfo *res0 = nullptr, *res;
   int error;
 #else
   struct hostent *hp;
@@ -268,7 +288,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
     /* src is a hostname. Attempt to resolve it.. */
     if (!sigsetjmp(alarmret, 1)) {
       alarm(resolve_timeout);
-      error = getaddrinfo(src, NULL, NULL, &res0);
+      error = getaddrinfo(src, nullptr, nullptr, &res0);
       if (!error) {
         for (res = res0; res; res = res->ai_next) {
           if (res == res0 || res->ai_family == (pref_af ? AF_INET6 : AF_INET)) {
@@ -279,7 +299,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
             }
           }
         }
-        if (res0) /* The behavior of freeadrinfo(NULL) is left unspecified by RFCs
+        if (res0) /* The behavior of freeadrinfo(nullptr) is left unspecified by RFCs
                    * 2553 and 3493. Avoid to be compatible with all OSes. */
           freeaddrinfo(res0);
       }
@@ -338,7 +358,7 @@ but this Eggdrop was not compiled with IPv6 support.");
         hp = gethostbyname(src);
         alarm(0);
       } else
-        hp = NULL;
+        hp = nullptr;
       if (hp) {
         memcpy(&addr->addr.s4.sin_addr, hp->h_addr_list[0], hp->h_length);
         af = hp->h_addrtype;
@@ -360,7 +380,7 @@ but this Eggdrop was not compiled with IPv6 support.");
  */
 void getvhost(sockname_t *addr, int af)
 {
-  char *h = NULL;
+  char *h = nullptr;
 
   if (af == AF_INET)
     h = vhost;
@@ -409,7 +429,7 @@ int allocsock(int sock, int options)
       /* yay!  there is table space */
       if (!(options & SOCK_TCL)) {
         op_linebuf_newbuf(&td->socklist[i].handler.sock.recvbuf);
-        td->socklist[i].handler.sock.outbuf = NULL;
+        td->socklist[i].handler.sock.outbuf = nullptr;
       }
       td->socklist[i].flags = options;
       td->socklist[i].sock = sock;
@@ -426,6 +446,15 @@ int allocsock(int sock, int options)
           if (options & SOCK_CONNECT)
             op_setselect(F, OP_SELECT_WRITE, commio_write_cb,
                          (void *)(intptr_t)i);
+        }
+        /* Hand eligible sockets to the io_thread for pre-reading.
+         * Skip sockets that need main-thread processing (connect,
+         * listen, proxy, websocket, etc.). */
+        if (io_thread_active() &&
+            !(options & (SOCK_CONNECT | SOCK_LISTEN | SOCK_TCL |
+                         SOCK_WS | SOCK_PROXYWAIT | SOCK_PASS)) && F) {
+          io_thread_add_sock(sock, i);
+          op_setselect(F, OP_SELECT_READ, nullptr, nullptr);
         }
       }
       return i;
@@ -478,7 +507,7 @@ void setsock(int sock, int options)
 {
   int i = allocsock(sock, options), parm = 1;
   struct threaddata *td = threaddata();
-  struct linger linger = {0};
+  struct linger linger = {};
 
   if (i == -1) {
     putlog(LOG_MISC, "*", "Sockettable full.");
@@ -566,26 +595,32 @@ void killsock(int sock)
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if ((td->socklist[i].sock == sock) && !(td->socklist[i].flags & SOCK_UNUSED)) {
       if (!(td->socklist[i].flags & SOCK_TCL)) { /* nothing to free for tclsocks */
+        /* Remove from io_thread BEFORE closing the fd. */
+        io_thread_del_sock(sock, i);
 #ifdef TLS
         if (td->socklist[i].ssl) {
           opssl_shutdown(td->socklist[i].ssl);
           opssl_conn_free(td->socklist[i].ssl);
-          td->socklist[i].ssl = NULL;
+          td->socklist[i].ssl = nullptr;
         }
 #endif
         /* Deregister from commio BEFORE closing the fd. */
         {
           op_fde_t *F_del = op_get_fde(sock);
-          if (F_del)
+          if (F_del) {
+#ifdef TLS
+            F_del->ssl = nullptr;
+#endif
             op_close(F_del);
+          }
         }
         egg_closesocket(td->socklist[i].sock);
 
         op_linebuf_donebuf(&td->socklist[i].handler.sock.recvbuf);
 
-        if (td->socklist[i].handler.sock.outbuf != NULL) {
+        if (td->socklist[i].handler.sock.outbuf != nullptr) {
           egg_mbuf_free(td->socklist[i].handler.sock.outbuf);
-          td->socklist[i].handler.sock.outbuf = NULL;
+          td->socklist[i].handler.sock.outbuf = nullptr;
         }
       }
       td->socklist[i].flags = SOCK_UNUSED;
@@ -655,6 +690,7 @@ static int proxy_connect(int sock, sockname_t *addr)
     tputs(sock, s, strlen(botuser) + 9);
   } else if (proxy == PROXY_SUN) {
     op_strbuf_t sb;
+    op_strbuf_init(&sb);
     inet_ntop(AF_INET, &addr->addr.s4.sin_addr, host, sizeof host);
     op_strbuf_appendf(&sb, "%s %d\n", host, port);
     tputs(sock, op_strbuf_str(&sb), (int) op_strbuf_len(&sb));
@@ -730,7 +766,7 @@ int open_telnet_raw(int sock, sockname_t *addr)
       struct timeval zt = {0, 0};
       FD_ZERO(&sockset);
       FD_SET(sock, &sockset);
-      if (select(sock + 1, NULL, &sockset, NULL, &zt) > 0) {
+      if (select(sock + 1, nullptr, &sockset, nullptr, &zt) > 0) {
         res_len = sizeof(res);
         getsockopt(sock, SOL_SOCKET, SO_ERROR, &res, &res_len);
         if (res == ECONNREFUSED) {
@@ -838,7 +874,7 @@ int open_listen(int *port)
 
 /* Short routine to answer a connect received on a listening socket.
  * Returned is the new socket.
- * If port is not NULL, it points to an integer to hold the port number
+ * If port is not nullptr, it points to an integer to hold the port number
  * of the caller.
  */
 int answer(int sock, sockname_t *caller, uint16_t *port, int binary)
@@ -881,7 +917,7 @@ int getdccaddr(sockname_t *addr, char *s, size_t l)
 }
 
 /* Get DCC compatible address for a client to connect (e.g. 1660944385)
- * If addr is not NULL, it should point to the listening socket's address.
+ * If addr is not nullptr, it should point to the listening socket's address.
  * Otherwise, this function will try to figure out the public address of the
  * machine, using listen_ip and nat_ip. If restrict_af is set, it will limit
  * the possible IPs to the specified family. The result is a string usable
@@ -954,7 +990,7 @@ int getdccfamilyaddr(sockname_t *addr, char *s, size_t l, int restrict_af)
       ((r->family == AF_INET6) && (restrict_af == AF_INET)) ||
       ((r->family == AF_INET) && (restrict_af == AF_INET6)) ||
 #endif
-      (!nat_ip_string[0] && (r->family == AF_INET) && !r->addr.s4.sin_addr.s_addr))
+      ((!nat_ip_string || !nat_ip_string[0]) && (r->family == AF_INET) && !r->addr.s4.sin_addr.s_addr))
     return 0;
 
 #ifdef IPV6
@@ -1055,16 +1091,11 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
   int grab = READMAX, tclsock = -1, events = 0;
   struct threaddata *td = threaddata();
   int maxfd;
-#ifdef EGG_TDNS
-  struct dns_thread_node *dtn, *dtn_prev;
-  void *res;
-#endif
-
   t.tv_sec = td->blocktime.tv_sec;
   t.tv_usec = td->blocktime.tv_usec;
 
   if (!tclonly) {
-    /* --- TCL + TDNS sockets: quick non-blocking select() --- */
+    /* --- TCL sockets: quick non-blocking select() --- */
     FD_ZERO(&fdr); FD_ZERO(&fdw); FD_ZERO(&fde);
     maxfd_r = maxfd_w = maxfd_e = -1;
 
@@ -1086,21 +1117,14 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
         }
       }
     }
-#ifdef EGG_TDNS
-    for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-      fd = dtn->fildes[0];
-      FD_SET(fd, &fdr);
-      if (fd > maxfd_r) maxfd_r = fd;
-    }
-#endif
     maxfd = maxfd_r > maxfd_w ? maxfd_r : maxfd_w;
     if (maxfd_e > maxfd) maxfd = maxfd_e;
     if (maxfd >= 0) {
       struct timeval zt = {0, 0};
       select(maxfd + 1,
-             maxfd_r >= 0 ? &fdr : NULL,
-             maxfd_w >= 0 ? &fdw : NULL,
-             maxfd_e >= 0 ? &fde : NULL,
+             maxfd_r >= 0 ? &fdr : nullptr,
+             maxfd_w >= 0 ? &fdw : nullptr,
+             maxfd_e >= 0 ? &fde : nullptr,
              &zt);
     }
 
@@ -1114,32 +1138,9 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
         x = (errno == EINTR) ? 0 : -1;
     }
 
-#ifdef EGG_TDNS
-    /* Re-check TDNS pipes after the commio wait */
-    {
-      fd_set tdns_fdr;
-      int tdns_maxfd = -1;
-      FD_ZERO(&tdns_fdr);
-      for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-        int tfd = dtn->fildes[0];
-        FD_SET(tfd, &tdns_fdr);
-        if (tfd > tdns_maxfd) tdns_maxfd = tfd;
-      }
-      if (tdns_maxfd >= 0) {
-        struct timeval zt = {0, 0};
-        if (select(tdns_maxfd + 1, &tdns_fdr, NULL, NULL, &zt) > 0) {
-          for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-            if (FD_ISSET(dtn->fildes[0], &tdns_fdr))
-              FD_SET(dtn->fildes[0], &fdr);
-          }
-        }
-      }
-    }
-#endif
-
     if (x == -1) return -2;
 
-    /* Count any TCL/TDNS events ready from the earlier select() */
+    /* Count any TCL events ready from the earlier select() */
     {
       int tcl_ready = 0;
       for (int i = 0; i < slistmax && !tcl_ready; i++) {
@@ -1151,12 +1152,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           if (ev2 & slist[i].handler.tclsock.mask) tcl_ready = 1;
         }
       }
-#ifdef EGG_TDNS
-      if (!tcl_ready) {
-        for (dtn = dns_thread_head->next; dtn && !tcl_ready; dtn = dtn->next)
-          if (FD_ISSET(dtn->fildes[0], &fdr)) tcl_ready = 1;
-      }
-#endif
       /* When commio reports no events (x==0) but a TLS handshake is in
        * progress, do NOT return idle — allow the dispatch loop to run so
        * SSL_read() can make incremental progress on the handshake. */
@@ -1188,13 +1183,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
   } else {
     /* tclonly: select() fallback for TCL sockets only */
     maxfd_r = preparefdset(&fdr, slist, slistmax, tclonly, TCL_READABLE);
-#ifdef EGG_TDNS
-    for (dtn = dns_thread_head->next; dtn; dtn = dtn->next) {
-      int dns_fd = dtn->fildes[0];
-      FD_SET(dns_fd, &fdr);
-      if (dns_fd > maxfd_r) maxfd_r = dns_fd;
-    }
-#endif
     maxfd_w = preparefdset(&fdw, slist, slistmax, 1, TCL_WRITABLE);
     maxfd_e = preparefdset(&fde, slist, slistmax, 1, TCL_EXCEPTION);
     maxfd = maxfd_r > maxfd_w ? maxfd_r : maxfd_w;
@@ -1202,9 +1190,9 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
 
     call_hook(HOOK_PRE_SELECT);
     x = select((SELECT_TYPE_ARG1) maxfd + 1,
-               SELECT_TYPE_ARG234 (maxfd_r >= 0 ? &fdr : NULL),
-               SELECT_TYPE_ARG234 (maxfd_w >= 0 ? &fdw : NULL),
-               SELECT_TYPE_ARG234 (maxfd_e >= 0 ? &fde : NULL),
+               SELECT_TYPE_ARG234 (maxfd_r >= 0 ? &fdr : nullptr),
+               SELECT_TYPE_ARG234 (maxfd_w >= 0 ? &fdw : nullptr),
+               SELECT_TYPE_ARG234 (maxfd_e >= 0 ? &fde : nullptr),
                SELECT_TYPE_ARG5 &t);
     call_hook(HOOK_POST_SELECT);
     if (x == -1)
@@ -1331,30 +1319,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
                                            events);
     return -5;
   }
-#ifdef EGG_TDNS
-  dtn_prev = dns_thread_head;
-  for (dtn = dtn_prev->next; dtn; dtn = dtn->next) {
-    pthread_mutex_lock(&dtn->mutex);
-    if (*dtn->strerror)
-      debug2("%s: hostname %s", dtn->strerror, dtn->host);
-    fd = dtn->fildes[0];
-    if (FD_ISSET(fd, &fdr)) {
-      if (dtn->type == DTN_TYPE_HOSTBYIP)
-        call_hostbyip(&dtn->addr, dtn->host, !*dtn->strerror);
-      else
-        call_ipbyhost(dtn->host, &dtn->addr, !*dtn->strerror);
-      pthread_mutex_unlock(&dtn->mutex);
-      close(fd);
-      if (pthread_join(dtn->thread_id, &res))
-        putlog(LOG_MISC, "*", "sockread(): pthread_join(): error = %s", strerror(errno));
-      dtn_prev->next = dtn->next;
-      op_free(dtn);
-      dtn = dtn_prev;
-    } else
-      pthread_mutex_unlock(&dtn->mutex);
-    dtn_prev = dtn;
-  }
-#endif
   return -3;
 }
 
@@ -1385,6 +1349,11 @@ int sockgets(char *s, int *len)
   char xx[READMAX + 2];
   int ret, got;
   struct threaddata *td = threaddata();
+
+  /* Drain any results the io_thread has pre-read so linebufs are
+   * up-to-date before we scan them. */
+  if (io_thread_active())
+    io_thread_drain();
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if (socklist[i].flags & (SOCK_UNUSED | SOCK_TCL | SOCK_BUFFER))
@@ -1423,6 +1392,33 @@ int sockgets(char *s, int *len)
   *len = 0;
   ret = sockread(xx, len, socklist, td->MAXSOCKS, 0);
   if (ret < 0) {
+    /* io_thread's commio handler may have drained results into linebufs
+     * during op_select().  Re-check before returning idle. */
+    if (ret == -3 && io_thread_active()) {
+      for (int j = 0; j < td->MAXSOCKS; j++) {
+        if (socklist[j].flags & (SOCK_UNUSED | SOCK_TCL | SOCK_BUFFER))
+          continue;
+        if (op_linebuf_len(&socklist[j].handler.sock.recvbuf) > 0) {
+          if (!(socklist[j].flags & SOCK_BINARY)) {
+            got = op_linebuf_get(&socklist[j].handler.sock.recvbuf, s,
+                                 READMAX + 1, 0, 0);
+          } else {
+            got = op_linebuf_get(&socklist[j].handler.sock.recvbuf, s,
+                                 READMAX + 1, 1, 1);
+          }
+          if (got > 0) {
+            *len = got;
+            return socklist[j].sock;
+          }
+        }
+        if (!(socklist[j].flags & SOCK_UNUSED) &&
+            (socklist[j].flags & SOCK_EOFD)) {
+          s[0] = 0;
+          *len = socklist[j].sock;
+          return -1;
+        }
+      }
+    }
     s[0] = 0;
     return ret;
   }
@@ -1442,6 +1438,18 @@ int sockgets(char *s, int *len)
                          (ssize_t)*len, LINEBUF_RAW);
     }
     socklist[ret].flags &= ~SOCK_CONNECT;
+    /* Connection is established — hand to io_thread for pre-reading. */
+    if (io_thread_active() &&
+        !(socklist[ret].flags & (SOCK_TCL | SOCK_WS))
+#ifdef TLS
+        && !socklist[ret].ssl
+#endif
+       ) {
+      io_thread_add_sock(socklist[ret].sock, ret);
+      op_fde_t *F_add = op_get_fde(socklist[ret].sock);
+      if (F_add)
+        op_setselect(F_add, OP_SELECT_READ, nullptr, nullptr);
+    }
     s[0] = 0;
     return socklist[ret].sock;
   }
@@ -1504,25 +1512,27 @@ void tputs(int z, const char *s, unsigned int len)
       /* O(1) traffic accounting via sock→dcc map */
       idx = findanyidx(z);
       if (idx >= 0 && dcc[idx].type && dcc[idx].type->name) {
-        if (!strncmp(dcc[idx].type->name, "BOT", 3))
-          atomic_fetch_add_explicit(&otraffic_bn_today, (uint64_t)len, memory_order_relaxed);
-        else if (!strcmp(dcc[idx].type->name, "SERVER"))
-          atomic_fetch_add_explicit(&otraffic_irc_today, (uint64_t)len, memory_order_relaxed);
-        else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
-          atomic_fetch_add_explicit(&otraffic_dcc_today, (uint64_t)len, memory_order_relaxed);
-        else if (!strncmp(dcc[idx].type->name, "FILES", 5))
-          atomic_fetch_add_explicit(&otraffic_filesys_today, (uint64_t)len, memory_order_relaxed);
-        else if (!strcmp(dcc[idx].type->name, "SEND"))
-          atomic_fetch_add_explicit(&otraffic_trans_today, (uint64_t)len, memory_order_relaxed);
-        else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
-          atomic_fetch_add_explicit(&otraffic_trans_today, (uint64_t)len, memory_order_relaxed);
-        else if (!strncmp(dcc[idx].type->name, "GET", 3))
-          atomic_fetch_add_explicit(&otraffic_trans_today, (uint64_t)len, memory_order_relaxed);
-        else
-          atomic_fetch_add_explicit(&otraffic_unknown_today, (uint64_t)len, memory_order_relaxed);
+        {
+          _Atomic uint64_t *ctr;
+          switch (dcc[idx].type->name[0]) {
+          case 'B': ctr = &otraffic_bn_today;    break; /* BOT* */
+          case 'S': ctr = dcc[idx].type->name[1] == 'E'
+                        ? &otraffic_irc_today     /* SERVER */
+                        : &otraffic_trans_today;  /* SEND */
+                    break;
+          case 'C': ctr = &otraffic_dcc_today;    break; /* CHAT* */
+          case 'F': ctr = dcc[idx].type->name[1] == 'I'
+                        ? &otraffic_filesys_today /* FILES */
+                        : &otraffic_trans_today;  /* FORK_SEND */
+                    break;
+          case 'G': ctr = &otraffic_trans_today;  break; /* GET* */
+          default:  ctr = &otraffic_unknown_today; break;
+          }
+          atomic_fetch_add_explicit(ctr, (uint64_t)len, memory_order_relaxed);
+        }
       }
 
-      if (socklist[i].handler.sock.outbuf != NULL) {
+      if (socklist[i].handler.sock.outbuf != nullptr) {
         /* Already queueing: append to ring buffer (grows if needed). */
         egg_mbuf_append_grow(socklist[i].handler.sock.outbuf, s, len);
         return;
@@ -1593,7 +1603,7 @@ void dequeue_sockets(void)
     int any_pending = 0;
     for (int j = 0; j < td->MAXSOCKS; j++) {
       if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-          socklist[j].handler.sock.outbuf != NULL
+          socklist[j].handler.sock.outbuf != nullptr
 #ifdef TLS
           && !(socklist[j].ssl && opssl_conn_get_state(socklist[j].ssl) != OPSSL_HS_COMPLETE)
 #endif
@@ -1611,11 +1621,11 @@ void dequeue_sockets(void)
       op_select(0);
       for (int j = 0; j < td->MAXSOCKS; j++) {
         if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-            socklist[j].handler.sock.outbuf != NULL &&
+            socklist[j].handler.sock.outbuf != nullptr &&
             !(socklist[j].flags & SOCK_CONNECT)) {
           op_fde_t *F = op_get_fde(socklist[j].sock);
           if (F)
-            op_setselect(F, OP_SELECT_WRITE, NULL, NULL);
+            op_setselect(F, OP_SELECT_WRITE, nullptr, nullptr);
         }
       }
     }
@@ -1623,7 +1633,7 @@ void dequeue_sockets(void)
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-        (socklist[i].handler.sock.outbuf != NULL) && socklist[i].commio_ready) {
+        (socklist[i].handler.sock.outbuf != nullptr) && socklist[i].commio_ready) {
       socklist[i].commio_ready = 0;
       /* Drain outbuf ring buffer.
        * Use writev() to send both the head and (optional) wrapped tail
@@ -1658,14 +1668,7 @@ void dequeue_sockets(void)
         } else {
           x = write(socklist[i].sock, p1, c1);
         }
-        if ((x < 0) && (errno != EAGAIN)
-#ifdef EBADSLT
-            && (errno != EBADSLT)
-#endif
-#ifdef ENOTCONN
-            && (errno != ENOTCONN)
-#endif
-          ) {
+        if ((x < 0) && !egg_sock_wouldblock(errno)) {
           debug3("net: eof!(write) socket %d (%s,%d)", socklist[i].sock,
                  strerror(errno), errno);
           socklist[i].flags |= SOCK_EOFD;
@@ -1673,7 +1676,7 @@ void dequeue_sockets(void)
           egg_mbuf_consume(mb, (size_t)x);
           if (egg_mbuf_len(mb) == 0) {
             egg_mbuf_free(mb);
-            socklist[i].handler.sock.outbuf = NULL;
+            socklist[i].handler.sock.outbuf = nullptr;
           }
         } else {
           debug3("dequeue_sockets(): errno = %d (%s) on %d", errno,
@@ -1717,7 +1720,7 @@ int sanitycheck_dcc(char *nick, char *from, char *ipaddy, char *port)
 #else
   IP ip = my_atoul(ipaddy);
 #endif
-  int prt = atoi(port);
+  int prt = egg_atoi(port);
 
   /* It is disabled HERE so we only have to check in *one* spot! */
   if (!dcc_sanitycheck)
@@ -1801,7 +1804,7 @@ int sock_has_data(int type, int sock)
   if (i < td->MAXSOCKS) {
     switch (type) {
     case SOCK_DATA_OUTGOING:
-      ret = (socklist[i].handler.sock.outbuf != NULL);
+      ret = (socklist[i].handler.sock.outbuf != nullptr);
       break;
     case SOCK_DATA_INCOMING:
       ret = (op_linebuf_len(&socklist[i].handler.sock.recvbuf) > 0);
@@ -1884,12 +1887,12 @@ char *traced_myiphostname(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   const char *value;
 
   if (Tcl_InterpDeleted(irp))
-    return NULL;
+    return nullptr;
 
   /* Recover trace in case of unset. */
   if (flags & TCL_TRACE_DESTROYED) {
     Tcl_TraceVar2(irp, name1, name2, TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, cd);
-    return NULL;
+    return nullptr;
   }
 
   value = Tcl_GetVar2(irp, name1, name2, TCL_GLOBAL_ONLY);
@@ -1899,7 +1902,7 @@ char *traced_myiphostname(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   putlog(LOG_MISC, "*", "    To prevent future incompatibility, please use the vhost4/listen-addr variables instead.\n");
   putlog(LOG_MISC, "*", "    More information on this subject can be found in the eggdrop/doc/IPV6 file, or\n");
   putlog(LOG_MISC, "*", "    in the comments above those settings in the example eggdrop.conf that is included with Eggdrop.\n");
-  return NULL;
+  return nullptr;
 }
 
 char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
@@ -1912,7 +1915,7 @@ char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   /* Recover trace in case of unset. */
   if (flags & TCL_TRACE_DESTROYED) {
     Tcl_TraceVar2(irp, name1, name2, TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_natip, cd);
-    return NULL;
+    return nullptr;
   }
 
   value = Tcl_GetVar2(irp, name1, name2, TCL_GLOBAL_ONLY);
@@ -1929,8 +1932,14 @@ char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
       putlog(LOG_MISC, "*", "ERROR: inet_pton(): nat-ip %s", value);
       return strerror(errno);
     }
-    snprintf(nat_ip_string, sizeof nat_ip_string, "%" PRIu32, ntohl(ia.s_addr));
-  } else
-    *nat_ip_string = '\0';
-  return NULL;
+    op_strbuf_t buf;
+    op_strbuf_init(&buf);
+    op_strbuf_appendf(&buf, "%" PRIu32, ntohl(ia.s_addr));
+    op_free(nat_ip_string);
+    nat_ip_string = op_strbuf_steal(&buf);
+  } else {
+    op_free(nat_ip_string);
+    nat_ip_string = op_strdup("");
+  }
+  return nullptr;
 }

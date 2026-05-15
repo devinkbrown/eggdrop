@@ -22,7 +22,7 @@
  *   extern Tcl_Interp *interp;
  *   void foo(Tcl_Interp *irp, ...);
  * compile without the real tcl.h.  All Tcl API calls become safe no-ops
- * that return neutral values (NULL, 0, TCL_ERROR, etc.).
+ * that return neutral values (nullptr, 0, TCL_ERROR, etc.).
  * ----------------------------------------------------------------------- */
 #  include <limits.h>   /* INT_MAX */
 
@@ -86,10 +86,10 @@ const char *egg_getvar(const char *name);
 #  define Tcl_VarEval(...)                 TCL_ERROR
 #  define Tcl_Eval(irp,s)                  TCL_ERROR
 #  define Tcl_EvalFile(irp,f)              TCL_ERROR
-#  define Tcl_NewStringObj(s,l)            ((Tcl_Obj *)NULL)
-#  define Tcl_NewListObj(c,v)              ((Tcl_Obj *)NULL)
-#  define Tcl_NewDictObj()                 ((Tcl_Obj *)NULL)
-#  define Tcl_NewObj()                     ((Tcl_Obj *)NULL)
+#  define Tcl_NewStringObj(s,l)            ((Tcl_Obj *)nullptr)
+#  define Tcl_NewListObj(c,v)              ((Tcl_Obj *)nullptr)
+#  define Tcl_NewDictObj()                 ((Tcl_Obj *)nullptr)
+#  define Tcl_NewObj()                     ((Tcl_Obj *)nullptr)
 #  define Tcl_GetString(o)                 ((char *)"")
 #  define Tcl_GetStringFromObj(o,l)        (*(l) = 0, (const char *)"")
 #  define Tcl_IncrRefCount(o)              ((void)0)
@@ -102,9 +102,9 @@ const char *egg_getvar(const char *name);
 #  define Tcl_ListObjLength(...)           ((void)TCL_ERROR)
 #  define Tcl_ListObjGetElements(...)      ((void)TCL_ERROR)
 #  define Tcl_ListObjIndex(...)            ((void)TCL_ERROR)
-#  define Tcl_GetObjResult(irp)            ((Tcl_Obj *)NULL)
-#  define Tcl_FindCommand(irp,n,ns,fl)     ((void *)NULL)
-#  define Tcl_CreateObjCommand(...)        ((void *)NULL)
+#  define Tcl_GetObjResult(irp)            ((Tcl_Obj *)nullptr)
+#  define Tcl_FindCommand(irp,n,ns,fl)     ((void *)nullptr)
+#  define Tcl_CreateObjCommand(...)        ((void *)nullptr)
 #  define Tcl_DeleteCommand(irp,n)         ((void)0)
 #  define Tcl_ScanElement(s,fl)            ((void)(s), *(fl) = 0)
 #  define Tcl_ConvertElement(s,d,fl)       ((void)strcpy(d, s))
@@ -117,13 +117,13 @@ const char *egg_getvar(const char *name);
 #  define Tcl_DStringValue(ds)             ((ds)->string ? (ds)->string : "")
 #  define Tcl_DStringLength(ds)            ((ds)->length)
 #  define Tcl_BackgroundError(irp)         ((void)0)
-#  define Tcl_DictObjGet(irp,d,k,vp)     (*(vp) = NULL, TCL_OK)
+#  define Tcl_DictObjGet(irp,d,k,vp)     (*(vp) = nullptr, TCL_OK)
 #  define Tcl_TraceVar(irp,n,fl,fn,cd)   ((void)0)
 #  define Tcl_UntraceVar(irp,n,fl,fn,cd) ((void)0)
 #  define Tcl_ExprLong(irp,s,lp)         (*(lp) = 0, TCL_OK)
-#  define Tcl_SplitList(irp,s,lc,lv)     ({(void)(irp); (void)(s); *(lc) = 0; *(lv) = NULL; TCL_OK;})
+#  define Tcl_SplitList(irp,s,lc,lv)     ({(void)(irp); (void)(s); *(lc) = 0; *(lv) = nullptr; TCL_OK;})
 #  define Tcl_Free(p)                     ((void)(p))
-#  define Tcl_CreateInterp()              ((Tcl_Interp *)NULL)
+#  define Tcl_CreateInterp()              ((Tcl_Interp *)nullptr)
 #  define Tcl_DeleteInterp(irp)           ((void)0)
 #  define Tcl_AppendElement(irp,s)        ((void)0)
 /* BADARGS: argument-count check used by Tcl command handlers. */
@@ -134,15 +134,15 @@ const char *egg_getvar(const char *name);
 #  define CHECKVALIDITY(a) do {                                    \
         if (!check_validity(argv[0], (a))) {                       \
                 Tcl_AppendResult(irp, "bad builtin command call!", \
-                                 NULL);                            \
+                                 nullptr);                            \
                 return TCL_ERROR;                                  \
         }                                                          \
 } while (0)
 #  define TCL_BREAK          3
 #  define Tcl_Merge(c,v)     ((void)(c), (void)(v), (char *)"")
-#  define Tcl_NewByteArrayObj(b,l) ((Tcl_Obj *)NULL)
+#  define Tcl_NewByteArrayObj(b,l) ((Tcl_Obj *)nullptr)
 #  define Tcl_SetObjResult(irp,o)  ((void)0)
-#  define Tcl_NewIntObj(i)            ((Tcl_Obj *)NULL)
+#  define Tcl_NewIntObj(i)            ((Tcl_Obj *)nullptr)
 #  define Tcl_AppendObjToObj(a,b)     ((void)0)
 #  define Tcl_AppendStringsToObj(...) ((void)0)
 #  define Tcl_DictObjSize(irp,d,sp)   (*(sp) = 0, TCL_OK)
@@ -157,7 +157,7 @@ typedef int (Tcl_ObjCmdProc)(ClientData, Tcl_Interp *, int, Tcl_Obj *const[]);
 #  define BADOBJARGS(nl,nh,prefix,example) ((void)0)
 /* Tcl_WideInt: 64-bit integer type */
 typedef long long Tcl_WideInt;
-#  define Tcl_NewWideIntObj(w)     ((Tcl_Obj *)NULL)
+#  define Tcl_NewWideIntObj(w)     ((Tcl_Obj *)nullptr)
 #  define Tcl_Alloc(n)            ((char *)op_malloc(n))
 #  define Tcl_Concat(c,v)         ((void)(c), (void)(v), (char *)"")
 #  define Tcl_GlobalEval(irp,s)   TCL_ERROR

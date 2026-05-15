@@ -551,7 +551,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define egg_eval_log ((int (*)(const char *, const char *))global[341])
 
 /* Check ABI compatibility.  Call early in _start() after setting global.
- * Returns NULL on success, or an error string on mismatch.
+ * Returns nullptr on success, or an error string on mismatch.
  * Pass 'global' explicitly so this compiles in any translation unit. */
 static inline const char *egg_check_api(Function *g, unsigned int need_count)
 {
@@ -560,7 +560,7 @@ static inline const char *egg_check_api(Function *g, unsigned int need_count)
     return "This module requires a newer eggdrop (API version mismatch).";
   if (api->count < need_count)
     return "This module requires a newer eggdrop (missing API entries).";
-  return NULL;
+  return nullptr;
 }
 
 /* hostmasking */

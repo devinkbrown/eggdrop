@@ -72,7 +72,7 @@ typedef struct PackUp {
 
 PackUp upPack;
 
-static Function *global = NULL;
+static Function *global = nullptr;
 
 static int minutes = 0;
 static int seconds = 0;
@@ -99,7 +99,7 @@ static void uptime_report(int idx, int details)
   char next_update_at[26];
 
   if (details) {
-    delta_seconds = (int) (next_update - time(NULL));
+    delta_seconds = (int) (next_update - time(nullptr));
     ctime_r(&next_update, next_update_at);
     next_update_at[24] = 0;
     dprintf(idx, "    %d uptime packet%s sent\n", uptimecount,
@@ -122,7 +122,7 @@ static uint32_t get_ip(void)
       return (IP) inet_addr(uptime_host);
   }
   hp = gethostbyname(uptime_host);
-  if (hp == NULL)
+  if (hp == nullptr)
     return -1;
   in = (struct in_addr *) (hp->h_addr_list[0]);
   ip = (IP) (in->s_addr);
@@ -161,7 +161,7 @@ static int init_uptime(void)
 
   next_minutes = rand() % update_interval; /* Initial update delay */
   next_seconds = rand() % 59;
-  next_update = (time_t) ((time(NULL) / 60 * 60) + (next_minutes * 60) +
+  next_update = (time_t) ((time(nullptr) / 60 * 60) + (next_minutes * 60) +
     next_seconds);
 
   return 0;
@@ -186,7 +186,7 @@ static int send_uptime(void)
   uptimecount++;
   upPack.packets_sent = htonl(uptimecount); /* Tell the server how many
                                              * uptime packets we've sent. */
-  upPack.now2 = htonl(time(NULL));
+  upPack.now2 = htonl(time(nullptr));
   upPack.ontime = 0;
 
   if ((me = module_find("server", 1, 0))) {
@@ -220,6 +220,7 @@ static int send_uptime(void)
   memcpy(mem, &upPack, sizeof(upPack));
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s %s %s", botnetnick, servhost, uptime_version);
     strlcpy(mem->string, op_strbuf_str(&_b), sizeof(mem->string));
     op_strbuf_free(&_b);
@@ -256,7 +257,7 @@ static void check_secondly(void)
     seconds = 0;
     next_minutes = rand() % update_interval;
     next_seconds = rand() % 59;
-    next_update = (time_t) ((time(NULL) / 60 * 60) + (next_minutes * 60) +
+    next_update = (time_t) ((time(nullptr) / 60 * 60) + (next_minutes * 60) +
       next_seconds);
 
     /* Go back to checking every minute. */
@@ -300,5 +301,5 @@ char *uptime_start(Function *global_funcs)
     add_hook(HOOK_DAILY, (Function) expire_dnscache);
     init_uptime();
   }
-  return NULL;
+  return nullptr;
 }

@@ -3,7 +3,7 @@
  *  op_helper.h: Helper process management.
  *
  *  Copyright (C) 2006 Aaron Sethman <androsyn@ratbox.org>
- *  Copyright (C) 2025-2026 ophion development team
+ *  Copyright (C) 2025 ophion development team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by

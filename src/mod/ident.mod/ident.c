@@ -32,7 +32,7 @@ constexpr int IDENT_METHOD_OIDENT  = 0;
 constexpr int IDENT_METHOD_BUILTIN = 1;
 constexpr int IDENT_SIZE           = 1000; /* rfc1413 */
 
-static Function *global = NULL, *server_funcs = NULL;
+static Function *global = nullptr, *server_funcs = nullptr;
 
 static int ident_method = IDENT_METHOD_OIDENT;
 static int ident_port = 113;
@@ -40,14 +40,14 @@ static int ident_port = 113;
 static tcl_ints identints[] = {
   {"ident-method", &ident_method, 0},
   {"ident-port",   &ident_port,   0},
-  {NULL,           NULL,          0}
+  {nullptr,           nullptr,          0}
 };
 
 static void ident_builtin_off(void);
 
 static cmd_t ident_raw[] = {
   {"001", "",   (IntFunc) ident_builtin_off, "ident:001"},
-  {NULL,  NULL, NULL,                        NULL}
+  {nullptr,  nullptr, nullptr,                        nullptr}
 };
 
 static void ident_activity(int idx, char *buf, int len)
@@ -71,6 +71,7 @@ static void ident_activity(int idx, char *buf, int len)
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, " : USERID : UNIX : %s\r\n", botname);
     strlcpy(pos, op_strbuf_str(&_b), (sizeof buf2) - (size_t)(pos - buf2));
     op_strbuf_free(&_b);
@@ -95,15 +96,15 @@ static void ident_display(int idx, op_strbuf_t *buf)
 static struct dcc_table DCC_IDENTD = {
   "IDENTD",
   DCT_LISTEN,
-  NULL,
+  nullptr,
   ident_activity,
-  NULL,
-  NULL,
+  nullptr,
+  nullptr,
   ident_display,
-  NULL,
-  NULL,
-  NULL,
-  NULL
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 static void ident_oidentd(void)
@@ -135,7 +136,7 @@ static void ident_oidentd(void)
   const char *path = op_strbuf_str(&path_buf);
   op_strbuf_init(&data_buf);
   fd = fopen(path, "r");
-  if (fd != NULL) {
+  if (fd != nullptr) {
     while (fgets(line, 255, fd)) {
       /* If it is not an Eggdrop entry, don't mess with it */
       if (!strstr(line, "### eggdrop_")) {
@@ -143,10 +144,10 @@ static void ident_oidentd(void)
       } else {
         /* If it is Eggdrop but not me, check for expiration and remove */
         if (!strstr(line, identstr)) {
-          char *saveptr = NULL;
+          char *saveptr = nullptr;
           strlcpy(buf, line, sizeof buf);
           strtok_r(buf, "!", &saveptr);
-          prevtime = atoi(strtok_r(NULL, "!", &saveptr));
+          prevtime = egg_atoi(strtok_r(nullptr, "!", &saveptr));
           if ((now - prevtime) > 300) {
             putlog(LOG_DEBUG, "*", "IDENT: Removing expired oident.conf "
                 "entry: \"%s\"", buf);
@@ -179,7 +180,7 @@ static void ident_oidentd(void)
     putlog(LOG_DEBUG, "*", "IDENT: Error getting socket info for writing");
   }
   fd = fopen(path, "w");
-  if (fd != NULL) {
+  if (fd != nullptr) {
     if (op_strbuf_len(&data_buf))
       fprintf(fd, "%s", op_strbuf_str(&data_buf));
     if (ss.ss_family == AF_INET) {
@@ -261,7 +262,7 @@ static void ident_ident(void)
 
 static cmd_t ident_event[] = {
   {"ident", "",   (IntFunc) ident_ident, "ident:ident"},
-  {NULL,    NULL, NULL,                  NULL}
+  {nullptr,    nullptr, nullptr,                  nullptr}
 };
 
 static char *ident_close(void)
@@ -270,7 +271,7 @@ static char *ident_close(void)
   rem_builtins(H_event, ident_event);
   rem_tcl_ints(identints);
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *ident_start(Function *global_funcs);
@@ -278,8 +279,8 @@ EXPORT_SCOPE char *ident_start(Function *global_funcs);
 static Function ident_table[] = {
   (Function) ident_start,
   (Function) ident_close,
-  NULL,
-  NULL,
+  nullptr,
+  nullptr,
 };
 
 char *ident_start(Function *global_funcs)
@@ -300,5 +301,5 @@ char *ident_start(Function *global_funcs)
   add_builtins(H_event, ident_event);
   add_tcl_ints(identints);
 
-  return NULL;
+  return nullptr;
 }

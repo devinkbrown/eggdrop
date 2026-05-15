@@ -36,8 +36,8 @@ constexpr int INVITE = 0x40;
 constexpr int CHHOP  = 0x80;
 constexpr int CHOWN  = 0x100; /* IRCX/Ophion +q owner mode */
 
-static struct flag_record user = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
-static struct flag_record victim = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+static struct flag_record user = { FR_GLOBAL | FR_CHAN };
+static struct flag_record victim = { FR_GLOBAL | FR_CHAN };
 
 /* This is called after a mode bind is processed. It will check if the
  * channel still exists and will refresh the user and victim flag records,
@@ -51,7 +51,7 @@ static struct chanset_t *modebind_refresh(const char *chname,
   struct chanset_t *chan;
 
   if (!chname || !(chan = findchan(chname)))
-    return NULL;
+    return nullptr;
   if (usrhost) {
     char tmphost[UHOSTLEN];
     char *p;
@@ -59,7 +59,7 @@ static struct chanset_t *modebind_refresh(const char *chname,
     strlcpy(tmphost, usrhost, sizeof tmphost);
     p = tmphost;
     _mu = ismember(chan, splitnick(&p));
-    u = lookup_user_record(_mu, _mu ? _mu->account : NULL, usrhost);
+    u = lookup_user_record(_mu, _mu ? _mu->account : nullptr, usrhost);
     get_user_flagrec(u, usr, chan->dname);
   }
   if (vcrhost) {
@@ -69,7 +69,7 @@ static struct chanset_t *modebind_refresh(const char *chname,
     strlcpy(tmphost, vcrhost, sizeof tmphost);
     p = tmphost;
     _mv = ismember(chan, splitnick(&p));
-    u = lookup_user_record(_mv, _mv ? _mv->account : NULL, vcrhost);
+    u = lookup_user_record(_mv, _mv ? _mv->account : nullptr, vcrhost);
     get_user_flagrec(u, vcr, chan->dname);
   }
   return chan;
@@ -111,7 +111,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     postsize -= egg_strcatn(post, chan->key, sizeof(post));
     postsize -= egg_strcatn(post, " ", sizeof(post));
 
-    op_free(chan->key), chan->key = NULL;
+    op_free(chan->key), chan->key = nullptr;
   }
 
   /* max +l is signed 2^32 on IRCnet at least... so make sure we've got at least
@@ -127,6 +127,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     /* 'sizeof(post) - 1' is used because we want to overwrite the old null */
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s ", int_to_base10(chan->limit));
       char *_dst = &post[(sizeof(post) - 1) - postsize];
       strlcpy(_dst, op_strbuf_str(&_b), postsize + 1);
@@ -147,7 +148,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     postsize -= egg_strcatn(post, chan->rmkey, sizeof(post));
     postsize -= egg_strcatn(post, " ", sizeof(post));
 
-    op_free(chan->rmkey), chan->rmkey = NULL;
+    op_free(chan->rmkey), chan->rmkey = nullptr;
   }
 
   /* Do -{b,e,I} before +{b,e,I} to avoid the server ignoring overlaps */
@@ -166,7 +167,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
       postsize -= egg_strcatn(post, chan->cmode[i].op, sizeof(post));
       postsize -= egg_strcatn(post, " ", sizeof(post));
 
-      op_free(chan->cmode[i].op), chan->cmode[i].op = NULL;
+      op_free(chan->cmode[i].op), chan->cmode[i].op = nullptr;
       chan->cmode[i].type = 0;
     }
   }
@@ -187,7 +188,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
       postsize -= egg_strcatn(post, chan->cmode[i].op, sizeof(post));
       postsize -= egg_strcatn(post, " ", sizeof(post));
 
-      op_free(chan->cmode[i].op), chan->cmode[i].op = NULL;
+      op_free(chan->cmode[i].op), chan->cmode[i].op = nullptr;
       chan->cmode[i].type = 0;
     }
   }
@@ -319,7 +320,7 @@ static void real_add_mode(struct chanset_t *chan,
 
     /* op-type mode change */
     for (int i = 0; i < modesperline; i++)
-      if (chan->cmode[i].type == type && chan->cmode[i].op != NULL &&
+      if (chan->cmode[i].type == type && chan->cmode[i].op != nullptr &&
           !rfc_casecmp(chan->cmode[i].op, op))
         return;                 /* Already in there :- duplicate */
     l = strlen(op) + 1;
@@ -349,10 +350,11 @@ static void real_add_mode(struct chanset_t *chan,
   }
   /* +l ? store limit */
   else if (plus == '+' && mode == 'l')
-    chan->limit = atoi(op);
+    chan->limit = egg_atoi(op);
   else {
     /* Typical mode changes */
     op_strbuf_t s;
+    op_strbuf_init(&s);
     if (plus == '+')
       op_strbuf_appendf(&s, "%s", chan->pls);
     else
@@ -431,6 +433,7 @@ static void got_op(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s;
+  op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
 
@@ -531,6 +534,7 @@ static void got_halfop(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s;
+  op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
 
@@ -798,6 +802,7 @@ static void got_owner(struct chanset_t *chan, char *nick, char *from,
 
   strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s;
+  op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
   get_user_flagrec(u, &victim, chan->dname);
@@ -847,6 +852,7 @@ static void got_deowner(struct chanset_t *chan, char *nick, char *from,
   strlcpy(ch, chan->name, sizeof ch);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
 
     m->flags &= ~(CHANOWNER | SENTDEOWNER);
@@ -880,7 +886,7 @@ static void got_ban(struct chanset_t *chan, char *nick, char *from, char *who,
   newban(chan, who, op_strbuf_str(&_s));
   op_strbuf_free(&_s);
   check_tcl_mode(nick, from, u, chan->dname, "+b", who);
-  if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL))) {
+  if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr))) {
     op_strbuf_free(&_me);
     return;
   }
@@ -960,7 +966,7 @@ static void got_unban(struct chanset_t *chan, char *nick, char *from,
 {
   masklist *b, *old;
 
-  old = NULL;
+  old = nullptr;
   for (b = chan->channel.ban; b->mask[0] && rfc_casecmp(b->mask, who);
        old = b, b = b->next);
   if (b->mask[0]) {
@@ -975,7 +981,7 @@ static void got_unban(struct chanset_t *chan, char *nick, char *from,
     channel_free_mask(b);
   }
   check_tcl_mode(nick, from, u, chan->dname, "-b", who);
-  if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+  if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
     return;
 
   if (channel_pending(chan))
@@ -996,11 +1002,12 @@ static void got_exempt(struct chanset_t *chan, char *nick, char *from,
                        char *who, char *ch, struct userrec *u)
 {
   op_strbuf_t _s;
+  op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", nick, from);
   newexempt(chan, who, op_strbuf_str(&_s));
   op_strbuf_free(&_s);
   check_tcl_mode(nick, from, u, chan->dname, "+e", who);
-  if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+  if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
     return;
 
   if (channel_pending(chan) || HALFOP_CANTDOMODE('e'))
@@ -1024,7 +1031,7 @@ static void got_exempt(struct chanset_t *chan, char *nick, char *from,
 static void got_unexempt(struct chanset_t *chan, char *nick, char *from,
                          char *who, char *ch, struct userrec *u)
 {
-  masklist *e = chan->channel.exempt, *old = NULL;
+  masklist *e = chan->channel.exempt, *old = nullptr;
   masklist *b;
   int match = 0;
 
@@ -1044,7 +1051,7 @@ static void got_unexempt(struct chanset_t *chan, char *nick, char *from,
     channel_free_mask(e);
   }
   check_tcl_mode(nick, from, u, chan->dname, "-e", who);
-  if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+  if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
     return;
 
   if (channel_pending(chan))
@@ -1076,11 +1083,12 @@ static void got_invite(struct chanset_t *chan, char *nick, char *from,
                        char *who, char *ch, struct userrec *u)
 {
   op_strbuf_t _s;
+  op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", nick, from);
   newinvite(chan, who, op_strbuf_str(&_s));
   op_strbuf_free(&_s);
   check_tcl_mode(nick, from, u, chan->dname, "+I", who);
-  if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+  if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
     return;
 
   if (channel_pending(chan) || HALFOP_CANTDOMODE('I'))
@@ -1104,7 +1112,7 @@ static void got_invite(struct chanset_t *chan, char *nick, char *from,
 static void got_uninvite(struct chanset_t *chan, char *nick, char *from,
                          char *who, char *ch, struct userrec *u)
 {
-  masklist *inv = chan->channel.invite, *old = NULL;
+  masklist *inv = chan->channel.invite, *old = nullptr;
 
   while (inv->mask[0] && rfc_casecmp(inv->mask, who)) {
     old = inv;
@@ -1122,7 +1130,7 @@ static void got_uninvite(struct chanset_t *chan, char *nick, char *from,
     channel_free_mask(inv);
   }
   check_tcl_mode(nick, from, u, chan->dname, "-I", who);
-  if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+  if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
     return;
 
   if (channel_pending(chan))
@@ -1154,7 +1162,7 @@ static int gotmode(char *from, char *origmsg)
   strlcpy(buf, origmsg, sizeof buf);
   msg = buf;
   /* Usermode changes? */
-  if (msg[0] && (strchr(CHANMETA, msg[0]) != NULL)) {
+  if (msg[0] && (strchr(CHANMETA, msg[0]) != nullptr)) {
     ch = newsplit(&msg);
     chg = newsplit(&msg);
     reversing = 0;
@@ -1177,7 +1185,7 @@ static int gotmode(char *from, char *origmsg)
         get_user_flagrec(u, &user, ch);
         m->last = now;
       } else {
-        u = NULL;
+        u = nullptr;
       }
       if (m && channel_active(chan) && (me_op(chan) || (me_halfop(chan) &&
           !chan_hasop(m))) && !(glob_friend(user) || chan_friend(user) ||
@@ -1315,17 +1323,19 @@ static int gotmode(char *from, char *origmsg)
           if (ms2[0] == '-') {
             check_tcl_mode(nick, from, u, chan->dname, ms2, "");
             /* The Tcl proc might have modified/removed the chan or user */
-            if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+            if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
               return 0;
             if (channel_active(chan)) {
               if (reversing && (chan->channel.maxmembers != 0)) {
                 op_strbuf_t lim;
+                op_strbuf_init(&lim);
                 op_strbuf_appendf(&lim, "%d", chan->channel.maxmembers);
                 add_mode(chan, '+', 'l', op_strbuf_str(&lim));
                 op_strbuf_free(&lim);
               } else if ((chan->limit_prot != 0) && !glob_master(user) &&
                          !chan_master(user) && !match_my_nick(nick)) {
                 op_strbuf_t lim;
+                op_strbuf_init(&lim);
                 op_strbuf_appendf(&lim, "%d", chan->limit_prot);
                 add_mode(chan, '+', 'l', op_strbuf_str(&lim));
                 op_strbuf_free(&lim);
@@ -1337,11 +1347,11 @@ static int gotmode(char *from, char *origmsg)
             fixcolon(op);
             if (*op == '\0')
               break;
-            chan->channel.maxmembers = atoi(op);
+            chan->channel.maxmembers = egg_atoi(op);
             check_tcl_mode(nick, from, u, chan->dname, ms2,
                            int_to_base10(chan->channel.maxmembers));
             /* The Tcl proc might have modified/removed the chan or user */
-            if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+            if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
               return 0;
             if (channel_pending(chan))
               break;
@@ -1353,6 +1363,7 @@ static int gotmode(char *from, char *origmsg)
                 (chan->mode_pls_prot & CHANLIMIT) && (chan->limit_prot != 0) &&
                 !glob_master(user) && !chan_master(user)) {
               op_strbuf_t lim;
+              op_strbuf_init(&lim);
               op_strbuf_appendf(&lim, "%d", chan->limit_prot);
               add_mode(chan, '+', 'l', op_strbuf_str(&lim));
               op_strbuf_free(&lim);
@@ -1371,7 +1382,7 @@ static int gotmode(char *from, char *origmsg)
           }
           check_tcl_mode(nick, from, u, chan->dname, ms2, op);
           /* The Tcl proc might have modified/removed the chan or user */
-          if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+          if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
             return 0;
           if (ms2[0] == '+') {
             set_key(chan, op);
@@ -1385,7 +1396,7 @@ static int gotmode(char *from, char *origmsg)
                        !chan_master(user) && !match_my_nick(nick))
                 add_mode(chan, '+', 'k', chan->key_prot);
             }
-            set_key(chan, NULL);
+            set_key(chan, nullptr);
           }
           break;
         case 'o':
@@ -1416,6 +1427,7 @@ static int gotmode(char *from, char *origmsg)
             refresh_who_chan(chan->name);
           } else {
             op_strbuf_t _vs;
+            op_strbuf_init(&_vs);
             op_strbuf_appendf(&_vs, "%s!%s", m->nick, m->userhost);
             get_user_flagrec(get_user_from_member(m), &victim, chan->dname);
             if (ms2[0] == '+') {
@@ -1485,7 +1497,7 @@ static int gotmode(char *from, char *origmsg)
         }
         if (todo) {
           check_tcl_mode(nick, from, u, chan->dname, ms2, "");
-          if (!(chan = modebind_refresh(ch, from, &user, NULL, NULL)))
+          if (!(chan = modebind_refresh(ch, from, &user, nullptr, nullptr)))
             return 0;
           if (ms2[0] == '+')
             chan->channel.mode |= todo;

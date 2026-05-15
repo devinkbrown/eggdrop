@@ -39,6 +39,7 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
     int i = 0;
     for (; x; x = x->next) {
       op_strbuf_t s;
+      op_strbuf_init(&s);
 #ifdef IPV6
       if (inet_pton(AF_INET6, x->name, buf) == 1)
         op_strbuf_appendf(&s, "  [%s]:", x->name);
@@ -50,7 +51,7 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
         op_strbuf_append_cstr(&s, "+");
 #endif
       if (x->pass) {
-        t = time(NULL);
+        t = time(nullptr);
         currtm = localtime(&t); /* ******* */
         if ((currtm->tm_mon == 3) && (currtm->tm_mday == 1))
           setpass = " (hunter2)";
@@ -105,7 +106,7 @@ static void cmd_jump(struct userrec *u, int idx, char *par)
     }
     else
       use_ssl = 0;
-    port = atoi(sport);
+    port = egg_atoi(sport);
     if (!port) {
       port = default_port;
       use_ssl = 0;
@@ -117,7 +118,7 @@ static void cmd_jump(struct userrec *u, int idx, char *par)
 server, but Eggdrop was not compiled with SSL libraries. Skipping...");
       return;
     }
-    port = atoi(sport);
+    port = egg_atoi(sport);
     if (!port)
       port = default_port;
     putlog(LOG_CMDS, "*", "#%s# jump %s %d %s", dcc[idx].nick, other,
@@ -216,10 +217,10 @@ static void cmd_create(struct userrec *u, int idx, char *par)
 }
 
 static cmd_t C_dcc_serv[] = {
-  {"dump",       "m",  (IntFunc) cmd_dump,       NULL},
-  {"jump",       "m",  (IntFunc) cmd_jump,       NULL},
-  {"servers",    "o",  (IntFunc) cmd_servers,    NULL},
-  {"clearqueue", "m",  (IntFunc) cmd_clearqueue, NULL},
-  {"create",     "m",  (IntFunc) cmd_create,     NULL},
-  {NULL,         NULL, NULL,                      NULL}
+  {"dump",       "m",  (IntFunc) cmd_dump,       nullptr},
+  {"jump",       "m",  (IntFunc) cmd_jump,       nullptr},
+  {"servers",    "o",  (IntFunc) cmd_servers,    nullptr},
+  {"clearqueue", "m",  (IntFunc) cmd_clearqueue, nullptr},
+  {"create",     "m",  (IntFunc) cmd_create,     nullptr},
+  {nullptr,         nullptr, nullptr,                      nullptr}
 };

@@ -49,11 +49,12 @@
 #include "bg.h"
 #include "configtoml.h"
 #include "script.h"
+#include "async_dns.h"
+#include "io_thread.h"
+#include "perf.h"
 #include <op_commio.h>
-
-#ifdef HAVE_GETRANDOM
-#  include <sys/random.h>
-#endif
+#include <op_async.h>
+#include <op_async_log.h>
 
 #ifndef _POSIX_SOURCE
 #  define _POSIX_SOURCE 1               /* Solaris needs this */
@@ -80,7 +81,7 @@ const char *argv0;
  * modified versions of this bot.
  */
 
-char egg_version[1024];
+char *egg_version = nullptr;
 int egg_numver = EGG_NUMVER;
 
 char notify_new[121] = "";      /* Person to send a note to for new users */
@@ -93,7 +94,7 @@ int term_z = -1;    /* Foreground: use the terminal as a partyline?  */
 int use_stderr = 1; /* Send stuff to stderr instead of logfiles?     */
 
 char configfile[121] = "eggdrop.toml";  /* Default config file name */
-char pid_file[121];                     /* Name of the pid file     */
+char *pid_file = nullptr;               /* Name of the pid file     */
 char helpdir[121] = "help/";            /* Directory of help files  */
 char textdir[121] = "text/";            /* Directory for text files */
 
@@ -118,30 +119,10 @@ char quit_msg[1024];                  /* Quit message                           
 unsigned char cliflags = 0;
 
 
-/* Traffic stats — atomic 64-bit counters */
-#include <stdatomic.h>
-_Atomic uint64_t otraffic_irc = 0;
-_Atomic uint64_t otraffic_irc_today = 0;
-_Atomic uint64_t otraffic_bn = 0;
-_Atomic uint64_t otraffic_bn_today = 0;
-_Atomic uint64_t otraffic_dcc = 0;
-_Atomic uint64_t otraffic_dcc_today = 0;
-_Atomic uint64_t otraffic_filesys = 0;
-_Atomic uint64_t otraffic_filesys_today = 0;
-_Atomic uint64_t otraffic_trans = 0;
-_Atomic uint64_t otraffic_trans_today = 0;
-_Atomic uint64_t otraffic_unknown = 0;
-_Atomic uint64_t otraffic_unknown_today = 0;
-_Atomic uint64_t itraffic_irc = 0;
-_Atomic uint64_t itraffic_irc_today = 0;
-_Atomic uint64_t itraffic_bn = 0;
-_Atomic uint64_t itraffic_bn_today = 0;
-_Atomic uint64_t itraffic_dcc = 0;
-_Atomic uint64_t itraffic_dcc_today = 0;
-_Atomic uint64_t itraffic_trans = 0;
-_Atomic uint64_t itraffic_trans_today = 0;
-_Atomic uint64_t itraffic_unknown = 0;
-_Atomic uint64_t itraffic_unknown_today = 0;
+/* Traffic stats — cache-line padded atomic counters (see traffic.h) */
+#include "traffic.h"
+struct egg_traffic itraffic = {};
+struct egg_traffic otraffic = {};
 
 #ifdef DEBUG_CONTEXT
 extern char last_bind_called[];
@@ -150,6 +131,8 @@ extern char last_bind_called[];
 void fatal(const char *s, int recoverable)
 {
   putlog(LOG_MISC, "*", "* %s", s);
+  io_thread_stop();
+  op_async_shutdown();
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
       killsock(dcc[i].sock);
@@ -402,9 +385,6 @@ static void show_ver(void) {
 #ifdef TLS
   printf("TLS, ");
 #endif
-#ifdef EGG_TDNS
-  printf("Threaded DNS core, ");
-#endif
   printf("handlen=%d\n", HANDLEN);
   printf("Build: %s %s\n", __DATE__, __TIME__);
   bg_send_quit(BG_ABORT);
@@ -544,7 +524,7 @@ static void core_secondly(void)
     ++lastmin;
     call_hook(HOOK_MINUTELY);
     check_expired_ignores();
-    autolink_cycle(NULL);       /* Attempt autolinks */
+    autolink_cycle(nullptr);       /* Attempt autolinks */
     /* In case for some reason more than 1 min has passed: */
     while (nowmins != lastmin) {
       /* Timer drift, dammit */
@@ -568,9 +548,9 @@ static void core_secondly(void)
           putlog(LOG_ALL, "*", "--- %.11s%s", s, s + 20);
         call_hook(HOOK_BACKUP);
         for (int j = 0; j < max_logs; j++) {
-          if (logs[j].filename != NULL && logs[j].f != NULL) {
+          if (logs[j].filename != nullptr && logs[j].f != nullptr) {
             fclose(logs[j].f);
-            logs[j].f = NULL;
+            logs[j].f = nullptr;
           }
         }
       }
@@ -588,10 +568,11 @@ static void core_secondly(void)
         for (int li = 0; li < max_logs; li++)
           if (logs[li].filename) {
             op_strbuf_t sb;
+            op_strbuf_init(&sb);
 
             if (logs[li].f) {
               fclose(logs[li].f);
-              logs[li].f = NULL;
+              logs[li].f = nullptr;
             }
             op_strbuf_appendf(&sb, "%s.yesterday", logs[li].filename);
             unlink(op_strbuf_str(&sb));
@@ -638,32 +619,6 @@ static void event_logfile(void)
   check_tcl_event("logfile");
 }
 
-static void event_resettraffic(void)
-{
-  /* Accumulate daily totals into all-time counters atomically.
-   * Called from main thread only (HOOK_DAILY), so relaxed ordering is fine. */
-  atomic_fetch_add_explicit(&otraffic_irc,     atomic_load_explicit(&otraffic_irc_today,     memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&itraffic_irc,     atomic_load_explicit(&itraffic_irc_today,     memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&otraffic_bn,      atomic_load_explicit(&otraffic_bn_today,      memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&itraffic_bn,      atomic_load_explicit(&itraffic_bn_today,      memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&otraffic_dcc,     atomic_load_explicit(&otraffic_dcc_today,     memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&itraffic_dcc,     atomic_load_explicit(&itraffic_dcc_today,     memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&otraffic_unknown, atomic_load_explicit(&otraffic_unknown_today, memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&itraffic_unknown, atomic_load_explicit(&itraffic_unknown_today, memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&otraffic_trans,   atomic_load_explicit(&otraffic_trans_today,   memory_order_relaxed), memory_order_relaxed);
-  atomic_fetch_add_explicit(&itraffic_trans,   atomic_load_explicit(&itraffic_trans_today,   memory_order_relaxed), memory_order_relaxed);
-  atomic_store_explicit(&otraffic_irc_today,     0, memory_order_relaxed);
-  atomic_store_explicit(&otraffic_bn_today,      0, memory_order_relaxed);
-  atomic_store_explicit(&otraffic_dcc_today,     0, memory_order_relaxed);
-  atomic_store_explicit(&otraffic_unknown_today, 0, memory_order_relaxed);
-  atomic_store_explicit(&otraffic_trans_today,   0, memory_order_relaxed);
-  atomic_store_explicit(&itraffic_irc_today,     0, memory_order_relaxed);
-  atomic_store_explicit(&itraffic_bn_today,      0, memory_order_relaxed);
-  atomic_store_explicit(&itraffic_dcc_today,     0, memory_order_relaxed);
-  atomic_store_explicit(&itraffic_unknown_today, 0, memory_order_relaxed);
-  atomic_store_explicit(&itraffic_trans_today,   0, memory_order_relaxed);
-}
-
 static void event_loaded(void)
 {
   check_tcl_event("loaded");
@@ -698,20 +653,19 @@ static void mainloop(int toplevel)
   int xx, i, eggbusy = 1;
   char buf[READMAX + 2];
 
-  /* Lets move some of this here, reducing the number of actual
-   * calls to periodic_timers
-   */
-  now = time(NULL);
+  egg_perf_tick_begin();
+  op_arena_reset(op_event_arena());
+  now = time(nullptr);
 
   /* If we want to restart, we have to unwind to the toplevel.
    * Tcl will Panic if we kill the interp with Tcl_Eval in progress.
    * This is done by returning -1 in tickle_WaitForEvent.
    */
-  if (do_restart && do_restart != -2 && !toplevel)
+  if (op_unlikely(do_restart && do_restart != -2 && !toplevel))
     return;
 
   /* Once a second */
-  if (now != then) {
+  if (op_unlikely(now != then)) {
     call_hook(HOOK_SECONDLY);
     then = now;
   }
@@ -732,39 +686,41 @@ static void mainloop(int toplevel)
     cleanup--;
 
   xx = sockgets(buf, &i);
-  if (xx >= 0) {              /* Non-error */
+  if (op_likely(xx >= 0)) {              /* Non-error — common path */
     int idx = findanyidx(xx);  /* O(1) via sock→dcc map */
 
-    if (idx >= 0) {
-      if (dcc[idx].type && dcc[idx].type->activity) {
-        /* Traffic stats — atomic counters */
-        if (dcc[idx].type->name) {
+    if (op_likely(idx >= 0)) {
+      if (op_likely(dcc[idx].type && dcc[idx].type->activity)) {
+        /* Traffic classification — single-byte dispatch replaces 8+ strcmp.
+         * First character of type name uniquely determines the category for
+         * all current DCC types.  Falls through to unknown for unrecognised. */
+        if (op_likely(dcc[idx].type->name != nullptr)) {
           size_t _nb = strlen(buf) + 1;
-          if (!strncmp(dcc[idx].type->name, "BOT", 3))
-            atomic_fetch_add_explicit(&itraffic_bn_today, _nb, memory_order_relaxed);
-          else if (!strcmp(dcc[idx].type->name, "SERVER"))
-            atomic_fetch_add_explicit(&itraffic_irc_today, _nb, memory_order_relaxed);
-          else if (!strncmp(dcc[idx].type->name, "CHAT", 4))
-            atomic_fetch_add_explicit(&itraffic_dcc_today, _nb, memory_order_relaxed);
-          else if (!strncmp(dcc[idx].type->name, "WEBUI", 5))
-            atomic_fetch_add_explicit(&itraffic_dcc_today, (size_t)i, memory_order_relaxed);
-          else if (!strncmp(dcc[idx].type->name, "FILES", 5))
-            atomic_fetch_add_explicit(&itraffic_dcc_today, _nb, memory_order_relaxed);
-          else if (!strcmp(dcc[idx].type->name, "SEND"))
-            atomic_fetch_add_explicit(&itraffic_trans_today, _nb, memory_order_relaxed);
-          else if (!strcmp(dcc[idx].type->name, "FORK_SEND"))
-            atomic_fetch_add_explicit(&itraffic_trans_today, _nb, memory_order_relaxed);
-          else if (!strncmp(dcc[idx].type->name, "GET", 3))
-            atomic_fetch_add_explicit(&itraffic_trans_today, _nb, memory_order_relaxed);
-          else
-            atomic_fetch_add_explicit(&itraffic_unknown_today, _nb, memory_order_relaxed);
+          _Atomic uint64_t *ctr;
+          switch (dcc[idx].type->name[0]) {
+          case 'B': ctr = &itraffic_bn_today;    break; /* BOT* */
+          case 'S': ctr = dcc[idx].type->name[1] == 'E'
+                        ? &itraffic_irc_today     /* SERVER */
+                        : &itraffic_trans_today;  /* SEND */
+                    break;
+          case 'C': ctr = &itraffic_dcc_today;    break; /* CHAT* */
+          case 'W': ctr = &itraffic_dcc_today;
+                    _nb = (size_t)i;              break; /* WEBUI */
+          case 'F': ctr = dcc[idx].type->name[1] == 'I'
+                        ? &itraffic_dcc_today     /* FILES */
+                        : &itraffic_trans_today;  /* FORK_SEND */
+                    break;
+          case 'G': ctr = &itraffic_trans_today;  break; /* GET* */
+          default:  ctr = &itraffic_unknown_today; break;
+          }
+          atomic_fetch_add_explicit(ctr, _nb, memory_order_relaxed);
         }
         dcc[idx].type->activity(idx, buf, i);
       } else
         putlog(LOG_MISC, "*", "ERROR: untrapped dcc activity: type %s, sock %ld",
                dcc[idx].type ? dcc[idx].type->name : "UNKNOWN", dcc[idx].sock);
     }
-  } else if (xx == -1) {        /* EOF from someone */
+  } else if (op_unlikely(xx == -1)) {        /* EOF from someone */
     int idx;
 
     if (i == STDOUT && !backgrd)
@@ -786,7 +742,7 @@ static void mainloop(int toplevel)
       close(i);
       killsock(i);
     }
-  } else if (xx == -2 && errno != EINTR) {      /* select() error */
+  } else if (op_unlikely(xx == -2 && errno != EINTR)) {      /* select() error */
     putlog(LOG_MISC, "*", "* Socket error #%d; recovering.", errno);
     for (i = 0; i < dcc_total; i++) {
       if ((fcntl(dcc[i].sock, F_GETFD, 0) == -1) && (errno == EBADF)) {
@@ -800,6 +756,7 @@ static void mainloop(int toplevel)
     }
   } else if (xx == -3) {
     call_hook(HOOK_IDLE);
+    op_async_drain();
     cleanup = 0; /* If we've been idle, cleanup & flush */
     eggbusy = 0;
   } else if (xx == -5)
@@ -822,7 +779,7 @@ static void mainloop(int toplevel)
 
       while (f) {
         f = 0;
-        for (p = module_list; p != NULL; p = p->next) {
+        for (p = module_list; p != nullptr; p = p->next) {
           dependancy *d = dependancy_list;
           int ok = 1;
 
@@ -833,7 +790,7 @@ static void mainloop(int toplevel)
           }
           if (ok) {
             strlcpy(name, p->name, sizeof name);
-            if (module_unload(name, botnetnick) == NULL) {
+            if (module_unload(name, botnetnick) == nullptr) {
               f = 1;
               break;
             }
@@ -864,7 +821,7 @@ static void mainloop(int toplevel)
         if (p->funcs) {
           startfunc = p->funcs[MODCALL_START];
           if (startfunc)
-            ((char *(*)(Function *)) startfunc)(NULL);
+            ((char *(*)(Function *)) startfunc)(nullptr);
           else
             debug2("module: %s: %s", p->name, MOD_NOSTARTDEF);
         }
@@ -886,34 +843,9 @@ static void mainloop(int toplevel)
     /* Process all pending Tcl events */
     Tcl_ServiceAll();
   }
+  egg_perf_tick_end(!eggbusy);
 }
 
-static void init_random(void) {
-  unsigned int seed;
-#ifdef HAVE_GETRANDOM
-  if (getrandom(&seed, sizeof seed, 0) != (sizeof seed)) {
-    if (errno != ENOSYS) {
-      fatal("ERROR: getrandom()\n", 0);
-    } else {
-      /* getrandom() is available in header but syscall is not!
-       * This can happen with glibc>=2.25 and linux<3.17
-       */
-#endif
-#ifdef HAVE_CLOCK_GETTIME
-      struct timespec tp;
-      clock_gettime(CLOCK_REALTIME, &tp);
-      seed = ((uint64_t) tp.tv_sec * tp.tv_nsec) ^ getpid();
-#else
-      struct timeval tp;
-      gettimeofday(&tp, NULL);
-      seed = ((uint64_t) tp.tv_sec * tp.tv_usec) ^ getpid();
-#endif
-#ifdef HAVE_GETRANDOM
-    }
-  }
-#endif
-  srandom(seed);
-}
 
 int main(int arg_c, char **arg_v)
 {
@@ -946,26 +878,32 @@ int main(int arg_c, char **arg_v)
   argv0 = argv[0];
 
   /* Version info! */
+  {
+    op_strbuf_t egg_version_buf;
+    op_strbuf_init(&egg_version_buf);
 #ifdef EGG_PATCH
-  snprintf(egg_version, sizeof egg_version, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
-  strlcpy(ver, "eggdrop v" EGG_STRINGVER "+" EGG_PATCH, sizeof ver);
-  strlcpy(version,
-          "Eggdrop v" EGG_STRINGVER "+" EGG_PATCH " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
-          sizeof version);
+    op_strbuf_appendf(&egg_version_buf, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
+    strlcpy(ver, "eggdrop v" EGG_STRINGVER "+" EGG_PATCH, sizeof ver);
+    strlcpy(version,
+            "Eggdrop v" EGG_STRINGVER "+" EGG_PATCH " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
+            sizeof version);
 #else
-  snprintf(egg_version, sizeof egg_version, "%s %u", EGG_STRINGVER, egg_numver);
-  strlcpy(ver, "eggdrop v" EGG_STRINGVER, sizeof ver);
-  strlcpy(version,
-          "Eggdrop v" EGG_STRINGVER " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
-          sizeof version);
+    op_strbuf_appendf(&egg_version_buf, "%s %u", EGG_STRINGVER, egg_numver);
+    strlcpy(ver, "eggdrop v" EGG_STRINGVER, sizeof ver);
+    strlcpy(version,
+            "Eggdrop v" EGG_STRINGVER " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
+            sizeof version);
 #endif
+    op_free(egg_version);
+    egg_version = op_strbuf_steal(&egg_version_buf);
+  }
 
 /* For OSF/1 */
 #ifdef STOP_UAC
   /* Don't print "unaligned access fixup" warning to the user */
   nvpair[0] = SSIN_UACPROC;
   nvpair[1] = UAC_NOPRINT;
-  setsysinfo(SSI_NVPAIRS, (char *) nvpair, 1, NULL, 0);
+  setsysinfo(SSI_NVPAIRS, (char *) nvpair, 1, nullptr, 0);
 #endif
 
   /* Set up error traps: */
@@ -976,40 +914,41 @@ int main(int arg_c, char **arg_v)
 #else
   sv.sa_flags = 0;
 #endif
-  sigaction(SIGBUS, &sv, NULL);
+  sigaction(SIGBUS, &sv, nullptr);
   sv.sa_handler = got_segv;
-  sigaction(SIGSEGV, &sv, NULL);
+  sigaction(SIGSEGV, &sv, nullptr);
 #ifdef SA_RESETHAND
   sv.sa_flags = 0;
 #endif
   sv.sa_handler = got_fpe;
-  sigaction(SIGFPE, &sv, NULL);
+  sigaction(SIGFPE, &sv, nullptr);
   sv.sa_handler = got_term;
-  sigaction(SIGTERM, &sv, NULL);
+  sigaction(SIGTERM, &sv, nullptr);
   sv.sa_handler = got_hup;
-  sigaction(SIGHUP, &sv, NULL);
+  sigaction(SIGHUP, &sv, nullptr);
   sv.sa_handler = got_quit;
-  sigaction(SIGQUIT, &sv, NULL);
+  sigaction(SIGQUIT, &sv, nullptr);
   sv.sa_handler = SIG_IGN;
-  sigaction(SIGPIPE, &sv, NULL);
+  sigaction(SIGPIPE, &sv, nullptr);
   sv.sa_handler = got_ill;
-  sigaction(SIGILL, &sv, NULL);
+  sigaction(SIGILL, &sv, nullptr);
   sv.sa_handler = got_alarm;
-  sigaction(SIGALRM, &sv, NULL);
+  sigaction(SIGALRM, &sv, nullptr);
   sv.sa_handler = got_term;
-  sigaction(SIGINT, &sv, NULL);
+  sigaction(SIGINT, &sv, nullptr);
 
   /* Initialize variables and stuff */
-  now = time(NULL);
-  chanset = NULL;
+  now = time(nullptr);
+  chanset = nullptr;
   chan_htab_init();
   lastmin = now / 60;
-  init_random();
   op_event_init();
   op_init_bh();
   op_fdlist_init(0, 1024, 256);
   op_init_netio();
   op_linebuf_init(64);
+  if (!op_async_init(0))
+    fatal("ERROR: Failed to initialise async thread pool.", 0);
   if (argc > 1)
     do_arg();
   /* Pre-scan the config for [paths] settings (lang_dir, mod_path) so language
@@ -1035,11 +974,6 @@ int main(int arg_c, char **arg_v)
   init_language(0);
 #ifdef STATIC
   link_statics();
-#endif
-#ifdef EGG_TDNS
-  /* initialize dns_thread_head before chanprog() */
-  dns_thread_head = op_malloc(sizeof(struct dns_thread_node));
-  dns_thread_head->next = NULL;
 #endif
   ctime_r(&now, s);
   s[24] = 0;
@@ -1081,14 +1015,18 @@ int main(int arg_c, char **arg_v)
 #endif
   cache_miss = 0;
   cache_hit = 0;
-  if (!pid_file[0])
-    snprintf(pid_file, sizeof pid_file, "pid.%s", botnetnick);
+  if (!pid_file) {
+    op_strbuf_t buf;
+    op_strbuf_init(&buf);
+    op_strbuf_appendf(&buf, "pid.%s", botnetnick);
+    pid_file = op_strbuf_steal(&buf);
+  }
 
   /* Check for pre-existing eggdrop! */
   f = fopen(pid_file, "r");
-  if (f != NULL) {
-    if (fgets(s, 10, f) != NULL) {
-      int xx = atoi(s);
+  if (f != nullptr) {
+    if (fgets(s, 10, f) != nullptr) {
+      int xx = egg_atoi(s);
       if (kill(xx, SIGCHLD) == 0 || errno != ESRCH) {
         printf(EGG_RUNNING1, botnetnick);
         printf(EGG_RUNNING2, pid_file);
@@ -1112,7 +1050,7 @@ int main(int arg_c, char **arg_v)
       /* Write pid to file */
       unlink(pid_file);
       fp = fopen(pid_file, "w");
-      if (fp != NULL) {
+      if (fp != nullptr) {
         fprintf(fp, "%u\n", xx);
         if (fflush(fp)) {
           /* Let the bot live since this doesn't appear to be a botchk */
@@ -1131,13 +1069,13 @@ int main(int arg_c, char **arg_v)
     /* Ok, try to disassociate from controlling terminal (finger cross) */
     setpgid(0, 0);
     /* Tcl wants the stdin, stdout and stderr file handles kept open. */
-    if (freopen("/dev/null", "r", stdin) == NULL) {
+    if (freopen("/dev/null", "r", stdin) == nullptr) {
       putlog(LOG_MISC, "*", "Error renaming stdin file handle: %s", strerror(errno));
     }
-    if (freopen("/dev/null", "w", stdout) == NULL) {
+    if (freopen("/dev/null", "w", stdout) == nullptr) {
       putlog(LOG_MISC, "*", "Error renaming stdout file handle: %s", strerror(errno));
     }
-    if (freopen("/dev/null", "w", stderr) == NULL) {
+    if (freopen("/dev/null", "w", stderr) == nullptr) {
       putlog(LOG_MISC, "*", "Error renaming stderr file handle: %s", strerror(errno));
     }
   }
@@ -1180,7 +1118,7 @@ int main(int arg_c, char **arg_v)
   then = now - 1;
 
   online_since = now;
-  autolink_cycle(NULL);         /* Hurry and connect to tandem bots */
+  autolink_cycle(nullptr);         /* Hurry and connect to tandem bots */
   add_help_reference("cmds1.help");
   add_help_reference("cmds2.help");
   add_help_reference("core.help");
@@ -1192,11 +1130,20 @@ int main(int arg_c, char **arg_v)
   add_hook(HOOK_USERFILE, (Function) event_save);
   add_hook(HOOK_BACKUP, (Function) backup_userfile);
   add_hook(HOOK_DAILY, (Function) event_logfile);
-  add_hook(HOOK_DAILY, (Function) event_resettraffic);
+  add_hook(HOOK_DAILY, (Function) egg_perf_reset_traffic);
   add_hook(HOOK_LOADED, (Function) event_loaded);
 
   call_hook(HOOK_LOADED);
 
+  /* Auto-detect optimal CPU core for I/O thread based on cache topology.
+   * Selects a core on a different L2 cache domain for maximum cache
+   * independence from the main thread. */
+  if (io_thread_get_affinity() < 0) {
+    int best = io_thread_detect_best_core();
+    if (best >= 0)
+      io_thread_set_affinity(best);
+  }
+  io_thread_start();
   debug0("main: entering loop");
   while (1) {
     mainloop(1);

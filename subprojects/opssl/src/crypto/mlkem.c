@@ -14,7 +14,7 @@
 
 /* Montgomery arithmetic constants */
 #define MLKEM_MONT_R    2285    /* 2^16 mod q */
-#define MLKEM_QINV      62209   /* q^(-1) mod 2^16, such that q * qinv = -1 mod 2^16 */
+#define MLKEM_QINV      62209   /* q^(-1) mod 2^16, such that q * qinv ≡ 1 mod 2^16 */
 
 /* NTT constants */
 #define MLKEM_ZETA      17      /* primitive 256th root of unity mod q */
@@ -70,80 +70,79 @@ static const int16_t zetas[128] = {
     478, 3221, 3021, 996, 991, 958, 1869, 1522, 1628
 };
 
-/* Barrett reduction: reduce x mod q */
+/* Barrett reduction: reduce x mod q to centered representative */
 static int16_t barrett_reduce(int16_t x) {
-    int16_t t = ((int32_t)x * 20159) >> 26;
+    int16_t t = ((int32_t)20159 * x + (1 << 25)) >> 26;
     return x - t * MLKEM_Q;
 }
 
 /* Montgomery reduction: compute aR^(-1) mod q where R = 2^16 */
 static int16_t montgomery_reduce(int32_t a) {
-    int16_t t = (int16_t)(a * MLKEM_QINV);
+    int16_t t = (int16_t)a * MLKEM_QINV;
     t = (a - (int32_t)t * MLKEM_Q) >> 16;
     return t;
 }
 
-/* Conditional subtraction: subtract q if x >= q */
-static int16_t csubq(int16_t x) {
-    x -= MLKEM_Q;
-    x += (x >> 15) & MLKEM_Q;
-    return x;
-}
+static void poly_reduce(poly_t *p);
 
-/* Forward NTT */
+/* Forward NTT — FIPS 203 Algorithm 9 */
 static void ntt(poly_t *p) {
-    int len = 128;
-    for (int k = 0; k < 7; k++) {
+    unsigned int k = 1;
+    for (int len = 128; len >= 2; len >>= 1) {
         for (int start = 0; start < MLKEM_N; start += 2 * len) {
-            int16_t zeta = zetas[k];
+            int16_t zeta = zetas[k++];
             for (int j = start; j < start + len; j++) {
                 int16_t t = montgomery_reduce((int32_t)zeta * p->coeffs[j + len]);
                 p->coeffs[j + len] = p->coeffs[j] - t;
                 p->coeffs[j] = p->coeffs[j] + t;
             }
         }
-        len >>= 1;
     }
+    poly_reduce(p);
 }
 
-/* Inverse NTT */
+/* Inverse NTT — FIPS 203 Algorithm 10 */
 static void invntt(poly_t *p) {
-    int len = 2;
-    for (int k = 0; k < 7; k++) {
+    unsigned int k = 127;
+    for (int len = 2; len <= 128; len <<= 1) {
         for (int start = 0; start < MLKEM_N; start += 2 * len) {
-            int16_t zeta = zetas[127 - k];
+            int16_t zeta = zetas[k--];
             for (int j = start; j < start + len; j++) {
                 int16_t t = p->coeffs[j];
                 p->coeffs[j] = barrett_reduce(t + p->coeffs[j + len]);
-                p->coeffs[j + len] = montgomery_reduce((int32_t)zeta * (t - p->coeffs[j + len]));
+                p->coeffs[j + len] = montgomery_reduce((int32_t)zeta * (p->coeffs[j + len] - t));
             }
         }
-        len <<= 1;
     }
 
-    /* Multiply by n^(-1) = 3303 in Montgomery form */
     for (int i = 0; i < MLKEM_N; i++) {
-        p->coeffs[i] = montgomery_reduce((int32_t)p->coeffs[i] * 3303);
+        p->coeffs[i] = montgomery_reduce((int32_t)p->coeffs[i] * 1441);
     }
 }
 
-/* Pointwise multiplication in NTT domain */
+/* Pointwise multiplication in NTT domain (basemul) */
+#define fqmul(a, b) montgomery_reduce((int32_t)(a) * (b))
+
 static void poly_basemul(poly_t *r, const poly_t *a, const poly_t *b) {
     for (int i = 0; i < MLKEM_N / 4; i++) {
         int16_t zeta = zetas[64 + i];
 
-        /* Basemul for 4 coefficients using zeta */
-        int16_t a0 = a->coeffs[4*i], a1 = a->coeffs[4*i+1];
+        int16_t a0 = a->coeffs[4*i],   a1 = a->coeffs[4*i+1];
         int16_t a2 = a->coeffs[4*i+2], a3 = a->coeffs[4*i+3];
-        int16_t b0 = b->coeffs[4*i], b1 = b->coeffs[4*i+1];
+        int16_t b0 = b->coeffs[4*i],   b1 = b->coeffs[4*i+1];
         int16_t b2 = b->coeffs[4*i+2], b3 = b->coeffs[4*i+3];
 
-        r->coeffs[4*i] = montgomery_reduce((int32_t)a0 * b0 + (int32_t)a1 * b1 * zeta);
-        r->coeffs[4*i+1] = montgomery_reduce((int32_t)a0 * b1 + (int32_t)a1 * b0);
-        r->coeffs[4*i+2] = montgomery_reduce((int32_t)a2 * b2 + (int32_t)a3 * b3 * zeta);
-        r->coeffs[4*i+3] = montgomery_reduce((int32_t)a2 * b3 + (int32_t)a3 * b2);
+        /* First pair: mod (X^2 - zeta) */
+        r->coeffs[4*i]   = fqmul(fqmul(a1, b1), zeta) + fqmul(a0, b0);
+        r->coeffs[4*i+1] = fqmul(a0, b1) + fqmul(a1, b0);
+
+        /* Second pair: mod (X^2 + zeta), use -zeta */
+        r->coeffs[4*i+2] = fqmul(fqmul(a3, b3), -zeta) + fqmul(a2, b2);
+        r->coeffs[4*i+3] = fqmul(a2, b3) + fqmul(a3, b2);
     }
 }
+
+#undef fqmul
 
 /* Polynomial addition */
 static void poly_add(poly_t *r, const poly_t *a, const poly_t *b) {
@@ -166,27 +165,34 @@ static void poly_reduce(poly_t *p) {
     }
 }
 
+/* Convert polynomial to Montgomery domain */
+static void poly_tomont(poly_t *p) {
+    const int16_t f = 1353; /* R^2 mod q = 2285^2 mod 3329 */
+    for (int i = 0; i < MLKEM_N; i++)
+        p->coeffs[i] = montgomery_reduce((int32_t)p->coeffs[i] * f);
+}
+
 /* Compress polynomial coefficients */
 static void poly_compress(uint8_t *out, const poly_t *p, int d) {
     if (d == 1) {
-        /* Special case for d=1 (message compression) */
         for (int i = 0; i < MLKEM_N / 8; i++) {
             uint8_t t = 0;
             for (int j = 0; j < 8; j++) {
-                int16_t c = csubq(p->coeffs[8*i + j]);
-                t |= ((((uint32_t)c << 1) + MLKEM_Q/2) / MLKEM_Q) << j;
+                int16_t c = p->coeffs[8*i + j];
+                c += (c >> 15) & MLKEM_Q;
+                t |= (((((uint32_t)c << 1) + MLKEM_Q/2) / MLKEM_Q) & 1) << j;
             }
             out[i] = t;
         }
     } else {
-        /* General compression for d > 1 */
         uint32_t mask = (1 << d) - 1;
         int bits = 0;
         uint32_t acc = 0;
         int out_idx = 0;
 
         for (int i = 0; i < MLKEM_N; i++) {
-            int16_t c = csubq(p->coeffs[i]);
+            int16_t c = p->coeffs[i];
+            c += (c >> 15) & MLKEM_Q;
             uint32_t compressed = (((uint32_t)c << d) + MLKEM_Q/2) / MLKEM_Q;
             compressed &= mask;
 
@@ -238,22 +244,50 @@ static void poly_decompress(poly_t *p, const uint8_t *in, int d) {
     }
 }
 
-/* Centered Binomial Distribution sampling for η=2 */
-static void cbd2(poly_t *r, const uint8_t *buf) {
+/* FIPS 203 ByteEncode_12: lossless 12-bit packing (3 bytes per 2 coefficients) */
+static void byte_encode_12(uint8_t *out, const poly_t *p) {
     for (int i = 0; i < MLKEM_N / 2; i++) {
-        uint32_t t = buf[2*i] | ((uint32_t)buf[2*i+1] << 8);
-        uint32_t d = t & 0x5555;
-        d += (t >> 1) & 0x5555;
+        int16_t c0 = barrett_reduce(p->coeffs[2*i]);
+        int16_t c1 = barrett_reduce(p->coeffs[2*i+1]);
+        c0 += (c0 >> 15) & MLKEM_Q;
+        c1 += (c1 >> 15) & MLKEM_Q;
+        uint16_t a = (uint16_t)c0;
+        uint16_t b = (uint16_t)c1;
+        out[3*i]     = a & 0xFF;
+        out[3*i + 1] = (a >> 8) | ((b & 0xF) << 4);
+        out[3*i + 2] = b >> 4;
+    }
+}
 
-        for (int j = 0; j < 2; j++) {
-            int16_t a = (d >> (2*j)) & 3;
-            int16_t b = (d >> (2*j+8)) & 3;
-            r->coeffs[2*i + j] = a - b;
+/* FIPS 203 ByteDecode_12: lossless 12-bit unpacking */
+static void byte_decode_12(poly_t *p, const uint8_t *in) {
+    for (int i = 0; i < MLKEM_N / 2; i++) {
+        p->coeffs[2*i]   = (int16_t)(in[3*i] | ((in[3*i+1] & 0xF) << 8));
+        p->coeffs[2*i+1] = (int16_t)((in[3*i+1] >> 4) | ((uint16_t)in[3*i+2] << 4));
+    }
+}
+
+/* Centered Binomial Distribution sampling for η=2.
+ * Reads 128 bytes (4 bytes per 8 coefficients). */
+static void cbd2(poly_t *r, const uint8_t *buf) {
+    for (int i = 0; i < MLKEM_N / 8; i++) {
+        uint32_t t = (uint32_t)buf[4*i]
+                   | (uint32_t)buf[4*i+1] << 8
+                   | (uint32_t)buf[4*i+2] << 16
+                   | (uint32_t)buf[4*i+3] << 24;
+
+        uint32_t d = t & 0x55555555U;
+        d += (t >> 1) & 0x55555555U;
+
+        for (int j = 0; j < 8; j++) {
+            int16_t a = (d >> (4*j))     & 0x3;
+            int16_t b = (d >> (4*j + 2)) & 0x3;
+            r->coeffs[8*i + j] = a - b;
         }
     }
 }
 
-/* XOF for matrix generation */
+/* FIPS 203 Algorithm 6: SampleNTT — rejection sampling with 12-bit pairs */
 static void gen_matrix_row(polyvec_t *a, const uint8_t rho[32], int row, int k) {
     for (int col = 0; col < k; col++) {
         uint8_t seed[34];
@@ -261,18 +295,19 @@ static void gen_matrix_row(polyvec_t *a, const uint8_t rho[32], int row, int k) 
         seed[32] = col;
         seed[33] = row;
 
-        uint8_t buf[672];  /* 256 * 13 / 8 rounded up */
+        uint8_t buf[768];
         opssl_shake128(buf, sizeof(buf), seed, 34);
 
-        int pos = 0, ctr = 0;
-        while (ctr < MLKEM_N && pos < sizeof(buf) - 2) {
-            uint16_t val = buf[pos] | ((uint16_t)buf[pos+1] << 8);
-            pos += 2;
-            val &= 0x1FFF;  /* 13 bits */
+        int j = 0, ctr = 0;
+        while (ctr < MLKEM_N && (size_t)(3 * j + 2) < sizeof(buf)) {
+            uint16_t d1 = buf[3*j] | (((uint16_t)buf[3*j+1] & 0x0F) << 8);
+            uint16_t d2 = (buf[3*j+1] >> 4) | ((uint16_t)buf[3*j+2] << 4);
+            j++;
 
-            if (val < MLKEM_Q) {
-                a->vec[col].coeffs[ctr++] = val;
-            }
+            if (d1 < MLKEM_Q)
+                a->vec[col].coeffs[ctr++] = d1;
+            if (d2 < MLKEM_Q && ctr < MLKEM_N)
+                a->vec[col].coeffs[ctr++] = d2;
         }
     }
 }
@@ -298,14 +333,20 @@ static void kdf_h(uint8_t out[32], const uint8_t *in, size_t inlen) {
 /* Encode/decode functions */
 static void encode_polyvec(uint8_t *out, const polyvec_t *v, int k, int d) {
     for (int i = 0; i < k; i++) {
-        poly_compress(out, &v->vec[i], d);
+        if (d == 12)
+            byte_encode_12(out, &v->vec[i]);
+        else
+            poly_compress(out, &v->vec[i], d);
         out += (MLKEM_N * d + 7) / 8;
     }
 }
 
 static void decode_polyvec(polyvec_t *v, const uint8_t *in, int k, int d) {
     for (int i = 0; i < k; i++) {
-        poly_decompress(&v->vec[i], in, d);
+        if (d == 12)
+            byte_decode_12(&v->vec[i], in);
+        else
+            poly_decompress(&v->vec[i], in, d);
         in += (MLKEM_N * d + 7) / 8;
     }
 }
@@ -350,7 +391,7 @@ opssl_mlkem_ctx_t *opssl_mlkem_new(opssl_mlkem_level_t level) {
 }
 
 int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
-    if (!ctx) return -1;
+    if (!ctx) return 0;
 
     const mlkem_params_t *p = ctx->params;
     uint8_t d[32], z[32];
@@ -358,22 +399,22 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
 
     /* Generate random seeds */
     if (opssl_random_bytes(d, 32) != 0 || opssl_random_bytes(z, 32) != 0) {
-        return -1;
+        return 0;
     }
 
-    /* (rho, sigma) = G(d) */
+    /* (rho, sigma) = G(d || k) */
+    uint8_t d_k[33];
+    memcpy(d_k, d, 32);
+    d_k[32] = (uint8_t)p->k;
     uint8_t g_out[64];
-    kdf_g(g_out, d, 32);
+    kdf_g(g_out, d_k, 33);
     memcpy(rho, g_out, 32);
     memcpy(sigma, g_out + 32, 32);
 
-    /* Generate matrix A */
+    /* Generate matrix A (SampleNTT produces NTT-domain polynomials directly) */
     polyvec_t a[4];  /* max k=4 */
     for (int i = 0; i < p->k; i++) {
         gen_matrix_row(&a[i], rho, i, p->k);
-        for (int j = 0; j < p->k; j++) {
-            ntt(&a[i].vec[j]);
-        }
     }
 
     /* Sample secret s and error e */
@@ -400,6 +441,7 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
             poly_basemul(&prod, &a[i].vec[j], &s.vec[j]);
             poly_add(&temp, &temp, &prod);
         }
+        poly_tomont(&temp);
         poly_add(&t.vec[i], &temp, &e.vec[i]);
         poly_reduce(&t.vec[i]);
     }
@@ -415,8 +457,7 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
 
     /* Secret key: dk = (s_encoded || pk || H(pk) || z) */
     for (int i = 0; i < p->k; i++) {
-        invntt(&s.vec[i]);
-        poly_compress(sk_ptr, &s.vec[i], 12);
+        byte_encode_12(sk_ptr, &s.vec[i]);
         sk_ptr += 384;
     }
     memcpy(sk_ptr, ctx->pk, ctx->params->pk_len);
@@ -430,53 +471,21 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
     opssl_memzero(sigma, sizeof(sigma));
 
     ctx->keys_generated = true;
-    return 0;
+    return 1;
 }
 
-int opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx, const uint8_t *pk, size_t pk_len,
-                       uint8_t *ct, size_t *ct_len, uint8_t *ss, size_t *ss_len) {
-    if (!ctx || !pk || !ct || !ct_len || !ss || !ss_len) return -1;
-    if (pk_len != ctx->params->pk_len) return -1;
-
-    const mlkem_params_t *p = ctx->params;
-    uint8_t m[32], kr[64], h_pk[32];
-
-    /* Generate random message */
-    if (opssl_random_bytes(m, 32) != 0) return -1;
-
-    /* H(pk) */
-    kdf_h(h_pk, pk, pk_len);
-
-    /* (K || r) = G(m || H(pk)) */
-    uint8_t m_h[64];
-    memcpy(m_h, m, 32);
-    memcpy(m_h + 32, h_pk, 32);
-    kdf_g(kr, m_h, 64);
-
-    /* Encrypt: ct = K-PKE.Encrypt(pk, m, r) */
-    uint8_t *r = kr + 32;
-
-    /* Decode public key */
+static int pke_encrypt(const uint8_t *pk, const uint8_t *m, const uint8_t *r,
+                       uint8_t *ct, const mlkem_params_t *p) {
     polyvec_t t;
     uint8_t rho[32];
     decode_polyvec(&t, pk, p->k, 12);
     memcpy(rho, pk + p->k * 384, 32);
 
-    /* Transform t to NTT domain */
-    for (int i = 0; i < p->k; i++) {
-        ntt(&t.vec[i]);
-    }
-
-    /* Generate matrix A */
     polyvec_t a[4];
     for (int i = 0; i < p->k; i++) {
         gen_matrix_row(&a[i], rho, i, p->k);
-        for (int j = 0; j < p->k; j++) {
-            ntt(&a[i].vec[j]);
-        }
     }
 
-    /* Sample r, e1, e2 from r */
     polyvec_t r_vec, e1;
     poly_t e2;
     uint8_t noise[128];
@@ -495,7 +504,6 @@ int opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx, const uint8_t *pk, size_t pk_len,
     prf(noise, 128, r, 2 * p->k);
     cbd2(&e2, noise);
 
-    /* u = A^T * r + e1 */
     polyvec_t u;
     for (int i = 0; i < p->k; i++) {
         poly_t temp;
@@ -505,12 +513,12 @@ int opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx, const uint8_t *pk, size_t pk_len,
             poly_basemul(&prod, &a[j].vec[i], &r_vec.vec[j]);
             poly_add(&temp, &temp, &prod);
         }
+        poly_reduce(&temp);
         invntt(&temp);
         poly_add(&u.vec[i], &temp, &e1.vec[i]);
         poly_reduce(&u.vec[i]);
     }
 
-    /* v = t^T * r + e2 + decompress(m, 1) */
     poly_t v, mu;
     poly_decompress(&mu, m, 1);
 
@@ -521,33 +529,58 @@ int opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx, const uint8_t *pk, size_t pk_len,
         poly_basemul(&prod, &t.vec[j], &r_vec.vec[j]);
         poly_add(&temp, &temp, &prod);
     }
+    poly_reduce(&temp);
     invntt(&temp);
     poly_add(&v, &temp, &e2);
     poly_add(&v, &v, &mu);
     poly_reduce(&v);
 
-    /* Encode ciphertext */
     uint8_t *ct_ptr = ct;
     encode_polyvec(ct_ptr, &u, p->k, p->du);
     ct_ptr += p->k * ((MLKEM_N * p->du + 7) / 8);
     poly_compress(ct_ptr, &v, p->dv);
 
+    opssl_memzero(noise, sizeof(noise));
+    return 0;
+}
+
+int opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx, const uint8_t *pk, size_t pk_len,
+                       uint8_t *ct, size_t *ct_len, uint8_t *ss, size_t *ss_len) {
+    if (!ctx || !pk || !ct || !ct_len || !ss || !ss_len) return 0;
+    if (pk_len != ctx->params->pk_len) return 0;
+
+    const mlkem_params_t *p = ctx->params;
+    uint8_t m[32], kr[64], h_pk[32];
+
+    if (opssl_random_bytes(m, 32) != 0) return 0;
+
+    kdf_h(h_pk, pk, pk_len);
+
+    uint8_t m_h[64];
+    memcpy(m_h, m, 32);
+    memcpy(m_h + 32, h_pk, 32);
+    kdf_g(kr, m_h, 64);
+
+    if (pke_encrypt(pk, m, kr + 32, ct, p) != 0) {
+        opssl_memzero(m, sizeof(m));
+        opssl_memzero(kr, sizeof(kr));
+        return 0;
+    }
+
     *ct_len = ctx->params->ct_len;
-    memcpy(ss, kr, 32);  /* K */
+    memcpy(ss, kr, 32);
     *ss_len = 32;
 
-    /* Clear sensitive data */
     opssl_memzero(m, sizeof(m));
     opssl_memzero(kr, sizeof(kr));
-    opssl_memzero(r, 32);
 
-    return 0;
+    return 1;
 }
 
 int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
                        uint8_t *ss, size_t *ss_len) {
-    if (!ctx || !ct || !ss || !ss_len || !ctx->keys_generated) return -1;
-    if (ct_len != ctx->params->ct_len) return -1;
+    if (!ctx || !ct || !ss || !ss_len || !ctx->keys_generated) return 0;
+    if (ct_len != ctx->params->ct_len) return 0;
 
     const mlkem_params_t *p = ctx->params;
 
@@ -560,8 +593,7 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
     /* Decode secret key */
     polyvec_t s;
     for (int i = 0; i < p->k; i++) {
-        poly_decompress(&s.vec[i], s_enc + i * 384, 12);
-        ntt(&s.vec[i]);
+        byte_decode_12(&s.vec[i], s_enc + i * 384);
     }
 
     /* Decode ciphertext */
@@ -585,6 +617,7 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
         poly_basemul(&prod, &s.vec[j], &u.vec[j]);
         poly_add(&temp, &temp, &prod);
     }
+    poly_reduce(&temp);
     invntt(&temp);
     poly_sub(&v, &v, &temp);
     poly_reduce(&v);
@@ -598,18 +631,13 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
     memcpy(m_h + 32, h_pk, 32);
     kdf_g(kr_prime, m_h, 64);
 
-    /* Re-encrypt to verify */
-    uint8_t ct_prime[OPSSL_MLKEM1024_CT_LEN];  /* max size */
-    size_t ct_prime_len;
-    uint8_t ss_prime[32];
-    size_t ss_prime_len;
+    /* FO re-encrypt with derived r' (deterministic, no fresh RNG) */
+    uint8_t ct_prime[OPSSL_MLKEM1024_CT_LEN];
+    if (pke_encrypt(pk, m_prime, kr_prime + 32, ct_prime, p) != 0)
+        return 0;
 
-    int enc_result = opssl_mlkem_encaps(ctx, pk, ctx->params->pk_len,
-                                        ct_prime, &ct_prime_len, ss_prime, &ss_prime_len);
-    if (enc_result != 0) return -1;
-
-    /* Constant-time comparison */
-    int equal = verify(ct, ct_prime, ct_len);
+    /* Constant-time comparison: fail=0 if ct matches, fail=1 if different */
+    int fail = verify(ct, ct_prime, ct_len);
 
     /* Compute rejection key: KDF(z || H(ct)) */
     uint8_t z_h_ct[64], reject_key[32];
@@ -617,9 +645,9 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
     kdf_h(z_h_ct + 32, ct, ct_len);
     kdf_h(reject_key, z_h_ct, 64);
 
-    /* Constant-time select: ss = equal ? K' : reject_key */
-    cmov(ss, reject_key, 32, 1 - equal);
-    cmov(ss, kr_prime, 32, equal);
+    /* Constant-time select: ss = K' if ct matches, reject_key if different */
+    memcpy(ss, kr_prime, 32);
+    cmov(ss, reject_key, 32, fail);
     *ss_len = 32;
 
     /* Clear sensitive data */
@@ -627,16 +655,16 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
     opssl_memzero(kr_prime, sizeof(kr_prime));
     opssl_memzero(reject_key, sizeof(reject_key));
 
-    return 0;
+    return 1;
 }
 
 int opssl_mlkem_get_public(opssl_mlkem_ctx_t *ctx, uint8_t *pk, size_t *pk_len) {
-    if (!ctx || !pk || !pk_len || !ctx->keys_generated) return -1;
-    if (*pk_len < ctx->params->pk_len) return -1;
+    if (!ctx || !pk || !pk_len || !ctx->keys_generated) return 0;
+    if (*pk_len < ctx->params->pk_len) return 0;
 
     memcpy(pk, ctx->pk, ctx->params->pk_len);
     *pk_len = ctx->params->pk_len;
-    return 0;
+    return 1;
 }
 
 void opssl_mlkem_free(opssl_mlkem_ctx_t *ctx) {

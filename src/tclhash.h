@@ -33,7 +33,7 @@ typedef struct tcl_cmd_b {
   uint8_t attributes;           /* Flags for this entry. TC_* */
   unsigned int hits;            /* Number of times this proc was triggered. */
   /* Native dispatch: trampoline called as fn(cd, argv, argc).
-   * Set by add_builtins() for C handlers; NULL for script-engine callbacks.
+   * Set by add_builtins() for C handlers; nullptr for script-engine callbacks.
    * In Tcl builds, dispatch goes through Tcl_VarEval instead; these are unused. */
   IntFunc  native_fn;
   void    *native_cd;
@@ -42,7 +42,7 @@ typedef struct tcl_cmd_b {
 struct threaddata {
   int (*mainloopfunc)(int);     /* main loop function replacing a single
                                  * tcl event loop iteration */
-  sock_list *socklist;          /* tcl socket list for threads, else NULL */
+  sock_list *socklist;          /* tcl socket list for threads, else nullptr */
   struct timeval blocktime;     /* maximum time to block in select() */
   int mainthread;               /* Is this the main thread? */
   int MAXSOCKS;

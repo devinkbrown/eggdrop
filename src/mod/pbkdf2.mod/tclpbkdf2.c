@@ -33,15 +33,15 @@ static int tcl_pbkdf2 STDVAR
     if (!strcmp(argv[1], "-bin"))
       hex = 0;
     else {
-      Tcl_AppendResult(irp, "bad option ", argv[1], ": must be -bin", NULL);
+      Tcl_AppendResult(irp, "bad option ", argv[1], ": must be -bin", nullptr);
       return TCL_ERROR;
     }
   }
   else
     hex = 1;
-  rounds = atoi(argv[3 + !hex]);
+  rounds = egg_atoi(argv[3 + !hex]);
   if (pbkdf2_get_algo(argv[4 + !hex], &algo, &digestlen)) {
-    Tcl_AppendResult(irp, "PBKDF2 error: Unknown message digest '", argv[4 + !hex], "'.", NULL);
+    Tcl_AppendResult(irp, "PBKDF2 error: Unknown message digest '", argv[4 + !hex], "'.", nullptr);
     return TCL_ERROR;
   }
   if (opssl_pbkdf2(algo,
@@ -49,7 +49,7 @@ static int tcl_pbkdf2 STDVAR
                    (const uint8_t *) argv[2 + !hex], strlen(argv[2 + !hex]),
                    rounds, buf, digestlen) != 1) {
     Tcl_AppendResult(irp, "PBKDF2 key derivation error: ",
-                     opssl_err_string(opssl_err_get()), ".", NULL);
+                     opssl_err_string(opssl_err_get()), ".", nullptr);
     return TCL_ERROR;
   }
   if (hex) {
@@ -71,5 +71,5 @@ static int tcl_pbkdf2 STDVAR
 static tcl_cmds my_tcl_cmds[] = {
   {"encpass2", tcl_encpass2},
   {"pbkdf2",   tcl_pbkdf2},
-  {NULL,       NULL}
+  {nullptr,       nullptr}
 };

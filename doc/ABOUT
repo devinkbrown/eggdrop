@@ -1,67 +1,42 @@
 About Eggdrop
+=============
 
-About Eggdrop
+Eggdrop was created in December 1993, making it the oldest and most
+widely deployed IRC bot in existence. It evolved from a bot called
+"Unrest" and has been under continuous development for over 30 years.
 
-  Eggdrop was created around December 1993 to help stop the incessant
-  wars on #gayteen. It spawned from another bot that was in the process
-  of being written at the time called "Unrest". The purpose of Unrest
-  was to answer help requests from other bots. The first public release
-  of Eggdrop was version 0.6, and since then, it has grown into what you
-  have before you.
+An IRC bot sits on channels and performs automated tasks — channel
+protection, user management, flood control, logging, games, and
+anything scripts can do. Eggdrop can also link multiple bots into a
+botnet to share user lists, bans, and channel management across IRC
+networks.
 
-  Eggdrop is the World's most popular Internet Relay Chat (IRC) bot; it
-  is freely distributable under the GNU General Public License (GPL).
-  Eggdrop is a feature rich program designed to be easily used and
-  expanded upon by both novice and advanced IRC users on a variety of
-  hardware and software platforms.
+What sets Eggdrop apart is its module and scripting architecture.
+Scripts can be written in Python (recommended for new installs) or
+Tcl (optional). The Python API has 100% parity with the Tcl API
+(239 commands). Modules extend the bot with loadable shared objects.
 
-  An IRC bot is a program that sits on an IRC channel and performs
-  automated tasks while looking just like a normal user on the channel.
-  Some of these functions include protecting the channel from abuse,
-  allowing privileged users to gain op or voice status, logging channel
-  events, providing information, hosting games, etc.
 
-  One of the features that makes Eggdrop stand out from other bots is
-  module and Tcl scripting support. With scripts and modules, you can
-  make the bot perform almost any task you want. They can do anything
-  from preventing floods to greeting users and banning advertisers from
-  channels.
+Requirements
+------------
 
-  You can also link multiple Eggdrop bots together to form a botnet.
-  This can allow bots to op each other securely, control floods
-  efficiently, and even link channels across multiple IRC networks. It
-  also allows the Eggdrops share user lists, ban lists, exempt/invite
-  lists, and ignore lists with other bots if userfile sharing is
-  enabled. This allows users to have the same access on every bot on
-  your botnet. It also allows the bots to distribute tasks such as
-  opping and banning users. See doc/BOTNET for information on setting up
-  a botnet.
+  - Linux, macOS, BSD, Windows (MinGW/MSVC), or Cygwin
+  - C compiler with C23 support (GCC 11+, Clang 13+)
+  - Meson + Ninja build system
+  - At least one of: Tcl >= 8.6 or Python >= 3.8 (for scripting)
+  - ~10 MB disk space
 
-  Eggdrop is always being improved and adjusted because there are bugs
-  to be fixed and features to be added (if the users demand them, and
-  they make actually sense). This version of Eggdrop is part of the
-  1.10 tree.
+TLS 1.2/1.3 is bundled (opssl) — no external library needed. LMDB
+storage is bundled in libop. IPv6 is always available.
 
-  To use Eggdrop, you need:
 
-    -   A Unix-like system (Linux, macOS, BSD, Cygwin, etc.)
-    -   A pretty good knowledge of IRC and Unix, including how to
-        compile programs, how to read, and what DCC chat is, at absolute
-        minimum.
-    -   About 8-10 MB of disk space. The unpacked source archive is
-        approximately 10 MB.
-    -   Tcl 8.5 or later. Eggdrop cannot compile without Tcl installed.
-    -   A C compiler with C23 support (GCC 11+, Clang 13+, or later).
+This fork (devinkbrown)
+-----------------------
 
-  Optional dependencies:
+This fork modernises the build system (Meson + Ninja), adds native
+Windows support (IOCP), makes Tcl optional, introduces TOML
+configuration, replaces unsafe C patterns with safe equivalents,
+and adds a comprehensive test suite. See the README for full details.
 
-    -   Python 3.6 or later (for Python scripting support)
-    -   liburing (Linux only, for high-performance I/O)
 
-  Eggdrop uses a modern TOML configuration format (eggdrop.toml) and
-  the Meson build system. TLS support (TLS 1.2/1.3) is bundled via the
-  opssl library—no external TLS library installation is needed. For
-  data storage, Eggdrop supports pluggable backends: LMDB (default,
-  high-performance) or flat-file (legacy compatibility).
-
-  Copyright (C) 1999 - 2025 Eggheads Development Team
+Copyright (C) 1999-2026 Eggheads Development Team

@@ -31,7 +31,7 @@ typedef struct isupport {
 
 static isupport_t *isupport_list;
 static p_tcl_bind_list H_isupport;
-static op_bh *isupport_bh = NULL;
+static op_bh *isupport_bh = nullptr;
 static const char isupport_default[4096] = "CASEMAPPING=rfc1459 CHANNELLEN=200 NICKLEN=9 CHANTYPES=#& PREFIX=(ov)@+ CHANMODES=b,k,l,imnpst MODES=3 MAXCHANNELS=10 TOPICLEN=250 KICKLEN=250 STATUSMSG=@+";
 
 static int hexdigit2dec[128] = {
@@ -57,7 +57,7 @@ char *traced_isupport(ClientData cdata, Tcl_Interp *irp, EGG_CONST char *name1, 
 
 static tcl_cmds my_tcl_objcmds[] = {
   {"isupport", tcl_isupport},
-  {NULL,       NULL        }
+  {nullptr,       nullptr        }
 };
 
 /*** Utility functions ***/
@@ -150,8 +150,8 @@ static struct isupport *add_record(const char *key, size_t keylen) {
   struct isupport *data = op_bh_alloc(isupport_bh);
 
   data->key = strrangedup_toupper(key, keylen);
-  data->defaultvalue = data->value = NULL;
-  data->prev = NULL;
+  data->defaultvalue = data->value = nullptr;
+  data->prev = nullptr;
   data->next = isupport_list;
 
   if (isupport_list) {
@@ -173,14 +173,14 @@ static void del_record(struct isupport *data) {
   isupport_free(data);
 }
 
-/* find record in list for key, case insensitive, return NULL if it does not exist */
+/* find record in list for key, case insensitive, return nullptr if it does not exist */
 static struct isupport *find_record(const char *key, size_t keylen) {
   for (isupport_t *data = isupport_list; data; data = data->next) {
     if (!keycmp(data->key, key, keylen)) {
       return data;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 /* find record in list for key, case insensitive, create record if it does not exist */
@@ -202,7 +202,7 @@ const char *isupport_get(const char *key, size_t keylen)
 {
   struct isupport *data = find_record(key, keylen);
 
-  return data ? isupport_get_from_record(data) : NULL;
+  return data ? isupport_get_from_record(data) : nullptr;
 }
 
 static void isupport_set_value(const char *key, size_t keylen, const char *value, size_t valuelen, int setdefault)
@@ -262,11 +262,11 @@ void isupport_unset(const char *key, size_t keylen)
   }
   /* does not unset default values */
   if (data->value) {
-    int ret = check_tcl_isupport(data, data->key, NULL);
+    int ret = check_tcl_isupport(data, data->key, nullptr);
     if (!ret) {
       if (data->defaultvalue) {
         op_free((void *)data->value);
-        data->value = NULL;
+        data->value = nullptr;
       } else {
         del_record(data);
       }
@@ -382,7 +382,7 @@ static void isupport_parse(const char *str,
 void isupport_clear(void) {
   struct isupport *data = isupport_list, *next;
 
-  isupport_list = NULL;
+  isupport_list = nullptr;
 
   while (data) {
     next = data->next;
@@ -394,20 +394,20 @@ void isupport_clear(void) {
 void isupport_clear_values(int cleardefaultvalues) {
   struct isupport *next;
 
-  for (struct isupport *data = isupport_list; (next = data ? data->next : NULL, data); data = next) {
+  for (struct isupport *data = isupport_list; (next = data ? data->next : nullptr, data); data = next) {
     if ((cleardefaultvalues && data->defaultvalue) || (!cleardefaultvalues && data->value)) {
       if (cleardefaultvalues && data->value) {
         /* no bind trigger, value > defaultvalue, this does not change the effective value */
         /* and the bind should never be allowed to prevent changing default values */
         op_free((void *)data->defaultvalue);
-        data->defaultvalue = NULL;
+        data->defaultvalue = nullptr;
       } else if (!cleardefaultvalues && data->defaultvalue) {
         if (!strcmp(data->value, data->defaultvalue) || !check_tcl_isupport(data, data->key, data->defaultvalue)) {
           op_free((void *)data->value);
-          data->value = NULL;
+          data->value = nullptr;
         }
       } else {
-        if (!check_tcl_isupport(data, data->key, NULL)) {
+        if (!check_tcl_isupport(data, data->key, nullptr)) {
           /* entry will be empty, delete it */
           del_record(data);
         }
@@ -436,7 +436,7 @@ void isupport_init(void) {
   /* Must be added after reading, if the variable was set before loading mod. */
   Tcl_TraceVar(interp, "isupport-default",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_isupport, NULL);
+               traced_isupport, nullptr);
   add_tcl_objcommands(my_tcl_objcmds);
 }
 
@@ -444,12 +444,12 @@ void isupport_fini(void) {
   del_bind_table(H_isupport);
   Tcl_UntraceVar(interp, "isupport-default",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_isupport, NULL);
+                 traced_isupport, nullptr);
   rem_tcl_commands(my_tcl_objcmds);
   isupport_clear();
   if (isupport_bh) {
     op_bh_destroy(isupport_bh);
-    isupport_bh = NULL;
+    isupport_bh = nullptr;
   }
 }
 
@@ -504,6 +504,7 @@ void isupport_report(int idx, const char *prefix, int details)
 
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%sisupport:", prefix);
     strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
     op_strbuf_free(&_b);
@@ -518,6 +519,7 @@ void isupport_report(int idx, const char *prefix, int details)
   if (details) {
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%sisupport (default):", prefix);
       strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
       op_strbuf_free(&_b);

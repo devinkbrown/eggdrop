@@ -24,12 +24,18 @@ struct opssl_x509 {
     size_t issuer_len;
     const uint8_t *subject_raw;
     size_t subject_len;
-    const uint8_t *spki;        /* SubjectPublicKeyInfo */
+    const uint8_t *spki;        /* SubjectPublicKeyInfo (inner content) */
     size_t spki_len;
+    const uint8_t *spki_der;    /* Full DER including SEQUENCE tag+length */
+    size_t spki_der_len;
     const uint8_t *sig_algo_raw;
     size_t sig_algo_len;
     const uint8_t *signature;
     size_t signature_len;
+
+    /* Serial number */
+    const uint8_t *serial;
+    size_t serial_len;
 
     /* Decoded metadata */
     int64_t not_before;
@@ -189,9 +195,14 @@ static int parse_tbs_certificate(opssl_x509_t *cert) {
     if (CBS_peek_u8(&tbs, &tag) && tag == 0xA0)
         opssl_asn1_skip_element(&tbs);
 
-    /* Skip serialNumber */
-    if (!opssl_asn1_skip_element(&tbs))
-        return 0;
+    /* Parse serialNumber */
+    {
+        opssl_cbs_t serial_val;
+        if (!opssl_asn1_get_integer(&tbs, &serial_val))
+            return 0;
+        cert->serial = CBS_data(&serial_val);
+        cert->serial_len = CBS_len(&serial_val);
+    }
 
     /* Skip signature algorithm */
     if (!opssl_asn1_skip_element(&tbs))
@@ -220,10 +231,14 @@ static int parse_tbs_certificate(opssl_x509_t *cert) {
     cert->subject_raw = CBS_data(&subject_seq);
     cert->subject_len = CBS_len(&subject_seq);
 
-    /* Parse subjectPublicKeyInfo */
+    /* Parse subjectPublicKeyInfo — store both the full DER start
+     * (for fingerprinting, which must include the SEQUENCE wrapper)
+     * and the inner content pointer (for key extraction). */
+    cert->spki_der = CBS_data(&tbs);
     opssl_cbs_t spki_seq;
     if (!opssl_asn1_get_sequence(&tbs, &spki_seq))
         return 0;
+    cert->spki_der_len = (size_t)(CBS_data(&tbs) - cert->spki_der);
     cert->spki = CBS_data(&spki_seq);
     cert->spki_len = CBS_len(&spki_seq);
 
@@ -414,7 +429,7 @@ int opssl_x509_get_san(const opssl_x509_t *cert, int idx, char *buf, size_t len)
         return 0;
     }
 
-    strcpy(buf, cert->sans[idx]);
+    snprintf(buf, len, "%s", cert->sans[idx]);
     return 1;
 }
 
@@ -448,6 +463,16 @@ int opssl_x509_is_expired(const opssl_x509_t *cert) {
     return (now < cert->not_before || now > cert->not_after) ? 1 : 0;
 }
 
+int opssl_x509_get_serial(const opssl_x509_t *cert, uint8_t *buf, size_t *len) {
+    if (!cert || !buf || !len)
+        return 0;
+    if (cert->serial_len == 0 || cert->serial_len > *len)
+        return 0;
+    memcpy(buf, cert->serial, cert->serial_len);
+    *len = cert->serial_len;
+    return 1;
+}
+
 int opssl_x509_get_der(const opssl_x509_t *cert, const uint8_t **der, size_t *len) {
     if (!cert || !der || !len) {
         opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, "Invalid arguments");
@@ -470,47 +495,13 @@ int opssl_x509_get_spki(const opssl_x509_t *cert, const uint8_t **spki, size_t *
     return 1;
 }
 
-int opssl_x509_get_serial(const opssl_x509_t *cert, uint8_t *buf, size_t *len) {
-    if (!cert || !buf || !len) {
+int opssl_x509_get_spki_der(const opssl_x509_t *cert, const uint8_t **spki, size_t *len) {
+    if (!cert || !spki || !len) {
         opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, "Invalid arguments");
         return 0;
     }
 
-    /* TBSCertificate ::= SEQUENCE {
-     *   version         [0]  EXPLICIT Version DEFAULT v1,
-     *   serialNumber         CertificateSerialNumber,
-     *   ...
-     * }
-     * Parse the TBS to extract the serial number.
-     */
-    opssl_cbs_t tbs, inner;
-    opssl_cbs_init(&tbs, cert->tbs, cert->tbs_len);
-
-    if (!opssl_asn1_get_sequence(&tbs, &inner))
-        goto err;
-
-    /* Skip optional version [0] EXPLICIT if present */
-    if (opssl_cbs_len(&inner) > 0 && *opssl_cbs_data(&inner) == 0xA0) {
-        if (!opssl_asn1_skip_element(&inner))
-            goto err;
-    }
-
-    /* serialNumber is an INTEGER */
-    opssl_cbs_t serial;
-    if (!opssl_asn1_get_integer(&inner, &serial))
-        goto err;
-
-    size_t serial_len = opssl_cbs_len(&serial);
-    if (serial_len > *len) {
-        opssl_set_error(OPSSL_ERR_BUFFER_TOO_SMALL, "Serial number buffer too small");
-        return 0;
-    }
-
-    memcpy(buf, opssl_cbs_data(&serial), serial_len);
-    *len = serial_len;
+    *spki = cert->spki_der;
+    *len = cert->spki_der_len;
     return 1;
-
-err:
-    opssl_set_error(OPSSL_ERR_PEM_DECODE, "Failed to parse serial number from TBS");
-    return 0;
 }

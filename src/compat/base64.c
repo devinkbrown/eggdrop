@@ -232,7 +232,7 @@ b64_pton(const char *src, uint8_t *target, size_t targsize)
 			break;
 
 		pos = (char *)strchr(Base64, ch);
-		if (pos == NULL)		/* A non-base64 character. */
+		if (pos == nullptr)		/* A non-base64 character. */
 			return (-1);
 
 		switch (state) {
@@ -300,7 +300,7 @@ b64_pton(const char *src, uint8_t *target, size_t targsize)
 
 		case 2:		/* Valid, means one byte of info */
 			/* Skip any number of spaces. */
-			for ((void)NULL; ch != '\0'; ch = *src++)
+			for ((void)nullptr; ch != '\0'; ch = *src++)
 				if (!isspace((unsigned char)ch))
 					break;
 			/* Make sure there is another trailing = sign. */
@@ -314,7 +314,7 @@ b64_pton(const char *src, uint8_t *target, size_t targsize)
 			 * We know this char is an =.  Is there anything but
 			 * whitespace after it?
 			 */
-			for ((void)NULL; ch != '\0'; ch = *src++)
+			for ((void)nullptr; ch != '\0'; ch = *src++)
 				if (!isspace((unsigned char)ch))
 					return (-1);
 

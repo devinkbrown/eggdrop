@@ -52,16 +52,16 @@ egg_mbuf_t *egg_mbuf_alloc(size_t capacity)
     egg_mbuf_t *mb;
 
     if (capacity == 0)
-        return NULL;
+        return nullptr;
 
     mb = op_malloc(sizeof(*mb));
-    if (mb == NULL)
-        return NULL;
+    if (mb == nullptr)
+        return nullptr;
 
     mb->buf = op_malloc(capacity);
-    if (mb->buf == NULL) {
+    if (mb->buf == nullptr) {
         op_free(mb);
-        return NULL;
+        return nullptr;
     }
 
     mb->cap  = capacity;
@@ -74,7 +74,7 @@ egg_mbuf_t *egg_mbuf_alloc(size_t capacity)
 
 void egg_mbuf_free(egg_mbuf_t *mb)
 {
-    if (mb == NULL)
+    if (mb == nullptr)
         return;
     op_free(mb->buf);
     op_free(mb);
@@ -87,7 +87,7 @@ size_t egg_mbuf_append(egg_mbuf_t *mb, const char *data, size_t len)
     size_t first_chunk;
     size_t second_chunk;
 
-    if (mb == NULL || data == NULL || len == 0)
+    if (mb == nullptr || data == nullptr || len == 0)
         return 0;
 
     free_space = mb->cap - mb->len;
@@ -118,11 +118,11 @@ size_t egg_mbuf_peek(egg_mbuf_t *mb, char **data, size_t *len)
 {
     size_t contiguous;
 
-    if (mb == NULL || data == NULL || len == 0)
+    if (mb == nullptr || data == nullptr || len == 0)
         return 0;
 
     if (mb->len == 0) {
-        *data = NULL;
+        *data = nullptr;
         *len  = 0;
         return 0;
     }
@@ -140,7 +140,7 @@ size_t egg_mbuf_peek(egg_mbuf_t *mb, char **data, size_t *len)
 
 void egg_mbuf_consume(egg_mbuf_t *mb, size_t len)
 {
-    if (mb == NULL || len == 0)
+    if (mb == nullptr || len == 0)
         return;
 
     /* Caller must not consume more than is buffered. */
@@ -160,12 +160,12 @@ void egg_mbuf_consume(egg_mbuf_t *mb, size_t len)
 
 size_t egg_mbuf_len(const egg_mbuf_t *mb)
 {
-    return (mb != NULL) ? mb->len : 0;
+    return (mb != nullptr) ? mb->len : 0;
 }
 
 size_t egg_mbuf_capacity(const egg_mbuf_t *mb)
 {
-    return (mb != NULL) ? mb->cap : 0;
+    return (mb != nullptr) ? mb->cap : 0;
 }
 
 void egg_mbuf_peek2(egg_mbuf_t *mb,
@@ -174,9 +174,9 @@ void egg_mbuf_peek2(egg_mbuf_t *mb,
 {
     size_t c1;
 
-    if (mb == NULL || mb->len == 0) {
-        *data1 = NULL; *len1 = 0;
-        *data2 = NULL; *len2 = 0;
+    if (mb == nullptr || mb->len == 0) {
+        *data1 = nullptr; *len1 = 0;
+        *data2 = nullptr; *len2 = 0;
         return;
     }
 
@@ -193,7 +193,7 @@ void egg_mbuf_peek2(egg_mbuf_t *mb,
         *data2 = mb->buf;
         *len2  = mb->len - c1;
     } else {
-        *data2 = NULL;
+        *data2 = nullptr;
         *len2  = 0;
     }
 }
@@ -203,13 +203,13 @@ int egg_mbuf_grow(egg_mbuf_t *mb, size_t new_cap)
     char *new_buf;
     size_t first, rest;
 
-    if (mb == NULL)
+    if (mb == nullptr)
         return -1;
     if (new_cap <= mb->cap)
         return 0;
 
     new_buf = op_malloc(new_cap);
-    if (new_buf == NULL)
+    if (new_buf == nullptr)
         return -1;
 
     /* Linearise ring-buffer data into new_buf[0..len-1]. */
@@ -235,7 +235,7 @@ size_t egg_mbuf_append_grow(egg_mbuf_t *mb, const char *data, size_t len)
 {
     size_t new_cap;
 
-    if (mb == NULL || data == NULL || len == 0)
+    if (mb == nullptr || data == nullptr || len == 0)
         return 0;
 
     if (mb->cap - mb->len < len) {

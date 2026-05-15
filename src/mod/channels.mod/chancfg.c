@@ -18,8 +18,8 @@ static void init_masklist(masklist *m)
 {
   m->mask = op_malloc(1);
   m->mask[0] = 0;
-  m->who = NULL;
-  m->next = NULL;
+  m->who = nullptr;
+  m->next = nullptr;
 }
 
 /* Initialize channel record fields. */
@@ -37,7 +37,7 @@ static void init_channel(struct chanset_t *chan, int reset)
     chan->channel.member = channel_malloc_member();
     /* channel_malloc_member zero-fills the allocation */
     if (chan->channel.member_ht)
-      op_htab_destroy(chan->channel.member_ht, NULL, NULL);
+      op_htab_destroy(chan->channel.member_ht, nullptr, nullptr);
     chan->channel.member_ht = op_htab_create_istr("chan_members", 32);
   }
 
@@ -54,25 +54,25 @@ static void init_channel(struct chanset_t *chan, int reset)
     chan->channel.ban = channel_malloc_mask();
     init_masklist(chan->channel.ban);
     if (chan->channel.ban_ht)
-      op_htab_destroy(chan->channel.ban_ht, NULL, NULL);
+      op_htab_destroy(chan->channel.ban_ht, nullptr, nullptr);
     chan->channel.ban_ht = op_htab_create_istr("chan_ban", 16);
   }
   if (flags & CHAN_RESETEXEMPTS) {
     chan->channel.exempt = channel_malloc_mask();
     init_masklist(chan->channel.exempt);
     if (chan->channel.exempt_ht)
-      op_htab_destroy(chan->channel.exempt_ht, NULL, NULL);
+      op_htab_destroy(chan->channel.exempt_ht, nullptr, nullptr);
     chan->channel.exempt_ht = op_htab_create_istr("chan_exempt", 16);
   }
   if (flags & CHAN_RESETINVITED) {
     chan->channel.invite = channel_malloc_mask();
     init_masklist(chan->channel.invite);
     if (chan->channel.invite_ht)
-      op_htab_destroy(chan->channel.invite_ht, NULL, NULL);
+      op_htab_destroy(chan->channel.invite_ht, nullptr, nullptr);
     chan->channel.invite_ht = op_htab_create_istr("chan_invite", 16);
   }
   if (flags & CHAN_RESETTOPIC)
-    chan->channel.topic = NULL;
+    chan->channel.topic = nullptr;
 }
 
 static void clear_masklist(masklist *m)
@@ -104,32 +104,32 @@ static void clear_channel(struct chanset_t *chan, int reset)
         channel_free_member(m);
     }
     if (!reset && chan->channel.member_ht) {
-      op_htab_destroy(chan->channel.member_ht, NULL, NULL);
-      chan->channel.member_ht = NULL;
+      op_htab_destroy(chan->channel.member_ht, nullptr, nullptr);
+      chan->channel.member_ht = nullptr;
     }
   }
   if (flags & CHAN_RESETBANS) {
     clear_masklist(chan->channel.ban);
-    chan->channel.ban = NULL;
+    chan->channel.ban = nullptr;
     if (chan->channel.ban_ht) {
-      op_htab_destroy(chan->channel.ban_ht, NULL, NULL);
-      chan->channel.ban_ht = NULL;
+      op_htab_destroy(chan->channel.ban_ht, nullptr, nullptr);
+      chan->channel.ban_ht = nullptr;
     }
   }
   if (flags & CHAN_RESETEXEMPTS) {
     clear_masklist(chan->channel.exempt);
-    chan->channel.exempt = NULL;
+    chan->channel.exempt = nullptr;
     if (chan->channel.exempt_ht) {
-      op_htab_destroy(chan->channel.exempt_ht, NULL, NULL);
-      chan->channel.exempt_ht = NULL;
+      op_htab_destroy(chan->channel.exempt_ht, nullptr, nullptr);
+      chan->channel.exempt_ht = nullptr;
     }
   }
   if (flags & CHAN_RESETINVITED) {
     clear_masklist(chan->channel.invite);
-    chan->channel.invite = NULL;
+    chan->channel.invite = nullptr;
     if (chan->channel.invite_ht) {
-      op_htab_destroy(chan->channel.invite_ht, NULL, NULL);
-      chan->channel.invite_ht = NULL;
+      op_htab_destroy(chan->channel.invite_ht, nullptr, nullptr);
+      chan->channel.invite_ht = nullptr;
     }
   }
   if ((flags & CHAN_RESETTOPIC) && chan->channel.topic)
@@ -196,7 +196,7 @@ static void egg_free_list(int argc, char **argv)
  * Unified list splitting / freeing.
  *
  * In Tcl builds, Tcl_SplitList handles full Tcl quoting (backslash escapes,
- * nested braces, etc.).  In non-Tcl builds the stub sets lc=0, lv=NULL which
+ * nested braces, etc.).  In non-Tcl builds the stub sets lc=0, lv=nullptr which
  * is useless, so we fall back to egg_split_list.  *tcl_alloc is set to 1
  * when Tcl_SplitList succeeded, 0 when egg_split_list was used, so the
  * caller frees with the right function.
@@ -206,7 +206,7 @@ static int chan_split_list(const char *str, int *argc, char ***argv,
 {
   Tcl_Size tc;
   EGG_CONST char **tv;
-  if (Tcl_SplitList(NULL, str, &tc, &tv) == TCL_OK && tc > 0) {
+  if (Tcl_SplitList(nullptr, str, &tc, &tv) == TCL_OK && tc > 0) {
     *argc = (int) tc;
     *argv = (char **) tv;
     *tcl_alloc = 1;
@@ -248,7 +248,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                             item[i][0] == '+' ? "1" : "0")) {
         Tcl_ResetResult(irp);
         Tcl_AppendResult(irp, "Channel setting ", item[i],
-                         " rejected by Tcl script", NULL);
+                         " rejected by Tcl script", nullptr);
         return TCL_ERROR;
       }
     } else {
@@ -273,7 +273,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
             op_free(value);
           Tcl_ResetResult(irp);
           Tcl_AppendResult(irp, "Channel setting ", item[i], " to ", value,
-                           " rejected by Tcl script", NULL);
+                           " rejected by Tcl script", nullptr);
           return TCL_ERROR;
         }
         if (free_value)
@@ -283,42 +283,42 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
     if (!strcmp(item[i], "need-op")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel need-op needs argument", NULL);
+        Tcl_AppendResult(irp, "channel need-op needs argument", nullptr);
         return TCL_ERROR;
       }
       strlcpy(chan->need_op, item[i], sizeof chan->need_op);
     } else if (!strcmp(item[i], "need-invite")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel need-invite needs argument", NULL);
+        Tcl_AppendResult(irp, "channel need-invite needs argument", nullptr);
         return TCL_ERROR;
       }
       strlcpy(chan->need_invite, item[i], sizeof chan->need_invite);
     } else if (!strcmp(item[i], "need-key")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel need-key needs argument", NULL);
+        Tcl_AppendResult(irp, "channel need-key needs argument", nullptr);
         return TCL_ERROR;
       }
       strlcpy(chan->need_key, item[i], sizeof chan->need_key);
     } else if (!strcmp(item[i], "need-limit")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel need-limit needs argument", NULL);
+        Tcl_AppendResult(irp, "channel need-limit needs argument", nullptr);
         return TCL_ERROR;
       }
       strlcpy(chan->need_limit, item[i], sizeof chan->need_limit);
     } else if (!strcmp(item[i], "need-unban")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel need-unban needs argument", NULL);
+        Tcl_AppendResult(irp, "channel need-unban needs argument", nullptr);
         return TCL_ERROR;
       }
       strlcpy(chan->need_unban, item[i], sizeof chan->need_unban);
     } else if (!strcmp(item[i], "chanmode")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel chanmode needs argument", NULL);
+        Tcl_AppendResult(irp, "channel chanmode needs argument", nullptr);
         return TCL_ERROR;
       }
       strlcpy(s, item[i], sizeof s);
@@ -326,54 +326,54 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
     } else if (!strcmp(item[i], "idle-kick")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel idle-kick needs argument", NULL);
+        Tcl_AppendResult(irp, "channel idle-kick needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->idle_kick = atoi(item[i]);
+      chan->idle_kick = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "dont-idle-kick"))
       chan->idle_kick = 0;
     else if (!strcmp(item[i], "stopnethack-mode")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel stopnethack-mode needs argument", NULL);
+        Tcl_AppendResult(irp, "channel stopnethack-mode needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->stopnethack_mode = atoi(item[i]);
+      chan->stopnethack_mode = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "revenge-mode")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel revenge-mode needs argument", NULL);
+        Tcl_AppendResult(irp, "channel revenge-mode needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->revenge_mode = atoi(item[i]);
+      chan->revenge_mode = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "ban-type")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel ban-type needs argument", NULL);
+        Tcl_AppendResult(irp, "channel ban-type needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->ban_type = atoi(item[i]);
+      chan->ban_type = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "ban-time")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel ban-time needs argument", NULL);
+        Tcl_AppendResult(irp, "channel ban-time needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->ban_time = atoi(item[i]);
+      chan->ban_time = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "exempt-time")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel exempt-time needs argument", NULL);
+        Tcl_AppendResult(irp, "channel exempt-time needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->exempt_time = atoi(item[i]);
+      chan->exempt_time = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "invite-time")) {
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, "channel invite-time needs argument", NULL);
+        Tcl_AppendResult(irp, "channel invite-time needs argument", nullptr);
         return TCL_ERROR;
       }
-      chan->invite_time = atoi(item[i]);
+      chan->invite_time = egg_atoi(item[i]);
     } else if (!strcmp(item[i], "+enforcebans"))
       chan->status |= CHAN_ENFORCEBANS;
     else if (!strcmp(item[i], "-enforcebans"))
@@ -508,12 +508,12 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
         pthr = &chan->flood_nick_thr;
         ptime = &chan->flood_nick_time;
       } else {
-        Tcl_AppendResult(irp, "illegal channel flood type: ", item[i], NULL);
+        Tcl_AppendResult(irp, "illegal channel flood type: ", item[i], nullptr);
         return TCL_ERROR;
       }
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, item[i - 1], " needs argument", NULL);
+        Tcl_AppendResult(irp, item[i - 1], " needs argument", nullptr);
         return TCL_ERROR;
       }
       p = strchr(item[i], ':');
@@ -524,11 +524,11 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
             || strtol(p, &endptr, 10) < 0 || (*endptr)) {
           *--p = ':';
           Tcl_AppendResult(irp, "values must be integers >= 0: ", item[i],
-                           NULL);
+                           nullptr);
           return TCL_ERROR;
         } else {
-          *pthr = atoi(item[i]);
-          *ptime = atoi(p);
+          *pthr = egg_atoi(item[i]);
+          *ptime = egg_atoi(p);
           *--p = ':';
         }
       } else {
@@ -537,7 +537,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
           *ptime = 0;
         } else {
           Tcl_AppendResult(irp, "flood value must be in X:Y format: ",
-                           item[i], NULL);
+                           item[i], nullptr);
           return TCL_ERROR;
         }
       }
@@ -546,16 +546,16 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
 
       i++;
       if (i >= items) {
-        Tcl_AppendResult(irp, item[i - 1], " needs argument", NULL);
+        Tcl_AppendResult(irp, item[i - 1], " needs argument", nullptr);
         return TCL_ERROR;
       }
       p = strchr(item[i], ':');
       if (p) {
         p++;
-        chan->aop_min = atoi(item[i]);
-        chan->aop_max = atoi(p);
+        chan->aop_min = egg_atoi(item[i]);
+        chan->aop_max = egg_atoi(p);
       } else {
-        chan->aop_min = atoi(item[i]);
+        chan->aop_min = egg_atoi(item[i]);
         chan->aop_max = chan->aop_min;
       }
     } else {
@@ -581,10 +581,10 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                    !strcasecmp(item[i] + 9, ul->name)))) {
           i++;
           if (i >= items) {
-            Tcl_AppendResult(irp, "this setting needs an argument", NULL);
+            Tcl_AppendResult(irp, "this setting needs an argument", nullptr);
             return TCL_ERROR;
           }
-          setudef(ul, chan->dname, atoi(item[i]));
+          setudef(ul, chan->dname, egg_atoi(item[i]));
           found = 1;
           break;
         } else if (ul->type == UDEF_STR &&
@@ -595,7 +595,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
 
           i++;
           if (i >= items) {
-            Tcl_AppendResult(irp, "this setting needs an argument", NULL);
+            Tcl_AppendResult(irp, "this setting needs an argument", nullptr);
             return TCL_ERROR;
           }
           val = (char *) getudef(ul->values, chan->dname);
@@ -613,7 +613,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
       if (!found) {
         if (irp && item[i][0])  /* ignore "" */
           Tcl_AppendResult(irp, "illegal channel option: ", item[i], "\n",
-                           NULL);
+                           nullptr);
         x++;
       }
     }
@@ -668,18 +668,19 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
   char **item;
   struct chanset_t *chan;
 
-  if (!newname || !newname[0] || (strchr(CHANMETA, newname[0]) == NULL)) {
-    Tcl_AppendResult(irp, "invalid channel prefix", NULL);
+  if (!newname || !newname[0] || (strchr(CHANMETA, newname[0]) == nullptr)) {
+    Tcl_AppendResult(irp, "invalid channel prefix", nullptr);
     return TCL_ERROR;
   }
 
-  if (strchr(newname, ',') != NULL) {
-    Tcl_AppendResult(irp, "invalid channel name", NULL);
+  if (strchr(newname, ',') != nullptr) {
+    Tcl_AppendResult(irp, "invalid channel name", nullptr);
     return TCL_ERROR;
   }
 
   convert_element(glob_chanmode, buf2);
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "chanmode %s %s%s", buf2, glob_chanset, options);
   const char *buf = op_strbuf_str(&_b);
 
@@ -729,7 +730,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
     chan_htab_add(chan);
     join = 1;
     /* Request user chanflags from other bots */
-    shareout(NULL, "nc %s\n", chan->dname);
+    shareout(nullptr, "nc %s\n", chan->dname);
   }
 
   /* If chan_hack is set we're loading the userfile; ignore errors for
@@ -829,7 +830,7 @@ static int read_chanfile_native(const char *fname)
       }
       strlcpy(opts, p, sizeof opts);
 
-      tcl_channel_add(NULL, name, opts);
+      tcl_channel_add(nullptr, name, opts);
 
     } else if (!strncmp(p, "channel set ", 12)) {
       /* ---- channel set NAME OP [VAL ...] ---- */
@@ -858,7 +859,7 @@ static int read_chanfile_native(const char *fname)
       if (!chan) continue;
 
       if (egg_split_list(p, &items, &item) == TCL_OK) {
-        tcl_channel_modify(NULL, chan, items, item);
+        tcl_channel_modify(nullptr, chan, items, item);
         egg_free_list(items, item);
       }
     }

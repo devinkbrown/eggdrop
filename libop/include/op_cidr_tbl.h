@@ -155,25 +155,26 @@ void *op_cidr_lpm6(const op_cidr_tbl_t *t, const struct in6_addr *addr);
 void *op_cidr_lpm_ss(const op_cidr_tbl_t *t,
                      const struct sockaddr_storage *ss);
 
+/* ---- parsing compatibility helpers -------------------------------------- */
+
+/*
+ * Parse an IPv4/IPv6 address into sockaddr_storage.
+ * Returns 0 on success and -1 on parse failure.
+ */
+int op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss);
+
+/*
+ * Parse an IPv4/IPv6 address or CIDR prefix into sockaddr_storage + prefix
+ * length. Missing prefix length means /32 for IPv4 and /128 for IPv6.
+ * Returns 0 on success and -1 on parse failure.
+ */
+int op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen);
+
 /* ---- introspection ------------------------------------------------------- */
 
 size_t      op_cidr_count4(const op_cidr_tbl_t *t); /* IPv4 prefix count  */
 size_t      op_cidr_count6(const op_cidr_tbl_t *t); /* IPv6 prefix count  */
 const char *op_cidr_name  (const op_cidr_tbl_t *t);
-
-/* ---- parsing helpers ------------------------------------------------------ */
-
-/*
- * op_cidr_parse_addr — parse a bare IP address (v4 or v6) into ss.
- * Returns 0 on success, -1 on invalid input.
- */
-int op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss);
-
-/*
- * op_cidr_parse_str — parse "addr/prefix" into ss + plen.
- * Returns 0 on success, -1 on invalid input.
- */
-int op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen);
 
 /* ---- enumeration --------------------------------------------------------- */
 

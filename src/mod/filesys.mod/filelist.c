@@ -30,7 +30,7 @@ static filelist_t *filelist_new(void)
 
   flist = op_malloc(sizeof(filelist_t));
   flist->tot = 0;
-  flist->elements = NULL;
+  flist->elements = nullptr;
   return flist;
 }
 
@@ -55,7 +55,7 @@ static void filelist_add(filelist_t *flist, char *filename)
   flist->tot++;
   flist->elements = op_realloc(flist->elements, flist->tot * sizeof(filelist_t));
   FILELIST_LE(flist).fn = op_strdup(filename);
-  FILELIST_LE(flist).output = NULL;
+  FILELIST_LE(flist).output = nullptr;
 }
 
 /* Add data to the end of filelist entry's output string
@@ -64,6 +64,7 @@ static void filelist_addout(filelist_t *flist, char *desc)
 {
   if (FILELIST_LE(flist).output) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", FILELIST_LE(flist).output, desc);
     op_free(FILELIST_LE(flist).output);
     FILELIST_LE(flist).output = op_strbuf_steal(&_b);

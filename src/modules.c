@@ -31,6 +31,7 @@
 #include "md5/md5.h"
 #include "users.h"
 #include "script.h"
+#include "async_dns.h"
 
 #ifndef STATIC
 #  ifdef MOD_USE_SHL
@@ -113,7 +114,7 @@ struct static_list {
   struct static_list *next;
   char *name;
   char *(*func) ();
-} *static_modules = NULL;
+} *static_modules = nullptr;
 
 void check_static(char *name, char *(*func) ())
 {
@@ -142,8 +143,8 @@ int false_func(void)
  * 1 indicates handled. */
 op_vec_t hook_list[REAL_HOOKS];
 
-static op_bh *module_entry_bh = NULL;
-static op_bh *dependancy_bh   = NULL;
+static op_bh *module_entry_bh = nullptr;
+static op_bh *dependancy_bh   = nullptr;
 
 static void null_share(int idx, char *x)
 {
@@ -173,14 +174,14 @@ int (*rfc_casecmp) (const char *, const char *) = _rfc_casecmp;
 int (*rfc_ncasecmp) (const char *, const char *, int) = _rfc_ncasecmp;
 int (*rfc_toupper) (int) = _rfc_toupper;
 int (*rfc_tolower) (int) = _rfc_tolower;
-void (*dns_hostbyip) (sockname_t *) = core_dns_hostbyip;
-void (*dns_ipbyhost) (char *) = core_dns_ipbyhost;
+void (*dns_hostbyip) (sockname_t *) = async_dns_hostbyip;
+void (*dns_ipbyhost) (char *) = async_dns_ipbyhost;
 void (*webui_dcc_telnet_hostresolved) (int, int) = 0;
 size_t (*webui_frame) (const char **, const char *, size_t) = 0;
 void (*webui_unframe) (int, char *, int *) = 0;
 
 module_entry *module_list;
-dependancy *dependancy_list = NULL;
+dependancy *dependancy_list = nullptr;
 
 /* Forward declaration so global_table can reference it. */
 static eggdrop_api_t eggdrop_api;
@@ -237,7 +238,7 @@ Function global_table[] = {
   (Function) nextbot,
   /* 36 - 39 */
   (Function) zapfbot,
-  (Function) NULL,                   /* was: n_free (removed)               */
+  (Function) nullptr,                   /* was: n_free (removed)               */
   (Function) u_pass_match,
   (Function) _user_malloc,
   /* 40 - 43 */
@@ -418,8 +419,8 @@ Function global_table[] = {
   (Function) detect_dcc_flood,
   (Function) flush_lines,
   /* 168 - 171 */
-  (Function) NULL,                   /* was: expected_memory (removed)      */
-  (Function) NULL,                   /* was: tell_mem_status (removed)      */
+  (Function) nullptr,                   /* was: expected_memory (removed)      */
+  (Function) nullptr,                   /* was: tell_mem_status (removed)      */
   (Function) & do_restart,        /* volatile sig_atomic_t               */
   (Function) check_tcl_filt,
   /* 172 - 175 */
@@ -669,10 +670,10 @@ void init_modules(void)
   module_list->major = (egg_numver) / 10000;
   module_list->minor = (egg_numver / 100) % 100;
 #ifndef STATIC
-  module_list->hand = NULL;
+  module_list->hand = nullptr;
 #endif
-  module_list->next = NULL;
-  module_list->funcs = NULL;
+  module_list->next = nullptr;
+  module_list->funcs = nullptr;
   for (int i = 0; i < REAL_HOOKS; i++)
     op_vec_init(&hook_list[i], 2);
 }
@@ -724,14 +725,14 @@ const char *module_load(char *name)
 #  endif
 #endif /* !STATIC */
 
-  if (module_find(name, 0, 0) != NULL)
+  if (module_find(name, 0, 0) != nullptr)
     return MOD_ALREADYLOAD;
 
 #ifndef STATIC
   op_strbuf_init(&_path);
   if (moddir[0] != '/') {
     char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof cwd) == NULL) {
+    if (getcwd(cwd, sizeof cwd) == nullptr) {
       debug1("modules: getcwd(): %s\n", strerror(errno));
       return MOD_BADCWD;
     }
@@ -755,20 +756,22 @@ const char *module_load(char *name)
     return "Can't load module.";
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s_start", name);
     if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
-      f = NULL;
+      f = nullptr;
     op_strbuf_free(&_b);
   }
-  if (f == NULL) {
+  if (f == nullptr) {
     /* Some OS's require a _ to be prepended to the symbol name (Darwin, etc). */
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
-      f = NULL;
+      f = nullptr;
     op_strbuf_free(&_b);
   }
-  if (f == NULL) {
+  if (f == nullptr) {
     shl_unload(hand);
     return MOD_NOSTARTDEF;
   }
@@ -784,6 +787,7 @@ const char *module_load(char *name)
   op_strbuf_free(&_path);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     sym = NSLookupSymbolInModule(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
@@ -791,25 +795,26 @@ const char *module_load(char *name)
   if (sym)
     f = (Function) NSAddressOfSymbol(sym);
   else
-    f = NULL;
-  if (f == NULL) {
+    f = nullptr;
+  if (f == nullptr) {
     NSUnLinkModule(hand, NSUNLINKMODULE_OPTION_NONE);
     return MOD_NOSTARTDEF;
   }
 #  endif /* MOD_USE_DYLD */
 
 #  ifdef MOD_USE_RLD
-  ret = rld_load(NULL, (struct mach_header **) 0, op_strbuf_str(&_path), (const char *) 0);
+  ret = rld_load(nullptr, (struct mach_header **) 0, op_strbuf_str(&_path), (const char *) 0);
   op_strbuf_free(&_path);
   if (!ret)
     return "Can't load module.";
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
-    ret = rld_lookup(NULL, op_strbuf_str(&_b), &f);
+    ret = rld_lookup(nullptr, op_strbuf_str(&_b), &f);
     op_strbuf_free(&_b);
   }
-  if (!ret || f == NULL)
+  if (!ret || f == nullptr)
     return MOD_NOSTARTDEF;
   /* There isn't a reliable way to unload at this point... just keep it loaded. */
 #  endif /* MOD_USE_DYLD */
@@ -821,17 +826,19 @@ const char *module_load(char *name)
     return "Can't load module.";
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s_start", name);
     f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  if (f == NULL) {
+  if (f == nullptr) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  if (f == NULL) {
+  if (f == nullptr) {
     unload(hand);
     return MOD_NOSTARTDEF;
   }
@@ -844,17 +851,19 @@ const char *module_load(char *name)
     return dlerror();
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s_start", name);
     f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  if (f == NULL) {
+  if (f == nullptr) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  if (f == NULL) {
+  if (f == nullptr) {
     dlclose(hand);
     return MOD_NOSTARTDEF;
   }
@@ -893,17 +902,17 @@ const char *module_load(char *name)
   else
     putlog(LOG_MISC, "*", MOD_LOADED, name);
 
-  return NULL;
+  return nullptr;
 }
 
 char *module_unload(char *name, char *user)
 {
-  module_entry *p = module_list, *o = NULL;
+  module_entry *p = module_list, *o = nullptr;
   char *e;
   Function *f;
 
   while (p) {
-    if ((p->name != NULL) && !strcmp(name, p->name)) {
+    if ((p->name != nullptr) && !strcmp(name, p->name)) {
       dependancy *d;
 
       for (d = dependancy_list; d; d = d->next)
@@ -916,7 +925,7 @@ char *module_unload(char *name, char *user)
       if (f) {
         check_tcl_unld(name);
         e = ((char *(*)(char *)) f[MODCALL_CLOSE])(user);
-        if (e != NULL)
+        if (e != nullptr)
           return e;
 #ifndef STATIC
 #  ifdef MOD_USE_SHL
@@ -934,13 +943,13 @@ char *module_unload(char *name, char *user)
 #endif /* !STATIC */
       }
       op_free(p->name);
-      if (o == NULL)
+      if (o == nullptr)
         module_list = p->next;
       else
         o->next = p->next;
       op_bh_free(module_entry_bh, p);
       putlog(LOG_MISC, "*", "%s %s", MOD_UNLOADED, name);
-      return NULL;
+      return nullptr;
     }
     o = p;
     p = p->next;
@@ -958,7 +967,7 @@ module_entry *module_find(char *name, int major, int minor)
         (minor <= p->minor))) && !strcasecmp(name, p->name) )
       return p;
   }
-  return NULL;
+  return nullptr;
 
 }
 
@@ -1008,19 +1017,19 @@ int module_undepend(char *name1)
 {
   int ok = 0;
   module_entry *p = module_find(name1, 0, 0);
-  dependancy *d = dependancy_list, *o = NULL;
+  dependancy *d = dependancy_list, *o = nullptr;
 
-  if (p == NULL)
+  if (p == nullptr)
     return 0;
-  while (d != NULL) {
+  while (d != nullptr) {
     if (d->needing == p) {
-      if (o == NULL) {
+      if (o == nullptr) {
         dependancy_list = d->next;
       } else {
         o->next = d->next;
       }
       op_bh_free(dependancy_bh, d);
-      if (o == NULL)
+      if (o == nullptr)
         d = dependancy_list;
       else
         d = o->next;
@@ -1101,7 +1110,7 @@ void add_hook(int hook_num, Function func)
       break;
       /* special hook <drummer> */
     case HOOK_RFC_CASECMP:
-      if (func == NULL) {
+      if (func == nullptr) {
         rfc_casecmp = egg_strcasecmp;
         rfc_ncasecmp =
           (int (*)(const char *, const char *, int)) egg_strncasecmp;
@@ -1119,11 +1128,11 @@ void add_hook(int hook_num, Function func)
         match_noterej = (int (*)(struct userrec *, char *)) func;
       break;
     case HOOK_DNS_HOSTBYIP:
-      if (dns_hostbyip == core_dns_hostbyip)
+      if (dns_hostbyip == async_dns_hostbyip)
         dns_hostbyip = (void (*)(sockname_t *)) func;
       break;
     case HOOK_DNS_IPBYHOST:
-      if (dns_ipbyhost == core_dns_ipbyhost)
+      if (dns_ipbyhost == async_dns_ipbyhost)
         dns_ipbyhost = (void (*)(char *)) func;
       break;
     case HOOK_DCC_TELNET_HOSTRESOLVED:
@@ -1194,11 +1203,11 @@ void del_hook(int hook_num, Function func)
       break;
     case HOOK_DNS_HOSTBYIP:
       if (dns_hostbyip == (void (*)(sockname_t *)) func)
-        dns_hostbyip = core_dns_hostbyip;
+        dns_hostbyip = async_dns_hostbyip;
       break;
     case HOOK_DNS_IPBYHOST:
       if (dns_ipbyhost == (void (*)(char *)) func)
-        dns_ipbyhost = core_dns_ipbyhost;
+        dns_ipbyhost = async_dns_ipbyhost;
       break;
     case HOOK_DCC_TELNET_HOSTRESOLVED:
       if (webui_dcc_telnet_hostresolved == (void (*)(int, int)) func)
@@ -1237,7 +1246,7 @@ void do_module_report(int idx, int details, char *which)
       if (p->funcs) {
         Function f = p->funcs[MODCALL_REPORT];
 
-        if (f != NULL)
+        if (f != nullptr)
           ((void (*)(int, int)) f)(idx, details);
       }
       if (which)

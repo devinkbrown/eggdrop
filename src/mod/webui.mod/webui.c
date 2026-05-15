@@ -31,7 +31,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/resource.h>
+
 #include <sys/stat.h>
 #ifdef __APPLE__
 #  define st_mtim st_mtimespec
@@ -48,7 +48,7 @@ constexpr int  WS_LEN    = 28; /* length of Sec-WebSocket-Accept header field va
 constexpr int  WS_ECHO_ON  = 0x01;
 constexpr int  WS_ECHO_OFF = 0x02;
 
-static Function *global = NULL;
+static Function *global = nullptr;
 
 /* 0x15 = TLS ContentType alert
  * 0x0a = TLS Alert       unexpected_message
@@ -70,6 +70,7 @@ static void put_404(int idx) {
   debug1("webui: put_404() idx %i", idx);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b,
       "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
       "Content-Length: 13\r\n"
@@ -96,9 +97,9 @@ struct file_cache_struct {
   struct timespec st_mtim;
   char *data;
 } file_cache[3] = {
-  {"webui/apple-touch-icon.png", "image/png",                { .tv_sec = -1, .tv_nsec = -1 }, NULL},
-  {"webui/favicon.ico",          "image/x-icon",             { .tv_sec = -1, .tv_nsec = -1 }, NULL},
-  {"webui/index.html",           "text/html; charset=utf-8", { .tv_sec = -1, .tv_nsec = -1 }, NULL}
+  {"webui/apple-touch-icon.png", "image/png",                { .tv_sec = -1, .tv_nsec = -1 }, nullptr},
+  {"webui/favicon.ico",          "image/x-icon",             { .tv_sec = -1, .tv_nsec = -1 }, nullptr},
+  {"webui/index.html",           "text/html; charset=utf-8", { .tv_sec = -1, .tv_nsec = -1 }, nullptr}
 };
 
 static void put_file(int idx, int file_cache_index) {
@@ -136,6 +137,7 @@ static void put_file(int idx, int file_cache_index) {
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b,
       "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
       "Content-Length: %jd\r\n"
@@ -156,8 +158,7 @@ static void put_file(int idx, int file_cache_index) {
 
 static void webui_http_activity(int idx, char *buf, int len)
 {
-  struct rusage ru1, ru2;
-  int r, listen_idx;
+  int listen_idx;
   char *response;
 
   if (len > 0 && buf[0] == 0x16) { /* 0x16 = TLS handshake on plain port */
@@ -179,7 +180,8 @@ static void webui_http_activity(int idx, char *buf, int len)
     lostdcc(idx);
     return;
   }
-  r = getrusage(RUSAGE_SELF, &ru1);
+  struct egg_rusage_timer rt;
+  egg_timer_start(&rt);
   debug2("webui: webui_http_activity(): idx %i len %i", idx, len);
   buf[len] = '\0';
   if (buf[5] == ' ') {
@@ -216,6 +218,7 @@ static void webui_http_activity(int idx, char *buf, int len)
     int i;
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b,
         "HTTP/1.1 101 Switching Protocols\r\n"
         "Upgrade: websocket\r\n"
@@ -257,12 +260,9 @@ static void webui_http_activity(int idx, char *buf, int len)
     else
       debug2("webui: read(): idx %i len %li", idx, read(dcc[idx].sock, buf, 511));
   }
-  if (!r && !getrusage(RUSAGE_SELF, &ru2))
-    debug2("webui: webui_http_activity(): user %.3fms sys %.3fms",
-           (double) (ru2.ru_utime.tv_usec - ru1.ru_utime.tv_usec) / 1000 +
-           (double) (ru2.ru_utime.tv_sec  - ru1.ru_utime.tv_sec ) * 1000,
-           (double) (ru2.ru_stime.tv_usec - ru1.ru_stime.tv_usec) / 1000 +
-           (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
+  double ums, sms;
+  if (egg_timer_stop(&rt, &ums, &sms))
+    debug2("webui: webui_http_activity(): user %.3fms sys %.3fms", ums, sms);
 }
 
 static void webui_http_display(int idx, op_strbuf_t *buf)
@@ -275,13 +275,13 @@ static struct dcc_table DCC_WEBUI_HTTP = {
   0,
   webui_http_eof,
   webui_http_activity,
-  NULL,
-  NULL,
+  nullptr,
+  nullptr,
   webui_http_display,
-  NULL,
-  NULL,
-  NULL,
-  NULL
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 static void webui_dcc_telnet_hostresolved(int idx, int listen_idx)
@@ -291,7 +291,7 @@ static void webui_dcc_telnet_hostresolved(int idx, int listen_idx)
     dcc[idx].u.webui_listen_idx = listen_idx;
     sockoptions(dcc[idx].sock, EGG_OPTION_SET, SOCK_BINARY);
     sockoptions(dcc[idx].sock, EGG_OPTION_UNSET, SOCK_BUFFER);
-    // dcc[i].u.other = NULL; /* important, else op_free() error in lostdcc on eof */
+    // dcc[i].u.other = nullptr; /* important, else op_free() error in lostdcc on eof */
 }
 
 static size_t escape_html(char *dst, size_t dst_size, const char *src, size_t src_size) {
@@ -535,12 +535,12 @@ static char *webui_close(void)
   for (idx = 0; idx < (int)(sizeof file_cache / sizeof file_cache[0]); idx++) {
     if (file_cache[idx].data) {
       op_free(file_cache[idx].data);
-      file_cache[idx].data = NULL;
+      file_cache[idx].data = nullptr;
       file_cache[idx].st_mtim.tv_sec  = -1;
       file_cache[idx].st_mtim.tv_nsec = -1;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *webui_start(Function *global_funcs);
@@ -548,8 +548,8 @@ EXPORT_SCOPE char *webui_start(Function *global_funcs);
 static Function webui_table[] = {
   (Function) webui_start,
   (Function) webui_close,
-  NULL,
-  NULL,
+  nullptr,
+  nullptr,
 };
 
 #endif
@@ -565,7 +565,7 @@ char *webui_start(Function *global_funcs)
   add_hook(HOOK_DCC_TELNET_HOSTRESOLVED, (Function) webui_dcc_telnet_hostresolved);
   add_hook(HOOK_WEBUI_FRAME, (Function) webui_frame);
   add_hook(HOOK_WEBUI_UNFRAME, (Function) webui_unframe);
-  return NULL;
+  return nullptr;
 #else
   return "Initialization failure: configured with --disable-tls or TLS library not found";
 #endif

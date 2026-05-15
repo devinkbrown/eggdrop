@@ -70,7 +70,12 @@ static struct help_ref {
   char *name;
   struct help_list_t *first;
   struct help_ref *next;
-} *help_list = NULL;
+} *help_list = nullptr;
+
+/* Help system state */
+static struct {
+  int flags;
+} help_state;
 
 
 /* Expected memory usage
@@ -87,9 +92,9 @@ void init_misc(void)
   else
     logs = op_malloc(max_logs * sizeof(log_t));
   for (; last < max_logs; last++) {
-    logs[last].filename = logs[last].chname = NULL;
+    logs[last].filename = logs[last].chname = nullptr;
     logs[last].mask = 0;
-    logs[last].f = NULL;
+    logs[last].f = nullptr;
     /* Added by cybah  */
     logs[last].szlast[0] = 0;
     logs[last].repeats = 0;
@@ -182,13 +187,13 @@ void splitc(char *first, char *rest, char divider)
 {
   char *p = strchr(rest, divider);
 
-  if (p == NULL) {
+  if (p == nullptr) {
     if (first != rest && first)
       first[0] = 0;
     return;
   }
   *p = 0;
-  if (first != NULL)
+  if (first != nullptr)
     strcpy(first, rest);
   if (first != rest)
     memmove(rest, p + 1, strlen(p + 1) + 1);
@@ -209,13 +214,13 @@ void splitcn(char *first, char *rest, char divider, size_t max)
 {
   char *p = strchr(rest, divider);
 
-  if (p == NULL) {
+  if (p == nullptr) {
     if (first != rest && first)
       first[0] = 0;
     return;
   }
   *p = 0;
-  if (first != NULL)
+  if (first != nullptr)
     strlcpy(first, rest, max);
   if (first != rest)
     memmove(rest, p + 1, strlen(p + 1) + 1);
@@ -236,15 +241,10 @@ char *splitnick(char **blah)
 void remove_crlf(char **line)
 {
   char *p = *line;
-
-  while (*p) {
-    if (*p == '\r' || *p == '\n')
-    {
-      *p = 0;
-      break;
-    }
-    p++;
-  }
+  const char *end = p + strlen(p);
+  const char *crlf = op_simd_find_delim(p, end, '\r', '\n');
+  if (crlf < end)
+    *(char *)crlf = 0;
 }
 
 char *newsplit(char **rest)
@@ -254,11 +254,16 @@ char *newsplit(char **rest)
   if (!rest)
     return "";
   o = *rest;
-  while (*o == ' ')
-    o++;
-  r = o;
-  while (*o && (*o != ' '))
-    o++;
+  /* Skip leading spaces — SIMD-accelerated for long runs. */
+  {
+    const char *end = o + strlen(o);
+    size_t spaces = op_simd_count_leading(o, end, ' ');
+    o += spaces;
+    /* Find the next space or end-of-string. */
+    r = o;
+    const char *delim = op_simd_find_delim(o, end, ' ', '\0');
+    o = (char *)delim;
+  }
   if (*o)
     *o++ = 0;
   *rest = o;
@@ -334,7 +339,7 @@ void maskaddr(const char *s, char *nw, int type)
   *nw++ = '@';
 
   if (type >= 30) {
-    strcpy(nw, "*");
+    strlcpy(nw, "*", UHOSTLEN);
     return;
   }
 
@@ -352,7 +357,8 @@ void maskaddr(const char *s, char *nw, int type)
       p = u;
     memcpy(nw, h, ++p - h);
     nw += p - h;
-    strcpy(nw, "*");
+    *nw++ = '*';
+    *nw = 0;
   } else if (!p && !num && type >= 10) {
       /* we have a hostname and type
        requires us to replace numbers */
@@ -376,12 +382,14 @@ void maskaddr(const char *s, char *nw, int type)
     if (num) { /* IPv4 */
       memcpy(nw, h, p - h);
       nw += p - h;
-      strcpy(nw, ".*");
+      *nw++ = '.';
+      *nw++ = '*';
+      *nw = 0;
       return;
     }
     for (u = h, d = 0; (u = strchr(++u, '.')); d++);
     if (d < 2) { /* types < 2 don't mask the host */
-      strcpy(nw, h);
+      strlcpy(nw, h, UHOSTLEN);
       return;
     }
     u = strchr(h, '.');
@@ -389,15 +397,16 @@ void maskaddr(const char *s, char *nw, int type)
       u = strchr(++u, '.'); /* ccTLD or not? Look above. */
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "*%s", u);
       strlcpy(nw, op_strbuf_str(&_b), UHOSTLEN);
       op_strbuf_free(&_b);
     }
   } else if (!*h)
       /* take care if the mask is empty or contains only '@' */
-      strcpy(nw, "*");
+      strlcpy(nw, "*", UHOSTLEN);
     else
-      strcpy(nw, h);
+      strlcpy(nw, h, UHOSTLEN);
 }
 
 /* Dump a potentially super-long string of text.
@@ -523,7 +532,7 @@ void putlog (int type, char *chname, const char *format, ...)
   int tsl = 0;
   char s[LOGLINELEN], *out, ct[81], *s2, stamp[34];
   va_list va;
-  time_t now2 = time(NULL);
+  time_t now2 = time(nullptr);
   static time_t now2_last = 0; /* cache expensive localtime() */
   static struct tm t;
 
@@ -579,22 +588,23 @@ void putlog (int type, char *chname, const char *format, ...)
   strlcat(out, "\n", LOGLINELEN - (size_t)(out - s));
   if (!use_stderr) {
     for (int i = 0; i < max_logs; i++) {
-      if ((logs[i].filename != NULL) && (logs[i].mask & type) &&
+      if ((logs[i].filename != nullptr) && (logs[i].mask & type) &&
           ((chname[0] == '*') || (logs[i].chname[0] == '*') ||
            (!rfc_casecmp(chname, logs[i].chname)))) {
-        if (logs[i].f == NULL) {
+        if (logs[i].f == nullptr) {
           /* Open this logfile */
           if (keep_all_logs) {
             op_strbuf_t path;
+            op_strbuf_init(&path);
             op_strbuf_appendf(&path, "%s%s", logs[i].filename, ct);
             logs[i].f = fopen(op_strbuf_str(&path), "a");
             op_strbuf_free(&path);
             if (logs[i].f)
-              setvbuf(logs[i].f, NULL, _IOLBF, 0); /* line buffered */
+              setvbuf(logs[i].f, nullptr, _IOLBF, 0); /* line buffered */
           } else if ((logs[i].f = fopen(logs[i].filename, "a")))
-            setvbuf(logs[i].f, NULL, _IOLBF, 0); /* line buffered */
+            setvbuf(logs[i].f, nullptr, _IOLBF, 0); /* line buffered */
         }
-        if (logs[i].f != NULL) {
+        if (logs[i].f != nullptr) {
           /* Check if this is the same as the last line added to
            * the log. <cybah>
            */
@@ -664,7 +674,7 @@ void logsuffix_change(char *s)
   for (int i = 0; i < max_logs; i++) {
     if (logs[i].f) {
       fclose(logs[i].f);
-      logs[i].f = NULL;
+      logs[i].f = nullptr;
     }
   }
 }
@@ -684,11 +694,12 @@ void check_logsize(void)
             /* write to the log before closing it huh.. */
             putlog(LOG_MISC, "*", MISC_CLOGS, logs[i].filename, ss.st_size);
             fclose(logs[i].f);
-            logs[i].f = NULL;
+            logs[i].f = nullptr;
           }
 
           {
             op_strbuf_t buf;
+            op_strbuf_init(&buf);
             op_strbuf_appendf(&buf, "%s.yesterday", logs[i].filename);
             unlink(op_strbuf_str(&buf));
             movefile(logs[i].filename, op_strbuf_str(&buf));
@@ -704,23 +715,24 @@ void check_logsize(void)
  *     String substitution functions
  */
 
-static int cols = 0;
-static int colsofar = 0;
-static int blind = 0;
-static int subwidth = 70;
-
-/* op_vec_t of op_strdup'd column strings — replaces the \377-delimited colstr. */
-static op_vec_t colstrings;
-static bool colstrings_ready = false;
+/* Column formatting state */
+static struct {
+  int cols;
+  int colsofar;
+  int blind;
+  int subwidth;
+  bool colstrings_ready;
+  op_vec_t colstrings;  /* op_vec_t of op_strdup'd column strings — replaces the \377-delimited colstr. */
+} col_state = { .subwidth = 70 };
 
 static void colstrings_drain(void)
 {
   size_t i;
   void *p;
 
-  OP_VEC_FOREACH(&colstrings, i, p)
+  OP_VEC_FOREACH(&col_state.colstrings, i, p)
     op_free(p);
-  op_vec_clear(&colstrings, NULL, NULL);
+  op_vec_clear(&col_state.colstrings, nullptr, nullptr);
 }
 
 /* Append a column entry and flush a row to s when enough columns are ready. */
@@ -730,25 +742,26 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
   int colwidth;
   size_t n;
 
-  if (!colstrings_ready) {
-    op_vec_init(&colstrings, 4);
-    colstrings_ready = true;
+  if (!col_state.colstrings_ready) {
+    op_vec_init(&col_state.colstrings, 4);
+    col_state.colstrings_ready = true;
   }
 
   if (newcol[0] && newcol[0] != '\377') {
-    colsofar++;
-    op_vec_push(&colstrings, op_strdup(newcol));
+    col_state.colsofar++;
+    op_vec_push(&col_state.colstrings, op_strdup(newcol));
   }
 
-  n = op_vec_size(&colstrings);
-  if ((colsofar == cols) || (newcol[0] == '\377' && n > 0)) {
-    colsofar = 0;
-    colwidth = (subwidth - 5) / cols;
+  n = op_vec_size(&col_state.colstrings);
+  if ((col_state.colsofar == col_state.cols) || (newcol[0] == '\377' && n > 0)) {
+    col_state.colsofar = 0;
+    colwidth = (col_state.subwidth - 5) / col_state.cols;
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "     ");
       for (size_t j = 0; j < n; j++) {
-        col = op_vec_get(&colstrings, j);
+        col = op_vec_get(&col_state.colstrings, j);
         op_strbuf_append_cstr(&_b, col);
         if (j < n - 1) {             /* pad all but the last column */
           for (int i = (int) strlen(col); i < colwidth; i++)
@@ -759,7 +772,7 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
       strlcpy(s, op_strbuf_str(&_b), sz);
       op_strbuf_free(&_b);
     }
-    op_vec_clear(&colstrings, NULL, NULL);
+    op_vec_clear(&col_state.colstrings, nullptr, nullptr);
   }
 }
 
@@ -813,18 +826,17 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
 {
   struct chanset_t *chan;
   int center = 0;
-  static int help_flags;
   char xx[HELP_BUF_LEN + 1], *current, *q, chr, *writeidx, *readidx, *towrite,
        sub[512];
 
-  if (s == NULL) {
+  if (s == nullptr) {
     /* Used to reset substitutions */
-    blind = 0;
-    cols = 0;
-    subwidth = 70;
-    if (colstrings_ready && !op_vec_empty(&colstrings))
+    col_state.blind = 0;
+    col_state.cols = 0;
+    col_state.subwidth = 70;
+    if (col_state.colstrings_ready && !op_vec_empty(&col_state.colstrings))
       colstrings_drain();
-    help_flags = isdcc;
+    help_state.flags = isdcc;
     return;
   }
   strlcpy(xx, s, sizeof xx);
@@ -842,60 +854,60 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     }
     chr = *(current + 1);
     *current = 0;
-    if (!blind)
-      writeidx += my_strcpy(writeidx, readidx);
-    towrite = NULL;
+    if (!col_state.blind)
+      writeidx = stpcpy(writeidx, readidx);
+    towrite = nullptr;
     switch (chr) {
     case 'b':
       if (glob_hilite(*flags)) {
-        if (help_flags & HELP_IRC) {
+        if (help_state.flags & HELP_IRC) {
           towrite = "\002";
-        } else if (help_flags & HELP_BOLD) {
-          help_flags &= ~HELP_BOLD;
+        } else if (help_state.flags & HELP_BOLD) {
+          help_state.flags &= ~HELP_BOLD;
           towrite = "\033[0m";
         } else {
-          help_flags |= HELP_BOLD;
+          help_state.flags |= HELP_BOLD;
           towrite = "\033[1m";
         }
       }
       break;
     case 'v':
       if (glob_hilite(*flags)) {
-        if (help_flags & HELP_IRC) {
+        if (help_state.flags & HELP_IRC) {
           towrite = "\026";
-        } else if (help_flags & HELP_REV) {
-          help_flags &= ~HELP_REV;
+        } else if (help_state.flags & HELP_REV) {
+          help_state.flags &= ~HELP_REV;
           towrite = "\033[0m";
         } else {
-          help_flags |= HELP_REV;
+          help_state.flags |= HELP_REV;
           towrite = "\033[7m";
         }
       }
       break;
     case '_':
       if (glob_hilite(*flags)) {
-        if (help_flags & HELP_IRC) {
+        if (help_state.flags & HELP_IRC) {
           towrite = "\037";
-        } else if (help_flags & HELP_UNDER) {
-          help_flags &= ~HELP_UNDER;
+        } else if (help_state.flags & HELP_UNDER) {
+          help_state.flags &= ~HELP_UNDER;
           towrite = "\033[0m";
         } else {
-          help_flags |= HELP_UNDER;
+          help_state.flags |= HELP_UNDER;
           towrite = "\033[4m";
         }
       }
       break;
     case 'f':
       if (glob_hilite(*flags)) {
-        if (help_flags & HELP_FLASH) {
-          if (help_flags & HELP_IRC)
+        if (help_state.flags & HELP_FLASH) {
+          if (help_state.flags & HELP_IRC)
             towrite = "\002\037";
           else
             towrite = "\033[0m";
-          help_flags &= ~HELP_FLASH;
+          help_state.flags &= ~HELP_FLASH;
         } else {
-          help_flags |= HELP_FLASH;
-          if (help_flags & HELP_IRC)
+          help_state.flags |= HELP_FLASH;
+          if (help_state.flags & HELP_IRC)
             towrite = "\037\002";
           else
             towrite = "\033[5m";
@@ -932,14 +944,14 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
         towrite = nick;
       break;
     case 'C':
-      if (!blind)
+      if (!col_state.blind)
         for (chan = chanset; chan; chan = chan->next) {
           if ((strlen(chan->dname) + writeidx + 2) >= (s + HELP_BUF_LEN)) {
             memcpy(writeidx, chan->dname, (s + HELP_BUF_LEN) - writeidx);
             s[HELP_BUF_LEN] = 0;
             return;
           }
-          writeidx += my_strcpy(writeidx, chan->dname);
+          writeidx = stpcpy(writeidx, chan->dname);
           if (chan->next) {
             *writeidx++ = ',';
             *writeidx++ = ' ';
@@ -958,31 +970,31 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
         /* Now q is the string and p is where the rest of the fcn expects */
         if (!strncmp(q, "help=", 5)) {
           if (topic && strcasecmp(q + 5, topic))
-            blind |= 2;
+            col_state.blind |= 2;
           else
-            blind &= ~2;
-        } else if (!(blind & 2)) {
+            col_state.blind &= ~2;
+        } else if (!(col_state.blind & 2)) {
           if (q[0] == '+') {
-            struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+            struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
-            break_down_flags(q + 1, &fr, NULL);
+            break_down_flags(q + 1, &fr, nullptr);
 
             /* We used to check flagrec_ok(), but we can use flagrec_eq()
              * instead because lower flags are automatically added now.
              */
             if (!flagrec_eq(&fr, flags))
-              blind |= 1;
+              col_state.blind |= 1;
             else
-              blind &= ~1;
+              col_state.blind &= ~1;
           } else if (q[0] == '-')
-            blind &= ~1;
+            col_state.blind &= ~1;
           else if (!strcasecmp(q, "end")) {
-            blind &= ~1;
-            subwidth = 70;
-            if (cols) {
+            col_state.blind &= ~1;
+            col_state.subwidth = 70;
+            if (col_state.cols) {
               sub[0] = 0;
               subst_addcol(sub, sizeof sub, "\377");
-              cols = 0;
+              col_state.cols = 0;
               towrite = sub;
             }
           } else if (!strcasecmp(q, "center"))
@@ -990,19 +1002,19 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
           else if (!strncmp(q, "cols=", 5)) {
             char *r;
 
-            cols = atoi(q + 5);
-            colsofar = 0;
+            col_state.cols = egg_atoi(q + 5);
+            col_state.colsofar = 0;
             /* colstrings is already empty; no reset needed */
             r = strchr(q + 5, '/');
-            if (r != NULL)
-              subwidth = atoi(r + 1);
+            if (r != nullptr)
+              col_state.subwidth = egg_atoi(r + 1);
           }
         }
       } else
         current = q;            /* no } so ignore */
       break;
     default:
-      if (!blind) {
+      if (!col_state.blind) {
         *writeidx++ = chr;
         if (writeidx >= (s + HELP_BUF_LEN)) {
           *writeidx = 0;
@@ -1010,23 +1022,23 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
         }
       }
     }
-    if (towrite && !blind) {
+    if (towrite && !col_state.blind) {
       if ((writeidx + strlen(towrite)) >= (s + HELP_BUF_LEN)) {
         memcpy(writeidx, towrite, (s + HELP_BUF_LEN) - writeidx);
         s[HELP_BUF_LEN] = 0;
         return;
       }
-      writeidx += my_strcpy(writeidx, towrite);
+      writeidx = stpcpy(writeidx, towrite);
     }
     if (chr) {
       readidx = current + 2;
       current = strchr(readidx, '%');
     } else {
       readidx = current + 1;
-      current = NULL;
+      current = nullptr;
     }
   }
-  if (!blind) {
+  if (!col_state.blind) {
     int i = strlen(readidx);
     if (i && ((writeidx + i) >= (s + HELP_BUF_LEN))) {
       memcpy(writeidx, readidx, (s + HELP_BUF_LEN) - writeidx);
@@ -1046,7 +1058,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       strlcpy(s + i, xx, HELP_BUF_LEN + 1 - i);
     }
   }
-  if (cols) {
+  if (col_state.cols) {
     strlcpy(xx, s, sizeof xx);
     s[0] = 0;
     subst_addcol(s, sizeof s, xx);
@@ -1060,7 +1072,7 @@ static void scan_help_file(struct help_ref *current, const char *filename, int t
   struct help_list_t *list;
 
   if (is_file(filename) && (f = fopen(filename, "r"))) {
-    while (fgets(s, HELP_BUF_LEN, f) != NULL) {
+    while (fgets(s, HELP_BUF_LEN, f) != nullptr) {
       p = s;
       while ((q = strstr(p, "%{help="))) {
         q += 7;
@@ -1078,7 +1090,7 @@ static void scan_help_file(struct help_ref *current, const char *filename, int t
           p = "";
       }
     }
-    /* fgets == NULL means error or empty file, so check for error */
+    /* fgets == nullptr means error or empty file, so check for error */
     if (ferror(f)) {
       putlog(LOG_MISC, "*", "Error reading help file");
     }
@@ -1097,10 +1109,11 @@ void add_help_reference(char *file)
 
   current->name = op_strdup(file);
   current->next = help_list;
-  current->first = NULL;
+  current->first = nullptr;
   help_list = current;
   {
     op_strbuf_t s;
+    op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%smsg/%s", helpdir, file);
     scan_help_file(current, op_strbuf_str(&s), 0);
     op_strbuf_clear(&s);
@@ -1115,7 +1128,7 @@ void add_help_reference(char *file)
 
 void rem_help_reference(char *file)
 {
-  struct help_ref *current, *last = NULL;
+  struct help_ref *current, *last = nullptr;
   struct help_list_t *item;
 
   for (current = help_list; current; last = current, current = current->next)
@@ -1140,7 +1153,7 @@ void reload_help_data(void)
   struct help_ref *current = help_list, *next;
   struct help_list_t *item;
 
-  help_list = NULL;
+  help_list = nullptr;
   while (current) {
     while ((item = current->first)) {
       current->first = item->next;
@@ -1182,6 +1195,7 @@ static FILE *resolve_help(int dcc, char *file)
         if (!strcmp(item->name, file)) {
           if (!item->type && !dcc) {
             op_strbuf_t s;
+            op_strbuf_init(&s);
             op_strbuf_appendf(&s, "%smsg/%s", helpdir, current->name);
             f = fopen(op_strbuf_str(&s), "r");
             op_strbuf_free(&s);
@@ -1189,6 +1203,7 @@ static FILE *resolve_help(int dcc, char *file)
               return f;
           } else if (dcc && item->type) {
             op_strbuf_t s;
+            op_strbuf_init(&s);
             if (item->type == 1)
               op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
             else
@@ -1199,12 +1214,13 @@ static FILE *resolve_help(int dcc, char *file)
               return f;
           }
         }
-    /* No match was found, so we better return NULL */
-    return NULL;
+    /* No match was found, so we better return nullptr */
+    return nullptr;
   }
   /* Since we're not dealing with help files, we should just prepend the filename with textdir */
   {
     op_strbuf_t s;
+    op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s%s", textdir, file);
     if (is_file(op_strbuf_str(&s))) {
       f = fopen(op_strbuf_str(&s), "r");
@@ -1212,7 +1228,7 @@ static FILE *resolve_help(int dcc, char *file)
       return f;
     }
     op_strbuf_free(&s);
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -1223,8 +1239,8 @@ void showhelp(char *who, char *file, struct flag_record *flags, int fl)
   FILE *f = resolve_help(fl, file);
 
   if (f) {
-    help_subst(NULL, NULL, 0, HELP_IRC, NULL);  /* Clear flags */
-    while (fgets(s, HELP_BUF_LEN, f) != NULL) {
+    help_subst(nullptr, nullptr, 0, HELP_IRC, nullptr);  /* Clear flags */
+    while (fgets(s, HELP_BUF_LEN, f) != nullptr) {
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
@@ -1235,7 +1251,7 @@ void showhelp(char *who, char *file, struct flag_record *flags, int fl)
         lines++;
       }
     }
-    /* fgets == NULL means error or empty file, so check for error */
+    /* fgets == nullptr means error or empty file, so check for error */
     if (ferror(f)) {
       putlog(LOG_MISC, "*", "Error reading help file");
     }
@@ -1252,9 +1268,9 @@ static int display_tellhelp(int idx, char *file, FILE *f,
   int lines = 0;
 
   if (f) {
-    help_subst(NULL, NULL, 0,
-               (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, NULL);
-    while (fgets(s, HELP_BUF_LEN, f) != NULL) {
+    help_subst(nullptr, nullptr, 0,
+               (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, nullptr);
+    while (fgets(s, HELP_BUF_LEN, f) != nullptr) {
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
@@ -1265,7 +1281,7 @@ static int display_tellhelp(int idx, char *file, FILE *f,
         lines++;
       }
     }
-    /* fgets == NULL means error or empty file, so check for error */
+    /* fgets == nullptr means error or empty file, so check for error */
     if (ferror(f)) {
       putlog(LOG_MISC, "*", "Error displaying help");
     }
@@ -1298,6 +1314,7 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
     for (item = current->first; item; item = item->next)
       if (wild_match(match, item->name) && item->type) {
         op_strbuf_t s;
+        op_strbuf_init(&s);
         if (item->type == 1)
           op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
         else
@@ -1326,6 +1343,7 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
     for (item = current->first; item; item = item->next)
       if (!strcmp(match, item->name) && item->type) {
         op_strbuf_t s;
+        op_strbuf_init(&s);
         if (item->type == 1)
           op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
         else
@@ -1346,11 +1364,11 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
 void sub_lang(int idx, char *text)
 {
   char s[1024];
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
-  help_subst(NULL, NULL, 0,
-             (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, NULL);
+  help_subst(nullptr, nullptr, 0,
+             (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, nullptr);
   strlcpy(s, text, sizeof s);
   if (s[strlen(s) - 1] == '\n')
     s[strlen(s) - 1] = 0;
@@ -1378,7 +1396,7 @@ void show_motd(int idx)
 {
   FILE *vv;
   char s[1024];
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!is_file(motdfile))
     return;
@@ -1390,9 +1408,9 @@ void show_motd(int idx)
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   dprintf(idx, "\n");
   /* reset the help_subst variables to their defaults */
-  help_subst(NULL, NULL, 0,
-             (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, NULL);
-  while (fgets(s, sizeof s, vv) != NULL) {
+  help_subst(nullptr, nullptr, 0,
+             (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, nullptr);
+  while (fgets(s, sizeof s, vv) != nullptr) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
@@ -1401,7 +1419,7 @@ void show_motd(int idx)
     if (s[0])
       dprintf(idx, "%s\n", s);
   }
-  /* fgets == NULL means error or empty file, so check for error */
+  /* fgets == nullptr means error or empty file, so check for error */
   if (ferror(vv)) {
     putlog(LOG_MISC, "*", "Error reading MOTD for DCC");
   }
@@ -1415,7 +1433,7 @@ void show_banner(int idx)
 {
   FILE *vv;
   char s[1024];
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!is_file(bannerfile))
     return;
@@ -1426,8 +1444,8 @@ void show_banner(int idx)
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   /* reset the help_subst variables to their defaults */
-  help_subst(NULL, NULL, 0, 0, NULL);
-  while (fgets(s, sizeof s, vv) != NULL) {
+  help_subst(nullptr, nullptr, 0, 0, nullptr);
+  while (fgets(s, sizeof s, vv) != nullptr) {
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
@@ -1436,7 +1454,7 @@ void show_banner(int idx)
     if (s[0])
       dprintf(idx, "%s\n", s);
   }
-  /* fgets == NULL means error or empty file, so check for error */
+  /* fgets == nullptr means error or empty file, so check for error */
   if (ferror(vv)) {
       putlog(LOG_MISC, "*", "Error reading banner");
   }
@@ -1487,20 +1505,21 @@ char *str_escape(const char *str, const char div, const char mask)
   const char *s;
 
   if (!buf)
-    return NULL;
+    return nullptr;
   for (s = str; *s; s++) {
     /* Resize buffer. */
     if ((buflen - blen) <= 3) {
       buflen = (buflen * 2);
       buf = op_realloc(buf, buflen + 1);
       if (!buf)
-        return NULL;
+        return nullptr;
       b = buf + blen;
     }
 
     if (*s == div || *s == mask) {
       {
         op_strbuf_t _e;
+        op_strbuf_init(&_e);
         op_strbuf_appendf(&_e, "%c%02x", mask, (unsigned char)*s);
         memcpy(b, op_strbuf_str(&_e), op_strbuf_len(&_e));
         op_strbuf_free(&_e);
@@ -1543,7 +1562,7 @@ char *strchr_unescape(char *str, const char div, const char esc_char)
     if (*s == esc_char) {       /* Found escape character.              */
       /* Convert code to character. */
       buf[0] = s[1], buf[1] = s[2];
-      *p = (unsigned char) strtol(buf, NULL, 16);
+      *p = (unsigned char) strtol(buf, nullptr, 16);
       s += 2;
     } else if (*s == div) {
       *p = *s = 0;
@@ -1552,7 +1571,7 @@ char *strchr_unescape(char *str, const char div, const char esc_char)
       *p = *s;
   }
   *p = 0;
-  return NULL;
+  return nullptr;
 }
 
 /* Is every character in a string a digit? */
@@ -1751,4 +1770,62 @@ int utf8_sanitize(char *s)
     }
   }
   return replaced;
+}
+
+void egg_format_duration(uint64_t sec, char *out, size_t outlen)
+{
+  op_strbuf_t s;
+  op_strbuf_init(&s);
+  uint64_t tmp;
+
+  if (sec == 0) {
+    strlcpy(out, "0 seconds", outlen);
+    return;
+  }
+  op_strbuf_init(&s);
+  if (sec >= 31536000) {
+    tmp = sec / 31536000; sec -= tmp * 31536000;
+    op_strbuf_appendf(&s, "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 604800) {
+    tmp = sec / 604800; sec -= tmp * 604800;
+    op_strbuf_appendf(&s, "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 86400) {
+    tmp = sec / 86400; sec -= tmp * 86400;
+    op_strbuf_appendf(&s, "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 3600) {
+    tmp = sec / 3600; sec -= tmp * 3600;
+    op_strbuf_appendf(&s, "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec >= 60) {
+    tmp = sec / 60; sec -= tmp * 60;
+    op_strbuf_appendf(&s, "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
+  }
+  if (sec > 0)
+    op_strbuf_appendf(&s, "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
+  size_t slen = op_strbuf_len(&s);
+  if (slen > 0 && op_strbuf_str(&s)[slen - 1] == ' ')
+    op_strbuf_truncate(&s, slen - 1);
+  strlcpy(out, op_strbuf_str(&s), outlen);
+  op_strbuf_free(&s);
+}
+
+void egg_format_uptime(time_t seconds, char *out, size_t outlen)
+{
+  op_strbuf_t s;
+
+  op_strbuf_init(&s);
+  if (seconds > 86400) {
+    int days = (int)(seconds / 86400);
+    op_strbuf_appendf(&s, "%d day%s, ", days, days >= 2 ? "s" : "");
+    seconds -= days * 86400;
+  }
+  int hr = (int)(seconds / 3600);
+  seconds -= hr * 3600;
+  int min = (int)(seconds / 60);
+  op_strbuf_appendf(&s, "%02d:%02d", hr, min);
+  strlcpy(out, op_strbuf_str(&s), outlen);
+  op_strbuf_free(&s);
 }

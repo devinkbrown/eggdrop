@@ -171,7 +171,7 @@ opssl_aes_encrypt_block(const opssl_aes_ctx_t *ctx, uint8_t out[16], const uint8
         /* MixColumns */
         #define XTIME(x) (((x) << 1) ^ ((((x) >> 7) & 1) * 0x1b))
         #define MIX(a, b, c, d) \
-            (XTIME(a) ^ XTIME(b) ^ b ^ c ^ d)
+            (XTIME(a) ^ XTIME(b) ^ (b) ^ (c) ^ (d))
 
         s0 = (MIX((t0>>24)&0xff, (t0>>16)&0xff, (t0>>8)&0xff, t0&0xff) << 24) |
              (MIX((t0>>16)&0xff, (t0>>8)&0xff, t0&0xff, (t0>>24)&0xff) << 16) |

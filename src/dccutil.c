@@ -236,8 +236,8 @@ void dprint(int idx, const char *buf, int len)
     }
     return;
   } else {
+    char truncbuf[LOGLINEMAX-10+1];
     if (len > LOGLINEMAX-11) {            /* Truncate to fit */
-      char truncbuf[LOGLINEMAX-10+1];
       memcpy(truncbuf, buf, LOGLINEMAX-11);
       truncbuf[LOGLINEMAX-11] = '\n';
       truncbuf[LOGLINEMAX-10] = 0;
@@ -257,6 +257,7 @@ ATTRIBUTE_FORMAT(printf,1,2)
 void chatout(const char *format, ...)
 {
   op_strbuf_t sb;
+  op_strbuf_init(&sb);
   va_list va;
 
   va_start(va, format);
@@ -275,6 +276,7 @@ ATTRIBUTE_FORMAT(printf,3,4)
 void chanout_but(int x, int chan, const char *format, ...)
 {
   op_strbuf_t sb;
+  op_strbuf_init(&sb);
   va_list va;
 
   va_start(va, format);
@@ -292,9 +294,9 @@ void chanout_but(int x, int chan, const char *format, ...)
 void dcc_chatter(int idx)
 {
   int i, j;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
-  get_user_flagrec(dcc[idx].user, &fr, NULL);
+  get_user_flagrec(dcc[idx].user, &fr, nullptr);
   show_motd(idx);
   i = dcc[idx].u.chat->channel;
   dcc[idx].u.chat->channel = 234567;
@@ -344,7 +346,7 @@ void killtransfer(int n)
   if (dcc[n].type->flags & DCT_FILETRAN) {
     if (dcc[n].u.xfer->f) {
       fclose(dcc[n].u.xfer->f);
-      dcc[n].u.xfer->f = NULL;
+      dcc[n].u.xfer->f = nullptr;
     }
     if (dcc[n].u.xfer->filename) {
       for (int i = 0; i < dcc_total; i++) {
@@ -410,7 +412,7 @@ void dcc_remove_lost(void)
 {
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_LOST) {
-      dcc[i].type = NULL;
+      dcc[i].type = nullptr;
       dcc[i].sock = -1;
       removedcc(i);
       i--;
@@ -477,7 +479,7 @@ void tell_dcc(int zidx)
  */
 void not_away(int idx)
 {
-  if (dcc[idx].u.chat->away == NULL) {
+  if (dcc[idx].u.chat->away == nullptr) {
     dprintf(idx, "You weren't away!\n");
     return;
   }
@@ -485,18 +487,18 @@ void not_away(int idx)
     chanout_but(-1, dcc[idx].u.chat->channel,
                 "*** %s is no longer away.\n", dcc[idx].nick);
     if (dcc[idx].u.chat->channel < GLOBAL_CHANS) {
-      botnet_send_away(-1, botnetnick, dcc[idx].sock, NULL, idx);
+      botnet_send_away(-1, botnetnick, dcc[idx].sock, nullptr, idx);
     }
   }
   dprintf(idx, "You're not away any more.\n");
   op_free(dcc[idx].u.chat->away);
-  dcc[idx].u.chat->away = NULL;
-  check_tcl_away(botnetnick, dcc[idx].sock, NULL);
+  dcc[idx].u.chat->away = nullptr;
+  check_tcl_away(botnetnick, dcc[idx].sock, nullptr);
 }
 
 void set_away(int idx, char *s)
 {
-  if (s == NULL) {
+  if (s == nullptr) {
     not_away(idx);
     return;
   }
@@ -504,7 +506,7 @@ void set_away(int idx, char *s)
     not_away(idx);
     return;
   }
-  if (dcc[idx].u.chat->away != NULL)
+  if (dcc[idx].u.chat->away != nullptr)
     op_free(dcc[idx].u.chat->away);
   dcc[idx].u.chat->away = op_strdup(s);
   if (dcc[idx].u.chat->channel >= 0) {
@@ -546,7 +548,7 @@ void flush_lines(int idx, struct chat_info *ci)
     p = o;
     c++;
   }
-  if (p != NULL) {
+  if (p != nullptr) {
     if (dcc[idx].status & STAT_TELNET)
       tputs(dcc[idx].sock, "[More]: ", 8);
     else
@@ -586,7 +588,7 @@ void changeover_dcc(int i, struct dcc_table *type, int xtra_size)
   if (xtra_size) {
     dcc[i].u.other = op_malloc(xtra_size);
   } else
-    dcc[i].u.other = NULL;
+    dcc[i].u.other = nullptr;
 }
 
 int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
@@ -607,6 +609,7 @@ int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
       /* Evil assumption here that flags&DCT_CHAT implies chat type */
       if ((dcc[idx].type->flags & DCT_CHAT) && (chat->channel >= 0)) {
         op_strbuf_t sb;
+        op_strbuf_init(&sb);
         op_strbuf_appendf(&sb, DCC_FLOODBOOT, dcc[idx].nick);
         chanout_but(idx, chat->channel, "*** %s", op_strbuf_str(&sb));
         if (chat->channel < GLOBAL_CHANS)
@@ -641,6 +644,7 @@ void do_boot(int idx, char *by, char *reason)
    * as DCC_CHAT */
   if ((dcc[idx].type->flags & DCT_CHAT) && (dcc[idx].u.chat->channel >= 0)) {
     op_strbuf_t sb;
+    op_strbuf_init(&sb);
     op_strbuf_appendf(&sb, DCC_BOOTED3, by, dcc[idx].nick,
                      reason[0] ? ": " : "", reason);
     chanout_but(idx, dcc[idx].u.chat->channel, "*** %s.\n", op_strbuf_str(&sb));

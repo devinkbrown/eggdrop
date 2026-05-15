@@ -61,14 +61,6 @@ constexpr int BIND_STACKABLE    = 0x020;
  * Note that this just causes the flag checking to use flagrec_ok()
  * instead of flagrec_eq().
  */
-/* FIXME: Should this really be used for the dcc and fil types since
- *        they are only available to the partyline/filesys (+p/+x)?
- *        Eggdrop's revenge code does not add default flags when
- *        adding a user record for +d or +k flags.
- */
-/* FIXME: This type actually seems to be obsolete. This was originally
- *        used to check built-in types in Eggdrop version 1.0.
- */
 constexpr int BIND_HAS_BUILTINS = 0x040;
 
 /* Want return; we want to know if the proc returns 1.
@@ -120,7 +112,7 @@ typedef struct timer_str {
 #define BADARGS(nl, nh, example) do {                                   \
         if ((argc < (nl)) || ((argc > (nh)) && ((nh) != -1))) {         \
                 Tcl_AppendResult(irp, "wrong # args: should be \"",     \
-                                 argv[0], (example), "\"", NULL);       \
+                                 argv[0], (example), "\"", nullptr);       \
                 return TCL_ERROR;                                       \
         }                                                               \
 } while (0)
@@ -135,9 +127,14 @@ typedef struct timer_str {
 #define CHECKVALIDITY(a)        do {                                    \
         if (!check_validity(argv[0], (a))) {                            \
                 Tcl_AppendResult(irp, "bad builtin command call!",      \
-                                 NULL);                                 \
+                                 nullptr);                                 \
                 return TCL_ERROR;                                       \
         }                                                               \
+} while (0)
+
+#define tcl_dict_append(ds, key, val) do { \
+  Tcl_DStringAppendElement((ds), (key));   \
+  Tcl_DStringAppendElement((ds), (val));   \
 } while (0)
 
 #endif /* HAVE_TCL */

@@ -1,8 +1,49 @@
 
-Eggdrop Changes (Last Updated 2026-05-01):
+Eggdrop Changes (Last Updated 2026-05-15):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-05-15 * security: replaced weak PRNG (random()/srandom()) with
+               cryptographically secure getrandom(2) across the entire
+               codebase.  randint() is now a static inline function using
+               getrandom(2) (Linux) or arc4random_buf (BSD/macOS).
+               Removed init_random() from main.c — no more weak seeding
+               with srandom(now % (getpid() + getppid())).  Blowfish IV
+               generation now uses getrandom(2).  Python rand() routes
+               through the new CSPRNG randint().
+               [Patch by: devinkbrown]
+
+  2026-05-15 * source: added egg_atoi() — safe static inline wrapper
+               around strtol() replacing all 202 raw atoi() calls across
+               46 source files.  Prevents undefined behaviour on non-numeric
+               input.
+               [Patch by: devinkbrown]
+
+  2026-05-15 * source: converted my_strcpy() call sites to stpcpy() in
+               misc.c (3 sites) and irc.mod (irc.c, msgcmds.c) where the
+               return-value-as-offset pattern is used.  my_strcpy() itself
+               retained for ABI compatibility (global function table slot 91).
+               Optimised malloc_strcpy macro in filedb3.h to use memcpy.
+               Fixed unbounded sscanf %s in language.c with %255s.
+               [Patch by: devinkbrown]
+
+  2026-05-15 * tests: expanded test_match.c from 8 to 22 tests — added
+               CIDR matching (6 tests), cron_match (5 tests), addr_match
+               (3 tests) with required stubs (rfc_toupper, str_isdigit,
+               newsplit).
+               [Patch by: devinkbrown]
+
+  2026-05-15 * tests: expanded test_flags.c from 10 to 56 tests — added
+               sanity_check (16 tests), break_down_flags (14 tests), and
+               flagrec_eq (6 tests).  Uses MAKING_MODS guard to suppress
+               extern prototype conflicts.
+               [Patch by: devinkbrown]
+
+  2026-05-15 * tests: rewrote test_misc.c (18 tests: newsplit, rmspace,
+               splitnick) and test_net.c (8 tests: iptostr for IPv4/IPv6)
+               as self-contained test files with no full-eggdrop deps.
+               [Patch by: devinkbrown]
 
   2026-05-01 * python: added 26 new Python API commands bringing total to
                174/197 (88% Tcl parity).  Botnet: link, unlink, valididx,

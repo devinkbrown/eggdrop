@@ -129,13 +129,206 @@ static void mgf1(uint8_t *mask, size_t mask_len, const uint8_t *seed, size_t see
 }
 
 /*
- * RSA private operation: result = input^d mod n
+ * Reduce a (2 * width_p)-limb value mod a width_p-limb prime.
  *
- * Direct exponentiation (no CRT for now — correctness first).
+ * Splits input as  full = hi * R + lo  where R = 2^(64 * width_p).
+ * Reduces each half mod prime, then combines via:
+ *   result = (hi * R + lo) mod prime
+ *          = ((hi * (R mod prime)) + lo) mod prime
+ *
+ * The final addition uses explicit carry tracking and a carry-aware
+ * conditional subtract to remain constant-time when the sum overflows
+ * width_p limbs.
+ *
+ * Constant-time: no secret-dependent branches.
  */
-static void rsa_private_op(opssl_bn_t *result, const opssl_bn_t *input, const opssl_rsa_ctx_t *ctx) {
+static void rsa_reduce_mod_prime(opssl_bn_t *out, const opssl_bn_t *full,
+                                  const opssl_bn_mont_ctx_t *prime_mont,
+                                  const opssl_bn_t *prime) {
+    int width_p = prime_mont->width;
+
+    opssl_bn_t lo, hi;
+    opssl_bn_zero(&lo, width_p);
+    opssl_bn_zero(&hi, width_p);
+    for (int i = 0; i < width_p; i++) {
+        lo.d[i] = full->d[i];
+        hi.d[i] = full->d[i + width_p];
+    }
+    opssl_bn_reduce_once(&lo, prime, width_p);
+    opssl_bn_reduce_once(&hi, prime, width_p);
+
+    /* R mod prime via from_mont: R^2 * R^{-1} mod prime = R mod prime. */
+    opssl_bn_t R_mod_prime;
+    opssl_bn_zero(&R_mod_prime, width_p);
+    opssl_bn_from_mont(&R_mod_prime, &prime_mont->r_squared, prime_mont);
+
+    opssl_bn_t t;
+    opssl_bn_zero(&t, width_p);
+    opssl_bn_mod_mul(&t, &hi, &R_mod_prime, prime_mont);
+
+    /*
+     * out = (t + lo) mod prime.  Both in [0, prime); sum in [0, 2*prime).
+     * Inline addition to capture carry out of width_p limbs.
+     *   carry=0, borrow=1: out < prime; keep out.
+     *   carry=0, borrow=0: out >= prime; use out - prime.
+     *   carry=1: true sum >= R > prime; sub_r wraps to out + R - prime = true - prime.
+     */
+    {
+        uint64_t carry = 0;
+        for (int i = 0; i < width_p; i++) {
+            unsigned __int128 s = (unsigned __int128)t.d[i] + lo.d[i] + carry;
+            out->d[i] = (uint64_t)s;
+            carry = (uint64_t)(s >> 64);
+        }
+        out->width = width_p;
+        opssl_bn_t sub_r;
+        uint64_t borrow = opssl_bn_sub(&sub_r, out, prime, width_p);
+        opssl_bn_ct_select(out, &sub_r, out, width_p, carry | (borrow ^ 1));
+        opssl_memzero(&sub_r, sizeof(sub_r));
+    }
+
+    opssl_memzero(&lo,          sizeof(lo));
+    opssl_memzero(&hi,          sizeof(hi));
+    opssl_memzero(&R_mod_prime, sizeof(R_mod_prime));
+    opssl_memzero(&t,           sizeof(t));
+}
+
+/*
+ * RSA private-key operation: result = input^d mod n.
+ *
+ * Uses CRT (Garner's formula) and exponent blinding (Kocher 1996):
+ *   dp' = dp + k*(p-1),  dq' = dq + k*(q-1)   [Fermat: no change mod p/q]
+ *   m1  = input^dp' mod p,  m2 = input^dq' mod q
+ *   h   = qinv * (m1 - m2) mod p
+ *   result = m2 + h * q
+ *
+ * Bellcore fault check (result^e == input mod n) is performed by the caller.
+ */
+static int rsa_private_op(opssl_bn_t *result, const opssl_bn_t *input, const opssl_rsa_ctx_t *ctx) {
     int width_n = ctx->bits / 64;
-    opssl_bn_mod_exp_ct(result, input, &ctx->d, width_n, &ctx->mont_n);
+    int width_p = ctx->bits / 128;
+
+    /* 1. Exponent blinding. */
+    uint8_t k_bytes[8];
+    if (opssl_random_bytes(k_bytes, sizeof(k_bytes)) != 0)
+        return 0;
+    uint64_t k = 0;
+    for (int i = 0; i < 8; i++)
+        k = (k << 8) | k_bytes[i];
+    opssl_memzero(k_bytes, sizeof(k_bytes));
+
+    opssl_bn_t pm1, qm1, one_bn;
+    opssl_bn_zero(&one_bn, width_p);
+    one_bn.d[0] = 1;
+    opssl_bn_zero(&pm1, width_p);
+    opssl_bn_zero(&qm1, width_p);
+    opssl_bn_sub(&pm1, &ctx->p, &one_bn, width_p);
+    opssl_bn_sub(&qm1, &ctx->q, &one_bn, width_p);
+
+    opssl_bn_t kpm1, kqm1;
+    opssl_bn_zero(&kpm1, width_p + 1);
+    opssl_bn_zero(&kqm1, width_p + 1);
+    {
+        uint64_t carry = 0;
+        for (int i = 0; i < width_p; i++) {
+            unsigned __int128 prod = (unsigned __int128)k * pm1.d[i] + carry;
+            kpm1.d[i] = (uint64_t)prod;
+            carry = (uint64_t)(prod >> 64);
+        }
+        kpm1.d[width_p] = carry;
+    }
+    {
+        uint64_t carry = 0;
+        for (int i = 0; i < width_p; i++) {
+            unsigned __int128 prod = (unsigned __int128)k * qm1.d[i] + carry;
+            kqm1.d[i] = (uint64_t)prod;
+            carry = (uint64_t)(prod >> 64);
+        }
+        kqm1.d[width_p] = carry;
+    }
+
+    opssl_bn_t dp_blind, dq_blind;
+    opssl_bn_zero(&dp_blind, width_p + 1);
+    opssl_bn_zero(&dq_blind, width_p + 1);
+    (void)opssl_bn_add(&dp_blind, &ctx->dp, &kpm1, width_p + 1);
+    (void)opssl_bn_add(&dq_blind, &ctx->dq, &kqm1, width_p + 1);
+
+    /* 2. Reduce input mod p and mod q. */
+    opssl_bn_t inp_p, inp_q;
+    opssl_bn_zero(&inp_p, width_p);
+    opssl_bn_zero(&inp_q, width_p);
+    rsa_reduce_mod_prime(&inp_p, input, &ctx->mont_p, &ctx->p);
+    rsa_reduce_mod_prime(&inp_q, input, &ctx->mont_q, &ctx->q);
+
+    /* 3. CRT sub-exponentiations. */
+    opssl_bn_t m1, m2;
+    opssl_bn_zero(&m1, width_p);
+    opssl_bn_zero(&m2, width_p);
+    opssl_bn_mod_exp_ct(&m1, &inp_p, &dp_blind, width_p + 1, &ctx->mont_p);
+    opssl_bn_mod_exp_ct(&m2, &inp_q, &dq_blind, width_p + 1, &ctx->mont_q);
+
+    /* 4. Garner CRT: diff = (m1 - m2) mod p. */
+    opssl_bn_t diff;
+    opssl_bn_zero(&diff, width_p);
+    {
+        uint64_t borrow = opssl_bn_sub(&diff, &m1, &m2, width_p);
+        /* tmp_add = (diff + p) mod R_p.
+           When borrow=1: diff = m1 - m2 + R_p, so tmp_add = m1 - m2 + p. Correct. */
+        opssl_bn_t tmp_add;
+        (void)opssl_bn_add(&tmp_add, &diff, &ctx->p, width_p);
+        opssl_bn_ct_select(&diff, &tmp_add, &diff, width_p, borrow);
+        opssl_memzero(&tmp_add, sizeof(tmp_add));
+    }
+
+    /* h = qinv * (m1 - m2) mod p */
+    opssl_bn_t h;
+    opssl_bn_zero(&h, width_p);
+    opssl_bn_mod_mul(&h, &ctx->qinv, &diff, &ctx->mont_p);
+
+    /* hq = h * q mod n */
+    opssl_bn_t hq;
+    opssl_bn_zero(&hq, width_n);
+    opssl_bn_mod_mul(&hq, &h, &ctx->q, &ctx->mont_n);
+
+    /* m2 zero-extended to width_n limbs */
+    opssl_bn_t m2_full;
+    opssl_bn_zero(&m2_full, width_n);
+    for (int i = 0; i < width_p; i++)
+        m2_full.d[i] = m2.d[i];
+
+    /* result = (m2_full + hq) mod n  (sum < 2n; carry-aware). */
+    {
+        uint64_t carry = 0;
+        for (int i = 0; i < width_n; i++) {
+            unsigned __int128 s = (unsigned __int128)m2_full.d[i] + hq.d[i] + carry;
+            result->d[i] = (uint64_t)s;
+            carry = (uint64_t)(s >> 64);
+        }
+        result->width = width_n;
+        opssl_bn_t sub_r;
+        uint64_t borrow = opssl_bn_sub(&sub_r, result, &ctx->n, width_n);
+        opssl_bn_ct_select(result, &sub_r, result, width_n, carry | (borrow ^ 1));
+        opssl_memzero(&sub_r, sizeof(sub_r));
+    }
+
+    /* 5. Zero all sensitive intermediates. */
+    opssl_memzero(&k, sizeof(k));
+    opssl_memzero(&pm1,       sizeof(pm1));
+    opssl_memzero(&qm1,       sizeof(qm1));
+    opssl_memzero(&kpm1,      sizeof(kpm1));
+    opssl_memzero(&kqm1,      sizeof(kqm1));
+    opssl_memzero(&dp_blind,  sizeof(dp_blind));
+    opssl_memzero(&dq_blind,  sizeof(dq_blind));
+    opssl_memzero(&inp_p,     sizeof(inp_p));
+    opssl_memzero(&inp_q,     sizeof(inp_q));
+    opssl_memzero(&m1,        sizeof(m1));
+    opssl_memzero(&m2,        sizeof(m2));
+    opssl_memzero(&diff,      sizeof(diff));
+    opssl_memzero(&h,         sizeof(h));
+    opssl_memzero(&hq,        sizeof(hq));
+    opssl_memzero(&m2_full,   sizeof(m2_full));
+    opssl_memzero(&one_bn,    sizeof(one_bn));
+    return 1;
 }
 
 /* PKCS#1 v1.5 padding for signature */
@@ -269,21 +462,19 @@ static int pkcs1_v15_verify(const uint8_t *em, size_t em_len, const uint8_t *dig
 
     if (em_len < prefix_len + digest_len + 11) return 0;
 
-    /* Check padding structure */
-    if (em[0] != 0x00 || em[1] != 0x01) return 0;
+    size_t pad_len = em_len - prefix_len - digest_len - 3;
+    uint8_t expected[512];
 
-    size_t i = 2;
-    while (i < em_len && em[i] == 0xff) i++;
+    expected[0] = 0x00;
+    expected[1] = 0x01;
+    memset(expected + 2, 0xff, pad_len);
+    expected[2 + pad_len] = 0x00;
+    memcpy(expected + 3 + pad_len, prefix, prefix_len);
+    memcpy(expected + 3 + pad_len + prefix_len, digest, digest_len);
 
-    if (i >= em_len || em[i] != 0x00) return 0;
-    i++;
-
-    /* Check DigestInfo */
-    if (i + prefix_len + digest_len != em_len) return 0;
-    if (opssl_ct_eq(em + i, prefix, prefix_len) != 1) return 0;
-    if (opssl_ct_eq(em + i + prefix_len, digest, digest_len) != 1) return 0;
-
-    return 1;
+    int result = opssl_ct_eq(em, expected, em_len);
+    opssl_memzero(expected, em_len);
+    return result;
 }
 
 /* Public API implementation */
@@ -424,14 +615,30 @@ int opssl_rsa_sign(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_alg
     opssl_bn_t m, s;
     opssl_bn_from_bytes(&m, em, key_size);
 
-    /* Sign with private key */
-    rsa_private_op(&s, &m, ctx);
+    if (!rsa_private_op(&s, &m, ctx)) {
+        opssl_memzero(em, sizeof(em));
+        opssl_memzero(&m, sizeof(m));
+        return 0;
+    }
 
-    /* Convert result to bytes */
+    /* Bellcore fault verification: s^e mod n must equal m */
+    {
+        int width_n = ctx->bits / 64;
+        opssl_bn_t check;
+        opssl_bn_mod_exp_ct(&check, &s, &ctx->e, ctx->e.width ? ctx->e.width : 1, &ctx->mont_n);
+        if (opssl_bn_cmp(&check, &m, width_n) != 0) {
+            opssl_memzero(&check, sizeof(check));
+            opssl_memzero(em, sizeof(em));
+            opssl_memzero(&m, sizeof(m));
+            opssl_memzero(&s, sizeof(s));
+            return 0;
+        }
+        opssl_memzero(&check, sizeof(check));
+    }
+
     opssl_bn_to_bytes(sig, key_size, &s);
     *sig_len = key_size;
 
-    /* Clear sensitive data */
     opssl_memzero(em, sizeof(em));
     opssl_memzero(&m, sizeof(m));
     opssl_memzero(&s, sizeof(s));
@@ -449,7 +656,7 @@ int opssl_rsa_verify(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_a
     opssl_bn_from_bytes(&s, sig, sig_len);
 
     /* Public operation: m = s^e mod n */
-    opssl_bn_mod_exp_ct(&m, &s, &ctx->e, 1, &ctx->mont_n);
+    opssl_bn_mod_exp_ct(&m, &s, &ctx->e, ctx->e.width ? ctx->e.width : 1, &ctx->mont_n);
 
     /* Convert to bytes */
     uint8_t em[512];
@@ -483,11 +690,11 @@ int opssl_rsa_verify(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_a
         /* Check DB format: 0x00...00 || 0x01 || salt */
         size_t salt_len_v = h_len_v;
         size_t pad_end = db_len - salt_len_v - 1;
-        verify_ok = 1;
-        for (size_t vi = 0; vi < pad_end; vi++) {
-            if (db[vi] != 0x00) verify_ok = 0;
-        }
-        if (db[pad_end] != 0x01) verify_ok = 0;
+        uint8_t pad_bad = 0;
+        for (size_t vi = 0; vi < pad_end; vi++)
+            pad_bad |= db[vi];
+        pad_bad |= db[pad_end] ^ 0x01;
+        verify_ok = (pad_bad == 0) ? 1 : 0;
 
         /* Compute H' = Hash(0x00..00 || mHash || salt) */
         uint8_t m_prime_v[8 + 64 + 64];

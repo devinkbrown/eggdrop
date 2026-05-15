@@ -193,7 +193,7 @@ int egg_inet_aton(const char *cp, struct in_addr *addr) {
         (parts[2] << 8);
     break;
   }
-  if (addr != NULL)
+  if (addr != nullptr)
     addr->s_addr = htonl(val);
   return (1);
 }

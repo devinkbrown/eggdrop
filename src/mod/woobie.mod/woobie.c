@@ -33,7 +33,7 @@
 /* Pointer to the eggdrop core function table. Gets initialized in
  * woobie_start().
  */
-static Function *global = NULL;
+static Function *global = nullptr;
 
 /* Calculate the memory we keep allocated.
  */
@@ -69,7 +69,7 @@ static void woobie_report(int idx, int details)
   }
 }
 
-/* Note: The tcl-name is automatically created if you set it to NULL. In
+/* Note: The tcl-name is automatically created if you set it to nullptr. In
  *       the example below it would be just "*dcc:woobie". If you specify
  *       "woobie:woobie" it would be "*dcc:woobie:woobie" instead.
  *               ^----- command name   ^--- table name
@@ -80,15 +80,15 @@ static void woobie_report(int idx, int details)
  */
 static cmd_t mydcc[] = {
   /* command  flags  function     tcl-name */
-  {"woobie",  "",    cmd_woobie,  NULL},
-  {NULL,      NULL,  NULL,        NULL}  /* Mark end. */
+  {"woobie",  "",    cmd_woobie,  nullptr},
+  {nullptr,      nullptr,  nullptr,        nullptr}  /* Mark end. */
 };
 
 static char *woobie_close(void)
 {
   rem_builtins(H_dcc, mydcc);
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 /* Define the prototype here, to avoid warning messages in the
@@ -99,7 +99,7 @@ EXPORT_SCOPE char *woobie_start(Function *global_funcs);
 /* This function table is exported and may be used by other modules and
  * the core.
  *
- * The first four have to be defined (you may define them as NULL), as
+ * The first four have to be defined (you may define them as nullptr), as
  * they are checked by eggdrop core.
  */
 static Function woobie_table[] = {
@@ -133,5 +133,5 @@ char *woobie_start(Function *global_funcs)
    * Currently we only add one command, `woobie'.
    */
   add_builtins(H_dcc, mydcc);
-  return NULL;
+  return nullptr;
 }

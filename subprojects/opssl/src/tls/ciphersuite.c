@@ -65,6 +65,46 @@ static const opssl_ciphersuite_info_t cipher_suites[] = {
         16, 12, 16,
         true
     },
+    {
+        OPSSL_TLS_AES_128_CCM_8_SHA256,
+        "TLS_AES_128_CCM_8_SHA256",
+        OPSSL_AEAD_AES_128_CCM_8,
+        OPSSL_HMAC_SHA256,
+        16, 12, 8,
+        true
+    },
+    {
+        OPSSL_TLS_AES_256_CCM_SHA384,
+        "TLS_AES_256_CCM_SHA384",
+        OPSSL_AEAD_AES_256_CCM,
+        OPSSL_HMAC_SHA384,
+        32, 12, 16,
+        true
+    },
+    {
+        OPSSL_TLS_AES_256_CCM_8_SHA384,
+        "TLS_AES_256_CCM_8_SHA384",
+        OPSSL_AEAD_AES_256_CCM_8,
+        OPSSL_HMAC_SHA384,
+        32, 12, 8,
+        true
+    },
+    {
+        OPSSL_TLS_CAMELLIA_256_GCM_SHA384,
+        "TLS_CAMELLIA_256_GCM_SHA384",
+        OPSSL_AEAD_CAMELLIA_256_GCM,
+        OPSSL_HMAC_SHA384,
+        32, 12, 16,
+        true
+    },
+    {
+        OPSSL_TLS_CAMELLIA_128_GCM_SHA256,
+        "TLS_CAMELLIA_128_GCM_SHA256",
+        OPSSL_AEAD_CAMELLIA_128_GCM,
+        OPSSL_HMAC_SHA256,
+        16, 12, 16,
+        true
+    },
 
     /* TLS 1.2 ECDHE cipher suites */
     {
@@ -132,6 +172,42 @@ static const opssl_ciphersuite_info_t cipher_suites[] = {
         false
     },
 
+    /* TLS 1.2 DHE AES-CCM cipher suites */
+    {
+        OPSSL_TLS_DHE_RSA_AES_256_CCM,
+        "TLS_DHE_RSA_WITH_AES_256_CCM",
+        OPSSL_AEAD_AES_256_CCM,
+        OPSSL_HMAC_SHA256,
+        32, 12, 16,
+        false
+    },
+    {
+        OPSSL_TLS_DHE_RSA_AES_128_CCM,
+        "TLS_DHE_RSA_WITH_AES_128_CCM",
+        OPSSL_AEAD_AES_128_CCM,
+        OPSSL_HMAC_SHA256,
+        16, 12, 16,
+        false
+    },
+
+    /* TLS 1.2 DHE AES-CCM_8 cipher suites (8-byte tag) */
+    {
+        OPSSL_TLS_DHE_RSA_AES_256_CCM_8,
+        "TLS_DHE_RSA_WITH_AES_256_CCM_8",
+        OPSSL_AEAD_AES_256_CCM_8,
+        OPSSL_HMAC_SHA256,
+        32, 12, 8,
+        false
+    },
+    {
+        OPSSL_TLS_DHE_RSA_AES_128_CCM_8,
+        "TLS_DHE_RSA_WITH_AES_128_CCM_8",
+        OPSSL_AEAD_AES_128_CCM_8,
+        OPSSL_HMAC_SHA256,
+        16, 12, 8,
+        false
+    },
+
     /* TLS 1.2 DHE cipher suites */
     {
         OPSSL_TLS_DHE_RSA_AES_256_GCM,
@@ -156,7 +232,75 @@ static const opssl_ciphersuite_info_t cipher_suites[] = {
         OPSSL_HMAC_SHA256,
         16, 12, 16,
         false
-    }
+    },
+
+    /* TLS 1.2 ECDHE AES-CCM_8 cipher suites (8-byte tag) */
+    {
+        OPSSL_TLS_ECDHE_ECDSA_AES_256_CCM_8,
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8",
+        OPSSL_AEAD_AES_256_CCM_8,
+        OPSSL_HMAC_SHA256,
+        32, 12, 8,
+        false
+    },
+    {
+        OPSSL_TLS_ECDHE_ECDSA_AES_128_CCM_8,
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8",
+        OPSSL_AEAD_AES_128_CCM_8,
+        OPSSL_HMAC_SHA256,
+        16, 12, 8,
+        false
+    },
+
+    /* TLS 1.2 Camellia-GCM cipher suites (RFC 6367) */
+    {
+        OPSSL_TLS_ECDHE_ECDSA_CAMELLIA_256_GCM,
+        "TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384",
+        OPSSL_AEAD_CAMELLIA_256_GCM,
+        OPSSL_HMAC_SHA384,
+        32, 12, 16,
+        false
+    },
+    {
+        OPSSL_TLS_ECDHE_RSA_CAMELLIA_256_GCM,
+        "TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384",
+        OPSSL_AEAD_CAMELLIA_256_GCM,
+        OPSSL_HMAC_SHA384,
+        32, 12, 16,
+        false
+    },
+    {
+        OPSSL_TLS_ECDHE_ECDSA_CAMELLIA_128_GCM,
+        "TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256",
+        OPSSL_AEAD_CAMELLIA_128_GCM,
+        OPSSL_HMAC_SHA256,
+        16, 12, 16,
+        false
+    },
+    {
+        OPSSL_TLS_ECDHE_RSA_CAMELLIA_128_GCM,
+        "TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256",
+        OPSSL_AEAD_CAMELLIA_128_GCM,
+        OPSSL_HMAC_SHA256,
+        16, 12, 16,
+        false
+    },
+    {
+        OPSSL_TLS_DHE_RSA_CAMELLIA_256_GCM,
+        "TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384",
+        OPSSL_AEAD_CAMELLIA_256_GCM,
+        OPSSL_HMAC_SHA384,
+        32, 12, 16,
+        false
+    },
+    {
+        OPSSL_TLS_DHE_RSA_CAMELLIA_128_GCM,
+        "TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256",
+        OPSSL_AEAD_CAMELLIA_128_GCM,
+        OPSSL_HMAC_SHA256,
+        16, 12, 16,
+        false
+    },
 };
 
 static const size_t num_cipher_suites = sizeof(cipher_suites) / sizeof(cipher_suites[0]);

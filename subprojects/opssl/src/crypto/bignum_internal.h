@@ -45,5 +45,7 @@ int opssl_bn_cmp(const opssl_bn_t *a, const opssl_bn_t *b, int width);
 void opssl_bn_ct_select(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, int width, uint64_t sel);
 void opssl_bn_copy(opssl_bn_t *dst, const opssl_bn_t *src, int width);
 uint64_t opssl_bn_reduce_once(opssl_bn_t *r, const opssl_bn_t *n, int width);
+int opssl_bn_mod_inv(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *prime,
+                     const opssl_bn_mont_ctx_t *mont);
 
 #endif /* OPSSL_BIGNUM_INTERNAL_H */

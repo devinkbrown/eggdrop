@@ -66,6 +66,8 @@ src/crypto/
   pbkdf2.c       PBKDF2-HMAC (RFC 2898)
   aes.c          AES-128/256 (software)
   aes_gcm.c      AES-GCM seal/open
+  aes_ccm.c      AES-CCM seal/open (full and truncated tag)
+  camellia.c     Camellia block cipher + Camellia-GCM AEAD
   aes_ni.c       AES-NI / PCLMULQDQ acceleration
   chacha20.c     ChaCha20 stream cipher
   poly1305.c     Poly1305 MAC
@@ -76,7 +78,10 @@ src/crypto/
   ed25519.c      Ed25519 sign/verify (extended twisted Edwards)
   rsa.c          RSA (CRT, blinding, PKCS#1 v1.5, PSS)
   dh.c           Finite-field DH (FFDHE-2048/3072/4096)
-  mlkem.c        ML-KEM-768/1024 (NTT-based, post-quantum)
+  mlkem.c        ML-KEM-512/768/1024 (FIPS 203, NTT-based, post-quantum)
+  mldsa.c        ML-DSA-65 (FIPS 204, post-quantum digital signatures)
+  argon2id.c     Argon2id password hashing (RFC 9106)
+  blake2b.c      BLAKE2b hash function (RFC 7693)
   cpuid.c        CPU feature detection (AES-NI, AVX2, SHA-NI, ARM crypto)
   random.c       CSPRNG (getrandom/getentropy/arc4random)
   constant_time.c   constant-time comparison and selection
@@ -92,6 +97,7 @@ src/tls/
   ciphersuite.c  cipher suite negotiation
   keysched.c     TLS 1.3 key schedule
   ktls.c         kernel TLS promotion and key extraction
+  dtls.c         DTLS record layer
 
 src/x509/
   cert.c         X.509 certificate parsing
@@ -100,6 +106,7 @@ src/x509/
   fingerprint.c  certificate fingerprinting (SHA1/256/512, SHA3, SPKI)
   asn1.c         ASN.1 DER parser
   pkey.c         private key loading (RSA, EC, Ed25519)
+  trust_store.c  trusted CA store for chain validation
 
 src/io/
   bio.c          BIO abstraction for custom I/O
@@ -112,14 +119,14 @@ All primitives are real implementations, not wrappers around another library.
 
 | Category | Algorithms |
 |----------|------------|
-| Hash | SHA-1, SHA-256, SHA-384, SHA-512, SHA3-256, SHA3-512, SHAKE-128/256 |
+| Hash | SHA-1, SHA-256, SHA-384, SHA-512, SHA3-256, SHA3-512, SHAKE-128/256, BLAKE2b |
 | MAC | HMAC-SHA-256/384/512 |
-| KDF | HKDF (RFC 5869), PBKDF2 (RFC 2898) |
-| AEAD | AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305, AES-128/256-CCM |
+| KDF | HKDF (RFC 5869), PBKDF2 (RFC 2898), Argon2id (RFC 9106) |
+| AEAD | AES-128/256-GCM, ChaCha20-Poly1305, AES-128/256-CCM, AES-128/256-CCM_8, Camellia-128/256-GCM |
 | Key exchange | X25519, P-256, P-384, FFDHE-2048/3072/4096 |
-| Signatures | Ed25519, ECDSA (P-256/P-384), RSA (PKCS#1 v1.5, PSS) |
-| Post-quantum | ML-KEM-768, ML-KEM-1024 (hybrid with X25519 or P-256/P-384) |
-| X.509 | DER/PEM parsing, chain verification, fingerprinting |
+| Signatures | Ed25519, ECDSA (P-256/P-384), RSA (PKCS#1 v1.5, PSS), ML-DSA-65 (FIPS 204) |
+| Post-quantum | ML-KEM-768/1024 (FIPS 203), ML-DSA-65 (FIPS 204) |
+| X.509 | DER/PEM parsing, chain verification, CRL, OCSP, fingerprinting |
 | Encoding | Base64 (standard + URL-safe) |
 
 ### Security properties
@@ -150,18 +157,41 @@ All primitives are real implementations, not wrappers around another library.
 
 ### Cipher suites
 
-TLS 1.3:
-- `TLS_AES_128_GCM_SHA256`
+TLS 1.3 (9 cipher suites):
 - `TLS_AES_256_GCM_SHA384`
 - `TLS_CHACHA20_POLY1305_SHA256`
+- `TLS_AES_128_GCM_SHA256`
+- `TLS_AES_128_CCM_SHA256`
+- `TLS_AES_128_CCM_8_SHA256`
+- `TLS_AES_256_CCM_SHA384` (opssl extended)
+- `TLS_AES_256_CCM_8_SHA384` (opssl extended)
+- `TLS_CAMELLIA_128_GCM_SHA256` (opssl extended)
+- `TLS_CAMELLIA_256_GCM_SHA384` (opssl extended)
 
-TLS 1.2 (ECDHE only):
+TLS 1.2 (ECDHE / DHE):
 - `ECDHE-RSA-AES128-GCM-SHA256`
 - `ECDHE-RSA-AES256-GCM-SHA384`
 - `ECDHE-ECDSA-AES128-GCM-SHA256`
 - `ECDHE-ECDSA-AES256-GCM-SHA384`
 - `ECDHE-RSA-CHACHA20-POLY1305`
 - `ECDHE-ECDSA-CHACHA20-POLY1305`
+- `DHE-RSA-AES128-GCM-SHA256`
+- `DHE-RSA-AES256-GCM-SHA384`
+- `DHE-RSA-CHACHA20-POLY1305`
+- `ECDHE-ECDSA-AES128-CCM`
+- `ECDHE-ECDSA-AES256-CCM`
+- `DHE-RSA-AES128-CCM`
+- `DHE-RSA-AES256-CCM`
+- `ECDHE-ECDSA-AES128-CCM_8`
+- `ECDHE-ECDSA-AES256-CCM_8`
+- `DHE-RSA-AES128-CCM_8`
+- `DHE-RSA-AES256-CCM_8`
+- `ECDHE-ECDSA-CAMELLIA128-GCM` (RFC 6367)
+- `ECDHE-ECDSA-CAMELLIA256-GCM`
+- `ECDHE-RSA-CAMELLIA128-GCM`
+- `ECDHE-RSA-CAMELLIA256-GCM`
+- `DHE-RSA-CAMELLIA128-GCM`
+- `DHE-RSA-CAMELLIA256-GCM`
 
 ### Kernel TLS (kTLS)
 
@@ -243,7 +273,7 @@ opssl_x25519_keygen(priv, pub);
 
 Three test suites:
 
-- `test_crypto` — hash, HMAC, HKDF, PBKDF2, AEAD, X25519, Ed25519, ECDSA, RSA, ML-KEM
+- `test_crypto` — SHA-256/512, SHA-1, SHA3-256/512, SHAKE-128/256, BLAKE2b, HMAC, HKDF, PBKDF2, Argon2id, AEAD (AES-GCM, ChaCha20-Poly1305, AES-CCM, Camellia-GCM), X25519, Ed25519, ECDSA, ECDH, RSA, ML-DSA-65, ML-KEM, FFDHE, Base64, constant-time ops, hardware acceleration
 - `test_tls` — TLS protocol handshake and record layer
 - `test_x509` — certificate parsing, chain verification, fingerprinting
 

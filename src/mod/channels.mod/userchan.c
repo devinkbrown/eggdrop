@@ -43,7 +43,7 @@ static int mask_is_cidr(const char *mask)
 {
   const char *host  = mask_host(mask);
   const char *slash = strchr(host, '/');
-  return slash != NULL && str_isdigit(slash + 1);
+  return slash != nullptr && str_isdigit(slash + 1);
 }
 
 /* Return 1 if s is a bare IP address (no wildcards). */
@@ -72,10 +72,10 @@ static void ip_trie_add(op_cidr_tbl_t **trie_ptr,
     return;
   if (ss.ss_family == AF_INET)
     op_cidr_set4(*trie_ptr,
-                 &((struct sockaddr_in *)&ss)->sin_addr, plen, rec, NULL);
+                 &((struct sockaddr_in *)&ss)->sin_addr, plen, rec, nullptr);
   else
     op_cidr_set6(*trie_ptr,
-                 &((struct sockaddr_in6 *)&ss)->sin6_addr, plen, rec, NULL);
+                 &((struct sockaddr_in6 *)&ss)->sin6_addr, plen, rec, nullptr);
 }
 
 /* Remove a CIDR ban mask from a trie. */
@@ -94,24 +94,24 @@ static void ip_trie_del(op_cidr_tbl_t *trie, const char *mask)
     op_cidr_del6(trie, &((struct sockaddr_in6 *)&ss)->sin6_addr, plen);
 }
 
-/* Look up a host string in a trie.  Returns the matching maskrec * or NULL. */
+/* Look up a host string in a trie.  Returns the matching maskrec * or nullptr. */
 static maskrec *ip_trie_match(op_cidr_tbl_t *trie, const char *host)
 {
   struct sockaddr_storage ss;
 
   if (!trie || !str_is_ip(host))
-    return NULL;
+    return nullptr;
   if (op_cidr_parse_addr(host, &ss) < 0)
-    return NULL;
+    return nullptr;
   return (maskrec *)op_cidr_match_any_ss(trie, &ss);
 }
 
-/* Destroy a trie and set the pointer to NULL. */
+/* Destroy a trie and set the pointer to nullptr. */
 static void ip_trie_destroy(op_cidr_tbl_t **trie_ptr)
 {
   if (*trie_ptr) {
-    op_cidr_destroy(*trie_ptr, NULL, NULL);
-    *trie_ptr = NULL;
+    op_cidr_destroy(*trie_ptr, nullptr, nullptr);
+    *trie_ptr = nullptr;
   }
 }
 
@@ -122,12 +122,12 @@ struct chanuserrec *get_chanrec(struct userrec *u, char *chname)
   for (ch = u->chanrec; ch; ch = ch->next)
     if (!rfc_casecmp(ch->channel, chname))
       return ch;
-  return NULL;
+  return nullptr;
 }
 
 static struct chanuserrec *add_chanrec(struct userrec *u, char *chname)
 {
-  struct chanuserrec *ch = NULL;
+  struct chanuserrec *ch = nullptr;
 
   if (findchan_by_dname(chname)) {
     ch = alloc_chanuserrec();
@@ -158,16 +158,16 @@ static void get_handle_chaninfo(char *handle, char *chname, char *s, size_t slen
   struct chanuserrec *ch;
 
   u = get_user_by_handle(userlist, handle);
-  if (u == NULL) {
+  if (u == nullptr) {
     s[0] = 0;
     return;
   }
   ch = get_chanrec(u, chname);
-  if (ch == NULL) {
+  if (ch == nullptr) {
     s[0] = 0;
     return;
   }
-  if (ch->info == NULL) {
+  if (ch->info == nullptr) {
     s[0] = 0;
     return;
   }
@@ -191,12 +191,12 @@ static void set_handle_chaninfo(struct userrec *bu, char *handle,
   }
   if (!ch)
     return;
-  if (ch->info != NULL)
+  if (ch->info != nullptr)
     op_free(ch->info);
   if (info && info[0]) {
     ch->info = op_strdup(info);
   } else
-    ch->info = NULL;
+    ch->info = nullptr;
   cst = findchan_by_dname(chname);
   if ((!noshare) && (bu == userlist) &&
       !(u->flags & (USER_UNSHARED | USER_BOT)) && share_greet) {
@@ -206,15 +206,15 @@ static void set_handle_chaninfo(struct userrec *bu, char *handle,
 
 static void del_chanrec(struct userrec *u, char *chname)
 {
-  struct chanuserrec *ch = u->chanrec, *lst = NULL;
+  struct chanuserrec *ch = u->chanrec, *lst = nullptr;
 
   while (ch) {
     if (!rfc_casecmp(chname, ch->channel)) {
-      if (lst == NULL)
+      if (lst == nullptr)
         u->chanrec = ch->next;
       else
         lst->next = ch->next;
-      if (ch->info != NULL)
+      if (ch->info != nullptr)
         op_free(ch->info);
       free_chanuserrec(ch);
       if (!noshare && !(u->flags & USER_UNSHARED))
@@ -261,7 +261,7 @@ static int u_setsticky_mask(struct chanset_t *chan, maskrec *u, char *uhost,
   int j;
 
   if (str_isdigit(uhost))
-    j = atoi(uhost);
+    j = egg_atoi(uhost);
   else
     j = -1;
 
@@ -355,7 +355,7 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
 
   op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
-    j = atoi(who);
+    j = egg_atoi(who);
     j--;
     for (; (*u) && j; u = &((*u)->next), j--);
     if (*u) {
@@ -387,7 +387,7 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
         if (c)
           shareout(c, "-bc %s %s\n", c->dname, mask);
         else
-          shareout(NULL, "-b %s\n", mask);
+          shareout(nullptr, "-b %s\n", mask);
         op_free(mask);
       }
     }
@@ -423,7 +423,7 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
 
   op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
-    j = atoi(who);
+    j = egg_atoi(who);
     j--;
     for (; (*u) && j; u = &((*u)->next), j--);
     if (*u) {
@@ -455,7 +455,7 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
         if (c)
           shareout(c, "-ec %s %s\n", c->dname, mask);
         else
-          shareout(NULL, "-e %s\n", mask);
+          shareout(nullptr, "-e %s\n", mask);
         op_free(mask);
       }
     }
@@ -491,7 +491,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
 
   op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
-    j = atoi(who);
+    j = egg_atoi(who);
     j--;
     for (; (*u) && j; u = &((*u)->next), j--);
     if (*u) {
@@ -523,7 +523,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
         if (c)
           shareout(c, "-invc %s %s\n", c->dname, mask);
         else
-          shareout(NULL, "-inv %s\n", mask);
+          shareout(nullptr, "-inv %s\n", mask);
         op_free(mask);
       }
     }
@@ -559,11 +559,11 @@ static void fix_broken_mask(op_strbuf_t *sb, const char *oldmask)
     /* must have '!' and '@' */
     strat = strchr(oldmask, '@');
     strbang = strchr(oldmask, '!');
-    if (strbang == NULL && strat == NULL)
+    if (strbang == nullptr && strat == nullptr)
       op_strbuf_appendf(sb, "%s!*@*", oldmask);
-    else if (strat == NULL)
+    else if (strat == nullptr)
       op_strbuf_appendf(sb, "%s@*", oldmask);
-    else if (strbang == NULL) {
+    else if (strbang == nullptr) {
       size_t pfxlen = (size_t)(strat - oldmask);
       op_strbuf_appendf(sb, "%.*s!*%s", (int)pfxlen, oldmask, strat);
     } else
@@ -577,7 +577,8 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
                     time_t expire_time, int flags)
 {
   op_strbuf_t _host;
-  maskrec *p = NULL, *l, **u = chan ? &chan->bans : &global_bans;
+  op_strbuf_init(&_host);
+  maskrec *p = nullptr, *l, **u = chan ? &chan->bans : &global_bans;
   module_entry *me;
   int ret = 1;
 
@@ -587,6 +588,7 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
 
   if ((me = module_find("server", 0, 0)) && me->funcs) {
     op_strbuf_t s;
+    op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
                      (char *) me->funcs[SERVER_BOTUSERHOST]);
     bool matched = match_addr(op_strbuf_str(&_host), op_strbuf_str(&s));
@@ -616,7 +618,7 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
     expire_time = 0L;
   }
 
-  if (p == NULL) {
+  if (p == nullptr) {
     p = alloc_maskrec();
     p->next = *u;
     *u = p;
@@ -636,7 +638,7 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
   {
     op_htab *ht = chan ? chan->bans_ht : global_bans_ht;
     if (ht)
-      op_htab_set(ht, p->mask, p, NULL);
+      op_htab_set(ht, p->mask, p, nullptr);
   }
   if (chan)
     ip_trie_add(&chan->ban_ip_trie, p->mask, p);
@@ -645,7 +647,7 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
 
     if (mask) {
       if (!chan)
-        shareout(NULL, "+b %s %li %s%s %s %s\n", mask, expire_time - now,
+        shareout(nullptr, "+b %s %li %s%s %s %s\n", mask, expire_time - now,
                  (flags & MASKREC_STICKY) ? "s" : "",
                  (flags & MASKREC_PERM) ? "p" : "-", from, note);
       else
@@ -668,7 +670,8 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
                        char *note, time_t expire_time, int flags)
 {
   op_strbuf_t _host;
-  maskrec *p = NULL, *l, **u = chan ? &chan->invites : &global_invites;
+  op_strbuf_init(&_host);
+  maskrec *p = nullptr, *l, **u = chan ? &chan->invites : &global_invites;
 
   /* Choke check: fix broken invites (must have '!' and '@') */
   op_strbuf_init(&_host);
@@ -690,7 +693,7 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
     expire_time = 0L;
   }
 
-  if (p == NULL) {
+  if (p == nullptr) {
     p = alloc_maskrec();
     p->next = *u;
     *u = p;
@@ -710,7 +713,7 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
   {
     op_htab *ht = chan ? chan->invites_ht : global_invites_ht;
     if (ht)
-      op_htab_set(ht, p->mask, p, NULL);
+      op_htab_set(ht, p->mask, p, nullptr);
   }
   if (chan)
     ip_trie_add(&chan->invite_ip_trie, p->mask, p);
@@ -719,7 +722,7 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
 
     if (mask) {
       if (!chan)
-        shareout(NULL, "+inv %s %li %s%s %s %s\n", mask, expire_time - now,
+        shareout(nullptr, "+inv %s %li %s%s %s %s\n", mask, expire_time - now,
                  (flags & MASKREC_STICKY) ? "s" : "",
                  (flags & MASKREC_PERM) ? "p" : "-", from, note);
       else
@@ -738,7 +741,8 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
                        char *note, time_t expire_time, int flags)
 {
   op_strbuf_t _host;
-  maskrec *p = NULL, *l, **u = chan ? &chan->exempts : &global_exempts;
+  op_strbuf_init(&_host);
+  maskrec *p = nullptr, *l, **u = chan ? &chan->exempts : &global_exempts;
 
   /* Choke check: fix broken exempts (must have '!' and '@') */
   op_strbuf_init(&_host);
@@ -760,7 +764,7 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
     expire_time = 0L;
   }
 
-  if (p == NULL) {
+  if (p == nullptr) {
     p = alloc_maskrec();
     p->next = *u;
     *u = p;
@@ -780,7 +784,7 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
   {
     op_htab *ht = chan ? chan->exempts_ht : global_exempts_ht;
     if (ht)
-      op_htab_set(ht, p->mask, p, NULL);
+      op_htab_set(ht, p->mask, p, nullptr);
   }
   if (chan)
     ip_trie_add(&chan->exempt_ip_trie, p->mask, p);
@@ -789,7 +793,7 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
 
     if (mask) {
       if (!chan)
-        shareout(NULL, "+e %s %li %s%s %s %s\n", mask, expire_time - now,
+        shareout(nullptr, "+e %s %li %s%s %s %s\n", mask, expire_time - now,
                  (flags & MASKREC_STICKY) ? "s" : "",
                  (flags & MASKREC_PERM) ? "p" : "-", from, note);
       else
@@ -928,8 +932,8 @@ static void display_invite(int idx, int number, maskrec *invite,
 static void tell_bans(int idx, int show_inact, char *match)
 {
   int k = 1;
-  char *chname = NULL;
-  struct chanset_t *chan = NULL;
+  char *chname = nullptr;
+  struct chanset_t *chan = nullptr;
   maskrec *u;
 
   /* Was a channel given? */
@@ -948,7 +952,7 @@ static void tell_bans(int idx, int show_inact, char *match)
   /* don't return here, we want to show global bans even if no chan */
   if (!chan && !(chan = findchan_by_dname(dcc[idx].u.chat->con_chan)) &&
       !(chan = chanset))
-    chan = NULL;
+    chan = nullptr;
 
   if (chan && show_inact)
     dprintf(idx, "%s:   (! = %s %s)\n", BANS_GLOBAL,
@@ -1001,6 +1005,7 @@ static void tell_bans(int idx, int show_inact, char *match)
         if ((!u_equals_mask(global_bans, global_bans_ht, b->mask)) &&
             (!u_equals_mask(chan->bans, chan->bans_ht, b->mask))) {
           op_strbuf_t fill;
+          op_strbuf_init(&fill);
           strlcpy(s, b->who, sizeof(s));
           s2 = s;
           s1 = splitnick(&s2);
@@ -1032,7 +1037,7 @@ static void tell_exempts(int idx, int show_inact, char *match)
 {
   int k = 1;
   char *chname;
-  struct chanset_t *chan = NULL;
+  struct chanset_t *chan = nullptr;
   maskrec *u;
 
   /* Was a channel given? */
@@ -1051,7 +1056,7 @@ static void tell_exempts(int idx, int show_inact, char *match)
   /* don't return here, we want to show global exempts even if no chan */
   if (!chan && !(chan = findchan_by_dname(dcc[idx].u.chat->con_chan)) &&
       !(chan = chanset))
-    chan = NULL;
+    chan = nullptr;
 
   if (chan && show_inact)
     dprintf(idx, "%s:   (! = %s %s)\n", EXEMPTS_GLOBAL,
@@ -1092,6 +1097,7 @@ static void tell_exempts(int idx, int show_inact, char *match)
         if ((!u_equals_mask(global_exempts, global_exempts_ht, e->mask)) &&
             (!u_equals_mask(chan->exempts, chan->exempts_ht, e->mask))) {
           op_strbuf_t fill;
+          op_strbuf_init(&fill);
           strlcpy(s, e->who, sizeof(s));
           s2 = s;
           s1 = splitnick(&s2);
@@ -1122,7 +1128,7 @@ static void tell_invites(int idx, int show_inact, char *match)
 {
   int k = 1;
   char *chname;
-  struct chanset_t *chan = NULL;
+  struct chanset_t *chan = nullptr;
   maskrec *u;
 
   /* Was a channel given? */
@@ -1141,7 +1147,7 @@ static void tell_invites(int idx, int show_inact, char *match)
   /* don't return here, we want to show global invites even if no chan */
   if (!chan && !(chan = findchan_by_dname(dcc[idx].u.chat->con_chan)) &&
       !(chan = chanset))
-    chan = NULL;
+    chan = nullptr;
 
   if (chan && show_inact)
     dprintf(idx, "%s:   (! = %s %s)\n", INVITES_GLOBAL,
@@ -1182,6 +1188,7 @@ static void tell_invites(int idx, int show_inact, char *match)
         if ((!u_equals_mask(global_invites, global_invites_ht, i->mask)) &&
             (!u_equals_mask(chan->invites, chan->invites_ht, i->mask))) {
           op_strbuf_t fill;
+          op_strbuf_init(&fill);
           strlcpy(s, i->who, sizeof(s));
           s2 = s;
           s1 = splitnick(&s2);
@@ -1238,7 +1245,7 @@ static int write_bans(FILE *f, int idx)
   }
   for (chan = chanset; chan; chan = chan->next)
     if ((idx < 0) || (chan->status & CHAN_SHARED)) {
-      struct flag_record fr = { FR_CHAN | FR_GLOBAL | FR_BOT, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_CHAN | FR_GLOBAL | FR_BOT };
 
       if (idx >= 0)
         get_user_flagrec(dcc[idx].user, &fr, chan->dname);
@@ -1298,7 +1305,7 @@ static int write_exempts(FILE *f, int idx)
   }
   for (chan = chanset; chan; chan = chan->next)
     if ((idx < 0) || (chan->status & CHAN_SHARED)) {
-      struct flag_record fr = { FR_CHAN | FR_GLOBAL | FR_BOT, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_CHAN | FR_GLOBAL | FR_BOT };
 
       if (idx >= 0)
         get_user_flagrec(dcc[idx].user, &fr, chan->dname);
@@ -1358,7 +1365,7 @@ static int write_invites(FILE *f, int idx)
   }
   for (chan = chanset; chan; chan = chan->next)
     if ((idx < 0) || (chan->status & CHAN_SHARED)) {
-      struct flag_record fr = { FR_CHAN | FR_GLOBAL | FR_BOT, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_CHAN | FR_GLOBAL | FR_BOT };
 
       if (idx >= 0)
         get_user_flagrec(dcc[idx].user, &fr, chan->dname);
@@ -1395,6 +1402,7 @@ static void channels_writeuserfile(void)
 
   {
     op_strbuf_t s;
+    op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s~new", userfile);
     f = fopen(op_strbuf_str(&s), "a");
     op_strbuf_free(&s);
@@ -1479,7 +1487,7 @@ static void check_expired_bans(void)
             add_mode(chan, '-', 'b', u->mask);
             b->timer = now;
           }
-      u_delban(NULL, u->mask, 1);
+      u_delban(nullptr, u->mask, 1);
     }
   }
   /* Check for specific channel-domain bans expiring */
@@ -1538,7 +1546,7 @@ static void check_expired_exempts(void)
               e->timer = now;
             }
       }
-      u_delexempt(NULL, u->mask, 1);
+      u_delexempt(nullptr, u->mask, 1);
     }
   }
   /* Check for specific channel-domain exempts expiring */
@@ -1597,7 +1605,7 @@ static void check_expired_invites(void)
               add_mode(chan, '-', 'I', u->mask);
               b->timer = now;
             }
-      u_delinvite(NULL, u->mask, 1);
+      u_delinvite(nullptr, u->mask, 1);
     }
   }
   /* Check for specific channel-domain invites expiring */

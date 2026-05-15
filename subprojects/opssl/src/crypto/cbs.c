@@ -173,6 +173,10 @@ cbb_grow(opssl_cbb_t *cbb, size_t need)
     }
 
     size_t required = cbb->len + need;
+    if (required < cbb->len) {
+        cbb->error = 1;
+        return 0;
+    }
     if (required <= cbb->cap)
         return 1;
 
@@ -181,9 +185,15 @@ cbb_grow(opssl_cbb_t *cbb, size_t need)
         return 0;
     }
 
-    size_t new_cap = cbb->cap * 2;
-    while (new_cap < required)
-        new_cap *= 2;
+    size_t new_cap = cbb->cap ? cbb->cap : 64;
+    while (new_cap < required) {
+        size_t doubled = new_cap * 2;
+        if (doubled <= new_cap) {
+            cbb->error = 1;
+            return 0;
+        }
+        new_cap = doubled;
+    }
 
     uint8_t *new_buf = op_realloc(cbb->buf, new_cap);
     cbb->buf = new_buf;

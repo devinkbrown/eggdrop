@@ -1,22 +1,37 @@
 /*
  * io_thread.c — dedicated I/O reader thread for eggdrop.
  *
- * See io_thread.h for the design overview.
+ * Architecture:
+ *
+ *   io_thread runs its own epoll watching non-TLS, non-TCL sockets.
+ *   When a socket becomes readable, io_thread does recv() and pushes
+ *   the result onto a lockfree MPSC Treiber stack.  A wakeup eventfd
+ *   registered with commio triggers io_thread_drain() on the main
+ *   thread, which feeds the data into the socket's linebuf (recvbuf).
+ *   sockgets() then extracts complete lines as usual.
+ *
+ *   Data path:
+ *     kernel → recv (io_thread) → MPSC stack → drain (main thread)
+ *            → op_linebuf_parse → recvbuf → sockgets → handler
+ *
+ *   Thread safety:
+ *     - io_thread never touches socklist or linebufs
+ *     - The MPSC stack is the only shared state (atomic CAS)
+ *     - Socket fd comes from epoll data (stored at add_sock time)
+ *     - iot_managed[] is per-slot atomic; del_sock clears before close
+ *
+ * Linux-only (epoll + eventfd).  Non-Linux: all functions are no-ops.
  *
  * Copyright (C) 2026 Eggheads Development Team
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-/* Enable GNU extensions: eventfd, EPOLL_CLOEXEC, accept4, etc. */
 #ifndef _GNU_SOURCE
 #  define _GNU_SOURCE
 #endif
 
-/* op_thread.h must be included before main.h.  main.h → eggdrop.h redefines
- * malloc/free to dont_use_old_malloc/dont_use_old_free to catch accidental
- * direct allocation in eggdrop code.  op_thread.h is a libop library header
- * that legitimately uses the real malloc for its pthreads adapter structs;
- * it must see the real allocators. */
+/* op_thread.h before main.h: eggdrop.h poisons malloc/free, but
+ * op_thread.h needs the real allocators for pthread adapter structs. */
 #include <op_thread.h>
 
 #ifdef HAVE_CONFIG_H
@@ -25,296 +40,264 @@
 
 #include "main.h"
 #include "io_thread.h"
-#include "tclhash.h"   /* struct threaddata, threaddata() */
+#include "perf.h"
+#include <op_commio.h>
 
 #include <stdatomic.h>
-#include <string.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <unistd.h>
 
-
-/* Global socklist from net.c */
-extern sock_list *socklist;
-
 /* =========================================================================
- * Platform-specific I/O notification backend
- *
- * Two notification fds are needed:
- *   io_wakeup_fd  — io_thread → main thread: "data is ready"
- *   io_stop_fd   — main thread → io_thread: "please stop"
- *
- * Use eventfd on Linux; fall back to a pipe pair on other POSIX systems.
+ * Platform gate — full implementation on Linux, stubs elsewhere.
  * ====================================================================== */
 
-#ifdef __linux__
+#if defined(__linux__)
+#  include <sys/epoll.h>
 #  include <sys/eventfd.h>
-#  define HAVE_EVENTFD 1
+#  define IOT_SUPPORTED 1
 #endif
 
-#if defined(HAVE_EPOLL) || defined(EGG_EPOLL) || defined(__linux__)
-#  include <sys/epoll.h>
-#  define IOT_HAVE_EPOLL 1
-#endif
+#ifdef IOT_SUPPORTED
+
+/* =========================================================================
+ * SPSC ring buffer — lock-free, zero-contention result queue.
+ *
+ * Replaces the Treiber stack.  Advantages:
+ *   - No CAS retry loops (single producer, single consumer)
+ *   - Native FIFO order (no O(n) LIFO→FIFO reversal)
+ *   - Cache-line padded indices prevent false sharing
+ *   - Simple acquire/release ordering on index loads/stores
+ * ====================================================================== */
+
+typedef struct iot_result {
+  int    slist_idx;
+  int    sock;
+  int    len;       /* >0 = data bytes, 0 = EOF, -1 = error           */
+  char   data[];    /* flexible array member, allocated to actual size */
+} iot_result_t;
+
+#include "egg_perf_types.h"
+
+#define IOT_RING_CAP    4096u
+#define IOT_RING_MASK   (IOT_RING_CAP - 1u)
+
+static iot_result_t *iot_ring[IOT_RING_CAP];
+static alignas(EGG_CACHELINE) _Atomic(uint32_t) iot_ring_prod = 0;
+static alignas(EGG_CACHELINE) _Atomic(uint32_t) iot_ring_cons = 0;
+
+static int iot_ring_push(iot_result_t *r)
+{
+  uint32_t p = atomic_load_explicit(&iot_ring_prod, memory_order_relaxed);
+  uint32_t c = atomic_load_explicit(&iot_ring_cons, memory_order_acquire);
+  if (op_unlikely(p - c >= IOT_RING_CAP))
+    return -1;
+  iot_ring[p & IOT_RING_MASK] = r;
+  atomic_store_explicit(&iot_ring_prod, p + 1, memory_order_release);
+  return 0;
+}
+
+static iot_result_t *iot_ring_pop(void)
+{
+  uint32_t c = atomic_load_explicit(&iot_ring_cons, memory_order_relaxed);
+  uint32_t p = atomic_load_explicit(&iot_ring_prod, memory_order_acquire);
+  if (op_unlikely(c == p))
+    return nullptr;
+  iot_result_t *r = iot_ring[c & IOT_RING_MASK];
+  atomic_store_explicit(&iot_ring_cons, c + 1, memory_order_release);
+  return r;
+}
+
+static uint32_t iot_ring_pending(void)
+{
+  uint32_t p = atomic_load_explicit(&iot_ring_prod, memory_order_acquire);
+  uint32_t c = atomic_load_explicit(&iot_ring_cons, memory_order_relaxed);
+  return p - c;
+}
 
 /* =========================================================================
  * State
  * ====================================================================== */
 
-/* io_thread's own epoll fd — watches non-TCL, non-TLS sockets for EPOLLIN */
-static int iot_epoll_fd = -1;
+#define IOT_MAX_SLOTS   4096
+#define IOT_MAX_EVENTS  64
 
-/* Wakeup notification: io_thread signals main when inbuf has new data */
-#ifdef HAVE_EVENTFD
-static int iot_wakeup_fd = -1;        /* eventfd */
-#else
-static int iot_wakeup_pipe[2] = { -1, -1 };
-#  define iot_wakeup_fd iot_wakeup_pipe[0]
-#endif
+static _Atomic int iot_managed[IOT_MAX_SLOTS];
 
-/* Stop signal: main signals io_thread to exit */
-#ifdef HAVE_EVENTFD
-static int iot_stop_fd = -1;          /* eventfd */
-#else
-static int iot_stop_pipe[2] = { -1, -1 };
-#  define iot_stop_fd iot_stop_pipe[0]
-#endif
+static int         iot_epfd       = -1;
+static int         iot_stop_fd    = -1;
+static int         iot_wakeup_fd  = -1;
+static op_fde_t   *iot_wakeup_fde = nullptr;
+static op_thrd_t   iot_thread;
+static _Atomic int iot_running    = 0;
 
-static op_thrd_t iot_thread;
-static _Atomic int iot_running = 0;   /* 1 while io_thread is alive */
-
-/* Maximum epoll events per wait call */
-constexpr int IOT_MAX_EVENTS = 64;
-
-/* Recv staging buffer size (READMAX + 2 for CRLF detection) */
-constexpr int IOT_RBUF_SIZE = READMAX + 2;
+extern sock_list  *socklist;
 
 /* =========================================================================
- * Inbuf append helper (called from io_thread, under inbuf_lock)
+ * epoll data encoding
+ *
+ * Each epoll event carries:
+ *   data.u64 = (uint64_t)(unsigned)sock << 32 | (unsigned)slist_idx
+ *
+ * The stop fd uses UINT64_MAX as a sentinel (no valid socket has
+ * both fd and index at 0xFFFFFFFF).
  * ====================================================================== */
 
-static void iot_append_inbuf(struct sock_handler *h, const char *data, int len)
+#define IOT_STOP_SENTINEL  UINT64_MAX
+
+static inline uint64_t iot_encode(int sock, int slist_idx)
 {
-  size_t newlen = h->inbuflen + (size_t)len;
-  char *newbuf = op_realloc(h->inbuf, newlen + 1);
-  if (!newbuf)
-    return;   /* OOM: silently drop; main thread will see no progress */
-  memcpy(newbuf + h->inbuflen, data, (size_t)len);
-  newbuf[newlen] = '\0';
-  h->inbuf    = newbuf;
-  h->inbuflen = newlen;
+  return ((uint64_t)(unsigned)sock << 32) | (unsigned)slist_idx;
+}
+
+static inline void iot_decode(uint64_t d, int *sock, int *slist_idx)
+{
+  *sock      = (int)(uint32_t)(d >> 32);
+  *slist_idx = (int)(uint32_t)d;
 }
 
 /* =========================================================================
- * I/O thread function
+ * Commio wakeup handler — fires on the main thread when io_thread has
+ * posted results.  Drains the eventfd and feeds results into linebufs.
  * ====================================================================== */
+
+static void iot_wakeup_handler(op_fde_t *F, [[maybe_unused]] void *data)
+{
+  uint64_t val;
+  ssize_t rc;
+  do { rc = read(iot_wakeup_fd, &val, sizeof val); }
+  while (rc < 0 && errno == EINTR);
+
+  io_thread_drain();
+
+  op_setselect(F, OP_SELECT_READ, iot_wakeup_handler, nullptr);
+}
+
+/* =========================================================================
+ * CPU affinity — pin the I/O thread to a core to improve cache locality
+ * and reduce context-switch jitter.  -1 means no pinning (OS default).
+ * ====================================================================== */
+
+static int iot_cpu_affinity = -1;
+
+#if defined(__linux__) && defined(CPU_SET)
+#include <sched.h>
+static void iot_pin_cpu(int core)
+{
+  if (core < 0)
+    return;
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(core, &cpuset);
+  if (sched_setaffinity(0, sizeof cpuset, &cpuset) == 0)
+    putlog(LOG_MISC, "*", "io_thread: pinned to CPU %d", core);
+}
+#else
+static void iot_pin_cpu([[maybe_unused]] int core) {}
+#endif
+
+/* =========================================================================
+ * I/O thread function
+ *
+ * Adaptive timeout:  Under load (events received), epoll_wait uses a
+ * short timeout (1ms) for low latency.  After consecutive idle rounds,
+ * the timeout ramps to 500ms to save CPU.  This provides sub-millisecond
+ * response under traffic while burning ~0% CPU when idle.
+ * ====================================================================== */
+
+#define IOT_TIMEOUT_HOT   1     /* ms — under active I/O */
+#define IOT_TIMEOUT_WARM  50    /* ms — recent activity */
+#define IOT_TIMEOUT_COLD  500   /* ms — fully idle */
+#define IOT_IDLE_WARM     5     /* idle rounds before warm→cold */
 
 static int iot_thread_fn([[maybe_unused]] void *arg)
 {
-
-  /* threaddata() from the io_thread returns td_main (via the
-   * mainloopfunc==NULL fallback in the Tcl build, or the global td_static
-   * in the no-Tcl build).  Used for MAXSOCKS bounds-checking. */
-  struct threaddata *td = threaddata();
-
-  char rbuf[IOT_RBUF_SIZE];
-
-#ifdef IOT_HAVE_EPOLL
+  char rbuf[READMAX + 2];
   struct epoll_event events[IOT_MAX_EVENTS];
-  int n;
+  int idle_rounds = 0;
 
-  while (atomic_load_explicit(&iot_running, memory_order_acquire)) {
-    /* Wait for readability on any registered socket, or for the stop fd. */
-    n = epoll_wait(iot_epoll_fd, events, IOT_MAX_EVENTS, 200 /* ms timeout */);
+  iot_pin_cpu(iot_cpu_affinity);
 
-    if (n < 0) {
+  while (op_likely(atomic_load_explicit(&iot_running, memory_order_acquire))) {
+    int timeout = (idle_rounds == 0)   ? IOT_TIMEOUT_HOT
+                : (idle_rounds < IOT_IDLE_WARM) ? IOT_TIMEOUT_WARM
+                : IOT_TIMEOUT_COLD;
+
+    int n = epoll_wait(iot_epfd, events, IOT_MAX_EVENTS, timeout);
+
+    if (op_unlikely(n < 0)) {
       if (errno == EINTR)
         continue;
       break;
     }
 
-    for (int i = 0; i < n; i++) {
-      uint64_t data64 = events[i].data.u64;
-      int is_control   = (int)(data64 >> 32);
-      int slot_or_fd   = (int)(uint32_t)data64;
-
-      if (is_control) {
-        /* Stop fd became readable — exit. */
-        atomic_store_explicit(&iot_running, 0, memory_order_release);
-        break;
-      }
-
-      int slist_idx = slot_or_fd;
-      if (slist_idx < 0 || slist_idx >= td->MAXSOCKS)
-        continue;
-
-      sock_list *sl = &socklist[slist_idx];
-
-      /* Skip slots that have been freed or are TCL/virtual/TLS sockets.
-       * We check flags before taking the lock; a concurrent killsock() will
-       * set SOCK_UNUSED first and then destroy the lock.  The race window is
-       * harmless: if we see SOCK_UNUSED we skip; if we lock first, killsock()
-       * will wait on the lock before destroying it. */
-      if (sl->flags & (SOCK_UNUSED | SOCK_TCL | SOCK_VIRTUAL))
-        continue;
-
-#ifdef TLS
-      /* Leave TLS sockets for the main thread. */
-      if (sl->ssl)
-        continue;
-#endif
-
-      int fd = sl->sock;
-      if (fd < 0)
-        continue;
-
-      /* Read data from the kernel socket buffer. */
-      ssize_t ret = recv(fd, rbuf, sizeof rbuf - 1, 0);
-
-      if (ret < 0) {
-        if (errno == EAGAIN)
-          continue;
-        /* Real error: mark the socket so sockgets() triggers EOF handling. */
-        egg_spin_lock(&sl->handler.sock.inbuf_lock);
-        if (!(sl->flags & SOCK_UNUSED))
-          sl->flags |= SOCK_EOFD;
-        egg_spin_unlock(&sl->handler.sock.inbuf_lock);
-      } else if (ret == 0) {
-        /* EOF: mark for sockgets() to report. */
-        egg_spin_lock(&sl->handler.sock.inbuf_lock);
-        if (!(sl->flags & SOCK_UNUSED))
-          sl->flags |= SOCK_EOFD;
-        egg_spin_unlock(&sl->handler.sock.inbuf_lock);
-      } else {
-        /* Append received bytes to inbuf under the per-socket lock. */
-        egg_spin_lock(&sl->handler.sock.inbuf_lock);
-        if (!(sl->flags & SOCK_UNUSED))
-          iot_append_inbuf(&sl->handler.sock, rbuf, (int)ret);
-        egg_spin_unlock(&sl->handler.sock.inbuf_lock);
-      }
-
-      /* Wake the main thread regardless of ret — it needs to process
-       * EOF flags and/or newly buffered data. */
-#ifdef HAVE_EVENTFD
-      {
-        uint64_t one = 1;
-        ssize_t rc;
-        do { rc = write(iot_wakeup_fd, &one, sizeof one); }
-        while (rc < 0 && errno == EINTR);
-      }
-#else
-      {
-        char one = 1;
-        ssize_t rc;
-        do { rc = write(iot_wakeup_pipe[1], &one, 1); }
-        while (rc < 0 && errno == EINTR);
-      }
-#endif
-    }
-  }
-
-#else  /* !IOT_HAVE_EPOLL — select() fallback */
-
-  fd_set fdr;
-  struct timeval tv;
-  int maxfd, ret_s;
-
-  while (atomic_load_explicit(&iot_running, memory_order_acquire)) {
-    FD_ZERO(&fdr);
-    maxfd = -1;
-
-    /* Add stop fd */
-    FD_SET(iot_stop_fd, &fdr);
-    if (iot_stop_fd > maxfd)
-      maxfd = iot_stop_fd;
-
-    /* Add all eligible sockets */
-    for (int i = 0; i < td->MAXSOCKS; i++) {
-      sock_list *sl = &socklist[i];
-      if (sl->flags & (SOCK_UNUSED | SOCK_TCL | SOCK_VIRTUAL))
-        continue;
-#ifdef TLS
-      if (sl->ssl)
-        continue;
-#endif
-      int fd = sl->sock;
-      if (fd < 0)
-        continue;
-      FD_SET(fd, &fdr);
-      if (fd > maxfd)
-        maxfd = fd;
-    }
-
-    if (maxfd < 0) {
-      /* No sockets — sleep briefly and retry. */
-      tv.tv_sec = 0;
-      tv.tv_usec = 200000;
-      select(0, NULL, NULL, NULL, &tv);
+    if (n == 0) {
+      if (idle_rounds < IOT_IDLE_WARM + 1)
+        idle_rounds++;
       continue;
     }
 
-    tv.tv_sec = 0;
-    tv.tv_usec = 200000;
-    ret_s = select(maxfd + 1, &fdr, NULL, NULL, &tv);
+    idle_rounds = 0;
+    int signaled = 0;
 
-    if (ret_s < 0) {
-      if (errno == EINTR)
-        continue;
-      break;
-    }
+    for (int i = 0; i < n; i++) {
+      uint64_t d = events[i].data.u64;
 
-    /* Check stop fd */
-    if (FD_ISSET(iot_stop_fd, &fdr)) {
-      atomic_store_explicit(&iot_running, 0, memory_order_release);
-      break;
-    }
+      if (op_unlikely(d == IOT_STOP_SENTINEL)) {
+        uint64_t v;
+        ssize_t _r = read(iot_stop_fd, &v, sizeof v);
+        (void)_r;
+        atomic_store_explicit(&iot_running, 0, memory_order_release);
+        goto done;
+      }
 
-    for (int i = 0; i < td->MAXSOCKS; i++) {
-      sock_list *sl = &socklist[i];
-      if (sl->flags & (SOCK_UNUSED | SOCK_TCL | SOCK_VIRTUAL))
+      int sock, slist_idx;
+      iot_decode(d, &sock, &slist_idx);
+
+      if (op_unlikely(slist_idx < 0 || slist_idx >= IOT_MAX_SLOTS))
         continue;
-#ifdef TLS
-      if (sl->ssl)
-        continue;
-#endif
-      int fd = sl->sock;
-      if (fd < 0 || !FD_ISSET(fd, &fdr))
+      if (op_unlikely(!atomic_load_explicit(&iot_managed[slist_idx],
+                                             memory_order_acquire)))
         continue;
 
-      ssize_t ret = recv(fd, rbuf, sizeof rbuf - 1, 0);
+      ssize_t ret = recv(sock, rbuf, READMAX, 0);
 
-      if (ret <= 0) {
-        egg_spin_lock(&sl->handler.sock.inbuf_lock);
-        if (!(sl->flags & SOCK_UNUSED))
-          sl->flags |= SOCK_EOFD;
-        egg_spin_unlock(&sl->handler.sock.inbuf_lock);
+      iot_result_t *r;
+      if (op_likely(ret > 0)) {
+        r = op_malloc(sizeof(*r) + (size_t)ret);
+        r->slist_idx = slist_idx;
+        r->sock = sock;
+        r->len = (int)ret;
+        memcpy(r->data, rbuf, (size_t)ret);
+      } else if (ret == 0) {
+        r = op_malloc(sizeof(*r));
+        r->slist_idx = slist_idx;
+        r->sock = sock;
+        r->len = 0;
       } else {
-        egg_spin_lock(&sl->handler.sock.inbuf_lock);
-        if (!(sl->flags & SOCK_UNUSED))
-          iot_append_inbuf(&sl->handler.sock, rbuf, (int)ret);
-        egg_spin_unlock(&sl->handler.sock.inbuf_lock);
+        if (op_likely(errno == EAGAIN || errno == EWOULDBLOCK))
+          continue;
+        r = op_malloc(sizeof(*r));
+        r->slist_idx = slist_idx;
+        r->sock = sock;
+        r->len = -1;
       }
 
-#ifdef HAVE_EVENTFD
-      {
-        uint64_t one = 1;
-        ssize_t rc;
-        do { rc = write(iot_wakeup_fd, &one, sizeof one); }
-        while (rc < 0 && errno == EINTR);
+      if (op_unlikely(iot_ring_push(r) < 0)) {
+        op_free(r);
+        continue;
       }
-#else
-      {
-        char one = 1;
-        ssize_t rc;
-        do { rc = write(iot_wakeup_pipe[1], &one, 1); }
-        while (rc < 0 && errno == EINTR);
-      }
-#endif
+      signaled = 1;
+    }
+
+    if (signaled) {
+      uint64_t one = 1;
+      ssize_t rc;
+      do { rc = write(iot_wakeup_fd, &one, sizeof one); }
+      while (rc < 0 && errno == EINTR);
     }
   }
 
-#endif /* IOT_HAVE_EPOLL */
-
+done:
   return 0;
 }
 
@@ -325,222 +308,284 @@ static int iot_thread_fn([[maybe_unused]] void *arg)
 int io_thread_start(void)
 {
   if (atomic_load_explicit(&iot_running, memory_order_acquire))
-    return 0;  /* already running */
+    return 0;
 
-#ifdef IOT_HAVE_EPOLL
-  iot_epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-  if (iot_epoll_fd < 0)
+  memset((void *)iot_managed, 0, sizeof iot_managed);
+  memset(iot_ring, 0, sizeof iot_ring);
+  atomic_store_explicit(&iot_ring_prod, 0, memory_order_relaxed);
+  atomic_store_explicit(&iot_ring_cons, 0, memory_order_relaxed);
+
+  /* Create epoll instance. */
+  iot_epfd = epoll_create1(EPOLL_CLOEXEC);
+  if (iot_epfd < 0)
     return -1;
 
-  /* Register the stop fd on our epoll using the high bit of data.u64 as a
-   * "control" flag so the io_thread can distinguish it from socket events. */
+  /* Stop signal eventfd. */
+  iot_stop_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (iot_stop_fd < 0)
+    goto fail;
+
   {
     struct epoll_event ev = {
-      .events  = EPOLLIN,
-      .data.u64 = (uint64_t)1 << 32  /* is_control=1, slot=0 */
+      .events   = EPOLLIN,
+      .data.u64 = IOT_STOP_SENTINEL,
     };
-#ifdef HAVE_EVENTFD
-    iot_stop_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    if (iot_stop_fd < 0) {
-      close(iot_epoll_fd);
-      iot_epoll_fd = -1;
-      return -1;
-    }
-#else
-    {
-      int fds[2];
-      if (pipe(fds) < 0) {
-        close(iot_epoll_fd);
-        iot_epoll_fd = -1;
-        return -1;
-      }
-      fcntl(fds[0], F_SETFL, O_NONBLOCK);
-      iot_stop_pipe[0] = fds[0];
-      iot_stop_pipe[1] = fds[1];
-    }
-#endif
-    if (epoll_ctl(iot_epoll_fd, EPOLL_CTL_ADD, iot_stop_fd, &ev) < 0) {
-      close(iot_stop_fd);
-      close(iot_epoll_fd);
-      iot_stop_fd = -1;
-      iot_epoll_fd = -1;
-      return -1;
-    }
+    if (epoll_ctl(iot_epfd, EPOLL_CTL_ADD, iot_stop_fd, &ev) < 0)
+      goto fail;
   }
-#else
-  /* select() path: open stop pipe */
-  {
-    int fds[2];
-    if (pipe(fds) < 0)
-      return -1;
-    fcntl(fds[0], F_SETFL, O_NONBLOCK);
-    iot_stop_pipe[0] = fds[0];
-    iot_stop_pipe[1] = fds[1];
-  }
-#endif
 
-  /* Open the wakeup notification fd (main thread reads this). */
-#ifdef HAVE_EVENTFD
+  /* Wakeup eventfd — registered with commio so op_select() picks up
+   * io_thread results and fires iot_wakeup_handler. */
   iot_wakeup_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-  if (iot_wakeup_fd < 0) {
-    io_thread_stop();
-    return -1;
-  }
-#else
-  {
-    int fds[2];
-    if (pipe(fds) < 0) {
-      io_thread_stop();
-      return -1;
-    }
-    fcntl(fds[0], F_SETFL, O_NONBLOCK);
-    fcntl(fds[1], F_SETFL, O_NONBLOCK);
-    iot_wakeup_pipe[0] = fds[0];
-    iot_wakeup_pipe[1] = fds[1];
-  }
-#endif
+  if (iot_wakeup_fd < 0)
+    goto fail;
 
+  iot_wakeup_fde = op_open(iot_wakeup_fd, OP_FD_UNKNOWN, "iot-wakeup");
+  if (!iot_wakeup_fde)
+    goto fail;
+  op_setselect(iot_wakeup_fde, OP_SELECT_READ, iot_wakeup_handler, nullptr);
+
+  /* Spawn the thread. */
   atomic_store_explicit(&iot_running, 1, memory_order_release);
-
-  if (op_thrd_create(&iot_thread, iot_thread_fn, NULL) != OP_THRD_SUCCESS) {
+  if (op_thrd_create(&iot_thread, iot_thread_fn, nullptr) != OP_THRD_SUCCESS) {
     atomic_store_explicit(&iot_running, 0, memory_order_release);
-    io_thread_stop();
-    return -1;
+    goto fail;
   }
 
-  putlog(LOG_MISC, "*", "io_thread: started (epoll=%d, wakeup_fd=%d)",
-         iot_epoll_fd, iot_wakeup_fd);
+  putlog(LOG_MISC, "*", "io_thread: started (epoll=%d, ring=%u/%u)",
+         iot_epfd, iot_ring_pending(), IOT_RING_CAP);
   return 0;
+
+fail:
+  if (iot_wakeup_fde) { op_close(iot_wakeup_fde); iot_wakeup_fde = nullptr; }
+  if (iot_wakeup_fd >= 0)  { close(iot_wakeup_fd);  iot_wakeup_fd  = -1; }
+  if (iot_stop_fd >= 0)    { close(iot_stop_fd);     iot_stop_fd    = -1; }
+  if (iot_epfd >= 0)       { close(iot_epfd);        iot_epfd       = -1; }
+  return -1;
 }
 
 void io_thread_stop(void)
 {
   if (!atomic_load_explicit(&iot_running, memory_order_acquire))
-    goto cleanup_fds;
+    goto cleanup;
 
-  /* Signal the io_thread to stop. */
-#ifdef HAVE_EVENTFD
+  /* Signal the io_thread to exit. */
   if (iot_stop_fd >= 0) {
     uint64_t one = 1;
     ssize_t rc;
     do { rc = write(iot_stop_fd, &one, sizeof one); }
     while (rc < 0 && errno == EINTR);
   }
-#else
-  if (iot_stop_pipe[1] >= 0) {
-    char one = 1;
-    ssize_t rc;
-    do { rc = write(iot_stop_pipe[1], &one, 1); }
-    while (rc < 0 && errno == EINTR);
-  }
-#endif
 
-  op_thrd_join(iot_thread, NULL);
+  op_thrd_join(iot_thread, nullptr);
   atomic_store_explicit(&iot_running, 0, memory_order_release);
 
-cleanup_fds:
-#ifdef IOT_HAVE_EPOLL
-  if (iot_epoll_fd >= 0) {
-    close(iot_epoll_fd);
-    iot_epoll_fd = -1;
-  }
-#endif
+  /* Drain any remaining results. */
+  io_thread_drain();
 
-#ifdef HAVE_EVENTFD
-  if (iot_stop_fd >= 0) {
-    close(iot_stop_fd);
-    iot_stop_fd = -1;
-  }
-  if (iot_wakeup_fd >= 0) {
-    close(iot_wakeup_fd);
-    iot_wakeup_fd = -1;
-  }
-#else
-  for (int k = 0; k < 2; k++) {
-    if (iot_stop_pipe[k] >= 0) {
-      close(iot_stop_pipe[k]);
-      iot_stop_pipe[k] = -1;
-    }
-    if (iot_wakeup_pipe[k] >= 0) {
-      close(iot_wakeup_pipe[k]);
-      iot_wakeup_pipe[k] = -1;
-    }
-  }
-#endif
-}
-
-void io_thread_add_sock([[maybe_unused]] int sock, [[maybe_unused]] int slist_idx)
-{
-#ifdef IOT_HAVE_EPOLL
-  if (iot_epoll_fd < 0)
-    return;
-  struct epoll_event ev = {
-    .events   = EPOLLIN | EPOLLET,     /* edge-triggered to reduce wake storms */
-    .data.u64 = (uint64_t)(uint32_t)slist_idx   /* is_control=0 */
-  };
-  epoll_ctl(iot_epoll_fd, EPOLL_CTL_ADD, sock, &ev);
-#endif
-}
-
-void io_thread_del_sock([[maybe_unused]] int sock)
-{
-#ifdef IOT_HAVE_EPOLL
-  if (iot_epoll_fd < 0)
-    return;
-  epoll_ctl(iot_epoll_fd, EPOLL_CTL_DEL, sock, NULL);
-#endif
-}
-
-int io_thread_wait(int timeout_ms)
-{
-  if (iot_wakeup_fd < 0)
-    return -1;
-
-#ifdef HAVE_EVENTFD
-  /* Block until the io_thread writes to the eventfd, or timeout. */
-  fd_set fdr;
-  struct timeval tv;
-  FD_ZERO(&fdr);
-  FD_SET(iot_wakeup_fd, &fdr);
-  if (timeout_ms >= 0) {
-    tv.tv_sec  = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-  }
-  int r = select(iot_wakeup_fd + 1, &fdr, NULL, NULL,
-                 timeout_ms >= 0 ? &tv : NULL);
-  if (r > 0) {
-    /* Drain the counter so the fd doesn't stay readable. */
-    uint64_t val;
-    ssize_t rc;
-    do { rc = read(iot_wakeup_fd, &val, sizeof val); }
-    while (rc < 0 && errno == EINTR);
-    return 1;
-  }
-  return r;  /* 0 = timeout, -1 = error */
-#else
-  fd_set fdr;
-  struct timeval tv;
-  FD_ZERO(&fdr);
-  FD_SET(iot_wakeup_pipe[0], &fdr);
-  if (timeout_ms >= 0) {
-    tv.tv_sec  = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-  }
-  int r = select(iot_wakeup_pipe[0] + 1, &fdr, NULL, NULL,
-                 timeout_ms >= 0 ? &tv : NULL);
-  if (r > 0) {
-    /* Drain the pipe. */
-    char buf[64];
-    ssize_t rc;
-    do { rc = read(iot_wakeup_pipe[0], buf, sizeof buf); }
-    while (rc > 0 || (rc < 0 && errno == EINTR));
-    return 1;
-  }
-  return r;
-#endif
+cleanup:
+  if (iot_wakeup_fde) { op_close(iot_wakeup_fde); iot_wakeup_fde = nullptr; }
+  if (iot_wakeup_fd >= 0) { close(iot_wakeup_fd); iot_wakeup_fd = -1; }
+  if (iot_stop_fd >= 0)   { close(iot_stop_fd);   iot_stop_fd   = -1; }
+  if (iot_epfd >= 0)      { close(iot_epfd);       iot_epfd      = -1; }
 }
 
 int io_thread_active(void)
 {
   return atomic_load_explicit(&iot_running, memory_order_acquire);
 }
+
+void io_thread_add_sock(int sock, int slist_idx)
+{
+  if (!io_thread_active())
+    return;
+  if (slist_idx < 0 || slist_idx >= IOT_MAX_SLOTS)
+    return;
+
+  atomic_store_explicit(&iot_managed[slist_idx], 1, memory_order_release);
+
+  struct epoll_event ev = {
+    .events   = EPOLLIN,
+    .data.u64 = iot_encode(sock, slist_idx),
+  };
+  epoll_ctl(iot_epfd, EPOLL_CTL_ADD, sock, &ev);
+}
+
+void io_thread_del_sock([[maybe_unused]] int sock, int slist_idx)
+{
+  if (slist_idx < 0 || slist_idx >= IOT_MAX_SLOTS)
+    return;
+
+  atomic_store_explicit(&iot_managed[slist_idx], 0, memory_order_release);
+
+  if (iot_epfd >= 0 && sock >= 0)
+    epoll_ctl(iot_epfd, EPOLL_CTL_DEL, sock, nullptr);
+}
+
+int io_thread_drain(void)
+{
+  int count = 0;
+  iot_result_t *r;
+
+  while ((r = iot_ring_pop()) != nullptr) {
+    int idx = r->slist_idx;
+
+    if (op_likely(idx >= 0 && !(socklist[idx].flags & SOCK_UNUSED) &&
+                  socklist[idx].sock == r->sock)) {
+
+      if (op_likely(r->len > 0)) {
+        int mode = (socklist[idx].flags & (SOCK_BINARY | SOCK_BUFFER))
+                   ? LINEBUF_RAW : LINEBUF_PARSED;
+        op_linebuf_parse(&socklist[idx].handler.sock.recvbuf,
+                         r->data, (ssize_t)r->len, mode);
+      } else {
+        socklist[idx].flags |= SOCK_EOFD;
+      }
+      count++;
+    }
+
+    op_free(r);
+  }
+
+  if (op_likely(count > 0))
+    egg_perf_io_drain(count);
+  return count;
+}
+
+int io_thread_manages(int slist_idx)
+{
+  if (slist_idx < 0 || slist_idx >= IOT_MAX_SLOTS)
+    return 0;
+  return atomic_load_explicit(&iot_managed[slist_idx], memory_order_acquire);
+}
+
+void io_thread_set_affinity(int core)
+{
+  iot_cpu_affinity = core;
+}
+
+int io_thread_get_affinity(void)
+{
+  return iot_cpu_affinity;
+}
+
+/* =========================================================================
+ * CPU topology detection — find best core for I/O thread.
+ *
+ * Strategy: find the main thread's current CPU, read its L2 cache siblings
+ * from /sys/devices/system/cpu, then pick a core NOT sharing L2 with it.
+ * This maximizes cache independence between the main thread and I/O thread.
+ * ====================================================================== */
+
+#if defined(__linux__)
+#include <sched.h>
+#include <stdio.h>
+
+int io_thread_detect_best_core(void)
+{
+  int main_cpu = sched_getcpu();
+  if (main_cpu < 0)
+    return -1;
+
+  long nproc = sysconf(_SC_NPROCESSORS_ONLN);
+  if (nproc <= 1)
+    return -1;
+
+  /* Read L2 shared_cpu_list for the main thread's current CPU.
+   * Format: "0-1" or "0,1" or "0" etc. */
+  op_strbuf_t path;
+  op_strbuf_init(&path);
+  op_strbuf_appendf(&path,
+           "/sys/devices/system/cpu/cpu%d/cache/index2/shared_cpu_list",
+           main_cpu);
+
+  FILE *f = fopen(op_strbuf_str(&path), "r");
+  if (!f) {
+    /* No L2 info — fall back to any core != main_cpu */
+    op_strbuf_free(&path);
+    return (main_cpu + 1) % (int)nproc;
+  }
+
+  /* Parse shared_cpu_list into a bitmask */
+  char line[256];
+  uint64_t siblings = 0;
+  if (fgets(line, sizeof line, f)) {
+    char *p = line;
+    while (*p) {
+      int lo = (int)strtol(p, &p, 10);
+      int hi = lo;
+      if (*p == '-') {
+        p++;
+        hi = (int)strtol(p, &p, 10);
+      }
+      for (int c = lo; c <= hi && c < 64; c++)
+        siblings |= (1ULL << c);
+      if (*p == ',') p++;
+    }
+  }
+  fclose(f);
+
+  /* Pick the first online core NOT in the L2 sibling set */
+  for (int c = 0; c < (int)nproc && c < 64; c++) {
+    if (!(siblings & (1ULL << c))) {
+      /* Verify this core is online */
+      op_strbuf_clear(&path);
+      op_strbuf_appendf(&path,
+               "/sys/devices/system/cpu/cpu%d/online", c);
+      f = fopen(op_strbuf_str(&path), "r");
+      if (f) {
+        int online = fgetc(f) == '1';
+        fclose(f);
+        if (!online)
+          continue;
+      }
+      putlog(LOG_MISC, "*",
+             "io_thread: topology: main on cpu%d, io_thread → cpu%d (separate L2)",
+             main_cpu, c);
+      op_strbuf_free(&path);
+      return c;
+    }
+  }
+
+  /* All cores share L2 — pick one on a different physical core (SMT sibling).
+   * Reading thread_siblings_list would refine this further, but for most
+   * topologies any non-self core is fine. */
+  int alt = (main_cpu + (int)nproc / 2) % (int)nproc;
+  if (alt == main_cpu)
+    alt = (main_cpu + 1) % (int)nproc;
+  putlog(LOG_MISC, "*",
+         "io_thread: topology: main on cpu%d, io_thread → cpu%d (shared L2, different core)",
+         main_cpu, alt);
+  op_strbuf_free(&path);
+  return alt;
+}
+
+#else /* !__linux__ */
+
+int io_thread_detect_best_core(void)
+{
+  return -1;
+}
+
+#endif /* __linux__ */
+
+/* =========================================================================
+ * Non-Linux stubs
+ * ====================================================================== */
+#else /* !IOT_SUPPORTED */
+
+int  io_thread_start(void)  { return -1; }
+void io_thread_stop(void)   {}
+int  io_thread_active(void) { return 0; }
+
+void io_thread_add_sock([[maybe_unused]] int sock,
+                        [[maybe_unused]] int slist_idx) {}
+void io_thread_del_sock([[maybe_unused]] int sock,
+                        [[maybe_unused]] int slist_idx) {}
+int  io_thread_drain(void)    { return 0; }
+int  io_thread_manages([[maybe_unused]] int slist_idx) { return 0; }
+void io_thread_set_affinity([[maybe_unused]] int core) {}
+int  io_thread_get_affinity(void) { return -1; }
+int  io_thread_detect_best_core(void) { return -1; }
+
+#endif /* IOT_SUPPORTED */

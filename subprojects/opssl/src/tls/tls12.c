@@ -109,6 +109,7 @@ typedef struct {
     bool ccs_sent;                /* CCS has been sent for this side */
 
     const opssl_pkey_t *sign_key;  /* server's long-term signing key (from ctx) */
+    const opssl_x509_chain_t *cert_chain;  /* server's certificate chain */
 
     /* Peer certificate (leaf only, for verification) */
     uint8_t *peer_cert_der;
@@ -133,7 +134,14 @@ typedef struct {
     /* Client's received ALPN from ClientHello (for server selection) */
     char alpn_client[128];
     size_t alpn_client_len;
+
+    bool tls13_capable;  /* server supports TLS 1.3 — apply downgrade sentinel */
 } tls12_hs_t;
+
+/* RFC 8446 §4.1.3 downgrade sentinel: "DOWNGRD\x01" for TLS 1.2 negotiation */
+static const uint8_t tls13_downgrade_sentinel[8] = {
+    0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x01
+};
 
 /*
  * TLS 1.2 PRF implementation (RFC 5246 §5)
@@ -493,6 +501,56 @@ found:
 }
 
 /*
+ * Build TLS 1.2 Certificate message body (just the certificate_list, without
+ * the handshake header byte + length — those are added by the caller).
+ */
+static int
+build_server_certificate(tls12_hs_t *hs, opssl_cbb_t *cbb)
+{
+    opssl_cbb_t msg_body, cert_list;
+
+    if (!opssl_cbb_add_u24_length_prefixed(cbb, &msg_body))
+        return 0;
+
+    if (!hs->cert_chain || opssl_x509_chain_count(hs->cert_chain) == 0) {
+        if (!opssl_cbb_add_u24(&msg_body, 0))
+            return 0;
+        opssl_cbb_flush(cbb);
+        return 1;
+    }
+
+    if (!opssl_cbb_add_u24_length_prefixed(&msg_body, &cert_list))
+        return 0;
+
+    size_t count = opssl_x509_chain_count(hs->cert_chain);
+    for (size_t i = 0; i < count; i++) {
+        opssl_x509_t *cert = opssl_x509_chain_get(hs->cert_chain, i);
+        if (!cert)
+            return 0;
+
+        const uint8_t *der;
+        size_t der_len;
+        if (!opssl_x509_get_der(cert, &der, &der_len)) {
+            opssl_x509_free(cert);
+            return 0;
+        }
+
+        opssl_cbb_t cert_entry;
+        if (!opssl_cbb_add_u24_length_prefixed(&cert_list, &cert_entry) ||
+            !opssl_cbb_add_bytes(&cert_entry, der, der_len) ||
+            !opssl_cbb_flush(&cert_list)) {
+            opssl_x509_free(cert);
+            return 0;
+        }
+
+        opssl_x509_free(cert);
+    }
+
+    opssl_cbb_flush(cbb);
+    return 1;
+}
+
+/*
  * Build ServerHello message.
  */
 static int
@@ -639,9 +697,21 @@ build_server_key_exchange(tls12_hs_t *hs, opssl_cbb_t *cbb)
     memcpy(sig_input + 68, hs->ecdh_pub, hs->ecdh_pub_len);
     sig_input_len = 68 + hs->ecdh_pub_len;
 
-    /* Hash the signature input */
-    uint8_t digest[32];
-    opssl_sha256(sig_input, sig_input_len, digest);
+    /*
+     * Hash the signature input.
+     * TLS 1.2 SKE uses the PRF-aligned hash: SHA-384 for P-384 cipher suites,
+     * SHA-256 for everything else.  The hash byte in the on-wire
+     * SignatureAndHashAlgorithm field must match the digest actually produced.
+     */
+    uint8_t digest[OPSSL_SHA384_DIGEST_LEN];  /* 48 bytes -- fits SHA-256 and SHA-384 */
+    size_t digest_len;
+    if (hs->group == OPSSL_GROUP_SECP384R1) {
+        opssl_sha384(sig_input, sig_input_len, digest);
+        digest_len = OPSSL_SHA384_DIGEST_LEN;
+    } else {
+        opssl_sha256(sig_input, sig_input_len, digest);
+        digest_len = OPSSL_SHA256_DIGEST_LEN;
+    }
 
     /* Sign with the server's long-term key from the TLS context */
     if (!hs->sign_key) {
@@ -649,18 +719,29 @@ build_server_key_exchange(tls12_hs_t *hs, opssl_cbb_t *cbb)
         return 0;
     }
 
-    if (!opssl_pkey_sign(hs->sign_key, digest, 32, signature, &sig_len)) {
+    if (!opssl_pkey_sign(hs->sign_key, digest, digest_len, signature, &sig_len)) {
         OPSSL_ERR(OPSSL_ERR_CRYPTO, 0);
         return 0;
     }
 
-    /* Select signature algorithm based on key type */
-    uint16_t sig_algo = OPSSL_SIG_ECDSA_SECP256R1;
+    /*
+     * Select SignatureAndHashAlgorithm (RFC 5246 ss7.4.1.4.1).
+     * For ECDSA keys the hash byte must match the digest used above:
+     *   P-384 group -> SHA-384 + ECDSA -> OPSSL_SIG_ECDSA_SECP384R1 (0x0503)
+     *   others      -> SHA-256 + ECDSA -> OPSSL_SIG_ECDSA_SECP256R1 (0x0403)
+     * RSA-PSS: opssl_pkey_sign hardcodes SHA-256 internally -> 0x0804.
+     * Ed25519: pure signature scheme, hash byte not applicable -> 0x0807.
+     */
+    uint16_t sig_algo;
     opssl_pkey_type_t ktype = opssl_pkey_type(hs->sign_key);
     if (ktype == OPSSL_PKEY_RSA)
-        sig_algo = 0x0804;  /* rsa_pss_rsae_sha256 */
+        sig_algo = OPSSL_SIG_RSA_PSS_SHA256;
     else if (ktype == OPSSL_PKEY_ED25519)
-        sig_algo = 0x0807;  /* ed25519 */
+        sig_algo = OPSSL_SIG_ED25519;
+    else if (hs->group == OPSSL_GROUP_SECP384R1)
+        sig_algo = OPSSL_SIG_ECDSA_SECP384R1;
+    else
+        sig_algo = OPSSL_SIG_ECDSA_SECP256R1;
 
     /* Add signature to message */
     if (!opssl_cbb_add_u16(&ske, sig_algo) ||
@@ -726,6 +807,10 @@ opssl_tls12_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             /* Generate server random */
             opssl_random_bytes(hs->server_random, 32);
 
+            /* RFC 8446 §4.1.3: embed downgrade sentinel when TLS 1.3 capable */
+            if (hs->tls13_capable)
+                memcpy(hs->server_random + 24, tls13_downgrade_sentinel, 8);
+
             *consumed = 4 + msg_len;
             hs->state = OPSSL_HS_SERVER_HELLO;
             ret = OPSSL_WANT_WRITE;
@@ -736,8 +821,7 @@ opssl_tls12_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 int r1 = opssl_cbb_add_u8(&cbb, TLS_MT_SERVER_HELLO);
                 int r2 = r1 ? build_server_hello(hs, &cbb) : 0;
                 int r3 = r2 ? opssl_cbb_add_u8(&cbb, TLS_MT_CERTIFICATE) : 0;
-                int r4 = r3 ? opssl_cbb_add_u24(&cbb, 3) : 0;
-                int r5 = r4 ? opssl_cbb_add_u24(&cbb, 0) : 0;
+                int r5 = r3 ? build_server_certificate(hs, &cbb) : 0;
                 int r6 = r5 ? opssl_cbb_add_u8(&cbb, TLS_MT_SERVER_KEY_EXCHANGE) : 0;
                 int r7 = r6 ? build_server_key_exchange(hs, &cbb) : 0;
                 int r8 = r7 ? opssl_cbb_add_u8(&cbb, TLS_MT_SERVER_HELLO_DONE) : 0;
@@ -989,6 +1073,45 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                     }
                 }
 
+                /*
+                 * supported_groups extension (RFC 4492 / RFC 8422).
+                 * Advertise P-256, P-384, and X25519 to allow the server to
+                 * select any of the three groups.  The order signals preference.
+                 */
+                {
+                    opssl_cbb_t sg_ext, sg_list;
+                    if (!opssl_cbb_add_u16(&extensions, TLS_EXT_SUPPORTED_GROUPS) ||
+                        !opssl_cbb_add_u16_length_prefixed(&extensions, &sg_ext) ||
+                        !opssl_cbb_add_u16_length_prefixed(&sg_ext, &sg_list) ||
+                        !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_SECP256R1) ||
+                        !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_SECP384R1) ||
+                        !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_X25519) ||
+                        !opssl_cbb_flush(&sg_ext)) {
+                        ret = OPSSL_ERROR;
+                        break;
+                    }
+                }
+
+                /*
+                 * signature_algorithms extension (RFC 5246 ss7.4.1.4.1).
+                 * Required for TLS 1.2 ECDHE; tells the server which
+                 * SignatureAndHashAlgorithm pairs we accept on the SKE.
+                 */
+                {
+                    opssl_cbb_t sa_ext, sa_list;
+                    if (!opssl_cbb_add_u16(&extensions, TLS_EXT_SIGNATURE_ALGORITHMS) ||
+                        !opssl_cbb_add_u16_length_prefixed(&extensions, &sa_ext) ||
+                        !opssl_cbb_add_u16_length_prefixed(&sa_ext, &sa_list) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ECDSA_SECP256R1) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ECDSA_SECP384R1) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_RSA_PSS_SHA256) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ED25519) ||
+                        !opssl_cbb_flush(&sa_ext)) {
+                        ret = OPSSL_ERROR;
+                        break;
+                    }
+                }
+
                 if (!opssl_cbb_flush(&ch_body)) {
                     ret = OPSSL_ERROR;
                     break;
@@ -1097,6 +1220,17 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    /* RFC 8446 §4.1.3: detect downgrade attack via sentinel */
+                    {
+                        static const uint8_t dg12[8] = {0x44,0x4F,0x57,0x4E,0x47,0x52,0x44,0x01};
+                        static const uint8_t dg11[8] = {0x44,0x4F,0x57,0x4E,0x47,0x52,0x44,0x00};
+                        if (memcmp(hs->server_random + 24, dg12, 8) == 0 ||
+                            memcmp(hs->server_random + 24, dg11, 8) == 0) {
+                            ret = OPSSL_ERROR;
+                            goto client_done;
                         }
                     }
                     break;
@@ -1434,6 +1568,14 @@ opssl_tls12_set_sign_key(void *hs_opaque, const opssl_pkey_t *key)
 }
 
 void
+opssl_tls12_set_cert_chain(void *hs_opaque, const opssl_x509_chain_t *chain)
+{
+    tls12_hs_t *hs = (tls12_hs_t *)hs_opaque;
+    if (hs)
+        hs->cert_chain = chain;
+}
+
+void
 opssl_tls12_set_sni(void *hs_opaque, const char *hostname)
 {
     tls12_hs_t *hs = (tls12_hs_t *)hs_opaque;
@@ -1497,6 +1639,13 @@ opssl_tls12_get_alpn(void *hs_opaque)
     return NULL;
 }
 
+opssl_named_group_t
+opssl_tls12_get_group(void *hs_opaque)
+{
+    tls12_hs_t *hs = (tls12_hs_t *)hs_opaque;
+    return hs ? hs->group : (opssl_named_group_t)0;
+}
+
 /*
  * RFC 5705 keying material exporter for TLS 1.2.
  * PRF(master_secret, label, client_random + server_random + context_value)
@@ -1551,4 +1700,12 @@ opssl_tls12_free_peer_cert(void *hs_opaque)
         hs->peer_cert_der = NULL;
         hs->peer_cert_der_len = 0;
     }
+}
+
+void
+opssl_tls12_set_tls13_capable(void *hs_opaque, bool capable)
+{
+    tls12_hs_t *hs = (tls12_hs_t *)hs_opaque;
+    if (hs)
+        hs->tls13_capable = capable;
 }

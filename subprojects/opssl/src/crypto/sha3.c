@@ -7,11 +7,11 @@ static const uint64_t RC[24] = {
     0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
     0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
     0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
-    0x0000000000000088ULL, 0x0000000080008009ULL, 0x8000000000008003ULL,
-    0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL,
-    0x800000008000000aULL, 0x8000000080008081ULL, 0x8000000000008080ULL,
-    0x0000000080000001ULL, 0x8000000080008008ULL, 0x8000000000008000ULL,
-    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL
+    0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
+    0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL,
+    0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
+    0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL
 };
 
 static const unsigned int rho_offsets[25] = {
@@ -21,7 +21,7 @@ static const unsigned int rho_offsets[25] = {
 };
 
 static inline uint64_t rotl64(uint64_t x, unsigned int n) {
-    return (x << n) | (x >> (64 - n));
+    return (x << (n & 63)) | (x >> ((-n) & 63));
 }
 
 static void keccak_f1600(uint64_t state[25]) {
@@ -47,7 +47,8 @@ static void keccak_f1600(uint64_t state[25]) {
 
         // ρ and π steps
         for (int i = 0; i < 25; i++) {
-            int j = (i * 6 + (i / 5) * 3) % 25;
+            int x = i % 5, y = i / 5;
+            int j = 5 * ((2 * x + 3 * y) % 5) + y;
             B[j] = rotl64(state[i], rho_offsets[i]);
         }
 
@@ -201,6 +202,12 @@ void opssl_sha3_512(const void *data, size_t len, uint8_t out[64]) {
     opssl_sha3_512_init(&ctx);
     opssl_sha3_512_update(&ctx, data, len);
     opssl_sha3_512_final(&ctx, out);
+}
+
+/* XOF squeeze: call after opssl_sha3_256_update with SHAKE-domain init.
+ * Produces exactly out_len bytes of output (variable-length, SHAKE semantics). */
+void opssl_sha3_xof_final(opssl_sha3_ctx_t *ctx, uint8_t *out, size_t out_len) {
+    keccak_final(ctx, out, out_len);
 }
 
 void opssl_shake128(uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len) {

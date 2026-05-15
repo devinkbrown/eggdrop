@@ -20,6 +20,7 @@
  */
 typedef int64_t fe25519[5];
 
+__attribute__((unused))
 static inline uint64_t
 load48(const uint8_t *p)
 {

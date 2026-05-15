@@ -90,6 +90,7 @@
 #include "lang.h"
 #include "eggdrop.h"
 #include "flags.h"
+#include "egg_perf_types.h"
 
 #ifndef MAKING_MODS
 #  include "proto.h"

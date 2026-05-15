@@ -1,277 +1,171 @@
-Installing Eggdrop (devinkbrown fork)
+Installing Eggdrop
+==================
 
-This is the quick install guide; if you have had little or no experience
-with UNIX or Eggdrop, READ THE README FILE NOW! This file is best for
-experienced users.
+Build system: Meson + Ninja. The traditional autoconf/make workflow
+is not present in this fork.
 
-NOTE: This fork uses Meson + Ninja. The traditional autoconf/make build
-system used by upstream Eggdrop is not present here.
 
-DEPENDENCIES
-============
+Dependencies
+------------
 
-  Required on all platforms:
-    - Meson  >= 0.57.0
-    - Ninja  (any recent version)
+Required:
+  - Meson >= 0.57
+  - Ninja
+  - C compiler with C23 support (GCC 11+, Clang 13+)
 
-  Optional (auto-detected; enable/disable with meson -D flags):
-    - Tcl >= 8.6 development headers    Tcl scripting (optional)
-    - OpenSSL >= 1.0  (libssl-dev)      TLS/SSL support
-    - Python  >= 3.8  development       Python scripting module
-    - zlib             development       compress module
-    - liburing                           io_uring backend (Linux >= 5.1 only)
+Optional (auto-detected):
+  - Tcl >= 8.6 dev headers     Tcl scripting
+  - Python >= 3.8 dev headers  Python scripting module
+  - zlib dev headers            compress module
+  - liburing                    io_uring backend (Linux only)
 
-  Bundled (no external installation needed):
-    - LMDB (Lightning Memory-Mapped Database) — crash-safe storage backend,
-      included in libop.  No system package required.
+Bundled (no install needed):
+  - opssl                       TLS 1.2/1.3
+  - LMDB                        Crash-safe storage (in libop)
 
-  Meson discovers dependencies via pkg-config first, then CMake, then a
-  manual library search.  Make sure the relevant pkg-config .pc files are
-  on PKG_CONFIG_PATH before running meson setup.
+At least one of Tcl or Python should be present for scripting.
 
-  ---- Debian / Ubuntu -------------------------------------------------------
 
-    # Required
+Platform packages
+-----------------
+
+Debian / Ubuntu:
+
     sudo apt-get install meson ninja-build
+    sudo apt-get install tcl-dev libssl-dev python3-dev zlib1g-dev  # optional
 
-    # Optional (install whichever you want)
-    sudo apt-get install tcl-dev libssl-dev python3-dev zlib1g-dev liburing-dev
+Fedora / RHEL:
 
-  ---- Fedora / RHEL / Rocky -------------------------------------------------
-
-    # Required
     sudo dnf install meson ninja-build
+    sudo dnf install tcl-devel openssl-devel python3-devel zlib-devel  # optional
 
-    # Optional
-    sudo dnf install tcl-devel openssl-devel python3-devel zlib-devel liburing-devel
+macOS (Homebrew):
 
-  ---- macOS (Homebrew) -------------------------------------------------------
-
-    # Required
     brew install meson ninja
-
-    # Optional
-    brew install tcl-tk openssl@3 python@3.12 zlib
-
-    # Make Homebrew packages visible to pkg-config
+    brew install tcl-tk openssl@3 python@3.12 zlib  # optional
     export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:\
-$(brew --prefix tcl-tk)/lib/pkgconfig:$PKG_CONFIG_PATH"
+    $(brew --prefix tcl-tk)/lib/pkgconfig:$PKG_CONFIG_PATH"
 
-  ---- Windows: MSYS2 / MinGW-w64 --------------------------------------------
+MSYS2 / MinGW-w64 (UCRT64 shell):
 
-    Open the "UCRT64" MSYS2 shell.
+    pacman -S mingw-w64-ucrt-x86_64-meson mingw-w64-ucrt-x86_64-ninja
+    pacman -S mingw-w64-ucrt-x86_64-tcl mingw-w64-ucrt-x86_64-openssl \
+              mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-zlib  # optional
 
-    # Required
-    pacman -S mingw-w64-ucrt-x86_64-meson \
-              mingw-w64-ucrt-x86_64-ninja
+MSVC (Visual Studio 2019+):
 
-    # Optional
-    pacman -S mingw-w64-ucrt-x86_64-tcl \
-              mingw-w64-ucrt-x86_64-openssl \
-              mingw-w64-ucrt-x86_64-python \
-              mingw-w64-ucrt-x86_64-zlib
+    1. Install "Desktop development with C++" workload
+    2. pip install meson ninja
+    3. Install vcpkg:
+         git clone https://github.com/microsoft/vcpkg C:\vcpkg
+         C:\vcpkg\bootstrap-vcpkg.bat
+    4. Install optional deps:
+         C:\vcpkg\vcpkg install tcl:x64-windows openssl:x64-windows \
+           zlib:x64-windows python3:x64-windows
+    5. Open "x64 Native Tools Command Prompt" and set:
+         set VCPKG=C:\vcpkg\installed\x64-windows
+         set PKG_CONFIG_PATH=%VCPKG%\lib\pkgconfig
+         set PATH=%VCPKG%\bin;%VCPKG%\tools\pkgconf;%PATH%
 
-    Winsock2 and MsWSock (needed for the IOCP backend) ship with the
-    Windows SDK and are linked automatically -- no extra package needed.
+Cygwin:
 
-  ---- Windows: MSVC (Visual Studio 2019 or later) ---------------------------
+    Install via setup: meson, gcc-core, ninja, tcl-devel, libssl-devel,
+    python3-devel, zlib-devel, git
 
-    Step 1 — Install Visual Studio
-      Install Visual Studio 2022 (Community edition is free) with the
-      "Desktop development with C++" workload, or use the standalone
-      Build Tools:
-        https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022
 
-    Step 2 — Install Meson and Ninja
-      From a normal Command Prompt (not a developer prompt):
+Build
+-----
 
-          pip install meson ninja
+    # Configure
+    meson setup build/
 
-      Or download the Meson MSI from https://github.com/mesonbuild/meson/releases
+    # Compile
+    ninja -C build/ -j$(nproc)
 
-    Step 3 — Install vcpkg and all dependencies
-      vcpkg is Microsoft's open-source package manager for C/C++ libraries.
+    # Install (default prefix: /usr/local)
+    ninja -C build/ install
 
-          git clone https://github.com/microsoft/vcpkg C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
+Common configure options:
 
-      Then install optional packages (all in one command):
+    meson setup build/ -Dtcl=disabled         # no Tcl
+    meson setup build/ -Dipv6=true            # IPv6
+    meson setup build/ -Dtls=enabled          # TLS (default)
+    meson setup build/ -Dpython=auto          # Python
+    meson setup build/ -Degg-debug=true       # ASAN + UBSAN
+    meson setup build/ --prefix=$HOME/eggdrop # custom prefix
 
-          C:\vcpkg\vcpkg install ^
-              tcl:x64-windows ^
-              openssl:x64-windows ^
-              zlib:x64-windows ^
-              python3:x64-windows
+See all options: meson configure build/
 
-      All of these are optional.  At minimum, install python3 or tcl
-      for scripting support.
 
-      Winsock2 (ws2_32.lib) and MsWSock (mswsock.lib) are part of the
-      Windows SDK included with Visual Studio -- no vcpkg package needed.
+Setup
+-----
 
-    Step 4 — Open an x64 developer prompt
-      Start > "x64 Native Tools Command Prompt for VS 2022"
-      This puts cl.exe, link.exe, and the Windows SDK on PATH.
+Option A — interactive wizard (recommended):
 
-    Step 5 — Point pkg-config at vcpkg output
-      vcpkg installs pkg-config .pc files alongside each library.
-      Set PKG_CONFIG_PATH so Meson finds them:
+    ./eggdrop --setup mybot.toml
 
-          set VCPKG=C:\vcpkg\installed\x64-windows
-          set PKG_CONFIG_PATH=%VCPKG%\lib\pkgconfig
-          set PATH=%VCPKG%\bin;%VCPKG%\tools\pkgconf;%PATH%
+Option B — copy and edit sample:
 
-      (vcpkg installs pkgconf.exe automatically when you install any
-      library that provides a .pc file.)
+    cp eggdrop-basic.toml mybot.toml
+    $EDITOR mybot.toml
 
-    Step 6 — Configure and build
+Option C — migrate existing .conf:
 
-          meson setup build/ --vsenv
-          ninja -j%NUMBER_OF_PROCESSORS% -C build/
+    python3 scripts/conf2toml.py mybot.conf mybot.toml
 
-      --vsenv tells Meson to activate the MSVC environment automatically
-      even if you forgot to open a developer prompt in step 4.
 
-  ---- Cygwin -----------------------------------------------------------------
+First run
+---------
 
-    Cygwin is a POSIX emulation layer; it does not expose Win32 IOCP APIs,
-    so it compiles on the plain POSIX path using select() as its I/O
-    backend.  Install via the Cygwin setup tool:
+    ./eggdrop -m mybot.toml     # creates userfile
+    ./eggdrop mybot.toml        # subsequent runs
 
-        Interpreters: tcl, tcl-devel
-        Net:          openssl, libssl-devel
-        Devel:        meson, gcc-core, git, ninja, python3-devel, zlib-devel
+No chmod or shebang needed for TOML configs.
 
-QUICK STARTUP
-=============
 
-1.  Configure the build directory:
+TLS certificates
+----------------
 
-        meson setup build/
+See doc/TLS for certificate generation after installing.
 
-    Common options:
 
-        meson setup build/ -Dipv6=true -Dtls=enabled -Dpython=auto
+Auto-restart
+------------
 
-    To see all available options:
+    ./scripts/autobotchk mybot.toml -systemd   # systemd
+    ./scripts/autobotchk mybot.toml             # crontab
 
-        meson configure
 
-2.  Compile using all available CPU cores:
+I/O backends
+------------
 
-    Linux / Cygwin:
+Auto-selected at configure time:
 
-        ninja -j$(nproc) -C build/
+    Platform             Backend
+    -------------------- ----------
+    Linux >= 5.1         io_uring
+    Linux                epoll
+    macOS / BSD          kqueue
+    Windows native       IOCP
+    Cygwin / fallback    select()
 
-    macOS:
 
-        ninja -j$(sysctl -n hw.logicalcpu) -C build/
+Debug builds
+------------
 
-    Windows (MSYS2 shell or MSVC developer prompt):
+    meson setup build-debug/ -Degg-debug=true
+    ninja -C build-debug/
 
-        ninja -j%NUMBER_OF_PROCESSORS% -C build/
 
-3.  Install (default prefix /usr/local; set at configure time with --prefix):
+Modules
+-------
 
-        meson setup build/ --prefix=$HOME/eggdrop
-        ninja -C build/ install
+All modules build by default. Disable individually:
 
-    To install to a different path after configure:
+    meson setup build/ -Dmodule-compress=false -Dmodule-python=false
 
-        meson install -C build/ --destdir /path/to/install
+List module options: meson configure build/ | grep module-
 
-4.  Since version 1.8, Eggdrop can use SSL to protect botnet links.
-    Generate SSL certificates after installing. See doc/TLS for details.
 
-[The following steps are performed in the directory you installed Eggdrop into]
-
-5.  Create your configuration file.
-
-    OPTION A — interactive wizard (recommended):
-
-        ./eggdrop --setup mybot.toml
-
-      Answer a handful of questions; the wizard writes a complete TOML
-      config for you. No Tcl knowledge needed, no chmod required.
-
-    OPTION B — copy and edit the sample TOML file:
-
-        cp eggdrop-basic.toml mybot.toml
-        $EDITOR mybot.toml
-
-      At minimum, set your nick, IRC servers, and owner handle.
-      See eggdrop.toml for the full reference with every setting
-      documented. The format is straightforward key = "value" pairs
-      organised into sections like [bot], [servers], [channels].
-
-    OPTION C — migrate an existing .conf to TOML:
-
-        python3 scripts/conf2toml.py mybot.conf mybot.toml
-
-      The .conf files are no longer installed, but the bot still loads
-      them when passed on the command line (the Tcl parser is used
-      automatically for any file without a .toml extension). This
-      allows a zero-downtime migration.
-
-6.  Start the bot with the "-m" option to create a user file:
-
-        ./eggdrop -m mybot.toml
-
-    Note: No 'chmod u+x' is needed for TOML configs. The bot reads the
-    file directly; it is not executed as a shell script.
-
-7.  When starting the bot in the future, simply drop the "-m":
-
-        ./eggdrop mybot.toml
-
-    That's it. No need to make the file executable or add a shebang line.
-
-8.  Run your bot via systemd or crontab so it restarts automatically:
-
-    systemd:
-
-        ./scripts/autobotchk mybot.toml -systemd
-
-    crontab:
-
-        ./scripts/autobotchk mybot.toml
-
-9.  Smile. You have an Eggdrop!
-
-I/O BACKENDS
-============
-
-  The build system automatically selects the best available backend:
-
-    Platform             Backend    Notes
-    -------------------- ---------- -----------------------------------------
-    Linux >= 5.1         io_uring   liburing required; optional SQPOLL mode
-    Linux                epoll      Persistent kernel interest set
-    macOS / BSD          kqueue     Persistent kernel interest set
-    Windows native       IOCP       Zero-byte overlapped WSARecv/WSASend
-    Cygwin / fallback    select()   Portable; fd_set rebuilt each iteration
-
-DEBUG BUILDS
-============
-
-      meson setup build/ -Degg-debug=true
-      ninja -C build/
-
-MODULES
-=======
-
-  Every module is built by default. Disable individually at configure time:
-
-      meson setup build/ -Dmodule-compress=false -Dmodule-python=false
-
-  List all module options:
-
-      meson configure build/
-
-This is the end. If you read to this point, hopefully you have also read
-the README file. If not, then READ IT!
-
-Have fun with Eggdrop!
-
-  Copyright (C) 1997 Robey Pointer Copyright (C) 1999 - 2026 Eggheads
-  Development Team
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999-2026 Eggheads Development Team

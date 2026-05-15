@@ -28,15 +28,15 @@ static int tcl_pysource STDVAR
   PyObject *pobj;
   PyObject *pystr;
   Py_ssize_t n;
-  const char *res = NULL;
+  const char *res = nullptr;
   BADARGS(2, 2, " script");
 
   if (!(fp = fopen(argv[1], "r"))) {
-    Tcl_AppendResult(irp, "Error: could not open file ", argv[1],": ", strerror(errno), NULL);
+    Tcl_AppendResult(irp, "Error: could not open file ", argv[1],": ", strerror(errno), nullptr);
     return TCL_ERROR;
   }
   PyErr_Clear();
-  // Always PyNone or NULL on exception
+  // Always PyNone or nullptr on exception
   pobj = PyRun_FileEx(fp, argv[1], Py_file_input, pglobals, pglobals, 1);
   Py_XDECREF(pobj);
 
@@ -50,7 +50,7 @@ static int tcl_pysource STDVAR
     PyObject *module_name, *pymodule, *pyfunc, *pyval, *item;
 
     pystr = PyObject_Str(exc);
-    Tcl_AppendResult(irp, "Error loading python: ", PyUnicode_AsUTF8(pystr), NULL);
+    Tcl_AppendResult(irp, "Error loading python: ", PyUnicode_AsUTF8(pystr), nullptr);
     Py_DECREF(pystr);
     module_name = PyUnicode_FromString("traceback");
     pymodule = PyImport_Import(module_name);
@@ -58,7 +58,7 @@ static int tcl_pysource STDVAR
     // format backtrace and print (single-arg form works for both traced/untraceable exceptions)
     pyfunc = PyObject_GetAttrString(pymodule, "format_exception");
     if (pyfunc && PyCallable_Check(pyfunc)) {
-      pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, NULL);
+      pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, nullptr);
       if (pyval && PyList_Check(pyval)) {
         n = PyList_Size(pyval);
         for (Py_ssize_t i = 0; i < n; i++) {
@@ -82,7 +82,7 @@ static int tcl_pysource STDVAR
     PyObject *ptype, *pvalue, *ptraceback;
     PyErr_Fetch(&ptype, &pvalue, &ptraceback);
     pystr = PyObject_Str(pvalue);
-    Tcl_AppendResult(irp, "Error loading python: ", PyUnicode_AsUTF8(pystr), NULL);
+    Tcl_AppendResult(irp, "Error loading python: ", PyUnicode_AsUTF8(pystr), nullptr);
     Py_DECREF(pystr);
     // top level syntax errors do not have a traceback
     if (ptraceback) {
@@ -95,7 +95,7 @@ static int tcl_pysource STDVAR
       pyfunc = PyObject_GetAttrString(pymodule, "format_exception");
 
       if (pyfunc && PyCallable_Check(pyfunc)) {
-        pyval = PyObject_CallFunctionObjArgs(pyfunc, ptype, pvalue, ptraceback, NULL);
+        pyval = PyObject_CallFunctionObjArgs(pyfunc, ptype, pvalue, ptraceback, nullptr);
 
         if (pyval && PyList_Check(pyval)) {
           n = PyList_Size(pyval);
@@ -126,7 +126,7 @@ static int tcl_pysource STDVAR
 
 static tcl_cmds my_tcl_cmds[] = {
   {"pysource",  tcl_pysource},
-  {NULL,        NULL}
+  {nullptr,        nullptr}
 };
 
 #endif /* HAVE_TCL */

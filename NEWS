@@ -1,680 +1,199 @@
-News
-Last revised: May 04, 2026
-     _________________________________________________________________
+Eggdrop News
+============
 
-                                What's new?
+Major and incompatible changes by release. Full changelog in
+doc/Changes1.10. See UPGRADING for migration help.
+
+Back up your config and userfile before upgrading.
 
 
-  This file lists major and incompatible changes in Eggdrop versions.
-  You can find the full list of changes in doc/Changes1.10.
-  For support, feel free to visit us on Libera #eggdrop.
+devinkbrown fork (based on v1.10.1)
+------------------------------------
 
-  For upgrading help, read the UPGRADING file.
+Wave 81 — CSPRNG, string safety, expanded test suite
 
-  In general, always make a BACKUP of your config and user/chanfile
-  before performing an upgrade!
+  Security — CSPRNG:
+    - random()/srandom() replaced with getrandom(2) (Linux) or
+      arc4random_buf (BSD/macOS) across the entire codebase.
+    - randint() is now a static inline using CSPRNG, eliminating
+      predictable random in password generation, blowfish IV, and
+      DNS query IDs.
+    - Removed init_random() from main.c.
+    - Blowfish IV generation uses getrandom(2).
+    - Python rand() routes through the CSPRNG randint().
 
-     _________________________________________________________________
+  String safety — complete:
+    - egg_atoi(): safe strtol wrapper replacing all 202 raw atoi()
+      calls across 46 files.
+    - my_strcpy() sites converted to stpcpy() in misc.c and irc.mod.
+      my_strcpy() retained for ABI compatibility (slot 91).
+    - malloc_strcpy macro (filedb3.h) optimised to use memcpy.
+    - Unbounded sscanf %s in language.c fixed with %255s.
+    - Zero remaining: strcpy, sprintf, strcat, strncpy, strncat,
+      strtok, gets, system(), raw atoi, unbounded sscanf %s.
 
-devinkbrown fork (based on v1.10.1):
+  Test suite:
+    - test_match: 8 → 22 tests (CIDR, cron_match, addr_match)
+    - test_flags: 10 → 56 tests (sanity_check, break_down_flags,
+      flagrec_eq)
+    - test_misc: rewritten, 18 tests (newsplit, rmspace, splitnick)
+    - test_net: rewritten, 8 tests (iptostr IPv4/IPv6)
+    - 7 executables, all passing under ASAN+UBSAN, zero warnings.
 
- Wave 80 — LMDB storage backend, buffer elimination, strlcpy migration:
+Wave 80 — LMDB storage, buffer elimination, strlcpy migration
 
   Pluggable storage backend (egg_store):
-    - New vtable-based storage backend architecture (egg_store.h) with
-      open/close/load_users/save_users/load_channels/save_channels/
-      export_flat/import_flat operations.
-    - Flat-file backend (egg_store_flat.c) wraps existing readuserfile()/
-      write_userfile() as a thin adapter.
-    - LMDB backend (egg_store_lmdb.c) provides crash-safe persistent
-      storage using Howard Chu's LMDB (bundled in libop).  Two-layer
-      architecture:
-        Layer 1: Stores the complete flat-file content as an LMDB blob
-          under "userfile_blob" in the meta sub-database.  If the flat
-          userfile is missing or empty on startup, the blob is extracted
-          and written back — automatic crash recovery.
-        Layer 2: Per-user, per-host, per-account, and per-ignore records
-          written to named sub-databases for future incremental operations
-          and direct lookups.
-      Sub-databases: meta, users, hosts, accounts, ignores.
-    - Backend dispatch layer (egg_store.c) selects backend based on
-      store_backend config variable.  Defaults to LMDB, falls back to
-      flat on failure.
+    - vtable-based architecture: open/close/load/save/export/import
+    - Flat-file backend: thin wrapper, full backward compatibility
+    - LMDB backend: crash-safe, auto-recovery from crashed userfiles.
+      Two-layer design — blob for crash recovery, structured
+      sub-databases (users, hosts, accounts, ignores) for lookups.
+    - Config: [storage] backend = "lmdb" or "flat"
 
   strlcpy/strlcat → op_strbuf_t migration:
-    - Systematic audit of all 677 strlcpy/strlcat call sites across ~40
-      source files.  127 sites (19%) converted to op_strbuf_t where the
-      buffer was used only for string construction (snprintf formatting,
-      concatenation consumed once and discarded).
-    - Remaining 550 sites are legitimate fixed-size uses: struct field
-      writes, globals, in-place mutation buffers, output parameters, and
-      system API buffers.
-    - Eliminated global OBUF[1024] in botmsg.c — strbuf data passed
-      directly to socket write functions.
-    - DCC display callback changed from char *buf to op_strbuf_t * —
-      no more truncation on long status lines.
+    - 677 call sites audited, 127 (19%) converted to op_strbuf_t
+    - Global OBUF[1024] in botmsg.c eliminated
+    - DCC display callbacks changed to op_strbuf_t *
 
   Buffer elimination:
-    - server.c server_report(): replaced char buf[1024] with
-      op_strbuf_steal() for CAP negotiation word-wrap output.  Eliminates
-      1024-byte truncation risk on large CAP lists.  Also fixed a latent
-      endptr reset bug in the word-wrap loop.
-    - dccutil.c/userent.c: eliminated fixed-size buffers with op_strbuf_t.
+    - server.c: CAP word-wrap output via op_strbuf_steal()
+    - dccutil.c/userent.c: fixed-size buffers → op_strbuf_t
 
   Dead code removal:
-    - Stripped pre-1.3.0 botnet protocol dead code (NO_OLD_BOTNET).
-    - Removed dead prototypes and unreachable tell_netdebug function.
+    - Pre-1.3.0 botnet protocol (NO_OLD_BOTNET) stripped
 
- Wave 77 — Python API 100% parity (239 commands):
+Wave 77 — Python API 100% parity (239 commands)
 
-  Python API — 65 new commands (pycmds.c), total now 239/239 (100% parity):
-    - Botnet (9): bots, bottree, islinked, dccused, assoc, killassoc,
-      dcclist, strip, stripflags.
-    - User database (8): getuser, setuser, chattr, botattr, addbot,
-      setpass, encpass, passwdok.
-    - DCC/Partyline (7): putbot, putallbots, dccbroadcast, boot, whom,
-      dccputchan, echo.
-    - Channel management (7): channel, savechannels, loadchannels,
-      channels, isdynamic, setudef, renudef.
-    - Ban/Exempt/Invite (6): newchanban, newchanexempt, newchaninvite,
-      killchanexempt, killchaninvite, stickexempt.
-    - Ignore (4): newignore, killignore, ignorelist, isignore.
-    - Timer (4): utimer, timer, killtimer, killutimer.
-    - Server (3): jump, clearqueue, queuesize.
-    - Misc (17): strftime, ctime, myip, callevent, md5, dccsimul,
-      traffic, backup, rehash, restart, die, loadmodule, unloadmodule,
-      modules, binds, logfile, console.
+  65 new Python commands, total 239/239:
+    - Botnet (9), User database (8), DCC/Partyline (7),
+      Channel management (7), Ban/Exempt/Invite (6), Ignore (4),
+      Timer (4), Server (3), Misc (17)
 
- Wave 76 — Python API parity, linebuf port, tclhash unification:
+Wave 76 — Python API expansion, linebuf port, tclhash unification
 
-  Python API — 26 new commands (pycmds.c), total now 174/197 (88% parity):
-    - Botnet/DCC (7): link, unlink, valididx, botlist, setdccaway, getchan,
-      setchan.
-    - Logging (2): putloglev, putcmdlog.
-    - Matching/Utils (3): matchaddr, rfcequal, binds.
-    - Channel management (14): ischanban, ischanexempt, ischaninvite,
-      newchanban, newchanexempt, newchaninvite, killchanexempt,
-      killchaninvite, stick, unstick, stickexempt, unstickexempt,
-      stickinvite, unstickinvite.
+  Python API: 26 new commands (174/197, 88% parity)
+  Python auto-source: TOML [scripts] auto-detects .py files
+  linebuf port: char *inbuf → op_linebuf (slab-allocated, CRLF-aware)
+  tclhash: unified init_bind(), fixed missing tables in no-Tcl builds
 
-  Python auto-source:
-    - TOML [scripts] section now auto-detects .py files and routes them to
-      the Python script engine, even in Tcl builds.  Previously .py files
-      required the pysource Tcl command.
+Wave 75 — Tcl decoupling, zero-warning build
 
-  linebuf port (net.c):
-    - Replaced simple char *inbuf (realloc + memmove) with ophion's
-      op_linebuf (slab-allocated, CRLF-aware line framing).  Inbound socket
-      data is now parsed into buf_head_t via op_linebuf_parse(), with
-      zero-memmove line extraction via op_linebuf_get().
-    - Binary and SOCK_BUFFER modes preserved; outbound path (egg_mbuf_t)
-      unchanged.
+  Tcl decoupling:
+    - All #ifdef HAVE_TCL removed from application source (58 files)
+    - 12 new lush.h stubs for no-op Tcl replacements
+    - 19 irreducible HAVE_TCL markers remain (lush.h, tcl.c, tclegg.h,
+      tclhash.c)
+    - notcl_setvar/notcl_getvar available in both configurations
 
-  tclhash.c unification:
-    - Unified init_bind(): single table creation block with conditional func
-      attachment, down from two near-identical 20-line blocks.
-    - Unified check_tcl_listen(): single check_tcl_bind path for both builds.
-    - Fixed bug: H_time, H_cron, H_note tables now created in no-Tcl builds
-      (were previously missing, making time/cron/note binds silently no-op).
-    - HAVE_TCL directives: 6 → 5.
+  Python API: 33 new commands (timers, user/module, DCC, misc)
 
- Wave 75 — Tcl decoupling, Python API expansion, zero-warning build:
-
-  Tcl decoupling — complete HAVE_TCL removal:
-    - All #ifdef HAVE_TCL guards removed from every application source file
-      (58 files).  Functions that were previously compiled only in Tcl builds
-      now compile unconditionally using lush.h stub macros (no-Tcl) or the
-      real Tcl API (Tcl builds).  Dead-code paths from stubs are optimised
-      away by the compiler.
-    - Added 12 new lush.h stubs: Tcl_WideInt, Tcl_NewWideIntObj, Tcl_Alloc,
-      Tcl_Concat, Tcl_GlobalEval, Tcl_InterpDeleted, Tcl_ServiceAll,
-      Tcl_TraceVar2, Tcl_UntraceVar2, Tcl_UtfToExternalDString, and
-      Tcl_VarTraceProc typedef.
-    - notcl_setvar/notcl_getvar made available in both build configurations:
-      in Tcl builds they delegate to Tcl_SetVar/Tcl_GetVar; in no-Tcl builds
-      they walk the registered variable tables directly.  configtoml.c now
-      uses these exclusively, removing its last Tcl dependency.
-    - Runtime `if (interp)` checks replace compile-time #ifdef in the few
-      places where Tcl-specific behaviour must be preserved (cmd_tcl,
-      cmd_set, tell_verbose_status, main startup).
-    - Remaining HAVE_TCL markers (19 total) are all structural/irreducible:
-      lush.h (4), tcl.c (7), tclegg.h (2), tclhash.c (6).  python.mod
-      retains 28 markers for the Tcl-Python bridge.
-
-  Python API — 33 new commands (pycmds.c):
-    - 8 timer commands: utimer, timer, killtimer, killutimer, timers,
-      utimers, timerexists, utimerexists.
-    - 25 general commands:
-      User/Module: getuser, setuser, setpass, encpass, addbot, botattr,
-        loadmodule, unloadmodule, modules, backup.
-      DCC/Partyline: whom, dccbroadcast, boot, console, echo, dccputchan,
-        getdccidle, getdccaway.
-      Misc: strftime, ctime, myip, callevent, md5, dccsimul, traffic.
-
-  Code quality — zero-warning build:
-    - Eliminated all ~80 compiler warnings across 20+ files.  The build now
-      compiles 134 compilation units with zero warnings on GCC 15.
-    - Fixed lush.h macro stubs that generated -Wunused-value and
-      -Wstatement-with-no-effect warnings: Tcl_ListObjAppendElement,
-      Tcl_ListObjLength, Tcl_ListObjGetElements, Tcl_ListObjIndex,
-      Tcl_DictObjPut, Tcl_GetStringFromObj, Tcl_ScanElement, Tcl_SplitList.
-    - Added __attribute__((unused)) to Tcl trace handler functions across
-      irc.mod, server.mod, dns.mod, and core source that are registered
-      via Tcl_TraceVar (no-op in non-Tcl builds) but must exist for the
-      function pointer tables.
-    - Fixed -Wdiscarded-qualifiers in isupport.c (8 instances of const
-      char * passed to op_free).
-    - Fixed -Wcomment in chan_handlers.c (unclosed block comment).
-    - Suppressed unused variable warnings in all Tcl command stubs across
-      tcldcc.c, tclmisc.c, tcluser.c, tclfiles.c, tcltransfer.c,
-      tclserv.c, tclisupport.c, tclirc.c.
+  Zero-warning build: ~80 warnings eliminated across 20+ files
 
   Feature improvements:
-    - .status output now shows: scripting engines (Tcl/Python), loaded
-      module count, and RSS memory usage (via getrusage).
-    - Startup banner now logs: active scripting engines, feature flags
-      (TLS, IPv6), and build date/time.
-    - TOML config: improved error messages for missing nick/owner, warning
-      when no modules are configured, config path logged on successful load.
-    - .python partyline command stub (requires owner flag).
-    - .set command now works in non-Tcl builds using notcl_getvar/setvar to
-      read and write registered C variables directly.
+    - .status shows scripting engines, module count, RSS memory
+    - .set works in non-Tcl builds
+    - .python partyline command
 
- Code quality — C23 modernisation:
-    - Entire codebase compiled as -std=gnu23 with -Wshadow=local enforced.
-    - Loop counters and single-use variables moved to point of first use
-      throughout all source files (net.c, tls.c, chanprog.c, language.c,
-      share.mod, blowfish.mod, python.mod, webui.mod, irc.mod, dns.mod,
-      transfer.mod, notes.mod, server.mod, channels.mod, filesys.mod,
-      ident.mod, pbkdf2.mod, and all core src/ files). 55 files changed,
-      net ~350 lines removed.
-    - op_strbuf_t (libop dynamic string builder) wired through all string-
-      construction sites replacing snprintf/strlcpy chaining.
-    - libop synced from ophion: CIDR parsing helpers (op_cidr_parse_str /
-      op_cidr_parse_addr) and C11 threads middle tier in thread_pool.c.
+C23 modernisation
 
- Python API — 43 earlier commands (pycmds.c + eggtools.py):
-    - Channel presence: onchan, handonchan, onchansplit, topic, validchan,
-      getchanjoin, botisowner, isowner.
-    - Channel modes/actions: getchanmode, pushmode, flushmode, putkick,
-      resetbans, resetexempts, resetinvites, resetchan, refreshchan.
-    - Ban/exempt/invite management: banlist, exemptlist, invitelist, newban,
-      killban, killchanban, newexempt, killexempt, newinvite, killinvite,
-      matchban, matchexempt, matchinvite, stickban, unstickban, isban,
-      isexempt, isinvite.
-    - User channel records: getchaninfo, setchaninfo, addchanrec, delchanrec,
-      haschanrec, setlaston.
-    - Server: jump.
-    - irc.mod: flush_mode exported at function table slot 29 for external
-      module access.
-    - eggtools.py: type-annotated wrappers for all new commands, plus
-      MaskEntry dataclass for ban/exempt/invite list entries.
+  - Entire codebase compiled as -std=gnu23 with -Wshadow=local
+  - Variables declared at first use, constexpr, bool, for-init
+  - op_strbuf_t wired through all string-construction sites
+  - const correctness propagated across function signatures
+  - libop synced: CIDR parsing helpers, C11 thread pool
 
- Tcl is now fully optional — no-Tcl builds are complete:
-    - A no-Tcl build is now fully functional for core bot operation, not
-      merely compile-clean.  All TOML configuration keys ([bot], [network],
-      [security], [paths], [servers], [channels]) now reach their
-      underlying C variables in no-Tcl builds via a new variable registry
-      (notcl_setvar / notcl_getvar).  Previously these settings were
-      silently discarded.
-    - The variable registry works by moving def_tcl_strings/ints/coups
-      (the name→C-buffer mapping tables) above the #ifdef HAVE_TCL block
-      so they are compiled in both configurations.  In Tcl builds the
-      tables continue to drive Tcl trace callbacks as before; in no-Tcl
-      builds init_tcl1() registers them so set_tcl_var() can resolve any
-      setting name to its C storage.
-    - Server persistence in no-Tcl builds: add_server() and
-      old_add_server() are pure C with no Tcl API calls and are no longer
-      guarded by #ifdef HAVE_TCL.  old_add_server() is now exported via
-      server_table[55] (server_add_str macro) so configtoml.c can call it
-      directly when processing [servers] list entries.
-    - Python (python.mod) is now the sole scripting engine when Tcl is
-      disabled.  It registers itself automatically via script_register()
-      at startup, handling all [scripts] entries from the TOML config
-      without requiring any user configuration changes.
+Python API (earlier waves)
 
- Build system / portability changes:
-    - Tcl is optional at compile time.  Build without Tcl:
-        meson setup builddir/ -Dtcl=disabled && ninja -C builddir/
-      Zero warnings on GCC 15.  All Tcl-only functions and declarations
-      throughout the codebase are guarded with #ifdef HAVE_TCL.
-      Affected modules: server.mod (server.c, servmsg.c),
-      channels.mod (channels.c, cmdschan.c), filesys.mod (filedb3.c/h,
-      filesys.h), irc.mod, twitch.mod, sasl, isupport, console.mod.
-    - lush.h stub macros corrected: Tcl_DictObjFirst no longer produces
-      a "right-hand side of comma expression has no effect" warning;
-      Tcl_TraceVar and BADARGS are now proper no-op stubs.
+  43 commands: channel presence, modes/actions, ban/exempt/invite
+  management, user channel records, eggtools.py utility library
 
- Bug fixes:
-    - Fixed [paths] section ordering: module-registered variables (e.g.
-      chanfile from channels.mod) were silently dropped when [paths]
-      appeared before [modules] in the config.  All [paths] entries are
-      now buffered and replayed after all modules load, so section order
-      no longer matters.
-    - Added [paths] lang_dir support: set lang_dir = "/path/to/language"
-      to override the language file search path.  A pre-scan applies
-      lang_dir before init_language(1), eliminating spurious "LANG: No
-      lang files found for section core" messages in non-default-prefix
-      and dev-build environments.
-    - Fixed three io_uring SQPOLL bugs that prevented IRC registration
-      from completing when the SQPOLL kernel thread was active:
-      (1) io_uring_submit() was skipped for SQPOLL rings, so SQEs were
-          written but the kernel-visible tail was never updated; the
-          SQPOLL thread never saw new requests and delivered no CQEs.
-      (2) Server data arriving immediately on connect (e.g. CAP LS)
-          was silently overwritten: the re-arm loop called
-          uring_recv_sock() even when recv_buf already held data,
-          issuing a new SQE that clobbered the buffered bytes.
-      (3) When buffered recv data was present but no new CQEs were
-          queued, the event loop returned -3 (idle) before reaching the
-          dispatch path, so the buffered bytes were never processed.
-      Together these prevented the bot from receiving the server's CAP
-      LS response and completing IRC registration.
+Tcl optional — no-Tcl builds are complete
 
- Memory and performance changes:
-    - Replaced glibc malloc with an mmap-backed slab allocator (egg_bh)
-      for the two hottest allocation types: memberlist nodes (one per
-      channel member) and masklist nodes (bans/exempts/invites).
-      Alloc/free is now O(1) with no heap fragmentation; memory is
-      returned to the OS when slabs are destroyed. Exported via new
-      typed functions channel_malloc_member / channel_free_member /
-      channel_malloc_mask / channel_free_mask (channels_funcs[49-52]).
-    - Fixed n_realloc() silently returning NULL on out-of-memory instead
-      of aborting, matching the existing n_malloc() behaviour.
-    - Added n_strdup() / nstrdup() with DEBUG_MEM tracking. Modules
-      gain nstrdup via global[329] with correct MODULE_NAME attribution.
-    - Consolidated all allocation to libop: nmalloc/nfree/nrealloc/nstrdup
-      now route to op_malloc/op_free/op_realloc/op_strdup across all 60+
-      source files (~750 call sites).  The legacy mem.c accounting module
-      is removed; expmem() functions deleted throughout.  Module ABI
-      preserved via thin wrappers at global_table slots 0, 1, 230, 329.
-    - O(1) Robin Hood hash tables (op_htab) wired through the bind system:
-      bind table lookup by name, bind mask lookup within each table, and
-      channel member lookup by nickname all use op_htab for exact-match
-      dispatch.  check_tcl_bind() fast-paths MATCH_EXACT via the hash
-      table, falling back to linear scan only for wildcard/partial matches.
-    - O(1) hash tables for ban/exempt/invite mask lists: both runtime
-      masklists (from IRC MODE) and persistent maskrecs (from userfile)
-      now carry per-channel op_htab indexes.  ismodeline(), u_equals_mask(),
-      u_sticky_mask(), newmask() duplicate check, got_unban/unexempt/
-      uninvite removal, and u_addban/delban/addexempt/delexempt/addinvite/
-      delinvite all use O(1) hash lookup instead of O(n) linear scan.
-      Wildcard-matching paths (ismasked, u_match_mask) remain linear.
-    - Unified Tcl/no-Tcl bind dispatch in tclhash.c: eliminated ~600 lines
-      of duplicated code by extracting 12 identical functions (memory
-      helpers, GC, table management, match/flag checking) into shared
-      unconditional code, unifying check_tcl_bind() with a DISPATCH macro
-      that routes to trigger_bind() (Tcl) or dispatch_native() (no-Tcl),
-      and adopting the Tcl-path check_tcl_* helpers for both builds (works
-      because lush.h maps Tcl_SetVar to egg_setvar in no-Tcl mode).  Fixed
-      several no-Tcl bind dispatch bugs uncovered during unification:
-      check_tcl_chjn matched on wrong field, check_tcl_chpt used wrong
-      match type, check_tcl_dcc was missing BIND_QUIT handling.
+  - All TOML config keys reach their C variables
+  - Server persistence via old_add_server (server_table[55])
+  - Python registers as sole scripting engine automatically
+  - Variable registry via notcl_setvar/notcl_getvar
 
- twitch.mod changes:
-    - Replaced fixed 8191-byte mods, vips, badges, and emote_sets
-      buffers with dynamic char * fields. Each twitchchan_t previously
-      consumed ~40 KB of RSS at startup regardless of channel state and
-      silently truncated large mod or VIP lists at 8190 bytes. Memory is
-      now allocated on first update and released on module unload.
-      twitch_expmem() now reports actual live usage.
+Build system
 
- DNS changes:
-    - Replaced EGG_TDNS (threaded pthreads DNS resolver) with the
-      Ophion lightweight async DNS resolver (res.c) as the sole DNS
-      engine.  All DNS lookups now go through a single non-blocking UDP
-      socket driven by the existing event loop.  The 'tdns' build option
-      has been removed; there is no longer a background DNS thread.
-    - Added DNS-over-TLS (DoT, RFC 7858) support in the dns module.
-      When TLS is built in, enable via Tcl:
-        dnsdot on 1.1.1.1           — Cloudflare port 853, verify cert
-        dnsdot on 9.9.9.9 853       — Quad9, explicit port
-        dnsdot on ::1 853 -noverify — self-signed cert, no verify
-        dnsdot off                  — revert to plain UDP
-        dnsdot                      — report current status
-      RFC 7858 framing (2-byte length prefix) is handled internally with
-      a reassembly buffer so partial TLS records are never lost.
-      Automatic reconnect retries the DoT server after a configurable
-      delay if the TLS session is lost.
+  - Meson + Ninja replaces autoconf/make
+  - LTO enabled by default, -fno-strict-aliasing, -Wl,--as-needed
+  - -fvisibility=hidden for module .so files
+  - Native CPU tuning via -Dnative-opt (off by default)
 
- IRC module changes:
-    - Added IRCX/Ophion protocol support.  When net_type = "Ophion" the
-      bot automatically negotiates IRCX mode (RPL_IRCX 800), handles +q
-      (channel owner) in mode parsing, and supports the CREATE, PROP, and
-      ACCESS IRCX commands.  New Tcl commands: ircxprop, ircxaccess,
-      ircxcreate, ircxautoowner, ircxnegotiate, botisowner, isowner.
-      New DCC command: .create <#channel> [modes].  OWNERKEY credentials
-      are persisted to the channel file and restored on restart.  A new
-      [ircx] config section documents all Ophion-specific settings and
-      Tcl bind points.
-    - Added allow_hello and allow_addhost config settings (in [irc]).
-      Setting either to 0 globally disables the corresponding MSG command.
-      Previously users had to add "unbind msg …" Tcl to the config.
+Platform support
 
- Configuration changes:
-    - Added TOML configuration format as a modern alternative to the
-      traditional Tcl-script config. Files with a .toml extension are
-      parsed automatically; no chmod u+x is required.
-    - Automatic userfile creation on first run: when owner = "Nick,…" is
-      set in the config and no user file exists, the bot creates the user
-      file automatically and adds each listed handle as an owner
-      (USER_MASTER | USER_OWNER).  The -m flag is no longer required for
-      new installs using TOML.  Connect via DCC or .tcl to set passwords.
-    - Added per-channel settings via [[chanset]] TOML array-of-table
-      blocks.  Each block configures one channel: all 26 boolean flags
-      (autoop, bitch, cycle, protectops, etc.) accept true/false values
-      which are dispatched as +/- prefix to "channel set"; valued options
-      (chanmode, idle_kick, flood_chan, ban_time, need_op, etc.) are set
-      directly.  IRCX ownerkey/ircx_create/ircx_create_modes keys are
-      handled per-channel and emitted as ircxautoowner calls.
-    - Added interactive first-time setup wizard: run `eggdrop --setup`
-      (or `eggdrop -s [output.toml]`) to walk through a five-step
-      guided flow and generate a ready-to-use TOML config:
-        Step 1 — Bot identity: nick (required), altnick/realname/
-          username/filenames derived automatically from the nick.
-        Step 2 — IRC server: network-type menu (Libera/EFnet/IRCnet/
-          Undernet/DALnet/QuakeNet/Rizon/Other) with per-network
-          default hostnames; editable port (6697 SSL / 6667 plain);
-          optional server password.  SASL sub-step offered when SSL is
-          enabled: mechanism menu (PLAIN/EXTERNAL/SCRAM-SHA-256/
-          SCRAM-SHA-512), username/password prompts.
-        Step 3 — Channels: up to 8 channels; first required, validated
-          for '#' prefix; subsequent channels collected until empty.
-        Step 4 — Files: user/chan/log filenames, defaults from nick.
-        Step 5 — Optional modules: notes/seen/transfer/filesys.
-        Summary table printed before writing; write-to-disk confirmation.
-      The generated config now covers every section and setting:
-      [modules], [bot], [servers], [channels] with all default_* values,
-      [[chanset]], [paths], [logging], [irc] with advanced options,
-      [network], [security], [behaviour], [sasl], [ctcp], [ircx],
-      [share], [dns], [notes], [transfer], [filesys], [console],
-      [crypto], and [tcl].  No 'chmod u+x' required.
-    - Shipped eggdrop-basic.toml as the human-friendly TOML counterpart
-      to eggdrop-basic.conf. Both formats are fully supported and can
-      coexist; existing .conf files continue to work unchanged.
-    - Full TOML↔Tcl setting parity: all 128+ Tcl variables from
-      eggdrop.conf are now present in eggdrop.toml. Naming bugs fixed:
-        · [ssl] capath → ssl_capath (sets Tcl var ssl-capath)
-        · [console] console_flags → console (sets Tcl var console)
-        · [ssl] ssl_verify_depth → ssl_chain_depth (Tcl: ssl-chain-depth)
-        · [irc] duplicate default_port removed (already in [network])
-      Missing settings added: [irc] server_cycle_wait, server_timeout,
-      keep_nick, quiet_reject, flood_msg, flood_ctcp, account_notify,
-      extended_join, cap_request, away_notify, invite_notify,
-      message_tags, account_tag, firewall, modes_per_line, kick_method,
-      include_lk, rfc_compliant, use_354, invite_key, max_bans,
-      max_exempts, max_invites, max_modes, check_mode_r, use_penalties,
-      use_fastdeq, init_server, connect_server, stackable_commands,
-      stackable2_commands; [channels] all default_* flood/ban/exempt/
-      invite/stopnethack/revenge settings; [behaviour] use_telnet_banner,
-      force_expire, share_greet; new [sasl] section with all eight SASL
-      mechanism fields; new [ctcp] section (ctcp_version/finger/userinfo);
-      new [share] section (allow_resync, resync_time, private_global,
-      private_user, override_bots, private_globals, share_compressed);
-      new [dns] section (dns_maxsends, dns_retrydelay, dns_cache,
-      dns_negcache, dns_servers); new [ircx] section for Ophion settings.
-    - Added Tcl code-block support: [tcl] code = """...""" (triple-
-      quoted multi-line string) is evaluated as a single Tcl_Eval()
-      call, ideal for proc definitions and bind chains.  The parser now
-      detects incomplete triple-quoted values and accumulates continuation
-      lines before evaluating, the same way it already handled inline
-      arrays.  Both eggdrop.toml and eggdrop-basic.toml document the
-      feature with a commented example.
-    - Fixed silent HTTP response truncation in the webui module: the
-      snprintf calls for 404, 200-OK, and 101-Upgrade responses were
-      passing sizeof(char*) (pointer size = 8) instead of the actual
-      allocated buffer length, truncating all responses to 7 characters.
+  - macOS/BSD: kqueue backend
+  - Windows native: IOCP backend via libop
+  - Cygwin: plain POSIX path (select)
+  - I/O priority: io_uring → epoll → kqueue → IOCP → select
 
- Build system changes:
-    - Replaced autoconf/make with Meson + Ninja. See INSTALL for the new
-      quick-start instructions. All platforms (Linux, macOS, Windows,
-      Cygwin) are supported via a single meson setup / ninja workflow.
-    - Build now defaults to optimisation level 2 and passes -pipe where
-      the compiler supports it.
-    - LTO (Link-Time Optimization) enabled by default (b_lto=true) for
-      cross-file inlining and dead-code elimination. assert() is stripped
-      in release builds (b_ndebug=if-release).
-    - Added -fno-strict-aliasing globally: eggdrop uses void*/char* casts
-      that technically violate strict-aliasing rules; disabling the
-      optimization prevents undefined behaviour from being compiled away.
-    - Added -Wl,--as-needed on ELF platforms: only libraries that are
-      actually referenced are linked, reducing startup time and avoiding
-      spurious dlopen dependencies.
-    - Added native-opt build option (default on): pass
-      -Dnative-opt=false to meson to disable CPU tuning; by default
-      running the build. Flag selected automatically by architecture:
-      -march=native on x86/x86_64/RISC-V/MIPS/s390x, -mcpu=native on
-      ARM/AArch64/PowerPC (sets core type and tune in one flag).
-      Non-portable; not for distribution builds.
-    - Module shared objects now built with -fvisibility=hidden so that
-      all internal symbols are private. Module entry points are marked
-      with EXPORT_SCOPE which expands to
-      __attribute__((visibility("default"))) on GCC/Clang ELF targets
-      and __declspec(dllexport) on Cygwin/Windows.
-    - Removed unneeded Tcl and OpenSSL dependencies from the MD5 static
-      library; md5c.c only uses <string.h> and has no Tcl/TLS code.
-    - Deduplicated -DDEBUG/-g: these flags are now applied once via
-      add_project_arguments() rather than being duplicated into each
-      per-target c_args list.
+IRC protocol
 
- Platform changes:
-    - macOS, FreeBSD, OpenBSD, and NetBSD use the kqueue backend
-      (inherited from upstream v1.10.1) for efficient event-driven I/O.
-      None of these platforms fall back to select().
-    - Added native Windows support (MinGW-w64 and MSVC). The bot
-      compiles and links against Winsock2/MsWSock with no Cygwin layer
-      required. Module loading uses LoadLibrary/GetProcAddress.
-    - Added IOCP (I/O Completion Ports) backend for native Windows builds,
-      using zero-byte overlapped WSARecv/WSASend to arm readiness
-      notifications — the Windows equivalent of epoll/kqueue.
-      Implementation adapted from libop (https://github.com/devinkbrown/ophion),
-      the I/O layer of the ophion project by the same author. libop was
-      chosen because it had already solved the hard parts in
-      production-tested C: safe OVERLAPPED-first-member casting, stale
-      completion detection after socket close, and per-slot double-arm
-      prevention. Adapting proven code avoided reimplementing those
-      failure modes from scratch inside Eggdrop.
-    - I/O backend priority chain is now: io_uring → epoll → kqueue →
-      IOCP → select(). Each backend is auto-detected at configure time.
-      Every major platform has a native, scalable backend; select() is
-      the last-resort fallback for Cygwin and unknown platforms only.
-    - Removed CYGWIN_HACKS. Cygwin still compiles on the plain POSIX
-      path (select() fallback) and is unaffected by the Windows changes.
-    - On native Windows the bot always runs in the foreground; the
-      console window is hidden via ShowWindow() instead of fork().
+  - IRCX/Ophion: CREATE, PROP, ACCESS, +q owner mode
+  - Async DNS resolver (non-blocking UDP)
+  - DNS-over-TLS (DoT, RFC 7858)
+  - allow_hello, allow_addhost config settings
 
- Python scripting changes:
-    - TCL is now an optional build dependency.  Build without Tcl using
-      `meson setup -Dtcl=disabled builddir` and the bot uses Python as
-      its sole scripting engine.  All TOML [scripts] entries are loaded
-      via python.mod's script_load() function.
-    - Expanded the eggdrop Python C API (python.mod) with 30+ new
-      functions covering the full range of TCL scripting features:
-        · Channel member status: isop, ishalfop, isvoice, isaway,
-          botisop, botishalfop, botisvoice
-        · IRC account / handle resolution: getaccount, nick2hand,
-          hand2nick, isbotnick
-        · User database: countusers, validuser, finduser, userlist
-        · Miscellaneous: rand, unixtime, duration, maskhost
-        · Server queues: puthelp, tagmsg
-        · IRCv3: cap (req/raw)
-        · IRCX/Ophion: ircxprop, ircxaccess, ircxcreate, ircxnegotiate
-    - Added scripts/eggtools.py — a modern Python utility library that
-      replaces the functionality of the legacy alltools.tcl for Python
-      script authors.  Key features:
-        · Type-annotated wrappers for the full eggdrop C API
-        · @on_pub, @on_msg, @on_join … decorator-based bind registration
-        · Member dataclass for channel member introspection
-        · every() helper for interval-based callbacks using the cron bind
-        · IRCX and IRCv3 helpers (ircxprop, ircxaccess, cap_req, tagmsg)
-        · alltools.tcl-compatible aliases: putmsg, putchan, putnotc,
-          putact, strlwr, strupr, strlen, strcmp, stricmp
-        · Utility functions: randstring, ordnumber, isnumber, testip,
-          hostmatch, duration, maskhost
-    - All bind tables (pub, msg, join, part, kick, mode, nick, sign,
-      notc, ctcp, ctcr, raw, time, cron, dcc, evnt, and all server.mod
-      and irc.mod tables) are pre-created in no-Tcl builds so that
-      Python binds registered via eggdrop.bind() fire correctly.
+Configuration
 
- Documentation changes:
-    - INSTALL completely rewritten for the Meson build system with
-      per-platform dependency installation steps (Debian/Ubuntu, Fedora,
-      macOS Homebrew, MSYS2/MinGW-w64, MSVC/vcpkg, Cygwin).
-    - README updated with fork notice, new build instructions, and the
-      full I/O backend table.
+  - TOML format: eggdrop.toml, eggdrop-basic.toml
+  - Interactive wizard: eggdrop --setup
+  - Full TOML↔Tcl setting parity (128+ settings)
+  - Per-channel [[chanset]] blocks
+  - Inline Tcl: [tcl] code = """..."""
+  - Auto-create userfile when owner is set
 
-     _________________________________________________________________
+Performance
 
-Eggdrop v1.10.1:
+  - libop allocation (op_malloc/op_free) for all 750+ sites
+  - O(1) Robin Hood hash tables for binds, members, masks
+  - Slab allocator for memberlist and masklist nodes
+  - Twitch: fixed-size buffers → dynamic allocation
 
- General changes:
-    - Added kqueue I/O back-end for macOS, FreeBSD, OpenBSD, and NetBSD,
-      replacing the select() fallback with an efficient event-driven
-      interface that scales with the number of active (not total) sockets
-    - Added a new SCRAM authentication method for SASL
-    - Fixed an issue where the bot can crash if the bot parts while the
-      channel memberlist is not yet synched
-    - Removed TLS commands deprecated by openssl 3.0
-    - Fixed a 1.10.0 bug where userhost-in-names was always used if offered by
-      the server, even if the bot did not request it
-    - Account changes are now logged under the +j console flag, not the +k
-      console flag
-    - Fixed a bug handling long server or password strings in .jump
-    - Fixed a possible crash condition if a bot is marked as away
-    - Added compatibility for a change by inspircd adding extra :s to for all
-      trailing commands
-    - Fixed a bug where putlog timestamps may be off by a second
-    - Add notice of expired TLS certs at startup and owner login
-    - Fixed malformed content in the language files
+Bug fixes
 
- Botnet changes:
-    - Added a check to ensure TLS handshake is complete before testing/writing
-      to socket, eliminating many of those annoying "dequeue_sockets():
-      errno = 11 (Resource temporarily unavailable) on 7" log messages during
-      botnet linking
+  - [paths] ordering: module-registered variables no longer dropped
+  - [paths] lang_dir support
+  - io_uring SQPOLL: 3 bugs preventing IRC registration fixed
+  - webui: snprintf using sizeof(char*) instead of buffer length
+  - Various memory, type, and const-correctness fixes
 
- Tcl API changes:
-    - Added a new CHANSET bind, allowing users to trigger Tcl procs when a
-      a channel setting is modified
-    - Removed a non-casesensitive comparison for non-stacked binds that
-      prevented proc names from being overwritten
-    - Fixed an issue with utimers ignoring the [count] argument
-    - Fixed an issue where calling a bind log improperly clears the Tcl
-      interpreter result, causing issues with subsequent processing
+Documentation
 
- Module changes:
-    - Removed python.mod's reliance on IRC mod, thereby preventing a crash
-      condition when unloaded (such as on a .restart)
-    - Similar to .tcl, the .python command now requires the owner flag
-    - Fixed a bug in the python module where storage was not properly segmented
-      by threads
-    - Fixed a bug introduced in 1.9.4 where unloading the IRC module caused a
-      crash
-    - Fixed an issue with PBKDF2 where it did not properly 'make' on certain
-      systems (such as NetBSD)
+  - All documentation overhauled with modern formatting
+  - INSTALL rewritten for Meson with per-platform instructions
+  - README with full fork rationale, feature summary, quick start
+  - FEATURES with complete capability listing
+  - DESIGN.md: architecture, internals, data structures, test suite
+  - COMPILE-GUIDE: build troubleshooting FAQ
 
- Eggdrop config changes:
-    - Added "SCRAM-SHA-512" SASL authentication method to config
 
- Documentation changes:
-    - Added python script tutorial
-    - Added documentation for SASL SCRAM mode
-    - Fixed userfile tutorial formatting
-    - Fixed utimers description to specify the return value is seconds, not
-      minutes
-    - Updated Cygwin install requirements
+Eggdrop v1.10.1 (upstream)
+----------------------------
 
-     _________________________________________________________________
+  - kqueue I/O backend for macOS/BSD
+  - SCRAM SASL authentication
+  - TLS handshake completion check for botnet linking
+  - CHANSET bind for channel setting changes
+  - Python module crash fixes, owner flag requirement
+  - PBKDF2 build fix for NetBSD
+  - Various crash, timing, and TLS fixes
 
-Eggdrop v1.10.0:
 
- General changes:
-    - Added the new Tcl 'autoscripts' capability. By loading the autoscripts Tcl
-      script, Eggdrop can automatically view, download and install Tcl scripts
-      hosted by the Eggheads team, all via the partyline! No modification of the
-      config file needed.
-    - Eggdrop can now use the account a user is logged into as an identification
-      method in the same manner that a hostmask does. For this feature to be
-      fully accurate, Eggdrop use a server with WHOX enabled and negotiate the
-      extended-join and account-notify IRCv3 capabilities.
-    - Added the IRCv3 userhost-in-names capability. This capability is
-      negotiated with the server at connect and prompts the server to add
-      hostmask to the NAMES command. This is useful in a scenario where an IRC
-      server has disabled the WHO command, but allows 
-      Eggdrop to still track hostmasks (and removes the "pending" status from
-      the channel listing under .status).
-    - Added the IRCv3 standard-replies capability. This capability is negotiated
-      with the server at connect and enables the use of non-numeric FAIL, WARN,
-      and NOTE messages.
-    - Modified .bans to properly display channel bans.
-    - Fixed a bug with network reads performed on TLS connections, where
-      Eggdrop could hang until a connection times out, most commonly
-      manifesting itself on server connects and userfile transfers. This is
-      expected to fix the last documented issue with Eggdrop's handling of
-      secure connections.
-    - Eggdrop now requires TLS/SSL libs to be installed by default. Whereas
-      previously Eggdrop would previously continue to compile if TLS libraries
-      were not found, it will now error unless the user explicitly specifies
-      the --disable-tls flag.
-    - Fixed the Monitor bind to properly use wildcards in binds.
-    - Updated language files from ISO-8859 to UTF-8.
+Eggdrop v1.10.0 (upstream)
+----------------------------
 
- Botnet changes:
-    - Fixed an issue in pbkdf2-only links properly using/comparing PASS2 entries
+  - Autoscripts: view/download/install Tcl scripts from partyline
+  - Account-based user identification
+  - IRCv3: userhost-in-names, standard-replies
+  - Python module with embedded interpreter
+  - Tcl 9 compatibility
+  - CHGHOST bind, hidden-host and got-chanlist events
+  - TLS required by default
+  - Language files converted to UTF-8
+  - copy-to-tmp and quick-logs options removed
 
- Tcl API changes:
-    - Updated much of the core Tcl integration to be compatible with the
-      upcoming Tcl 9 release. Much work was done (thank you DasBrain!) to update
-      Eggdrop's internal Tcl calls to prevent breakages using Tcl 9. Most of
-      these changes are transparent to the user, but the one major item to call
-      out is the improvement of Tcl's UTF-8 emoji handling, which no longer
-      requires users to modify TCL_MAX and compile Tcl manually in order to use
-      emojis properly.
-    - The Python module (below) adds the pysource Tcl command, to load
-      a python script into Eggdrop.
-    - Added the Tcl CHGHOST bind, which is triggered when a user's
-      hostmask is changed via an IRCv3 CHGHOST message.
-    - Added the 'hidden-host' type to the event (EVNT) bind. This bind
-      is triggered when the bot's own host is hidden (+x) by a 396
-      message sent by server.
-    - Added the 'got-chanlist' type to the event (EVNT) bind. This bind
-      is triggered once Eggdrop finishes receiving the list of usernames
-      for a channel from a server. This can be used when Eggdrop needs to
-      wait to perform specific functions when joining a channel but
-      needs to wait until the users on a channel have been presented by
-      the server. 
-    - Fixed a bug in the isidentified command to check if a user has
-      definitively been identified or unidentified.
-
- Module changes:
-    - Added a Python module! This module integrates an embedded Python
-      interpreter similar to the Tcl interpreter already present in
-      Eggdrop. This module adds the .python command to the partyline
-      (again, similar to the .tcl command) to execute python strings,
-      as well as adding the pysource Tcl command that will load a Python
-      script into Eggdrop. See doc/modules/mod.python for details on how
-      to use it, or example scripts in the scripts/ directory.
-
- Eggdrop config changes:
-    - The copy-to-tmp option was removed from the config. This value is
-      now functions under the old '1' behavior where an intermediate temp
-      file is created before copying from/to files that are in use.
-    - The quick-logs option was removed from the config. This value was
-      created to hedge against frequent writes to disk, but is less
-      relveant with today's technology. Eggdrop now writes logfiles to
-      disk immediately.
-    - The old DNS module section was removed
-    - A Python module section was added, but does not load the python
-      module by default.
-    - The Autoscripts capability to load and manage some scripts from the
-      partyline is loaded by default
-
- Documentation changes:
-    - Added documentation that covers values commonly used when writing
-      new Tcl binds in C
-    - Added a tutorial to demonstrate how to share userfiles
-    - Added version variable for document generation
-  ________________________________________________________________________
 
 Copyright (C) 1997 Robey Pointer
-Copyright (C) 1999 - 2025 Eggheads Development Team
+Copyright (C) 1999-2026 Eggheads Development Team

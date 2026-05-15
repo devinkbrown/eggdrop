@@ -31,6 +31,7 @@
 
 #include "lush.h"
 #include "misc_file.h"
+#include "egg_perf_types.h"
 
 #define dprintf dprintf_eggdrop
 
@@ -119,7 +120,6 @@ void rmspace(char *s);
 void set_chanlist(const char *host, struct userrec *rec);
 void clear_chanlist(void);
 void clear_chanlist_member(const char *nick);
-float getcputime(void);
 
 /* cmds.c */
 int check_dcc_attrs(struct userrec *, int);
@@ -210,7 +210,7 @@ int cron_match(const char *, const char *);
 
 #define wild_match(a,b) _wild_match((unsigned char *)(a),(unsigned char *)(b))
 #define wild_match_per(a,b) _wild_match_per((unsigned char *)(a),              \
-                            (unsigned char *)(b),casecharcmp,NULL,NULL)
+                            (unsigned char *)(b),casecharcmp,nullptr,nullptr)
 #define wild_match_partial_case(a,b) _wild_match_per((unsigned char *)(a),     \
                             (unsigned char *)(b),casecharcmp,charcmp,          \
                             (unsigned char *)strchr((b),' '))

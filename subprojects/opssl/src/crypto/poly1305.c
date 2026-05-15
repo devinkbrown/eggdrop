@@ -9,16 +9,8 @@
  */
 
 #include <opssl/platform.h>
+#include "poly1305_internal.h"
 #include <string.h>
-
-typedef struct {
-    uint32_t r[5];     /* clamped key */
-    uint32_t h[5];     /* accumulator */
-    uint32_t pad[4];   /* final pad (s) */
-    uint8_t  buf[16];
-    size_t   buf_used;
-    bool     finalized;
-} poly1305_state_t;
 
 static inline uint32_t
 load32_le(const uint8_t *p)
@@ -36,7 +28,7 @@ store32_le(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24);
 }
 
-static void
+void
 poly1305_init(poly1305_state_t *st, const uint8_t key[32])
 {
     /* r = key[0..15] with clamping */
@@ -92,7 +84,7 @@ poly1305_blocks(poly1305_state_t *st, const uint8_t *data, size_t len, uint32_t 
     st->h[0] = h0; st->h[1] = h1; st->h[2] = h2; st->h[3] = h3; st->h[4] = h4;
 }
 
-static void
+void
 poly1305_update(poly1305_state_t *st, const uint8_t *data, size_t len)
 {
     if (st->buf_used > 0) {
@@ -122,7 +114,7 @@ poly1305_update(poly1305_state_t *st, const uint8_t *data, size_t len)
     }
 }
 
-static void
+void
 poly1305_final(poly1305_state_t *st, uint8_t tag[16])
 {
     if (st->buf_used > 0) {
@@ -164,7 +156,7 @@ poly1305_final(poly1305_state_t *st, uint8_t tag[16])
     opssl_memzero(st, sizeof(*st));
 }
 
-/* ─── Public API ──────────────────────────────────────────��──────────── */
+/* ─── Public API ─────────────────────────────────────────────────────── */
 
 void
 opssl_poly1305(uint8_t tag[16], const uint8_t *msg, size_t len,

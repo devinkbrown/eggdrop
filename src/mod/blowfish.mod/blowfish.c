@@ -32,7 +32,7 @@
 #include "bf_tab.h"             /* P-box P-array, S-box */
 
 #undef global
-static Function *global = NULL;
+static Function *global = nullptr;
 
 static char bf_mode[4];
 
@@ -66,7 +66,7 @@ static int blowfish_expmem(void)
   int tot = 0;
 
   for (int i = 0; i < BOXES; i++)
-    if (box[i].P != NULL) {
+    if (box[i].P != nullptr) {
       tot += ((bf_N + 2) * sizeof(uint32_t));
       tot += (4 * sizeof(uint32_t *));
       tot += (4 * 256 * sizeof(uint32_t));
@@ -143,7 +143,7 @@ static void blowfish_report(int idx, int details)
     int tot = 0, size = blowfish_expmem();
 
     for (int i = 0; i < BOXES; i++)
-      if (box[i].P != NULL)
+      if (box[i].P != nullptr)
         tot++;
 
     dprintf(idx, "    Blowfish encryption module:\n");
@@ -152,7 +152,7 @@ static void blowfish_report(int idx, int details)
     else {
       dprintf(idx, "      %d of %d boxes in use:", tot, BOXES);
       for (int i = 0; i < BOXES; i++)
-        if (box[i].P != NULL) {
+        if (box[i].P != nullptr) {
           dprintf(idx, " (age: %" PRId64 ")", (int64_t) (now - box[i].lastuse));
         }
       dprintf(idx, "\n");
@@ -179,7 +179,7 @@ static void blowfish_init(uint8_t *key, int keybytes)
 
   /* Is buffer already allocated for this? */
   for (int i = 0; i < BOXES; i++)
-    if (box[i].P != NULL) {
+    if (box[i].P != nullptr) {
       if ((box[i].keybytes == keybytes) &&
           (!strncmp((char *) (box[i].key), (char *) key, keybytes))) {
         /* Match! */
@@ -193,7 +193,7 @@ static void blowfish_init(uint8_t *key, int keybytes)
   /* Set 'bx' to empty buffer */
   bx = -1;
   for (int i = 0; i < BOXES; i++) {
-    if (box[i].P == NULL) {
+    if (box[i].P == nullptr) {
       bx = i;
       i = BOXES + 1;
     }
@@ -324,8 +324,9 @@ static char *encrypt_string_ecb(char *key, char *str)
   char *s, *dest, *d;
 
   /* Pad fake string with 8 bytes to make sure there's enough */
-  s = op_malloc(strlen(str) + 9);
-  strcpy(s, str);
+  size_t _len = strlen(str) + 9;
+  s = op_malloc(_len);
+  strlcpy(s, str, _len);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s;
@@ -374,10 +375,13 @@ static char *encrypt_string_cbc(char *key, char *str)
    * and prepend with 8 byte IV */
   slen = strlen(str) + 8;
   s = op_malloc(slen + 9);
-  for (int i = 0; i < 8; ++i) {
-    s[i] = (char) (random() % 256);
-  }
-  strcpy(s + 8, str);
+#ifdef HAVE_GETRANDOM
+  if (getrandom(s, 8, 0) != 8)
+    memset(s, 0x42, 8);
+#else
+  arc4random_buf(s, 8);
+#endif
+  strlcpy(s + 8, str, slen + 9 - 8);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s + slen;
@@ -422,7 +426,7 @@ static char *encrypt_string_cbc(char *key, char *str)
   }
 
   /* base64 encoded string won't be longer than double the size,
-   * plus 2 for the * prefix and NULL suffix */
+   * plus 2 for the * prefix and nullptr suffix */
   dest = op_malloc(slen * 2 + 2);
   dest[0] = '*';
 
@@ -484,8 +488,9 @@ static char *decrypt_string_ecb(char *key, char *str)
   char *p, *s, *dest, *d;
 
   /* Pad encoded string with 0 bits in case it's bogus */
-  s = op_malloc(strlen(str) + 12);
-  strcpy(s, str);
+  size_t _len = strlen(str) + 12;
+  s = op_malloc(_len);
+  strlcpy(s, str, _len);
   if ((!key) || (!key[0]))
     return s;
   p = s;
@@ -526,7 +531,7 @@ static char *decrypt_string_cbc(char *key, char *str)
 
   slen = strlen(str);
   s = op_malloc(slen + 1);
-  strcpy(s, str);
+  strlcpy(s, str, slen + 1);
   s[slen] = 0;
   if ((!key) || (!key[0]) || (slen % 4))
     return s;
@@ -637,7 +642,7 @@ static int tcl_encrypt STDVAR
   BADARGS(3, 3, " key string");
 
   p = encrypt_string(argv[1], argv[2]);
-  Tcl_AppendResult(irp, p, NULL);
+  Tcl_AppendResult(irp, p, nullptr);
   op_free(p);
   return TCL_OK;
 }
@@ -649,7 +654,7 @@ static int tcl_decrypt STDVAR
   BADARGS(3, 3, " key string");
 
   p = decrypt_string(argv[1], argv[2]);
-  Tcl_AppendResult(irp, p, NULL);
+  Tcl_AppendResult(irp, p, nullptr);
   op_free(p);
   return TCL_OK;
 }
@@ -662,9 +667,9 @@ static int tcl_encpass STDVAR
     char p[16];
 
     blowfish_encrypt_pass(argv[1], p);
-    Tcl_AppendResult(irp, p, NULL);
+    Tcl_AppendResult(irp, p, nullptr);
   } else
-    Tcl_AppendResult(irp, "", NULL);
+    Tcl_AppendResult(irp, "", nullptr);
   return TCL_OK;
 }
 
@@ -672,12 +677,12 @@ static tcl_cmds mytcls[] = {
   {"encrypt", tcl_encrypt},
   {"decrypt", tcl_decrypt},
   {"encpass", tcl_encpass},
-  {NULL,             NULL}
+  {nullptr,             nullptr}
 };
 
 static tcl_strings my_tcl_strings[] = {
   {"blowfish-use-mode", bf_mode, 3, 0},
-  {NULL,                NULL,    0, 0}
+  {nullptr,                nullptr,    0, 0}
 };
 
 static char *blowfish_close(void)
@@ -700,7 +705,7 @@ static Function blowfish_table[] = {
 
 char *blowfish_start(Function *global_funcs)
 {
-  /* `global_funcs' is NULL if eggdrop is recovering from a restart.
+  /* `global_funcs' is nullptr if eggdrop is recovering from a restart.
    *
    * As the encryption module is never unloaded, only initialise stuff
    * that got reset during restart, e.g. the tcl bindings.
@@ -712,8 +717,8 @@ char *blowfish_start(Function *global_funcs)
       return "Already loaded.";
     /* Initialize buffered boxes */
     for (int i = 0; i < BOXES; i++) {
-      box[i].P = NULL;
-      box[i].S = NULL;
+      box[i].P = nullptr;
+      box[i].S = nullptr;
       box[i].key[0] = 0;
       box[i].lastuse = 0L;
     }
@@ -732,5 +737,5 @@ char *blowfish_start(Function *global_funcs)
   add_tcl_commands(mytcls);
   add_tcl_strings(my_tcl_strings);
   add_help_reference("blowfish.help");
-  return NULL;
+  return nullptr;
 }

@@ -83,7 +83,7 @@ typedef struct {
 #define my_free(ptr)                                                    \
   if (ptr) {                                                            \
     op_free(ptr);                                                         \
-    ptr = NULL;                                                         \
+    ptr = nullptr;                                                         \
   }
 
 /* Copy entry to target -- Uses dynamic memory allocation, which
@@ -93,16 +93,18 @@ typedef struct {
 #define malloc_strcpy(target, entry)                                    \
 do {                                                                    \
   if (entry) {                                                          \
-    (target) = op_realloc((target), strlen(entry) + 1);                   \
-    strcpy((target), (entry));                                          \
+    size_t _len = strlen(entry) + 1;                                    \
+    (target) = op_realloc((target), _len);                              \
+    memcpy((target), (entry), _len);                                    \
   } else                                                                \
     my_free(target);                                                    \
 } while (0)
 
 #define malloc_strcpy_nocheck(target, entry)                            \
 do {                                                                    \
-  (target) = op_realloc((target), strlen(entry) + 1);                     \
-  strcpy((target), (entry));                                            \
+  size_t _len = strlen(entry) + 1;                                      \
+  (target) = op_realloc((target), _len);                                \
+  memcpy((target), (entry), _len);                                      \
 } while (0)
 
 /* Macro to calculate the total length of dynamic data. */

@@ -91,7 +91,7 @@ typedef struct {
   pid_t child_pid;      /* PID of split process.                         */
 } bg_t;
 
-static bg_t bg = { 0 };
+static bg_t bg = {};
 
 
 /* Do everything we normally do after we have split off a new
@@ -105,7 +105,7 @@ static void bg_do_detach(pid_t p)
   /* Need to attempt to write pid now, not later. */
   unlink(pid_file);
   fp = fopen(pid_file, "w");
-  if (fp != NULL) {
+  if (fp != nullptr) {
     fprintf(fp, "%li\n", (long) p);
     if (fflush(fp)) {
       /* Kill bot in case a botchk is run from crond. */

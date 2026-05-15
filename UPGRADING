@@ -1,67 +1,47 @@
 Upgrading Eggdrop
+=================
 
-  It is easy to upgrade Eggdrop to a new version! To have a full picture
-  of the changes made since your last upgrade, we recommend reading the
-  NEWS file. Upgrades from the 1.8 and 1.9 lines of Eggdrop should take
-  place with little to no issues. While the config file, user files, and
-  channel files can all be reused, it is recommended to review the NEWS
-  files for each release to identify new configuration settings that
-  have been added.
+Back up your config, userfile, and chanfile before upgrading. They
+should not be overwritten, but it never hurts.
 
-  For support, feel free to visit us on Libera #eggdrop.
 
-HOW TO UPGRADE
+Standard upgrade
+----------------
 
-  To upgrade to a newer version of Eggdrop, first backup your config
-  file, user file, and chan file. While they are saved and should not
-  be overwritten by the upgrade process, it never hurts to make another
-  copy :)
+1. Read NEWS for new/changed settings.
+2. Build the new version (see INSTALL).
+3. Update your config file with any new settings.
+4. Restart the bot.
 
-  Next, view the NEWS file to see what changes have been made, paying
-  particular attention to the config file section to see what
-  new/different settings have been added. Update your config file
-  appropriately.
 
-  Then, simply follow the same steps you followed to install Eggdrop
-  previously. Build with Meson + Ninja (see INSTALL for details) and
-  install. Restart your Eggdrop and you will be up and running with the
-  latest version.
+Migrating from .conf to .toml
+------------------------------
 
-MIGRATING FROM .CONF (Tcl) TO .TOML (TOML FORMAT)
+Your existing .conf files continue to work unchanged. Migration is
+entirely optional.
 
-  This fork introduces a modern TOML configuration format. Your existing
-  .conf files continue to work unchanged — migration is entirely optional.
+Why migrate:
+  - No Tcl knowledge needed to configure the bot
+  - Clean key = "value" syntax
+  - Organised sections: [bot], [servers], [channels], ...
+  - No chmod u+x or shebang needed
+  - Interactive wizard for new installs
 
-  Why migrate?
-    - No Tcl knowledge required to configure the bot
-    - Cleaner, human-readable syntax: key = "value"
-    - Organised sections: [bot], [servers], [channels], [modules], ...
-    - No 'chmod u+x' or shebang (#!) line needed
-    - Interactive setup wizard for new installs: eggdrop --setup
+Method 1 — automated:
 
-  METHOD 1 — Automated migration script (recommended):
+    python3 scripts/conf2toml.py mybot.conf mybot.toml
 
-      python3 scripts/conf2toml.py mybot.conf mybot.toml
+Method 2 — start fresh:
 
-    The script reads your existing .conf, converts all 'set' commands,
-    server / channel / module / logfile directives, and source / unbind
-    calls to their TOML equivalents. Review the output before using it.
+    eggdrop --setup mybot.toml
 
-  METHOD 2 — Start fresh with the setup wizard:
+Method 3 — manual reference:
 
-      eggdrop --setup mybot.toml
-
-    Answer the prompts to generate a new config. Then manually transfer
-    any custom settings from your old .conf that the wizard didn't cover.
-
-  METHOD 3 — Manual conversion reference:
-
-    Old .conf (Tcl)                  New .toml (TOML)
-    ────────────────────────────     ────────────────────────────────────
+    .conf (Tcl)                      .toml (TOML)
+    ────────────────────────         ────────────────────────
     set nick "MyBot"                 [bot]
-    set altnick "MyBot0"             nick    = "MyBot"
-    set owner "MyNick"               altnick = "MyBot0"
-                                     owner   = "MyNick"
+    set owner "MyNick"               nick  = "MyBot"
+                                     owner = "MyNick"
 
     server add irc.net +6697         [servers]
                                      list = ["irc.net:+6697"]
@@ -70,108 +50,77 @@ MIGRATING FROM .CONF (Tcl) TO .TOML (TOML FORMAT)
                                      list = ["#mychan"]
 
     loadmodule server                [modules]
-    loadmodule irc                   load = ["server", "irc", ...]
-
-    logfile mco * eggdrop.log        [logging]
-                                     entries = ["mco * eggdrop.log"]
+    loadmodule irc                   load = ["server", "irc"]
 
     source scripts/foo.tcl           [scripts]
                                      load = ["scripts/foo.tcl"]
 
     unbind dcc n simul *dcc:simul    [tcl]
-                                     commands = ["unbind dcc n simul *dcc:simul"]
+                                     commands = ["unbind ..."]
 
-  Variable name mapping: underscores in TOML map to dashes in eggdrop.
-    botnet_nick  →  botnet-nick
-    help_path    →  help-path
-    max_logs     →  max-logs
+Underscores in TOML map to dashes in eggdrop variables:
+  botnet_nick → botnet-nick, help_path → help-path
 
-  After migration, start the bot with the new file:
+After migration:
 
-      eggdrop -m mybot.toml    # first run: creates user file
-      eggdrop mybot.toml       # subsequent runs
+    eggdrop -m mybot.toml    # first run
+    eggdrop mybot.toml       # subsequent runs
 
-MUST-READ CHANGES FOR EGGDROP V1.10 (devinkbrown fork)
 
-These are NOT all the changes or new settings; rather just the "killer"
-changes that may directly affect Eggdrop's previous performance without
-modification.
+Breaking changes (devinkbrown fork)
+------------------------------------
 
-Build system
+Build system:
 
-  This fork uses Meson + Ninja instead of the upstream autoconf/make.
-  See the INSTALL file for complete build instructions. The old
-  './configure && make' workflow no longer exists in this fork.
+  Meson + Ninja replaces autoconf/make. The old ./configure && make
+  workflow does not exist. See INSTALL for the new process.
 
-Config file changes (devinkbrown fork)
+Config format:
 
--   TOML is now the default configuration format. The default config
-    file name changed from 'eggdrop.conf' to 'eggdrop.toml'. Existing
-    .conf files are fully supported; pass one explicitly on the command
-    line: eggdrop mybot.conf
+  The default config file is eggdrop.toml (was eggdrop.conf). Legacy
+  .conf files are still loaded when passed explicitly on the command
+  line. The bot auto-detects format by file extension.
 
--   New 'eggdrop --setup' flag (also -s): interactive configuration
-    wizard. Generates a ready-to-use eggdrop.toml. Replaces the need
-    to manually edit the config file and add a shebang or chmod.
+  eggdrop --setup generates a ready-to-use TOML config interactively.
+  No chmod or shebang needed.
 
--   The 'chmod u+x' / shebang (#!) mechanism for running the config
-    as a shell script is no longer required or recommended when using
-    the TOML format.
+Random number generation:
 
-Config file changes (upstream v1.10)
+  random()/srandom() has been replaced with getrandom(2) (Linux) or
+  arc4random_buf (BSD/macOS). The randint() macro is now a static
+  inline function producing cryptographically secure output.
+  Third-party modules using random() should switch to randint(n).
 
--   Eggdrop has deprecated the blowfish module for password hashing in
-    favor of the PBKDF2 module. This is a BIG change which, if done
-    carelessly, has the potential to render stored passwords useless.
-    Please see doc/PBKDF2 for information on how to properly migrate
-    your userfiles and passwords to the new module.
+Safe integer parsing:
 
--   Eggdrop 1.9 switched from the "set servers {}" syntax to the "server
-    add" command. For example, if your configuration file previously had:
+  All raw atoi() calls are replaced with egg_atoi(), a safe strtol
+  wrapper defined in eggdrop.h. Third-party modules should use
+  egg_atoi() instead of atoi() — it handles non-numeric input without
+  undefined behaviour.
 
-        set servers {
-          my.server.com:6667
-        }
+Password hashing:
 
-    you should now instead use (in .conf):
+  Eggdrop has deprecated the blowfish module for password hashing in
+  favour of PBKDF2. See doc/PBKDF2 for migration instructions.
 
-        server add my.server.com 6667
+Server syntax (upstream v1.10):
 
-    or (in .toml):
+  The old "set servers {}" syntax was replaced with "server add" in
+  v1.9. In TOML, use [servers] list = ["host:port"].
 
-        [servers]
-        list = ["my.server.com:6667"]
+Botnet TLS:
 
--   Eggdrop no longer requires the '-n' flag to start Eggdrop in
-    terminal mode.
+  Since v1.9, SSL botnet links require an explicit '+' port prefix.
+  Use .chaddr to update your ports if you want encrypted links.
 
-Modules
 
-While most 3rd party modules that worked on older Eggdrop versions
-should still work with Eggdrop, many of them contain a version check
-that only allows them to run on 1.6.x bots. We have removed the version
-check from some of the more popular modules; find them at:
-https://ftp.eggheads.org/pub/eggdrop/modules/1.10/
+Breaking changes (upstream v1.10)
+----------------------------------
 
-Scripts
+  - The -n flag for terminal mode was removed (use -t instead).
+  - copy-to-tmp and quick-logs config options were removed.
+  - The old DNS module config section was removed.
 
-All 3rd party Tcl scripts that worked with Eggdrop versions as early as
-v1.6 should still fully work with Eggdrop.
 
-Botnet
-
-In Eggdrop v1.8, Eggdrop bots would automatically attempt to upgrade any
-botnet link to an SSL/TLS connection. Since v1.9, the user is required
-to explicitly request an SSL/TLS connection by prefixing the port with a
-'+'. If you wish your botnet to take advantage of encryption, use the
-.chaddr command to update your ports to start with a '+'.
-
-Tcl Commands
-
-A lot of backwards-compatible additions and changes have been made to
-Tcl commands. Please look at doc/tcl-commands.doc to see them.
-
-Documentation
-
-Documentation has been updated to reflect new and removed commands and
-variables, and to cover the new TOML configuration format.
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999-2026 Eggheads Development Team

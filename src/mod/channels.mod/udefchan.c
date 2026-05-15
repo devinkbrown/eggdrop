@@ -20,8 +20,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-static op_bh *udef_struct_bh = NULL;
-static op_bh *udef_chans_bh  = NULL;
+static op_bh *udef_struct_bh = nullptr;
+static op_bh *udef_chans_bh  = nullptr;
 
 static int expmem_udef(struct udef_struct *ul)
 {
@@ -77,7 +77,7 @@ static intptr_t ngetudef(char *name, char *chan)
 
 static void setudef(struct udef_struct *us, char *name, intptr_t value)
 {
-  struct udef_chans *ul, *ul_last = NULL;
+  struct udef_chans *ul, *ul_last = nullptr;
 
   for (ul = us->values; ul; ul_last = ul, ul = ul->next)
     if (!strcasecmp(ul->chan, name)) {
@@ -90,7 +90,7 @@ static void setudef(struct udef_struct *us, char *name, intptr_t value)
   ul = op_bh_alloc(udef_chans_bh);
   ul->chan = op_strdup(name);
   ul->value = value;
-  ul->next = NULL;
+  ul->next = nullptr;
   if (ul_last)
     ul_last->next = ul;
   else
@@ -99,7 +99,7 @@ static void setudef(struct udef_struct *us, char *name, intptr_t value)
 
 static void initudef(int type, char *name, int defined)
 {
-  struct udef_struct *ul, *ul_last = NULL;
+  struct udef_struct *ul, *ul_last = nullptr;
 
   if (strlen(name) < 1)
     return;
@@ -123,8 +123,8 @@ static void initudef(int type, char *name, int defined)
   else
     ul->defined = 0;
   ul->type = type;
-  ul->values = NULL;
-  ul->next = NULL;
+  ul->values = nullptr;
+  ul->next = nullptr;
   if (ul_last)
     ul_last->next = ul;
   else

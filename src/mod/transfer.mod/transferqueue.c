@@ -18,7 +18,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-static op_bh *fileq_bh = NULL;
+static op_bh *fileq_bh = nullptr;
 
 static int expmem_fileq(void)
 {
@@ -52,7 +52,7 @@ static void queue_file(const char *dir, const char *file, const char *from, cons
 
 static void deq_this(fileq_t *this)
 {
-  fileq_t *q = fileq, *last = NULL;
+  fileq_t *q = fileq, *last = nullptr;
 
   while (q && q != this) {
     last = q;
@@ -81,13 +81,13 @@ static void flush_fileq(char *to)
   while (fnd) {
     q = fileq;
     fnd = 0;
-    while (q != NULL) {
+    while (q != nullptr) {
       if (!strcasecmp(q->to, to)) {
         deq_this(q);
-        q = NULL;
+        q = nullptr;
         fnd = 1;
       }
-      if (q != NULL)
+      if (q != nullptr)
         q = q->next;
     }
   }
@@ -95,7 +95,7 @@ static void flush_fileq(char *to)
 
 static void send_next_file(char *to)
 {
-  fileq_t *q, *this = NULL;
+  fileq_t *q, *this = nullptr;
   char *s;
   int x;
 
@@ -103,17 +103,18 @@ static void send_next_file(char *to)
     if (!strcasecmp(q->to, to))
       this = q;
 
-  if (this == NULL)
+  if (this == nullptr)
     return;
 
   if (this->dir[0] == '*') { /* Absolute path */
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/%s", &this->dir[1], this->file);
     s = op_strbuf_steal(&_b);
   } else {
     char *p = strchr(this->dir, '*');
 
-    if (p == NULL) {
+    if (p == nullptr) {
       send_next_file(to);
       return;
     }
@@ -121,21 +122,24 @@ static void send_next_file(char *to)
     p++;
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       if (p[0])
         op_strbuf_appendf(&_b, "%s/%s", p, this->file);
       else
         op_strbuf_appendf(&_b, "%s", this->file);
       s = op_strbuf_steal(&_b);
     }
-    strlcpy(this->dir, &(p[atoi(this->dir)]), sizeof(this->dir));
+    strlcpy(this->dir, &(p[egg_atoi(this->dir)]), sizeof(this->dir));
   }
   if (this->dir[0] == '*') {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/%s", &this->dir[1], this->file);
     op_free(s);
     s = op_strbuf_steal(&_b);
   } else {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     if (this->dir[0])
       op_strbuf_appendf(&_b, "%s/%s", this->dir, this->file);
     else
@@ -212,7 +216,7 @@ static void show_queued_files(int idx)
         spaces[HANDLEN - 9] = ' ';
       }
       nfn = strrchr(dcc[i].u.xfer->origname, '/');
-      if (nfn == NULL)
+      if (nfn == nullptr)
         nfn = dcc[i].u.xfer->origname;
       else
         nfn++;
@@ -236,15 +240,16 @@ static void fileq_cancel(int idx, char *par)
 {
   int fnd = 1, matches = 0, atot = 0;
   fileq_t *q;
-  char *s = NULL;
+  char *s = nullptr;
 
   while (fnd) {
     q = fileq;
     fnd = 0;
-    while (q != NULL) {
+    while (q != nullptr) {
       if (!strcasecmp(dcc[idx].nick, q->nick)) {
         {
           op_strbuf_t _b;
+          op_strbuf_init(&_b);
           if (q->dir[0] == '*') {
             op_strbuf_appendf(&_b, "%s/%s", &q->dir[1], q->file);
           } else {
@@ -260,18 +265,18 @@ static void fileq_cancel(int idx, char *par)
           dprintf(idx, TRANSFER_CANCELLED, s, q->to);
           fnd = 1;
           deq_this(q);
-          q = NULL;
+          q = nullptr;
           matches++;
         }
         if (!fnd && wild_match_file(par, q->file)) {
           dprintf(idx, TRANSFER_CANCELLED, s, q->to);
           fnd = 1;
           deq_this(q);
-          q = NULL;
+          q = nullptr;
           matches++;
         }
       }
-      if (q != NULL)
+      if (q != nullptr)
         q = q->next;
     }
   }
@@ -285,7 +290,7 @@ static void fileq_cancel(int idx, char *par)
          !strcasecmp(dcc[i].u.xfer->from, dcc[idx].nick))) {
       char *nfn = strrchr(dcc[i].u.xfer->origname, '/');
 
-      if (nfn == NULL)
+      if (nfn == nullptr)
         nfn = dcc[i].u.xfer->origname;
       else
         nfn++;

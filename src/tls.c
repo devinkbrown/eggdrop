@@ -30,6 +30,8 @@
 #endif
 #include "main.h"
 #include <op_commio.h>
+#include <commio-int.h>
+#include <commio-ssl.h>
 
 #ifdef TLS
 
@@ -40,17 +42,18 @@
 #include <opssl/err.h>
 #include <opssl/types.h>
 #include <time.h>
-#include <errno.h>
 #include <stdio.h>
 #include "version.h"
 
 extern int dcc_total, stealth_telnets, tls_vfydcc;
 extern struct dcc_t *dcc;
 
+static const char TLS_DATE_FMT[] = "%b %d %H:%M:%S %Y GMT";
+
 int tls_maxdepth = 9;         /* Max certificate chain verification depth     */
 int ssl_files_loaded = 0;     /* Check for loaded SSL key/cert files          */
-opssl_ctx_t *ssl_ctx = NULL;  /* TLS context object                           */
-char *tls_randfile = NULL;    /* Random seed file for SSL (unused in opssl)   */
+opssl_ctx_t *ssl_ctx = nullptr;  /* TLS context object                           */
+char *tls_randfile = nullptr;    /* Random seed file for SSL (unused in opssl)   */
 char tls_capath[121] = "";    /* Path to trusted CA certificates              */
 char tls_cafile[121] = "";    /* File containing trusted CA certificates      */
 char tls_certfile[121] = "";  /* Our own digital certificate                  */
@@ -68,7 +71,7 @@ static void ssl_showcert(opssl_x509_t *cert, const int loglev);
 
 /* Get the certificate, corresponding to the connection identified by sock.
  *
- * Return value: pointer to a opssl_x509_t certificate or NULL if we couldn't look up
+ * Return value: pointer to a opssl_x509_t certificate or nullptr if we couldn't look up
  * the certificate.
  */
 static opssl_x509_t *ssl_getcert(int sock)
@@ -76,7 +79,7 @@ static opssl_x509_t *ssl_getcert(int sock)
   struct threaddata *td = threaddata();
   int i = findsock(sock);
   if (i == -1 || !td->socklist[i].ssl)
-    return NULL;
+    return nullptr;
   return opssl_conn_get_peer_cert(td->socklist[i].ssl);
 }
 
@@ -84,7 +87,7 @@ static opssl_x509_t *ssl_getcert(int sock)
  * socket.
  *
  * Return value: ptr to the hexadecimal representation of the fingerprint or
- * NULL in case of error.
+ * nullptr in case of error.
  */
 char *ssl_getfp(int sock)
 {
@@ -92,10 +95,10 @@ char *ssl_getfp(int sock)
   opssl_x509_t *cert;
 
   if (!(cert = ssl_getcert(sock)))
-    return NULL;
+    return nullptr;
 
   if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA1, fp, sizeof fp) != 0)
-    return NULL;
+    return nullptr;
 
   return fp;
 }
@@ -189,8 +192,8 @@ int ssl_init(void)
   }
 
   if ((tls_capath[0] || tls_cafile[0]) &&
-      opssl_ctx_load_verify_locations(ssl_ctx, tls_cafile[0] ? tls_cafile : NULL,
-      tls_capath[0] ? tls_capath : NULL) != 0) {
+      opssl_ctx_load_verify_locations(ssl_ctx, tls_cafile[0] ? tls_cafile : nullptr,
+      tls_capath[0] ? tls_capath : nullptr) != 0) {
     putlog(LOG_MISC, "*", "ERROR: TLS: unable to set CA certificates location: %s",
            opssl_err_string(opssl_err_get()));
   }
@@ -201,9 +204,9 @@ int ssl_init(void)
     char *sep = " ";
     char *word;
     bool has_tls12 = false, has_tls13 = false;
-    char *saveptr = NULL;
+    char *saveptr = nullptr;
     strlcpy(s, tls_protocols, sizeof(s));
-    for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(NULL, sep, &saveptr)) {
+    for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(nullptr, sep, &saveptr)) {
       if (!strcmp(word, "TLSv1.2"))
         has_tls12 = true;
       if (!strcmp(word, "TLSv1.3"))
@@ -239,7 +242,7 @@ int ssl_init(void)
     /* this replaces any preset ciphers so an invalid list is fatal */
     putlog(LOG_MISC, "*", "ERROR: TLS: no valid ciphersuites found. Disabling SSL.");
     opssl_ctx_free(ssl_ctx);
-    ssl_ctx = NULL;
+    ssl_ctx = nullptr;
     opssl_cleanup();
     return -3;
   }
@@ -257,66 +260,66 @@ void ssl_cleanup(void)
   for (int i = 0; i < FD_SETSIZE; i++) {
     if (ssl_appdata_table[i]) {
       op_free(ssl_appdata_table[i]);
-      ssl_appdata_table[i] = NULL;
+      ssl_appdata_table[i] = nullptr;
     }
   }
 
   if (ssl_ctx) {
     opssl_ctx_free(ssl_ctx);
-    ssl_ctx = NULL;
+    ssl_ctx = nullptr;
   }
   opssl_cleanup();
 }
 
 char *ssl_fpconv(char *in, char *out)
 {
-  size_t len;
-  char *result;
-
   if (!in)
-    return NULL;
+    return nullptr;
 
-  /* Simple hex fingerprint normalization - opssl provides hex directly */
-  len = strlen(in);
-  result = user_realloc(out, len + 1);
-  if (result) {
-    strcpy(result, in);
-    return result;
-  }
-  return NULL;
+  size_t len = strlen(in);
+  char *result = user_realloc(out, len + 1);
+  if (result)
+    strlcpy(result, in, len + 1);
+  return result;
 }
 
 /* Get the UID field from the certificate subject name.
  * The certificate is looked up using the socket of the connection.
  *
- * Return value: Pointer to the uid string or NULL if not found
+ * Return value: Pointer to the uid string or nullptr if not found
  */
 const char *ssl_getuid(int sock)
 {
-  static char subject_buf[512];
+  static op_strbuf_t uid_buf;
+  static bool uid_inited;
+  char subject[512];
   char *uid_pos;
   opssl_x509_t *cert;
 
   if (!(cert = ssl_getcert(sock)))
-    return NULL;
+    return nullptr;
 
-  /* Get the subject name */
-  if (opssl_x509_get_subject(cert, subject_buf, sizeof subject_buf) != 0)
-    return NULL;
+  if (opssl_x509_get_subject(cert, subject, sizeof subject) != 0)
+    return nullptr;
 
-  /* Look for UID= in the subject string */
-  uid_pos = strstr(subject_buf, "UID=");
+  uid_pos = strstr(subject, "UID=");
   if (!uid_pos)
-    return NULL;
+    return nullptr;
 
-  uid_pos += 4; /* Skip "UID=" */
+  uid_pos += 4;
 
-  /* Find the end of the UID (next comma or end of string) */
   char *end = strchr(uid_pos, ',');
   if (end)
     *end = '\0';
 
-  return uid_pos;
+  if (!uid_inited) {
+    op_strbuf_init(&uid_buf);
+    uid_inited = true;
+  }
+  op_strbuf_clear(&uid_buf);
+  op_strbuf_append_cstr(&uid_buf, uid_pos);
+
+  return op_strbuf_str(&uid_buf);
 }
 
 /* Verification callback for opssl */
@@ -409,8 +412,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   {
     op_fde_t *F = op_get_fde(td->socklist[i].sock);
     if (F) {
-      /* TODO: op_fde_set_ssl_ptr needs to be implemented for opssl */
-      /* op_fde_set_ssl_ptr(F, td->socklist[i].ssl); */
+      F->ssl = td->socklist[i].ssl;
     }
   }
 
@@ -453,7 +455,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   if (data->flags & TLS_CONNECT) {
     /* Introduce 1ms lag so an unpatched hub has time to setup the ssl handshake */
     const struct timespec req = { 0, 1000000L };
-    nanosleep(&req, NULL);
+    nanosleep(&req, nullptr);
     ret = opssl_connect(td->socklist[i].ssl);
     if (ret == OPSSL_FATAL)
       debug0("TLS: connect handshake failed.");
@@ -478,23 +480,21 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   }
 
   /* Handshake failed */
-  opssl_err_t err = opssl_conn_get_error(td->socklist[i].ssl);
   putlog(data->loglevel, "*", "TLS: handshake failed: %s", opssl_conn_get_error_string(td->socklist[i].ssl));
 
   /* Cleanup on failure */
   opssl_shutdown(td->socklist[i].ssl);
   opssl_conn_free(td->socklist[i].ssl);
-  td->socklist[i].ssl = NULL;
+  td->socklist[i].ssl = nullptr;
   {
     op_fde_t *F = op_get_fde(td->socklist[i].sock);
     if (F) {
-      /* TODO: op_fde_set_ssl_ptr needs to be implemented for opssl */
-      /* op_fde_set_ssl_ptr(F, NULL); */
+      F->ssl = nullptr;
     }
   }
   if (sock >= 0 && sock < FD_SETSIZE && ssl_appdata_table[sock]) {
     op_free(ssl_appdata_table[sock]);
-    ssl_appdata_table[sock] = NULL;
+    ssl_appdata_table[sock] = nullptr;
   }
   return -4;
 }
@@ -510,7 +510,7 @@ static void ssl_handshake_completed(int sock)
   if (i == -1 || !td->socklist[i].ssl)
     return;
 
-  data = (sock >= 0 && sock < FD_SETSIZE) ? ssl_appdata_table[sock] : NULL;
+  data = (sock >= 0 && sock < FD_SETSIZE) ? ssl_appdata_table[sock] : nullptr;
   if (!data)
     return;
 
@@ -530,6 +530,18 @@ static void ssl_handshake_completed(int sock)
                            (version == OPSSL_TLS_1_2) ? "TLSv1.2" : "Unknown";
 
   putlog(LOG_DEBUG, "*", "TLS: cipher used: %s, %s", cipher, version_str);
+
+  /* Try to offload crypto to the kernel (kTLS) for better throughput */
+  {
+    op_fde_t *F = op_get_fde(td->socklist[i].sock);
+    if (F) {
+      int ktls = op_ssl_promote_ktls(F);
+      if (ktls == 1)
+        debug1("TLS: kTLS offload activated for sock %d", sock);
+      else if (ktls < 0)
+        debug1("TLS: kTLS promotion failed for sock %d, continuing in userspace", sock);
+    }
+  }
 }
 
 /* Show the user all relevant information about a certificate: subject,
@@ -537,42 +549,34 @@ static void ssl_handshake_completed(int sock)
  */
 static void ssl_showcert(opssl_x509_t *cert, const int loglev)
 {
-  char subject[512], issuer[512];
-  char sha1fp[65], sha256fp[129];
+  char buf[512];
   int64_t not_before, not_after;
 
-  /* Subject and issuer names */
-  if (opssl_x509_get_subject(cert, subject, sizeof subject) == 0) {
-    putlog(loglev, "*", "TLS: certificate subject: %s", subject);
-  } else {
+  if (opssl_x509_get_subject(cert, buf, sizeof buf) == 0)
+    putlog(loglev, "*", "TLS: certificate subject: %s", buf);
+  else
     putlog(loglev, "*", "TLS: cannot get subject name from certificate!");
-  }
 
-  if (opssl_x509_get_issuer(cert, issuer, sizeof issuer) == 0) {
-    putlog(loglev, "*", "TLS: certificate issuer: %s", issuer);
-  } else {
+  if (opssl_x509_get_issuer(cert, buf, sizeof buf) == 0)
+    putlog(loglev, "*", "TLS: certificate issuer: %s", buf);
+  else
     putlog(loglev, "*", "TLS: cannot get issuer name from certificate!");
-  }
 
-  /* Fingerprints */
-  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA1, sha1fp, sizeof sha1fp) == 0) {
-    putlog(loglev, "*", "TLS: certificate SHA1 Fingerprint: %s", sha1fp);
-  }
-  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA256, sha256fp, sizeof sha256fp) == 0) {
-    putlog(loglev, "*", "TLS: certificate SHA-256 Fingerprint: %s", sha256fp);
-  }
+  /* Fingerprints — hex fits easily in buf */
+  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA1, buf, sizeof buf) == 0)
+    putlog(loglev, "*", "TLS: certificate SHA1 Fingerprint: %s", buf);
+  if (opssl_x509_fingerprint_hex(cert, OPSSL_FP_SHA256, buf, sizeof buf) == 0)
+    putlog(loglev, "*", "TLS: certificate SHA-256 Fingerprint: %s", buf);
 
-  /* Validity time */
   if (opssl_x509_get_not_before(cert, &not_before) == 0 &&
       opssl_x509_get_not_after(cert, &not_after) == 0) {
-    /* Convert epochs to readable format */
     char from[32], to[32];
     struct tm *tm;
 
-    tm = gmtime((time_t*)&not_before);
-    strftime(from, sizeof from, "%b %d %H:%M:%S %Y GMT", tm);
-    tm = gmtime((time_t*)&not_after);
-    strftime(to, sizeof to, "%b %d %H:%M:%S %Y GMT", tm);
+    tm = gmtime((time_t *)&not_before);
+    strftime(from, sizeof from, TLS_DATE_FMT, tm);
+    tm = gmtime((time_t *)&not_after);
+    strftime(to, sizeof to, TLS_DATE_FMT, tm);
 
     putlog(loglev, "*", "TLS: certificate valid from %s to %s", from, to);
   }
@@ -587,15 +591,15 @@ static int tcl_istls STDVAR
 
   BADARGS(2, 2, " idx");
 
-  j = findidx(atoi(argv[1]));
+  j = findidx(egg_atoi(argv[1]));
   if (j < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (dcc[j].ssl)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -607,22 +611,22 @@ static int tcl_starttls STDVAR
 
   BADARGS(2, 2, " idx");
 
-  j = findidx(atoi(argv[1]));
+  j = findidx(egg_atoi(argv[1]));
   if (j < 0 || (dcc[j].type != &DCC_SCRIPT)) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (dcc[j].ssl) {
-    Tcl_AppendResult(irp, "already started", NULL);
+    Tcl_AppendResult(irp, "already started", nullptr);
     return TCL_ERROR;
   }
   /* Determine if we're playing a client or a server */
   j = findsock(dcc[j].sock);
   if (ssl_handshake(dcc[j].sock, (td->socklist[j].flags & SOCK_CONNECT) ?
-      TLS_CONNECT : TLS_LISTEN, tls_vfydcc, LOG_MISC, NULL, NULL))
-    Tcl_AppendResult(irp, "0", NULL);
+      TLS_CONNECT : TLS_LISTEN, tls_vfydcc, LOG_MISC, nullptr, nullptr))
+    Tcl_AppendResult(irp, "0", nullptr);
   else
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   return TCL_OK;
 }
 
@@ -632,64 +636,50 @@ static int tcl_tlsstatus STDVAR
   opssl_x509_t *cert;
   struct threaddata *td = threaddata();
   Tcl_DString ds;
-  char subject[512], issuer[512];
+  char buf[512];
   int64_t not_before, not_after;
-  char serial_buf[64];
 
   BADARGS(2, 2, " idx");
 
-  /* Allow it to be used for any connection, not just scripted ones */
-  int i = findanyidx(atoi(argv[1]));
+  int i = findanyidx(egg_atoi(argv[1]));
   if (i < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   int j = findsock(dcc[i].sock);
   if (!j || !dcc[i].ssl || !td->socklist[j].ssl) {
-    Tcl_AppendResult(irp, "not a TLS connection", NULL);
+    Tcl_AppendResult(irp, "not a TLS connection", nullptr);
     return TCL_ERROR;
   }
 
   Tcl_DStringInit(&ds);
 
-  /* Try to get a cert, clients aren't required to send a certificate */
   cert = opssl_conn_get_peer_cert(td->socklist[j].ssl);
   if (cert) {
-    if (opssl_x509_get_subject(cert, subject, sizeof subject) == 0) {
-      Tcl_DStringAppendElement(&ds, "subject");
-      Tcl_DStringAppendElement(&ds, subject);
-    }
-    if (opssl_x509_get_issuer(cert, issuer, sizeof issuer) == 0) {
-      Tcl_DStringAppendElement(&ds, "issuer");
-      Tcl_DStringAppendElement(&ds, issuer);
-    }
+    if (opssl_x509_get_subject(cert, buf, sizeof buf) == 0)
+      tcl_dict_append(&ds, "subject", buf);
+    if (opssl_x509_get_issuer(cert, buf, sizeof buf) == 0)
+      tcl_dict_append(&ds, "issuer", buf);
     if (opssl_x509_get_not_before(cert, &not_before) == 0) {
-      struct tm *tm = gmtime((time_t*)&not_before);
-      char date_str[32];
-      strftime(date_str, sizeof date_str, "%b %d %H:%M:%S %Y GMT", tm);
-      Tcl_DStringAppendElement(&ds, "notBefore");
-      Tcl_DStringAppendElement(&ds, date_str);
+      struct tm *tm = gmtime((time_t *)&not_before);
+      strftime(buf, sizeof buf, TLS_DATE_FMT, tm);
+      tcl_dict_append(&ds, "notBefore", buf);
     }
     if (opssl_x509_get_not_after(cert, &not_after) == 0) {
-      struct tm *tm = gmtime((time_t*)&not_after);
-      char date_str[32];
-      strftime(date_str, sizeof date_str, "%b %d %H:%M:%S %Y GMT", tm);
-      Tcl_DStringAppendElement(&ds, "notAfter");
-      Tcl_DStringAppendElement(&ds, date_str);
+      struct tm *tm = gmtime((time_t *)&not_after);
+      strftime(buf, sizeof buf, TLS_DATE_FMT, tm);
+      tcl_dict_append(&ds, "notAfter", buf);
     }
 
-    /* Serial number as hex string */
     uint8_t serial[32];
     size_t serial_len = sizeof serial;
     if (opssl_x509_get_serial(cert, serial, &serial_len) == 0) {
-      char *hex_pos = serial_buf;
-      for (size_t i = 0; i < serial_len; i++) {
-        snprintf(hex_pos, 3, "%02X", serial[i]);
-        hex_pos += 2;
-      }
-      *hex_pos = '\0';
-      Tcl_DStringAppendElement(&ds, "serial");
-      Tcl_DStringAppendElement(&ds, serial_buf);
+      op_strbuf_t sb;
+      op_strbuf_init(&sb);
+      for (size_t si = 0; si < serial_len; si++)
+        op_strbuf_appendf(&sb, "%02X", serial[si]);
+      tcl_dict_append(&ds, "serial", op_strbuf_str(&sb));
+      op_strbuf_free(&sb);
     }
   }
 
@@ -699,14 +689,18 @@ static int tcl_tlsstatus STDVAR
   if (cipher) {
     const char *version_str = (version == OPSSL_TLS_1_3) ? "TLSv1.3" :
                              (version == OPSSL_TLS_1_2) ? "TLSv1.2" : "Unknown";
-    Tcl_DStringAppendElement(&ds, "protocol");
-    Tcl_DStringAppendElement(&ds, version_str);
-    Tcl_DStringAppendElement(&ds, "cipher");
-    Tcl_DStringAppendElement(&ds, cipher);
+    tcl_dict_append(&ds, "protocol", version_str);
+    tcl_dict_append(&ds, "cipher", cipher);
+  }
+
+  /* kTLS status */
+  {
+    op_fde_t *F = op_get_fde(dcc[i].sock);
+    tcl_dict_append(&ds, "ktls", (F && op_ssl_is_ktls(F)) ? "1" : "0");
   }
 
   /* Done, get a Tcl list from this and return it to the caller */
-  Tcl_AppendResult(irp, Tcl_DStringValue(&ds), NULL);
+  Tcl_AppendResult(irp, Tcl_DStringValue(&ds), nullptr);
   Tcl_DStringFree(&ds);
   return TCL_OK;
 }
@@ -716,7 +710,7 @@ tcl_cmds tcltls_cmds[] = {
   {"istls",         (IntFunc) tcl_istls},
   {"starttls",   (IntFunc) tcl_starttls},
   {"tlsstatus", (IntFunc) tcl_tlsstatus},
-  {NULL,                 NULL}
+  {nullptr,                 nullptr}
 };
 
 #endif /* TLS */

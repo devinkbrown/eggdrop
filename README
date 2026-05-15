@@ -1,565 +1,237 @@
-README
-
-  Please, at least SKIM this document before asking questions. In fact,
-  READ IT if you've never successfully set up an Eggdrop bot before.
-
-FORK NOTICE
-
-  This is a personal fork of Eggdrop maintained by devinkbrown. It is
-  not an official Eggdrop release. The upstream project lives at:
-
-      https://github.com/eggheads/eggdrop
-
-  Why this fork exists:
-
-    Upstream Eggdrop has excellent IRC bot functionality but carries
-    decades of build-system and portability debt. This fork was created
-    to modernise those areas:
-
-      1. The autoconf/make build system is replaced with Meson + Ninja,
-         which is faster, easier to maintain, and works out of the box
-         on Linux, macOS, Windows (MinGW and MSVC), and Cygwin.
-
-      2. Native Windows support (without Cygwin) has never existed in
-         upstream. This fork adds it — including a proper IOCP I/O
-         backend — so Eggdrop can run as a first-class Windows process.
-
-  Why libop is used here:
-
-         Eggdrop's existing I/O loop (net.c) was written for POSIX and
-         had no path for Windows async I/O whatsoever. Writing IOCP from
-         scratch inside a foreign codebase is error-prone: getting the
-         overlapped structure layout right, handling stale completions
-         after a socket is closed, draining the completion port safely,
-         and avoiding double-frees are all subtle failure modes.
-
-         libop is the I/O layer of the ophion project
-         (https://github.com/devinkbrown/ophion), written by the same
-         author. It had already solved all of those problems in
-         production-tested C:
-
-           - Zero-byte overlapped WSARecv/WSASend arms readiness
-             notifications without touching the data buffer, matching
-             exactly how epoll/kqueue signal readability.
-           - The OVERLAPPED struct is the first member of every pending
-             operation, so GetQueuedCompletionStatus results cast back
-             to the pending struct without undefined behaviour.
-           - Stale completions (arriving after the socket is closed) are
-             detected by recording the socket fd and slot index at arm
-             time and checking them on arrival.
-           - Read/write arms are tracked per-slot so the port is never
-             double-armed.
-
-         Adapting libop's design meant the Windows backend could be
-         dropped into Eggdrop in a single coherent pass and reviewed as
-         a unit, rather than being bolted on piece by piece over time.
-
-      3. All five major platforms (Linux/io_uring, Linux/epoll,
-         macOS+BSD/kqueue, Windows/IOCP, fallback/select) now have a
-         native, scalable I/O backend.
-
-    If upstream picks up these changes this fork may be retired or
-    rebased on top of upstream. Until then it tracks upstream bug fixes
-    and pulls them in as they land.
-
-  Notable differences from upstream:
-
-    - TOML configuration format: eggdrop.toml replaces the Tcl-script
-      config. Legacy .conf files still work unchanged.
-        · Run 'eggdrop --setup' for a five-step interactive wizard:
-          network-type menu, SSL/TLS + SASL, multiple channels, smart
-          nick-derived defaults, pre-write summary and confirmation.
-          Generated config covers every section and setting.
-        · Full setting parity with eggdrop.conf: all 128+ Tcl variables
-          are documented in eggdrop.toml with correct key names.
-        · Per-channel settings via [[chanset]] blocks: all 26 flags and
-          all valued options including chanmode, flood thresholds, etc.
-        · Auto-create userfile on first run when owner = "Nick" is set
-          in the config — no -m flag needed for new TOML installs.
-        · Inline Tcl via [tcl] commands = [...] for one-liners or
-          [tcl] code = """...""" for multi-line proc/bind blocks.
-        · No 'chmod u+x' required.
-    - IRCX/Ophion protocol support: set net_type = "Ophion" to enable
-      full IRCX mode negotiation, +q (channel owner) mode handling, and
-      channel CREATE/PROP/ACCESS commands.  New Tcl API: ircxprop,
-      ircxaccess, ircxcreate, ircxautoowner.  OWNERKEY credentials
-      persist to the channel file across restarts.
-    - Async DNS resolver (dns module): threaded pthreads DNS (EGG_TDNS)
-      replaced by the Ophion lightweight async resolver (res.c).  A
-      single non-blocking UDP socket handles all lookups in the main
-      event loop — no background thread.  Optional DNS-over-TLS (DoT,
-      RFC 7858) is available when TLS is built: put `dnsdot on 1.1.1.1`
-      in the [tcl] commands block of your config to route all DNS over
-      an encrypted TCP connection.
-    - io_uring SQPOLL: fixed three bugs that prevented IRC registration
-      on kernels using SQPOLL mode (SQPOLL tail flush, buffered recv
-      data overwrite, idle-return before dispatch).
-    - Build system replaced: autoconf/make → Meson + Ninja
-    - Native Windows (MinGW / MSVC) support via IOCP event backend
-    - Cygwin legacy hacks removed; Cygwin compiles on the POSIX path
-    - I/O backends, auto-selected in priority order:
-
-        Platform                  Backend
-        ------------------------  ----------
-        Linux >= 5.1 + liburing   io_uring
-        Linux                     epoll
-        macOS / FreeBSD / OpenBSD / NetBSD   kqueue  (upstream v1.10.1)
-        Windows native            IOCP
-        Cygwin / fallback         select()
-
-    - BSD and macOS are fully covered by the kqueue backend inherited
-      from upstream v1.10.1; no select() fallback is used there
-    - Build warning cleanup: all -Wsizeof-pointer-memaccess and
-      -Wformat-truncation warnings eliminated. snprintf calls now use
-      the correct buffer length instead of sizeof(char *). The nstrdup
-      macro redefinition and the Python 3.14 _POSIX_C_SOURCE conflict
-      are also resolved. The tree builds clean with GCC 15.
-    - Tcl is now a fully optional dependency.  A no-Tcl build is
-      complete: all TOML config keys ([bot], [network], [security],
-      [paths], [servers], [channels]) reach their C variables via a
-      variable registry; server persistence works via old_add_server
-      exposed in server_table[55]; channel file reading uses a native
-      parser.  Building with -Dtcl=disabled produces a fully functional
-      bot with zero warnings on GCC 15.
-    - Build optimizations: LTO enabled by default; -fno-strict-aliasing
-      applied globally (eggdrop uses void*/char* casts); -Wl,--as-needed
-      on ELF platforms; module .so files built with -fvisibility=hidden
-      so only entry points are exported. Optional -march=native tuning
-      via -Dnative-opt=false (on by default; -mcpu=native on
-      ARM/AArch64/PowerPC, -march=native everywhere else).
-    - Pluggable storage backend (egg_store): vtable-based backend
-      system supporting flat-file and LMDB storage. The LMDB backend
-      (bundled via libop, no external dependency) provides crash-safe
-      persistent storage — if the bot crashes mid-save, the previous
-      LMDB transaction is intact and the userfile is automatically
-      recovered on next startup.  Per-user, per-host, per-account,
-      and per-ignore sub-databases enable direct lookups.
-    - Python API at 100% parity with Tcl (239/239 commands). Every
-      Tcl scripting function has a Python equivalent.
-    - Systematic string safety: strlcpy/strlcat → op_strbuf_t migration
-      across 127 call sites.  Global fixed-size buffers eliminated in
-      botmsg, dccutil, userent, and server modules.
-    - Pre-1.3.0 botnet protocol dead code stripped (NO_OLD_BOTNET).
-    - Various bug fixes and patches under review for upstream inclusion
-
-  Issues and changes specific to this fork should be reported at the
-  fork repository. General Eggdrop questions can still be directed to
-  the upstream channels listed in the OBTAINING HELP section below.
-
-NOTICE
-
-  Make SURE that you select your +n (owner) users wisely. They have 100%
-  access to your bot and account. ONLY GIVE THIS POWER TO SOMEONE YOU
-  TRUST COMPLETELY!
-
-WHAT IS EGGDROP?
-
-  Eggdrop is the world's most popular Internet Relay Chat (IRC) bot; it
-  is freely distributable under the GNU General Public License (GPL).
-  Eggdrop is a feature-rich program designed to be easily used and
-  expanded upon by both novice and advanced IRC users on a variety of
-  hardware and software platforms.
-
-  An IRC bot is a program that sits on an IRC channel and performs
-  automated tasks while looking just like a normal user on the channel.
-  Some of these functions include protecting the channel from abuse,
-  allowing privileged users to gain op or voice status, logging channel
-  events, providing information, hosting games, etc.
-
-  One of the features that makes Eggdrop stand out from other bots is
-  its module and scripting support. Scripts can be written in Python
-  (recommended for new installs) or Tcl (optional, for legacy scripts).
-  With scripts and modules you can make the bot perform almost any task
-  you want — from preventing floods to greeting users and banning
-  advertisers from channels.
-
-  You can also link multiple Eggdrop bots together to form a botnet.
-  This can allow bots to op each other securely, control floods
-  efficiently and even link channels across multiple IRC networks. It
-  also allows the Eggdrops share user lists, ban/exempt/invite lists,
-  and ignore lists with other bots if userfile sharing is enabled. This
-  allows users to have the same access on every bot on your botnet. It
-  also allows the bots to distribute tasks such as opping and banning
-  users. See doc/BOTNET for information on setting up a botnet.
-
-  Eggdrop is always being improved and adjusted because there are bugs
-  to be fixed and features to be added (if the users demand them and
-  they make actually sense). In fact, it existed for several years as
-  v0.7 - v0.9 before finally going 1.0. This version of Eggdrop is part
-  of the 1.10 tree. A valiant effort has been made to chase down and
-  destroy bugs.
-
-  This README file contains information about how to get Eggdrop,
-  command line options for Eggdrop, what you may need to do when
-  upgrading from older versions, a list of frequently asked questions,
-  how to set up a crontab, some boring legal stuff, some basics about
-  git usage and some channels where you might get help with Eggdrop.
-
-HOW TO GET EGGDROP
-
-There are two official methods to download Eggdrop source code.
-Alternately, Eggdrop also comes as a docker image.
-
-FTP
-
-  The latest Eggdrop stable source code is always located at
-  https://geteggdrop.com. You can also download the current stable,
-  previous stable, and development snapshot at
-  https://ftp.eggheads.org/pub/eggdrop/source
-
-Git Development Snapshot
-
-  Eggdrop developers use git to manage the Eggdrop codebase for
-  development. If you are interested in trying out the VERY LATEST
-  updates to Eggdrop, you can use git to obtain most recent code from
-  the Eggheads repository. BE WARNED, the development branch of Eggdrop
-  is not to be considered stable and may (haha) contain significant bugs
-  still being worked on.
-
-  To obtain Eggdrop via the git repository (hosted by GitHub), you can
-  either clone the repository via git or download a development
-  snapshot.
+Eggdrop
+=======
+
+The world's most popular IRC bot, running since 1993. Modular,
+scriptable, with native I/O backends for every major platform.
+
+This is a personal fork by devinkbrown. Upstream: https://github.com/eggheads/eggdrop
+
+
+Why this fork exists
+--------------------
+
+Upstream Eggdrop is an excellent IRC bot with 30+ years of proven
+functionality, but it carries significant technical debt from its long
+history:
+
+1. The build system was autoconf/make — fragile, slow, and difficult
+   to extend. This fork replaces it with Meson + Ninja, which is
+   faster, easier to maintain, and works out of the box on Linux,
+   macOS, Windows (MinGW and MSVC), and Cygwin.
+
+2. Native Windows support never existed in upstream. Eggdrop's net.c
+   was written for POSIX and had no path for Windows async I/O. This
+   fork adds a proper IOCP (I/O Completion Ports) backend so Eggdrop
+   runs as a first-class Windows process without Cygwin emulation.
+
+3. Tcl was a hard dependency — you could not build or run the bot
+   without it. This fork makes Tcl fully optional. Python can serve
+   as the sole scripting engine, and the bot is functional even with
+   no scripting at all.
+
+4. The configuration format was a Tcl script that required chmod u+x
+   and Tcl knowledge to edit. This fork adds TOML as the primary
+   config format (clean key=value syntax, no programming knowledge
+   needed) plus an interactive setup wizard.
+
+5. The codebase used unsafe C patterns accumulated over decades — raw
+   strcpy, sprintf, atoi, unbounded sscanf, and a weak PRNG seeded
+   with pid+time. This fork systematically eliminates all of them.
+
+6. There was no test suite. This fork adds comprehensive tests that
+   run under address and undefined-behaviour sanitisers.
+
+
+Why libop
+---------
+
+Writing an IOCP backend from scratch inside a foreign codebase is
+error-prone. The hard parts are: getting the OVERLAPPED structure
+layout right, handling stale completions after socket close, draining
+the completion port safely, and avoiding double-frees.
+
+libop is the I/O layer of the ophion IRC server
+(https://github.com/devinkbrown/ophion), written by the same author.
+It had already solved all of these problems in production-tested C:
+
+  - Zero-byte overlapped WSARecv/WSASend arms readiness notifications
+    without touching the data buffer, matching how epoll/kqueue work.
+  - The OVERLAPPED struct is the first member of every pending
+    operation, so GetQueuedCompletionStatus casts back without UB.
+  - Stale completions are detected by recording socket fd + slot
+    index at arm time and checking on arrival.
+  - Read/write arms are tracked per-slot to prevent double-arming.
+
+Adapting libop meant the Windows backend could be dropped in as a
+single reviewed unit rather than bolted on incrementally. Beyond
+IOCP, libop also provides the dynamic string builder (op_strbuf_t),
+slab allocator (op_bh), hash tables (op_htab), line buffer
+(op_linebuf), and LMDB — all used throughout this fork.
+
+
+What changed
+------------
+
+Build & platform:
+  - Meson + Ninja replaces autoconf/make
+  - Native Windows support via IOCP (MinGW and MSVC)
+  - Five I/O backends: io_uring, epoll, kqueue, IOCP, select
+  - LTO, -fvisibility=hidden, -fno-strict-aliasing by default
+  - C23 (gnu23) with -Wshadow=local enforced
 
-  To clone this fork, simply type:
+Configuration:
+  - TOML as primary config format (eggdrop.toml)
+  - Interactive setup wizard: eggdrop --setup
+  - Full parity with eggdrop.conf (128+ settings)
+  - Per-channel settings via [[chanset]] blocks
+  - Inline Tcl via [tcl] code = """..."""
+  - Auto-create userfile on first run (no -m needed)
 
-      git clone https://github.com/devinkbrown/eggdrop.git
-
-  To clone the upstream Eggdrop repository instead:
-
-      git clone https://github.com/eggheads/eggdrop.git
-
-  Otherwise, you can download the upstream development snapshot as a tar
-  archive from:
+Scripting:
+  - Tcl is fully optional (-Dtcl=disabled)
+  - Python API at 100% parity with Tcl (239 commands)
+  - Decorator-based binds, type annotations, dataclasses
+  - scripts/eggtools.py as modern replacement for alltools.tcl
 
-    https://github.com/eggheads/eggdrop/archive/develop.tar.gz
+Storage:
+  - Pluggable backend system (egg_store)
+  - LMDB backend: crash-safe, auto-recovery, per-user sub-databases
+  - Flat-file backend preserved for compatibility
 
-Docker
+Networking:
+  - Bundled opssl TLS library (no external OpenSSL needed)
+  - Async DNS resolver replacing threaded pthreads DNS
+  - DNS-over-TLS (DoT, RFC 7858) support
+  - op_linebuf for zero-memmove line framing
+  - io_uring SQPOLL bug fixes
 
-  You can pull the official Eggdrop Docker image via:
+IRC protocol:
+  - IRCX/Ophion protocol support (CREATE, PROP, ACCESS, +q owner)
+  - Full IRCv3 capability set
 
-      docker pull eggdrop:latest
+Performance:
+  - O(1) hash tables for channel members, bans, bind dispatch
+  - Slab allocator for memberlist and masklist nodes
+  - All allocation routed through libop (750+ sites)
+  - Atomic traffic counters, CIDR trie for ban matching
 
-  Additional Eggdrop Docker documentation can be found at
-  https://hub.docker.com/_/eggdrop
+Security:
+  - CSPRNG: getrandom(2) / arc4random_buf replaces random()/srandom()
+  - egg_atoi(): safe strtol wrapper replacing 202 raw atoi() calls
+  - Zero remaining: strcpy, sprintf, strcat, strncpy, strncat, strtok,
+    gets, system(), raw atoi, unbounded sscanf %s
+  - strlcpy/strlcat → op_strbuf_t migration (127 sites)
+  - SASL: PLAIN, EXTERNAL, SCRAM-SHA-256/512, ECDSA, ECDH-X25519
 
-SYSTEM PRE-REQUISITES
+Code quality:
+  - C23 modernisation: constexpr, bool, variable-at-first-use
+  - Zero compiler warnings on GCC 15
+  - Comprehensive test suite (7 executables, ASAN+UBSAN clean)
+  - Pre-1.3.0 botnet dead code stripped
 
-  This fork builds with Meson + Ninja. You will need both installed in
-  addition to the library dependencies below.
+Legacy .conf files still work unchanged.
 
-  TCL (OPTIONAL)
 
-  Tcl is an optional dependency in this fork.  The bot is fully
-  functional without it: all TOML configuration keys reach their
-  underlying C variables, servers and channels are persisted and loaded
-  correctly, and Python scripts run via python.mod as the sole scripting
-  engine.
+Quick start
+-----------
 
-  To build without Tcl:
+    meson setup build/
+    ninja -C build/
+    ./eggdrop --setup mybot.toml
+    ./eggdrop -m mybot.toml
 
-      meson setup builddir/ -Dtcl=disabled
-      ninja -C builddir/
+See INSTALL for dependencies and platform-specific instructions.
 
-  To build with Tcl (enables .conf scripts, Tcl binds, .tcl partyline
-  command, and inline [tcl] code blocks in eggdrop.toml):
 
-      meson setup builddir/
-      ninja -C builddir/
+I/O backends
+------------
 
-  When Tcl is enabled, many systems already have it installed (check by
-  running "tclsh"; a '%' prompt means it is present).  The development
-  headers are usually packaged as 'tcl-dev' or 'tcl-devel'.  Source is
-  available at https://www.tcl.tk/software/tcltk/download.html.
+    Platform             Backend
+    -------------------- ----------
+    Linux >= 5.1         io_uring
+    Linux                epoll
+    macOS / BSD          kqueue
+    Windows native       IOCP
+    Cygwin / fallback    select()
 
-  At least one of Tcl or Python must be present for scripting support.
-
-  OpenSSL (and its development headers) is required to enable SSL/TLS
-  protection of network data. Headers are usually packaged as
-  'libssl-dev'. TLS can be disabled at configure time:
-
-      meson setup build/ -Dtls=disabled
 
-  but you will not be able to connect to TLS-protected IRC servers or
-  use secure botnet links.
+Configuration
+-------------
 
-  On native Windows (MinGW / MSVC), Winsock2 and MsWSock are required
-  for the IOCP backend; both ship with the Windows SDK and are linked
-  automatically by the build system.
+Minimal TOML config:
 
-MINIMUM REQUIREMENTS
+    [bot]
+    nick  = "MyBot"
+    owner = "MyNick"
 
-  -----------------------------------------------------------------------
-  Functionality                   Package             Minimum Version
-  ------------------------------- ------------------- -------------------
-  Build system (required)         Meson               0.57.0
-  Build system (required)         Ninja               Any recent
+    [servers]
+    list = ["irc.libera.chat:+6697"]
 
-  Tcl interpreter (optional)      Tcl Dev Library     8.6.0
+    [channels]
+    list = ["#mychannel"]
 
-  Secure communication            OpenSSL             1.0.0
+    [modules]
+    load = ["pbkdf2", "blowfish", "channels", "server", "ctcp",
+            "irc", "notes", "console", "uptime"]
 
-  Python module                   Python              3.8.0
+Run eggdrop --setup for guided configuration, or see eggdrop.toml
+for the full reference.
 
-  Compression module              zlib                Any
 
-  I/O: IOCP (Windows native)      Windows SDK         Windows 7+
-  -----------------------------------------------------------------------
+Python scripting
+----------------
 
-  Note: Tcl is optional.  A no-Tcl build with Python is fully functional
-  for both core bot operation and scripting.  At least one of Tcl or
-  Python should be present for scripting support; neither is required
-  for the bot itself to connect, manage channels, and use its user database.
+    import eggtools
 
-CONFIGURATION
+    @eggtools.on_pub("!hello", "*")
+    def greet(nick, host, handle, channel, text):
+        eggtools.privmsg(channel, f"Hello, {nick}!")
 
-  This fork uses TOML as the primary configuration format. TOML is a
-  modern, human-readable format that requires no knowledge of Tcl.
+Build without Tcl: meson setup build/ -Dtcl=disabled
 
-  QUICK METHOD — interactive wizard (recommended for new installs):
+The Python API covers all 239 commands: channel management, user
+database, botnet, DCC, timers, and every IRC operation. See
+scripts/eggtools.py for the complete API with docstrings.
 
-      eggdrop --setup mybot.toml
 
-    Five-step guided flow:
-      1. Bot identity — nick, altnick/realname/username auto-derived
-      2. IRC server   — network-type menu, hostname, SSL/TLS, port,
-                        server password, optional SASL authentication
-      3. Channels     — up to 8 channels, first required
-      4. Files        — user/chan/log, defaults from nick
-      5. Modules      — notes, seen, transfer, filesys
+Auto-restart
+------------
 
-    Prints a summary and asks for confirmation before writing.
-    No 'chmod u+x' required.
+    ./scripts/autobotchk mybot.toml -systemd   # systemd
+    ./scripts/autobotchk mybot.toml             # crontab
 
-  MANUAL METHOD — copy and edit the sample file:
 
-      cp eggdrop-basic.toml mybot.toml
-      $EDITOR mybot.toml          # at minimum set nick, servers, owner
+Documentation
+-------------
 
-  CONFIG FORMAT:
+    INSTALL             Build and setup instructions
+    UPGRADING           Migration guide
+    NEWS                Changelog
+    FEATURES            Feature list
+    doc/DESIGN.md       Architecture and internals
+    doc/COMPILE-GUIDE   Build troubleshooting
+    doc/TLS             TLS certificate setup
+    doc/BOTNET          Botnet configuration
+    doc/modules/        Per-module documentation
+    eggdrop.toml        Full config reference
 
-      [bot]
-      nick    = "MyBot"
-      altnick = "MyBot?"
-      owner   = "MyNick"
 
-      [servers]
-      list = ["irc.libera.chat:+6697"]
+Help
+----
 
-      [channels]
-      list = ["#mychannel", "#egghelp"]
+    Libera     #eggdrop, #eggheads
+    DALnet     #eggdrop
+    EFnet      #egghelp
+    IRCnet     #eggdrop
+    QuakeNet   #eggdrop.support
+    Undernet   #eggdrop
 
-      [modules]
-      load = ["pbkdf2", "blowfish", "channels", "server", "ctcp", "irc",
-              "notes", "console", "uptime"]
+Fork issues: https://github.com/devinkbrown/eggdrop
 
-      [scripts]
-      load = ["scripts/alltools.tcl"]
 
-      [paths]
-      userfile = "LamestBot.user"
-      chanfile = "LamestBot.chan"
-      # lang_dir overrides where language files are searched.  Useful when
-      # running a dev build or a non-default-prefix install:
-      # lang_dir = "/path/to/eggdrop/language"
+License
+-------
 
-      # One-liner Tcl commands run after settings are applied:
-      [tcl]
-      commands = ["unbind dcc n simul *dcc:simul"]
-
-      # Or a multi-line block for procs and binds:
-      # code = """
-      # proc greet {nick host hand chan} {
-      #   putserv "PRIVMSG $chan :Welcome, $nick!"
-      # }
-      # bind join - * greet
-      # """
-
-  Note: [paths] may appear in any order relative to [modules] — variables
-  are applied after all modules load so nothing is silently dropped.
-
-  For the full reference, see eggdrop.toml (all 128+ settings, fully
-  documented) or run 'eggdrop --setup' to generate a personalised copy.
-
-  LEGACY FORMAT: .conf files are still supported. Pass one explicitly:
-
-      eggdrop mybot.conf
-
-  The bot auto-detects the format by file extension (.toml vs. anything
-  else). The default config file name is now eggdrop.toml.
-
-PYTHON SCRIPTING
-
-  This fork provides full Python scripting support as a modern
-  alternative (or replacement) for Tcl.  The Python API has 100% parity
-  with Tcl (239 commands covering all channel, user, botnet, DCC, timer,
-  and IRC operations).  Scripts can use the built-in eggdrop module and
-  the helper library scripts/eggtools.py.
-
-  BUILDING WITHOUT TCL:
-
-      meson setup builddir/ -Dtcl=disabled
-      ninja -C builddir/
-
-  LIST SCRIPTS IN YOUR TOML CONFIG:
-
-      [scripts]
-      load = ["scripts/myscript.py"]
-
-  MINIMAL EXAMPLE:
-
-      import eggtools
-
-      @eggtools.on_pub("!hello", "*")
-      def greet(nick, host, handle, channel, text):
-          eggtools.privmsg(channel, f"Hello, {nick}!")
-
-  EGGTOOLS.PY HIGHLIGHTS:
-
-      · Decorator-based bind registration: @on_pub, @on_msg, @on_join,
-        @on_part, @on_kick, @on_mode, @on_nick, @on_sign, @on_notc,
-        @on_ctcp, @on_raw, @on_time, @on_cron, @on_dcc, @on_evnt
-      · IRC output: privmsg, notice, action, kick, mode, topic, join,
-        part, ctcp, ctcp_reply, putserv, putquick, putnow, putdcc,
-        puthelp, tagmsg
-      · Channel queries: channels, isonchan, getchanhost, chanlist,
-        isop, ishalfop, isvoice, isaway, botisop, botishalfop,
-        botisvoice, getaccount, nick2hand, hand2nick
-      · User database: countusers, validuser, findhandle, userlist
-      · Utilities: rand, unixtime, duration, maskhost, hostmatch,
-        testip, randstring, ordnumber
-      · Timer helper: every(interval_seconds, fn) — cron-bind wrapper
-      · IRCv3: cap_req, tagmsg
-      · IRCX/Ophion: ircxprop, ircxaccess, ircxcreate, ircxnegotiate
-      · alltools.tcl aliases: putmsg, putchan, putnotc, putact,
-        strlwr, strupr, strlen, strcmp, stricmp
-
-  MEMBER DATACLASS:
-
-      members = eggtools.chanlist("#mychan")
-      for m in members:
-          print(m.nick, m.host, m.account)
-
-  See scripts/eggtools.py for the full API with docstrings.
-
-QUICK STARTUP
-
-  Please see the INSTALL file after you finish reading this file.
-
-UPGRADING
-
-  The upgrade process for Eggdrop is very simple, simply download the
-  new source code and repeat the compile process. You will want to read
-  the NEWS for any new configuration file settings you want to add.
-  Please see the UPGRADING file for full details.
-
-  MIGRATION TO TOML: Existing .conf files continue to work with no
-  changes. When you are ready to switch, run:
-
-      eggdrop --setup mybot.toml
-
-  and answer the prompts, or manually copy your settings from your
-  existing .conf into a .toml file using the new format.
-
-COMMAND LINE
-
-  Eggdrop has some command line options - not many, because most things
-  should be defined through the config file. However, sometimes you may
-  want to start up the bot in a different mode and the command line
-  options let you do that. Basically, the command line for Eggdrop is:
-
-      ./eggdrop [options] [config-file]
-
-  The options available are:
-
-    -s [outfile]: Run the interactive setup wizard. Prompts for key
-        settings and writes a ready-to-use TOML config file. If
-        outfile is omitted, writes to eggdrop.toml. No chmod needed.
-        Example: eggdrop --setup mybot.toml
-
-    -t: Don't background, use terminal. Your console will drop into an
-        interactive partyline session, similar to a DCC chat with the
-        bot. This is useful for troubleshooting connection issues with
-        the bot.
-
-    -c: Don't background, show channel info. Every 10 seconds your screen
-        will clear and you will see the current channel status, sort of
-        like "top".
-
-    -m: Create userfile. If you don't have a userfile, this will make
-        Eggdrop create one and give owner status to the first person
-        that introduces himself or herself to it.
-        Note: when using the TOML config format with owner = "Nick" set,
-        the bot creates the userfile automatically on first run and -m
-        is not required.  For legacy .conf files, -m is still needed.
-
-    -h: Show help, then quit.
-
-    -v: Show version info, then quit.
-
-  When using the TOML format, most people only ever use -t (to test
-  the bot interactively) and -s (to run the setup wizard).  The -m
-  flag is only needed for legacy .conf file setups.
-
-AUTO-STARTING EGGDROP
-
-Systems go down from time to time, taking your Eggdrop along with it.
-You may not be not around to restart it manually, so you can instead use
-features of the operating system to automatically restart Eggdrop should
-it quit for any reason. Eggdrop comes with an autobotchk shell script
-that can create either a systemd or crontab entry. The systemd option
-will monitor your Eggdrop and a) start it when the machine boots and b)
-restart the Eggdrop if it crashes for any reason. The (older) crontab
-option will check (by default) every 10 minutes to see if your Eggdrop
-is still running, and attempt to restart it if it is not.
-
-  To auto-generate a systemd job, from the Eggdrop install directory,
-  simply run:
-
-      ./scripts/autobotchk <eggdrop.toml> -systemd
-
-  To auto-generate a script to check Eggdrop's status and run it via a
-  crontab entry, simply run:
-
-      ./scripts/autobotchk <eggdrop.toml>
-
-  This will crontab your bot using the default setup. If you want a list
-  of autobotchk options, type './autobotchk'. A crontab example with
-  options would be:
-
-      ./scripts/autobotchk <eggdrop.toml> -noemail -5
-
-  This would setup crontab to run the botchk every 5 minutes and not
-  send you an email saying that it restarted your bot.
-
-DOCUMENTATION
-
-  We're trying to keep the documentation up to date. If you feel that
-  anything is missing here or that anything should be added, etc, please
-  create an issue, or better yet a pull request, at
-  https://www.github.com/devinkbrown/eggdrop (for this fork) or
-  https://www.github.com/eggheads/eggdrop (for upstream). Thank you!
-
-OBTAINING HELP
-
-  You can obtain help with Eggdrop in the following IRC channels:
-
-    -   Libera Chat - #eggdrop (official channel), #eggheads
-        (development discussion)
-    -   DALnet - #eggdrop
-    -   EFnet - #egghelp
-    -   IRCnet - #eggdrop
-    -   QuakeNet - #eggdrop.support
-    -   Undernet - #eggdrop
-
-  If you plan to ask questions in any of the above channels, you should
-  be familiar with and follow IRC etiquette:
-
-    -   Don't type using CAPITAL letters, colors or bold.
-    -   Don't use "!" and "?" excessively.
-    -   Don't /msg people without their permission.
-    -   Don't repeat or paste more than 4 lines of text to the channel.
-    -   Don't ask to ask- just state your question, along with any
-        relevant details and error messages
-
-Copyright (C) 1997 Robey Pointer Copyright (C) 1999 - 2026 Eggheads
-Development Team
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999-2026 Eggheads Development Team
+GNU General Public License v2

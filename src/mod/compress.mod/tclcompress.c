@@ -31,7 +31,7 @@
 static int tcl_compress_file STDVAR
 {
   int mode_num = compress_level, result, curr_arg = 1;
-  char *fn_src = NULL, *fn_target = NULL;
+  char *fn_src = nullptr, *fn_target = nullptr;
 
   BADARGS(2, 5, " ?options...? src-file ?target-file?");
 
@@ -39,19 +39,19 @@ static int tcl_compress_file STDVAR
     if (!strcmp(argv[curr_arg], "-level")) {
       argc--;
       if (argc <= 1) {
-        Tcl_AppendResult(irp, "option `-level' needs parameter", NULL);
+        Tcl_AppendResult(irp, "option `-level' needs parameter", nullptr);
         return TCL_ERROR;
       }
       curr_arg++;
-      mode_num = atoi(argv[curr_arg]);
+      mode_num = egg_atoi(argv[curr_arg]);
     } else {
-      Tcl_AppendResult(irp, "unknown option `", argv[curr_arg], "'", NULL);
+      Tcl_AppendResult(irp, "unknown option `", argv[curr_arg], "'", nullptr);
       return TCL_ERROR;
     }
     NEXT_ARG;
   }
   if (argc <= 1) {
-    Tcl_AppendResult(irp, "expecting src-filename as parameter", NULL);
+    Tcl_AppendResult(irp, "expecting src-filename as parameter", nullptr);
     return TCL_ERROR;
   }
   fn_src = argv[curr_arg];
@@ -61,7 +61,7 @@ static int tcl_compress_file STDVAR
     NEXT_ARG;
   }
   if (argc > 1) {
-    Tcl_AppendResult(irp, "trailing, unexpected parameter to command", NULL);
+    Tcl_AppendResult(irp, "trailing, unexpected parameter to command", nullptr);
     return TCL_ERROR;
   }
 
@@ -71,9 +71,9 @@ static int tcl_compress_file STDVAR
     result = compress_file(fn_src, mode_num);
 
   if (result)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -89,9 +89,9 @@ static int tcl_uncompress_file STDVAR
     result = uncompress_to_file(argv[1], argv[2]);
 
   if (result)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -103,11 +103,11 @@ static int tcl_iscompressed STDVAR
 
   result = is_compressedfile(argv[1]);
   if (result == COMPF_UNCOMPRESSED)
-    Tcl_AppendResult(irp, "0", NULL);  /* Uncompressed.        */
+    Tcl_AppendResult(irp, "0", nullptr);  /* Uncompressed.        */
   else if (result == COMPF_COMPRESSED)
-    Tcl_AppendResult(irp, "1", NULL);  /* Compressed.          */
+    Tcl_AppendResult(irp, "1", nullptr);  /* Compressed.          */
   else
-    Tcl_AppendResult(irp, "2", NULL);  /* Failed to detect.    */
+    Tcl_AppendResult(irp, "2", nullptr);  /* Failed to detect.    */
   return TCL_OK;
 }
 
@@ -115,5 +115,5 @@ static tcl_cmds my_tcl_cmds[] = {
   {"compressfile",     tcl_compress_file},
   {"uncompressfile", tcl_uncompress_file},
   {"iscompressed",      tcl_iscompressed},
-  {NULL,                            NULL}
+  {nullptr,                            nullptr}
 };

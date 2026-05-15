@@ -15,10 +15,15 @@
 #include <opssl/err.h>
 #include <op_memory.h>
 #include <string.h>
+#include <stdio.h>
+
+extern int opssl_pem_decode(const char *pem, size_t pem_len,
+                            uint8_t **der_out, size_t *der_len,
+                            char *label_out, size_t label_max);
 
 /* TLS context structure definition */
 struct opssl_ctx {
-    int refcount;
+    _Atomic int refcount;
 
     /* Version bounds */
     opssl_tls_version_t min_version;
@@ -93,6 +98,11 @@ struct opssl_ctx {
     void *dtls_cookie_gen_cb;
     void *dtls_cookie_verify_cb;
     void *dtls_cookie_userdata;
+
+    /* Server-wide HMAC key for DTLS cookie generation and verification.
+     * Generated once at ctx creation. Same key used by both generate and verify,
+     * so cookies are deterministic for a given client address + random. */
+    uint8_t dtls_cookie_secret[32];
 };
 
 /* Default cipher suites (TLS 1.3 first, then strong ECDHE TLS 1.2) */
@@ -176,6 +186,12 @@ opssl_ctx_new(opssl_tls_version_t min_version)
 
     /* Generate random session ticket keys */
     if (opssl_random_bytes(ctx->ticket_keys, sizeof(ctx->ticket_keys)) != 0) {
+        op_free(ctx);
+        return NULL;
+    }
+
+    /* Generate DTLS cookie HMAC key (server-wide, lives for ctx lifetime) */
+    if (opssl_random_bytes(ctx->dtls_cookie_secret, sizeof(ctx->dtls_cookie_secret)) != 0) {
         op_free(ctx);
         return NULL;
     }
@@ -308,7 +324,9 @@ opssl_ctx_check_private_key(opssl_ctx_t *ctx)
     return opssl_pkey_matches_cert(ctx->private_key, cert);
 }
 
-/* DH parameters */
+/* DH parameters — read a PEM file, extract the prime size, select the
+ * matching FFDHE group.  Only RFC 3526/7919 safe-prime groups are supported;
+ * custom primes are silently upgraded to the nearest standard group. */
 int
 opssl_ctx_use_dh_params_file(opssl_ctx_t *ctx, const char *path)
 {
@@ -317,8 +335,72 @@ opssl_ctx_use_dh_params_file(opssl_ctx_t *ctx, const char *path)
         return 0;
     }
 
-    /* For now, just use predefined FFDHE groups */
-    ctx->dh_group = OPSSL_FFDHE_2048;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        opssl_set_error(OPSSL_ERR_IO, NULL);
+        return 0;
+    }
+
+    char buf[8192];
+    size_t total = 0;
+    size_t n;
+    while ((n = fread(buf + total, 1, sizeof(buf) - total, f)) > 0)
+        total += n;
+    fclose(f);
+
+    if (total == 0) {
+        opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+        return 0;
+    }
+
+    /* Decode PEM to DER */
+    uint8_t *der = NULL;
+    size_t der_len = 0;
+    if (opssl_pem_decode(buf, total, &der, &der_len, NULL, 0) != 1 || !der) {
+        opssl_set_error(OPSSL_ERR_X509, 0);
+        return 0;
+    }
+
+    /* ASN.1: SEQUENCE { INTEGER (prime), INTEGER (generator) }
+     * The prime length in bytes determines the FFDHE group. */
+    size_t prime_bits = 0;
+    if (der_len > 4 && der[0] == 0x30) {
+        /* Skip SEQUENCE tag + length */
+        size_t pos = 1;
+        if (der[pos] & 0x80) {
+            size_t len_bytes = der[pos] & 0x7f;
+            pos += 1 + len_bytes;
+        } else {
+            pos += 1;
+        }
+        /* INTEGER tag */
+        if (pos < der_len && der[pos] == 0x02) {
+            pos++;
+            size_t int_len = 0;
+            if (der[pos] & 0x80) {
+                size_t len_bytes = der[pos] & 0x7f;
+                pos++;
+                for (size_t i = 0; i < len_bytes && pos < der_len; i++)
+                    int_len = (int_len << 8) | der[pos++];
+            } else {
+                int_len = der[pos++];
+            }
+            /* Skip leading zero byte if present */
+            if (int_len > 0 && pos < der_len && der[pos] == 0x00) {
+                int_len--;
+            }
+            prime_bits = int_len * 8;
+        }
+    }
+    free(der);
+
+    if (prime_bits >= 4096)
+        ctx->dh_group = OPSSL_FFDHE_4096;
+    else if (prime_bits >= 3072)
+        ctx->dh_group = OPSSL_FFDHE_3072;
+    else
+        ctx->dh_group = OPSSL_FFDHE_2048;
+
     return 1;
 }
 
@@ -345,6 +427,44 @@ opssl_ctx_load_verify_locations(opssl_ctx_t *ctx, const char *ca_file, const cha
         result = 0;
 
     return result;
+}
+
+int
+opssl_ctx_load_default_verify_paths(opssl_ctx_t *ctx)
+{
+    if (!ctx) {
+        opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+        return 0;
+    }
+
+    const char *ca_file = NULL;
+    const char *ca_dir = NULL;
+
+    /* Environment overrides take priority (matches OpenSSL convention) */
+    const char *env_file = getenv("SSL_CERT_FILE");
+    const char *env_dir = getenv("SSL_CERT_DIR");
+
+    if (env_file && env_file[0])
+        ca_file = env_file;
+    if (env_dir && env_dir[0])
+        ca_dir = env_dir;
+
+    /* Fall back to meson-detected system paths */
+#ifdef OPSSL_DEFAULT_CA_FILE
+    if (!ca_file)
+        ca_file = OPSSL_DEFAULT_CA_FILE;
+#endif
+#ifdef OPSSL_DEFAULT_CA_DIR
+    if (!ca_dir)
+        ca_dir = OPSSL_DEFAULT_CA_DIR;
+#endif
+
+    if (!ca_file && !ca_dir) {
+        opssl_set_error(OPSSL_ERR_IO, "no system CA bundle found");
+        return 0;
+    }
+
+    return opssl_ctx_load_verify_locations(ctx, ca_file, ca_dir);
 }
 
 void
@@ -718,6 +838,12 @@ opssl_x509_chain_t *
 opssl_ctx_get_cert_chain(opssl_ctx_t *ctx)
 {
     return ctx ? ctx->cert_chain : NULL;
+}
+
+const uint8_t *
+opssl_ctx_get_dtls_cookie_secret(const opssl_ctx_t *ctx)
+{
+    return ctx ? ctx->dtls_cookie_secret : NULL;
 }
 
 /* Session cache mode */

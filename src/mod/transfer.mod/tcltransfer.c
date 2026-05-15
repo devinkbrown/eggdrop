@@ -28,12 +28,12 @@ static int tcl_dccsend STDVAR
   BADARGS(3, 3, " filename ircnick");
 
   if (!file_readable(argv[1])) {
-    Tcl_AppendResult(irp, "3", NULL);
+    Tcl_AppendResult(irp, "3", nullptr);
     return TCL_OK;
   }
   nfn = strrchr(argv[1], '/');
 
-  if (nfn == NULL)
+  if (nfn == nullptr)
     nfn = argv[1];
   else
     nfn++;
@@ -46,23 +46,24 @@ static int tcl_dccsend STDVAR
       nfn++;
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "*%s", argv[1]);
         sys = op_strbuf_steal(&_b);
       }
       queue_file(sys, nfn, "(script)", argv[2]);
       op_free(sys);
     }
-    Tcl_AppendResult(irp, "4", NULL);
+    Tcl_AppendResult(irp, "4", nullptr);
     return TCL_OK;
   }
-  __attribute__((unused)) int i = raw_dcc_send(argv[1], argv[2], "*");
-  Tcl_AppendResult(irp, int_to_base10(i), NULL);
+  [[maybe_unused]] int i = raw_dcc_send(argv[1], argv[2], "*");
+  Tcl_AppendResult(irp, int_to_base10(i), nullptr);
   return TCL_OK;
 }
 
 static int tcl_getfileq STDVAR
 {
-  char *s = NULL;
+  char *s = nullptr;
   fileq_t *q;
 
   BADARGS(2, 2, " handle");
@@ -71,6 +72,7 @@ static int tcl_getfileq STDVAR
     if (!strcasecmp(q->nick, argv[1])) {
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         if (q->dir[0] == '*') {
           op_strbuf_appendf(&_b, "%s %s/%s", q->to, &q->dir[1], q->file);
         } else {
@@ -96,20 +98,21 @@ static int tcl_getfilesendtime STDVAR
 
   BADARGS(2, 2, " idx");
 
-  sock = atoi(argv[1]);
+  sock = egg_atoi(argv[1]);
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (dcc[i].type == &DCC_SEND || dcc[i].type == &DCC_GET) {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%lu", dcc[i].u.xfer->start_time);
-        Tcl_AppendResult(irp, op_strbuf_str(&_b), NULL);
+        Tcl_AppendResult(irp, op_strbuf_str(&_b), nullptr);
         op_strbuf_free(&_b);
       } else
-        Tcl_AppendResult(irp, "-2", NULL); /* Not a valid file transfer */
+        Tcl_AppendResult(irp, "-2", nullptr); /* Not a valid file transfer */
       return TCL_OK;
     }
   }
-  Tcl_AppendResult(irp, "-1", NULL); /* No matching entry found. */
+  Tcl_AppendResult(irp, "-1", nullptr); /* No matching entry found. */
   return TCL_OK;
 }
 
@@ -117,5 +120,5 @@ static tcl_cmds mytcls[] = {
   {"dccsend",                 tcl_dccsend},
   {"getfileq",               tcl_getfileq},
   {"getfilesendtime", tcl_getfilesendtime},
-  {NULL,                             NULL}
+  {nullptr,                             nullptr}
 };

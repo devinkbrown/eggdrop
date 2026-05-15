@@ -2,86 +2,85 @@
 # libop/src/meson.build — portable data-structure + commio static library
 #
 # Includes the full ophion libop subset:
-#   • Memory / allocators
-#   • Data structures (Waves 67–69)
-#   • Utilities
-#   • commio I/O layer (replaces eggdrop's net.c)
-#   • TLS via opssl (opssl_backend.c) or no-op stubs (ssl_stubs.c)
+#   - Memory / allocators
+#   - Data structures
+#   - Utilities
+#   - commio I/O layer
+#   - TLS via opssl (opssl_backend.c) or no-op stubs (ssl_stubs.c)
 # =========================================================================
 
 libop_sources = files(
   # Memory / allocation
-  'op_memory.c',        # eggdrop OOM handler (abort instead of ircd restart)
-  'balloc.c',           # mmap-backed slab allocator (op_bh_*)
-  'arena.c',            # bump-pointer arena allocator (op_arena_*)
+  'op_memory.c',
+  'balloc.c',
+  'arena.c',
 
   # Core containers
-  'htab.c',             # open-addressing hash table (op_htab_*)
-  'rawbuf.c',           # circular byte buffer (op_rawbuf_*)
-  'strbuf.c',           # growable string buffer (op_strbuf_*)
-  'bloom.c',            # counting Bloom filter (op_bloom_*)
+  'htab.c',
+  'rawbuf.c',
+  'strbuf.c',
+  'bloom.c',
 
-  # New data structures (Waves 67+)
-  'rbt.c',              # LLRB red-black tree (op_rbt_*)
-  'vec.c',              # dynamic array (op_vec_*)
-  'deque.c',            # double-ended queue (op_deque_*)
-  'skiplist.c',         # probabilistic ordered map (op_skiplist_*)
-  'trie.c',             # ternary search trie (op_trie_*)
-  'itree.c',            # augmented interval tree (op_itree_*)
-  'cidr_tbl.c',         # IPv4/IPv6 CIDR prefix lookup (op_cidr_tbl_*)
-  'graph.c',            # directed graph (op_graph_*)
-  'pqueue.c',           # binary min-heap (op_pqueue_*)
-  'str_intern.c',       # reference-counted string interning (op_str_intern_*)
-  'hll.c',              # HyperLogLog estimator (op_hll_*)
-  'wm.c',               # rate meters / moving averages (op_wm_*)
-  'lru.c',              # LRU cache (op_lru_*)
+  # Data structures
+  'rbt.c',
+  'vec.c',
+  'deque.c',
+  'skiplist.c',
+  'trie.c',
+  'itree.c',
+  'cidr_tbl.c',
+  'graph.c',
+  'pqueue.c',
+  'str_intern.c',
+  'hll.c',
+  'wm.c',
+  'lru.c',
 
   # Utilities
-  'tools.c',            # misc helpers (op_strlcpy, op_basename, etc.)
-  'utf8.c',             # UTF-8 validation and iteration (op_utf8_*)
-  'simd_scan.c',        # SIMD-accelerated byte-scan (op_simd_find_delim etc.)
+  'tools.c',
+  'utf8.c',
+  'simd_scan.c',
 
   # Threading
-  'thread_pool.c',      # boss-worker thread pool (op_tpool_*)
+  'thread_pool.c',
 
-  # Extended utilities (from ophion libop)
-  'crypt.c',            # SHA-256/SHA-512 crypt (op_crypt)
-  'toml.c',             # minimal TOML config parser (op_toml_*)
-  'version.c',          # build identity / copyright metadata (op_build_info)
-  'coro.c',             # stackful coroutines via ucontext_t (op_coro_*)
-  'shm_ring.c',         # SPSC shared-memory ring buffer (op_shm_ring_*)
-  'async.c',            # generic async task executor (op_async_*)
-  'async_log.c',        # async log writer thread (op_async_log_*)
-  'helper.c',           # helper process / in-process thread (op_helper_*)
-  'seccomp.c',          # seccomp-bpf privilege restriction (self-guards __linux__)
-  'lock_debug.c',       # mutex/rwlock debugging (self-guards on OP_LOCK_DEBUG)
+  # Extended utilities
+  'crypt.c',
+  'toml.c',
+  'version.c',
+  'coro.c',
+  'shm_ring.c',
+  'async.c',
+  'async_log.c',
+  'helper.c',
+  'seccomp.c',
+  'lock_debug.c',
 
   # Portability fallbacks
-  'arc4random.c',       # arc4random / arc4random_buf when not in libc
+  'arc4random.c',
 
   # Core library init, clock, callbacks, base64, strtok_r, etc.
   'op_lib.c',
 
   # commio I/O layer
-  'sha1.c',             # SHA-1 (used by websocket.c handshake)
-  'websocket.c',        # WebSocket framing layer (op_ws_read/write/shutdown)
-  'commio.c',           # fd table, poll dispatch, sendq, accept/connect
-  'linebuf.c',          # IRC line buffer (op_linebuf_*)
-  'sendbuf.c',          # client send buffer (op_sendbuf_*)
-  'event.c',            # timer events (op_event_*)
-  'epoll.c',            # epoll backend
-  'io_uring.c',         # io_uring backend
-  'kqueue.c',           # kqueue backend (BSD/macOS)
-  'poll.c',             # poll() fallback backend
-  'select.c',           # select() fallback backend
-  'iocp.c',             # Windows IOCP backend (64-bit; self-guards on _WIN32)
-  'ports.c',            # Solaris event ports backend (self-guards on HAVE_PORT_CREATE)
-  'devpoll.c',          # /dev/poll backend (self-guards on HAVE_DEVPOLL)
-  'sigio.c',            # Linux RT-SIGIO backend (self-guards on F_SETSIG)
-  'unix.c',             # process helpers (fork, socketpair, fd passing)
+  'sha1.c',
+  'websocket.c',
+  'commio.c',
+  'linebuf.c',
+  'sendbuf.c',
+  'event.c',
+  'epoll.c',
+  'io_uring.c',
+  'kqueue.c',
+  'poll.c',
+  'select.c',
+  'iocp.c',
+  'ports.c',
+  'devpoll.c',
+  'sigio.c',
+  'unix.c',
 )
 
-# TLS backend: opssl or no-op stubs
 if have_ssl
   libop_sources += files('opssl_backend.c')
 else
@@ -90,10 +89,9 @@ endif
 
 fs = import('fs')
 thread_dep = dependency('threads', required: true)
-libm_dep   = meson.get_compiler('c').find_library('m', required: false)
+libm_dep = meson.get_compiler('c').find_library('m', required: false)
 
-libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu23',
-                '-Wno-stringop-overread']  # GCC false positive in sha1.c under LTO
+libop_c_args = ['-DHAVE_CONFIG_H', '-std=gnu23', '-Wno-stringop-overread']
 if have_ssl
   libop_c_args += ['-DHAVE_OPSSL=1']
 endif
@@ -101,62 +99,42 @@ endif
 _top_inc = include_directories('../..')
 _src_inc = include_directories('../../src')
 
-# -------------------------------------------------------------------------
-# Compile libop core sources into an intermediate object library.
-# -------------------------------------------------------------------------
 _libop_core_obj = static_library('_op_core',
-  sources:              libop_sources,
-  include_directories:  [libop_inc],
-  dependencies:         have_ssl
-                          ? [thread_dep, libm_dep, opssl_dep]
-                          : [thread_dep, libm_dep],
-  c_args:               libop_c_args,
-  pic:                  true,
-  override_options:     ['c_std=gnu23'],
+  sources: libop_sources,
+  include_directories: [libop_inc],
+  dependencies: have_ssl
+    ? [thread_dep, libm_dep, opssl_dep]
+    : [thread_dep, libm_dep],
+  c_args: libop_c_args,
+  pic: true,
+  override_options: ['c_std=gnu23'],
 )
 
-# -------------------------------------------------------------------------
-# Eggdrop compat + MD5 — compiled into a second intermediate object library.
-#
-# COMPILING_MEM disables eggdrop.h's malloc→dont_use_old_malloc macro.
-# HAVE_CONFIG_H ensures config.h is pulled in for feature flags.
-# -------------------------------------------------------------------------
 compat_sources_merged = files(
   '../../src/compat/base64.c',
   '../../src/compat/explicit_bzero.c',
   '../../src/compat/in6.c',
   '../../src/compat/inet_aton.c',
-  # strlcpy.c removed — all strlcpy calls redirect to libop's op_strlcpy
   '../../src/md5/md5c.c',
 )
 if fs.exists(meson.current_source_dir() / '../../src/compat/mbuf.c')
   compat_sources_merged += files('../../src/compat/mbuf.c')
 endif
-# arc4random removed — libop/src/arc4random.c already provides it
 
 _libop_compat_obj = static_library('_op_compat',
-  sources:             compat_sources_merged,
+  sources: compat_sources_merged,
   include_directories: [libop_inc, _top_inc, _src_inc],
-  c_args:              ['-DHAVE_CONFIG_H', '-DCOMPILING_MEM'],
-  pic:                 true,
-)
-
-# -------------------------------------------------------------------------
-# LMDB — embedded key-value store for the userfile/channel database backend.
-# Compiled with minimal warnings (upstream code, not ours).
-# -------------------------------------------------------------------------
-_libop_lmdb_obj = static_library('_op_lmdb',
-  sources: files('lmdb/mdb.c', 'lmdb/midl.c'),
-  include_directories: [include_directories('lmdb')],
-  c_args: ['-DMDB_USE_POSIX_MUTEX=1',
-           '-Wno-unused-parameter', '-Wno-format-extra-args'],
+  c_args: ['-DHAVE_CONFIG_H', '-DCOMPILING_MEM'],
   pic: true,
 )
 
-# -------------------------------------------------------------------------
-# Unified libop — single archive containing all object files.
-# Consumers link only this one library; no separate compat/md5 libs needed.
-# -------------------------------------------------------------------------
+_libop_lmdb_obj = static_library('_op_lmdb',
+  sources: files('lmdb/mdb.c', 'lmdb/midl.c'),
+  include_directories: [include_directories('lmdb')],
+  c_args: ['-DMDB_USE_POSIX_MUTEX=1', '-Wno-unused-parameter', '-Wno-format-extra-args'],
+  pic: true,
+)
+
 libop_ds = static_library('op',
   objects: [
     _libop_core_obj.extract_all_objects(recursive: true),
@@ -164,14 +142,14 @@ libop_ds = static_library('op',
     _libop_lmdb_obj.extract_all_objects(recursive: true),
   ],
   dependencies: have_ssl
-                  ? [thread_dep, libm_dep, opssl_dep]
-                  : [thread_dep, libm_dep],
+    ? [thread_dep, libm_dep, opssl_dep]
+    : [thread_dep, libm_dep],
   pic: true,
 )
 
 lmdb_inc = include_directories('lmdb')
 
 libop_dep = declare_dependency(
-  link_with:            libop_ds,
-  include_directories:  [libop_inc, lmdb_inc],
+  link_with: libop_ds,
+  include_directories: [libop_inc, lmdb_inc],
 )

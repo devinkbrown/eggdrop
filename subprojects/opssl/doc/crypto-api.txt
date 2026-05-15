@@ -1,0 +1,1144 @@
+opssl CRYPTOGRAPHIC API REFERENCE
+==================================
+
+This document describes the complete cryptographic primitives API in opssl/crypto.h.
+All operations use constant-time arithmetic where security requires it. Key material
+is always stored in secure memory and explicitly zeroed on completion.
+
+Return Convention: int-returning functions use 1 = success, 0 = failure.
+Thread Safety: All functions are thread-safe unless marked otherwise.
+
+
+HASH FUNCTIONS
+==============
+
+SHA-256
+
+    #define OPSSL_SHA256_DIGEST_LEN  32
+
+    void opssl_sha256_init(opssl_sha256_ctx_t *ctx);
+    void opssl_sha256_update(opssl_sha256_ctx_t *ctx, const void *data, size_t len);
+    void opssl_sha256_final(opssl_sha256_ctx_t *ctx, uint8_t out[OPSSL_SHA256_DIGEST_LEN]);
+    void opssl_sha256(const void *data, size_t len, uint8_t out[OPSSL_SHA256_DIGEST_LEN]);
+
+SHA-256 streaming and one-shot APIs. The init/update/final flow processes data in
+chunks. The one-shot opssl_sha256() computes the digest directly and is equivalent
+to init/update/final for a complete message.
+
+Example:
+    opssl_sha256_ctx_t ctx;
+    uint8_t hash[OPSSL_SHA256_DIGEST_LEN];
+    opssl_sha256_init(&ctx);
+    opssl_sha256_update(&ctx, "hello", 5);
+    opssl_sha256_final(&ctx, hash);
+
+Context Lifecycle: The ctx is zeroed on completion by opssl_sha256_final().
+
+
+SHA-384 / SHA-512
+
+    #define OPSSL_SHA384_DIGEST_LEN  48
+    #define OPSSL_SHA512_DIGEST_LEN  64
+
+    void opssl_sha384_init(opssl_sha512_ctx_t *ctx);
+    void opssl_sha384_final(opssl_sha512_ctx_t *ctx, uint8_t out[OPSSL_SHA384_DIGEST_LEN]);
+    void opssl_sha384(const void *data, size_t len, uint8_t out[OPSSL_SHA384_DIGEST_LEN]);
+
+    void opssl_sha512_init(opssl_sha512_ctx_t *ctx);
+    void opssl_sha512_update(opssl_sha512_ctx_t *ctx, const void *data, size_t len);
+    void opssl_sha512_final(opssl_sha512_ctx_t *ctx, uint8_t out[OPSSL_SHA512_DIGEST_LEN]);
+    void opssl_sha512(const void *data, size_t len, uint8_t out[OPSSL_SHA512_DIGEST_LEN]);
+
+SHA-384 and SHA-512 share the same context type (opssl_sha512_ctx_t). SHA-384 is
+the truncated variant, producing a 48-byte hash. SHA-512 produces 64 bytes. Both
+use the same update() function; init and final are separate.
+
+Note: SHA-384 does not expose an update function. Use opssl_sha512_update() with
+       the SHA-384 context if streaming is needed, then call opssl_sha384_final().
+
+
+SHA-3 (Keccak)
+
+    #define OPSSL_SHA3_256_DIGEST_LEN  32
+    #define OPSSL_SHA3_512_DIGEST_LEN  64
+
+    void opssl_sha3_256_init(opssl_sha3_ctx_t *ctx);
+    void opssl_sha3_256_update(opssl_sha3_ctx_t *ctx, const void *data, size_t len);
+    void opssl_sha3_256_final(opssl_sha3_ctx_t *ctx, uint8_t out[OPSSL_SHA3_256_DIGEST_LEN]);
+    void opssl_sha3_256(const void *data, size_t len, uint8_t out[OPSSL_SHA3_256_DIGEST_LEN]);
+
+    void opssl_sha3_512_init(opssl_sha3_ctx_t *ctx);
+    void opssl_sha3_512_update(opssl_sha3_ctx_t *ctx, const void *data, size_t len);
+    void opssl_sha3_512_final(opssl_sha3_ctx_t *ctx, uint8_t out[OPSSL_SHA3_512_DIGEST_LEN]);
+    void opssl_sha3_512(const void *data, size_t len, uint8_t out[OPSSL_SHA3_512_DIGEST_LEN]);
+
+SHA-3 streaming and one-shot APIs. SHA-3-256 produces 32 bytes, SHA-3-512
+produces 64 bytes. Like SHA-2, streaming is available via init/update/final.
+
+
+SHAKE (Extendable Output Functions)
+
+    void opssl_shake128(uint8_t *out, size_t out_len,
+                       const uint8_t *in, size_t in_len);
+    void opssl_shake256(uint8_t *out, size_t out_len,
+                       const uint8_t *in, size_t in_len);
+
+SHAKE-128 and SHAKE-256 are one-shot functions that can produce variable-length
+output. out_len can be any size (e.g., 16 bytes, 32 bytes, 64 bytes).
+
+Parameters:
+    out:      output buffer (must be at least out_len bytes)
+    out_len:  desired output length
+    in:       input data
+    in_len:   input data length
+
+Example:
+    uint8_t output[32];
+    opssl_shake256(output, 32, "data", 4);
+
+
+SHA-1 (Fingerprint Compatibility Only)
+
+    #define OPSSL_SHA1_DIGEST_LEN  20
+
+    typedef struct {
+        uint32_t h[5];
+        uint8_t  block[64];
+        uint64_t bitcount;
+        size_t   block_len;
+    } opssl_sha1_ctx_t;
+
+    void opssl_sha1_init(opssl_sha1_ctx_t *ctx);
+    void opssl_sha1_update(opssl_sha1_ctx_t *ctx, const void *data, size_t len);
+    void opssl_sha1_final(opssl_sha1_ctx_t *ctx, uint8_t out[OPSSL_SHA1_DIGEST_LEN]);
+    void opssl_sha1(const void *data, size_t len, uint8_t out[OPSSL_SHA1_DIGEST_LEN]);
+
+SHA-1 is provided for certificate fingerprint compatibility only. Do not use for
+security-critical applications. The context is exposed directly (not opaque) for
+low-level certificate compatibility.
+
+
+BLAKE2b (RFC 7693)
+==================
+
+    #define OPSSL_BLAKE2B_DIGEST_LEN  64
+    #define OPSSL_BLAKE2B_KEYBYTES    64
+
+    typedef struct opssl_blake2b_ctx {
+        uint64_t h[8];
+        uint64_t t[2];
+        uint8_t  buf[128];
+        size_t   buflen;
+        size_t   outlen;
+    } opssl_blake2b_ctx_t;
+
+    int  opssl_blake2b_init(opssl_blake2b_ctx_t *ctx, size_t outlen);
+    int  opssl_blake2b_init_key(opssl_blake2b_ctx_t *ctx, size_t outlen,
+                                const void *key, size_t keylen);
+    void opssl_blake2b_update(opssl_blake2b_ctx_t *ctx, const void *data, size_t len);
+    void opssl_blake2b_final(opssl_blake2b_ctx_t *ctx, uint8_t *out, size_t outlen);
+    void opssl_blake2b(const void *data, size_t len, uint8_t *out, size_t outlen);
+    void opssl_blake2b_long(const void *data, size_t len, uint8_t *out, size_t outlen);
+
+BLAKE2b is a cryptographic hash offering variable-length output (1-64 bytes) and
+optional keying. It is faster than SHA-3 and used internally by Argon2id.
+
+opssl_blake2b_init(ctx, outlen):
+    Initialize context for unkeyed BLAKE2b with output length outlen (1-64 bytes).
+    Returns 1 on success, 0 if outlen is invalid.
+
+opssl_blake2b_init_key(ctx, outlen, key, keylen):
+    Initialize BLAKE2b in keyed mode. Key length can be 0-64 bytes. Returns 1 on
+    success, 0 on failure. Internally zeros the key material after processing.
+
+opssl_blake2b_update(ctx, data, len):
+    Process data of any length. Can be called multiple times.
+
+opssl_blake2b_final(ctx, out, outlen):
+    Finalize and output the hash. outlen should match the value passed to init.
+    The context is zeroed after completion.
+
+opssl_blake2b(data, len, out, outlen):
+    One-shot BLAKE2b for data of length len, producing outlen bytes. Equivalent
+    to init/update/final.
+
+opssl_blake2b_long(data, len, out, outlen):
+    BLAKE2b variant for outputs > 64 bytes. Used internally by Argon2id. For
+    outlen <= 64, use opssl_blake2b().
+
+Example (keyed mode, MAC):
+    opssl_blake2b_ctx_t ctx;
+    uint8_t mac[32];
+    opssl_blake2b_init_key(&ctx, 32, key, key_len);
+    opssl_blake2b_update(&ctx, message, msg_len);
+    opssl_blake2b_final(&ctx, mac, 32);
+
+
+ARGON2id (RFC 9106)
+===================
+
+    #define OPSSL_ARGON2ID_DEFAULT_T_COST     3
+    #define OPSSL_ARGON2ID_DEFAULT_M_COST     65536  /* 64 MiB */
+    #define OPSSL_ARGON2ID_DEFAULT_PARALLEL   4
+    #define OPSSL_ARGON2ID_SALT_LEN           16
+    #define OPSSL_ARGON2ID_HASH_LEN           32
+
+    int opssl_argon2id(const uint8_t *password, size_t password_len,
+                       const uint8_t *salt, size_t salt_len,
+                       uint32_t t_cost, uint32_t m_cost, uint32_t parallelism,
+                       uint8_t *out, size_t out_len);
+
+    int opssl_argon2id_verify(const uint8_t *password, size_t password_len,
+                              const uint8_t *salt, size_t salt_len,
+                              uint32_t t_cost, uint32_t m_cost, uint32_t parallelism,
+                              const uint8_t *expected, size_t expected_len);
+
+Argon2id is a modern password hashing algorithm. It is memory-hard and resistant
+to GPU attacks.
+
+opssl_argon2id(password, password_len, salt, salt_len, t_cost, m_cost, parallelism, out, out_len):
+    Hash a password and output a derived key.
+
+    Parameters:
+        password:      password bytes (required)
+        password_len:  password length (can be 0)
+        salt:          salt bytes (required, recommend OPSSL_ARGON2ID_SALT_LEN)
+        salt_len:      salt length (8-64 bytes recommended)
+        t_cost:        number of iterations (recommend 3)
+        m_cost:        memory cost in 1 KiB blocks (recommend 65536 = 64 MiB)
+        parallelism:   parallelism degree (recommend 4)
+        out:           output buffer
+        out_len:       output length (recommend OPSSL_ARGON2ID_HASH_LEN = 32)
+
+    Returns 1 on success, 0 on failure (memory allocation, invalid parameters).
+
+opssl_argon2id_verify(password, password_len, salt, salt_len, t_cost, m_cost, parallelism, expected, expected_len):
+    Constant-time verification of a password against a known hash. Uses the same
+    parameters as opssl_argon2id() but compares the result to expected.
+
+    Returns 1 if password matches, 0 otherwise.
+
+Example:
+    uint8_t salt[OPSSL_ARGON2ID_SALT_LEN];
+    opssl_random(salt, sizeof(salt));  /* generate random salt */
+
+    uint8_t hash[OPSSL_ARGON2ID_HASH_LEN];
+    opssl_argon2id(password, password_len, salt, sizeof(salt),
+                   OPSSL_ARGON2ID_DEFAULT_T_COST,
+                   OPSSL_ARGON2ID_DEFAULT_M_COST,
+                   OPSSL_ARGON2ID_DEFAULT_PARALLEL,
+                   hash, sizeof(hash));
+
+    /* Later, verify: */
+    int valid = opssl_argon2id_verify(password, password_len, salt, sizeof(salt),
+                                      OPSSL_ARGON2ID_DEFAULT_T_COST,
+                                      OPSSL_ARGON2ID_DEFAULT_M_COST,
+                                      OPSSL_ARGON2ID_DEFAULT_PARALLEL,
+                                      hash, sizeof(hash));
+
+
+HMAC (Message Authentication)
+=============================
+
+    #define OPSSL_HMAC_MAX_DIGEST_LEN  64
+
+    typedef struct opssl_hmac_ctx opssl_hmac_ctx_t;
+
+    typedef enum {
+        OPSSL_HMAC_SHA256,
+        OPSSL_HMAC_SHA384,
+        OPSSL_HMAC_SHA512,
+    } opssl_hmac_algo_t;
+
+    int  opssl_hmac_init(opssl_hmac_ctx_t *ctx, opssl_hmac_algo_t algo,
+                         const uint8_t *key, size_t key_len);
+    void opssl_hmac_update(opssl_hmac_ctx_t *ctx, const void *data, size_t len);
+    int  opssl_hmac_final(opssl_hmac_ctx_t *ctx, uint8_t *out, size_t *out_len);
+    void opssl_hmac_cleanup(opssl_hmac_ctx_t *ctx);
+
+    int opssl_hmac(opssl_hmac_algo_t algo,
+                   const uint8_t *key, size_t key_len,
+                   const void *data, size_t data_len,
+                   uint8_t *out, size_t *out_len);
+
+HMAC (keyed message authentication) supports SHA-256, SHA-384, and SHA-512.
+Streaming and one-shot modes are available.
+
+opssl_hmac_init(ctx, algo, key, key_len):
+    Initialize HMAC context with algorithm and key. Key length can be any size
+    (longer keys are hashed internally). Returns 1 on success, 0 on failure.
+
+opssl_hmac_update(ctx, data, len):
+    Process data of any length. Can be called multiple times.
+
+opssl_hmac_final(ctx, out, out_len):
+    Finalize and output the MAC. out_len is written with the actual output size
+    (32 for SHA-256, 48 for SHA-384, 64 for SHA-512). Returns 1 on success.
+
+opssl_hmac_cleanup(ctx):
+    Explicitly zero the context (called automatically by opssl_hmac_final, but
+    can be called manually if exiting without finalizing).
+
+opssl_hmac(algo, key, key_len, data, data_len, out, out_len):
+    One-shot HMAC. out_len is both input (capacity) and output (actual size).
+    Returns 1 on success, 0 on failure.
+
+Example (streaming):
+    opssl_hmac_ctx_t ctx;
+    uint8_t mac[OPSSL_HMAC_MAX_DIGEST_LEN];
+    size_t mac_len;
+    opssl_hmac_init(&ctx, OPSSL_HMAC_SHA256, key, key_len);
+    opssl_hmac_update(&ctx, "part1", 5);
+    opssl_hmac_update(&ctx, "part2", 5);
+    opssl_hmac_final(&ctx, mac, &mac_len);
+
+Example (one-shot):
+    uint8_t mac[OPSSL_HMAC_MAX_DIGEST_LEN];
+    size_t mac_len = sizeof(mac);
+    opssl_hmac(OPSSL_HMAC_SHA256, key, key_len, data, data_len, mac, &mac_len);
+
+
+HKDF (HMAC-based Key Derivation)
+=================================
+
+    int opssl_hkdf_extract(opssl_hmac_algo_t algo,
+                           const uint8_t *salt, size_t salt_len,
+                           const uint8_t *ikm, size_t ikm_len,
+                           uint8_t *prk, size_t *prk_len);
+
+    int opssl_hkdf_expand(opssl_hmac_algo_t algo,
+                          const uint8_t *prk, size_t prk_len,
+                          const uint8_t *info, size_t info_len,
+                          uint8_t *okm, size_t okm_len);
+
+    int opssl_hkdf_expand_label(opssl_hmac_algo_t algo,
+                                const uint8_t *secret, size_t secret_len,
+                                const char *label,
+                                const uint8_t *context, size_t context_len,
+                                uint8_t *out, size_t out_len);
+
+HKDF (RFC 5869) derives cryptographic keys from input key material (IKM).
+All three functions are available for full control or TLS 1.3 compatibility.
+
+opssl_hkdf_extract(algo, salt, salt_len, ikm, ikm_len, prk, prk_len):
+    Extract phase. Produces a pseudo-random key (PRK) of size appropriate to the
+    hash algorithm (32 bytes for SHA-256, 48 for SHA-384, 64 for SHA-512).
+    prk_len is written with the output size. Salt can be empty (NULL or len=0).
+    Returns 1 on success, 0 on failure.
+
+opssl_hkdf_expand(algo, prk, prk_len, info, info_len, okm, okm_len):
+    Expand phase. Takes a PRK and context info, produces output key material (OKM)
+    of requested length (up to 255 * hash_output_size). Returns 1 on success.
+
+opssl_hkdf_expand_label(algo, secret, secret_len, label, context, context_len, out, out_len):
+    TLS 1.3 HKDF-Expand-Label. Automatically formats the label and context
+    according to RFC 8446. label is a null-terminated string. context can be
+    empty (NULL, context_len=0). Returns 1 on success, 0 on failure.
+
+Example (HKDF-Extract + Expand):
+    uint8_t prk[OPSSL_SHA256_DIGEST_LEN];
+    size_t prk_len;
+    opssl_hkdf_extract(OPSSL_HMAC_SHA256, salt, salt_len, ikm, ikm_len, prk, &prk_len);
+
+    uint8_t key[32];
+    opssl_hkdf_expand(OPSSL_HMAC_SHA256, prk, prk_len, info, info_len, key, 32);
+
+Example (TLS 1.3):
+    uint8_t handshake_secret[OPSSL_SHA256_DIGEST_LEN];
+    opssl_hkdf_expand_label(OPSSL_HMAC_SHA256, secret, secret_len,
+                            "derived", NULL, 0, handshake_secret, 32);
+
+
+PBKDF2 (Password-Based Key Derivation)
+======================================
+
+    int opssl_pbkdf2(opssl_hmac_algo_t algo,
+                     const uint8_t *password, size_t password_len,
+                     const uint8_t *salt, size_t salt_len,
+                     uint32_t iterations,
+                     uint8_t *out, size_t out_len);
+
+PBKDF2 (RFC 2898) derives a key from a password. Use iterations >= 100,000 for
+password hashing (RFC recommends >= 600,000 as of 2023). Argon2id is preferred
+for new applications due to memory hardness.
+
+Parameters:
+    algo:          HMAC algorithm (SHA-256, SHA-384, or SHA-512)
+    password:      password bytes
+    password_len:  password length
+    salt:          random salt (recommend 16+ bytes)
+    salt_len:      salt length
+    iterations:    iteration count (higher = slower, more resistant to brute force)
+    out:           output buffer
+    out_len:       desired output length
+
+Returns 1 on success, 0 on failure (invalid parameters).
+
+Example:
+    uint8_t key[32];
+    opssl_pbkdf2(OPSSL_HMAC_SHA256, password, password_len, salt, salt_len,
+                 600000, key, sizeof(key));
+
+
+AEAD Ciphers (Authenticated Encryption)
+========================================
+
+    #define OPSSL_AES_128_KEY_LEN    16
+    #define OPSSL_AES_256_KEY_LEN    32
+    #define OPSSL_AES_GCM_IV_LEN     12
+    #define OPSSL_AES_GCM_TAG_LEN    16
+    #define OPSSL_AES_CCM_IV_LEN     12
+    #define OPSSL_AES_CCM_TAG_LEN    16
+
+    #define OPSSL_CHACHA20_KEY_LEN   32
+    #define OPSSL_CHACHA20_IV_LEN    12
+    #define OPSSL_POLY1305_TAG_LEN   16
+
+    typedef struct opssl_aead_ctx opssl_aead_ctx_t;
+
+    typedef enum {
+        OPSSL_AEAD_AES_128_GCM,
+        OPSSL_AEAD_AES_256_GCM,
+        OPSSL_AEAD_CHACHA20_POLY1305,
+        OPSSL_AEAD_AES_128_CCM,
+        OPSSL_AEAD_AES_256_CCM,
+        OPSSL_AEAD_AES_128_CCM_8,
+        OPSSL_AEAD_AES_256_CCM_8,
+        OPSSL_AEAD_CAMELLIA_128_GCM,
+        OPSSL_AEAD_CAMELLIA_256_GCM,
+    } opssl_aead_algo_t;
+
+    opssl_aead_ctx_t *opssl_aead_new(opssl_aead_algo_t algo);
+    int  opssl_aead_set_key(opssl_aead_ctx_t *ctx, const uint8_t *key, size_t key_len);
+    void opssl_aead_free(opssl_aead_ctx_t *ctx);
+
+    int opssl_aead_seal(opssl_aead_ctx_t *ctx,
+                        uint8_t *out, size_t *out_len, size_t max_out,
+                        const uint8_t *nonce, size_t nonce_len,
+                        const uint8_t *plaintext, size_t plaintext_len,
+                        const uint8_t *aad, size_t aad_len);
+
+    int opssl_aead_open(opssl_aead_ctx_t *ctx,
+                        uint8_t *out, size_t *out_len, size_t max_out,
+                        const uint8_t *nonce, size_t nonce_len,
+                        const uint8_t *ciphertext, size_t ciphertext_len,
+                        const uint8_t *aad, size_t aad_len);
+
+    size_t opssl_aead_key_len(opssl_aead_algo_t algo);
+    size_t opssl_aead_nonce_len(opssl_aead_algo_t algo);
+    size_t opssl_aead_tag_len(opssl_aead_algo_t algo);
+
+AEAD ciphers authenticate and encrypt data. All variants use constant-time tag
+verification. Nine algorithms are supported: AES-GCM (128/256), ChaCha20-Poly1305,
+AES-CCM (full and truncated tags), and Camellia-GCM.
+
+Context Lifecycle:
+    1. opssl_aead_new(algo) — allocate context for algorithm
+    2. opssl_aead_set_key(ctx, key, key_len) — set encryption key
+    3. opssl_aead_seal() and/or opssl_aead_open() — encrypt/decrypt
+    4. opssl_aead_free(ctx) — deallocate and zero key material
+
+opssl_aead_new(algo):
+    Allocate and initialize context. Returns NULL on failure.
+
+opssl_aead_set_key(ctx, key, key_len):
+    Set the encryption key. key_len must match algorithm requirements.
+    Returns 1 on success, 0 on failure.
+
+opssl_aead_seal(ctx, out, out_len, max_out, nonce, nonce_len, plaintext, plaintext_len, aad, aad_len):
+    Encrypt plaintext and produce ciphertext + authentication tag.
+
+    Parameters:
+        out:             output buffer (must hold plaintext_len + tag_len)
+        out_len:         written with output size (plaintext_len + tag_len)
+        max_out:         maximum output size (safety check)
+        nonce:           unique per-message nonce (size depends on cipher)
+        nonce_len:       nonce length
+        plaintext:       data to encrypt
+        plaintext_len:   plaintext length
+        aad:             additional authenticated data (can be NULL or len=0)
+        aad_len:         aad length
+
+    Returns 1 on success, 0 on failure. Nonce must be unique for each operation
+    with the same key. Reusing a nonce breaks security.
+
+opssl_aead_open(ctx, out, out_len, max_out, nonce, nonce_len, ciphertext, ciphertext_len, aad, aad_len):
+    Decrypt ciphertext and verify authentication tag. Uses constant-time
+    comparison to prevent timing attacks on tag verification.
+
+    Parameters:
+        out:              output buffer (must hold at least ciphertext_len - tag_len)
+        out_len:          written with plaintext length
+        max_out:          maximum output capacity
+        nonce:            same nonce used for encryption
+        nonce_len:        nonce length
+        ciphertext:       encrypted data + authentication tag
+        ciphertext_len:   total length (ciphertext + tag)
+        aad:              same aad used for encryption (can be NULL)
+        aad_len:          aad length
+
+    Returns 1 on successful decryption with valid tag, 0 if tag verification fails
+    or decryption fails. Plaintext is NOT written on failure.
+
+opssl_aead_key_len(algo), opssl_aead_nonce_len(algo), opssl_aead_tag_len(algo):
+    Query algorithm properties. Useful for buffer allocation.
+
+Algorithm Reference:
+
+    AES-128-GCM:           key=16 bytes, nonce=12 bytes, tag=16 bytes
+    AES-256-GCM:           key=32 bytes, nonce=12 bytes, tag=16 bytes
+    ChaCha20-Poly1305:     key=32 bytes, nonce=12 bytes, tag=16 bytes
+    AES-128-CCM:           key=16 bytes, nonce=7-13 bytes, tag=16 bytes
+    AES-256-CCM:           key=32 bytes, nonce=7-13 bytes, tag=16 bytes
+    AES-128-CCM_8:         key=16 bytes, nonce=7-13 bytes, tag=8 bytes
+    AES-256-CCM_8:         key=32 bytes, nonce=7-13 bytes, tag=8 bytes
+    Camellia-128-GCM:      key=16 bytes, nonce=12 bytes, tag=16 bytes
+    Camellia-256-GCM:      key=32 bytes, nonce=12 bytes, tag=16 bytes
+
+Example:
+    opssl_aead_ctx_t *ctx = opssl_aead_new(OPSSL_AEAD_AES_256_GCM);
+    opssl_aead_set_key(ctx, key, 32);
+
+    uint8_t nonce[12];
+    opssl_random(nonce, sizeof(nonce));
+
+    uint8_t ciphertext[plaintext_len + 16];
+    size_t ct_len;
+    opssl_aead_seal(ctx, ciphertext, &ct_len, sizeof(ciphertext),
+                    nonce, sizeof(nonce), plaintext, plaintext_len,
+                    aad, aad_len);
+
+    /* Later, decrypt: */
+    uint8_t decrypted[plaintext_len];
+    size_t pt_len;
+    if (opssl_aead_open(ctx, decrypted, &pt_len, sizeof(decrypted),
+                        nonce, sizeof(nonce), ciphertext, ct_len,
+                        aad, aad_len) == 1) {
+        /* Tag verified, plaintext valid */
+    }
+
+    opssl_aead_free(ctx);
+
+
+KEY EXCHANGE
+============
+
+X25519 (Elliptic Curve Diffie-Hellman over Curve25519)
+
+    #define OPSSL_X25519_KEY_LEN     32
+    #define OPSSL_X25519_SHARED_LEN  32
+
+    int opssl_x25519_keygen(uint8_t priv[OPSSL_X25519_KEY_LEN],
+                            uint8_t pub[OPSSL_X25519_KEY_LEN]);
+    int opssl_x25519_derive(uint8_t shared[OPSSL_X25519_SHARED_LEN],
+                            const uint8_t priv[OPSSL_X25519_KEY_LEN],
+                            const uint8_t peer_pub[OPSSL_X25519_KEY_LEN]);
+
+X25519 is a modern elliptic curve Diffie-Hellman key agreement. It is the
+recommended choice for ephemeral key exchange in TLS 1.3.
+
+opssl_x25519_keygen(priv, pub):
+    Generate a fresh X25519 key pair. Returns 1 on success, 0 on RNG failure.
+
+opssl_x25519_derive(shared, priv, peer_pub):
+    Compute shared secret from your private key and peer's public key.
+    Produces 32 bytes of shared secret suitable for use with HKDF or KDF.
+    Returns 1 on success, 0 on failure.
+
+Example (Alice and Bob):
+    /* Alice: */
+    uint8_t alice_priv[OPSSL_X25519_KEY_LEN];
+    uint8_t alice_pub[OPSSL_X25519_KEY_LEN];
+    opssl_x25519_keygen(alice_priv, alice_pub);
+    /* send alice_pub to Bob */
+
+    /* Bob: */
+    uint8_t bob_priv[OPSSL_X25519_KEY_LEN];
+    uint8_t bob_pub[OPSSL_X25519_KEY_LEN];
+    opssl_x25519_keygen(bob_priv, bob_pub);
+    /* send bob_pub to Alice */
+
+    /* Derive shared secrets: */
+    uint8_t alice_secret[OPSSL_X25519_SHARED_LEN];
+    opssl_x25519_derive(alice_secret, alice_priv, bob_pub);
+
+    uint8_t bob_secret[OPSSL_X25519_SHARED_LEN];
+    opssl_x25519_derive(bob_secret, bob_priv, alice_pub);
+    /* alice_secret == bob_secret */
+
+
+ECDH (Elliptic Curve Diffie-Hellman, NIST Curves)
+
+    typedef struct opssl_ecdh_ctx opssl_ecdh_ctx_t;
+
+    typedef enum {
+        OPSSL_CURVE_P256,
+        OPSSL_CURVE_P384,
+        OPSSL_CURVE_P521,
+    } opssl_curve_t;
+
+    opssl_ecdh_ctx_t *opssl_ecdh_new(opssl_curve_t curve);
+    int  opssl_ecdh_keygen(opssl_ecdh_ctx_t *ctx);
+    int  opssl_ecdh_get_public(opssl_ecdh_ctx_t *ctx, uint8_t *pub, size_t *pub_len);
+    int  opssl_ecdh_derive(opssl_ecdh_ctx_t *ctx,
+                           const uint8_t *peer_pub, size_t peer_pub_len,
+                           uint8_t *shared, size_t *shared_len);
+    void opssl_ecdh_free(opssl_ecdh_ctx_t *ctx);
+
+ECDH supports NIST curves P-256 (secp256r1), P-384 (secp384r1), and P-521
+(secp521r1). These curves are used in TLS 1.2 and TLS 1.3.
+
+Context Lifecycle:
+    1. opssl_ecdh_new(curve) — allocate context for curve
+    2. opssl_ecdh_keygen(ctx) — generate key pair
+    3. opssl_ecdh_get_public(ctx, ...) — export public key
+    4. opssl_ecdh_derive(ctx, peer_pub, ...) — compute shared secret
+    5. opssl_ecdh_free(ctx) — deallocate and zero private key
+
+opssl_ecdh_new(curve):
+    Allocate context for P-256, P-384, or P-521. Returns NULL on failure.
+
+opssl_ecdh_keygen(ctx):
+    Generate a fresh key pair. Returns 1 on success, 0 on failure.
+
+opssl_ecdh_get_public(ctx, pub, pub_len):
+    Export the public key (uncompressed point format). pub_len is written with
+    actual size: 65 bytes for P-256, 97 for P-384, 133 for P-521.
+    Returns 1 on success, 0 on failure.
+
+opssl_ecdh_derive(ctx, peer_pub, peer_pub_len, shared, shared_len):
+    Compute shared secret. shared_len is written with size: 32 bytes for P-256,
+    48 for P-384, 66 for P-521. Returns 1 on success, 0 on invalid peer public key.
+
+Key Sizes:
+    P-256:  public key = 65 bytes, shared secret = 32 bytes
+    P-384:  public key = 97 bytes, shared secret = 48 bytes
+    P-521:  public key = 133 bytes, shared secret = 66 bytes
+
+
+Finite Field Diffie-Hellman (FFDHE)
+
+    typedef struct opssl_ffdh_ctx opssl_ffdh_ctx_t;
+
+    typedef enum {
+        OPSSL_FFDHE_2048,
+        OPSSL_FFDHE_3072,
+        OPSSL_FFDHE_4096,
+    } opssl_ffdhe_group_t;
+
+    opssl_ffdh_ctx_t *opssl_ffdh_new(opssl_ffdhe_group_t group);
+    int  opssl_ffdh_keygen(opssl_ffdh_ctx_t *ctx);
+    int  opssl_ffdh_get_public(opssl_ffdh_ctx_t *ctx, uint8_t *pub, size_t *pub_len);
+    int  opssl_ffdh_derive(opssl_ffdh_ctx_t *ctx,
+                           const uint8_t *peer_pub, size_t peer_pub_len,
+                           uint8_t *shared, size_t *shared_len);
+    void opssl_ffdh_free(opssl_ffdh_ctx_t *ctx);
+
+FFDHE (Finite Field DH with Standard Groups) supports 2048-bit, 3072-bit, and
+4096-bit groups as defined in RFC 7919. Used in TLS 1.2 DHE cipher suites.
+
+Context Lifecycle (same as ECDH):
+    1. opssl_ffdh_new(group) — allocate for 2048, 3072, or 4096-bit group
+    2. opssl_ffdh_keygen(ctx) — generate key pair
+    3. opssl_ffdh_get_public(ctx, ...) — export public key
+    4. opssl_ffdh_derive(ctx, peer_pub, ...) — compute shared secret
+    5. opssl_ffdh_free(ctx) — deallocate and zero
+
+Key Sizes:
+    FFDHE-2048:  public key = 256 bytes, shared secret = 256 bytes
+    FFDHE-3072:  public key = 384 bytes, shared secret = 384 bytes
+    FFDHE-4096:  public key = 512 bytes, shared secret = 512 bytes
+
+
+ML-KEM (Module-Lattice-Based Key-Encapsulation Mechanism)
+
+    #define OPSSL_MLKEM768_PK_LEN    1184
+    #define OPSSL_MLKEM768_SK_LEN    2400
+    #define OPSSL_MLKEM768_CT_LEN    1088
+    #define OPSSL_MLKEM768_SS_LEN    32
+
+    #define OPSSL_MLKEM1024_PK_LEN   1568
+    #define OPSSL_MLKEM1024_SK_LEN   3168
+    #define OPSSL_MLKEM1024_CT_LEN   1568
+    #define OPSSL_MLKEM1024_SS_LEN   32
+
+    typedef enum {
+        OPSSL_MLKEM_768,
+        OPSSL_MLKEM_1024,
+    } opssl_mlkem_level_t;
+
+    typedef struct opssl_mlkem_ctx opssl_mlkem_ctx_t;
+
+    opssl_mlkem_ctx_t *opssl_mlkem_new(opssl_mlkem_level_t level);
+    int  opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx);
+    int  opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx,
+                            const uint8_t *pk, size_t pk_len,
+                            uint8_t *ct, size_t *ct_len,
+                            uint8_t *ss, size_t *ss_len);
+    int  opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx,
+                            const uint8_t *ct, size_t ct_len,
+                            uint8_t *ss, size_t *ss_len);
+    int  opssl_mlkem_get_public(opssl_mlkem_ctx_t *ctx, uint8_t *pk, size_t *pk_len);
+    void opssl_mlkem_free(opssl_mlkem_ctx_t *ctx);
+
+ML-KEM is a post-quantum key encapsulation mechanism (NIST FIPS 203). It is
+used in hybrid key exchange with X25519 or ECDH to provide security against
+future quantum attacks.
+
+Context Lifecycle:
+    1. opssl_mlkem_new(level) — allocate for ML-KEM-768 or ML-KEM-1024
+    2. opssl_mlkem_keygen(ctx) — generate key pair
+    3. opssl_mlkem_get_public(ctx, ...) — export public key
+
+For the encapsulator (initiator):
+    4a. opssl_mlkem_encaps(ctx, peer_pk, ...) — encapsulate and get shared secret
+
+For the decapsulator (responder):
+    4b. opssl_mlkem_decaps(ctx, ciphertext, ...) — decapsulate and recover shared secret
+
+    5. opssl_mlkem_free(ctx) — deallocate
+
+opssl_mlkem_new(level):
+    Allocate context for ML-KEM-768 (128-bit security) or ML-KEM-1024
+    (192-bit security). Returns NULL on failure.
+
+opssl_mlkem_keygen(ctx):
+    Generate a fresh key pair. Returns 1 on success, 0 on failure.
+
+opssl_mlkem_get_public(ctx, pk, pk_len):
+    Export the public key. pk_len is written with size: 1184 for ML-KEM-768,
+    1568 for ML-KEM-1024. Returns 1 on success.
+
+opssl_mlkem_encaps(ctx, pk, pk_len, ct, ct_len, ss, ss_len):
+    Encapsulate: given a peer's public key, produce a ciphertext and shared secret.
+    This is used by the party initiating key exchange.
+
+    Parameters:
+        pk:       peer's public key (1184 or 1568 bytes)
+        pk_len:   public key length
+        ct:       output ciphertext buffer (1088 or 1568 bytes)
+        ct_len:   written with ciphertext size
+        ss:       output shared secret (32 bytes)
+        ss_len:   written with shared secret size (always 32)
+
+    Returns 1 on success, 0 on failure.
+
+opssl_mlkem_decaps(ctx, ct, ct_len, ss, ss_len):
+    Decapsulate: given a ciphertext, recover the shared secret using the private key.
+    This is used by the party that generated the key pair.
+
+    Parameters:
+        ct:       ciphertext (1088 or 1568 bytes)
+        ct_len:   ciphertext length
+        ss:       output shared secret (32 bytes)
+        ss_len:   written with shared secret size (always 32)
+
+    Returns 1 on success, 0 on failure (decapsulation error).
+
+Key Sizes:
+    ML-KEM-768:  pk=1184 bytes, sk=2400 bytes, ct=1088 bytes, ss=32 bytes
+    ML-KEM-1024: pk=1568 bytes, sk=3168 bytes, ct=1568 bytes, ss=32 bytes
+
+Example (Hybrid X25519 + ML-KEM-768):
+    /* Alice (initiator): */
+    opssl_x25519_keygen(x25519_priv_a, x25519_pub_a);
+    opssl_mlkem_ctx_t *mlkem_a = opssl_mlkem_new(OPSSL_MLKEM_768);
+    opssl_mlkem_keygen(mlkem_a);
+
+    uint8_t mlkem_pub_a[OPSSL_MLKEM768_PK_LEN];
+    size_t mlkem_pub_len;
+    opssl_mlkem_get_public(mlkem_a, mlkem_pub_a, &mlkem_pub_len);
+    /* send x25519_pub_a and mlkem_pub_a to Bob */
+
+    /* Bob (responder): */
+    opssl_x25519_keygen(x25519_priv_b, x25519_pub_b);
+    opssl_mlkem_ctx_t *mlkem_b = opssl_mlkem_new(OPSSL_MLKEM_768);
+    opssl_mlkem_keygen(mlkem_b);
+
+    uint8_t mlkem_pub_b[OPSSL_MLKEM768_PK_LEN];
+    size_t mlkem_pub_len;
+    opssl_mlkem_get_public(mlkem_b, mlkem_pub_b, &mlkem_pub_len);
+
+    /* Bob encapsulates: */
+    uint8_t mlkem_ct[OPSSL_MLKEM768_CT_LEN];
+    size_t mlkem_ct_len;
+    uint8_t mlkem_ss[OPSSL_MLKEM768_SS_LEN];
+    size_t mlkem_ss_len;
+    opssl_mlkem_encaps(mlkem_b, mlkem_pub_a, OPSSL_MLKEM768_PK_LEN,
+                       mlkem_ct, &mlkem_ct_len, mlkem_ss, &mlkem_ss_len);
+
+    /* Bob derives shared secret: */
+    uint8_t x25519_shared[OPSSL_X25519_SHARED_LEN];
+    opssl_x25519_derive(x25519_shared, x25519_priv_b, x25519_pub_a);
+
+    /* Combine both secrets for final key derivation via HKDF */
+    /* send x25519_pub_b and mlkem_ct to Alice */
+
+    /* Alice decapsulates: */
+    uint8_t mlkem_ss[OPSSL_MLKEM768_SS_LEN];
+    size_t mlkem_ss_len;
+    opssl_mlkem_decaps(mlkem_a, mlkem_ct, mlkem_ct_len, mlkem_ss, &mlkem_ss_len);
+
+    /* Alice derives shared secret: */
+    uint8_t x25519_shared[OPSSL_X25519_SHARED_LEN];
+    opssl_x25519_derive(x25519_shared, x25519_priv_a, x25519_pub_b);
+
+    /* Both derive the same combined secret from x25519_shared + mlkem_ss */
+    opssl_mlkem_free(mlkem_a);
+    opssl_mlkem_free(mlkem_b);
+
+
+DIGITAL SIGNATURES
+==================
+
+Ed25519 (Edwards Curve Digital Signature Algorithm)
+
+    #define OPSSL_ED25519_PK_LEN    32
+    #define OPSSL_ED25519_SK_LEN    64
+    #define OPSSL_ED25519_SIG_LEN   64
+
+    int opssl_ed25519_keygen(uint8_t pk[OPSSL_ED25519_PK_LEN],
+                             uint8_t sk[OPSSL_ED25519_SK_LEN]);
+    int opssl_ed25519_sign(uint8_t sig[OPSSL_ED25519_SIG_LEN],
+                           const uint8_t *msg, size_t msg_len,
+                           const uint8_t sk[OPSSL_ED25519_SK_LEN]);
+    int opssl_ed25519_verify(const uint8_t sig[OPSSL_ED25519_SIG_LEN],
+                             const uint8_t *msg, size_t msg_len,
+                             const uint8_t pk[OPSSL_ED25519_PK_LEN]);
+
+Ed25519 is a modern digital signature algorithm based on the Edwards curve.
+It offers high security, small keys and signatures, and is immune to many side
+channels. Signing is deterministic (RFC 8032).
+
+opssl_ed25519_keygen(pk, sk):
+    Generate a fresh key pair. pk is 32 bytes, sk is 64 bytes (seed + prefix).
+    Returns 1 on success, 0 on RNG failure.
+
+opssl_ed25519_sign(sig, msg, msg_len, sk):
+    Sign a message with the secret key. Produces a 64-byte signature.
+    Signing is deterministic; the same (msg, sk) always produces the same signature.
+    Returns 1 on success, 0 on failure.
+
+opssl_ed25519_verify(sig, msg, msg_len, pk):
+    Verify a signature against a message and public key. Returns 1 if valid,
+    0 if invalid. Tag verification is constant-time.
+
+Example:
+    uint8_t pk[OPSSL_ED25519_PK_LEN];
+    uint8_t sk[OPSSL_ED25519_SK_LEN];
+    opssl_ed25519_keygen(pk, sk);
+
+    uint8_t sig[OPSSL_ED25519_SIG_LEN];
+    opssl_ed25519_sign(sig, message, message_len, sk);
+
+    if (opssl_ed25519_verify(sig, message, message_len, pk) == 1) {
+        /* Signature valid */
+    }
+
+
+ECDSA (Elliptic Curve Digital Signature Algorithm)
+
+    typedef struct opssl_ecdsa_ctx opssl_ecdsa_ctx_t;
+
+    opssl_ecdsa_ctx_t *opssl_ecdsa_new(opssl_curve_t curve);
+    int  opssl_ecdsa_keygen(opssl_ecdsa_ctx_t *ctx);
+    int  opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx,
+                          const uint8_t *digest, size_t digest_len,
+                          uint8_t *sig, size_t *sig_len);
+    int  opssl_ecdsa_verify(opssl_ecdsa_ctx_t *ctx,
+                            const uint8_t *digest, size_t digest_len,
+                            const uint8_t *sig, size_t sig_len);
+    int  opssl_ecdsa_set_public(opssl_ecdsa_ctx_t *ctx, const uint8_t *pub, size_t pub_len);
+    int  opssl_ecdsa_set_private(opssl_ecdsa_ctx_t *ctx, const uint8_t *priv, size_t priv_len);
+    void opssl_ecdsa_free(opssl_ecdsa_ctx_t *ctx);
+
+ECDSA is the standard elliptic curve signature algorithm. It works on P-256,
+P-384, and P-521 curves. Unlike Ed25519, ECDSA requires a pre-computed hash
+digest and uses RFC 6979 deterministic nonces (not random).
+
+Context Lifecycle:
+    1. opssl_ecdsa_new(curve) — allocate for P-256, P-384, or P-521
+    2. opssl_ecdsa_keygen(ctx) or set_public/set_private
+    3. opssl_ecdsa_sign() or opssl_ecdsa_verify()
+    4. opssl_ecdsa_free(ctx)
+
+opssl_ecdsa_new(curve):
+    Allocate context for a NIST curve. Returns NULL on failure.
+
+opssl_ecdsa_keygen(ctx):
+    Generate a fresh key pair. Returns 1 on success, 0 on failure.
+
+opssl_ecdsa_set_public(ctx, pub, pub_len):
+    Import a peer's public key (for verification only). Format is uncompressed
+    point (65 bytes for P-256, 97 for P-384, 133 for P-521). Returns 1 on success.
+
+opssl_ecdsa_set_private(ctx, priv, priv_len):
+    Import a private key (32 bytes for P-256, 48 for P-384, 66 for P-521).
+    Returns 1 on success. Zeros the input priv after reading.
+
+opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len):
+    Sign a message digest. digest should be the output of SHA-256 (32 bytes),
+    SHA-384 (48 bytes), etc. Signature is DER-encoded and variable length
+    (typically 70-72 bytes for P-256). sig_len is written with actual size.
+    Nonces are deterministic (RFC 6979). Returns 1 on success, 0 on failure.
+
+opssl_ecdsa_verify(ctx, digest, digest_len, sig, sig_len):
+    Verify a signature against a message digest and public key.
+    Returns 1 if valid, 0 if invalid. Constant-time verification.
+
+Signature Sizes (DER-encoded, typically):
+    P-256:  70-72 bytes (r and s are each ~32 bytes)
+    P-384:  104-106 bytes (r and s are each ~48 bytes)
+    P-521:  139-141 bytes (r and s are each ~66 bytes)
+
+Example:
+    /* Generate key pair */
+    opssl_ecdsa_ctx_t *ctx = opssl_ecdsa_new(OPSSL_CURVE_P256);
+    opssl_ecdsa_keygen(ctx);
+
+    /* Hash message */
+    uint8_t digest[OPSSL_SHA256_DIGEST_LEN];
+    opssl_sha256(message, message_len, digest);
+
+    /* Sign */
+    uint8_t sig[72];  /* maximum size for P-256 */
+    size_t sig_len;
+    opssl_ecdsa_sign(ctx, digest, OPSSL_SHA256_DIGEST_LEN, sig, &sig_len);
+
+    /* Verify */
+    if (opssl_ecdsa_verify(ctx, digest, OPSSL_SHA256_DIGEST_LEN, sig, sig_len)) {
+        /* Valid signature */
+    }
+
+    opssl_ecdsa_free(ctx);
+
+
+RSA (Rivest-Shamir-Adleman)
+
+    typedef struct opssl_rsa_ctx opssl_rsa_ctx_t;
+
+    typedef enum {
+        OPSSL_RSA_PKCS1_V15,
+        OPSSL_RSA_PSS,
+    } opssl_rsa_padding_t;
+
+    opssl_rsa_ctx_t *opssl_rsa_new(void);
+    int  opssl_rsa_load_private_key(opssl_rsa_ctx_t *ctx, const uint8_t *der, size_t len);
+    int  opssl_rsa_load_public_key(opssl_rsa_ctx_t *ctx, const uint8_t *der, size_t len);
+    int  opssl_rsa_sign(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad,
+                        opssl_hmac_algo_t hash,
+                        const uint8_t *digest, size_t digest_len,
+                        uint8_t *sig, size_t *sig_len);
+    int  opssl_rsa_verify(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad,
+                          opssl_hmac_algo_t hash,
+                          const uint8_t *digest, size_t digest_len,
+                          const uint8_t *sig, size_t sig_len);
+    size_t opssl_rsa_size(const opssl_rsa_ctx_t *ctx);
+    void opssl_rsa_free(opssl_rsa_ctx_t *ctx);
+
+RSA is the classic public-key signature algorithm. opssl supports PKCS#1 v1.5
+and PSS padding schemes with SHA-256, SHA-384, or SHA-512. Keys are loaded from
+DER format (PKCS#1 for private keys, X.509 SubjectPublicKeyInfo for public keys).
+
+Signature operations use constant-time blinding to prevent side-channel attacks.
+
+Context Lifecycle:
+    1. opssl_rsa_new() — allocate context
+    2. opssl_rsa_load_private_key() or load_public_key()
+    3. opssl_rsa_sign() or opssl_rsa_verify()
+    4. opssl_rsa_free(ctx)
+
+opssl_rsa_new():
+    Allocate an RSA context. Returns NULL on failure.
+
+opssl_rsa_load_private_key(ctx, der, len):
+    Load a private key from DER (PKCS#1 RSAPrivateKey). Returns 1 on success,
+    0 on parse error. Key is copied to secure memory; der is not zeroed.
+
+opssl_rsa_load_public_key(ctx, der, len):
+    Load a public key from DER (X.509 SubjectPublicKeyInfo). Returns 1 on success.
+
+opssl_rsa_sign(ctx, pad, hash, digest, digest_len, sig, sig_len):
+    Sign a pre-computed digest.
+
+    Parameters:
+        pad:         OPSSL_RSA_PKCS1_V15 or OPSSL_RSA_PSS
+        hash:        OPSSL_HMAC_SHA256, OPSSL_HMAC_SHA384, or OPSSL_HMAC_SHA512
+        digest:      message digest (output of SHA-256/384/512)
+        digest_len:  digest length
+        sig:         output signature buffer
+        sig_len:     written with signature size (equal to key modulus size)
+
+    Returns 1 on success, 0 on failure.
+
+opssl_rsa_verify(ctx, pad, hash, digest, digest_len, sig, sig_len):
+    Verify a signature against a message digest and public key. Padding and hash
+    algorithm must match those used during signing. Returns 1 if valid,
+    0 if invalid. Verification uses constant-time comparison.
+
+opssl_rsa_size(ctx):
+    Return the RSA modulus size in bytes (e.g., 256 for 2048-bit RSA,
+    512 for 4096-bit).
+
+Example (PSS padding):
+    opssl_rsa_ctx_t *ctx = opssl_rsa_new();
+    opssl_rsa_load_private_key(ctx, private_key_der, private_key_len);
+
+    uint8_t digest[OPSSL_SHA256_DIGEST_LEN];
+    opssl_sha256(message, message_len, digest);
+
+    size_t sig_size = opssl_rsa_size(ctx);
+    uint8_t sig[sig_size];
+    size_t sig_len;
+    opssl_rsa_sign(ctx, OPSSL_RSA_PSS, OPSSL_HMAC_SHA256,
+                   digest, OPSSL_SHA256_DIGEST_LEN, sig, &sig_len);
+
+    opssl_rsa_free(ctx);
+
+
+BASE64 ENCODING
+===============
+
+    int opssl_base64_encode(const uint8_t *in, size_t in_len, char *out, size_t *out_len);
+    int opssl_base64_decode(const char *in, size_t in_len, uint8_t *out, size_t *out_len);
+
+Standard Base64 encoding and decoding (RFC 4648, no URL-safe variant).
+
+opssl_base64_encode(in, in_len, out, out_len):
+    Encode binary data to Base64 text. out_len is written with output size.
+    Caller must ensure out has space for at least (in_len * 4 / 3 + 4) bytes.
+    Returns 1 on success, 0 on failure.
+
+opssl_base64_decode(in, in_len, out, out_len):
+    Decode Base64 text to binary. in_len can include whitespace (ignored).
+    out_len is written with output size. Caller must ensure out has space for at
+    least (in_len * 3 / 4) bytes. Returns 1 on success, 0 on invalid input.
+
+Example:
+    const uint8_t data[] = "hello";
+    char encoded[16];
+    size_t encoded_len;
+    opssl_base64_encode(data, 5, encoded, &encoded_len);
+    /* encoded_len == 8, encoded = "aGVsbG8=" */
+
+    uint8_t decoded[16];
+    size_t decoded_len;
+    opssl_base64_decode(encoded, encoded_len, decoded, &decoded_len);
+    /* decoded_len == 5, decoded = "hello" */
+
+
+ML-DSA (Module-Lattice-Based Digital Signature Algorithm)
+=========================================================
+
+    #define OPSSL_MLDSA65_PK_LEN    1952
+    #define OPSSL_MLDSA65_SK_LEN    4032
+    #define OPSSL_MLDSA65_SIG_LEN   3309
+
+    int opssl_mldsa65_keygen(uint8_t pk[OPSSL_MLDSA65_PK_LEN],
+                             uint8_t sk[OPSSL_MLDSA65_SK_LEN]);
+    int opssl_mldsa65_sign(uint8_t sig[OPSSL_MLDSA65_SIG_LEN],
+                           const uint8_t *msg, size_t msg_len,
+                           const uint8_t sk[OPSSL_MLDSA65_SK_LEN]);
+    int opssl_mldsa65_verify(const uint8_t sig[OPSSL_MLDSA65_SIG_LEN],
+                             const uint8_t *msg, size_t msg_len,
+                             const uint8_t pk[OPSSL_MLDSA65_PK_LEN]);
+
+ML-DSA (NIST FIPS 204) is a post-quantum digital signature algorithm. ML-DSA-65
+provides NIST Security Level 3 (equivalent to AES-192). Keys and signatures are
+large but offer security against future quantum computers.
+
+opssl_mldsa65_keygen(pk, sk):
+    Generate a fresh key pair. pk is 1952 bytes, sk is 4032 bytes.
+    Returns 1 on success, 0 on failure.
+
+opssl_mldsa65_sign(sig, msg, msg_len, sk):
+    Sign a message. Signature is deterministic (zero-randomness hedged signing
+    per FIPS 204). Produces a 3309-byte signature. Returns 1 on success.
+
+opssl_mldsa65_verify(sig, msg, msg_len, pk):
+    Verify a signature. Returns 1 if valid, 0 if invalid.
+
+Example:
+    uint8_t pk[OPSSL_MLDSA65_PK_LEN];
+    uint8_t sk[OPSSL_MLDSA65_SK_LEN];
+    opssl_mldsa65_keygen(pk, sk);
+
+    uint8_t sig[OPSSL_MLDSA65_SIG_LEN];
+    opssl_mldsa65_sign(sig, message, message_len, sk);
+
+    if (opssl_mldsa65_verify(sig, message, message_len, pk) == 1) {
+        /* Signature valid */
+    }
+
+
+THREAD SAFETY & CONTEXT CLEANUP
+================================
+
+All public functions are thread-safe for concurrent calls on different contexts.
+Contexts themselves are NOT thread-safe; each thread must use its own context.
+
+Key Material Cleanup:
+- All hash contexts are automatically zeroed by *_final() or *_cleanup().
+- AEAD contexts are zeroed by opssl_aead_free().
+- HMAC contexts are zeroed by opssl_hmac_final() or opssl_hmac_cleanup().
+- ECDH, FFDHE, ML-KEM, ECDSA, and RSA contexts zero private keys on free().
+- Explicit zeroing uses explicit_bzero() or equivalent for side-channel protection.
+
+Best Practices:
+- Call *_free() or *_cleanup() on all allocated contexts.
+- Never call free() directly on an opaque context; use the library's cleanup.
+- Clear sensitive input (passwords, private keys) manually after use with
+  explicit_bzero().
+- Nonces in AEAD must be unique per key; reusing a nonce is catastrophic.
+
+
+CONSTANT-TIME PROPERTIES
+=========================
+
+Operations with secret-dependent timing risks are implemented in constant time:
+
+- AEAD tag verification (all algorithms)
+- HMAC generation and verification
+- ECC scalar multiplication
+- RSA blinding and decryption
+- Comparison of message authentication codes and tags
+
+Operations not in constant time:
+- AEAD encryption (only decryption tag check is constant-time)
+- Hash computation (publicly computable)
+- Public key operations (keys are public)
+
+
+RETURN CONVENTIONS
+==================
+
+All functions follow consistent return conventions:
+
+    int-returning functions:
+        1 = success
+        0 = failure (invalid parameters, decryption failure, etc.)
+
+    ssize_t-returning functions (see opssl/conn.h):
+        > 0 = bytes transferred
+        < 0 = error
+
+    void functions:
+        No return value; always succeed (or fail silently internally)
+        For I/O operations, use non-blocking variants that return status codes
+
+Example:
+    int ret = opssl_sha256_init(&ctx);  /* always succeeds, no return check needed */
+    opssl_sha256_update(&ctx, data, len);
+    opssl_sha256_final(&ctx, hash);
+
+    int ret = opssl_aead_open(...);
+    if (ret != 1) {
+        /* Authentication failure or invalid parameters */
+    }
+
+    uint8_t key[32];
+    size_t key_len = sizeof(key);
+    int ret = opssl_base64_decode(encoded, encoded_len, key, &key_len);
+    if (ret != 1) {
+        /* Invalid Base64 input */
+    }

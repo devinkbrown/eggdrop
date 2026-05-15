@@ -216,6 +216,12 @@ extern opssl_named_group_t opssl_tls13_get_negotiated_group(void *hs_opaque);
 
 /* Inject the signing key from ctx into the TLS 1.2 handshake state */
 extern void opssl_tls12_set_sign_key(void *hs_opaque, const opssl_pkey_t *key);
+extern bool opssl_ciphersuite_get_params(opssl_ciphersuite_t id,
+                             opssl_aead_algo_t *aead,
+                             opssl_hmac_algo_t *hash,
+                             size_t *key_len,
+                             size_t *iv_len,
+                             size_t *tag_len);
 extern void opssl_tls12_set_sni(void *hs_opaque, const char *hostname);
 extern const char *opssl_tls12_get_sni(void *hs_opaque);
 extern void opssl_tls12_set_alpn_offer(void *hs_opaque, const char **protos, size_t count);
@@ -238,6 +244,7 @@ extern void opssl_tls13_set_psk(void *hs_opaque, const uint8_t *psk, size_t psk_
                                 const uint8_t *ticket, size_t ticket_len);
 extern const uint8_t *opssl_tls13_get_resumption_master_secret(void *hs_opaque, size_t *out_len);
 extern opssl_hmac_algo_t opssl_tls13_get_hash_algo(void *hs_opaque);
+extern void opssl_tls13_request_client_cert(void *hs_opaque, bool request);
 
 /* External: ctx accessors (defined in ctx.c) */
 extern opssl_pkey_t *opssl_ctx_get_private_key(opssl_ctx_t *ctx);
@@ -421,9 +428,10 @@ opssl_result_t opssl_accept(opssl_conn_t *conn)
                 }
 
                 conn->read_len = 0;
-                if (result != OPSSL_OK) {
+                if (result == OPSSL_WANT_READ)
+                    continue;
+                if (result != OPSSL_OK)
                     return result;
-                }
                 break;
 
             case TLS_RT_CHANGE_CIPHER_SPEC:
@@ -495,8 +503,9 @@ opssl_result_t opssl_connect(opssl_conn_t *conn)
         size_t record_len;
 
         result = read_record(conn, &record_type, &record_data, &record_len);
-        if (result != OPSSL_OK)
+        if (result != OPSSL_OK) {
             return result;
+        }
 
         switch (record_type) {
         case TLS_RT_HANDSHAKE:
@@ -506,8 +515,9 @@ opssl_result_t opssl_connect(opssl_conn_t *conn)
                 result = handle_tls12_handshake(conn);
             }
             conn->read_len = 0;
-            if (result != OPSSL_OK)
+            if (result != OPSSL_OK) {
                 return result;
+            }
             break;
 
         case TLS_RT_CHANGE_CIPHER_SPEC:
@@ -516,9 +526,11 @@ opssl_result_t opssl_connect(opssl_conn_t *conn)
 
         case TLS_RT_ALERT:
             conn->read_len = 0;
-            if (record_len >= 2 && record_data[0] == 2) {
-                conn->last_error = OPSSL_ERR_PEER_ALERT;
-                return OPSSL_ERROR;
+            if (record_len >= 2) {
+                if (record_data[0] == 2) {
+                    conn->last_error = OPSSL_ERR_PEER_ALERT;
+                    return OPSSL_ERROR;
+                }
             }
             break;
 
@@ -648,12 +660,14 @@ ssize_t opssl_write(opssl_conn_t *conn, const void *buf, size_t len)
             chunk_size = TLS_MAX_RECORD_LEN;
         }
 
+        uint64_t seq_before = conn->write_seq;
         opssl_result_t result = write_record(conn, TLS_RT_APPLICATION_DATA,
                                            data + written, chunk_size);
         if (result == OPSSL_WANT_WRITE) {
-            if (written > 0) {
-                return written; /* Partial write */
-            }
+            if (conn->write_seq != seq_before)
+                written += chunk_size;
+            if (written > 0)
+                return (ssize_t)written;
             errno = EAGAIN;
             return -1;
         } else if (result != OPSSL_OK) {
@@ -715,31 +729,6 @@ opssl_result_t opssl_conn_send_alert(opssl_conn_t *conn,
     return OPSSL_OK;
 }
 
-/* TLS 1.3 downgrade protection sentinels (RFC 8446 §4.1.3) */
-static const uint8_t tls13_downgrade_tls12[8] = {
-    0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x01
-};
-static const uint8_t tls13_downgrade_tls11[8] = {
-    0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x00
-};
-
-__attribute__((unused))
-static void
-apply_downgrade_sentinel(uint8_t server_random[32], opssl_tls_version_t negotiated)
-{
-    if (negotiated == OPSSL_TLS_1_2) {
-        memcpy(server_random + 24, tls13_downgrade_tls12, 8);
-    }
-}
-
-__attribute__((unused))
-static bool
-check_downgrade_sentinel(const uint8_t server_random[32])
-{
-    return memcmp(server_random + 24, tls13_downgrade_tls12, 8) == 0 ||
-           memcmp(server_random + 24, tls13_downgrade_tls11, 8) == 0;
-}
-
 /* Middlebox compatibility: send fake ChangeCipherSpec (RFC 8446 Appendix D.4) */
 static opssl_result_t
 send_fake_ccs(opssl_conn_t *conn)
@@ -761,15 +750,17 @@ keylog_emit(opssl_conn_t *conn, const char *label,
     opssl_keylog_cb cb = opssl_ctx_get_keylog_callback(conn->ctx, &ud);
     if (!cb) return;
 
-    char line[256];
+    char line[512];
     int off = snprintf(line, sizeof(line), "%s ", label);
+    if (off < 0 || (size_t)off >= sizeof(line)) return;
 
-    for (int i = 0; i < 32; i++)
+    for (int i = 0; i < 32 && (size_t)off < sizeof(line) - 2; i++)
         off += snprintf(line + off, sizeof(line) - off, "%02x", client_random[i]);
 
-    off += snprintf(line + off, sizeof(line) - off, " ");
+    if ((size_t)off < sizeof(line) - 1)
+        off += snprintf(line + off, sizeof(line) - off, " ");
 
-    for (size_t i = 0; i < secret_len; i++)
+    for (size_t i = 0; i < secret_len && (size_t)off < sizeof(line) - 2; i++)
         off += snprintf(line + off, sizeof(line) - off, "%02x", secret[i]);
 
     cb(line, ud);
@@ -904,7 +895,9 @@ int opssl_conn_set_write_key(opssl_conn_t *conn, const uint8_t *key, size_t len)
     conn->write_key_len = len;
     if (conn->write_cipher)
         opssl_aead_free(conn->write_cipher);
-    conn->write_cipher = opssl_aead_new(OPSSL_AEAD_AES_256_GCM);
+    opssl_aead_algo_t aead = OPSSL_AEAD_AES_256_GCM;
+    opssl_ciphersuite_get_params(conn->cipher, &aead, NULL, NULL, NULL, NULL);
+    conn->write_cipher = opssl_aead_new(aead);
     if (!conn->write_cipher) return -1;
     return opssl_aead_set_key(conn->write_cipher, key, len);
 }
@@ -926,7 +919,9 @@ int opssl_conn_set_read_key(opssl_conn_t *conn, const uint8_t *key, size_t len)
     conn->read_key_len = len;
     if (conn->read_cipher)
         opssl_aead_free(conn->read_cipher);
-    conn->read_cipher = opssl_aead_new(OPSSL_AEAD_AES_256_GCM);
+    opssl_aead_algo_t aead = OPSSL_AEAD_AES_256_GCM;
+    opssl_ciphersuite_get_params(conn->cipher, &aead, NULL, NULL, NULL, NULL);
+    conn->read_cipher = opssl_aead_new(aead);
     if (!conn->read_cipher) return -1;
     return opssl_aead_set_key(conn->read_cipher, key, len);
 }
@@ -1359,26 +1354,49 @@ opssl_result_t opssl_conn_drain_post_handshake(opssl_conn_t *conn)
                 break;
             }
 
-            case 24: /* key_update */
-                if (len >= 5) {
-                    /* Process key update - derive new read keys */
-                    extern int opssl_tls13_hkdf_expand_label(uint8_t *out, size_t out_len,
-                                                             const uint8_t *secret, size_t secret_len,
-                                                             const char *label,
-                                                             const uint8_t *context, size_t context_len,
-                                                             opssl_hmac_algo_t hash_algo);
+            case 24: { /* KeyUpdate (RFC 8446 §4.6.3) */
+                if (len < 5)
+                    break;
+                uint8_t update_requested = data[4];
 
-                    uint8_t new_secret[48];
-                    opssl_tls13_hkdf_expand_label(new_secret, conn->secret_len,
-                                                  conn->server_traffic_secret, conn->secret_len,
-                                                  "traffic upd", NULL, 0, OPSSL_HMAC_SHA256);
-                    memcpy(conn->server_traffic_secret, new_secret, conn->secret_len);
-                    opssl_memzero(new_secret, sizeof(new_secret));
+                extern int opssl_tls13_hkdf_expand_label(uint8_t *out, size_t out_len,
+                                                         const uint8_t *secret, size_t secret_len,
+                                                         const char *label,
+                                                         const uint8_t *context, size_t context_len,
+                                                         opssl_hmac_algo_t hash_algo);
 
-                    /* If peer requested update, we would send our own key update */
-                    /* (skip for now in drain function to avoid recursion) */
-                }
+                opssl_hmac_algo_t halgo_ku = opssl_tls13_get_hash_algo(conn->hs_buf);
+
+                uint8_t *peer_secret = (conn->dir == OPSSL_SERVER) ?
+                    conn->client_traffic_secret : conn->server_traffic_secret;
+
+                uint8_t new_secret[48];
+                opssl_tls13_hkdf_expand_label(new_secret, conn->secret_len,
+                                              peer_secret, conn->secret_len,
+                                              "traffic upd", NULL, 0, halgo_ku);
+                memcpy(peer_secret, new_secret, conn->secret_len);
+
+                uint8_t new_key[32], new_iv[12];
+                opssl_tls13_hkdf_expand_label(new_key, conn->read_key_len,
+                                              new_secret, conn->secret_len,
+                                              "key", NULL, 0, halgo_ku);
+                opssl_tls13_hkdf_expand_label(new_iv, 12,
+                                              new_secret, conn->secret_len,
+                                              "iv", NULL, 0, halgo_ku);
+
+                opssl_aead_set_key(conn->read_cipher, new_key, conn->read_key_len);
+                memcpy(conn->read_iv, new_iv, 12);
+                memcpy(conn->read_key, new_key, conn->read_key_len);
+                conn->read_seq = 0;
+
+                opssl_memzero(new_secret, sizeof(new_secret));
+                opssl_memzero(new_key, sizeof(new_key));
+                opssl_memzero(new_iv, sizeof(new_iv));
+
+                if (update_requested == 1)
+                    opssl_conn_key_update(conn, false);
                 break;
+            }
 
             default:
                 /* Unknown post-handshake message - ignore */
@@ -1413,27 +1431,26 @@ opssl_result_t opssl_conn_key_update(opssl_conn_t *conn, bool request_peer_updat
                                              const uint8_t *context, size_t context_len,
                                              opssl_hmac_algo_t hash_algo);
 
-    /* Derive new write traffic secret:
-     * new_secret = HKDF-Expand-Label(old_secret, "traffic upd", "", hash_len) */
     uint8_t *our_secret = (conn->dir == OPSSL_SERVER) ?
         conn->server_traffic_secret : conn->client_traffic_secret;
+
+    opssl_hmac_algo_t halgo_w = opssl_tls13_get_hash_algo(conn->hs_buf);
 
     uint8_t new_secret[48];
     if (opssl_tls13_hkdf_expand_label(new_secret, conn->secret_len,
                                        our_secret, conn->secret_len,
                                        "traffic upd", NULL, 0,
-                                       OPSSL_HMAC_SHA256) != 1)
+                                       halgo_w) != 1)
         return OPSSL_ERROR;
     memcpy(our_secret, new_secret, conn->secret_len);
 
-    /* Derive new write key and IV from new secret */
     uint8_t new_key[32], new_iv[12];
     if (opssl_tls13_hkdf_expand_label(new_key, conn->write_key_len,
                                        new_secret, conn->secret_len,
-                                       "key", NULL, 0, OPSSL_HMAC_SHA256) != 1 ||
+                                       "key", NULL, 0, halgo_w) != 1 ||
         opssl_tls13_hkdf_expand_label(new_iv, 12,
                                        new_secret, conn->secret_len,
-                                       "iv", NULL, 0, OPSSL_HMAC_SHA256) != 1) {
+                                       "iv", NULL, 0, halgo_w) != 1) {
         opssl_memzero(new_secret, sizeof(new_secret));
         return OPSSL_ERROR;
     }
@@ -1551,7 +1568,10 @@ static opssl_result_t read_record(opssl_conn_t *conn, uint8_t *type,
             aad[8] = *type;                         /* content type */
             aad[9] = 0x03; aad[10] = 0x03;         /* version */
             /* For TLS 1.2, plaintext length = ciphertext length - tag length */
-            size_t tag_len = opssl_aead_tag_len(OPSSL_AEAD_AES_256_GCM);
+            opssl_aead_algo_t wr_aead = OPSSL_AEAD_AES_256_GCM;
+            size_t tag_len = 16;
+            if (opssl_ciphersuite_get_params(conn->cipher, &wr_aead, NULL, NULL, NULL, &tag_len) && tag_len == 0)
+                tag_len = 16;
             size_t plaintext_len = record_len - tag_len;
             aad[11] = (plaintext_len >> 8) & 0xff;
             aad[12] = plaintext_len & 0xff;
@@ -1581,14 +1601,12 @@ static opssl_result_t read_record(opssl_conn_t *conn, uint8_t *type,
 
         *data = conn->read_buf + TLS_RECORD_HEADER_LEN;
         *len = plaintext_len;
+        conn->read_len = TLS_RECORD_HEADER_LEN + plaintext_len;
         conn->read_seq++;
     } else {
         *data = conn->read_buf + TLS_RECORD_HEADER_LEN;
         *len = record_len;
     }
-
-    /* Note: read_len is NOT reset here — callers must reset after processing.
-     * The handshake handlers use conn->read_len to know the record payload size. */
 
     return OPSSL_OK;
 }
@@ -1638,6 +1656,11 @@ static opssl_result_t write_record(opssl_conn_t *conn, uint8_t type,
         uint8_t inner_plaintext[16384 + 1];
         const uint8_t *pt = data;
         size_t pt_len = len;
+
+        if (len > 16384) {
+            conn->last_error = OPSSL_ERR_PROTOCOL;
+            return OPSSL_ERROR;
+        }
 
         if (conn->is_tls13) {
             memcpy(inner_plaintext, data, len);
@@ -1748,8 +1771,15 @@ static opssl_result_t handle_tls12_handshake(opssl_conn_t *conn)
             opssl_pkey_t *key = opssl_ctx_get_private_key(conn->ctx);
             if (key)
                 opssl_tls12_set_sign_key(conn->hs_buf, key);
+            extern void opssl_tls12_set_cert_chain(void *, const opssl_x509_chain_t *);
+            opssl_x509_chain_t *chain = opssl_ctx_get_cert_chain(conn->ctx);
+            if (chain)
+                opssl_tls12_set_cert_chain(conn->hs_buf, chain);
             if (alpn_protos && alpn_count > 0)
                 opssl_tls12_set_alpn_supported(conn->hs_buf, alpn_protos, alpn_count);
+            extern void opssl_tls12_set_tls13_capable(void *, bool);
+            if (opssl_ctx_supports_version(conn->ctx, OPSSL_TLS_1_3))
+                opssl_tls12_set_tls13_capable(conn->hs_buf, true);
         } else {
             if (conn->sni[0])
                 opssl_tls12_set_sni(conn->hs_buf, conn->sni);
@@ -1840,6 +1870,10 @@ static opssl_result_t handle_tls12_handshake(opssl_conn_t *conn)
             }
         }
 
+        /* Copy negotiated group from handshake state to connection */
+        extern opssl_named_group_t opssl_tls12_get_group(void *);
+        conn->group = opssl_tls12_get_group(conn->hs_buf);
+
         /* Copy negotiated ALPN from handshake state to connection */
         const char *hs_alpn = opssl_tls12_get_alpn(conn->hs_buf);
         if (hs_alpn) {
@@ -1901,10 +1935,12 @@ static void tls13_setup_handshake_cipher(opssl_conn_t *conn)
         return;
     }
 
+#ifdef OPSSL_DEBUG_SECRETS
     {
         extern void opssl_tls13_debug_dump_secrets(void *hs);
         opssl_tls13_debug_dump_secrets(conn->hs_buf);
     }
+#endif
 
     setup_cipher_contexts(conn, client_key, ckl, server_key, skl,
                          client_iv, cil, server_iv, sil, cipher);
@@ -1928,6 +1964,13 @@ static opssl_result_t handle_tls13_handshake(opssl_conn_t *conn)
                 opssl_tls13_set_psk(conn->hs_buf, conn->ticket_psk,
                                     conn->ticket_psk_len, conn->session_ticket,
                                     conn->session_ticket_len);
+            /* mTLS: make our cert available for CertificateRequest */
+            extern void opssl_tls13_set_client_cert(void *, const opssl_pkey_t *,
+                                                    const opssl_x509_chain_t *);
+            opssl_pkey_t *ckey = opssl_ctx_get_private_key(conn->ctx);
+            opssl_x509_chain_t *cchain = opssl_ctx_get_cert_chain(conn->ctx);
+            if (ckey && cchain)
+                opssl_tls13_set_client_cert(conn->hs_buf, ckey, cchain);
         } else {
             if (alpn_protos && alpn_count > 0)
                 opssl_tls13_set_alpn_supported(conn->hs_buf, alpn_protos, alpn_count);
@@ -1941,6 +1984,8 @@ static opssl_result_t handle_tls13_handshake(opssl_conn_t *conn)
                 opssl_tls13_set_psk(conn->hs_buf, conn->ticket_psk,
                                     conn->ticket_psk_len, conn->session_ticket,
                                     conn->session_ticket_len);
+            if (opssl_ctx_get_verify_peer(conn->ctx))
+                opssl_tls13_request_client_cert(conn->hs_buf, true);
         }
     }
 
@@ -1999,8 +2044,9 @@ static opssl_result_t handle_tls13_handshake(opssl_conn_t *conn)
             opssl_result_t ccs_rc = send_fake_ccs(conn);
             if (ccs_rc != OPSSL_OK) return ccs_rc;
 
-            if (!conn->write_encrypted)
+            if (!conn->write_encrypted) {
                 tls13_setup_handshake_cipher(conn);
+            }
         }
 
         /* Check the internal handshake state (first field of hs struct) */
@@ -2134,8 +2180,9 @@ static opssl_result_t handle_tls13_handshake(opssl_conn_t *conn)
             return OPSSL_OK;
         }
 
-        if (rc != OPSSL_OK || cur_state == prev_state)
+        if (rc != OPSSL_OK || cur_state == prev_state) {
             return (opssl_result_t)rc;
+        }
 
         first_pass = false;
     }
@@ -2299,6 +2346,10 @@ opssl_conn_set_session(opssl_conn_t *conn, const opssl_session_t *sess)
 {
     if (!conn || !sess || sess->ticket_len == 0)
         return 0;
+    if (sess->psk_len > sizeof(conn->ticket_psk))
+        return 0;
+    if (sess->ticket_len > sizeof(conn->session_ticket))
+        return 0;
 
     memcpy(conn->ticket_psk, sess->psk, sess->psk_len);
     conn->ticket_psk_len = sess->psk_len;
@@ -2428,7 +2479,6 @@ opssl_conn_verify_ocsp_response(opssl_conn_t *conn)
     if (!conn)
         return 0;
 
-    /* Extract OCSP response from TLS 1.3 handshake state if present */
     if (!conn->is_tls13 || !conn->hs_initialized)
         return 0;
 
@@ -2442,61 +2492,15 @@ opssl_conn_verify_ocsp_response(opssl_conn_t *conn)
     if (!resp || resp_len < 6)
         return 0;
 
-    /*
-     * OCSP BasicResponse validation (RFC 6960 §4.2.1):
-     * 1. Parse responseStatus (must be "successful" = 0)
-     * 2. Parse responseBytes → BasicOCSPResponse
-     * 3. Verify signature against issuer CA
-     * 4. Check certStatus (good=0, revoked=1, unknown=2)
-     * 5. Check thisUpdate/nextUpdate freshness
-     */
-
-    /* Parse OCSPResponse envelope (ASN.1 SEQUENCE) */
-    if (resp[0] != 0x30)
+    opssl_x509_t *peer = opssl_conn_get_peer_cert(conn);
+    if (!peer)
         return 0;
 
-    size_t off = 2;
-    if (resp[1] & 0x80)
-        off = 2 + (resp[1] & 0x7F);
+    extern opssl_ocsp_status_t opssl_ocsp_verify_response(const uint8_t *, size_t,
+        const opssl_x509_t *, const opssl_x509_store_t *);
 
-    /* responseStatus ENUMERATED */
-    if (off >= resp_len || resp[off] != 0x0A)
-        return 0;
-    off++;
-    if (off >= resp_len)
-        return 0;
-    size_t status_len = resp[off++];
-    if (off + status_len > resp_len)
-        return 0;
-    uint8_t response_status = resp[off];
-    if (response_status != 0)  /* 0 = successful */
-        return 0;
-    off += status_len;
-
-    /* Skip to responseBytes [0] EXPLICIT (tagged context 0) */
-    if (off >= resp_len)
-        return 0;
-    if ((resp[off] & 0xE0) != 0xA0)
-        return 0;
-
-    /* Response is well-formed and has status=successful.
-     * Full signature verification against the issuer requires the issuer cert
-     * from the chain — verify that certStatus = good (0). */
-
-    /* Search for SingleResponse certStatus (tag 0x80 = good, 0xA1 = revoked, 0x82 = unknown) */
-    for (size_t i = off; i + 4 < resp_len; i++) {
-        if (resp[i] == 0x80 && resp[i + 1] == 0x00) {
-            return 1;  /* certStatus = good */
-        }
-        if (resp[i] == 0xA1) {
-            return 0;  /* certStatus = revoked */
-        }
-        if (resp[i] == 0x82 && resp[i + 1] == 0x00) {
-            return 0;  /* certStatus = unknown */
-        }
-    }
-
-    return 0;
+    opssl_ocsp_status_t status = opssl_ocsp_verify_response(resp, resp_len, peer, NULL);
+    return (status == OPSSL_OCSP_GOOD) ? 1 : 0;
 }
 
 const uint8_t *
@@ -2558,7 +2562,7 @@ opssl_conn_verify_sct_list(opssl_conn_t *conn)
 
     /* Parse total list length */
     uint16_t list_len = (uint16_t)((sct[0] << 8) | sct[1]);
-    if (list_len + 2 > sct_len)
+    if ((size_t)list_len + 2 > sct_len)
         return 0;
 
     size_t pos = 2;

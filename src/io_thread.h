@@ -1,15 +1,27 @@
 /*
  * io_thread.h — dedicated I/O reader thread for eggdrop.
  *
- * The io_thread runs a separate epoll/select loop over all non-TCL,
- * non-TLS eggdrop sockets.  When data arrives it appends the received
- * bytes to the per-socket inbuf under inbuf_lock, then signals the main
- * thread via an eventfd so sockgets() can drain the buffer immediately
- * without blocking in sockread().
+ * The io_thread offloads socket recv() calls to a separate thread so
+ * they overlap with main-thread handler processing.  Data flows through
+ * a lock-free SPSC ring buffer:
  *
- * TLS sockets are handled by the traditional sockread() path in the main
- * thread because OpenSSL/WolfSSL SSL* objects are not safe to read and
- * write from different threads simultaneously.
+ *     io_thread: epoll_wait → recv → ring_push → signal eventfd
+ *     main thread: io_thread_drain → ring_pop → op_linebuf_parse → sockgets
+ *
+ * The SPSC ring buffer provides:
+ *   - Zero CAS contention (simple acquire/release on indices)
+ *   - Native FIFO order (no LIFO reversal)
+ *   - Cache-line padded producer/consumer indices
+ *
+ * Adaptive epoll timeout:
+ *   Hot (1ms) → Warm (50ms) → Cold (500ms) based on recent activity.
+ *
+ * Requirements:
+ *   - Linux (epoll + eventfd).  Non-Linux platforms get no-op stubs.
+ *   - Sockets must be added explicitly via io_thread_add_sock().
+ *   - TLS, TCL, WebSocket, and listening sockets must NOT be added
+ *     (TLS is not thread-safe, the others need main-thread processing).
+ *   - io_thread_del_sock() must be called BEFORE closing the fd.
  *
  * Copyright (C) 2026 Eggheads Development Team
  * SPDX-License-Identifier: GPL-2.0-only
@@ -20,72 +32,31 @@
 
 #include "eggdrop.h"
 
-/* -------------------------------------------------------------------------
- * Lifecycle
- * ---------------------------------------------------------------------- */
-
-/*
- * io_thread_start — spawn the I/O reader thread.
- *
- * Must be called after the network subsystem is initialised (allocsock has
- * been called at least once so the initial eventfd is open).
- *
- * Returns 0 on success, -1 on error (errno set).
- */
-int io_thread_start(void);
-
-/*
- * io_thread_stop — signal the I/O thread to exit and wait for it to join.
- *
- * Safe to call even if io_thread_start() was never called.
- */
+int  io_thread_start(void);
 void io_thread_stop(void);
+int  io_thread_active(void);
 
-/* -------------------------------------------------------------------------
- * Socket registration (called from allocsock / killsock)
- * ---------------------------------------------------------------------- */
-
-/*
- * io_thread_add_sock — register a socket with the io_thread's epoll.
- *
- * slist_idx: index in socklist[] — stored as epoll user_data so the
- *            io_thread can locate inbuf_lock without scanning the list.
- *
- * Must be called with the socket already in socklist[slist_idx].
- * Safe to call before io_thread_start() — registrations are queued.
- */
 void io_thread_add_sock(int sock, int slist_idx);
+void io_thread_del_sock(int sock, int slist_idx);
 
-/*
- * io_thread_del_sock — remove a socket from the io_thread's epoll.
- *
- * Must be called BEFORE closing the socket fd and BEFORE destroying
- * socklist[slist_idx].handler.sock.inbuf_lock.
- */
-void io_thread_del_sock(int sock);
+/* Drain completed reads into linebufs.  Returns count of results
+ * processed.  Called from the main thread (sockgets / commio handler). */
+int  io_thread_drain(void);
 
-/* -------------------------------------------------------------------------
- * Main-thread wait
- * ---------------------------------------------------------------------- */
+/* Returns 1 if io_thread currently owns reads for this slot. */
+int  io_thread_manages(int slist_idx);
 
-/*
- * io_thread_wait — block the main thread until the io_thread signals that
- * at least one socket has new data, or until the timeout elapses.
- *
- * timeout_ms: maximum milliseconds to wait; 0 = poll, -1 = wait forever.
- *
- * Returns 1 if data is available, 0 on timeout, -1 on error.
- *
- * Only call this when sockgets() has found no buffered data and you are
- * about to block waiting for new input.
- */
-int io_thread_wait(int timeout_ms);
+/* Set CPU core affinity for the I/O thread (-1 = OS default).
+ * Must be called before io_thread_start(). */
+void io_thread_set_affinity(int core);
 
-/* -------------------------------------------------------------------------
- * Query
- * ---------------------------------------------------------------------- */
+/* Get current CPU affinity setting (-1 = none). */
+int  io_thread_get_affinity(void);
 
-/* Returns 1 if the io_thread is running, 0 otherwise. */
-int io_thread_active(void);
+/* Auto-detect best CPU core for I/O thread based on topology.
+ * Selects a core on a different L2 cache domain from the main thread
+ * to maximize cache independence.  Returns the core number, or -1
+ * if topology detection fails or the system has only one core. */
+int  io_thread_detect_best_core(void);
 
 #endif /* _EGG_IO_THREAD_H */

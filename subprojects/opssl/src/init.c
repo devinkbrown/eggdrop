@@ -20,7 +20,7 @@ extern void opssl_random_cleanup(void);
 
 /* Global initialization state */
 static once_flag init_flag = ONCE_FLAG_INIT;
-static thread_local int init_result = 0;
+static int init_result = 0;
 
 /*
  * Internal initialization routine called exactly once.

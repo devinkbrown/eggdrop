@@ -30,6 +30,10 @@
 #ifdef TLS
 #  include <opssl/opssl.h>
 #endif
+#include <op_async.h>
+#include <op_thread_pool.h>
+#include "io_thread.h"
+#include "perf.h"
 
 /* Tcl command handlers. In non-Tcl builds these compile as dead code
  * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
@@ -58,9 +62,10 @@ static int tcl_logfile STDVAR
   if (argc == 1) {
     /* They just want a list of the logfiles and modes */
     for (int i = 0; i < max_logs; i++)
-      if (logs[i].filename != NULL) {
+      if (logs[i].filename != nullptr) {
         {
           op_strbuf_t logline;
+          op_strbuf_init(&logline);
           op_strbuf_appendf(&logline, "%s %s %s", masktype(logs[i].mask),
                            logs[i].chname, logs[i].filename);
           Tcl_AppendElement(interp, op_strbuf_str(&logline));
@@ -74,55 +79,55 @@ static int tcl_logfile STDVAR
 
   if (*argv[1] && !*argv[2]) {
     Tcl_AppendResult(interp,
-                     "log modes set, but no channel specified", NULL);
+                     "log modes set, but no channel specified", nullptr);
     return TCL_ERROR;
   }
   if (*argv[2] && !strchr(CHANMETA, *argv[2]) && strcmp(argv[2], "*")) {
-    Tcl_AppendResult(interp, "invalid channel prefix", NULL);
+    Tcl_AppendResult(interp, "invalid channel prefix", nullptr);
     return TCL_ERROR;
   }
   if (*argv[2] && strchr(argv[2], ' ')) {
-    Tcl_AppendResult(interp, "channel names cannot contain spaces", NULL);
+    Tcl_AppendResult(interp, "channel names cannot contain spaces", nullptr);
     return TCL_ERROR;
   }
 
   for (int i = 0; i < max_logs; i++)
-    if ((logs[i].filename != NULL) && (!strcmp(logs[i].filename, argv[3]))) {
+    if ((logs[i].filename != nullptr) && (!strcmp(logs[i].filename, argv[3]))) {
       logs[i].flags &= ~LF_EXPIRING;
       logs[i].mask = logmodes(argv[1]);
       op_free(logs[i].chname);
-      logs[i].chname = NULL;
+      logs[i].chname = nullptr;
       if (!logs[i].mask) {
         /* ending logfile */
         op_free(logs[i].filename);
-        logs[i].filename = NULL;
-        if (logs[i].f != NULL) {
+        logs[i].filename = nullptr;
+        if (logs[i].f != nullptr) {
           fclose(logs[i].f);
-          logs[i].f = NULL;
+          logs[i].f = nullptr;
         }
         logs[i].flags = 0;
       } else {
         logs[i].chname = op_strdup(argv[2]);
       }
-      Tcl_AppendResult(interp, argv[3], NULL);
+      Tcl_AppendResult(interp, argv[3], nullptr);
       return TCL_OK;
     }
   /* Do not add logfiles without any flags to log ++rtc */
   if (!logmodes(argv[1])) {
     Tcl_AppendResult(interp, "can't remove \"", argv[3],
-                     "\" from list: no such logfile", NULL);
+                     "\" from list: no such logfile", nullptr);
     return TCL_ERROR;
   }
   for (int i = 0; i < max_logs; i++)
-    if (logs[i].filename == NULL) {
+    if (logs[i].filename == nullptr) {
       logs[i].flags = 0;
       logs[i].mask = logmodes(argv[1]);
       logs[i].filename = op_strdup(argv[3]);
       logs[i].chname = op_strdup(argv[2]);
-      Tcl_AppendResult(interp, argv[3], NULL);
+      Tcl_AppendResult(interp, argv[3], nullptr);
       return TCL_OK;
     }
-  Tcl_AppendResult(interp, "reached max # of logfiles", NULL);
+  Tcl_AppendResult(interp, "reached max # of logfiles", nullptr);
   return TCL_ERROR;
 }
 
@@ -132,6 +137,7 @@ static int tcl_putlog STDVAR
 
   {
     op_strbuf_t _logtext;
+    op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_MISC, "*", "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
@@ -145,6 +151,7 @@ static int tcl_putcmdlog STDVAR
 
   {
     op_strbuf_t _logtext;
+    op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_CMDS, "*", "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
@@ -158,6 +165,7 @@ static int tcl_putxferlog STDVAR
 
   {
     op_strbuf_t _logtext;
+    op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_FILES, "*", "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
@@ -173,11 +181,12 @@ static int tcl_putloglev STDVAR
 
   lev = logmodes(argv[1]);
   if (!lev) {
-    Tcl_AppendResult(irp, "No valid log flag given", NULL);
+    Tcl_AppendResult(irp, "No valid log flag given", nullptr);
     return TCL_ERROR;
   }
   {
     op_strbuf_t _logtext;
+    op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[3]);
     putlog(lev, argv[2], "%s", op_strbuf_str(&_logtext));
     op_strbuf_free(&_logtext);
@@ -199,7 +208,7 @@ static int tcl_binds STDVAR
   if (argv[1])
     tl_kind = find_bind_table(argv[1]);
   else
-    tl_kind = NULL;
+    tl_kind = nullptr;
   if (!tl_kind && argv[1])
     matching = 1;
   for (tl = tl_kind ? tl_kind : bind_table_list; tl;
@@ -217,9 +226,10 @@ static int tcl_binds STDVAR
             !wild_match_per(argv[1], tm->mask) &&
             !wild_match_per(argv[1], tc->func_name))
           continue;
-        build_flags(flg, &(tc->flags), NULL);
+        build_flags(flg, &(tc->flags), nullptr);
         {
           op_strbuf_t _hits;
+          op_strbuf_init(&_hits);
           op_strbuf_appendf(&_hits, "%s", int_to_base10((int) tc->hits));
           list[0] = tl->name;
           list[1] = flg;
@@ -241,14 +251,14 @@ int check_timer_syntax(Tcl_Interp *irp, int argc, char *argv[], tcl_timer_t *sta
   char *endptr;
   long val;
 
-  if (atoi(argv[1]) < 0) {
-    Tcl_AppendResult(irp, "time value must be positive", NULL);
+  if (egg_atoi(argv[1]) < 0) {
+    Tcl_AppendResult(irp, "time value must be positive", nullptr);
     return 1;
   }
   if (argc >=4) {
     val = strtol(argv[3], &endptr, 0);
     if ((*endptr != '\0') || (val < 0)) {
-      Tcl_AppendResult(irp, "count value must be >=0", NULL);
+      Tcl_AppendResult(irp, "count value must be >=0", nullptr);
       return 1;
     }
   }
@@ -256,12 +266,12 @@ int check_timer_syntax(Tcl_Interp *irp, int argc, char *argv[], tcl_timer_t *sta
     if (argc == 5) {
       /* Prevent collisions with unnamed timers */
       if (strncmp(argv[4], "timer", 5) == 0) {
-        Tcl_AppendResult(irp, "timer name may not begin with \"timer\"", NULL);
+        Tcl_AppendResult(irp, "timer name may not begin with \"timer\"", nullptr);
         return 1;
       }
       /* Check for existing timers by same name */
       if (find_timer(stack, argv[4])) {
-        Tcl_AppendResult(irp, "timer already exists by that name", NULL);
+        Tcl_AppendResult(irp, "timer already exists by that name", nullptr);
         return 1;
       }
     }
@@ -278,13 +288,13 @@ static int tcl_timer STDVAR
   if (check_timer_syntax(irp, argc, argv, timer)) {
     return TCL_ERROR;
   }
-  x = add_timer(&timer, atoi(argv[1]), (argc >= 4 ? atoi(argv[3]) : 1),
-                  argv[2], (argc == 5 ? argv[4] : NULL), 0L);
+  x = add_timer(&timer, egg_atoi(argv[1]), (argc >= 4 ? egg_atoi(argv[3]) : 1),
+                  argv[2], (argc == 5 ? argv[4] : nullptr), 0L);
   if (!x) {
-    Tcl_AppendResult(irp, "Too many timers (wow, impressive). Timer not added", NULL);
+    Tcl_AppendResult(irp, "Too many timers (wow, impressive). Timer not added", nullptr);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, x, NULL);
+  Tcl_AppendResult(irp, x, nullptr);
   return TCL_OK;
 }
 
@@ -297,13 +307,13 @@ static int tcl_utimer STDVAR
   if (check_timer_syntax(irp, argc, argv, utimer)) {
     return TCL_ERROR;
   }
-  x = add_timer(&utimer, atoi(argv[1]), (argc >= 4 ? atoi(argv[3]) : 1),
+  x = add_timer(&utimer, egg_atoi(argv[1]), (argc >= 4 ? egg_atoi(argv[3]) : 1),
                   argv[2], (argc == 5 ? argv[4] : '\0'), 0L);
   if (!x) {
-    Tcl_AppendResult(irp, "Too many timers (wow, impressive). Timer not added", NULL);
+    Tcl_AppendResult(irp, "Too many timers (wow, impressive). Timer not added", nullptr);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, x, NULL);
+  Tcl_AppendResult(irp, x, nullptr);
   return TCL_OK;
 }
 
@@ -313,7 +323,7 @@ static int tcl_killtimer STDVAR
 
   if (remove_timer(&timer, argv[1]))
     return TCL_OK;
-  Tcl_AppendResult(irp, "invalid timer name", NULL);
+  Tcl_AppendResult(irp, "invalid timer name", nullptr);
   return TCL_ERROR;
 }
 
@@ -324,7 +334,7 @@ static int tcl_killutimer STDVAR
   if (remove_timer(&utimer, argv[1])) {
     return TCL_OK;
   }
-  Tcl_AppendResult(irp, "invalid utimer name", NULL);
+  Tcl_AppendResult(irp, "invalid utimer name", nullptr);
   return TCL_ERROR;
 }
 
@@ -346,52 +356,13 @@ static int tcl_utimers STDVAR
 
 static int tcl_duration STDVAR
 {
-  op_strbuf_t s;
-  uint64_t sec, tmp;
+  char buf[256];
 
   BADARGS(2, 2, " seconds");
 
-  if (atol(argv[1]) <= 0) {
-    Tcl_AppendResult(irp, "0 seconds", NULL);
-    return TCL_OK;
-  }
-  sec = (uint64_t)atoll(argv[1]);
-
-  op_strbuf_init(&s);
-  if (sec >= 31536000) {
-    tmp = (sec / 31536000);
-    op_strbuf_appendf(&s, "%" PRIu64 " year%s ", tmp, (tmp == 1) ? "" : "s");
-    sec -= (tmp * 31536000);
-  }
-  if (sec >= 604800) {
-    tmp = (sec / 604800);
-    op_strbuf_appendf(&s, "%" PRIu64 " week%s ", tmp, (tmp == 1) ? "" : "s");
-    sec -= (tmp * 604800);
-  }
-  if (sec >= 86400) {
-    tmp = (sec / 86400);
-    op_strbuf_appendf(&s, "%" PRIu64 " day%s ", tmp, (tmp == 1) ? "" : "s");
-    sec -= (tmp * 86400);
-  }
-  if (sec >= 3600) {
-    tmp = (sec / 3600);
-    op_strbuf_appendf(&s, "%" PRIu64 " hour%s ", tmp, (tmp == 1) ? "" : "s");
-    sec -= (tmp * 3600);
-  }
-  if (sec >= 60) {
-    tmp = (sec / 60);
-    op_strbuf_appendf(&s, "%" PRIu64 " minute%s ", tmp, (tmp == 1) ? "" : "s");
-    sec -= (tmp * 60);
-  }
-  if (sec > 0) {
-    tmp = sec;
-    op_strbuf_appendf(&s, "%" PRIu64 " second%s", tmp, (tmp == 1) ? "" : "s");
-  }
-  size_t slen = op_strbuf_len(&s);
-  if (slen > 0 && op_strbuf_str(&s)[slen - 1] == ' ')
-    op_strbuf_truncate(&s, slen - 1);
-  Tcl_AppendResult(irp, op_strbuf_str(&s), NULL);
-  op_strbuf_free(&s);
+  long val = atol(argv[1]);
+  egg_format_duration(val > 0 ? (uint64_t)val : 0, buf, sizeof buf);
+  Tcl_AppendResult(irp, buf, nullptr);
   return TCL_OK;
 }
 
@@ -399,7 +370,7 @@ static int tcl_unixtime STDVAR
 {
   BADARGS(1, 1, "");
 
-  Tcl_SetObjResult(irp, Tcl_NewWideIntObj((Tcl_WideInt)(int64_t) time(NULL)));
+  Tcl_SetObjResult(irp, Tcl_NewWideIntObj((Tcl_WideInt)(int64_t) time(nullptr)));
   return TCL_OK;
 }
 
@@ -413,7 +384,7 @@ static int tcl_ctime STDVAR
   tt = (time_t) atol(argv[1]);
   ctime_r(&tt, s);
   s[24] = 0;
-  Tcl_AppendResult(irp, s, NULL);
+  Tcl_AppendResult(irp, s, nullptr);
   return TCL_OK;
 }
 
@@ -432,14 +403,14 @@ static int tcl_strftime STDVAR
   tm1 = localtime(&t);
   if (!tm1) {
     Tcl_AppendResult(irp, "tcl_strftime(): localtime(): error = ",
-                     strerror(errno), NULL);
+                     strerror(errno), nullptr);
     return TCL_ERROR;
   }
   if (strftime(buf, sizeof(buf) - 1, argv[1], tm1)) {
-    Tcl_AppendResult(irp, buf, NULL);
+    Tcl_AppendResult(irp, buf, nullptr);
     return TCL_OK;
   }
-  Tcl_AppendResult(irp, "tcl_strftime(): strftime(): error", NULL);
+  Tcl_AppendResult(irp, "tcl_strftime(): strftime(): error", nullptr);
   return TCL_ERROR;
 }
 
@@ -449,26 +420,26 @@ static int tcl_myip STDVAR
 
   BADARGS(1, 1, "");
 
-  getdccaddr(NULL, s, sizeof s);
-  Tcl_AppendResult(irp, s, NULL);
+  getdccaddr(nullptr, s, sizeof s);
+  Tcl_AppendResult(irp, s, nullptr);
   return TCL_OK;
 }
 
 static int tcl_rand STDVAR
 {
   long i;
-  __attribute__((unused)) uint64_t x;
+  [[maybe_unused]] uint64_t x;
 
   BADARGS(2, 2, " limit");
 
   i = atol(argv[1]);
 
   if (i <= 0) {
-    Tcl_AppendResult(irp, "random limit must be greater than 0", NULL);
+    Tcl_AppendResult(irp, "random limit must be greater than 0", nullptr);
     return TCL_ERROR;
   } else if (i > RANDOM_MAX) {
     Tcl_AppendResult(irp, "random limit must be equal to or less than ",
-                     int_to_base10(RANDOM_MAX), NULL);
+                     int_to_base10(RANDOM_MAX), nullptr);
     return TCL_ERROR;
   }
 
@@ -499,14 +470,15 @@ static int tcl_sendnote STDVAR
 
 static int tcl_dumpfile STDVAR
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   BADARGS(3, 3, " nickname filename");
 
   {
     op_strbuf_t _nick;
+    op_strbuf_init(&_nick);
     op_strbuf_appendf(&_nick, "%s", argv[1]);
-    get_user_flagrec(get_user_by_nick((char *)op_strbuf_str(&_nick)), &fr, NULL);
+    get_user_flagrec(get_user_by_nick((char *)op_strbuf_str(&_nick)), &fr, nullptr);
     op_strbuf_free(&_nick);
   }
   showhelp(argv[1], argv[2], &fr, HELP_TEXT);
@@ -516,17 +488,17 @@ static int tcl_dumpfile STDVAR
 static int tcl_dccdumpfile STDVAR
 {
   int idx, i;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   BADARGS(3, 3, " idx filename");
 
-  i = atoi(argv[1]);
+  i = egg_atoi(argv[1]);
   idx = findidx(i);
   if (idx < 0) {
-    Tcl_AppendResult(irp, "illegal idx", NULL);
+    Tcl_AppendResult(irp, "illegal idx", nullptr);
     return TCL_ERROR;
   }
-  get_user_flagrec(get_user_by_handle(userlist, dcc[idx].nick), &fr, NULL);
+  get_user_flagrec(get_user_by_handle(userlist, dcc[idx].nick), &fr, nullptr);
 
   tellhelp(idx, argv[2], &fr, HELP_TEXT);
   return TCL_OK;
@@ -543,6 +515,7 @@ static int tcl_backup STDVAR
 static int tcl_die STDVAR
 {
   op_strbuf_t s;
+  op_strbuf_init(&s);
 
   BADARGS(1, 2, " ?reason?");
 
@@ -567,7 +540,7 @@ static int tcl_loadmodule STDVAR
   p = module_load(argv[1]);
   if (p && strcmp(p, MOD_ALREADYLOAD) && !strcmp(argv[0], "loadmodule"))
     putlog(LOG_MISC, "*", "%s %s: %s", MOD_CANTLOADMOD, argv[1], p);
-  Tcl_AppendResult(irp, p, NULL);
+  Tcl_AppendResult(irp, p, nullptr);
   return TCL_OK;
 }
 
@@ -575,13 +548,13 @@ static int tcl_unloadmodule STDVAR
 {
   BADARGS(2, 2, " module-name");
 
-  Tcl_AppendResult(irp, module_unload(argv[1], botnetnick), NULL);
+  Tcl_AppendResult(irp, module_unload(argv[1], botnetnick), nullptr);
   return TCL_OK;
 }
 
 static int tcl_unames STDVAR
 {
-  Tcl_AppendResult(irp, egg_uname(), NULL);
+  Tcl_AppendResult(irp, egg_uname(), nullptr);
   return TCL_OK;
 }
 
@@ -598,6 +571,7 @@ static int tcl_modules STDVAR
   for (current = module_list; current; current = current->next) {
     list[0] = current->name;
     op_strbuf_t ver;
+    op_strbuf_init(&ver);
     op_strbuf_appendf(&ver, "%d.%d", current->major, current->minor);
     list[1] = op_strbuf_str(&ver);
     i = 2;
@@ -605,6 +579,7 @@ static int tcl_modules STDVAR
       if (dep->needing == current) {
         list2[0] = dep->needed->name;
         op_strbuf_t depver;
+        op_strbuf_init(&depver);
         op_strbuf_appendf(&depver, "%d.%d", dep->major, dep->minor);
         list2[1] = op_strbuf_str(&depver);
         list[i] = Tcl_Merge(2, list2);
@@ -697,7 +672,7 @@ static int tcl_stripcodes STDVAR
       flags |= STRIP_ALL;
       break;
     default:
-      Tcl_AppendResult(irp, "Invalid strip-flags: ", argv[1], NULL);
+      Tcl_AppendResult(irp, "Invalid strip-flags: ", argv[1], nullptr);
       return TCL_ERROR;
     }
 
@@ -710,7 +685,7 @@ static int tcl_stripcodes STDVAR
 
 static int tcl_md5 STDVAR
 {
-  __attribute__((unused)) char digest_string[33];
+  [[maybe_unused]] char digest_string[33];
   unsigned char digest[16];
   BADARGS(2, 2, " string");
 
@@ -725,7 +700,7 @@ static int tcl_md5 STDVAR
     digest_string[i * 2 + 1] = hex[digest[i] & 0xf];
   }
   digest_string[32] = '\0';
-  Tcl_AppendResult(irp, digest_string, NULL);
+  Tcl_AppendResult(irp, digest_string, nullptr);
   return TCL_OK;
 }
 
@@ -734,9 +709,9 @@ static int tcl_matchaddr STDVAR
   BADARGS(3, 3, " mask address");
 
   if (match_addr(argv[1], argv[2]))
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -744,10 +719,10 @@ static int tcl_matchcidr STDVAR
 {
   BADARGS(4, 4, " block address prefix");
 
-  if (cidr_match(argv[1], argv[2], atoi(argv[3])))
-    Tcl_AppendResult(irp, "1", NULL);
+  if (cidr_match(argv[1], argv[2], egg_atoi(argv[3])))
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -756,9 +731,9 @@ static int tcl_matchstr STDVAR
   BADARGS(3, 3, " pattern string");
 
   if (wild_match(argv[1], argv[2]))
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -768,16 +743,15 @@ static int tcl_status STDVAR
 
   if ((argc < 2) || !strcmp(argv[1], "cpu")) {
     op_strbuf_t cpu_buf;
+    op_strbuf_init(&cpu_buf);
     Tcl_AppendElement(irp, "cputime");
     op_strbuf_appendf(&cpu_buf, "%f", getcputime());
     Tcl_AppendElement(irp, op_strbuf_str(&cpu_buf));
     op_strbuf_free(&cpu_buf);
   }
   if ((argc < 2) || !strcmp(argv[1], "mem")) {
-    struct rusage ru;
-    getrusage(RUSAGE_SELF, &ru);
     Tcl_AppendElement(irp, "rss_kb");
-    Tcl_AppendElement(irp, int_to_base10((int) ru.ru_maxrss));
+    Tcl_AppendElement(irp, int_to_base10((int) egg_get_rss_kb()));
   }
   if ((argc < 2) || !strcmp(argv[1], "ipv6")) {
     Tcl_AppendElement(irp, "ipv6");
@@ -791,9 +765,11 @@ static int tcl_status STDVAR
     Tcl_AppendElement(irp, "tls");
 #ifdef TLS
     {
-      char tls_ver[64];
-      snprintf(tls_ver, sizeof tls_ver, "opssl %s", opssl_version_string());
-      Tcl_AppendElement(irp, tls_ver);
+      op_strbuf_t tls_ver;
+      op_strbuf_init(&tls_ver);
+      op_strbuf_appendf(&tls_ver, "opssl %s", opssl_version_string());
+      Tcl_AppendElement(irp, op_strbuf_str(&tls_ver));
+      op_strbuf_free(&tls_ver);
     }
 #else
     Tcl_AppendElement(irp, "disabled");
@@ -801,6 +777,7 @@ static int tcl_status STDVAR
   }
   if ((argc < 2) || !strcmp(argv[1], "cache")) {
     op_strbuf_t cache_buf;
+    op_strbuf_init(&cache_buf);
     Tcl_AppendElement(irp, "usercache");
     op_strbuf_appendf(&cache_buf, "%4.1f", 100.0 *
                      ((float) cache_hit) / ((float) (cache_hit + cache_miss)));
@@ -815,7 +792,169 @@ static int tcl_rfcequal STDVAR
 {
   BADARGS(3, 3, " string1 string2");
 
-  Tcl_AppendResult(irp, !rfc_casecmp(argv[1], argv[2]) ? "1" : "0", NULL);
+  Tcl_AppendResult(irp, !rfc_casecmp(argv[1], argv[2]) ? "1" : "0", nullptr);
+
+  return TCL_OK;
+}
+
+static const char *worker_state_str(int state)
+{
+  switch (state) {
+  case 0:  return "idle";
+  case 1:  return "draining";
+  case 2:  return "dispatching";
+  case 3:  return "stealing";
+  default: return "unknown";
+  }
+}
+
+static int tcl_threadinfo STDVAR
+{
+  BADARGS(1, 1, "");
+
+  Tcl_AppendElement(irp, "pool_active");
+  Tcl_AppendElement(irp, op_async_active() ? "1" : "0");
+
+  Tcl_AppendElement(irp, "pool_threads");
+  Tcl_AppendElement(irp, int_to_base10(op_async_nthreads()));
+
+  op_strbuf_t pending_buf;
+  op_strbuf_init(&pending_buf);
+  Tcl_AppendElement(irp, "pool_pending");
+  op_strbuf_appendf(&pending_buf, "%zu", op_async_pending());
+  Tcl_AppendElement(irp, op_strbuf_str(&pending_buf));
+  op_strbuf_free(&pending_buf);
+
+  Tcl_AppendElement(irp, "io_thread");
+  Tcl_AppendElement(irp, io_thread_active() ? "1" : "0");
+
+  Tcl_AppendElement(irp, "io_thread_cpu");
+  Tcl_AppendElement(irp, int_to_base10(io_thread_get_affinity()));
+
+  {
+    struct egg_perf_metrics pm = egg_perf_snapshot();
+    uint64_t avg_ns = pm.tick_count ? pm.tick_ns_total / pm.tick_count : 0;
+    op_strbuf_t pbuf;
+    op_strbuf_init(&pbuf);
+
+    Tcl_AppendElement(irp, "tick_count");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.tick_count);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "tick_avg_us");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)(avg_ns / 1000));
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "tick_max_us");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)(pm.tick_ns_max / 1000));
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "tick_last_us");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)(pm.tick_ns_last / 1000));
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "idle_ticks");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.idle_ticks);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "arena_allocs");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.arena_allocs);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "arena_bytes");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.arena_bytes);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "arena_overflows");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.arena_overflows);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "arena_peak_bytes");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.arena_peak_bytes);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "io_drains");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.io_drain_count);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "io_drain_results");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.io_drain_results);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "io_drain_max_batch");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.io_drain_max_batch);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "tick_hist");
+    op_strbuf_appendf(&pbuf, "<%s:%llu <%s:%llu <%s:%llu <%s:%llu >=%s:%llu",
+      "10us",  (unsigned long long)pm.tick_hist[0],
+      "100us", (unsigned long long)pm.tick_hist[1],
+      "1ms",   (unsigned long long)pm.tick_hist[2],
+      "10ms",  (unsigned long long)pm.tick_hist[3],
+      "10ms",  (unsigned long long)pm.tick_hist[4]);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "bind_dispatches");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.bind_dispatches);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "bind_exact_hits");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.bind_exact_hits);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "bind_scan_hits");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.bind_scan_hits);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "traffic_in_bps");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.traffic_in_last_sec);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+
+    Tcl_AppendElement(irp, "traffic_out_bps");
+    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.traffic_out_last_sec);
+    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
+    op_strbuf_free(&pbuf);
+  }
+
+  int nth = op_async_nthreads();
+  if (nth > 0) {
+    op_tpool_worker_stats_t stats[16];
+    int n = op_async_get_stats(stats, nth < 16 ? nth : 16);
+    for (int i = 0; i < n; i++) {
+      op_strbuf_t wbuf;
+      op_strbuf_init(&wbuf);
+      op_strbuf_appendf(&wbuf, "worker_%d", stats[i].id);
+      Tcl_AppendElement(irp, op_strbuf_str(&wbuf));
+      op_strbuf_free(&wbuf);
+
+      op_strbuf_t vbuf;
+      op_strbuf_init(&vbuf);
+      op_strbuf_appendf(&vbuf, "%s dispatched:%llu stolen:%llu fast:%llu",
+                        worker_state_str(stats[i].state),
+                        (unsigned long long)stats[i].dispatched,
+                        (unsigned long long)stats[i].stolen,
+                        (unsigned long long)stats[i].fast_path);
+      Tcl_AppendElement(irp, op_strbuf_str(&vbuf));
+      op_strbuf_free(&vbuf);
+    }
+  }
 
   return TCL_OK;
 }
@@ -861,5 +1000,6 @@ tcl_cmds tclmisc_cmds[] = {
   {"status",             tcl_status},
   {"rfcequal",         tcl_rfcequal},
   {"md5",                   tcl_md5},
-  {NULL,                       NULL}
+  {"threadinfo",       tcl_threadinfo},
+  {nullptr,                       nullptr}
 };

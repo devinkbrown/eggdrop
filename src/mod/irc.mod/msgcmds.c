@@ -54,6 +54,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", nick, h);
     strlcpy(s, op_strbuf_str(&_b), sizeof s);
     op_strbuf_free(&_b);
@@ -68,6 +69,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     strlcpy(s, host, sizeof s);
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s!%s", nick, s + 2);
       strlcpy(host, op_strbuf_str(&_b), sizeof host);
       op_strbuf_free(&_b);
@@ -113,18 +115,19 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     dprintf(DP_HELP, IRC_NICKTOOLONG, nick, op_strbuf_str(&_handle));
   if (notify_new[0]) {
     op_strbuf_t _bn;
+    op_strbuf_init(&_bn);
     op_strbuf_appendf(&_bn, IRC_INITINTRO, nick, host);
     strlcpy(s1, notify_new, sizeof(s1));
     while (s1[0]) {
       p1 = strchr(s1, ',');
-      if (p1 != NULL) {
+      if (p1 != nullptr) {
         *p1 = 0;
         p1++;
         rmspace(p1);
       }
       rmspace(s1);
       add_note(s1, botnetnick, op_strbuf_str(&_bn), -1, 0);
-      if (p1 == NULL)
+      if (p1 == nullptr)
         s1[0] = 0;
       else
         strlcpy(s1, p1, sizeof s1);
@@ -175,6 +178,7 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
 {
   char s1[UHOSTLEN], *pass;
   op_strbuf_t _who;
+  op_strbuf_init(&_who);
   struct userrec *u2;
 
   if (match_my_nick(nick) || (u && (u->flags & USER_BOT)))
@@ -221,13 +225,14 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
       putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, op_strbuf_str(&_who));
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s!%s", nick, host);
         maskhost(op_strbuf_str(&_b), s1);
         op_strbuf_free(&_b);
       }
       dprintf(DP_HELP, "NOTICE %s :%s: %s\n", nick, IRC_ADDHOSTMASK, s1);
       addhost_by_handle((char *)op_strbuf_str(&_who), s1);
-      check_this_user((char *)op_strbuf_str(&_who), 0, NULL);
+      check_this_user((char *)op_strbuf_str(&_who), 0, nullptr);
       op_strbuf_free(&_who);
       return 1;
     }
@@ -271,7 +276,7 @@ static int msg_addhost(char *nick, char *host, struct userrec *u, char *par)
       putlog(LOG_CMDS, "*", "(%s!%s) !*! ADDHOST %s", nick, host, par);
       dprintf(DP_HELP, "NOTICE %s :%s: %s\n", nick, IRC_ADDHOSTMASK, par);
       addhost_by_handle(u->handle, par);
-      check_this_user(u->handle, 0, NULL);
+      check_this_user(u->handle, 0, nullptr);
       return 1;
     }
   }
@@ -305,7 +310,7 @@ static int msg_info(char *nick, char *host, struct userrec *u, char *par)
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, IRC_NOPASS);
     return 1;
   }
-  if (par[0] && (strchr(CHANMETA, par[0]) != NULL)) {
+  if (par[0] && (strchr(CHANMETA, par[0]) != nullptr)) {
     if (!findchan_by_dname(chname = newsplit(&par))) {
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, IRC_NOMONITOR);
       return 1;
@@ -328,12 +333,12 @@ static int msg_info(char *nick, char *host, struct userrec *u, char *par)
     if (!strcasecmp(par, "none")) {
       par[0] = 0;
       if (chname) {
-        set_handle_chaninfo(userlist, u->handle, chname, NULL);
+        set_handle_chaninfo(userlist, u->handle, chname, nullptr);
         dprintf(DP_HELP, "NOTICE %s :%s %s.\n", nick, IRC_REMINFOON, chname);
         putlog(LOG_CMDS, "*", "(%s!%s) !%s! INFO %s NONE", nick, host,
                u->handle, chname);
       } else {
-        set_user(&USERENTRY_INFO, u, NULL);
+        set_user(&USERENTRY_INFO, u, nullptr);
         dprintf(DP_HELP, "NOTICE %s :%s\n", nick, IRC_REMINFO);
         putlog(LOG_CMDS, "*", "(%s!%s) !%s! INFO NONE", nick, host, u->handle);
       }
@@ -378,7 +383,7 @@ static int msg_info(char *nick, char *host, struct userrec *u, char *par)
 static int msg_who(char *nick, char *host, struct userrec *u, char *par)
 {
   struct chanset_t *chan;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   memberlist *m;
   char s[121], also[512], *info;
 
@@ -441,7 +446,7 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
           also[i++] = ',';
           also[i++] = ' ';
         }
-        i += my_strcpy(also + i, m->nick);
+        i = (int)(stpcpy(also + i, m->nick) - also);
         if (i > 400) {
           dprintf(DP_HELP, "NOTICE %s :No info: %s\n", nick, also);
           i = 0;
@@ -465,7 +470,7 @@ static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
   memberlist *m;
   struct chanuserrec *cr;
   struct userrec *u2;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   struct xtra_key *xk;
   time_t tt = 0;
 
@@ -578,7 +583,7 @@ static int msg_help(char *nick, char *host, struct userrec *u, char *par)
   }
 
   if (helpdir[0]) {
-    struct flag_record fr = { FR_ANYWH | FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+    struct flag_record fr = { FR_ANYWH | FR_GLOBAL | FR_CHAN };
 
     get_user_flagrec(u, &fr, 0);
     if (!par[0])
@@ -599,7 +604,7 @@ static int msg_op(char *nick, char *host, struct userrec *u, char *par)
 {
   struct chanset_t *chan;
   char *pass;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (match_my_nick(nick))
     return 1;
@@ -636,7 +641,7 @@ static int msg_halfop(char *nick, char *host, struct userrec *u, char *par)
 {
   struct chanset_t *chan;
   char *pass;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (match_my_nick(nick))
     return 1;
@@ -675,7 +680,7 @@ static int msg_key(char *nick, char *host, struct userrec *u, char *par)
 {
   struct chanset_t *chan;
   char *pass;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (match_my_nick(nick))
     return 1;
@@ -729,7 +734,7 @@ static int msg_voice(char *nick, char *host, struct userrec *u, char *par)
 {
   struct chanset_t *chan;
   char *pass;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (match_my_nick(nick))
     return 1;
@@ -770,7 +775,7 @@ static int msg_invite(char *nick, char *host, struct userrec *u, char *par)
 {
   char *pass;
   struct chanset_t *chan;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (match_my_nick(nick))
     return 1;
@@ -816,7 +821,6 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
 {
   char *pass, *sysrel;
   struct chanset_t *chan;
-  time_t now2 = now - online_since, hr, min;
 
   if (match_my_nick(nick))
     return 1;
@@ -837,25 +841,13 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! STATUS", nick, host, u->handle);
 
   int i = count_users(userlist);
-  struct rusage ru;
-  getrusage(RUSAGE_SELF, &ru);
   dprintf(DP_HELP, "NOTICE %s :I am %s, running %s: %d user%s  (rss: %ldk).\n",
-          nick, botnetnick, ver, i, i == 1 ? "" : "s", ru.ru_maxrss);
+          nick, botnetnick, ver, i, i == 1 ? "" : "s", egg_get_rss_kb());
 
   {
-    op_strbuf_t _up;
-    op_strbuf_init(&_up);
-    if (now2 > 86400) {
-      int d = (int) (now2 / 86400);
-      op_strbuf_appendf(&_up, "%d day%s, ", d, d >= 2 ? "s" : "");
-      now2 -= (d * 86400);
-    }
-    hr = (time_t) ((int) now2 / 3600);
-    now2 -= (hr * 3600);
-    min = (time_t) ((int) now2 / 60);
-    op_strbuf_appendf(&_up, "%02d:%02d", (int) hr, (int) min);
-    dprintf(DP_HELP, "NOTICE %s :%s %s.\n", nick, MISC_ONLINEFOR, op_strbuf_str(&_up));
-    op_strbuf_free(&_up);
+    char upbuf[64];
+    egg_format_uptime(now - online_since, upbuf, sizeof upbuf);
+    dprintf(DP_HELP, "NOTICE %s :%s %s.\n", nick, MISC_ONLINEFOR, upbuf);
   }
 
   if (admin[0])
@@ -867,6 +859,7 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
 
   {
     op_strbuf_t _s;
+    op_strbuf_init(&_s);
     op_strbuf_appendf(&_s, "Channels: ");
     for (chan = chanset; chan; chan = chan->next) {
       op_strbuf_appendf(&_s, "%s", chan->dname);
@@ -914,12 +907,7 @@ static int msg_memory(char *nick, char *host, struct userrec *u, char *par)
     return 1;
   }
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! MEMORY", nick, host, u->handle);
-  {
-    struct rusage ru;
-
-    getrusage(RUSAGE_SELF, &ru);
-    dprintf(DP_HELP, "NOTICE %s :RSS: %ld kB\n", nick, ru.ru_maxrss);
-  }
+  dprintf(DP_HELP, "NOTICE %s :RSS: %ld kB\n", nick, egg_get_rss_kb());
   return 1;
 }
 
@@ -946,6 +934,7 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   dprintf(-serv, "NOTICE %s :%s\n", nick, BOT_MSGDIE);
   {
     op_strbuf_t _s;
+    op_strbuf_init(&_s);
     if (!par[0])
       op_strbuf_appendf(&_s, "BOT SHUTDOWN (authorized by %s)", u->handle);
     else
@@ -963,6 +952,7 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   sleep(1); /* Give the server time to understand. 1s has proven more than enough. */
   {
     op_strbuf_t _s;
+    op_strbuf_init(&_s);
     op_strbuf_appendf(&_s, "DEAD BY REQUEST OF %s!%s", nick, host);
     fatal(op_strbuf_str(&_s), 0);
     op_strbuf_free(&_s);
@@ -1046,7 +1036,7 @@ static int msg_go(char *nick, char *host, struct userrec *u, char *par)
 {
   struct chanset_t *chan;
   int ok = 0, ok2 = 0;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (match_my_nick(nick))
     return 1;
@@ -1130,7 +1120,7 @@ static int msg_jump(char *nick, char *host, struct userrec *u, char *par)
         use_ssl = 1;
       else
         use_ssl = 0;
-      port = atoi(sport);
+      port = egg_atoi(sport);
       if (!port) {
         port = default_port;
         use_ssl = 0;
@@ -1138,7 +1128,7 @@ static int msg_jump(char *nick, char *host, struct userrec *u, char *par)
       putlog(LOG_CMDS, "*", "(%s!%s) !%s! JUMP %s %s%d %s", nick, host,
              u->handle, s, use_ssl ? "+" : "", port, par);
 #else
-      port = atoi(newsplit(&par));
+      port = egg_atoi(newsplit(&par));
       if (!port)
         port = default_port;
       putlog(LOG_CMDS, "*", "(%s!%s) !%s! JUMP %s %d %s", nick, host,
@@ -1166,27 +1156,27 @@ static int msg_jump(char *nick, char *host, struct userrec *u, char *par)
  * 0 if not.
  */
 static cmd_t C_msg[] = {
-  {"addhost", "",    (IntFunc) msg_addhost, NULL},
-  {"die",     "n",   (IntFunc) msg_die,     NULL},
-  {"go",      "",    (IntFunc) msg_go,      NULL},
-  {"hello",   "",    (IntFunc) msg_hello,   NULL},
-  {"help",    "",    (IntFunc) msg_help,    NULL},
-  {"ident",   "",    (IntFunc) msg_ident,   NULL},
-  {"info",    "",    (IntFunc) msg_info,    NULL},
-  {"invite",  "o|o", (IntFunc) msg_invite,  NULL},
-  {"jump",    "m",   (IntFunc) msg_jump,    NULL},
-  {"key",     "o|o", (IntFunc) msg_key,     NULL},
-  {"memory",  "m",   (IntFunc) msg_memory,  NULL},
-  {"op",      "",    (IntFunc) msg_op,      NULL},
-  {"halfop",  "",    (IntFunc) msg_halfop,  NULL},
-  {"pass",    "",    (IntFunc) msg_pass,    NULL},
-  {"password","",    (IntFunc) msg_pass,    NULL},
-  {"rehash",  "m",   (IntFunc) msg_rehash,  NULL},
-  {"reset",   "m",   (IntFunc) msg_reset,   NULL},
-  {"save",    "m",   (IntFunc) msg_save,    NULL},
-  {"status",  "m|m", (IntFunc) msg_status,  NULL},
-  {"voice",   "",    (IntFunc) msg_voice,   NULL},
-  {"who",     "",    (IntFunc) msg_who,     NULL},
-  {"whois",   "",    (IntFunc) msg_whois,   NULL},
-  {NULL,      NULL,  NULL,                   NULL}
+  {"addhost", "",    (IntFunc) msg_addhost, nullptr},
+  {"die",     "n",   (IntFunc) msg_die,     nullptr},
+  {"go",      "",    (IntFunc) msg_go,      nullptr},
+  {"hello",   "",    (IntFunc) msg_hello,   nullptr},
+  {"help",    "",    (IntFunc) msg_help,    nullptr},
+  {"ident",   "",    (IntFunc) msg_ident,   nullptr},
+  {"info",    "",    (IntFunc) msg_info,    nullptr},
+  {"invite",  "o|o", (IntFunc) msg_invite,  nullptr},
+  {"jump",    "m",   (IntFunc) msg_jump,    nullptr},
+  {"key",     "o|o", (IntFunc) msg_key,     nullptr},
+  {"memory",  "m",   (IntFunc) msg_memory,  nullptr},
+  {"op",      "",    (IntFunc) msg_op,      nullptr},
+  {"halfop",  "",    (IntFunc) msg_halfop,  nullptr},
+  {"pass",    "",    (IntFunc) msg_pass,    nullptr},
+  {"password","",    (IntFunc) msg_pass,    nullptr},
+  {"rehash",  "m",   (IntFunc) msg_rehash,  nullptr},
+  {"reset",   "m",   (IntFunc) msg_reset,   nullptr},
+  {"save",    "m",   (IntFunc) msg_save,    nullptr},
+  {"status",  "m|m", (IntFunc) msg_status,  nullptr},
+  {"voice",   "",    (IntFunc) msg_voice,   nullptr},
+  {"who",     "",    (IntFunc) msg_who,     nullptr},
+  {"whois",   "",    (IntFunc) msg_whois,   nullptr},
+  {nullptr,      nullptr,  nullptr,                   nullptr}
 };

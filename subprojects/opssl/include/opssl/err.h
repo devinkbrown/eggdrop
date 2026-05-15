@@ -84,6 +84,12 @@ enum {
     OPSSL_ERR_PEM_DECODE        = 5,
     OPSSL_ERR_FILE_READ         = 6,
     OPSSL_ERR_ALLOC_FAILED      = 7,
+
+    /* I/O range (4000-4999) */
+    OPSSL_ERR_WANT_READ         = 4001,
+    OPSSL_ERR_WANT_WRITE        = 4002,
+    OPSSL_ERR_CONNECTION_LOST   = 4003,
+    OPSSL_ERR_IO_ERROR          = 4004,
 };
 
 /* Convenience: push error with a message string (auto-detects category) */

@@ -46,7 +46,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
   struct userrec *u;
   memberlist *m;
   int thr = 0, lapse = 0;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!chan || (which < 0) || (which >= FLOOD_CHAN_MAX))
     return 0;
@@ -172,6 +172,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
           u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, from)))
         return 1;
       op_strbuf_t _bh;
+      op_strbuf_init(&_bh);
       op_strbuf_appendf(&_bh, "*!*@%s", p);
       if (!isbanned(chan, op_strbuf_str(&_bh)) && (me_op(chan) || me_halfop(chan))) {
         check_exemptlist(chan, from);
@@ -253,7 +254,7 @@ static void kick_all(struct chanset_t *chan, char *hostmask,
 {
   memberlist *m;
   op_strbuf_t kicknick, _s;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   int k, l, flushed;
 
   if (!me_op(chan) && !me_halfop(chan))
@@ -317,11 +318,12 @@ static void refresh_ban_kick(struct chanset_t *chan, const char *user, char *nic
   for (cycle = 0; cycle < 2; cycle++) {
     for (b = cycle ? chan->bans : global_bans; b; b = b->next) {
       if (match_addr(b->mask, user)) {
-        struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+        struct flag_record fr = { FR_GLOBAL | FR_CHAN };
         get_user_flagrec(get_user_from_member(m), &fr,
                          chan->dname);
         if (!glob_friend(fr) && !chan_friend(fr)) {
           op_strbuf_t _bc;
+          op_strbuf_init(&_bc);
           add_mode(chan, '-', 'o', nick);       /* Guess it can't hurt. */
           check_exemptlist(chan, user);
           do_mask(chan, chan->channel.ban, b->mask, 'b');
@@ -393,6 +395,7 @@ static void refresh_invite(struct chanset_t *chan, const char *user)
 static void enforce_bans(struct chanset_t *chan)
 {
   op_strbuf_t _bme;
+  op_strbuf_init(&_bme);
   masklist *b;
 
   if (HALFOP_CANTDOMODE('b'))
@@ -488,9 +491,9 @@ static void resetmasks(struct chanset_t *chan, masklist *m, maskrec *mrec,
                        op_htab *global_masks_ht, char mode)
 {
   if (!me_op(chan) && (!me_halfop(chan) ||
-      (strchr(NOHALFOPS_MODES, 'b') != NULL) ||
-      (strchr(NOHALFOPS_MODES, 'e') != NULL) ||
-      (strchr(NOHALFOPS_MODES, 'I') != NULL)))
+      (strchr(NOHALFOPS_MODES, 'b') != nullptr) ||
+      (strchr(NOHALFOPS_MODES, 'e') != nullptr) ||
+      (strchr(NOHALFOPS_MODES, 'I') != nullptr)))
     return;
 
   /* Remove masks we didn't put there */
@@ -520,6 +523,7 @@ static void check_this_ban(struct chanset_t *chan, char *banmask, int sticky)
 {
   memberlist *m;
   op_strbuf_t _bu;
+  op_strbuf_init(&_bu);
 
   if (HALFOP_CANTDOMODE('b'))
     return;
@@ -704,12 +708,13 @@ static void check_this_member(struct chanset_t *chan, char *nick,
 
   if (!chan_stopcheck(m)) {
     if (!me_op(chan) && (!me_halfop(chan) ||
-        (strchr(NOHALFOPS_MODES, 'b') != NULL) ||
-        (strchr(NOHALFOPS_MODES, 'e') != NULL) ||
-        (strchr(NOHALFOPS_MODES, 'I') != NULL)))
+        (strchr(NOHALFOPS_MODES, 'b') != nullptr) ||
+        (strchr(NOHALFOPS_MODES, 'e') != nullptr) ||
+        (strchr(NOHALFOPS_MODES, 'I') != nullptr)))
       return;
 
     op_strbuf_t _bs;
+    op_strbuf_init(&_bs);
     op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
     if (use_invites && (u_match_mask(global_invites, op_strbuf_str(&_bs)) ||
         u_match_mask_trie(chan->invites, chan->invite_ip_trie, op_strbuf_str(&_bs))))
@@ -738,7 +743,7 @@ static void check_this_user(char *hand, int delete, char *host)
   memberlist *m;
   struct userrec *u;
   struct chanset_t *chan;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t _s;
 
   op_strbuf_init(&_s);
@@ -749,7 +754,7 @@ static void check_this_user(char *hand, int delete, char *host)
       u = get_user_from_member(m);
       if ((u && !strcasecmp(u->handle, hand) && delete < 2) ||
           (!u && delete == 2 && match_addr(host, op_strbuf_str(&_s)))) {
-        u = delete ? NULL : u;
+        u = delete ? nullptr : u;
         get_user_flagrec(u, &fr, chan->dname);
         check_this_member(chan, m->nick, &fr);
       }
@@ -762,7 +767,7 @@ static void check_this_user(char *hand, int delete, char *host)
 static void recheck_channel(struct chanset_t *chan, int dobans)
 {
   memberlist *m;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   struct userrec *u;
   static int stacking = 0;
   int stop_reset = 0;

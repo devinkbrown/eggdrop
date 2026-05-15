@@ -772,6 +772,557 @@ static void test_ecdh_p521(void)
     opssl_ecdh_free(bob);
 }
 
+
+static void test_sha3(void)
+{
+    uint8_t digest[64];
+
+    /* NIST test vectors for SHA-3 to prevent regression after Keccak pi-step bug fix */
+    /* NIST test vector: SHA3-256("") */
+    const uint8_t expected_sha3_256_empty[32] = {
+        0xa7, 0xff, 0xc6, 0xf8, 0xbf, 0x1e, 0xd7, 0x66, 0x51, 0xc1, 0x47, 0x56, 0xa0, 0x61, 0xd6, 0x62,
+        0xf5, 0x80, 0xff, 0x4d, 0xe4, 0x3b, 0x49, 0xfa, 0x82, 0xd8, 0x0a, 0x4b, 0x80, 0xf8, 0x43, 0x4a
+    };
+    opssl_sha3_256("", 0, digest);
+    ASSERT_MEM_EQ(digest, expected_sha3_256_empty, 32, "SHA3-256 empty string");
+
+    /* NIST test vector: SHA3-256("abc") */
+    const uint8_t expected_sha3_256_abc[32] = {
+        0x3a, 0x98, 0x5d, 0xa7, 0x4f, 0xe2, 0x25, 0xb2, 0x04, 0x5c, 0x17, 0x2d, 0x6b, 0xd3, 0x90, 0xbd,
+        0x85, 0x5f, 0x08, 0x6e, 0x3e, 0x9d, 0x52, 0x5b, 0x46, 0xbf, 0xe2, 0x45, 0x11, 0x43, 0x15, 0x32
+    };
+    opssl_sha3_256("abc", 3, digest);
+    ASSERT_MEM_EQ(digest, expected_sha3_256_abc, 32, "SHA3-256 'abc'");
+
+    /* NIST test vector: SHA3-512("") */
+    const uint8_t expected_sha3_512_empty[64] = {
+        0xa6, 0x9f, 0x73, 0xcc, 0xa2, 0x3a, 0x9a, 0xc5, 0xc8, 0xb5, 0x67, 0xdc, 0x18, 0x5a, 0x75, 0x6e,
+        0x97, 0xc9, 0x82, 0x16, 0x4f, 0xe2, 0x58, 0x59, 0xe0, 0xd1, 0xdc, 0xc1, 0x47, 0x5c, 0x80, 0xa6,
+        0x15, 0xb2, 0x12, 0x3a, 0xf1, 0xf5, 0xf9, 0x4c, 0x11, 0xe3, 0xe9, 0x40, 0x2c, 0x3a, 0xc5, 0x58,
+        0xf5, 0x00, 0x19, 0x9d, 0x95, 0xb6, 0xd3, 0xe3, 0x01, 0x75, 0x85, 0x86, 0x28, 0x1d, 0xcd, 0x26
+    };
+    opssl_sha3_512("", 0, digest);
+    ASSERT_MEM_EQ(digest, expected_sha3_512_empty, 64, "SHA3-512 empty string");
+}
+
+static void test_shake(void)
+{
+    uint8_t output[32];
+
+    /* NIST test vectors for SHAKE XOFs to prevent regression after Keccak pi-step bug fix */
+    /* NIST test vector: SHAKE128("", 32 bytes) */
+    const uint8_t expected_shake128_empty[32] = {
+        0x7f, 0x9c, 0x2b, 0xa4, 0xe8, 0x8f, 0x82, 0x7d, 0x61, 0x60, 0x45, 0x50, 0x76, 0x05, 0x85, 0x3e,
+        0xd7, 0x3b, 0x80, 0x93, 0xf6, 0xef, 0xbc, 0x88, 0xeb, 0x1a, 0x6e, 0xac, 0xfa, 0x66, 0xef, 0x26
+    };
+    opssl_shake128(output, 32, (const uint8_t *)"", 0);
+    ASSERT_MEM_EQ(output, expected_shake128_empty, 32, "SHAKE128 empty string, 32 bytes");
+
+    /* NIST test vector: SHAKE256("", 32 bytes) */
+    const uint8_t expected_shake256_empty[32] = {
+        0x46, 0xb9, 0xdd, 0x2b, 0x0b, 0xa8, 0x8d, 0x13, 0x23, 0x3b, 0x3f, 0xeb, 0x74, 0x3e, 0xeb, 0x24,
+        0x3f, 0xcd, 0x52, 0xea, 0x62, 0xb8, 0x1b, 0x82, 0xb5, 0x0c, 0x27, 0x64, 0x6e, 0xd5, 0x76, 0x2f
+    };
+    opssl_shake256(output, 32, (const uint8_t *)"", 0);
+    ASSERT_MEM_EQ(output, expected_shake256_empty, 32, "SHAKE256 empty string, 32 bytes");
+}
+
+static void test_blake2b(void)
+{
+    uint8_t output[64];
+    opssl_blake2b_ctx_t ctx;
+
+    /* Test 1: BLAKE2b one-shot API with "abc" */
+    opssl_blake2b("abc", 3, output, 64);
+
+    /* Verify output is non-zero (at least one byte != 0) */
+    int all_zero = 1;
+    for (size_t i = 0; i < 64; i++) {
+        if (output[i] != 0) {
+            all_zero = 0;
+            break;
+        }
+    }
+    ASSERT_EQ(all_zero, 0, "BLAKE2b 'abc' output is non-zero");
+
+    /* Test 2: BLAKE2b empty input */
+    uint8_t output_empty[64];
+    opssl_blake2b("", 0, output_empty, 64);
+
+    all_zero = 1;
+    for (size_t i = 0; i < 64; i++) {
+        if (output_empty[i] != 0) {
+            all_zero = 0;
+            break;
+        }
+    }
+    ASSERT_EQ(all_zero, 0, "BLAKE2b empty input output is non-zero");
+
+    /* Verify empty and "abc" produce different outputs */
+    int outputs_differ = 0;
+    for (size_t i = 0; i < 64; i++) {
+        if (output[i] != output_empty[i]) {
+            outputs_differ = 1;
+            break;
+        }
+    }
+    ASSERT_EQ(outputs_differ, 1, "BLAKE2b different inputs produce different outputs");
+
+    /* Test 3: Streaming API should match one-shot */
+    uint8_t streaming_output[64];
+    int rc = opssl_blake2b_init(&ctx, 64);
+    ASSERT_EQ(rc, 0, "BLAKE2b init success");
+
+    opssl_blake2b_update(&ctx, "abc", 3);
+    opssl_blake2b_final(&ctx, streaming_output, 64);
+    ASSERT_MEM_EQ(output, streaming_output, 64, "BLAKE2b streaming matches one-shot");
+
+    /* Test 4: Keyed BLAKE2b should differ from unkeyed */
+    const uint8_t key[16] = {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10
+    };
+    uint8_t keyed_output[64];
+    rc = opssl_blake2b_init_key(&ctx, 64, key, 16);
+    ASSERT_EQ(rc, 0, "BLAKE2b keyed init success");
+
+    opssl_blake2b_update(&ctx, "abc", 3);
+    opssl_blake2b_final(&ctx, keyed_output, 64);
+
+    int keyed_differs = 0;
+    for (size_t i = 0; i < 64; i++) {
+        if (output[i] != keyed_output[i]) {
+            keyed_differs = 1;
+            break;
+        }
+    }
+    ASSERT_EQ(keyed_differs, 1, "BLAKE2b keyed differs from unkeyed");
+}
+
+static void test_argon2id(void)
+{
+    const uint8_t password[] = "password";
+    const uint8_t salt[] = "somesalt";  /* 8 bytes */
+    uint8_t output[32];
+
+    /* Test with small parameters for speed: t_cost=1, m_cost=64 (64 KiB), parallelism=1 */
+    int rc = opssl_argon2id(password, 8, salt, 8, 1, 64, 1, output, 32);
+    ASSERT_EQ(rc, 0, "Argon2id derivation success");
+
+    /* Verify output is non-zero */
+    int all_zero = 1;
+    for (size_t i = 0; i < 32; i++) {
+        if (output[i] != 0) {
+            all_zero = 0;
+            break;
+        }
+    }
+    ASSERT_EQ(all_zero, 0, "Argon2id output is non-zero");
+
+    /* Test verification with correct password */
+    rc = opssl_argon2id_verify(password, 8, salt, 8, 1, 64, 1, output, 32);
+    ASSERT_EQ(rc, 0, "Argon2id verify correct password");
+
+    /* Test verification with wrong password */
+    const uint8_t wrong_password[] = "wrongpwd";
+    rc = opssl_argon2id_verify(wrong_password, 8, salt, 8, 1, 64, 1, output, 32);
+    ASSERT_EQ(rc, -1, "Argon2id verify rejects wrong password");
+}
+
+static void test_mldsa65(void)
+{
+    uint8_t pk[OPSSL_MLDSA65_PK_LEN];
+    uint8_t sk[OPSSL_MLDSA65_SK_LEN];
+    uint8_t sig[OPSSL_MLDSA65_SIG_LEN];
+
+    /* Test 1: Key generation */
+    int rc = opssl_mldsa65_keygen(pk, sk);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 keygen success");
+
+    /* Test 2: Sign + verify roundtrip */
+    const char *msg = "ophion ML-DSA test message";
+    size_t msg_len = strlen(msg);
+
+    rc = opssl_mldsa65_sign(sig, (const uint8_t *)msg, msg_len, sk);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 sign success");
+
+    rc = opssl_mldsa65_verify(sig, (const uint8_t *)msg, msg_len, pk);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 verify valid signature");
+
+    /* Test 3: Wrong message must fail */
+    const char *msg2 = "different message";
+    rc = opssl_mldsa65_verify(sig, (const uint8_t *)msg2, strlen(msg2), pk);
+    ASSERT_EQ(rc, 0, "ML-DSA-65 verify rejects wrong message");
+
+    /* Test 4: Corrupted signature must fail */
+    uint8_t bad_sig[OPSSL_MLDSA65_SIG_LEN];
+    memcpy(bad_sig, sig, OPSSL_MLDSA65_SIG_LEN);
+    bad_sig[0] ^= 0xFF;
+    rc = opssl_mldsa65_verify(bad_sig, (const uint8_t *)msg, msg_len, pk);
+    ASSERT_EQ(rc, 0, "ML-DSA-65 verify rejects corrupted c_tilde");
+
+    /* Test 5: Corrupted z portion */
+    memcpy(bad_sig, sig, OPSSL_MLDSA65_SIG_LEN);
+    bad_sig[64] ^= 0x01;   /* flip a bit in z encoding */
+    rc = opssl_mldsa65_verify(bad_sig, (const uint8_t *)msg, msg_len, pk);
+    ASSERT_EQ(rc, 0, "ML-DSA-65 verify rejects corrupted z");
+
+    /* Test 6: Empty message roundtrip */
+    rc = opssl_mldsa65_sign(sig, (const uint8_t *)"", 0, sk);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 sign empty message");
+    rc = opssl_mldsa65_verify(sig, (const uint8_t *)"", 0, pk);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 verify empty message");
+
+    /* Test 7: Sign with key A, verify with key B should fail */
+    uint8_t pk2[OPSSL_MLDSA65_PK_LEN];
+    uint8_t sk2[OPSSL_MLDSA65_SK_LEN];
+    rc = opssl_mldsa65_keygen(pk2, sk2);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 second keygen");
+
+    rc = opssl_mldsa65_sign(sig, (const uint8_t *)msg, msg_len, sk);
+    ASSERT_EQ(rc, 1, "ML-DSA-65 sign with key 1");
+    rc = opssl_mldsa65_verify(sig, (const uint8_t *)msg, msg_len, pk2);
+    ASSERT_EQ(rc, 0, "ML-DSA-65 cross-key verify fails");
+}
+
+static void test_mlkem768(void)
+{
+    opssl_mlkem_ctx_t *alice = opssl_mlkem_new(OPSSL_MLKEM_768);
+    opssl_mlkem_ctx_t *bob = opssl_mlkem_new(OPSSL_MLKEM_768);
+    ASSERT_EQ(alice != NULL, 1, "ML-KEM-768 alice context created");
+    ASSERT_EQ(bob != NULL, 1, "ML-KEM-768 bob context created");
+
+    int rc = opssl_mlkem_keygen(alice);
+    ASSERT_EQ(rc, 1, "ML-KEM-768 alice keygen");
+
+    uint8_t pk[OPSSL_MLKEM768_PK_LEN];
+    size_t pk_len = sizeof(pk);
+    rc = opssl_mlkem_get_public(alice, pk, &pk_len);
+    ASSERT_EQ(rc, 1, "ML-KEM-768 get public key");
+    ASSERT_EQ(pk_len, (size_t)OPSSL_MLKEM768_PK_LEN, "ML-KEM-768 public key length");
+
+    uint8_t ct[OPSSL_MLKEM768_CT_LEN];
+    uint8_t ss_enc[OPSSL_MLKEM768_SS_LEN];
+    size_t ct_len = sizeof(ct);
+    size_t ss_enc_len = sizeof(ss_enc);
+    rc = opssl_mlkem_encaps(bob, pk, pk_len, ct, &ct_len, ss_enc, &ss_enc_len);
+    ASSERT_EQ(rc, 1, "ML-KEM-768 encaps");
+    ASSERT_EQ(ct_len, (size_t)OPSSL_MLKEM768_CT_LEN, "ML-KEM-768 ciphertext length");
+    ASSERT_EQ(ss_enc_len, (size_t)OPSSL_MLKEM768_SS_LEN, "ML-KEM-768 shared secret length");
+
+    uint8_t ss_dec[OPSSL_MLKEM768_SS_LEN];
+    size_t ss_dec_len = sizeof(ss_dec);
+    rc = opssl_mlkem_decaps(alice, ct, ct_len, ss_dec, &ss_dec_len);
+    ASSERT_EQ(rc, 1, "ML-KEM-768 decaps");
+    ASSERT_EQ(ss_dec_len, (size_t)OPSSL_MLKEM768_SS_LEN, "ML-KEM-768 decaps shared secret length");
+
+    ASSERT_MEM_EQ(ss_enc, ss_dec, OPSSL_MLKEM768_SS_LEN, "ML-KEM-768 shared secrets match");
+
+    uint8_t bad_ct[OPSSL_MLKEM768_CT_LEN];
+    memcpy(bad_ct, ct, ct_len);
+    bad_ct[0] ^= 0x01;
+    uint8_t ss_bad[OPSSL_MLKEM768_SS_LEN];
+    size_t ss_bad_len = sizeof(ss_bad);
+    rc = opssl_mlkem_decaps(alice, bad_ct, ct_len, ss_bad, &ss_bad_len);
+    if (rc == 1) {
+        int secrets_different = memcmp(ss_enc, ss_bad, OPSSL_MLKEM768_SS_LEN) != 0;
+        ASSERT_EQ(secrets_different, 1, "ML-KEM-768 corrupted ciphertext gives different secret");
+    } else {
+        ASSERT_EQ(rc, 0, "ML-KEM-768 corrupted ciphertext rejected");
+    }
+
+    opssl_mlkem_free(alice);
+    opssl_mlkem_free(bob);
+}
+
+static void test_mlkem1024(void)
+{
+    opssl_mlkem_ctx_t *alice = opssl_mlkem_new(OPSSL_MLKEM_1024);
+    opssl_mlkem_ctx_t *bob = opssl_mlkem_new(OPSSL_MLKEM_1024);
+    ASSERT_EQ(alice != NULL, 1, "ML-KEM-1024 alice context created");
+    ASSERT_EQ(bob != NULL, 1, "ML-KEM-1024 bob context created");
+
+    int rc = opssl_mlkem_keygen(alice);
+    ASSERT_EQ(rc, 1, "ML-KEM-1024 alice keygen");
+
+    uint8_t pk[OPSSL_MLKEM1024_PK_LEN];
+    size_t pk_len = sizeof(pk);
+    rc = opssl_mlkem_get_public(alice, pk, &pk_len);
+    ASSERT_EQ(rc, 1, "ML-KEM-1024 get public key");
+    ASSERT_EQ(pk_len, (size_t)OPSSL_MLKEM1024_PK_LEN, "ML-KEM-1024 public key length");
+
+    uint8_t ct[OPSSL_MLKEM1024_CT_LEN];
+    uint8_t ss_enc[OPSSL_MLKEM1024_SS_LEN];
+    size_t ct_len = sizeof(ct);
+    size_t ss_enc_len = sizeof(ss_enc);
+    rc = opssl_mlkem_encaps(bob, pk, pk_len, ct, &ct_len, ss_enc, &ss_enc_len);
+    ASSERT_EQ(rc, 1, "ML-KEM-1024 encaps");
+    ASSERT_EQ(ct_len, (size_t)OPSSL_MLKEM1024_CT_LEN, "ML-KEM-1024 ciphertext length");
+    ASSERT_EQ(ss_enc_len, (size_t)OPSSL_MLKEM1024_SS_LEN, "ML-KEM-1024 shared secret length");
+
+    uint8_t ss_dec[OPSSL_MLKEM1024_SS_LEN];
+    size_t ss_dec_len = sizeof(ss_dec);
+    rc = opssl_mlkem_decaps(alice, ct, ct_len, ss_dec, &ss_dec_len);
+    ASSERT_EQ(rc, 1, "ML-KEM-1024 decaps");
+    ASSERT_EQ(ss_dec_len, (size_t)OPSSL_MLKEM1024_SS_LEN, "ML-KEM-1024 decaps shared secret length");
+
+    ASSERT_MEM_EQ(ss_enc, ss_dec, OPSSL_MLKEM1024_SS_LEN, "ML-KEM-1024 shared secrets match");
+
+    uint8_t bad_ct[OPSSL_MLKEM1024_CT_LEN];
+    memcpy(bad_ct, ct, ct_len);
+    bad_ct[100] ^= 0xFF;
+    uint8_t ss_bad[OPSSL_MLKEM1024_SS_LEN];
+    size_t ss_bad_len = sizeof(ss_bad);
+    rc = opssl_mlkem_decaps(alice, bad_ct, ct_len, ss_bad, &ss_bad_len);
+    if (rc == 1) {
+        int secrets_different = memcmp(ss_enc, ss_bad, OPSSL_MLKEM1024_SS_LEN) != 0;
+        ASSERT_EQ(secrets_different, 1, "ML-KEM-1024 corrupted ciphertext gives different secret");
+    } else {
+        ASSERT_EQ(rc, 0, "ML-KEM-1024 corrupted ciphertext rejected");
+    }
+
+    opssl_mlkem_free(alice);
+    opssl_mlkem_free(bob);
+}
+
+static void test_aes_ccm(void)
+{
+    opssl_aead_ctx_t *ctx = opssl_aead_new(OPSSL_AEAD_AES_128_CCM);
+    ASSERT_EQ(ctx != NULL, 1, "AES-128-CCM context created");
+
+    size_t key_len = opssl_aead_key_len(OPSSL_AEAD_AES_128_CCM);
+    ASSERT_EQ(key_len, (size_t)16, "AES-128-CCM key length is 16");
+    uint8_t key[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+
+    int rc = opssl_aead_set_key(ctx, key, key_len);
+    ASSERT_EQ(rc, 1, "AES-128-CCM key set");
+
+    const char *plaintext = "Hello ophion CCM";
+    size_t pt_len = strlen(plaintext);
+    size_t nonce_len = opssl_aead_nonce_len(OPSSL_AEAD_AES_128_CCM);
+    ASSERT_EQ(nonce_len, (size_t)12, "AES-128-CCM nonce length is 12");
+
+    uint8_t nonce[12] = {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c
+    };
+
+    uint8_t sealed[64];
+    size_t sealed_len;
+    rc = opssl_aead_seal(ctx, sealed, &sealed_len, sizeof(sealed),
+                         nonce, nonce_len, (const uint8_t *)plaintext, pt_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "AES-128-CCM seal success");
+
+    uint8_t decrypted[64];
+    size_t decrypted_len;
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "AES-128-CCM open success");
+    ASSERT_EQ(decrypted_len, pt_len, "AES-128-CCM decrypted length");
+    ASSERT_MEM_EQ(decrypted, plaintext, pt_len, "AES-128-CCM roundtrip");
+
+    uint8_t bad_sealed[64];
+    memcpy(bad_sealed, sealed, sealed_len);
+    bad_sealed[0] ^= 0x01;
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, bad_sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 0, "AES-128-CCM tampered ciphertext rejected");
+
+    opssl_aead_free(ctx);
+
+    ctx = opssl_aead_new(OPSSL_AEAD_AES_256_CCM);
+    ASSERT_EQ(ctx != NULL, 1, "AES-256-CCM context created");
+
+    key_len = opssl_aead_key_len(OPSSL_AEAD_AES_256_CCM);
+    ASSERT_EQ(key_len, (size_t)32, "AES-256-CCM key length is 32");
+    uint8_t key256[32] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
+    };
+
+    rc = opssl_aead_set_key(ctx, key256, key_len);
+    ASSERT_EQ(rc, 1, "AES-256-CCM key set");
+
+    rc = opssl_aead_seal(ctx, sealed, &sealed_len, sizeof(sealed),
+                         nonce, nonce_len, (const uint8_t *)plaintext, pt_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "AES-256-CCM seal success");
+
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "AES-256-CCM open success");
+    ASSERT_EQ(decrypted_len, pt_len, "AES-256-CCM decrypted length");
+    ASSERT_MEM_EQ(decrypted, plaintext, pt_len, "AES-256-CCM roundtrip");
+
+    opssl_aead_free(ctx);
+
+    ctx = opssl_aead_new(OPSSL_AEAD_AES_128_CCM_8);
+    ASSERT_EQ(ctx != NULL, 1, "AES-128-CCM-8 context created");
+
+    size_t tag_len = opssl_aead_tag_len(OPSSL_AEAD_AES_128_CCM_8);
+    ASSERT_EQ(tag_len, (size_t)8, "AES-128-CCM-8 tag length is 8");
+
+    rc = opssl_aead_set_key(ctx, key, 16);
+    ASSERT_EQ(rc, 1, "AES-128-CCM-8 key set");
+
+    rc = opssl_aead_seal(ctx, sealed, &sealed_len, sizeof(sealed),
+                         nonce, nonce_len, (const uint8_t *)plaintext, pt_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "AES-128-CCM-8 seal success");
+
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "AES-128-CCM-8 open success");
+    ASSERT_EQ(decrypted_len, pt_len, "AES-128-CCM-8 decrypted length");
+    ASSERT_MEM_EQ(decrypted, plaintext, pt_len, "AES-128-CCM-8 roundtrip");
+
+    opssl_aead_free(ctx);
+}
+
+static void test_camellia_gcm(void)
+{
+    opssl_aead_ctx_t *ctx = opssl_aead_new(OPSSL_AEAD_CAMELLIA_128_GCM);
+    ASSERT_EQ(ctx != NULL, 1, "Camellia-128-GCM context created");
+
+    size_t key_len = opssl_aead_key_len(OPSSL_AEAD_CAMELLIA_128_GCM);
+    ASSERT_EQ(key_len, (size_t)16, "Camellia-128-GCM key length is 16");
+    uint8_t key[16] = {
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+        0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
+    };
+
+    int rc = opssl_aead_set_key(ctx, key, key_len);
+    ASSERT_EQ(rc, 1, "Camellia-128-GCM key set");
+
+    const char *plaintext = "Hello ophion Camellia";
+    size_t pt_len = strlen(plaintext);
+    size_t nonce_len = opssl_aead_nonce_len(OPSSL_AEAD_CAMELLIA_128_GCM);
+    ASSERT_EQ(nonce_len, (size_t)12, "Camellia-128-GCM nonce length is 12");
+
+    uint8_t nonce[12] = {
+        0xca, 0xfe, 0xba, 0xbe, 0xfa, 0xce, 0xdb, 0xad, 0xde, 0xca, 0xf8, 0x88
+    };
+
+    uint8_t sealed[128];
+    size_t sealed_len;
+    rc = opssl_aead_seal(ctx, sealed, &sealed_len, sizeof(sealed),
+                         nonce, nonce_len, (const uint8_t *)plaintext, pt_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "Camellia-128-GCM seal success");
+
+    uint8_t decrypted[128];
+    size_t decrypted_len;
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "Camellia-128-GCM open success");
+    ASSERT_EQ(decrypted_len, pt_len, "Camellia-128-GCM decrypted length");
+    ASSERT_MEM_EQ(decrypted, plaintext, pt_len, "Camellia-128-GCM roundtrip");
+
+    uint8_t bad_sealed[128];
+    memcpy(bad_sealed, sealed, sealed_len);
+    bad_sealed[pt_len / 2] ^= 0xFF;
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, bad_sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 0, "Camellia-128-GCM tampered ciphertext rejected");
+
+    opssl_aead_free(ctx);
+
+    ctx = opssl_aead_new(OPSSL_AEAD_CAMELLIA_256_GCM);
+    ASSERT_EQ(ctx != NULL, 1, "Camellia-256-GCM context created");
+
+    key_len = opssl_aead_key_len(OPSSL_AEAD_CAMELLIA_256_GCM);
+    ASSERT_EQ(key_len, (size_t)32, "Camellia-256-GCM key length is 32");
+    uint8_t key256[32] = {
+        0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
+        0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+        0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
+        0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4
+    };
+
+    rc = opssl_aead_set_key(ctx, key256, key_len);
+    ASSERT_EQ(rc, 1, "Camellia-256-GCM key set");
+
+    rc = opssl_aead_seal(ctx, sealed, &sealed_len, sizeof(sealed),
+                         nonce, nonce_len, (const uint8_t *)plaintext, pt_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "Camellia-256-GCM seal success");
+
+    rc = opssl_aead_open(ctx, decrypted, &decrypted_len, sizeof(decrypted),
+                         nonce, nonce_len, sealed, sealed_len, NULL, 0);
+    ASSERT_EQ(rc, 1, "Camellia-256-GCM open success");
+    ASSERT_EQ(decrypted_len, pt_len, "Camellia-256-GCM decrypted length");
+    ASSERT_MEM_EQ(decrypted, plaintext, pt_len, "Camellia-256-GCM roundtrip");
+
+    opssl_aead_free(ctx);
+}
+
+static void test_ffdhe(void)
+{
+    opssl_ffdh_ctx_t *alice = opssl_ffdh_new(OPSSL_FFDHE_2048);
+    opssl_ffdh_ctx_t *bob = opssl_ffdh_new(OPSSL_FFDHE_2048);
+    ASSERT_EQ(alice != NULL, 1, "FFDHE-2048 alice context created");
+    ASSERT_EQ(bob != NULL, 1, "FFDHE-2048 bob context created");
+
+    int rc = opssl_ffdh_keygen(alice);
+    ASSERT_EQ(rc, 1, "FFDHE-2048 alice keygen");
+    rc = opssl_ffdh_keygen(bob);
+    ASSERT_EQ(rc, 1, "FFDHE-2048 bob keygen");
+
+    uint8_t alice_pub[256], bob_pub[256];
+    size_t alice_pub_len = sizeof(alice_pub), bob_pub_len = sizeof(bob_pub);
+    rc = opssl_ffdh_get_public(alice, alice_pub, &alice_pub_len);
+    ASSERT_EQ(rc, 1, "FFDHE-2048 alice get public");
+    rc = opssl_ffdh_get_public(bob, bob_pub, &bob_pub_len);
+    ASSERT_EQ(rc, 1, "FFDHE-2048 bob get public");
+    ASSERT_EQ(alice_pub_len > 0, 1, "FFDHE-2048 alice public key non-empty");
+    ASSERT_EQ(bob_pub_len > 0, 1, "FFDHE-2048 bob public key non-empty");
+
+    uint8_t alice_shared[256], bob_shared[256];
+    size_t alice_shared_len = sizeof(alice_shared), bob_shared_len = sizeof(bob_shared);
+    rc = opssl_ffdh_derive(alice, bob_pub, bob_pub_len, alice_shared, &alice_shared_len);
+    ASSERT_EQ(rc, 1, "FFDHE-2048 alice derive");
+    rc = opssl_ffdh_derive(bob, alice_pub, alice_pub_len, bob_shared, &bob_shared_len);
+    ASSERT_EQ(rc, 1, "FFDHE-2048 bob derive");
+
+    ASSERT_EQ(alice_shared_len, bob_shared_len, "FFDHE-2048 shared secret lengths match");
+    ASSERT_MEM_EQ(alice_shared, bob_shared, alice_shared_len, "FFDHE-2048 shared secrets match");
+
+    opssl_ffdh_free(alice);
+    opssl_ffdh_free(bob);
+
+    alice = opssl_ffdh_new(OPSSL_FFDHE_3072);
+    bob = opssl_ffdh_new(OPSSL_FFDHE_3072);
+    ASSERT_EQ(alice != NULL, 1, "FFDHE-3072 alice context created");
+    ASSERT_EQ(bob != NULL, 1, "FFDHE-3072 bob context created");
+
+    rc = opssl_ffdh_keygen(alice);
+    ASSERT_EQ(rc, 1, "FFDHE-3072 alice keygen");
+    rc = opssl_ffdh_keygen(bob);
+    ASSERT_EQ(rc, 1, "FFDHE-3072 bob keygen");
+
+    uint8_t alice_pub3072[384], bob_pub3072[384];
+    size_t alice_pub3072_len = sizeof(alice_pub3072), bob_pub3072_len = sizeof(bob_pub3072);
+    rc = opssl_ffdh_get_public(alice, alice_pub3072, &alice_pub3072_len);
+    ASSERT_EQ(rc, 1, "FFDHE-3072 alice get public");
+    rc = opssl_ffdh_get_public(bob, bob_pub3072, &bob_pub3072_len);
+    ASSERT_EQ(rc, 1, "FFDHE-3072 bob get public");
+    ASSERT_EQ(alice_pub3072_len > 0, 1, "FFDHE-3072 alice public key non-empty");
+    ASSERT_EQ(bob_pub3072_len > 0, 1, "FFDHE-3072 bob public key non-empty");
+
+    uint8_t alice_shared3072[384], bob_shared3072[384];
+    size_t alice_shared3072_len = sizeof(alice_shared3072), bob_shared3072_len = sizeof(bob_shared3072);
+    rc = opssl_ffdh_derive(alice, bob_pub3072, bob_pub3072_len, alice_shared3072, &alice_shared3072_len);
+    ASSERT_EQ(rc, 1, "FFDHE-3072 alice derive");
+    rc = opssl_ffdh_derive(bob, alice_pub3072, alice_pub3072_len, bob_shared3072, &bob_shared3072_len);
+    ASSERT_EQ(rc, 1, "FFDHE-3072 bob derive");
+
+    ASSERT_EQ(alice_shared3072_len, bob_shared3072_len, "FFDHE-3072 shared secret lengths match");
+    ASSERT_MEM_EQ(alice_shared3072, bob_shared3072, alice_shared3072_len, "FFDHE-3072 shared secrets match");
+
+    opssl_ffdh_free(alice);
+    opssl_ffdh_free(bob);
+}
+
 int main(void)
 {
     opssl_init();
@@ -785,6 +1336,8 @@ int main(void)
     test_hkdf();
     test_chacha20_poly1305();
     test_aes_gcm();
+    test_aes_ccm();
+    test_camellia_gcm();
     test_x25519();
     test_ed25519();
     test_random();
@@ -797,6 +1350,14 @@ int main(void)
     test_ecdh_p256();
     test_ecdh_p384();
     test_ecdh_p521();
+    test_sha3();
+    test_shake();
+    test_blake2b();
+    test_argon2id();
+    test_mldsa65();
+    test_mlkem768();
+    test_mlkem1024();
+    test_ffdhe();
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

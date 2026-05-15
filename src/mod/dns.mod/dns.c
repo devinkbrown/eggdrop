@@ -28,7 +28,7 @@
 
 #include "dns.h"
 
-static Function *global = NULL;
+static Function *global = nullptr;
 
 static int dns_maxsends = 4;
 static int dns_retrydelay = 3;
@@ -86,13 +86,13 @@ static struct dcc_table DCC_DNS = {
   DCT_LISTEN,
   eof_dns_socket,
   dns_socket,
-  NULL,
-  NULL,
+  nullptr,
+  nullptr,
   display_dns_socket,
-  NULL,
-  NULL,
-  NULL,
-  NULL
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 static tcl_ints dnsints[] = {
@@ -100,15 +100,15 @@ static tcl_ints dnsints[] = {
   {"dns-retrydelay", &dns_retrydelay, 0},
   {"dns-cache",      &dns_cache,      0},
   {"dns-negcache",   &dns_negcache,   0},
-  {NULL,             NULL,            0}
+  {nullptr,             nullptr,            0}
 };
 
 static tcl_strings dnsstrings[] = {
   {"dns-servers", dns_servers, 143,           0},
-  {NULL,          NULL,          0,           0}
+  {nullptr,          nullptr,          0,           0}
 };
 
-static __attribute__((unused)) char *dns_change(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *dns_change(ClientData cdata, Tcl_Interp *irp,
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
 {
@@ -124,6 +124,7 @@ static __attribute__((unused)) char *dns_change(ClientData cdata, Tcl_Interp *ir
     Tcl_DStringInit(&ds);
     for (i = 0; i < myres.nscount; i++) {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s:%s", iptostr((struct sockaddr *) &myres.nsaddr_list[i]),
                        int_to_base10(ntohs(myres.nsaddr_list[i].sin_port)));
       Tcl_DStringAppendElement(&ds, op_strbuf_str(&_b));
@@ -149,7 +150,7 @@ static __attribute__((unused)) char *dns_change(ClientData cdata, Tcl_Interp *ir
       if ((p = (char *)strchr(list[i], ':'))) {
         *p++ = 0;
         /* allow non-standard ports */
-        port = atoi(p);
+        port = egg_atoi(p);
       } else
         port = NAMESERVER_PORT; /* port 53 */
       /* Ignore invalid addresses */
@@ -164,7 +165,7 @@ static __attribute__((unused)) char *dns_change(ClientData cdata, Tcl_Interp *ir
     }
     Tcl_Free((char *) list);
   }
-  return NULL;
+  return nullptr;
 }
 
 
@@ -182,7 +183,7 @@ static void dns_free_cache(void)
       op_free(rp->hostn);
     op_free(rp);
   }
-  expireresolves = NULL;
+  expireresolves = nullptr;
 }
 
 static int dns_cache_expmem(void)
@@ -253,15 +254,16 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
 #ifdef EGG_TLS
     if (dot_active || dot_sa_valid) {
       op_strbuf_t _port;
+      op_strbuf_init(&_port);
       op_strbuf_appendf(&_port, "%u", dot_port_saved ? dot_port_saved : 853);
       Tcl_AppendResult(irp, dot_active ? "on " : "connecting ", dot_host, ":",
-                       op_strbuf_str(&_port), NULL);
+                       op_strbuf_str(&_port), nullptr);
       op_strbuf_free(&_port);
     } else {
-      Tcl_AppendResult(irp, "off", NULL);
+      Tcl_AppendResult(irp, "off", nullptr);
     }
 #else
-    Tcl_AppendResult(irp, "unavailable (TLS not compiled in)", NULL);
+    Tcl_AppendResult(irp, "unavailable (TLS not compiled in)", nullptr);
 #endif
     return TCL_OK;
   }
@@ -272,14 +274,14 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
   }
 
   if (!strcasecmp(argv[1], "on")) {
-    struct sockaddr_storage sa;
+    struct sockaddr_storage sa = {};
     const char *addr;
     uint16_t    port    = 853;
     int         verify  = 1;
 
     if (argc < 3) {
       Tcl_AppendResult(irp, "Usage: dnsdot on <server> [port] [-noverify]",
-                       NULL);
+                       nullptr);
       return TCL_ERROR;
     }
     addr = argv[2];
@@ -288,10 +290,8 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
       if (!strcasecmp(argv[i], "-noverify"))
         verify = 0;
       else
-        port = (uint16_t)atoi(argv[i]);
+        port = (uint16_t)egg_atoi(argv[i]);
     }
-
-    memset(&sa, 0, sizeof sa);
     if (inet_pton(AF_INET, addr,
                   &((struct sockaddr_in *)&sa)->sin_addr) == 1) {
       ((struct sockaddr_in *)&sa)->sin_family = AF_INET;
@@ -304,7 +304,7 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
 #endif
     else {
       Tcl_AppendResult(irp, "Invalid server address (must be numeric IP)",
-                       NULL);
+                       nullptr);
       return TCL_ERROR;
     }
 
@@ -313,13 +313,13 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
   }
 
   Tcl_AppendResult(irp, "Usage: dnsdot [on <server> [port] [-noverify] | off]",
-                   NULL);
+                   nullptr);
   return TCL_ERROR;
 }
 
 static tcl_cmds dnscmds[] = {
   {"dnsdot", tcl_dnsdot},
-  {NULL,     NULL}
+  {nullptr,     nullptr}
 };
 
 static char *dns_close(void)
@@ -333,7 +333,7 @@ static char *dns_close(void)
   rem_tcl_commands(dnscmds);
   Tcl_UntraceVar(interp, "dns-servers",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 dns_change, NULL);
+                 dns_change, nullptr);
 
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_DNS && dcc[i].sock == resfd) {
@@ -345,7 +345,7 @@ static char *dns_close(void)
 
   dns_free_cache();
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 char *dns_start(Function *global_funcs);
@@ -393,7 +393,7 @@ char *dns_start(Function *global_funcs)
 
   Tcl_TraceVar(interp, "dns-servers",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               dns_change, NULL);
+               dns_change, nullptr);
   add_hook(HOOK_SECONDLY, (Function) dns_check_expires);
   add_hook(HOOK_DNS_HOSTBYIP, (Function) dns_lookup);
   add_hook(HOOK_DNS_IPBYHOST, (Function) dns_forward);
@@ -401,5 +401,5 @@ char *dns_start(Function *global_funcs)
   add_tcl_ints(dnsints);
   add_tcl_strings(dnsstrings);
   add_tcl_commands(dnscmds);
-  return NULL;
+  return nullptr;
 }

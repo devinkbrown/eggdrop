@@ -36,25 +36,25 @@ extern time_t now;
 extern cmd_t C_dcc[];
 
 p_tcl_bind_list bind_table_list;
-static op_htab *bind_table_ht    = NULL;
+static op_htab *bind_table_ht    = nullptr;
 
 /* op_bh slab allocators for the three fixed-size tclhash node types.
  * Initialized in init_bind(), destroyed in kill_bind(). */
-static op_bh *tcl_cmd_heap       = NULL;
-static op_bh *tcl_bind_mask_heap = NULL;
-static op_bh *tcl_bind_list_heap = NULL;
+static op_bh *tcl_cmd_heap       = nullptr;
+static op_bh *tcl_bind_mask_heap = nullptr;
+static op_bh *tcl_bind_list_heap = nullptr;
 
 /* Set to 1 whenever a bind is added or marked deleted.
  * garbage_collect_tclhash() uses this to skip the traversal when nothing
  * has changed, turning the common idle case into an O(1) check. */
 static int tclhash_dirty = 0;
 
-/* Bind-table head pointers; always present (NULL when Tcl is disabled). */
+/* Bind-table head pointers; always present (nullptr when Tcl is disabled). */
 p_tcl_bind_list H_chat, H_act, H_bcst, H_chon, H_chof, H_load, H_unld, H_link,
                 H_disc, H_dcc, H_chjn, H_chpt, H_bot, H_time, H_nkch, H_away,
-                H_note, H_filt, H_event, H_die, H_cron, H_log = NULL;
+                H_note, H_filt, H_event, H_die, H_cron, H_log = nullptr;
 #ifdef TLS
-p_tcl_bind_list H_tls = NULL;
+p_tcl_bind_list H_tls = nullptr;
 #endif
 
 #include "script.h"
@@ -103,7 +103,7 @@ static void tcl_bind_list_delete(tcl_bind_list_t *tl)
     tcl_bind_mask_delete(tm);
   }
   if (tl->mask_ht)
-    op_htab_destroy(tl->mask_ht, NULL, NULL);
+    op_htab_destroy(tl->mask_ht, nullptr, nullptr);
   op_bh_free(tcl_bind_list_heap, tl);
 }
 
@@ -117,7 +117,7 @@ void garbage_collect_tclhash(void)
     return;                     /* Nothing changed since last GC: skip */
   tclhash_dirty = 0;
 
-  for (tl = bind_table_list, tl_prev = NULL; tl; tl = tl_next) {
+  for (tl = bind_table_list, tl_prev = nullptr; tl; tl = tl_next) {
     tl_next = tl->next;
 
     if (tl->flags & HT_DELETED) {
@@ -127,11 +127,11 @@ void garbage_collect_tclhash(void)
         bind_table_list = tl->next;
       tcl_bind_list_delete(tl);
     } else {
-      for (tm = tl->first, tm_prev = NULL; tm; tm = tm_next) {
+      for (tm = tl->first, tm_prev = nullptr; tm; tm = tm_next) {
         tm_next = tm->next;
 
         if (!(tm->flags & TBM_DELETED)) {
-          for (tc = tm->first, tc_prev = NULL; tc; tc = tc_next) {
+          for (tc = tm->first, tc_prev = nullptr; tc; tc = tc_next) {
             tc_next = tc->next;
 
             if (tc->attributes & TC_DELETED) {
@@ -146,7 +146,7 @@ void garbage_collect_tclhash(void)
         }
 
         /* Delete the bind when it's marked as deleted or when it's empty. */
-        if ((tm->flags & TBM_DELETED) || tm->first == NULL) {
+        if ((tm->flags & TBM_DELETED) || tm->first == nullptr) {
           if (tl->mask_ht)
             op_htab_del(tl->mask_ht, tm->mask);
           if (tm_prev)
@@ -176,7 +176,7 @@ static tcl_bind_mask_t *find_or_add_mask(tcl_bind_list_t *tl, const char *mask)
   tm->next  = tl->first;
   tl->first = tm;
   if (tl->mask_ht)
-    op_htab_set(tl->mask_ht, tm->mask, tm, NULL);
+    op_htab_set(tl->mask_ht, tm->mask, tm, nullptr);
   return tm;
 }
 
@@ -189,7 +189,7 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
    * 15 characters. */
   Assert(strlen(nme) <= 15);
 
-  for (tl = bind_table_list, tl_prev = NULL; tl; tl_prev = tl, tl = tl->next) {
+  for (tl = bind_table_list, tl_prev = nullptr; tl; tl_prev = tl, tl = tl->next) {
     if (tl->flags & HT_DELETED)
       continue;
     v = strcasecmp(tl->name, nme);
@@ -215,7 +215,7 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
   }
 
   if (bind_table_ht)
-    op_htab_set(bind_table_ht, tl->name, tl, NULL);
+    op_htab_set(bind_table_ht, tl->name, tl, nullptr);
   putlog(LOG_DEBUG, "*", "Allocated bind table %s (flags %d)", nme, flg);
   return tl;
 }
@@ -247,14 +247,14 @@ tcl_bind_list_t *find_bind_table(const char *nme)
     tl = op_htab_get(bind_table_ht, nme);
     if (tl && !(tl->flags & HT_DELETED))
       return tl;
-    return NULL;
+    return nullptr;
   }
   /* Fallback: linear scan (htab not yet initialised). */
   for (tl = bind_table_list; tl; tl = tl->next) {
     if (!(tl->flags & HT_DELETED) && !strcasecmp(tl->name, nme))
       return tl;
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Add command (remove old one if necessary) */
@@ -275,7 +275,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
       continue;
     if (!strcmp(tc->func_name, proc)) {
       tc->flags.match = FR_GLOBAL | FR_CHAN;
-      break_down_flags(flags, &(tc->flags), NULL);
+      break_down_flags(flags, &(tc->flags), nullptr);
       return 1;
     }
   }
@@ -295,7 +295,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
 
   tc = tcl_cmd_alloc();
   tc->flags.match = FR_GLOBAL | FR_CHAN;
-  break_down_flags(flags, &(tc->flags), NULL);
+  break_down_flags(flags, &(tc->flags), nullptr);
   tc->func_name = op_strdup(proc);
 
   /* Link into linked list of the bind's command list. */
@@ -400,7 +400,7 @@ static int build_argv(const char *param, const char **argv, int maxargc)
   while (tok && argc < maxargc) {
     if (tok[0] == '$' && tok[1] == '_')
       argv[argc++] = egg_getvar(tok + 1);   /* skip leading '$' */
-    tok = strtok_r(NULL, " ", &brkt);
+    tok = strtok_r(nullptr, " ", &brkt);
   }
   return argc;
 }
@@ -464,7 +464,7 @@ static int builtin_5int STDVAR
   BADARGS(6, 6, " min hrs dom mon year");
 
   CHECKVALIDITY(builtin_5int);
-  F(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), atoi(argv[5]));
+  F(egg_atoi(argv[1]), egg_atoi(argv[2]), egg_atoi(argv[3]), egg_atoi(argv[4]), egg_atoi(argv[5]));
   return TCL_OK;
 }
 
@@ -475,7 +475,7 @@ static int builtin_cron STDVAR
   BADARGS(6, 6, " min hrs dom weekday");
 
   CHECKVALIDITY(builtin_cron);
-  F(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), atoi(argv[5]));
+  F(egg_atoi(argv[1]), egg_atoi(argv[2]), egg_atoi(argv[3]), egg_atoi(argv[4]), egg_atoi(argv[5]));
   return TCL_OK;
 }
 
@@ -497,7 +497,7 @@ static int builtin_chpt STDVAR
   BADARGS(3, 3, " bot nick sock");
 
   CHECKVALIDITY(builtin_chpt);
-  F(argv[1], argv[2], atoi(argv[3]));
+  F(argv[1], argv[2], egg_atoi(argv[3]));
   return TCL_OK;
 }
 
@@ -509,8 +509,8 @@ static int builtin_chjn STDVAR
   BADARGS(6, 6, " bot nick chan# flag&sock host");
 
   CHECKVALIDITY(builtin_chjn);
-  F(argv[1], argv[2], atoi(argv[3]), argv[4][0],
-    argv[4][0] ? atoi(argv[4] + 1) : 0, argv[5]);
+  F(argv[1], argv[2], egg_atoi(argv[3]), argv[4][0],
+    argv[4][0] ? egg_atoi(argv[4] + 1) : 0, argv[5]);
   return TCL_OK;
 }
 
@@ -538,15 +538,15 @@ static int builtin_idxchar STDVAR
   BADARGS(3, 3, " idx args");
 
   CHECKVALIDITY(builtin_idxchar);
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   r = ((char *(*)(int, char *)) F)(idx, argv[2]);
 
   Tcl_ResetResult(irp);
-  Tcl_AppendResult(irp, r, NULL);
+  Tcl_AppendResult(irp, r, nullptr);
   return TCL_OK;
 }
 
@@ -558,12 +558,12 @@ static int builtin_charidx STDVAR
   BADARGS(3, 3, " handle idx");
 
   CHECKVALIDITY(builtin_charidx);
-  idx = findanyidx(atoi(argv[2]));
+  idx = findanyidx(egg_atoi(argv[2]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, int_to_base10(((intptr_t (*)(char *, int)) F)(argv[1], idx)), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((intptr_t (*)(char *, int)) F)(argv[1], idx)), nullptr);
 
   return TCL_OK;
 }
@@ -576,7 +576,7 @@ static int builtin_chat STDVAR
   BADARGS(4, 4, " handle idx text");
 
   CHECKVALIDITY(builtin_chat);
-  ch = atoi(argv[2]);
+  ch = egg_atoi(argv[2]);
   F(argv[1], ch, argv[3]);
   return TCL_OK;
 }
@@ -589,9 +589,9 @@ static int builtin_dcc STDVAR
   BADARGS(4, 4, " hand idx param");
 
   CHECKVALIDITY(builtin_dcc);
-  idx = findidx(atoi(argv[2]));
+  idx = findidx(egg_atoi(argv[2]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
 
@@ -609,7 +609,7 @@ static int builtin_dcc STDVAR
          "[something]" : argv[3]);
   ((void (*)(struct userrec *, int, char *)) F)(dcc[idx].user, idx, argv[3]);
   Tcl_ResetResult(irp);
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -632,7 +632,7 @@ static int builtin_idx STDVAR
   BADARGS(2, 2, " idx");
 
   CHECKVALIDITY(builtin_idx);
-  F(atoi(argv[1]));
+  F(egg_atoi(argv[1]));
   return TCL_OK;
 }
 #endif
@@ -641,8 +641,7 @@ static int builtin_idx STDVAR
 static int trigger_bind(const char *proc, const char *param, char *mask)
 {
   int x;
-  struct rusage ru1, ru2;
-  int r = 0;
+  struct egg_rusage_timer rt = {};
 
   /* Set the lastbind variable before evaluating the proc so that the name
    * of the command that triggered the bind will be available to the proc.
@@ -655,15 +654,12 @@ static int trigger_bind(const char *proc, const char *param, char *mask)
     strlcpy(last_bind_called, proc, sizeof last_bind_called);
 #endif
     debug1("triggering bind %s", proc);
-    r = getrusage(RUSAGE_SELF, &ru1);
+    egg_timer_start(&rt);
   }
-  x = Tcl_VarEval(interp, proc, param, NULL);
-  if (proc && proc[0] != '*' && !r && !getrusage(RUSAGE_SELF, &ru2))
-    debug3("triggered bind %s, user %.3fms sys %.3fms", proc,
-           (double) (ru2.ru_utime.tv_usec - ru1.ru_utime.tv_usec) / 1000 +
-           (double) (ru2.ru_utime.tv_sec  - ru1.ru_utime.tv_sec ) * 1000,
-           (double) (ru2.ru_stime.tv_usec - ru1.ru_stime.tv_usec) / 1000 +
-           (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
+  x = Tcl_VarEval(interp, proc, param, nullptr);
+  double ums, sms;
+  if (proc && proc[0] != '*' && egg_timer_stop(&rt, &ums, &sms))
+    debug3("triggered bind %s, user %.3fms sys %.3fms", proc, ums, sms);
 
   if (x == TCL_ERROR) {
     putlog(LOG_MISC, "*", "Tcl error [%s]: %s", proc, tcl_resultstring());
@@ -688,10 +684,10 @@ static void dump_bind_tables(Tcl_Interp *irp)
     if (tl->flags & HT_DELETED)
       continue;
     if (i)
-      Tcl_AppendResult(irp, ", ", NULL);
+      Tcl_AppendResult(irp, ", ", nullptr);
     else
       i = 1;
-    Tcl_AppendResult(irp, tl->name, NULL);
+    Tcl_AppendResult(irp, tl->name, nullptr);
   }
 }
 
@@ -729,7 +725,7 @@ static int tcl_bind STDVAR
 
   tl = find_bind_table(argv[1]);
   if (!tl) {
-    Tcl_AppendResult(irp, "bad type, should be one of: ", NULL);
+    Tcl_AppendResult(irp, "bad type, should be one of: ", nullptr);
     dump_bind_tables(irp);
     return TCL_ERROR;
   }
@@ -738,7 +734,7 @@ static int tcl_bind STDVAR
       /* Don't error if trying to re-unbind a builtin */
       if (argv[4][0] != '*' || argv[4][4] != ':' ||
           strcmp(argv[3], &argv[4][5]) || strncmp(argv[1], &argv[4][1], 3)) {
-        Tcl_AppendResult(irp, "no such binding", NULL);
+        Tcl_AppendResult(irp, "no such binding", nullptr);
         return TCL_ERROR;
       }
     }
@@ -747,7 +743,7 @@ static int tcl_bind STDVAR
       return tcl_getbinds(tl, argv[3]);
     bind_bind_entry(tl, argv[2], argv[3], argv[4]);
   }
-  Tcl_AppendResult(irp, argv[3], NULL);
+  Tcl_AppendResult(irp, argv[3], nullptr);
   return TCL_OK;
 }
 
@@ -765,7 +761,7 @@ int check_validity(char *nme, IntFunc func)
   if (*nme != '*')
     return 0;
   p = strchr(nme + 1, ':');
-  if (p == NULL)
+  if (p == nullptr)
     return 0;
   *p = 0;
   tl = find_bind_table(nme + 1);
@@ -785,19 +781,21 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
   cd_tcl_cmd table[2];
 
   table[0].callback = tl->func;
-  table[1].name = NULL;
+  table[1].name = nullptr;
   for (int i = 0; cc[i].name; i++) {
+    op_arena_mark_t mark = op_arena_save(op_event_arena());
     op_strbuf_t p;
+    op_strbuf_init(&p);
     op_strbuf_appendf(&p, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
-    l = op_malloc(Tcl_ScanElement(op_strbuf_str(&p), &k) + 1);
+    l = op_arena_alloc(op_event_arena(), Tcl_ScanElement(op_strbuf_str(&p), &k) + 1);
     Tcl_ConvertElement(op_strbuf_str(&p), l, k | TCL_DONT_USE_BRACES);
     table[0].name = op_strbuf_str(&p);
     table[0].cdata = (void *) cc[i].func;
     add_cd_tcl_cmds(table);
     bind_bind_entry(tl, cc[i].flags, cc[i].name, l);
-    op_free(l);
     op_strbuf_free(&p);
+    op_arena_restore(op_event_arena(), mark);
   }
 }
 
@@ -808,15 +806,17 @@ void rem_builtins(tcl_bind_list_t *table, cmd_t *cc)
   char *l;
 
   for (int i = 0; cc[i].name; i++) {
+    op_arena_mark_t mark = op_arena_save(op_event_arena());
     op_strbuf_t p;
+    op_strbuf_init(&p);
     op_strbuf_appendf(&p, "*%s:%s", table->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
-    l = op_malloc(Tcl_ScanElement(op_strbuf_str(&p), &k) + 1);
+    l = op_arena_alloc(op_event_arena(), Tcl_ScanElement(op_strbuf_str(&p), &k) + 1);
     Tcl_ConvertElement(op_strbuf_str(&p), l, k | TCL_DONT_USE_BRACES);
     Tcl_DeleteCommand(interp, op_strbuf_str(&p));
     unbind_bind_entry(table, cc[i].flags, cc[i].name, l);
-    op_free(l);
     op_strbuf_free(&p);
+    op_arena_restore(op_event_arena(), mark);
   }
 }
 
@@ -840,7 +840,7 @@ static int native_dcc_call(void *cd, const char **argv, int argc)
 
   if (argc < 3)
     return 0;
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0)
     return 0;
   F(dcc[idx].user, idx, (char *) argv[2]);
@@ -875,13 +875,14 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
     return;
   for (int i = 0; cc[i].name; i++) {
     op_strbuf_t key_buf;
+    op_strbuf_init(&key_buf);
     op_strbuf_appendf(&key_buf, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
     const char *key = op_strbuf_str(&key_buf);
 
     egg_bzero(&fr, sizeof fr);
     fr.match = FR_GLOBAL | FR_CHAN;
-    break_down_flags(cc[i].flags ? cc[i].flags : "", &fr, NULL);
+    break_down_flags(cc[i].flags ? cc[i].flags : "", &fr, nullptr);
 
     tm = find_or_add_mask(tl, cc[i].name);
 
@@ -912,6 +913,7 @@ void rem_builtins(tcl_bind_list_t *tl, cmd_t *cc)
     return;
   for (int i = 0; cc[i].name; i++) {
     op_strbuf_t key_buf;
+    op_strbuf_init(&key_buf);
     op_strbuf_appendf(&key_buf, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
     unbind_bind_entry(tl, cc[i].flags, cc[i].name, op_strbuf_str(&key_buf));
@@ -936,12 +938,12 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
                    struct flag_record *atr, const char *param, int match_type)
 {
   int x, result = 0, cnt = 0, finish = 0;
-  __attribute__((unused)) char *mask = NULL;
-  tcl_bind_mask_t *tm, *tm_last = NULL, *tm_p = NULL;
-  tcl_cmd_t *tc, *htc = NULL;
+  [[maybe_unused]] char *mask = nullptr;
+  tcl_bind_mask_t *tm, *tm_last = nullptr, *tm_p = nullptr;
+  tcl_cmd_t *tc, *htc = nullptr;
   char *str, *varName, *brkt;
   const char *argv[16];
-  __attribute__((unused)) int argc;
+  [[maybe_unused]] int argc;
 
   if (!tl)
     return BIND_NOMATCH;
@@ -1098,16 +1100,15 @@ exact_miss:
   x = DISPATCH(htc, param, mask, argv, argc);
 
 finally:
-  str = op_strdup(param);
+  str = op_arena_strdup(op_event_arena(), param);
 
   for (varName = strtok_r(str,  " $:", &brkt);
        varName;
-       varName = strtok_r(NULL, " $:", &brkt))
+       varName = strtok_r(nullptr, " $:", &brkt))
   {
     Tcl_UnsetVar(interp, varName, 0);
   }
 
-  op_free(str);
   return x;
 }
 
@@ -1122,11 +1123,12 @@ finally:
  */
 int check_tcl_dcc(const char *cmd, int idx, const char *args)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   int x;
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%ld", dcc[idx].sock);
   Tcl_SetVar(interp, "_dcc1", (char *) dcc[idx].nick, 0);
   Tcl_SetVar(interp, "_dcc2", op_strbuf_str(&s), 0);
@@ -1162,14 +1164,15 @@ void check_tcl_bot(const char *nick, const char *code, const char *param)
 
 void check_tcl_chonof(char *hand, int sock, tcl_bind_list_t *tl)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   struct userrec *u;
 
   u = get_user_by_handle(userlist, hand);
   touch_laston(u, "partyline", now);
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_chonof1", (char *) hand, 0);
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", sock);
   Tcl_SetVar(interp, "_chonof2", op_strbuf_str(&s), 0);
   op_strbuf_free(&s);
@@ -1181,6 +1184,7 @@ void check_tcl_chatactbcst(const char *from, int chan, const char *text,
                            tcl_bind_list_t *tl)
 {
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", chan);
   Tcl_SetVar(interp, "_cab1", (char *) from, 0);
   Tcl_SetVar(interp, "_cab2", op_strbuf_str(&s), 0);
@@ -1221,9 +1225,10 @@ void check_tcl_loadunld(const char *mod, tcl_bind_list_t *tl)
 const char *check_tcl_filt(int idx, const char *text)
 {
   int x;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%ld", dcc[idx].sock);
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   Tcl_SetVar(interp, "_filt1", op_strbuf_str(&s), 0);
@@ -1258,6 +1263,7 @@ int check_tcl_note(const char *from, const char *to, const char *text)
 void check_tcl_listen(const char *cmd, int idx)
 {
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", idx);
 
   Tcl_SetVar(interp, "_listen1", (char *) cmd, 0);
@@ -1270,7 +1276,7 @@ void check_tcl_listen(const char *cmd, int idx)
 void check_tcl_chjn(const char *bot, const char *nick, int chan,
                     const char type, int sock, const char *host)
 {
-  struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL };
   char t[2];
 
   t[0] = type;
@@ -1325,6 +1331,7 @@ void check_tcl_chpt(const char *bot, const char *hand, int sock, int chan)
 void check_tcl_away(const char *bot, int idx, const char *msg)
 {
   op_strbuf_t u;
+  op_strbuf_init(&u);
   op_strbuf_appendf(&u, "%d", idx);
   Tcl_SetVar(interp, "_away1", (char *) bot, 0);
   Tcl_SetVar(interp, "_away2", op_strbuf_str(&u), 0);
@@ -1337,6 +1344,7 @@ void check_tcl_away(const char *bot, int idx, const char *msg)
 void check_tcl_time_and_cron(struct tm *tm)
 {
   op_strbuf_t y;
+  op_strbuf_init(&y);
 
   op_strbuf_appendf(&y, "%02d", tm->tm_min);
   Tcl_SetVar(interp, "_time1", op_strbuf_str(&y), 0);
@@ -1410,7 +1418,7 @@ void check_tcl_die(const char *reason)
 
 void check_tcl_log(int lv, char *chan, char *msg)
 {
-  __attribute__((unused)) Tcl_Obj* prev_result;
+  [[maybe_unused]] Tcl_Obj* prev_result;
 
   /* We have to store the old result, as check_tcl_bind may override it.
    * In no-Tcl builds the Tcl_*RefCount / Tcl_*ObjResult calls are no-ops. */
@@ -1418,6 +1426,7 @@ void check_tcl_log(int lv, char *chan, char *msg)
   Tcl_IncrRefCount(prev_result);
 
   op_strbuf_t mask;
+  op_strbuf_init(&mask);
   op_strbuf_appendf(&mask, "%s %s", chan, msg);
   Tcl_SetVar(interp, "_log1", masktype(lv), TCL_GLOBAL_ONLY);
   Tcl_SetVar(interp, "_log2", chan, TCL_GLOBAL_ONLY);
@@ -1436,6 +1445,7 @@ int check_tcl_tls(int sock)
   int x;
 
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", sock);
   Tcl_SetVar(interp, "_tls", op_strbuf_str(&s), 0);
   x = check_tcl_bind(H_tls, op_strbuf_str(&s), 0, " $_tls", MATCH_MASK | BIND_STACKABLE |
@@ -1463,16 +1473,16 @@ void tell_binds(int idx, char *par)
   if (par[0])
     name = newsplit(&par);
   else
-    name = NULL;
+    name = nullptr;
   if (par[0])
     s = newsplit(&par);
   else
-    s = NULL;
+    s = nullptr;
 
   if (name)
     tl_kind = find_bind_table(name);
   else
-    tl_kind = NULL;
+    tl_kind = nullptr;
 
   if ((name && name[0] && !strcasecmp(name, "all")) ||
       (s && s[0] && !strcasecmp(s, "all")))
@@ -1483,7 +1493,7 @@ void tell_binds(int idx, char *par)
   if ((name && name[0] && !strcasecmp(name, "python")) ||
       (s && s[0] && !strcasecmp(s, "all")))
     showpy = 1;
-  if (tl_kind == NULL && !showpy && !showtcl && name && name[0] && strcasecmp(name, "all"))
+  if (tl_kind == nullptr && !showpy && !showtcl && name && name[0] && strcasecmp(name, "all"))
     patmatc = 1;
 
   for (tl = tl_kind ? tl_kind : bind_table_list; tl;
@@ -1516,7 +1526,7 @@ void tell_binds(int idx, char *par)
         if (tc->attributes & TC_DELETED)
           continue;
         proc = tc->func_name;
-        build_flags(flg, &(tc->flags), NULL);
+        build_flags(flg, &(tc->flags), nullptr);
         ok = 0;
         if (showall) {
           ok = 1;
@@ -1566,34 +1576,34 @@ void init_bind(void)
   tcl_bind_mask_heap = op_bh_create(sizeof(tcl_bind_mask_t),  64, "tcl_bind_mask");
   tcl_bind_list_heap = op_bh_create(sizeof(tcl_bind_list_t),  32, "tcl_bind_list");
 
-  bind_table_list = NULL;
+  bind_table_list = nullptr;
   bind_table_ht   = op_htab_create_istr("bind_tables", 32);
 
   /* Core bind tables — created once, Tcl builds attach validators after. */
-  H_dcc   = add_bind_table("dcc",   0,            NULL);
-  H_filt  = add_bind_table("filt",  HT_STACKABLE, NULL);
-  H_unld  = add_bind_table("unld",  HT_STACKABLE, NULL);
-  H_load  = add_bind_table("load",  HT_STACKABLE, NULL);
-  H_link  = add_bind_table("link",  HT_STACKABLE, NULL);
-  H_disc  = add_bind_table("disc",  HT_STACKABLE, NULL);
-  H_nkch  = add_bind_table("nkch",  HT_STACKABLE, NULL);
-  H_away  = add_bind_table("away",  HT_STACKABLE, NULL);
-  H_chat  = add_bind_table("chat",  HT_STACKABLE, NULL);
-  H_act   = add_bind_table("act",   HT_STACKABLE, NULL);
-  H_bcst  = add_bind_table("bcst",  HT_STACKABLE, NULL);
-  H_chon  = add_bind_table("chon",  HT_STACKABLE, NULL);
-  H_chof  = add_bind_table("chof",  HT_STACKABLE, NULL);
-  H_chpt  = add_bind_table("chpt",  HT_STACKABLE, NULL);
-  H_chjn  = add_bind_table("chjn",  HT_STACKABLE, NULL);
-  H_bot   = add_bind_table("bot",   0,            NULL);
-  H_event = add_bind_table("evnt",  HT_STACKABLE, NULL);
-  H_log   = add_bind_table("log",   HT_STACKABLE, NULL);
-  H_die   = add_bind_table("die",   HT_STACKABLE, NULL);
-  H_time  = add_bind_table("time",  HT_STACKABLE, NULL);
-  H_cron  = add_bind_table("cron",  HT_STACKABLE, NULL);
-  H_note  = add_bind_table("note",  0,            NULL);
+  H_dcc   = add_bind_table("dcc",   0,            nullptr);
+  H_filt  = add_bind_table("filt",  HT_STACKABLE, nullptr);
+  H_unld  = add_bind_table("unld",  HT_STACKABLE, nullptr);
+  H_load  = add_bind_table("load",  HT_STACKABLE, nullptr);
+  H_link  = add_bind_table("link",  HT_STACKABLE, nullptr);
+  H_disc  = add_bind_table("disc",  HT_STACKABLE, nullptr);
+  H_nkch  = add_bind_table("nkch",  HT_STACKABLE, nullptr);
+  H_away  = add_bind_table("away",  HT_STACKABLE, nullptr);
+  H_chat  = add_bind_table("chat",  HT_STACKABLE, nullptr);
+  H_act   = add_bind_table("act",   HT_STACKABLE, nullptr);
+  H_bcst  = add_bind_table("bcst",  HT_STACKABLE, nullptr);
+  H_chon  = add_bind_table("chon",  HT_STACKABLE, nullptr);
+  H_chof  = add_bind_table("chof",  HT_STACKABLE, nullptr);
+  H_chpt  = add_bind_table("chpt",  HT_STACKABLE, nullptr);
+  H_chjn  = add_bind_table("chjn",  HT_STACKABLE, nullptr);
+  H_bot   = add_bind_table("bot",   0,            nullptr);
+  H_event = add_bind_table("evnt",  HT_STACKABLE, nullptr);
+  H_log   = add_bind_table("log",   HT_STACKABLE, nullptr);
+  H_die   = add_bind_table("die",   HT_STACKABLE, nullptr);
+  H_time  = add_bind_table("time",  HT_STACKABLE, nullptr);
+  H_cron  = add_bind_table("cron",  HT_STACKABLE, nullptr);
+  H_note  = add_bind_table("note",  0,            nullptr);
 #ifdef TLS
-  H_tls   = add_bind_table("tls",   HT_STACKABLE, NULL);
+  H_tls   = add_bind_table("tls",   HT_STACKABLE, nullptr);
 #endif
 
 #ifdef HAVE_TCL
@@ -1629,50 +1639,50 @@ void init_bind(void)
 
   /* Module bind tables — pre-created so find_bind_table() succeeds before
    * modules are loaded and register their own tables. */
-  add_bind_table("msg",      0,            NULL);
-  add_bind_table("msgm",     HT_STACKABLE, NULL);
-  add_bind_table("pub",      0,            NULL);
-  add_bind_table("pubm",     HT_STACKABLE, NULL);
-  add_bind_table("join",     HT_STACKABLE, NULL);
-  add_bind_table("part",     HT_STACKABLE, NULL);
-  add_bind_table("nick",     HT_STACKABLE, NULL);
-  add_bind_table("kick",     HT_STACKABLE, NULL);
-  add_bind_table("mode",     HT_STACKABLE, NULL);
-  add_bind_table("sign",     HT_STACKABLE, NULL);
-  add_bind_table("topc",     HT_STACKABLE, NULL);
-  add_bind_table("notc",     HT_STACKABLE, NULL);
-  add_bind_table("raw",      HT_STACKABLE, NULL);
-  add_bind_table("rawt",     HT_STACKABLE, NULL);
-  add_bind_table("ctcp",     HT_STACKABLE, NULL);
-  add_bind_table("ctcr",     HT_STACKABLE, NULL);
-  add_bind_table("flud",     HT_STACKABLE, NULL);
-  add_bind_table("wall",     HT_STACKABLE, NULL);
-  add_bind_table("invt",     HT_STACKABLE, NULL);
-  add_bind_table("need",     HT_STACKABLE, NULL);
-  add_bind_table("splt",     HT_STACKABLE, NULL);
-  add_bind_table("rejn",     HT_STACKABLE, NULL);
-  add_bind_table("ircaway",  HT_STACKABLE, NULL);
-  add_bind_table("account",  HT_STACKABLE, NULL);
-  add_bind_table("chghost",  HT_STACKABLE, NULL);
-  add_bind_table("isupport", HT_STACKABLE, NULL);
-  add_bind_table("out",      HT_STACKABLE, NULL);
-  add_bind_table("monitor",  HT_STACKABLE, NULL);
-  add_bind_table("stdreply", HT_STACKABLE, NULL);
-  add_bind_table("rcvd",     HT_STACKABLE, NULL);
-  add_bind_table("sent",     HT_STACKABLE, NULL);
-  add_bind_table("lost",     HT_STACKABLE, NULL);
-  add_bind_table("tout",     HT_STACKABLE, NULL);
-  add_bind_table("fil",      0,            NULL);
-  add_bind_table("chanset",  HT_STACKABLE, NULL);
-  add_bind_table("ccht",     HT_STACKABLE, NULL);
-  add_bind_table("cmsg",     HT_STACKABLE, NULL);
-  add_bind_table("htgt",     HT_STACKABLE, NULL);
-  add_bind_table("wspr",     HT_STACKABLE, NULL);
-  add_bind_table("wspm",     HT_STACKABLE, NULL);
-  add_bind_table("rmst",     HT_STACKABLE, NULL);
-  add_bind_table("usst",     HT_STACKABLE, NULL);
-  add_bind_table("usrntc",   HT_STACKABLE, NULL);
-  add_bind_table("listen",   HT_STACKABLE, NULL);
+  add_bind_table("msg",      0,            nullptr);
+  add_bind_table("msgm",     HT_STACKABLE, nullptr);
+  add_bind_table("pub",      0,            nullptr);
+  add_bind_table("pubm",     HT_STACKABLE, nullptr);
+  add_bind_table("join",     HT_STACKABLE, nullptr);
+  add_bind_table("part",     HT_STACKABLE, nullptr);
+  add_bind_table("nick",     HT_STACKABLE, nullptr);
+  add_bind_table("kick",     HT_STACKABLE, nullptr);
+  add_bind_table("mode",     HT_STACKABLE, nullptr);
+  add_bind_table("sign",     HT_STACKABLE, nullptr);
+  add_bind_table("topc",     HT_STACKABLE, nullptr);
+  add_bind_table("notc",     HT_STACKABLE, nullptr);
+  add_bind_table("raw",      HT_STACKABLE, nullptr);
+  add_bind_table("rawt",     HT_STACKABLE, nullptr);
+  add_bind_table("ctcp",     HT_STACKABLE, nullptr);
+  add_bind_table("ctcr",     HT_STACKABLE, nullptr);
+  add_bind_table("flud",     HT_STACKABLE, nullptr);
+  add_bind_table("wall",     HT_STACKABLE, nullptr);
+  add_bind_table("invt",     HT_STACKABLE, nullptr);
+  add_bind_table("need",     HT_STACKABLE, nullptr);
+  add_bind_table("splt",     HT_STACKABLE, nullptr);
+  add_bind_table("rejn",     HT_STACKABLE, nullptr);
+  add_bind_table("ircaway",  HT_STACKABLE, nullptr);
+  add_bind_table("account",  HT_STACKABLE, nullptr);
+  add_bind_table("chghost",  HT_STACKABLE, nullptr);
+  add_bind_table("isupport", HT_STACKABLE, nullptr);
+  add_bind_table("out",      HT_STACKABLE, nullptr);
+  add_bind_table("monitor",  HT_STACKABLE, nullptr);
+  add_bind_table("stdreply", HT_STACKABLE, nullptr);
+  add_bind_table("rcvd",     HT_STACKABLE, nullptr);
+  add_bind_table("sent",     HT_STACKABLE, nullptr);
+  add_bind_table("lost",     HT_STACKABLE, nullptr);
+  add_bind_table("tout",     HT_STACKABLE, nullptr);
+  add_bind_table("fil",      0,            nullptr);
+  add_bind_table("chanset",  HT_STACKABLE, nullptr);
+  add_bind_table("ccht",     HT_STACKABLE, nullptr);
+  add_bind_table("cmsg",     HT_STACKABLE, nullptr);
+  add_bind_table("htgt",     HT_STACKABLE, nullptr);
+  add_bind_table("wspr",     HT_STACKABLE, nullptr);
+  add_bind_table("wspm",     HT_STACKABLE, nullptr);
+  add_bind_table("rmst",     HT_STACKABLE, nullptr);
+  add_bind_table("usst",     HT_STACKABLE, nullptr);
+  add_bind_table("usrntc",   HT_STACKABLE, nullptr);
+  add_bind_table("listen",   HT_STACKABLE, nullptr);
   add_builtins(H_dcc, C_dcc);
 }
 
@@ -1688,15 +1698,15 @@ void kill_bind(void)
       putlog(LOG_DEBUG, "*", "De-Allocated bind table %s", tl->name);
     tcl_bind_list_delete(tl);
   }
-  H_log = NULL;
-  bind_table_list = NULL;
+  H_log = nullptr;
+  bind_table_list = nullptr;
   if (bind_table_ht) {
-    op_htab_destroy(bind_table_ht, NULL, NULL);
-    bind_table_ht = NULL;
+    op_htab_destroy(bind_table_ht, nullptr, nullptr);
+    bind_table_ht = nullptr;
   }
 
   /* Destroy slab heaps (all nodes already freed above). */
-  op_bh_destroy(tcl_cmd_heap);       tcl_cmd_heap       = NULL;
-  op_bh_destroy(tcl_bind_mask_heap); tcl_bind_mask_heap = NULL;
-  op_bh_destroy(tcl_bind_list_heap); tcl_bind_list_heap = NULL;
+  op_bh_destroy(tcl_cmd_heap);       tcl_cmd_heap       = nullptr;
+  op_bh_destroy(tcl_bind_mask_heap); tcl_bind_mask_heap = nullptr;
+  op_bh_destroy(tcl_bind_list_heap); tcl_bind_list_heap = nullptr;
 }

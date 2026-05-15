@@ -30,6 +30,7 @@ int opssl_ctx_use_dh_params_file(opssl_ctx_t *ctx, const char *path);
 
 /* CA / verification */
 int opssl_ctx_load_verify_locations(opssl_ctx_t *ctx, const char *ca_file, const char *ca_dir);
+int opssl_ctx_load_default_verify_paths(opssl_ctx_t *ctx);
 void opssl_ctx_set_verify(opssl_ctx_t *ctx, bool require_client_cert, opssl_verify_cb cb, void *userdata);
 
 /* Cipher configuration */

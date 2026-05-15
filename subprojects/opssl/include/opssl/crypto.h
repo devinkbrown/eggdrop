@@ -71,6 +71,45 @@ void opssl_sha1_update(opssl_sha1_ctx_t *ctx, const void *data, size_t len);
 void opssl_sha1_final(opssl_sha1_ctx_t *ctx, uint8_t out[OPSSL_SHA1_DIGEST_LEN]);
 void opssl_sha1(const void *data, size_t len, uint8_t out[OPSSL_SHA1_DIGEST_LEN]);
 
+/* ─── BLAKE2b (RFC 7693) ─────────────────────────────────────────────── */
+
+#define OPSSL_BLAKE2B_DIGEST_LEN 64
+#define OPSSL_BLAKE2B_KEYBYTES   64
+
+typedef struct opssl_blake2b_ctx {
+    uint64_t h[8];
+    uint64_t t[2];
+    uint8_t  buf[128];
+    size_t   buflen;
+    size_t   outlen;
+} opssl_blake2b_ctx_t;
+
+int  opssl_blake2b_init(opssl_blake2b_ctx_t *ctx, size_t outlen);
+int  opssl_blake2b_init_key(opssl_blake2b_ctx_t *ctx, size_t outlen,
+                            const void *key, size_t keylen);
+void opssl_blake2b_update(opssl_blake2b_ctx_t *ctx, const void *data, size_t len);
+void opssl_blake2b_final(opssl_blake2b_ctx_t *ctx, uint8_t *out, size_t outlen);
+void opssl_blake2b(const void *data, size_t len, uint8_t *out, size_t outlen);
+void opssl_blake2b_long(const void *data, size_t len, uint8_t *out, size_t outlen);
+
+/* ─── Argon2id (RFC 9106) ────────────────────────────────────────────── */
+
+#define OPSSL_ARGON2ID_DEFAULT_T_COST     3
+#define OPSSL_ARGON2ID_DEFAULT_M_COST     65536  /* 64 MiB */
+#define OPSSL_ARGON2ID_DEFAULT_PARALLEL   4
+#define OPSSL_ARGON2ID_SALT_LEN           16
+#define OPSSL_ARGON2ID_HASH_LEN           32
+
+int opssl_argon2id(const uint8_t *password, size_t password_len,
+                   const uint8_t *salt, size_t salt_len,
+                   uint32_t t_cost, uint32_t m_cost, uint32_t parallelism,
+                   uint8_t *out, size_t out_len);
+
+int opssl_argon2id_verify(const uint8_t *password, size_t password_len,
+                          const uint8_t *salt, size_t salt_len,
+                          uint32_t t_cost, uint32_t m_cost, uint32_t parallelism,
+                          const uint8_t *expected, size_t expected_len);
+
 /* ─── HMAC ───────────────────────────────────────────────────────────── */
 
 #define OPSSL_HMAC_MAX_DIGEST_LEN 64
@@ -78,6 +117,7 @@ void opssl_sha1(const void *data, size_t len, uint8_t out[OPSSL_SHA1_DIGEST_LEN]
 typedef struct opssl_hmac_ctx opssl_hmac_ctx_t;
 
 typedef enum {
+    OPSSL_HMAC_SHA1,
     OPSSL_HMAC_SHA256,
     OPSSL_HMAC_SHA384,
     OPSSL_HMAC_SHA512,
@@ -121,6 +161,19 @@ int opssl_pbkdf2(opssl_hmac_algo_t algo,
                  uint32_t iterations,
                  uint8_t *out, size_t out_len);
 
+/* ─── bcrypt (OpenBSD password hashing) ────────────────────────────── */
+
+#define OPSSL_BCRYPT_HASH_LEN 60
+
+int opssl_bcrypt_hash(const char *password, const char *salt, char *out);
+int opssl_bcrypt_verify(const char *password, const char *hash);
+int opssl_bcrypt_gensalt(int work_factor, char *out);
+
+/* ─── TOTP (RFC 6238) ───────────────────────────────────────────────── */
+
+int opssl_totp_generate(const uint8_t *secret, size_t secret_len,
+                        uint64_t timestamp, uint32_t digits, uint32_t *out);
+
 /* ─── AEAD Ciphers ───────────────────────────────────────────────────── */
 
 #define OPSSL_AES_128_KEY_LEN   16
@@ -142,6 +195,10 @@ typedef enum {
     OPSSL_AEAD_CHACHA20_POLY1305,
     OPSSL_AEAD_AES_128_CCM,
     OPSSL_AEAD_AES_256_CCM,
+    OPSSL_AEAD_AES_128_CCM_8,
+    OPSSL_AEAD_AES_256_CCM_8,
+    OPSSL_AEAD_CAMELLIA_128_GCM,
+    OPSSL_AEAD_CAMELLIA_256_GCM,
 } opssl_aead_algo_t;
 
 /* AEAD context lifecycle */
@@ -301,5 +358,37 @@ void opssl_rsa_free(opssl_rsa_ctx_t *ctx);
 
 int opssl_base64_encode(const uint8_t *in, size_t in_len, char *out, size_t *out_len);
 int opssl_base64_decode(const char *in, size_t in_len, uint8_t *out, size_t *out_len);
+
+
+/* ─── ML-DSA (post-quantum digital signatures, FIPS 204) ─────────────────── */
+
+/* ML-DSA-65 (NIST Security Level 3) key and signature sizes */
+#define OPSSL_MLDSA65_PK_LEN    1952
+#define OPSSL_MLDSA65_SK_LEN    4032
+#define OPSSL_MLDSA65_SIG_LEN   3309
+
+/*
+ * opssl_mldsa65_keygen: generate a fresh ML-DSA-65 key pair.
+ * Returns 1 on success, 0 on failure (RNG failure).
+ */
+int opssl_mldsa65_keygen(uint8_t pk[OPSSL_MLDSA65_PK_LEN],
+                          uint8_t sk[OPSSL_MLDSA65_SK_LEN]);
+
+/*
+ * opssl_mldsa65_sign: sign a message with the secret key.
+ * Deterministic (rnd=0^32 per FIPS 204 hedged signing with zero randomness).
+ * Returns 1 on success, 0 on failure.
+ */
+int opssl_mldsa65_sign(uint8_t sig[OPSSL_MLDSA65_SIG_LEN],
+                        const uint8_t *msg, size_t msg_len,
+                        const uint8_t sk[OPSSL_MLDSA65_SK_LEN]);
+
+/*
+ * opssl_mldsa65_verify: verify a signature against a message and public key.
+ * Returns 1 if valid, 0 if invalid.
+ */
+int opssl_mldsa65_verify(const uint8_t sig[OPSSL_MLDSA65_SIG_LEN],
+                          const uint8_t *msg, size_t msg_len,
+                          const uint8_t pk[OPSSL_MLDSA65_PK_LEN]);
 
 #endif /* OPSSL_CRYPTO_H */

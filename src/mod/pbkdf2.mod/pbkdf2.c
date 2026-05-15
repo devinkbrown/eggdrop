@@ -38,7 +38,7 @@ static int pbkdf2_get_algo(const char *name, opssl_hmac_algo_t *algo, int *dlen)
   return -1;
 }
 
-static Function *global = NULL; /* before tclpbkdf2.c */
+static Function *global = nullptr; /* before tclpbkdf2.c */
 #include "tclpbkdf2.c"
 
 #define MODULE_NAME "encryption2"
@@ -84,7 +84,7 @@ static int b64_ntop_without_padding(u_char const *src, size_t srclength,
 /* Return
  *   hash = "$pbkdf2-<digest>$rounds=<rounds>$<salt>$<hash>" (PHC string format)
  *     salt and hash = base64
- *   NULL = error
+ *   nullptr = error
  */
 static char *pbkdf2_hash(const char *pass, const char *digest_name,
                          const unsigned char *salt, unsigned int saltlen,
@@ -96,12 +96,11 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   static char out[256]; /* static object is initialized to zero (Standard C) */
   char *out2;
   unsigned char *buf;
-  struct rusage ru1, ru2;
 
   if (pbkdf2_get_algo(digest_name, &algo, &digestlen)) {
     putlog(LOG_MISC, "*", "PBKDF2 error: Unknown message digest '%s'.",
            digest_name);
-    return NULL;
+    return nullptr;
   }
   outlen = strlen("$pbkdf2-") + strlen(digest_name) +
            strlen("$rounds=4294967295$i") + B64_NTOP_CALCULATE_SIZE(saltlen) +
@@ -109,12 +108,13 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   if ((outlen + 1) > sizeof out) {
     putlog(LOG_MISC, "*", "PBKDF2 error: outlen %i > sizeof out %ld.", outlen,
            (long)sizeof out);
-    return NULL;
+    return nullptr;
   }
   out2 = out;
   restlen = outlen;
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "$pbkdf2-%s$rounds=%u$", digest_name, rounds);
     strlcpy((char *) out2, op_strbuf_str(&_b), restlen);
     bufcount(&out2, &restlen, op_strbuf_len(&_b));
@@ -124,13 +124,14 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   if (ret < 0) {
     explicit_bzero(out, outlen);
     putlog(LOG_MISC, "*", "PBKDF2 error: b64_ntop(salt).");
-    return NULL;
+    return nullptr;
   }
   bufcount(&out2, &restlen, ret);
   out2[0] = '$';
   bufcount(&out2, &restlen, 1);
   buf = op_malloc(digestlen);
-  ret = getrusage(RUSAGE_SELF, &ru1);
+  struct egg_rusage_timer rt;
+  egg_timer_start(&rt);
   if (opssl_pbkdf2(algo,
                    (const uint8_t *) pass, strlen(pass),
                    salt, saltlen, rounds,
@@ -140,24 +141,19 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
     putlog(LOG_MISC, "*", "PBKDF2 key derivation error: %s.",
            opssl_err_string(opssl_err_get()));
     op_free(buf);
-    return NULL;
+    return nullptr;
   }
-  if (!ret && !getrusage(RUSAGE_SELF, &ru2)) {
-    debug4("pbkdf2 method %s rounds %i, user %.3fms sys %.3fms", digest_name,
-           rounds,
-           (double) (ru2.ru_utime.tv_usec - ru1.ru_utime.tv_usec) / 1000 +
-           (double) (ru2.ru_utime.tv_sec  - ru1.ru_utime.tv_sec ) * 1000,
-           (double) (ru2.ru_stime.tv_usec - ru1.ru_stime.tv_usec) / 1000 +
-           (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
-  }
-  else {
+  double ums, sms;
+  if (egg_timer_stop(&rt, &ums, &sms))
+    debug4("pbkdf2 method %s rounds %i, user %.3fms sys %.3fms",
+           digest_name, rounds, ums, sms);
+  else
     debug1("PBKDF2 error: getrusage(): %s", strerror(errno));
-  }
   if (b64_ntop_without_padding(buf, digestlen, out2, restlen) < 0) {
     explicit_bzero(out, outlen);
     putlog(LOG_MISC, "*", "PBKDF2 error: b64_ntop(hash).");
     op_free(buf);
-    return NULL;
+    return nullptr;
   }
   op_free(buf);
   return out;
@@ -166,7 +162,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
 /* Return
  *   hash = "$pbkdf2-<digest>$rounds=<rounds>$<salt>$<hash>" (PHC string format)
  *     salt and hash = base64
- *   NULL = error
+ *   nullptr = error
  */
 static char *pbkdf2_encrypt(const char *pass)
 {
@@ -176,12 +172,12 @@ static char *pbkdf2_encrypt(const char *pass)
   if (opssl_random_bytes(salt, sizeof salt) != 1) {
     putlog(LOG_MISC, "*", "PBKDF2 error: opssl_random_bytes(): %s.",
            opssl_err_string(opssl_err_get()));
-    return NULL;
+    return nullptr;
   }
   if (!(buf = pbkdf2_hash(pass, pbkdf2_method, salt, sizeof salt,
                           pbkdf2_rounds))) {
     explicit_bzero(salt, sizeof salt);
-    return NULL;
+    return nullptr;
   }
   explicit_bzero(salt, sizeof salt);
   return buf;
@@ -192,7 +188,7 @@ static char *pbkdf2_encrypt(const char *pass)
  *     salt and hash = base64
  *     old encrypted = verify successful
  *     new encrypted = verify successful, reenrypted with new parameters
- *   NULL = verify failed
+ *   nullptr = verify failed
  */
 static char *pbkdf2_verify(const char *pass, const char *encrypted)
 {
@@ -200,6 +196,7 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
        b64salt[B64_NTOP_CALCULATE_SIZE(PBKDF2_SALT_LEN) + 1],
        b64hash[B64_NTOP_CALCULATE_SIZE(256) + 1];
   op_strbuf_t format_buf;
+  op_strbuf_init(&format_buf);
   unsigned int rounds;
   opssl_hmac_algo_t algo;
   int digestlen;
@@ -212,17 +209,17 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
   if (op_strbuf_len(&format_buf) != 39) {
     putlog(LOG_MISC, "*", "PBKDF2 error: could not initialize parser for hashed password.");
     op_strbuf_free(&format_buf);
-    return NULL;
+    return nullptr;
   }
   if (sscanf(encrypted, op_strbuf_str(&format_buf), method, &rounds, b64salt, b64hash) != 4) {
     op_strbuf_free(&format_buf);
     putlog(LOG_MISC, "*", "PBKDF2 error: could not parse hashed password.");
-    return NULL;
+    return nullptr;
   }
   op_strbuf_free(&format_buf);
   if (pbkdf2_get_algo(method, &algo, &digestlen)) {
     putlog(LOG_MISC, "*", "PBKDF2 error: Unknown message digest '%s'.", method);
-    return NULL;
+    return nullptr;
   }
   if (b64salt[22] == 0) {
     b64salt[22] = '=';
@@ -236,16 +233,16 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
   saltlen = b64_pton(b64salt, salt, sizeof salt);
   if (saltlen < 0) {
     putlog(LOG_MISC, "*", "PBKDF2 error: b64_pton(%s).", b64salt);
-    return NULL;
+    return nullptr;
   }
   if (!(buf = pbkdf2_hash(pass, method, salt, saltlen, rounds))) {
     explicit_bzero(salt, saltlen);
-    return NULL;
+    return nullptr;
   }
   explicit_bzero(salt, saltlen);
   if (crypto_verify(encrypted, buf)) {
     explicit_bzero(buf, strlen(buf));
-    return NULL;
+    return nullptr;
   }
   explicit_bzero(buf, strlen(buf));
   if (pbkdf2_re_encode &&
@@ -257,12 +254,12 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
 static tcl_ints my_tcl_ints[] = {
   {"pbkdf2-re-encode", &pbkdf2_re_encode, 0},
   {"pbkdf2-rounds",    &pbkdf2_rounds,    0},
-  {NULL,               NULL,              0}
+  {nullptr,               nullptr,              0}
 };
 
 static tcl_strings my_tcl_strings[] = {
   {"pbkdf2-method", pbkdf2_method, 27, 0},
-  {NULL,            NULL,          0,  0}
+  {nullptr,            nullptr,          0,  0}
 };
 
 EXPORT_SCOPE char *pbkdf2_start(Function *global_funcs);
@@ -270,8 +267,8 @@ EXPORT_SCOPE char *pbkdf2_start(Function *global_funcs);
 static Function pbkdf2_table[] = {
   (Function) pbkdf2_start,
   (Function) pbkdf2_close,
-  NULL, /* expmem */
-  NULL, /* report */
+  nullptr, /* expmem */
+  nullptr, /* report */
   (Function) pbkdf2_encrypt,
   (Function) pbkdf2_verify
 };
@@ -294,7 +291,7 @@ char *pbkdf2_start(Function *global_funcs)
 {
 #ifdef TLS
 
-  /* `global_funcs' is NULL if eggdrop is recovering from a restart.
+  /* `global_funcs' is nullptr if eggdrop is recovering from a restart.
    *
    * As the encryption module is never unloaded, only initialise stuff
    * that got reset during restart, e.g. the tcl bindings.
@@ -318,7 +315,7 @@ char *pbkdf2_start(Function *global_funcs)
     add_tcl_ints(my_tcl_ints);
     add_tcl_strings(my_tcl_strings);
   }
-  return NULL;
+  return nullptr;
 #else
   return "Initialization failure: configured with --disable-tls or TLS library not found";
 #endif

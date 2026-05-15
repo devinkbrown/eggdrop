@@ -77,7 +77,7 @@ extern char store_backend[], store_path[];
 #ifdef HAVE_TCL
 Tcl_Interp *interp;
 #else
-void *interp = NULL;    /* NULL when Tcl scripting is disabled */
+void *interp = nullptr;    /* nullptr when Tcl scripting is disabled */
 #endif
 
 int protect_readonly = 0; /* Enable read-only protection? */
@@ -159,7 +159,7 @@ static tcl_strings def_tcl_strings[] = {
   {"language",        language,       64,            STR_PROTECT},
   {"store-backend",   store_backend,  15,            STR_PROTECT},
   {"store-path",      store_path,     120,           STR_PROTECT},
-  {NULL,              NULL,           0,                       0}
+  {nullptr,              nullptr,           0,                       0}
 };
 
 static tcl_ints def_tcl_ints[] = {
@@ -214,13 +214,13 @@ static tcl_ints def_tcl_ints[] = {
 #endif
   {"show-uname",            &show_uname,           0},
   {"share-greet",           &share_greet,          0},
-  {NULL,                    NULL,                  0}
+  {nullptr,                    nullptr,                  0}
 };
 
 static tcl_coups def_tcl_coups[] = {
   {"telnet-flood",       &flood_telnet_thr,  &flood_telnet_time},
   {"reserved-portrange", &reserved_port_min, &reserved_port_max},
-  {NULL,                 NULL,                             NULL}
+  {nullptr,                 nullptr,                             nullptr}
 };
 
 #ifdef HAVE_TCL  /* ---- All Tcl-API-dependent code below ---- */
@@ -263,7 +263,7 @@ static const LocaleTable localeTable[] = {
   {"ru_RU",        "iso8859-5"},
   {"ru_SU",        "iso8859-5"},
   {"zh",               "cp936"},
-  {NULL,                  NULL}
+  {nullptr,                  nullptr}
 };
 
 static void botnet_change(char *new)
@@ -296,10 +296,10 @@ typedef struct {
   int *right; /* right side */
 } coupletinfo;
 
-static op_bh *tcl_strinfo_bh    = NULL;
-static op_bh *tcl_intinfo_bh    = NULL;
-static op_bh *tcl_couplet_bh    = NULL;
-static op_bh *tcl_cdstrinfo_bh  = NULL;
+static op_bh *tcl_strinfo_bh    = nullptr;
+static op_bh *tcl_intinfo_bh    = nullptr;
+static op_bh *tcl_couplet_bh    = nullptr;
+static op_bh *tcl_cdstrinfo_bh  = nullptr;
 
 /* Read/write integer couplets (int1:int2) */
 static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
@@ -311,7 +311,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
 
   if (flags & TCL_TRACE_WRITES) {
     s = (char *) Tcl_GetVar2(interp, name1, name2, 0);
-    if (s != NULL) {
+    if (s != nullptr) {
       int nr1, nr2;
 
       nr1 = nr2 = 0;
@@ -327,6 +327,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%d:%d", *(cp->left), *(cp->right));
       Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
       op_strbuf_free(&_b);
@@ -336,7 +337,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
                    TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                    tcl_eggcouplet, cdata);
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Read or write normal integer.
@@ -355,13 +356,17 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
     if ((int *) ii->var == &conmask)
       strlcpy(s1, masktype(conmask), sizeof s1);
     else if ((int *) ii->var == &default_flags) {
-      struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_GLOBAL };
       fr.global = default_flags;
 
       fr.udef_global = default_uflags;
       build_flags(s1, &fr, 0);
     } else if ((int *) ii->var == &userfile_perm) {
-      snprintf(s1, sizeof s1, "0%o", userfile_perm);
+      op_strbuf_t perm_buf;
+      op_strbuf_init(&perm_buf);
+      op_strbuf_appendf(&perm_buf, "0%o", userfile_perm);
+      strlcpy(s1, op_strbuf_str(&perm_buf), sizeof s1);
+      op_strbuf_free(&perm_buf);
     } else
       strlcpy(s1, int_to_base10(*(int *) ii->var), sizeof s1);
     Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
@@ -369,17 +374,17 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
       Tcl_TraceVar(interp, name1,
                    TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                    tcl_eggint, cdata);
-    return NULL;
+    return nullptr;
   } else {                        /* Writes */
     s = (char *) Tcl_GetVar2(interp, name1, name2, TCL_GLOBAL_ONLY);
-    if (s != NULL) {
+    if (s != nullptr) {
       if ((int *) ii->var == &conmask) {
         if (s[0])
           conmask = logmodes(s);
         else
           conmask = LOG_MODES | LOG_MISC | LOG_CMDS;
       } else if ((int *) ii->var == &default_flags) {
-        struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+        struct flag_record fr = { FR_GLOBAL };
 
         break_down_flags(s, &fr, 0);
         default_flags = sanity_check(fr.global);        /* drummer */
@@ -410,7 +415,7 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
           *(ii->var) = (int) l;
       }
     }
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -426,6 +431,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     if ((st->str == firewall) && (firewall[0])) {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s:%d", firewall, firewallport);
       Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
       op_strbuf_free(&_b);
@@ -437,14 +443,14 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
       if ((st->max <= 0) && (protect_readonly || (st->max == 0)))
         return "read-only variable";    /* it won't return the error... */
     }
-    return NULL;
+    return nullptr;
   } else {                        /* writes */
     if ((st->max <= 0) && (protect_readonly || (st->max == 0))) {
       Tcl_SetVar2(interp, name1, name2, st->str, TCL_GLOBAL_ONLY);
       return "read-only variable";
     }
     s = (char *) Tcl_GetVar2(interp, name1, name2, 0);
-    if (s != NULL) {
+    if (s != nullptr) {
       if (strlen(s) > abs(st->max)) {
         putlog(LOG_MISC, "*", "WARNING: Value for %s truncated to %i chars", name1, abs(st->max));
         s[abs(st->max)] = 0;
@@ -458,7 +464,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
         if (!firewall[0])
           strlcpy(firewall, s, 121);
         else
-          firewallport = atoi(s);
+          firewallport = egg_atoi(s);
       } else
         strlcpy(st->str, s, abs(st->max) + 1);
       if ((st->flags) && (s[0])) {
@@ -466,7 +472,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
           strlcat(st->str, "/", (size_t)abs(st->max) + 1);
       }
     }
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -492,13 +498,13 @@ static int tcl_call_stringproc_cd(ClientData cd, Tcl_Interp *interp, int objc, T
   int ret;
   struct tcl_call_stringinfo *info = cd;
 
-  /* The string API guarantees argv[argc] == NULL, unlike the obj API */
+  /* The string API guarantees argv[argc] == nullptr, unlike the obj API */
   argv = op_malloc((objc + 1) * sizeof *argv);
   for (int i = 0; i < objc; i++) {
     Tcl_IncrRefCount(objv[i]);
     argv[i] = Tcl_GetString(objv[i]);
   }
-  argv[objc] = NULL;
+  argv[objc] = nullptr;
   ret = (info->proc)(info->cd, interp, objc, argv);
   for (int i = 0; i < objc; i++) {
     Tcl_DecrRefCount(objv[i]);
@@ -512,7 +518,7 @@ static int tcl_call_stringproc(ClientData cd, Tcl_Interp *interp, int objc, Tcl_
 {
   struct tcl_call_stringinfo info;
   info.proc = cd;
-  info.cd = NULL;
+  info.cd = nullptr;
   return tcl_call_stringproc_cd(&info, interp, objc, objv);
 }
 
@@ -522,7 +528,7 @@ static int tcl_call_stringproc(ClientData cd, Tcl_Interp *interp, int objc, Tcl_
 void add_tcl_commands(tcl_cmds *table)
 {
   for (int i = 0; table[i].name; i++)
-    Tcl_CreateObjCommand(interp, table[i].name, tcl_call_stringproc, table[i].func, NULL);
+    Tcl_CreateObjCommand(interp, table[i].name, tcl_call_stringproc, table[i].func, nullptr);
 }
 
 void add_cd_tcl_cmds(cd_tcl_cmd *table)
@@ -538,7 +544,7 @@ void add_cd_tcl_cmds(cd_tcl_cmd *table)
       info->cd = table->cdata;
       Tcl_CreateObjCommand(interp, table->name, tcl_call_stringproc_cd, info, tcl_cleanup_stringinfo);
     } else {
-      Tcl_CreateObjCommand(interp, table->name, tcl_call_stringproc, table->callback, NULL);
+      Tcl_CreateObjCommand(interp, table->name, tcl_call_stringproc, table->callback, nullptr);
     }
     table++;
   }
@@ -554,7 +560,7 @@ void add_tcl_objcommands(tcl_cmds *table)
 {
   for (int i = 0; table[i].name; i++)
     Tcl_CreateObjCommand(interp, table[i].name, table[i].func, (ClientData) 0,
-                         NULL);
+                         nullptr);
 }
 
 /* Get the current tcl result string. */
@@ -571,11 +577,11 @@ int tcl_resultempty(void) {
   return (result && result[0]) ? 0 : 1;
 }
 
-/* Get the current tcl result as int. replaces atoi(interp->result) */
+/* Get the current tcl result as int. replaces egg_atoi(interp->result) */
 int tcl_resultint(void)
 {
   int result;
-  if (Tcl_GetIntFromObj(NULL, Tcl_GetObjResult(interp), &result) != TCL_OK)
+  if (Tcl_GetIntFromObj(nullptr, Tcl_GetObjResult(interp), &result) != TCL_OK)
     result = 0;
   return result;
 }
@@ -588,10 +594,10 @@ static void init_traces(void)
   add_tcl_coups(def_tcl_coups);
   add_tcl_strings(def_tcl_strings);
   add_tcl_ints(def_tcl_ints);
-  Tcl_TraceVar(interp, "my-hostname", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, NULL);
-  Tcl_TraceVar(interp, "my-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, NULL);
-  Tcl_TraceVar(interp, "nat-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_natip, NULL);
-  Tcl_TraceVar(interp, "remove-pass", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES, traced_remove_pass, NULL);
+  Tcl_TraceVar(interp, "my-hostname", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, nullptr);
+  Tcl_TraceVar(interp, "my-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, nullptr);
+  Tcl_TraceVar(interp, "nat-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_natip, nullptr);
+  Tcl_TraceVar(interp, "remove-pass", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES, traced_remove_pass, nullptr);
 }
 
 void kill_tcl(void)
@@ -599,10 +605,10 @@ void kill_tcl(void)
   rem_tcl_coups(def_tcl_coups);
   rem_tcl_strings(def_tcl_strings);
   rem_tcl_ints(def_tcl_ints);
-  Tcl_UntraceVar(interp, "my-hostname", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, NULL);
-  Tcl_UntraceVar(interp, "my-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, NULL);
-  Tcl_UntraceVar(interp, "nat-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_natip, NULL);
-  Tcl_UntraceVar(interp, "remove-pass", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES, traced_remove_pass, NULL);
+  Tcl_UntraceVar(interp, "my-hostname", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, nullptr);
+  Tcl_UntraceVar(interp, "my-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_myiphostname, nullptr);
+  Tcl_UntraceVar(interp, "nat-ip", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES|TCL_TRACE_UNSETS, traced_natip, nullptr);
+  Tcl_UntraceVar(interp, "remove-pass", TCL_GLOBAL_ONLY|TCL_TRACE_WRITES, traced_remove_pass, nullptr);
   kill_bind();
   Tcl_DeleteInterp(interp);
 }
@@ -660,7 +666,7 @@ ClientData tickle_InitNotifier(void)
   init_threaddata(ismainthread);
   if (ismainthread)
     ismainthread = 0;
-  return NULL;
+  return nullptr;
 }
 
 void tickle_AlertNotifier(ClientData cd)
@@ -679,7 +685,7 @@ void tickle_ServiceModeHook(int mode)
 
 int tclthreadmainloop(int zero)
 {
-  return (sockread(NULL, NULL, threaddata()->socklist, threaddata()->MAXSOCKS, 1) == -5);
+  return (sockread(nullptr, nullptr, threaddata()->socklist, threaddata()->MAXSOCKS, 1) == -5);
 }
 
 struct threaddata *td_main = 0;
@@ -703,7 +709,7 @@ void init_threaddata(int mainthread)
  */
 /* td->mainloopfunc = mainthread ? mainloop : tclthreadmainloop; */
   td->mainloopfunc = tclthreadmainloop;
-  td->socklist = NULL;
+  td->socklist = nullptr;
   td->mainthread = mainthread;
   td->blocktime.tv_sec = 1;
   td->blocktime.tv_usec = 0;
@@ -929,6 +935,7 @@ void init_unicodesup_cmd(Tcl_Obj *ensdict, const char *subcmd, int index)
   Tcl_Obj *orig_cmd;
   static struct tcl_unicodesup_info info[3];
   op_strbuf_t buf;
+  op_strbuf_init(&buf);
 
   if (Tcl_DictObjGet(interp, ensdict, Tcl_NewStringObj(subcmd, -1), &orig_cmd) != TCL_OK || !orig_cmd) {
     putlog(LOG_MISC, "*", "ERROR: Tcl non-BMP unicodesup could not find string %s subcommand", subcmd);
@@ -940,7 +947,7 @@ void init_unicodesup_cmd(Tcl_Obj *ensdict, const char *subcmd, int index)
   Tcl_IncrRefCount(orig_cmd);
 
   op_strbuf_appendf(&buf, "::egg_string_%s", subcmd);
-  Tcl_CreateObjCommand(interp, op_strbuf_str(&buf), egg_string_unicodesup, &info[index], NULL);
+  Tcl_CreateObjCommand(interp, op_strbuf_str(&buf), egg_string_unicodesup, &info[index], nullptr);
 
   if (Tcl_DictObjPut(interp, ensdict, Tcl_NewStringObj(subcmd, -1),
                      Tcl_NewStringObj(op_strbuf_str(&buf), -1)) != TCL_OK) {
@@ -1034,19 +1041,19 @@ void init_tcl1(int argc, char **argv)
    * variables.
    */
   langEnv = getenv("LC_ALL");
-  if (langEnv == NULL || langEnv[0] == '\0') {
+  if (langEnv == nullptr || langEnv[0] == '\0') {
     langEnv = getenv("LC_CTYPE");
   }
-  if (langEnv == NULL || langEnv[0] == '\0') {
+  if (langEnv == nullptr || langEnv[0] == '\0') {
     langEnv = getenv("LANG");
   }
-  if (langEnv == NULL || langEnv[0] == '\0') {
-    langEnv = NULL;
+  if (langEnv == nullptr || langEnv[0] == '\0') {
+    langEnv = nullptr;
   }
 
-  encoding = NULL;
-  if (langEnv != NULL) {
-    for (int i = 0; localeTable[i].lang != NULL; i++)
+  encoding = nullptr;
+  if (langEnv != nullptr) {
+    for (int i = 0; localeTable[i].lang != nullptr; i++)
       if (strcmp(localeTable[i].lang, langEnv) == 0) {
         encoding = localeTable[i].encoding;
         break;
@@ -1055,7 +1062,7 @@ void init_tcl1(int argc, char **argv)
     /* There was no mapping in the locale table.  If there is an
      * encoding subfield, we can try to guess from that.
      */
-    if (encoding == NULL) {
+    if (encoding == nullptr) {
       char *p;
 
       for (p = langEnv; *p != '\0'; p++) {
@@ -1072,21 +1079,21 @@ void init_tcl1(int argc, char **argv)
 
         encoding = Tcl_DStringValue(&ds);
         Tcl_UtfToLower(Tcl_DStringValue(&ds));
-        if (Tcl_SetSystemEncoding(NULL, encoding) == TCL_OK) {
+        if (Tcl_SetSystemEncoding(nullptr, encoding) == TCL_OK) {
           Tcl_DStringFree(&ds);
           goto resetPath;
         }
         Tcl_DStringFree(&ds);
-        encoding = NULL;
+        encoding = nullptr;
       }
     }
   }
 
-  if (encoding == NULL) {
+  if (encoding == nullptr) {
     encoding = "iso8859-1";
   }
 
-  Tcl_SetSystemEncoding(NULL, encoding);
+  Tcl_SetSystemEncoding(nullptr, encoding);
 
 resetPath:
 
@@ -1099,7 +1106,7 @@ resetPath:
 
   /* Keep the iso8859-1 encoding preloaded.  The IO package uses it for
    * gets on a binary channel. */
-  Tcl_GetEncoding(NULL, "iso8859-1");
+  Tcl_GetEncoding(nullptr, "iso8859-1");
 
   /* Add eggdrop to Tcl's package list */
   for (int j = 0; j <= (int)strlen(egg_version); j++) {
@@ -1136,7 +1143,7 @@ void do_tcl(const char *whatzit, const char *script)
 
   /* properly convert string to system encoding. */
   Tcl_DStringInit(&dstr);
-  Tcl_UtfToExternalDString(NULL, tcl_resultstring(), -1, &dstr);
+  Tcl_UtfToExternalDString(nullptr, tcl_resultstring(), -1, &dstr);
   result = Tcl_DStringValue(&dstr);
 
   if (code != TCL_OK) {
@@ -1166,7 +1173,7 @@ int readtclprog(char *fname)
 
   /* properly convert string to system encoding. */
   Tcl_DStringInit(&dstr);
-  Tcl_UtfToExternalDString(NULL, result, -1, &dstr);
+  Tcl_UtfToExternalDString(nullptr, result, -1, &dstr);
   result = Tcl_DStringValue(&dstr);
 
   if (code != TCL_OK) {
@@ -1201,9 +1208,9 @@ void add_tcl_strings(tcl_strings *list)
     st->flags = (list[i].flags & STR_DIR);
     tmp = protect_readonly;
     protect_readonly = 0;
-    tcl_eggstr((ClientData) st, interp, list[i].name, NULL, TCL_TRACE_WRITES);
+    tcl_eggstr((ClientData) st, interp, list[i].name, nullptr, TCL_TRACE_WRITES);
     protect_readonly = tmp;
-    tcl_eggstr((ClientData) st, interp, list[i].name, NULL, TCL_TRACE_READS);
+    tcl_eggstr((ClientData) st, interp, list[i].name, nullptr, TCL_TRACE_READS);
     Tcl_TraceVar(interp, list[i].name, TCL_TRACE_READS | TCL_TRACE_WRITES |
                  TCL_TRACE_UNSETS, tcl_eggstr, (ClientData) st);
   }
@@ -1217,9 +1224,9 @@ void rem_tcl_strings(tcl_strings *list)
   f = TCL_GLOBAL_ONLY | TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS;
   for (int i = 0; list[i].name; i++) {
     st = (strinfo *) Tcl_VarTraceInfo(interp, list[i].name, f, tcl_eggstr,
-                                      NULL);
+                                      nullptr);
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggstr, st);
-    if (st != NULL) {
+    if (st != nullptr) {
       strtot -= sizeof(strinfo);
       op_bh_free(tcl_strinfo_bh, st);
     }
@@ -1240,9 +1247,9 @@ void add_tcl_ints(tcl_ints *list)
     ii->ro = list[i].readonly;
     tmp = protect_readonly;
     protect_readonly = 0;
-    tcl_eggint((ClientData) ii, interp, list[i].name, NULL, TCL_TRACE_WRITES);
+    tcl_eggint((ClientData) ii, interp, list[i].name, nullptr, TCL_TRACE_WRITES);
     protect_readonly = tmp;
-    tcl_eggint((ClientData) ii, interp, list[i].name, NULL, TCL_TRACE_READS);
+    tcl_eggint((ClientData) ii, interp, list[i].name, nullptr, TCL_TRACE_READS);
     Tcl_TraceVar(interp, list[i].name,
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  tcl_eggint, (ClientData) ii);
@@ -1258,7 +1265,7 @@ void rem_tcl_ints(tcl_ints *list)
   f = TCL_GLOBAL_ONLY | TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS;
   for (int i = 0; list[i].name; i++) {
     ii = (intinfo *) Tcl_VarTraceInfo(interp, list[i].name, f, tcl_eggint,
-                                      NULL);
+                                      nullptr);
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggint, (ClientData) ii);
     if (ii) {
       strtot -= sizeof(intinfo);
@@ -1280,7 +1287,7 @@ void add_tcl_coups(tcl_coups *list)
     strtot += sizeof(coupletinfo);
     cp->left = list[i].lptr;
     cp->right = list[i].rptr;
-    tcl_eggcouplet((ClientData) cp, interp, list[i].name, NULL,
+    tcl_eggcouplet((ClientData) cp, interp, list[i].name, nullptr,
                    TCL_TRACE_WRITES | TCL_TRACE_READS);
     Tcl_TraceVar(interp, list[i].name,
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -1296,7 +1303,7 @@ void rem_tcl_coups(tcl_coups *list)
   f = TCL_GLOBAL_ONLY | TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS;
   for (int i = 0; list[i].name; i++) {
     cp = (coupletinfo *) Tcl_VarTraceInfo(interp, list[i].name, f,
-                                          tcl_eggcouplet, NULL);
+                                          tcl_eggcouplet, nullptr);
     strtot -= sizeof(coupletinfo);
     Tcl_UntraceVar(interp, list[i].name, f, tcl_eggcouplet, (ClientData) cp);
     op_bh_free(tcl_couplet_bh, cp);
@@ -1363,7 +1370,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
 
 #else /* !HAVE_TCL — no-op stubs so the rest of the codebase links cleanly */
 
-/* The global interpreter pointer is declared above as 'void *interp = NULL'. */
+/* The global interpreter pointer is declared above as 'void *interp = nullptr'. */
 /* expmem_tcl() is defined above the #ifdef block and always compiled.       */
 
 /* Forward-declare misc.c helpers used by notcl_setvar's special-case logic. */
@@ -1477,7 +1484,7 @@ void notcl_setvar(const char *name, const char *value)
     for (e = notcl_int_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
         if (e->readonly < 2 && e->val) {
-          int l = atoi(value);
+          int l = egg_atoi(value);
           /* max-logs: mirror the Tcl write-trace in tcl_eggint — the logs
            * array must be reallocated via init_misc() when the limit grows,
            * otherwise chanprog()'s post-config loop writes past the end of
@@ -1516,7 +1523,7 @@ void notcl_setvar(const char *name, const char *value)
 }
 
 /* notcl_getvar: read the current value of a registered variable into buf.
- * Returns buf on success, NULL if not found.
+ * Returns buf on success, nullptr if not found.
  */
 const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
 {
@@ -1529,7 +1536,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
           strlcpy(buf, e->buf, bufsz);
           return buf;
         }
-        return NULL;
+        return nullptr;
       }
     }
   }
@@ -1542,11 +1549,11 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
           strlcpy(buf, int_to_base10(*e->val), bufsz);
           return buf;
         }
-        return NULL;
+        return nullptr;
       }
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 const char *tcl_resultstring(void) { return ""; }
@@ -1575,8 +1582,8 @@ struct threaddata *threaddata(void)
 void init_threaddata(int mainthread)
 {
   struct threaddata *td = &td_static;
-  td->mainloopfunc = NULL;
-  td->socklist = NULL;
+  td->mainloopfunc = nullptr;
+  td->socklist = nullptr;
   td->mainthread = mainthread;
   td->blocktime.tv_sec = 1;
   td->blocktime.tv_usec = 0;

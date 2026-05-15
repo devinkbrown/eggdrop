@@ -64,7 +64,7 @@ static int has_oporhalfop(int idx, struct chanset_t *chan)
 }
 
 /* Finds a nick of the handle. Returns m->nick if
- * the nick was found, otherwise NULL (Sup 1Nov2000)
+ * the nick was found, otherwise nullptr (Sup 1Nov2000)
  */
 static char *getnick(char *handle, struct chanset_t *chan)
 {
@@ -75,7 +75,7 @@ static char *getnick(char *handle, struct chanset_t *chan)
     if ((u = get_user_from_member(m)) && !strcasecmp(u->handle, handle))
       return m->nick;
   }
-  return NULL;
+  return nullptr;
 }
 
 static void cmd_act(struct userrec *u, int idx, char *par)
@@ -88,7 +88,7 @@ static void cmd_act(struct userrec *u, int idx, char *par)
     dprintf(idx, "Usage: act [channel] <action>\n");
     return;
   }
-  if (strchr(CHANMETA, par[0]) != NULL)
+  if (strchr(CHANMETA, par[0]) != nullptr)
     chname = newsplit(&par);
   else
     chname = 0;
@@ -134,7 +134,7 @@ static void cmd_say(struct userrec *u, int idx, char *par)
     dprintf(idx, "Usage: say [channel] <message>\n");
     return;
   }
-  if (strchr(CHANMETA, par[0]) != NULL)
+  if (strchr(CHANMETA, par[0]) != nullptr)
     chname = newsplit(&par);
   else
     chname = 0;
@@ -169,7 +169,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
     return;
   }
 
-  if (strchr(CHANMETA, par[0]) != NULL)
+  if (strchr(CHANMETA, par[0]) != nullptr)
     chname = newsplit(&par);
   else
     chname = 0;
@@ -207,6 +207,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
     strlcpy(s, op_strbuf_str(&_b), sizeof s);
     op_strbuf_free(&_b);
@@ -616,7 +617,7 @@ static void cmd_kick(struct userrec *u, int idx, char *par)
     dprintf(idx, "Usage: kick [channel] <nick> [reason]\n");
     return;
   }
-  if (strchr(CHANMETA, par[0]) != NULL)
+  if (strchr(CHANMETA, par[0]) != nullptr)
     chname = newsplit(&par);
   else
     chname = 0;
@@ -719,6 +720,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
   putlog(LOG_CMDS, "*", "#%s# (%s) channel", dcc[idx].nick, chan->dname);
   {
     op_strbuf_t _s1;
+    op_strbuf_init(&_s1);
     const char *state = channel_pending(chan) ? IRC_PROCESSINGCHAN
                       : channel_active(chan)   ? IRC_CHANNEL
                                                : IRC_DESIRINGCHAN;
@@ -758,7 +760,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
       } else
         strlcpy(s, " --- ", sizeof s);
       u = get_user_from_member(m);
-      if (u == NULL)
+      if (u == nullptr)
         strlcpy(handle, "*", sizeof handle);
       else
         strlcpy(handle, u->handle, sizeof handle);
@@ -850,6 +852,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
         /* Determine idle time */
         {
           op_strbuf_t idle;
+          op_strbuf_init(&idle);
           if (now - (m->last) > 86400)
             op_strbuf_appendf(&idle, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
           else if (now - (m->last) > 3600)
@@ -882,7 +885,7 @@ static void cmd_topic(struct userrec *u, int idx, char *par)
 {
   struct chanset_t *chan;
 
-  if (par[0] && (strchr(CHANMETA, par[0]) != NULL)) {
+  if (par[0] && (strchr(CHANMETA, par[0]) != nullptr)) {
     char *chname = newsplit(&par);
 
     chan = get_channel(idx, chname);
@@ -959,7 +962,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
 {
   char *nick, *hand;
   struct chanset_t *chan;
-  memberlist *m = NULL;
+  memberlist *m = nullptr;
   char s1[UHOSTLEN];
   int atr = u ? u->flags : 0;
   int statichost = 0;
@@ -989,7 +992,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
     if (!ok) {
       dprintf(idx, "You can't have strange characters in a nick.\n");
       return;
-    } else if (strchr(BADHANDCHARS, par[0]) != NULL) {
+    } else if (strchr(BADHANDCHARS, par[0]) != nullptr) {
       dprintf(idx, "You can't start a nick with '%c'.\n", par[0]);
       return;
     }
@@ -1008,6 +1011,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   if (strlen(hand) > HANDLEN)
     hand[HANDLEN] = 0;
   op_strbuf_t _bs;
+  op_strbuf_init(&_bs);
   op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
   if (u) {
@@ -1042,7 +1046,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
     dprintf(idx, "Added hostmask %s to %s.\n", p1, u->handle);
     addhost_by_handle(hand, p1);
     get_user_flagrec(u, &user, chan->dname);
-    check_this_user(hand, 0, NULL);
+    check_this_user(hand, 0, nullptr);
   }
   putlog(LOG_CMDS, "*", "#%s# adduser %s %s", dcc[idx].nick, nick,
          hand == nick ? "" : hand);
@@ -1052,8 +1056,8 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
 {
   char *nick;
   struct chanset_t *chan;
-  memberlist *m = NULL;
-  struct flag_record victim = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  memberlist *m = nullptr;
+  struct flag_record victim = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   if (!par[0]) {
     dprintf(idx, "Usage: deluser <nick>\n");
@@ -1076,7 +1080,7 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
     dprintf(idx, "%s is not a valid user.\n", nick);
     return;
   }
-  get_user_flagrec(u, &victim, NULL);
+  get_user_flagrec(u, &victim, nullptr);
   /* This maybe should allow glob +n's to deluser glob +n's but I don't
    * like that - beldin
    */
@@ -1097,6 +1101,7 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
     dprintf(idx, "You can't remove a bot!\n");
   } else {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%.*s", HANDLEN, u->handle);
     if (deluser(u->handle)) {
       dprintf(idx, "Deleted %s.\n", op_strbuf_str(&_b));       /* ?!?! :) */
@@ -1140,25 +1145,25 @@ static void cmd_reset(struct userrec *u, int idx, char *par)
 }
 
 static cmd_t irc_dcc[] = {
-  {"adduser",      "m|m",   (IntFunc) cmd_adduser,      NULL},
-  {"deluser",      "m|m",   (IntFunc) cmd_deluser,      NULL},
-  {"reset",        "m|m",   (IntFunc) cmd_reset,        NULL},
-  {"resetbans",    "o|o",   (IntFunc) cmd_resetbans,    NULL},
-  {"resetexempts", "o|o",   (IntFunc) cmd_resetexempts, NULL},
-  {"resetinvites", "o|o",   (IntFunc) cmd_resetinvites, NULL},
-  {"act",          "o|o",   (IntFunc) cmd_act,          NULL},
-  {"channel",      "o|o",   (IntFunc) cmd_channel,      NULL},
-  {"op",           "o|o",   (IntFunc) cmd_op,           NULL},
-  {"deop",         "o|o",   (IntFunc) cmd_deop,         NULL},
-  {"halfop",       "ol|ol", (IntFunc) cmd_halfop,       NULL},
-  {"dehalfop",     "ol|ol", (IntFunc) cmd_dehalfop,     NULL},
-  {"voice",        "ov|ov", (IntFunc) cmd_voice,        NULL},
-  {"devoice",      "ov|ov", (IntFunc) cmd_devoice,      NULL},
-  {"invite",       "o|o",   (IntFunc) cmd_invite,       NULL},
-  {"kick",         "lo|lo", (IntFunc) cmd_kick,         NULL},
-  {"kickban",      "lo|lo", (IntFunc) cmd_kickban,      NULL},
-  {"msg",          "o",     (IntFunc) cmd_msg,          NULL},
-  {"say",          "o|o",   (IntFunc) cmd_say,          NULL},
-  {"topic",        "lo|lo", (IntFunc) cmd_topic,        NULL},
-  {NULL,           NULL,    NULL,                        NULL}
+  {"adduser",      "m|m",   (IntFunc) cmd_adduser,      nullptr},
+  {"deluser",      "m|m",   (IntFunc) cmd_deluser,      nullptr},
+  {"reset",        "m|m",   (IntFunc) cmd_reset,        nullptr},
+  {"resetbans",    "o|o",   (IntFunc) cmd_resetbans,    nullptr},
+  {"resetexempts", "o|o",   (IntFunc) cmd_resetexempts, nullptr},
+  {"resetinvites", "o|o",   (IntFunc) cmd_resetinvites, nullptr},
+  {"act",          "o|o",   (IntFunc) cmd_act,          nullptr},
+  {"channel",      "o|o",   (IntFunc) cmd_channel,      nullptr},
+  {"op",           "o|o",   (IntFunc) cmd_op,           nullptr},
+  {"deop",         "o|o",   (IntFunc) cmd_deop,         nullptr},
+  {"halfop",       "ol|ol", (IntFunc) cmd_halfop,       nullptr},
+  {"dehalfop",     "ol|ol", (IntFunc) cmd_dehalfop,     nullptr},
+  {"voice",        "ov|ov", (IntFunc) cmd_voice,        nullptr},
+  {"devoice",      "ov|ov", (IntFunc) cmd_devoice,      nullptr},
+  {"invite",       "o|o",   (IntFunc) cmd_invite,       nullptr},
+  {"kick",         "lo|lo", (IntFunc) cmd_kick,         nullptr},
+  {"kickban",      "lo|lo", (IntFunc) cmd_kickban,      nullptr},
+  {"msg",          "o",     (IntFunc) cmd_msg,          nullptr},
+  {"say",          "o|o",   (IntFunc) cmd_say,          nullptr},
+  {"topic",        "lo|lo", (IntFunc) cmd_topic,        nullptr},
+  {nullptr,           nullptr,    nullptr,                        nullptr}
 };

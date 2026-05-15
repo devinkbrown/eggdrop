@@ -41,10 +41,12 @@ void opssl_memzero(void *ptr, size_t len);
 
 /* ─── Constant-Time Operations ───────────────────────────────────────── */
 
-int    opssl_ct_eq(const void *a, const void *b, size_t len);
-int    opssl_ct_is_zero(const void *buf, size_t len);
-void   opssl_ct_select(void *dst, const void *a, const void *b, size_t len, int select_a);
-size_t opssl_ct_min(size_t a, size_t b);
+int      opssl_ct_eq(const void *a, const void *b, size_t len);
+int      opssl_ct_is_zero(const void *buf, size_t len);
+int      opssl_ct_word_is_zero(uint64_t x);
+uint64_t opssl_ct_mask(int condition);
+void     opssl_ct_select(void *dst, const void *a, const void *b, size_t len, int select_a);
+size_t   opssl_ct_min(size_t a, size_t b);
 
 /* ─── Entropy / CSPRNG ───────────────────────────────────────────────── */
 

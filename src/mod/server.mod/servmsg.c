@@ -33,8 +33,8 @@ static int multistatus = 0, count_ctcp = 0;
 static char altnick_char = 0;
 struct capability *cap;
 struct capability *find_capability(char *capname);
-static op_bh *capability_bh  = NULL;
-static op_bh *cap_values_bh  = NULL;
+static op_bh *capability_bh  = nullptr;
+static op_bh *cap_values_bh  = nullptr;
 static int monitor_add(char * nick, int send);
 static int monitor_del (char *nick);
 static int monitor_show(Tcl_Obj *mlist, int mode, char *nick);
@@ -97,7 +97,7 @@ static int gotfake433(char *from)
     char *oknicks = "^-_\\[]`";
     char *p = strchr(oknicks, altnick_char);
 
-    if (p == NULL) {
+    if (p == nullptr) {
       if (altnick_char == '9')
         altnick_char = oknicks[0];
       else
@@ -123,11 +123,11 @@ static int gotfake433(char *from)
 static int check_tcl_msg(char *cmd, char *nick, char *uhost,
                          struct userrec *u, char *args)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
   char *hand = u ? u->handle : "*";
   int x;
 
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_msg1", nick, 0);
   Tcl_SetVar(interp, "_msg2", uhost, 0);
   Tcl_SetVar(interp, "_msg3", hand, 0);
@@ -142,15 +142,16 @@ static int check_tcl_msg(char *cmd, char *nick, char *uhost,
 static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
                           struct userrec *u, char *arg)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
   op_strbuf_t args;
+  op_strbuf_init(&args);
   int x;
 
   if (arg[0])
     op_strbuf_appendf(&args, "%s %s", cmd, arg);
   else
     op_strbuf_appendf(&args, "%s", cmd);
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_msgm1", nick, 0);
   Tcl_SetVar(interp, "_msgm2", uhost, 0);
   Tcl_SetVar(interp, "_msgm3", u ? u->handle : "*", 0);
@@ -176,10 +177,10 @@ static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
 static int check_tcl_notc(char *nick, char *uhost, struct userrec *u,
                           char *dest, char *arg)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
   int x;
 
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_notc1", nick, 0);
   Tcl_SetVar(interp, "_notc2", uhost, 0);
   Tcl_SetVar(interp, "_notc3", u ? u->handle : "*", 0);
@@ -233,10 +234,10 @@ static int check_tcl_ctcpr(char *nick, char *uhost, struct userrec *u,
                            char *dest, char *keyword, char *args,
                            p_tcl_bind_list table)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
   int x;
 
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_ctcpr1", nick, 0);
   Tcl_SetVar(interp, "_ctcpr2", uhost, 0);
   Tcl_SetVar(interp, "_ctcpr3", u ? u->handle : "*", 0);
@@ -339,8 +340,8 @@ static int match_my_nick(const char *nick)
 
 char *encode_msgtags(Tcl_Obj *msgtagdict) {
   int done = 0;
-  __attribute__((unused)) Tcl_DictSearch s;
-  __attribute__((unused)) Tcl_Obj *value, *key;
+  [[maybe_unused]] Tcl_DictSearch s;
+  [[maybe_unused]] Tcl_Obj *value, *key;
   static Tcl_DString ds;
   static int ds_initialized = 0;
 
@@ -369,7 +370,7 @@ static int got001(char *from, char *msg)
   struct chanset_t *chan;
   struct server_list *x = serverlist;
 
-  /* serverlist can be NULL during rapid reconnects or if the server list is
+  /* serverlist can be nullptr during rapid reconnects or if the server list is
    * cleared while a connection is in progress.  Guard defensively: walk only
    * when the list is present and bail out below if we cannot find curserv. */
   if (x) {
@@ -483,7 +484,7 @@ static void nuke_server(char *reason)
       dprintf(servidx, "QUIT :%s\n", reason);
     for (chan = chanset; chan; chan = chan->next) {
       if (channel_active(chan))
-        if ((me = module_find("irc", 1, 3)) != NULL)
+        if ((me = module_find("irc", 1, 3)) != nullptr)
           ((void (*)(struct chanset_t *, int)) me->funcs[CHANNEL_CLEAR])(chan, CHAN_RESETALL);
     }
 
@@ -495,7 +496,7 @@ static void nuke_server(char *reason)
 /* op_htab index for O(1) capability lookups by name.
  * Maintained in parallel with the 'cap' linked list; the list is kept
  * because external modules may iterate it directly via server_funcs[43]. */
-static op_htab *cap_dict = NULL;
+static op_htab *cap_dict = nullptr;
 
 /* Inline helper: resolve a nick!user@host 'from' string to a userrec,
  * honouring the IRCv3 'account' tag and any matching channel member record.
@@ -504,7 +505,7 @@ static inline struct userrec *lookup_msg_user(char *nick, char *from)
 {
   memberlist *m = find_member_from_nick(nick);
   return lookup_user_record(m,
-      m ? m->account : (current_msgtag_account[0] ? current_msgtag_account : NULL),
+      m ? m->account : (current_msgtag_account[0] ? current_msgtag_account : nullptr),
       from);
 }
 
@@ -518,7 +519,7 @@ static time_t lastmsgtime[FLOOD_GLOBAL_MAX];
  */
 static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
 {
-  char *p, ftype[10];
+  char *p; const char *ftype = nullptr;
   struct userrec *u;
   int thr = 0, lapse = 0, atr;
 
@@ -530,7 +531,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
   if (!strcasecmp(floodhost, botuserhost))
     return 0;
 
-  u = lookup_user_record(NULL, current_msgtag_account[0] ? current_msgtag_account : NULL, from);
+  u = lookup_user_record(nullptr, current_msgtag_account[0] ? current_msgtag_account : nullptr, from);
   atr = u ? u->flags : 0;
   if (atr & (USER_BOT | USER_FRIEND))
     return 0;
@@ -541,12 +542,12 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
   case FLOOD_NOTICE:
     thr = flud_thr;
     lapse = flud_time;
-    strlcpy(ftype, "msg", sizeof(ftype));
+    ftype = "msg";
     break;
   case FLOOD_CTCP:
     thr = flud_ctcp_thr;
     lapse = flud_ctcp_time;
-    strlcpy(ftype, "ctcp", sizeof(ftype));
+    ftype = "ctcp";
     break;
   }
   if ((thr == 0) || (lapse == 0))
@@ -576,11 +577,12 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     lastmsgs[which] = 0;
     lastmsgtime[which] = 0;
     lastmsghost[which][0] = 0;
-    u = lookup_user_record(NULL, current_msgtag_account[0] ? current_msgtag_account : NULL, from);
-    if (check_tcl_flud(floodnick, floodhost, u, ftype, "*"))
+    u = lookup_user_record(nullptr, current_msgtag_account[0] ? current_msgtag_account : nullptr, from);
+    if (check_tcl_flud(floodnick, floodhost, u, (char *) ftype, "*"))
       return 0;
     /* Private msg */
     op_strbuf_t h;
+    op_strbuf_init(&h);
     op_strbuf_appendf(&h, "*!*@%s", p);
     putlog(LOG_MISC, "*", IRC_FLOODIGNORE1, p);
     addignore(op_strbuf_str(&h), botnetnick, (which == FLOOD_CTCP) ? "CTCP flood" :
@@ -602,7 +604,7 @@ static int gotmsg(char *from, char *msg)
   int ignoring;
 
   /* Notice to a channel, not handled here */
-  if (msg[0] && ((strchr(CHANMETA, *msg) != NULL) || (*msg == '@')))
+  if (msg[0] && ((strchr(CHANMETA, *msg) != nullptr) || (*msg == '@')))
     return 0;
 
   ignoring = match_ignore(from);
@@ -617,7 +619,7 @@ static int gotmsg(char *from, char *msg)
   /* Check for CTCP: */
   op_strbuf_clear(&ctcp_reply);
   p = strchr(msg, 1);
-  while ((p != NULL) && (*p)) {
+  while ((p != nullptr) && (*p)) {
     p++;
     p1 = p;
     while ((*p != 1) && (*p != 0))
@@ -699,7 +701,7 @@ static int gotmsg(char *from, char *msg)
   if (msg[0]) {
     int result = 0;
     /* Msg from oper, don't interpret */
-    if ((to[0] == '$') || (strchr(to, '.') != NULL)) {
+    if ((to[0] == '$') || (strchr(to, '.') != nullptr)) {
       if (!ignoring) {
         detect_flood(nick, uhost, from, FLOOD_PRIVMSG);
         putlog(LOG_MSGS | LOG_SERV, "*", "[%s!%s to %s] %s",
@@ -737,7 +739,7 @@ static int gotnotice(char *from, char *msg)
   int ignoring;
 
   /* Notice to a channel, not handled here */
-  if (msg[0] && ((strchr(CHANMETA, *msg) != NULL) || (*msg == '@')))
+  if (msg[0] && ((strchr(CHANMETA, *msg) != nullptr) || (*msg == '@')))
     return 0;
 
   ignoring = match_ignore(from);
@@ -748,7 +750,7 @@ static int gotnotice(char *from, char *msg)
 
   /* Check for CTCP: */
   p = strchr(msg, 1);
-  while ((p != NULL) && (*p)) {
+  while ((p != nullptr) && (*p)) {
     p++;
     p1 = p;
     while ((*p != 1) && (*p != 0))
@@ -792,7 +794,7 @@ static int gotnotice(char *from, char *msg)
   if (msg[0]) {
 
     /* Notice from oper, don't interpret */
-    if ((to[0] == '$') || (strchr(to, '.') != NULL)) {
+    if ((to[0] == '$') || (strchr(to, '.') != nullptr)) {
       if (!ignoring) {
         detect_flood(nick, uhost, from, FLOOD_NOTICE);
         putlog(LOG_MSGS | LOG_SERV, "*", "-%s (%s) to %s- %s",
@@ -981,7 +983,7 @@ static int got437(char *from, char *msg)
 
   newsplit(&msg);
   s = newsplit(&msg);
-  if (s[0] && (strchr(CHANMETA, s[0]) != NULL)) {
+  if (s[0] && (strchr(CHANMETA, s[0]) != nullptr)) {
     chan = findchan(s);
     if (chan) {
       if (chan->status & CHAN_ACTIVE) {
@@ -1101,7 +1103,7 @@ static int gotmode(char *from, char *msg)
 
   ch = newsplit(&msg);
   /* Usermode changes? */
-  if (strchr(CHANMETA, ch[0]) == NULL) {
+  if (strchr(CHANMETA, ch[0]) == nullptr) {
     if (match_my_nick(ch)) {
       fixcolon(msg);
       if ((msg[0] == '+') || (msg[0] == '-')) {
@@ -1129,13 +1131,13 @@ static void disconnect_server(int idx)
   if (server_online > 0) {
     check_tcl_event("disconnect-server");
   }
-  while (cap != NULL) {
+  while (cap != nullptr) {
     del_capability(cap->name);  /* also removes from cap_dict */
   }
   /* cap_dict is now empty; destroy the tree structure itself */
   if (cap_dict) {
-    op_htab_destroy(cap_dict, NULL, NULL);
-    cap_dict = NULL;
+    op_htab_destroy(cap_dict, nullptr, nullptr);
+    cap_dict = nullptr;
   }
   server_online = 0;
   if (realservername)
@@ -1194,13 +1196,13 @@ static struct dcc_table SERVER_SOCKET = {
   0,
   eof_server,
   server_activity,
-  NULL,
+  nullptr,
   timeout_server,
   display_server,
-  NULL,
+  nullptr,
   kill_server,
-  NULL,
-  NULL
+  nullptr,
+  nullptr
 };
 
 static const char *encode_msgtag_value(const char *value)
@@ -1263,7 +1265,7 @@ static const char *encode_msgtag(const char *key, const char *value)
   return op_strbuf_str(&sb);
 }
 
-static __attribute__((unused)) char *decode_msgtag_value(char *value, char **endptr)
+[[maybe_unused]] static char *decode_msgtag_value(char *value, char **endptr)
 {
   static char valuebuf[TOTALTAGMAX+1];
   char *tmp, *decoded = valuebuf;
@@ -1303,7 +1305,7 @@ static void server_activity(int idx, char *tagmsg, int len)
   char *from, *code, *msgptr;
   char rawmsg[RECVLINEMAX+7];
   [[maybe_unused]] int ret;
-  __attribute__((unused)) Tcl_Obj *tagdict = Tcl_NewDictObj();
+  [[maybe_unused]] Tcl_Obj *tagdict = Tcl_NewDictObj();
 
   /* Sanitize incoming IRC messages: replace invalid UTF-8 bytes with '?'.
    * Modern IRC servers and clients use UTF-8; malformed sequences could cause
@@ -1352,8 +1354,8 @@ static void server_activity(int idx, char *tagmsg, int len)
   }
   /* Extract IRCv3 'account' tag so handlers can use it for user lookup. */
   {
-    __attribute__((unused)) Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
-    Tcl_Obj *acctval = NULL;
+    [[maybe_unused]] Tcl_Obj *acctkey = Tcl_NewStringObj("account", -1);
+    Tcl_Obj *acctval = nullptr;
     Tcl_IncrRefCount(acctkey);
     if (Tcl_DictObjGet(interp, tagdict, acctkey, &acctval) == TCL_OK && acctval)
       strlcpy(current_msgtag_account, Tcl_GetString(acctval), sizeof current_msgtag_account);
@@ -1425,6 +1427,7 @@ static int got311(char *from, char *msg)
 
   if (match_my_nick(n2)) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s@%s", u, h);
     strlcpy(botuserhost, op_strbuf_str(&_b), sizeof botuserhost);
     op_strbuf_free(&_b);
@@ -1546,12 +1549,12 @@ struct capability *find_capability(char *capname) {
 
   /* Fallback: linear scan before dict is initialised */
   struct capability *current = cap;
-  while (current != NULL) {
+  while (current != nullptr) {
     if (!strcasecmp(capname, current->name))
       return current;
     current = current->next;
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Set capability to be requested by Eggdrop */
@@ -1584,7 +1587,7 @@ static void free_capability(struct capability *z) {
 static int del_capability(char *name) {
   struct capability *curr, *prev;
 
-  for (prev = NULL, curr = cap; curr; curr = prev ? prev->next : cap) {
+  for (prev = nullptr, curr = cap; curr; curr = prev ? prev->next : cap) {
     if (!strcasecmp(name, curr->name)) {
       if (prev) {
         prev->next = curr->next;
@@ -1608,9 +1611,9 @@ static int del_capability(char *name) {
  * msg is in format "multi-prefix sasl server-time"
  */
 static int del_capabilities(char *msg) {
-  char *capptr, *saveptr = NULL;
+  char *capptr, *saveptr = nullptr;
 
-  for (capptr = strtok_r(msg, " ", &saveptr); capptr; capptr = strtok_r(NULL, " ", &saveptr)) {
+  for (capptr = strtok_r(msg, " ", &saveptr); capptr; capptr = strtok_r(nullptr, " ", &saveptr)) {
     del_capability(capptr);
   }
   return 0;
@@ -1621,12 +1624,12 @@ static int del_capabilities(char *msg) {
  */
 static int add_capabilities(const char *msg) {
   char *msgcopy = op_strdup(msg);
-  char *capptr, *valptr, *val, *saveptr1 = NULL, *saveptr2 = NULL;
+  char *capptr, *valptr, *val, *saveptr1 = nullptr, *saveptr2 = nullptr;
   struct capability *newcap, **capdstptr, *z;
   struct cap_values *newvalue, **nextvaldstptr;
   int found;
 
-  for (capptr = strtok_r(msgcopy, " ", &saveptr1); capptr; capptr = strtok_r(NULL, " ", &saveptr1)) {
+  for (capptr = strtok_r(msgcopy, " ", &saveptr1); capptr; capptr = strtok_r(nullptr, " ", &saveptr1)) {
     valptr = strchr(capptr, '=');
     if (valptr) {
       *valptr++ = '\0';
@@ -1654,11 +1657,11 @@ static int add_capabilities(const char *msg) {
     /* Keep cap_dict in sync for O(1) find_capability() lookups */
     if (!cap_dict)
       cap_dict = op_htab_create_istr("capabilities", 16);
-    op_htab_set(cap_dict, newcap->name, newcap, NULL);
+    op_htab_set(cap_dict, newcap->name, newcap, nullptr);
 
     if (valptr) {
       nextvaldstptr = &newcap->value;
-      for (val = strtok_r(valptr, ",", &saveptr2); val; val = strtok_r(NULL, ",", &saveptr2)) {
+      for (val = strtok_r(valptr, ",", &saveptr2); val; val = strtok_r(nullptr, ",", &saveptr2)) {
         if (!cap_values_bh)
           cap_values_bh = op_bh_create(sizeof(cap_values_t), 16, "cap_values");
         newvalue = op_bh_alloc(cap_values_bh);
@@ -1680,7 +1683,7 @@ static int is_cap_value(const struct cap_values *cap_value_list, const char *nam
 
   if (!cap_value_list)
     return 1;
-  while (current != NULL) {
+  while (current != nullptr) {
     if (!strcmp(name, current->name)) {
       return 1;
     }
@@ -1715,7 +1718,7 @@ static int gotcap(char *from, char *msg) {
     }
     current = cap;
     /* CAP is supported, yay! If it is supported, lets load what we want to request */
-    while (current != NULL) {
+    while (current != nullptr) {
       if (!strcmp(current->name, "sasl")) {
         if (sasl && !(current->enabled))
           add_req(current->name);
@@ -1801,14 +1804,14 @@ static int gotcap(char *from, char *msg) {
       }
       /* Add any custom capes the user listed */
       {
-        char *saveptr = NULL;
+        char *saveptr = nullptr;
         char *cap_copy = op_strdup(cap_request);
         if ((p = strtok_r(cap_copy, " ", &saveptr))) {
-          while (p != NULL) {
+          while (p != nullptr) {
             if (!strcmp(current->name, p) && (!current->enabled)) {
               add_req(p);
             }
-            p = strtok_r(NULL, " ", &saveptr);
+            p = strtok_r(nullptr, " ", &saveptr);
           }
         }
         op_free(cap_copy);
@@ -1820,7 +1823,7 @@ static int gotcap(char *from, char *msg) {
     {
       op_strbuf_t cape_req;
       op_strbuf_init(&cape_req);
-      while (current != NULL) {
+      while (current != nullptr) {
         if (current->requested && (!current->enabled)) {
           putlog(LOG_DEBUG, "*", "CAP: Requesting %s capability from server", current->name);
           op_strbuf_appendf(&cape_req, " %s", current->name);
@@ -1839,7 +1842,7 @@ static int gotcap(char *from, char *msg) {
     if (!multistatus) {
       multistatus = 1;
       current = cap;
-      while (current != NULL) {
+      while (current != nullptr) {
         current->enabled = 0;
         current=current->next;
       }
@@ -1855,26 +1858,26 @@ static int gotcap(char *from, char *msg) {
       multistatus = 0;
     }
     {
-      char *saveptr = NULL;
+      char *saveptr = nullptr;
       splitstr = strtok_r(msg, " ", &saveptr);
-      while (splitstr != NULL) {
+      while (splitstr != nullptr) {
         current = find_capability(splitstr);
         if (!current) {
           putlog(LOG_DEBUG, "*", "CAP: %s tried to tell me we negotiated %s, \
                   but I have no record of it. Skipping...", from, splitstr);
-          splitstr = strtok_r(NULL, " ", &saveptr);
+          splitstr = strtok_r(nullptr, " ", &saveptr);
           continue;
         }
         current->enabled = 1;
-        splitstr = strtok_r(NULL, " ", &saveptr);
+        splitstr = strtok_r(nullptr, " ", &saveptr);
       }
     }
   } else if (!strcmp(cmd, "ACK")) {
-    char *saveptr = NULL;
+    char *saveptr = nullptr;
     splitstr = strtok_r(msg, " ", &saveptr);
-    while (splitstr != NULL) {
+    while (splitstr != nullptr) {
       current = cap;
-      while (current != NULL) {
+      while (current != nullptr) {
         /* Remove a - if it exists and track for later */
         if (splitstr[0] == '-') {
           remove = 1;
@@ -1893,7 +1896,7 @@ static int gotcap(char *from, char *msg) {
         current = current->next;
       }
       remove = 0;
-      splitstr = strtok_r(NULL, " ", &saveptr);
+      splitstr = strtok_r(nullptr, " ", &saveptr);
     }
     current = find_capability("sasl");
     /* Let SASL code send END if SASL is enabled, to avoid race condition */
@@ -1904,7 +1907,7 @@ static int gotcap(char *from, char *msg) {
     {
       op_strbuf_t caplog;
       op_strbuf_init(&caplog);
-      while (current != NULL) {
+      while (current != nullptr) {
         if (current->enabled)
           op_strbuf_appendf(&caplog, " %s", current->name);
         current = current->next;
@@ -1938,14 +1941,14 @@ static int got730or1(char *from, char *msg, int code)
   newsplit(&msg);               /* Get rid of nick */
   fixcolon(msg);                /* Get rid of :    */
 
-  char *saveptr = NULL;
-  for (tok = strtok_r(msg, ",", &saveptr); tok; tok = strtok_r(NULL, " ", &saveptr)) {
+  char *saveptr = nullptr;
+  for (tok = strtok_r(msg, ",", &saveptr); tok; tok = strtok_r(nullptr, " ", &saveptr)) {
     if (strchr(tok, '!')) {
       nick = splitnick(&tok);
     } else {
       nick = tok;
     }
-    while (current != NULL) {
+    while (current != nullptr) {
       if (!rfc_casecmp(current->nick, nick)) {
         if (code == 1) {
           current->online = 1;
@@ -1967,6 +1970,7 @@ static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
                                char *code, const char *context, char *desc)
 {
   op_strbuf_t mask;
+  op_strbuf_init(&mask);
   int x;
 
   op_strbuf_appendf(&mask, "%s:%s:%s", msgtype, cmd, code);
@@ -2064,25 +2068,25 @@ static int got732(char *from, char *msg)
 {
   char *tok, *nick;
   struct monitor_list *current = monitor;
-  struct monitor_list *next = NULL;
+  struct monitor_list *next = nullptr;
 
 /* Did we already get a 732? If no, clear the existing list, otherwise leave
  * it for appending
  */
   if (!monitor732) {
-    while (current != NULL) {
+    while (current != nullptr) {
       next = current->next;
       op_bh_free(monitor_heap, current);
       current = next;
     }
-    monitor = NULL;
+    monitor = nullptr;
   }
 
   newsplit(&msg);               /* Get rid of nick */
   fixcolon(msg);                /* Get rid of :    */
 
-  char *saveptr = NULL;
-  for (tok = strtok_r(msg, ",", &saveptr); tok && *tok; tok = strtok_r(NULL, ",", &saveptr)) {
+  char *saveptr = nullptr;
+  for (tok = strtok_r(msg, ",", &saveptr); tok && *tok; tok = strtok_r(nullptr, ",", &saveptr)) {
     /* returned target could be in nick!u@host format */
     if (strchr(tok, '!')) {
       nick = splitnick(&tok);
@@ -2118,10 +2122,10 @@ static int server_isupport(char *key, char *isset_str, char *value)
   int isset = !strcmp(isset_str, "1");
 
   if (!strcmp(key, "NICKLEN") || !strcmp(key, "MAXNICKLEN")) {
-    isupport_parseint(key, isset ? value : NULL, 9, NICKMAX, 1, 9, &nick_len);
+    isupport_parseint(key, isset ? value : nullptr, 9, NICKMAX, 1, 9, &nick_len);
   } else if (!strcmp(key, "MONITOR")) {
     monitor005 = isset;
-    isupport_parseint(key, isset ? value : NULL, 1, 500, 1, 0, &max_monitor);
+    isupport_parseint(key, isset ? value : nullptr, 1, 500, 1, 0, &max_monitor);
   }
   return 0;
 }
@@ -2252,6 +2256,7 @@ static int gotwhisper(char *from, char *msg)
   if (match_my_nick(target)) {
     struct userrec *u;
     op_strbuf_t hostbuf;
+    op_strbuf_init(&hostbuf);
     op_strbuf_appendf(&hostbuf, "%s!%s", nick, from);
     u = get_user_by_host(op_strbuf_str(&hostbuf));
     op_strbuf_free(&hostbuf);
@@ -2291,68 +2296,68 @@ static int server_isupport_ircx(char *key, char *isset_str, char *value)
 }
 
 static cmd_t my_raw_binds[] = {
-  {"PRIVMSG",      "",   (IntFunc) gotmsg,          NULL},
-  {"NOTICE",       "",   (IntFunc) gotnotice,       NULL},
-  {"MODE",         "",   (IntFunc) gotmode,         NULL},
-  {"PING",         "",   (IntFunc) gotping,         NULL},
-  {"PONG",         "",   (IntFunc) gotpong,         NULL},
-  {"WALLOPS",      "",   (IntFunc) gotwall,         NULL},
-  {"FAIL",         "",   (IntFunc) gotstdfail,      NULL},
-  {"NOTE",         "",   (IntFunc) gotstdnote,      NULL},
-  {"WARN",         "",   (IntFunc) gotstdwarn,      NULL},
-  {"001",          "",   (IntFunc) got001,          NULL},
-  {"005",          "",   (IntFunc) got005,          NULL},
-  {"303",          "",   (IntFunc) got303,          NULL},
-  {"311",          "",   (IntFunc) got311,          NULL},
-  {"318",          "",   (IntFunc) whoispenalty,    NULL},
-  {"410",          "",   (IntFunc) got410,          NULL},
-  {"417",          "",   (IntFunc) got417,          NULL},
-  {"421",          "",   (IntFunc) got421,          NULL},
-  {"432",          "",   (IntFunc) got432,          NULL},
-  {"433",          "",   (IntFunc) got433,          NULL},
-  {"437",          "",   (IntFunc) got437,          NULL},
-  {"438",          "",   (IntFunc) got438,          NULL},
-  {"451",          "",   (IntFunc) got451,          NULL},
-  {"442",          "",   (IntFunc) got442,          NULL},
-  {"465",          "",   (IntFunc) got465,          NULL},
-  {"730",          "",   (IntFunc) got730,          NULL},
-  {"731",          "",   (IntFunc) got731,          NULL},
-  {"732",          "",   (IntFunc) got732,          NULL},
-  {"733",          "",   (IntFunc) got733,          NULL},
-  {"734",          "",   (IntFunc) got734,          NULL},
-  {"900",          "",   (IntFunc) got900,          NULL},
+  {"PRIVMSG",      "",   (IntFunc) gotmsg,          nullptr},
+  {"NOTICE",       "",   (IntFunc) gotnotice,       nullptr},
+  {"MODE",         "",   (IntFunc) gotmode,         nullptr},
+  {"PING",         "",   (IntFunc) gotping,         nullptr},
+  {"PONG",         "",   (IntFunc) gotpong,         nullptr},
+  {"WALLOPS",      "",   (IntFunc) gotwall,         nullptr},
+  {"FAIL",         "",   (IntFunc) gotstdfail,      nullptr},
+  {"NOTE",         "",   (IntFunc) gotstdnote,      nullptr},
+  {"WARN",         "",   (IntFunc) gotstdwarn,      nullptr},
+  {"001",          "",   (IntFunc) got001,          nullptr},
+  {"005",          "",   (IntFunc) got005,          nullptr},
+  {"303",          "",   (IntFunc) got303,          nullptr},
+  {"311",          "",   (IntFunc) got311,          nullptr},
+  {"318",          "",   (IntFunc) whoispenalty,    nullptr},
+  {"410",          "",   (IntFunc) got410,          nullptr},
+  {"417",          "",   (IntFunc) got417,          nullptr},
+  {"421",          "",   (IntFunc) got421,          nullptr},
+  {"432",          "",   (IntFunc) got432,          nullptr},
+  {"433",          "",   (IntFunc) got433,          nullptr},
+  {"437",          "",   (IntFunc) got437,          nullptr},
+  {"438",          "",   (IntFunc) got438,          nullptr},
+  {"451",          "",   (IntFunc) got451,          nullptr},
+  {"442",          "",   (IntFunc) got442,          nullptr},
+  {"465",          "",   (IntFunc) got465,          nullptr},
+  {"730",          "",   (IntFunc) got730,          nullptr},
+  {"731",          "",   (IntFunc) got731,          nullptr},
+  {"732",          "",   (IntFunc) got732,          nullptr},
+  {"733",          "",   (IntFunc) got733,          nullptr},
+  {"734",          "",   (IntFunc) got734,          nullptr},
+  {"900",          "",   (IntFunc) got900,          nullptr},
   /* IRCX/Ophion extended protocol handlers */
-  {"800",          "",   (IntFunc) got800,          NULL},
-  {"801",          "",   (IntFunc) got801,          NULL},
-  {"802",          "",   (IntFunc) got802,          NULL},
-  {"803",          "",   (IntFunc) got803,          NULL},
-  {"804",          "",   (IntFunc) got804,          NULL},
+  {"800",          "",   (IntFunc) got800,          nullptr},
+  {"801",          "",   (IntFunc) got801,          nullptr},
+  {"802",          "",   (IntFunc) got802,          nullptr},
+  {"803",          "",   (IntFunc) got803,          nullptr},
+  {"804",          "",   (IntFunc) got804,          nullptr},
   /* Note: 901 (ERR_NOTIRCX) and 902 (ERR_ALREADYIRCX) overlap with SASL
    * numerics (RPL_LOGGEDOUT, ERR_NICKLOCKED) — sasl.c handles those. */
-  {"PROP",         "",   (IntFunc) gotprop,         NULL},
-  {"ACCESS",       "",   (IntFunc) gotaccess,       NULL},
-  {"WHISPER",      "",   (IntFunc) gotwhisper,      NULL},
-  {"NICK",         "",   (IntFunc) gotnick,         NULL},
-  {"ERROR",        "",   (IntFunc) goterror,        NULL},
+  {"PROP",         "",   (IntFunc) gotprop,         nullptr},
+  {"ACCESS",       "",   (IntFunc) gotaccess,       nullptr},
+  {"WHISPER",      "",   (IntFunc) gotwhisper,      nullptr},
+  {"NICK",         "",   (IntFunc) gotnick,         nullptr},
+  {"ERROR",        "",   (IntFunc) goterror,        nullptr},
 /* ircu2.10.10 has a bug when a client is throttled ERROR is sent wrong */
-  {"ERROR:",       "",   (IntFunc) goterror,        NULL},
-  {"KICK",         "",   (IntFunc) gotkick,         NULL},
-  {"CAP",          "",   (IntFunc) gotcap,          NULL},
-  {"SETNAME",      "",   (IntFunc) gotsetname,      NULL},
-  {"BATCH",        "",   (IntFunc) gotbatch,        NULL},
-  {"CHATHISTORY",  "",   (IntFunc) gotchathistory,  NULL},
-  {NULL,           NULL, NULL,                      NULL}
+  {"ERROR:",       "",   (IntFunc) goterror,        nullptr},
+  {"KICK",         "",   (IntFunc) gotkick,         nullptr},
+  {"CAP",          "",   (IntFunc) gotcap,          nullptr},
+  {"SETNAME",      "",   (IntFunc) gotsetname,      nullptr},
+  {"BATCH",        "",   (IntFunc) gotbatch,        nullptr},
+  {"CHATHISTORY",  "",   (IntFunc) gotchathistory,  nullptr},
+  {nullptr,           nullptr, nullptr,                      nullptr}
 };
 
 static cmd_t my_rawt_binds[] = {
-  {"TAGMSG",       "",   (IntFunc) gottagmsg,       NULL},
-  {NULL,           NULL, NULL,                      NULL}
+  {"TAGMSG",       "",   (IntFunc) gottagmsg,       nullptr},
+  {nullptr,           nullptr, nullptr,                      nullptr}
 };
 
 static cmd_t my_isupport_binds[] = {
   {"*",      "",   (IntFunc) server_isupport,       "server:isupport"},
   {"IRCX",   "",   (IntFunc) server_isupport_ircx,  "server:isupport-ircx"},
-  {NULL,   NULL,   NULL,                                            NULL}
+  {nullptr,   nullptr,   nullptr,                                            nullptr}
 };
 
 static void server_resolve_success(int);
@@ -2409,6 +2414,7 @@ static void connect_server(void)
     next_server(&curserv, botserver, sizeof botserver, &botserverport, pass, sizeof pass);
 
     op_strbuf_t s;
+    op_strbuf_init(&s);
 #ifdef IPV6
     if (inet_pton(AF_INET6, botserver, buf))
       op_strbuf_appendf(&s, "%s [%s]", IRC_SERVERTRY, botserver);
@@ -2436,10 +2442,12 @@ static void connect_server(void)
 
     dcc[servidx].timeval = now;
     dcc[servidx].sock = -1;
-    dcc[servidx].u.dns->host = get_data_ptr(strlen(dcc[servidx].host) + 1);
-    strcpy(dcc[servidx].u.dns->host, dcc[servidx].host);
-    dcc[servidx].u.dns->cbuf = get_data_ptr(strlen(pass) + 1);
-    strcpy(dcc[servidx].u.dns->cbuf, pass);
+    size_t _len1 = strlen(dcc[servidx].host) + 1;
+    dcc[servidx].u.dns->host = get_data_ptr(_len1);
+    strlcpy(dcc[servidx].u.dns->host, dcc[servidx].host, _len1);
+    size_t _len2 = strlen(pass) + 1;
+    dcc[servidx].u.dns->cbuf = get_data_ptr(_len2);
+    strlcpy(dcc[servidx].u.dns->cbuf, pass, _len2);
     dcc[servidx].u.dns->dns_success = server_resolve_success;
     dcc[servidx].u.dns->dns_failure = server_resolve_failure;
     dcc[servidx].u.dns->dns_type = RES_IPBYHOST;
@@ -2484,7 +2492,7 @@ static void server_resolve_success(int servidx)
   setsnport(dcc[servidx].sockname, dcc[servidx].port);
   serv = open_telnet_raw(dcc[servidx].sock, &dcc[servidx].sockname);
   if (serv < 0) {
-    char *errstr = NULL;
+    char *errstr = nullptr;
     if (errno == EINVAL) {
       errstr = IRC_VHOSTWRONGNET;
     } else if (errno == EADDRNOTAVAIL) {
@@ -2509,7 +2517,7 @@ static void server_resolve_success(int servidx)
   }
 #ifdef TLS
   if (dcc[servidx].ssl && ssl_handshake(serv, TLS_CONNECT, tls_vfyserver,
-                                        LOG_SERV, dcc[servidx].host, NULL)) {
+                                        LOG_SERV, dcc[servidx].host, nullptr)) {
     putlog(LOG_SERV, "*", "%s %s (%s)", IRC_FAILEDCONNECT, dcc[servidx].host,
            "TLS negotiation failure");
     check_tcl_event("fail-server");

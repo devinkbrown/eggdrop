@@ -845,6 +845,34 @@ ecdsa_key = "path/to/ecdsa.key"
 x25519_key = "path/to/x25519.key"
 ```
 
+### Cryptographically Secure Random Numbers
+
+All random number generation uses a CSPRNG:
+
+```c
+/* randint() — uniform random integer in [0, n) */
+static inline uint64_t randint(uint64_t n) {
+  uint64_t r;
+#ifdef HAVE_GETRANDOM
+  if (getrandom(&r, sizeof(r), 0) != sizeof(r))
+    r = 0;
+#else
+  arc4random_buf(&r, sizeof(r));
+#endif
+  return r % n;
+}
+```
+
+The weak `random()`/`srandom()` PRNG used in upstream Eggdrop has been completely replaced. `getrandom(2)` (Linux) or `arc4random_buf` (BSD/macOS) is used for:
+
+- Password salt generation (PBKDF2)
+- Blowfish IV generation
+- DNS query ID generation
+- Python `rand()` command output
+- Any other call site that previously used `random()`
+
+The `init_random()` seeding function has been removed from `main.c`.
+
 ### Password Hashing
 
 User passwords are hashed with PBKDF2-SHA256:
@@ -875,12 +903,17 @@ All unsafe functions replaced:
 
 | Old | New |
 |-----|-----|
-| `strcpy` | `strlcpy` |
+| `strcpy` | `stpcpy` or `strlcpy` |
 | `strcat` | `strlcat` |
 | `sprintf` | `snprintf` |
 | `strtok` | `strtok_r` |
 | `strncpy` | `memcpy` + explicit NUL |
+| `atoi` | `egg_atoi()` (safe `strtol` wrapper) |
+| `sscanf %s` (unbounded) | `sscanf %Ns` (bounded width) |
+| `random()`/`srandom()` | `getrandom(2)` / `arc4random_buf` |
 | Dynamic strings | `op_strbuf_t` |
+
+The codebase has zero remaining instances of: raw `strcpy`, `sprintf`, `strcat`, `strncpy`, `strncat`, `strtok`, `gets`, `system()`, raw `atoi`, or unbounded `sscanf %s`.
 
 ### Input Validation
 
@@ -967,6 +1000,31 @@ With `-Degg-debug=true`:
 
 Output goes to `stderr` and is saved in `DEBUG.DEBUG` on crash.
 
+### Test Suite
+
+Seven test executables exercise core subsystems:
+
+| Test | Tests | Coverage |
+|------|-------|----------|
+| `test_match` | 22 | Wildcard matching, CIDR matching, cron expressions, addr_match |
+| `test_flags` | 56 | Flag parsing, sanity_check, break_down_flags, flagrec_eq |
+| `test_misc` | 18 | newsplit, rmspace, splitnick |
+| `test_net` | 8 | iptostr for IPv4 and IPv6 |
+| `test_botmsg` | varies | Base conversion, botnet message formatting |
+| `test_strbuf` | varies | op_strbuf_t operations (libop) |
+| `test_rfc1459` | varies | RFC 1459 case mapping |
+
+Tests use a unity build pattern: each test file `#include`s the relevant `.c` source directly to access `static` functions. Test stubs provide minimal symbols needed by included code without pulling in the full eggdrop binary.
+
+All tests pass under both release (`ninja -C builddir`) and sanitizer (`ninja -C builddir-debug`) builds with zero warnings.
+
+Run tests:
+
+```bash
+ninja -C builddir test        # Release
+ninja -C builddir-debug test  # ASAN + UBSAN
+```
+
 ---
 
 ## Future Directions
@@ -992,4 +1050,4 @@ Output goes to `stderr` and is saved in `DEBUG.DEBUG` on crash.
 
 ---
 
-**This document describes Eggdrop 1.10.1 as of May 2026. For the latest source code, visit https://github.com/eggheads/eggdrop**
+**This document describes Eggdrop 1.10.1 as of May 15, 2026. For the latest source code, visit https://github.com/eggheads/eggdrop**

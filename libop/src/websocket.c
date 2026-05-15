@@ -698,23 +698,17 @@ op_ws_handshake_read(op_fde_t *F, void *data)
             char *accept = (char *)op_base64_encode(digest, SHA1_DIGEST_LENGTH);
 
             /* Build the 101 response */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
             char response[512];
             int  rlen = 0;
             { int n = snprintf(response + rlen, sizeof(response) - rlen,
                                "%s%s", ws_answer_1, accept);
               if(n > 0) rlen += ((size_t)n >= sizeof(response) - rlen) ? (int)(sizeof(response) - rlen - 1) : n; }
-#pragma GCC diagnostic pop
             op_free(accept);
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
             if (ws_subproto[0] && op_strcasestr(ws_subproto, "irc"))
             { int n = snprintf(response + rlen, sizeof(response) - rlen,
                                "\r\nSec-WebSocket-Protocol: irc");
               if(n > 0) rlen += ((size_t)n >= sizeof(response) - rlen) ? (int)(sizeof(response) - rlen - 1) : n; }
-#pragma GCC diagnostic pop
 
             if (rlen + (int)sizeof(ws_answer_2) < (int)sizeof(response))
             {

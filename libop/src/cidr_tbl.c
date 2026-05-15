@@ -12,6 +12,8 @@
 
 #include <libop_config.h>
 #include <op_lib.h>
+#include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef _WIN32
@@ -429,6 +431,84 @@ op_cidr_lpm_ss(const op_cidr_tbl_t *t, const struct sockaddr_storage *ss)
     return NULL;
 }
 
+/* ---- parsing helpers ----------------------------------------------------- */
+
+int
+op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss)
+{
+    struct sockaddr_in *sin4 = (struct sockaddr_in *)ss;
+    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ss;
+
+    if (s == NULL || ss == NULL)
+        return -1;
+
+    memset(ss, 0, sizeof(*ss));
+    if (inet_pton(AF_INET, s, &sin4->sin_addr) == 1)
+    {
+        sin4->sin_family = AF_INET;
+        return 0;
+    }
+    if (inet_pton(AF_INET6, s, &sin6->sin6_addr) == 1)
+    {
+        sin6->sin6_family = AF_INET6;
+        return 0;
+    }
+    return -1;
+}
+
+int
+op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen)
+{
+    char addrbuf[INET6_ADDRSTRLEN + 1];
+    const char *slash;
+    char *end = NULL;
+    long parsed_plen = -1;
+
+    if (s == NULL || ss == NULL || plen == NULL)
+        return -1;
+
+    slash = strchr(s, '/');
+    if (slash != NULL)
+    {
+        size_t addrlen = (size_t)(slash - s);
+        if (addrlen == 0 || addrlen >= sizeof(addrbuf))
+            return -1;
+        memcpy(addrbuf, s, addrlen);
+        addrbuf[addrlen] = '\0';
+
+        errno = 0;
+        parsed_plen = strtol(slash + 1, &end, 10);
+        if (errno != 0 || end == slash + 1 || *end != '\0')
+            return -1;
+        s = addrbuf;
+    }
+
+    if (op_cidr_parse_addr(s, ss) < 0)
+        return -1;
+
+    if (GET_SS_FAMILY(ss) == AF_INET)
+    {
+        if (slash == NULL)
+            parsed_plen = 32;
+        if (parsed_plen < 0 || parsed_plen > 32)
+            return -1;
+    }
+    else if (GET_SS_FAMILY(ss) == AF_INET6)
+    {
+        if (slash == NULL)
+            parsed_plen = 128;
+        if (parsed_plen < 0 || parsed_plen > 128)
+            return -1;
+    }
+    else
+    {
+        return -1;
+    }
+
+    *plen = (int)parsed_plen;
+    return 0;
+}
+
 /* ---- introspection ------------------------------------------------------- */
 
 size_t
@@ -475,50 +555,4 @@ op_cidr_foreach6(const op_cidr_tbl_t *t, op_cidr_each_t fn, void *ud)
     ctx.stop = false;
     ((struct sockaddr_in6 *)&ctx.ss)->sin6_family = AF_INET6;
     trie_foreach(t->root6, &ctx, 0);
-}
-
-/* ---- parsing helpers ----------------------------------------------------- */
-
-int
-op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss)
-{
-    memset(ss, 0, sizeof(*ss));
-    if (inet_pton(AF_INET, s, &((struct sockaddr_in *)ss)->sin_addr) == 1) {
-        ss->ss_family = AF_INET;
-        return 0;
-    }
-    if (inet_pton(AF_INET6, s, &((struct sockaddr_in6 *)ss)->sin6_addr) == 1) {
-        ss->ss_family = AF_INET6;
-        return 0;
-    }
-    return -1;
-}
-
-int
-op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen)
-{
-    char buf[INET6_ADDRSTRLEN + 4];
-    const char *slash = strchr(s, '/');
-
-    if (!slash)
-        return -1;
-    size_t host_len = (size_t)(slash - s);
-    if (host_len == 0 || host_len >= sizeof(buf))
-        return -1;
-    memcpy(buf, s, host_len);
-    buf[host_len] = '\0';
-
-    char *end;
-    long pl = strtol(slash + 1, &end, 10);
-    if (*end != '\0' || pl < 0)
-        return -1;
-
-    if (op_cidr_parse_addr(buf, ss) < 0)
-        return -1;
-
-    int max_plen = (ss->ss_family == AF_INET) ? 32 : 128;
-    if (pl > max_plen)
-        return -1;
-    *plen = (int)pl;
-    return 0;
 }

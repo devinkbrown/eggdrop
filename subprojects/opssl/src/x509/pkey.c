@@ -19,6 +19,7 @@
 #include <opssl/cbs.h>
 #include <opssl/err.h>
 #include <string.h>
+#include <stdio.h>
 
 /* OID constants for key type identification */
 static const uint8_t oid_rsa[] = {
@@ -52,8 +53,9 @@ struct opssl_pkey {
             size_t der_len;
         } rsa;
         struct {
-            uint8_t priv[32];   /* raw scalar */
-            uint8_t pub[65];    /* uncompressed point (04 || X || Y) */
+            uint8_t priv[66];   /* raw scalar (32 P-256, 48 P-384, 66 P-521) */
+            uint8_t pub[133];   /* uncompressed point (04 || X || Y) */
+            size_t priv_len;
             size_t pub_len;
             opssl_curve_t curve;
         } ec;
@@ -257,30 +259,77 @@ parse_pkcs8_private_key(const uint8_t *der, size_t der_len)
             return NULL;
         }
 
-        /* Copy private scalar (must be 32 bytes for supported curves) */
-        if (opssl_cbs_len(&priv_key) > 32) {
+        /* Determine expected scalar length from curve */
+        size_t expected_scalar;
+        switch (key->key.ec.curve) {
+        case OPSSL_CURVE_P384: expected_scalar = 48; break;
+        case OPSSL_CURVE_P521: expected_scalar = 66; break;
+        default:               expected_scalar = 32; break;
+        }
+
+        if (opssl_cbs_len(&priv_key) > expected_scalar) {
             op_free(key);
             OPSSL_ERR(OPSSL_ERR_X509, 0);
             return NULL;
         }
 
-        /* Pad with leading zeros if needed */
         size_t scalar_len = opssl_cbs_len(&priv_key);
-        size_t pad_len = 32 - scalar_len;
+        size_t pad_len = expected_scalar - scalar_len;
         memset(key->key.ec.priv, 0, pad_len);
         memcpy(key->key.ec.priv + pad_len, opssl_cbs_data(&priv_key), scalar_len);
+        key->key.ec.priv_len = expected_scalar;
 
-        /* Look for publicKey [1] BIT STRING (optional but usually present) */
-        if (opssl_asn1_get_element(&ec_key_seq, 0x81, &pub_key_bits)) {
-            /* Skip unused bits byte */
-            uint8_t unused_bits;
-            if (opssl_cbs_get_u8(&pub_key_bits, &unused_bits) && unused_bits == 0) {
-                size_t pub_len = opssl_cbs_len(&pub_key_bits);
-                if (pub_len <= 65) {
-                    memcpy(key->key.ec.pub, opssl_cbs_data(&pub_key_bits), pub_len);
-                    key->key.ec.pub_len = pub_len;
-                }
+        /*
+         * After privateKey, the remaining optional fields are:
+         *   parameters [0] ECParameters OPTIONAL
+         *   publicKey  [1] BIT STRING OPTIONAL
+         *
+         * RFC 5915 uses EXPLICIT TAGS, so [0] = 0xa0, [1] = 0xa1.
+         * Some encoders use IMPLICIT: [0] = 0x80, [1] = 0x81.
+         * Peek at the tag byte to decide without corrupting the CBS.
+         */
+        while (opssl_cbs_len(&ec_key_seq) > 0) {
+            uint8_t peek = opssl_cbs_data(&ec_key_seq)[0];
+
+            if (peek == 0xa0 || peek == 0x80) {
+                opssl_cbs_t params_skip;
+                if (!opssl_asn1_get_element(&ec_key_seq, peek, &params_skip))
+                    break;
+                continue;
             }
+
+            if (peek == 0xa1) {
+                opssl_cbs_t explicit_wrapper;
+                if (!opssl_asn1_get_element(&ec_key_seq, 0xa1, &explicit_wrapper))
+                    break;
+                if (opssl_asn1_get_element(&explicit_wrapper, 0x03, &pub_key_bits)) {
+                    uint8_t unused_bits;
+                    if (opssl_cbs_get_u8(&pub_key_bits, &unused_bits) && unused_bits == 0) {
+                        size_t pub_len = opssl_cbs_len(&pub_key_bits);
+                        if (pub_len <= sizeof(key->key.ec.pub)) {
+                            memcpy(key->key.ec.pub, opssl_cbs_data(&pub_key_bits), pub_len);
+                            key->key.ec.pub_len = pub_len;
+                        }
+                    }
+                }
+                break;
+            }
+
+            if (peek == 0x81) {
+                if (opssl_asn1_get_element(&ec_key_seq, 0x81, &pub_key_bits)) {
+                    uint8_t unused_bits;
+                    if (opssl_cbs_get_u8(&pub_key_bits, &unused_bits) && unused_bits == 0) {
+                        size_t pub_len = opssl_cbs_len(&pub_key_bits);
+                        if (pub_len <= sizeof(key->key.ec.pub)) {
+                            memcpy(key->key.ec.pub, opssl_cbs_data(&pub_key_bits), pub_len);
+                            key->key.ec.pub_len = pub_len;
+                        }
+                    }
+                }
+                break;
+            }
+
+            break;
         }
 
     } else if (oid_equal(&alg_oid, oid_ed25519, sizeof(oid_ed25519))) {
@@ -288,24 +337,162 @@ parse_pkcs8_private_key(const uint8_t *der, size_t der_len)
         key->type = OPSSL_PKEY_ED25519;
         key->bits = 256;
 
-        /* Private key is just the 32-byte seed */
-        if (opssl_cbs_len(&private_key_data) != 32) {
+        /* Parse the private key data. OpenSSL's PKCS#8 Ed25519 format wraps
+         * the 32-byte seed inside another OCTET STRING: 04 20 <32-byte seed> */
+        const uint8_t *seed_ptr;
+
+        if (opssl_cbs_len(&private_key_data) == 34) {
+            /* Standard OpenSSL format: 04 20 <32-byte seed> */
+            const uint8_t *data = opssl_cbs_data(&private_key_data);
+            if (data[0] == 0x04 && data[1] == 0x20) {
+                seed_ptr = data + 2;
+            } else {
+                op_free(key);
+                OPSSL_ERR(OPSSL_ERR_X509, 0);
+                return NULL;
+            }
+        } else if (opssl_cbs_len(&private_key_data) == 32) {
+            /* Some encoders use raw 32-byte seed directly */
+            seed_ptr = opssl_cbs_data(&private_key_data);
+        } else {
             op_free(key);
             OPSSL_ERR(OPSSL_ERR_X509, 0);
             return NULL;
         }
 
-        memcpy(key->key.ed25519.priv, opssl_cbs_data(&private_key_data), 32);
+        /* Copy the seed and derive the public key */
+        memcpy(key->key.ed25519.priv, seed_ptr, 32);
 
-        /* For Ed25519, the private key in PKCS#8 is just the seed.
-         * The public key will be derived when needed for comparison. */
-        memset(key->key.ed25519.pub, 0, 32);
+        /* Derive public key from seed using opssl_ed25519_keygen */
+        uint8_t sk_temp[64];
+        memcpy(sk_temp, seed_ptr, 32);
+        memset(sk_temp + 32, 0, 32);
+
+        if (opssl_ed25519_keygen(key->key.ed25519.pub, sk_temp) != 1) {
+            opssl_memzero(sk_temp, 64);
+            op_free(key);
+            OPSSL_ERR(OPSSL_ERR_X509, 0);
+            return NULL;
+        }
+        opssl_memzero(sk_temp, 64);
 
     } else {
         op_free(key);
         OPSSL_ERR(OPSSL_ERR_X509, 0);
         return NULL;
     }
+
+    return key;
+}
+
+/*
+ * Parse SEC1/RFC 5915 ECPrivateKey.
+ */
+static opssl_pkey_t *
+parse_sec1_ec_key(const uint8_t *der, size_t der_len)
+{
+    opssl_cbs_t cbs, seq, version, priv_key;
+    opssl_pkey_t *key = NULL;
+
+    opssl_cbs_init(&cbs, der, der_len);
+
+    /* ECPrivateKey ::= SEQUENCE {
+     *   version        INTEGER { ecPrivkeyVer1(1) },
+     *   privateKey     OCTET STRING,
+     *   parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
+     *   publicKey  [1] BIT STRING OPTIONAL
+     * }
+     */
+
+    if (!opssl_asn1_get_sequence(&cbs, &seq)) {
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    /* Version must be 1 for SEC1 EC keys */
+    if (!opssl_asn1_get_integer(&seq, &version)) {
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    /* Check version is 1 (single byte 0x01) */
+    if (opssl_cbs_len(&version) != 1 || opssl_cbs_data(&version)[0] != 0x01) {
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    /* privateKey OCTET STRING */
+    if (!opssl_asn1_get_element(&seq, 0x04, &priv_key)) {
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    key = op_malloc(sizeof(opssl_pkey_t));
+    if (!key) {
+        OPSSL_ERR(OPSSL_ERR_MEMORY, 0);
+        return NULL;
+    }
+
+    memset(key, 0, sizeof(*key));
+    key->type = OPSSL_PKEY_EC;
+
+    /* Extract curve parameters from [0] field if present */
+    opssl_curve_t curve = OPSSL_CURVE_P256;  /* Default fallback */
+    size_t bits = 256;
+
+    while (opssl_cbs_len(&seq) > 0) {
+        uint8_t peek = opssl_cbs_data(&seq)[0];
+
+        if (peek == 0xa0) {  /* [0] EXPLICIT parameters */
+            opssl_cbs_t params_wrapper, curve_oid;
+            if (opssl_asn1_get_element(&seq, 0xa0, &params_wrapper) &&
+                opssl_asn1_get_oid(&params_wrapper, &curve_oid)) {
+                parse_ec_curve_oid(&curve_oid, &curve, &bits);
+            }
+            continue;
+        }
+
+        if (peek == 0xa1) {  /* [1] EXPLICIT publicKey */
+            opssl_cbs_t pubkey_wrapper, pub_key_bits;
+            if (opssl_asn1_get_element(&seq, 0xa1, &pubkey_wrapper) &&
+                opssl_asn1_get_element(&pubkey_wrapper, 0x03, &pub_key_bits)) {
+                uint8_t unused_bits;
+                if (opssl_cbs_get_u8(&pub_key_bits, &unused_bits) && unused_bits == 0) {
+                    size_t pub_len = opssl_cbs_len(&pub_key_bits);
+                    if (pub_len <= sizeof(key->key.ec.pub)) {
+                        memcpy(key->key.ec.pub, opssl_cbs_data(&pub_key_bits), pub_len);
+                        key->key.ec.pub_len = pub_len;
+                    }
+                }
+            }
+            break;
+        }
+
+        break;
+    }
+
+    key->key.ec.curve = curve;
+    key->bits = bits;
+
+    /* Determine expected scalar length from curve */
+    size_t expected_scalar;
+    switch (curve) {
+    case OPSSL_CURVE_P384: expected_scalar = 48; break;
+    case OPSSL_CURVE_P521: expected_scalar = 66; break;
+    default:               expected_scalar = 32; break;
+    }
+
+    size_t scalar_len = opssl_cbs_len(&priv_key);
+    if (scalar_len > expected_scalar) {
+        op_free(key);
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    size_t pad_len = expected_scalar - scalar_len;
+    memset(key->key.ec.priv, 0, pad_len);
+    memcpy(key->key.ec.priv + pad_len, opssl_cbs_data(&priv_key), scalar_len);
+    key->key.ec.priv_len = expected_scalar;
 
     return key;
 }
@@ -354,15 +541,37 @@ opssl_pkey_from_der(const uint8_t *der, size_t len)
         return key;
     }
 
-    /* Clear error and try PKCS#1 RSA */
+    /* Clear error and try SEC1 EC key format */
     opssl_err_clear();
 
-    /* Verify it's actually an RSA key by checking structure */
-    opssl_cbs_t cbs, seq;
+    /* Check if it might be a SEC1 EC key by examining structure */
+    opssl_cbs_t cbs, seq, version, second_field;
     opssl_cbs_init(&cbs, der, len);
 
     if (opssl_asn1_get_sequence(&cbs, &seq)) {
-        /* Could be PKCS#1 RSAPrivateKey */
+        /* Look at the structure to distinguish SEC1 EC from PKCS#1 RSA:
+         * SEC1 EC: version=1, then OCTET STRING
+         * PKCS#1 RSA: version=0, then large INTEGER (modulus) */
+        if (opssl_asn1_get_integer(&seq, &version)) {
+            /* Check if version field looks like SEC1 EC (single byte 0x01) */
+            if (opssl_cbs_len(&version) == 1 &&
+                opssl_cbs_data(&version)[0] == 0x01) {
+                /* Next field should be OCTET STRING for SEC1 */
+                if (opssl_asn1_get_element(&seq, 0x04, &second_field)) {
+                    key = parse_sec1_ec_key(der, len);
+                    if (key) {
+                        return key;
+                    }
+                }
+            }
+        }
+    }
+
+    /* Clear error and try PKCS#1 RSA as final fallback */
+    opssl_err_clear();
+
+    opssl_cbs_init(&cbs, der, len);
+    if (opssl_asn1_get_sequence(&cbs, &seq)) {
         return parse_pkcs1_rsa_key(der, len);
     }
 
@@ -399,6 +608,59 @@ opssl_pkey_from_file(const char *path)
     char label[64];
 
     if (!opssl_pem_read_file(path, &der, &der_len, label, sizeof(label))) {
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    /* If the first PEM block is "EC PARAMETERS" (from openssl ecparam -genkey),
+     * skip it and read the actual key block ("EC PRIVATE KEY") */
+    if (strcmp(label, "EC PARAMETERS") == 0) {
+        opssl_memzero(der, der_len);
+        op_free(der);
+
+        /* Re-read the file and find the second PEM block */
+        FILE *fp = fopen(path, "r");
+        if (!fp) {
+            OPSSL_ERR(OPSSL_ERR_X509, 0);
+            return NULL;
+        }
+
+        char *pem_data = NULL;
+        size_t pem_size = 0;
+        size_t pem_cap = 4096;
+        pem_data = op_malloc(pem_cap);
+        if (!pem_data) { fclose(fp); return NULL; }
+
+        size_t n;
+        while ((n = fread(pem_data + pem_size, 1, pem_cap - pem_size - 1, fp)) > 0) {
+            pem_size += n;
+            if (pem_size + 1 >= pem_cap) {
+                pem_cap *= 2;
+                char *tmp = op_realloc(pem_data, pem_cap);
+                if (!tmp) { op_free(pem_data); fclose(fp); return NULL; }
+                pem_data = tmp;
+            }
+        }
+        fclose(fp);
+        pem_data[pem_size] = '\0';
+
+        /* Find the second PEM block by searching past the first END marker */
+        const char *second = strstr(pem_data, "-----END EC PARAMETERS-----");
+        if (second) {
+            second = strstr(second, "-----BEGIN ");
+            if (second) {
+                size_t remaining = pem_size - (size_t)(second - pem_data);
+                if (opssl_pem_decode(second, remaining, &der, &der_len, label, sizeof(label))) {
+                    opssl_pkey_t *key = opssl_pkey_from_der(der, der_len);
+                    opssl_memzero(der, der_len);
+                    op_free(der);
+                    op_free(pem_data);
+                    return key;
+                }
+            }
+        }
+
+        op_free(pem_data);
         OPSSL_ERR(OPSSL_ERR_X509, 0);
         return NULL;
     }
@@ -609,7 +871,7 @@ opssl_pkey_sign(const opssl_pkey_t *key, const uint8_t *digest, size_t digest_le
         opssl_ecdsa_ctx_t *ec = opssl_ecdsa_new(key->key.ec.curve);
         if (!ec)
             return 0;
-        if (!opssl_ecdsa_set_private(ec, key->key.ec.priv, 32)) {
+        if (!opssl_ecdsa_set_private(ec, key->key.ec.priv, key->key.ec.priv_len)) {
             opssl_ecdsa_free(ec);
             return 0;
         }

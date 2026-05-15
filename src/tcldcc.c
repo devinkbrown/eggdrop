@@ -49,14 +49,8 @@ extern sock_list *socklist;
 extern party_t *party;
 extern tand_t *tandbot;
 extern time_t now;
-extern _Atomic uint64_t otraffic_irc, otraffic_irc_today, itraffic_irc,
-                        itraffic_irc_today, otraffic_bn, otraffic_bn_today,
-                        itraffic_bn, itraffic_bn_today, otraffic_dcc,
-                        otraffic_dcc_today, itraffic_dcc, itraffic_dcc_today,
-                        otraffic_trans, otraffic_trans_today, itraffic_trans,
-                        itraffic_trans_today, otraffic_unknown, itraffic_unknown,
-                        otraffic_unknown_today, itraffic_unknown_today;
-static struct portmap *root = NULL;
+#include "traffic.h"
+static struct portmap *root = nullptr;
 
 
 static int tcl_putdcc STDVAR
@@ -67,13 +61,13 @@ static int tcl_putdcc STDVAR
 
   if ((argc == 4) && strcasecmp(argv[3], "-raw")) {
     Tcl_AppendResult(irp, "unknown putdcc option: should be ",
-                     "-raw", NULL);
+                     "-raw", nullptr);
     return TCL_ERROR;
   }
 
-  j = findidx(atoi(argv[1]));
+  j = findidx(egg_atoi(argv[1]));
   if (j < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (argc == 4)
@@ -96,7 +90,7 @@ static int tcl_putdcc STDVAR
 static int tcl_putdccraw STDVAR
 {
   Tcl_AppendResult(irp, "putdccraw is deprecated. "
-                   "Please use putdcc/putnow instead.", NULL);
+                   "Please use putdcc/putnow instead.", nullptr);
   return TCL_ERROR;
 }
 
@@ -106,7 +100,7 @@ static int tcl_dccsimul STDVAR
 
   BADARGS(3, 3, " idx command");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx >= 0 && (dcc[idx].type->flags & DCT_SIMUL)) {
     int l = strlen(argv[2]);
 
@@ -119,7 +113,7 @@ static int tcl_dccsimul STDVAR
       return TCL_OK;
     }
   } else {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
   }
   return TCL_ERROR;
 }
@@ -130,6 +124,7 @@ static int tcl_dccbroadcast STDVAR
   BADARGS(2, 2, " message");
 
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s", argv[1]);
   chatout("*** %s\n", op_strbuf_str(&_b));
   botnet_send_chat(-1, botnetnick, (char *)op_strbuf_str(&_b));
@@ -145,10 +140,10 @@ static int tcl_hand2idx STDVAR
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
         !strcasecmp(argv[1], dcc[i].nick)) {
-      Tcl_AppendResult(irp, int_to_base10((int)dcc[i].sock), NULL);
+      Tcl_AppendResult(irp, int_to_base10((int)dcc[i].sock), nullptr);
       return TCL_OK;
     }
-  Tcl_AppendResult(irp, "-1", NULL);
+  Tcl_AppendResult(irp, "-1", nullptr);
   return TCL_OK;
 }
 
@@ -158,14 +153,14 @@ static int tcl_getchan STDVAR
 
   BADARGS(2, 2, " idx");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0 || (dcc[idx].type != &DCC_CHAT &&
       dcc[idx].type != &DCC_SCRIPT)) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
 
-  __attribute__((unused)) int chan = (dcc[idx].type == &DCC_SCRIPT)
+  [[maybe_unused]] int chan = (dcc[idx].type == &DCC_SCRIPT)
     ? dcc[idx].u.script->u.chat->channel
     : dcc[idx].u.chat->channel;
   Tcl_SetObjResult(irp, Tcl_NewIntObj(chan));
@@ -179,10 +174,10 @@ static int tcl_setchan STDVAR
 
   BADARGS(3, 3, " idx channel");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0 || (dcc[idx].type != &DCC_CHAT &&
       dcc[idx].type != &DCC_SCRIPT)) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (argv[2][0] < '0' || argv[2][0] > '9') {
@@ -190,18 +185,18 @@ static int tcl_setchan STDVAR
       chan = -1;
     else {
       Tcl_SetVar(irp, "_chan", argv[2], 0);
-      if (Tcl_VarEval(irp, "assoc ", "$_chan", NULL) != TCL_OK ||
+      if (Tcl_VarEval(irp, "assoc ", "$_chan", nullptr) != TCL_OK ||
           tcl_resultempty()) {
-        Tcl_AppendResult(irp, "channel name is invalid", NULL);
+        Tcl_AppendResult(irp, "channel name is invalid", nullptr);
         return TCL_ERROR;
       }
       chan = tcl_resultint();
     }
   } else
-    chan = atoi(argv[2]);
+    chan = egg_atoi(argv[2]);
   if ((chan < -1) || (chan > 199999)) {
     Tcl_AppendResult(irp, "channel out of range; must be -1 through 199999",
-                     NULL);
+                     nullptr);
     return TCL_ERROR;
   }
   if (dcc[idx].type == &DCC_SCRIPT)
@@ -236,13 +231,13 @@ static int tcl_dccputchan STDVAR
 
   BADARGS(3, 3, " channel message");
 
-  chan = atoi(argv[1]);
+  chan = egg_atoi(argv[1]);
   if ((chan < 0) || (chan > 199999)) {
-    Tcl_AppendResult(irp, "channel out of range; must be 0 through 199999", NULL);
+    Tcl_AppendResult(irp, "channel out of range; must be 0 through 199999", nullptr);
     return TCL_ERROR;
   }
   chanout_but(-1, chan, "*** %s\n", argv[2]);
-  botnet_send_chan(-1, botnetnick, NULL, chan, argv[2]);
+  botnet_send_chan(-1, botnetnick, nullptr, chan, argv[2]);
   check_tcl_bcst(botnetnick, chan, argv[2]);
   return TCL_OK;
 }
@@ -251,23 +246,23 @@ static int tcl_do_console(Tcl_Interp *irp, ClientData cd, int argc,
     char **argv, int reset)
 {
   module_entry *me;
-  int i = findidx(atoi(argv[1]));
+  int i = findidx(egg_atoi(argv[1]));
 
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   int pls = 1;
 
   for (int arg = 2; arg < argc; arg++) {
     if (argv[arg][0] && !reset && ((strchr(CHANMETA, argv[arg][0])
-        != NULL) || (argv[arg][0] == '*'))) {
+        != nullptr) || (argv[arg][0] == '*'))) {
       if ((argv[arg][0] != '*') && (!findchan_by_dname(argv[arg]))) {
         /* If we don't find the channel, and it starts with a +, assume it
          * should be the console flags to set. */
         if (argv[arg][0] == '+')
           goto do_console_flags;
-        Tcl_AppendResult(irp, "invalid channel", NULL);
+        Tcl_AppendResult(irp, "invalid channel", nullptr);
         return TCL_ERROR;
       }
       strlcpy(dcc[i].u.chat->con_chan, argv[arg], sizeof dcc[i].u.chat->con_chan);
@@ -326,9 +321,9 @@ static int tcl_strip STDVAR
 
   BADARGS(2, 4, " idx ?strip-flags?");
 
-  int i = findidx(atoi(argv[1]));
+  int i = findidx(egg_atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   int pls = 1;
@@ -367,21 +362,21 @@ static int tcl_echo STDVAR
 
   BADARGS(2, 3, " idx ?status?");
 
-  int i = findidx(atoi(argv[1]));
+  int i = findidx(egg_atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (argc == 3) {
-    if (atoi(argv[2]))
+    if (egg_atoi(argv[2]))
       dcc[i].status |= STAT_ECHO;
     else
       dcc[i].status &= ~STAT_ECHO;
   }
   if (dcc[i].status & STAT_ECHO)
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   /* Console autosave. */
   if (argc > 2 && (me = module_find("console", 1, 1))) {
     Function *func = me->funcs;
@@ -397,13 +392,13 @@ static int tcl_page STDVAR
 
   BADARGS(2, 3, " idx ?status?");
 
-  int i = findidx(atoi(argv[1]));
+  int i = findidx(egg_atoi(argv[1]));
   if (i < 0 || dcc[i].type != &DCC_CHAT) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (argc == 3) {
-    int l = atoi(argv[2]);
+    int l = egg_atoi(argv[2]);
 
     if (!l)
       dcc[i].status &= ~STAT_PAGE;
@@ -430,9 +425,9 @@ static int tcl_control STDVAR
 
   BADARGS(3, 3, " idx command");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (dcc[idx].type->flags & DCT_CHAT) {
@@ -463,11 +458,11 @@ static int tcl_valididx STDVAR
 
   BADARGS(2, 2, " idx");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0 || !(dcc[idx].type->flags & DCT_VALIDIDX))
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   else
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
    return TCL_OK;
 }
 
@@ -477,9 +472,9 @@ static int tcl_killdcc STDVAR
 
   BADARGS(2, 3, " idx ?reason?");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
 
@@ -510,10 +505,11 @@ static int tcl_putbot STDVAR
 
   int i = nextbot(argv[1]);
   if (i < 0) {
-    Tcl_AppendResult(irp, "bot is not on the botnet", NULL);
+    Tcl_AppendResult(irp, "bot is not on the botnet", nullptr);
     return TCL_ERROR;
   }
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s", argv[2]);
   botnet_send_zapf(i, botnetnick, argv[1], (char *)op_strbuf_str(&_b));
   op_strbuf_free(&_b);
@@ -525,8 +521,9 @@ static int tcl_putallbots STDVAR
   BADARGS(2, 2, " message");
 
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s", argv[1]);
-  botnet_send_zapf_broad(-1, botnetnick, NULL, (char *)op_strbuf_str(&_b));
+  botnet_send_zapf_broad(-1, botnetnick, nullptr, (char *)op_strbuf_str(&_b));
   op_strbuf_free(&_b);
   return TCL_OK;
 }
@@ -537,13 +534,13 @@ static int tcl_idx2hand STDVAR
 
   BADARGS(2, 2, " idx");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
 
-  Tcl_AppendResult(irp, dcc[idx].nick, NULL);
+  Tcl_AppendResult(irp, dcc[idx].nick, nullptr);
   return TCL_OK;
 }
 
@@ -553,9 +550,9 @@ static int tcl_islinked STDVAR
 
   int i = nextbot(argv[1]);
   if (i < 0)
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   else
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   return TCL_OK;
 }
 
@@ -576,6 +573,7 @@ static int tcl_botlist STDVAR
   EGG_CONST char *list[4];
   tand_t *bot;
   op_strbuf_t ver_buf;
+  op_strbuf_init(&ver_buf);
 
   BADARGS(1, 1, "");
 
@@ -619,9 +617,9 @@ static void build_dcc_list(Tcl_Interp *irp, const char *idxstr, const char *nick
 static void build_sock_list(Tcl_Interp *irp, Tcl_Obj *masterlist, const char *idxstr,
             const char *nick, const char *host, const char *ip, int port, int secure,
             const char *type, const char *other, const char *timestamp) {
-  __attribute__((unused)) EGG_CONST char *val[] = {"idx", "handle", "host",
+  [[maybe_unused]] EGG_CONST char *val[] = {"idx", "handle", "host",
                            "ip", "port", "secure", "type", "info", "time"};
-  __attribute__((unused)) Tcl_Obj *thelist = Tcl_NewListObj(0, NULL);
+  [[maybe_unused]] Tcl_Obj *thelist = Tcl_NewListObj(0, nullptr);
 
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(val[0], -1));
   Tcl_ListObjAppendElement(irp, thelist, Tcl_NewStringObj(idxstr, -1));
@@ -650,11 +648,11 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
   char s[EGG_INET_ADDRSTRLEN];
   socklen_t namelen;
   struct sockaddr_storage ss;
-  Tcl_Obj *masterlist = NULL; /* initialize to NULL to make old gcc versions
+  Tcl_Obj *masterlist = nullptr; /* initialize to nullptr to make old gcc versions
                                * happy */
 
   if (src)
-    masterlist = Tcl_NewListObj(0, NULL);
+    masterlist = Tcl_NewListObj(0, nullptr);
   for (int i = 0; i < dcc_total; i++) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
         !strcasecmp(dcc[i].type->name, type)))) {
@@ -674,6 +672,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
       /* If this came from dcclist... */
       if (!src) {
         op_strbuf_t portstring;
+        op_strbuf_init(&portstring);
 #ifdef TLS
         op_strbuf_appendf(&portstring, "%s%d", dcc[i].ssl ? "+" : "", dcc[i].port);
 #else
@@ -720,14 +719,14 @@ static int tcl_socklist STDVAR
 {
 
   BADARGS(1, 2, " ?type?");
-  dccsocklist(irp, argc, (argc == 2) ? argv[1] : NULL, 1);
+  dccsocklist(irp, argc, (argc == 2) ? argv[1] : nullptr, 1);
   return TCL_OK;
 }
 
 static int tcl_dcclist STDVAR
 {
   BADARGS(1, 2, " ?type?");
-  dccsocklist(irp, argc, (argc == 2) ? argv[1] : NULL, 0);
+  dccsocklist(irp, argc, (argc == 2) ? argv[1] : nullptr, 0);
   return TCL_OK;
 }
 
@@ -745,17 +744,17 @@ static int tcl_whom STDVAR
   else {
     if ((argv[1][0] < '0') || (argv[1][0] > '9')) {
       Tcl_SetVar(interp, "_chan", argv[1], 0);
-      if ((Tcl_VarEval(interp, "assoc ", "$_chan", NULL) != TCL_OK) ||
+      if ((Tcl_VarEval(interp, "assoc ", "$_chan", nullptr) != TCL_OK) ||
           tcl_resultempty()) {
-        Tcl_AppendResult(irp, "channel name is invalid", NULL);
+        Tcl_AppendResult(irp, "channel name is invalid", nullptr);
         return TCL_ERROR;
       }
       chan = tcl_resultint();
     } else
-      chan = atoi(argv[1]);
+      chan = egg_atoi(argv[1]);
     if ((chan < 0) || (chan > 199999)) {
       Tcl_AppendResult(irp, "channel out of range; must be 0 through 199999",
-                       NULL);
+                       nullptr);
       return TCL_ERROR;
     }
   }
@@ -822,13 +821,13 @@ static int tcl_dccused STDVAR
 
 static int tcl_getdccidle STDVAR
 {
-  __attribute__((unused)) int x, idx;
+  [[maybe_unused]] int x, idx;
 
   BADARGS(2, 2, " idx");
 
-  idx = findidx(atoi(argv[1]));
+  idx = findidx(egg_atoi(argv[1]));
   if (idx < 0) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   x = (now - dcc[idx].timeval);
@@ -844,13 +843,13 @@ static int tcl_getdccaway STDVAR
 
   idx = findidx(atol(argv[1]));
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
-  if (dcc[idx].u.chat->away == NULL)
+  if (dcc[idx].u.chat->away == nullptr)
     return TCL_OK;
 
-  Tcl_AppendResult(irp, dcc[idx].u.chat->away, NULL);
+  Tcl_AppendResult(irp, dcc[idx].u.chat->away, nullptr);
   return TCL_OK;
 }
 
@@ -862,11 +861,11 @@ static int tcl_setdccaway STDVAR
 
   idx = findidx(atol(argv[1]));
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
-    Tcl_AppendResult(irp, "invalid idx", NULL);
+    Tcl_AppendResult(irp, "invalid idx", nullptr);
     return TCL_ERROR;
   }
   if (!argv[2][0]) {
-    if (dcc[idx].u.chat->away != NULL)
+    if (dcc[idx].u.chat->away != nullptr)
       not_away(idx);
     return TCL_OK;
   }
@@ -876,15 +875,17 @@ static int tcl_setdccaway STDVAR
 
 static int tcl_link STDVAR
 {
-  __attribute__((unused)) int x;
+  [[maybe_unused]] int x;
 
   BADARGS(2, 3, " ?via-bot? bot");
 
   op_strbuf_t _bot;
+  op_strbuf_init(&_bot);
   op_strbuf_appendf(&_bot, "%s", argv[1]);
   if (argc == 3) {
     x = 1;
     op_strbuf_t _bot2;
+    op_strbuf_init(&_bot2);
     op_strbuf_appendf(&_bot2, "%s", argv[2]);
     int i = nextbot((char *)op_strbuf_str(&_bot));
     if (i < 0)
@@ -906,9 +907,10 @@ static int tcl_unlink STDVAR
   BADARGS(2, 3, " bot ?comment?");
 
   op_strbuf_t _bot;
+  op_strbuf_init(&_bot);
   op_strbuf_appendf(&_bot, "%s", argv[1]);
   int i = nextbot((char *)op_strbuf_str(&_bot));
-  __attribute__((unused)) int x;
+  [[maybe_unused]] int x;
   if (i < 0)
     x = 0;
   else {
@@ -929,36 +931,36 @@ static int tcl_connect STDVAR
   BADARGS(3, 3, " hostname port");
 
   if (dcc_total == max_dcc && increase_socks_max()) {
-    Tcl_AppendResult(irp, "out of dcc table space", NULL);
+    Tcl_AppendResult(irp, "out of dcc table space", nullptr);
     return TCL_ERROR;
   }
 
   int i = new_dcc(&DCC_SOCKET, 0);
   if (i < 0) {
-    Tcl_AppendResult(irp, "Could not allocate socket.", NULL);
+    Tcl_AppendResult(irp, "Could not allocate socket.", nullptr);
     return TCL_ERROR;
   }
-  int sock = open_telnet(i, argv[1], atoi(argv[2]));
+  int sock = open_telnet(i, argv[1], egg_atoi(argv[2]));
   if (sock < 0) {
     switch (sock) {
       case -3:
-        Tcl_AppendResult(irp, MISC_NOFREESOCK, NULL);
+        Tcl_AppendResult(irp, MISC_NOFREESOCK, nullptr);
         break;
       case -2:
-        Tcl_AppendResult(irp, "DNS lookup failed", NULL);
+        Tcl_AppendResult(irp, "DNS lookup failed", nullptr);
         break;
       default:
-        Tcl_AppendResult(irp, strerror(errno), NULL);
+        Tcl_AppendResult(irp, strerror(errno), nullptr);
     }
     lostdcc(i);
     return TCL_ERROR;
   }
 #ifdef TLS
   if (*argv[2] == '+') {
-    if (ssl_handshake(sock, TLS_CONNECT, 0, LOG_MISC, NULL, NULL)) {
+    if (ssl_handshake(sock, TLS_CONNECT, 0, LOG_MISC, nullptr, nullptr)) {
       killsock(sock);
       lostdcc(i);
-      Tcl_AppendResult(irp, "Failed to establish a TLS session", NULL);
+      Tcl_AppendResult(irp, "Failed to establish a TLS session", nullptr);
       return TCL_ERROR;
     } else
       dcc[i].ssl = 1;
@@ -973,15 +975,13 @@ static int tcl_connect STDVAR
 static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *maskproc, char *flag) {
   int i, idx = -1, port, realport, found=0, ipv4=1, error;
   char newip[EGG_INET_ADDRSTRLEN];
-  struct portmap *pmap = NULL, *pold = NULL;
+  struct portmap *pmap = nullptr, *pold = nullptr;
   sockname_t name;
   struct in_addr ipaddr4;
-  struct addrinfo hint, *ipaddr = NULL;
+  struct addrinfo hint = {}, *ipaddr = nullptr;
 #ifdef IPV6
   struct in6_addr ipaddr6;
 #endif
-
-  memset(&hint, '\0', sizeof hint);
   hint.ai_family = PF_UNSPEC;
   hint.ai_flags = AI_NUMERICHOST;
   if (!ip[0]) {
@@ -998,7 +998,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     strlcpy(newip, ip, sizeof newip);
   }
   /* Return addrinfo struct ipaddr containing family... */
-  error = getaddrinfo(newip, NULL, &hint, &ipaddr);
+  error = getaddrinfo(newip, nullptr, &hint, &ipaddr);
   if (!error) {
   /* Load network address to in(6)_addr struct for later byte comparisons */
     if (ipaddr->ai_family == AF_INET) {
@@ -1010,7 +1010,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       ipv4 = 0;
     }
 #endif
-    if (ipaddr) /* The behavior of freeadrinfo(NULL) is left unspecified by RFCs
+    if (ipaddr) /* The behavior of freeadrinfo(nullptr) is left unspecified by RFCs
                  * 2553 and 3493. Avoid to be compatible with all OSes. */
       freeaddrinfo(ipaddr);
   }
@@ -1021,7 +1021,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
   else
     putlog(LOG_MISC, "*", "tcldcc: setlisten(): getaddrinfo(): error = %s",
            gai_strerror(error));
-  port = realport = atoi(portp);
+  port = realport = egg_atoi(portp);
   for (pmap = root; pmap; pold = pmap, pmap = pmap->next) {
     if (pmap->realport == port) {
       port = pmap->mappedto;
@@ -1056,7 +1056,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       if (ipv4) {
         if ((ipaddr4.s_addr != 0) && (dcc[idx].sockname.addr.s4.sin_addr.s_addr == 0)) {
           Tcl_AppendResult(irp, "this port is already bound to 0.0.0.0 on this "
-                "machine, remove it before trying to bind to this IP", NULL);
+                "machine, remove it before trying to bind to this IP", nullptr);
           return TCL_ERROR;
         }
       }
@@ -1064,7 +1064,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       else if ((!IN6_IS_ADDR_UNSPECIFIED(&ipaddr6)) &&
                 (IN6_IS_ADDR_UNSPECIFIED(&dcc[idx].sockname.addr.s6.sin6_addr))) {
           Tcl_AppendResult(irp, "this port is already bound to :: on this "
-                "machine, remove it before trying to bind to this IP", NULL);
+                "machine, remove it before trying to bind to this IP", nullptr);
           return TCL_ERROR;
       }
 #endif
@@ -1074,7 +1074,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
         if ((ipaddr4.s_addr == 0) && (dcc[idx].sockname.addr.s4.sin_addr.s_addr != 0)) {
           Tcl_AppendResult(irp, "this port is already bound to a specific IP "
                 "on this machine, remove it before trying to bind to all "
-                "interfaces", NULL);
+                "interfaces", nullptr);
           return TCL_ERROR;
         }
       }
@@ -1083,7 +1083,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
                 (!IN6_IS_ADDR_UNSPECIFIED(&dcc[idx].sockname.addr.s6.sin6_addr))) {
           Tcl_AppendResult(irp, "this port is already bound to a specific IP "
                 "on this machine, remove it before trying to bind to this all "
-                "interfaces", NULL);
+                "interfaces", nullptr);
           return TCL_ERROR;
       }
 #endif
@@ -1099,7 +1099,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     }
     /* Remove */
     if (idx < 0) {
-      Tcl_AppendResult(irp, "no such listen port is open", NULL);
+      Tcl_AppendResult(irp, "no such listen port is open", nullptr);
       return TCL_ERROR;
     }
     killsock(dcc[idx].sock);
@@ -1112,7 +1112,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
   if ((idx < 0) || (!found)) {
     /* Make new one */
     if (dcc_total >= max_dcc && increase_socks_max()) {
-      Tcl_AppendResult(irp, "No more DCC slots available.", NULL);
+      Tcl_AppendResult(irp, "No more DCC slots available.", nullptr);
       return TCL_ERROR;
     }
     /* We used to try up to 20 ports here, but have scientifically concluded
@@ -1126,10 +1126,11 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       i = open_address_listen(&name);
       if (i < 0) {
         op_strbuf_t msg;
+        op_strbuf_init(&msg);
         op_strbuf_appendf(&msg, "Couldn't listen on port %d on %s: %s. "
                  "Please check that the port is not already in use",
                   realport, newip, strerror(errno));
-        Tcl_AppendResult(irp, op_strbuf_str(&msg), NULL);
+        Tcl_AppendResult(irp, op_strbuf_str(&msg), nullptr);
         op_strbuf_free(&msg);
         return TCL_ERROR;
       }
@@ -1137,10 +1138,11 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       i = open_listen(&port);
       if (i < 0) {
         op_strbuf_t msg;
+        op_strbuf_init(&msg);
         op_strbuf_appendf(&msg, "Couldn't listen on port %d on the given "
                  "address: %s. Please check that the port is not already in use",
                   realport, strerror(errno));
-        Tcl_AppendResult(irp, op_strbuf_str(&msg), NULL);
+        Tcl_AppendResult(irp, op_strbuf_str(&msg), nullptr);
         op_strbuf_free(&msg);
         return TCL_ERROR;
       }
@@ -1166,7 +1168,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       dcc[idx].status = LSTN_PUBLIC;
     }
     strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
-    Tcl_AppendResult(irp, int_to_base10(port), NULL);
+    Tcl_AppendResult(irp, int_to_base10(port), nullptr);
     return TCL_OK;
   }
   /* bots/users/all */
@@ -1182,7 +1184,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
   else
     strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host));
-  Tcl_AppendResult(irp, int_to_base10(port), NULL);
+  Tcl_AppendResult(irp, int_to_base10(port), nullptr);
   if (!pmap) {
     pmap = op_malloc(sizeof(struct portmap));
     pmap->next = root;
@@ -1233,7 +1235,7 @@ static int tcl_listen STDVAR
 /* default listen-addr if not specified */
   strlcpy(ip, listen_ip, sizeof(ip));
 
-/* Check if IP exists, set to NULL if not */
+/* Check if IP exists, set to nullptr if not */
   strtol(argv[1], &endptr, 10);
   if (*endptr != '\0') {
     if (inet_pton(AF_INET, argv[1], buf)
@@ -1244,27 +1246,27 @@ static int tcl_listen STDVAR
       strlcpy(ip, argv[1], sizeof(ip));
       i++;
     } else {
-      Tcl_AppendResult(irp, "invalid IP address argument", NULL);
+      Tcl_AppendResult(irp, "invalid IP address argument", nullptr);
       return TCL_ERROR;
     }
   }
 /* Check for port */
-  if ((atoi(argv[i]) > 65535) || (atoi(argv[i]) < 1)) {
-    Tcl_AppendResult(irp, "invalid listen port", NULL);
+  if ((egg_atoi(argv[i]) > 65535) || (egg_atoi(argv[i]) < 1)) {
+    Tcl_AppendResult(irp, "invalid listen port", nullptr);
     return TCL_ERROR;
   }
   strlcpy(port, argv[i], sizeof(port));
   i++;
 /* Check for listen type */
   if (!argv[i]) {
-    Tcl_AppendResult(irp, "missing listen type", NULL);
+    Tcl_AppendResult(irp, "missing listen type", nullptr);
     return TCL_ERROR;
   }
   if ((strcmp(argv[i], "bots")) && (strcmp(argv[i], "users"))
         && (strcmp(argv[i], "all")) && (strcmp(argv[i], "off"))
         && (strcmp(argv[i], "script")) && (strcmp(argv[i], "webui"))) {
     Tcl_AppendResult(irp, "invalid listen type: must be one of ",
-          "bots, users, all, off, script, webui", NULL);
+          "bots, users, all, off, script, webui", nullptr);
     return TCL_ERROR;
   }
   strlcpy(type, argv[i], sizeof(type));
@@ -1277,14 +1279,14 @@ static int tcl_listen STDVAR
 /* If script, check for proc and flag */
   if (!strcmp(type, "script")) {
     if (!maskproc[0]) {
-      Tcl_AppendResult(irp, "a proc name must be specified for a script listen", NULL);
+      Tcl_AppendResult(irp, "a proc name must be specified for a script listen", nullptr);
       return TCL_ERROR;
     }
     if ((!ip[0] && (argc==5)) || (argc == 6)) {
       i++;
       if (strcmp(argv[i], "pub")) {
         Tcl_AppendResult(irp, "unknown flag: ", argv[i], ". allowed flags: pub",
-              NULL);
+              nullptr);
         return TCL_ERROR;
       }
       strlcpy(flag, argv[i], sizeof flag);
@@ -1301,7 +1303,7 @@ static int tcl_boot STDVAR
 
   strlcpy(who, argv[1], sizeof who);
 
-  if (strchr(who, '@') != NULL) {
+  if (strchr(who, '@') != nullptr) {
     char whonick[HANDLEN + 1];
 
     splitc(whonick, who, '@');
@@ -1312,7 +1314,7 @@ static int tcl_boot STDVAR
       int i = nextbot(who);
       if (i < 0)
         return TCL_OK;
-      botnet_send_reject(i, botnetnick, NULL, whonick, who,
+      botnet_send_reject(i, botnetnick, nullptr, whonick, who,
                          argc >= 3 && argv[2] ? argv[2] : "");
     } else
       return TCL_OK;
@@ -1347,7 +1349,7 @@ static int tcl_restart STDVAR
   BADARGS(1, 1, "");
 
   if (!backgrd) {
-    Tcl_AppendResult(interp, "You can't restart a -n bot", NULL);
+    Tcl_AppendResult(interp, "You can't restart a -n bot", nullptr);
     return TCL_ERROR;
   }
   if (make_userfile) {
@@ -1365,6 +1367,7 @@ static int tcl_restart STDVAR
 static int tcl_traffic STDVAR
 {
   op_strbuf_t buf;
+  op_strbuf_init(&buf);
   uint64_t out_total_today, out_total;
   uint64_t in_total_today, in_total;
 
@@ -1460,5 +1463,5 @@ tcl_cmds tcldcc_cmds[] = {
   {"rehash",             tcl_rehash},
   {"restart",           tcl_restart},
   {"traffic",           tcl_traffic},
-  {NULL,                       NULL}
+  {nullptr,                       nullptr}
 };

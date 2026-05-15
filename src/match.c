@@ -47,7 +47,7 @@ int charcmp(unsigned char a, unsigned char b)
 }
 
 /* Wildcard-matches mask m to n. Uses the comparison function cmp1. If chgpoint
- * isn't NULL, it points at the first character in n where we start using cmp2.
+ * isn't nullptr, it points at the first character in n where we start using cmp2.
  */
 int _wild_match_per(unsigned char *m, unsigned char *n,
                            int (*cmp1)(unsigned char, unsigned char),
@@ -63,7 +63,7 @@ int _wild_match_per(unsigned char *m, unsigned char *n,
     return NOMATCH;
 
   if (!cmp2)                    /* Don't change cmpfunc if it's not valid */
-    chgpoint = NULL;
+    chgpoint = nullptr;
 
   while (*n) {
     if (*m == WILDT) {          /* Match >=1 space */
@@ -271,13 +271,13 @@ int addr_match(const char *m, const char *n, int user, int cmp)
   /* if the two strings are both cidr masks,
      use the broader prefix */
   if (cmp && (q = strrchr(s, '/')) && str_isdigit(q + 1)) {
-    if (atoi(p + 1) > atoi(q + 1))
+    if (egg_atoi(p + 1) > egg_atoi(q + 1))
       return NOMATCH;
     *q = 0;
   }
   *p = 0;
   /* looks like a cidr mask */
-  if (!(tmpscore = cidr_match(r, s, atoi(p + 1))))
+  if (!(tmpscore = cidr_match(r, s, egg_atoi(p + 1))))
     return NOMATCH;
   score += tmpscore;
   return score;
@@ -319,13 +319,13 @@ int mask_match(char *m, char *n)
 
   if (p) {
     *p = 0;
-    prefix = atoi(p + 1);
+    prefix = egg_atoi(p + 1);
   } else
     prefix = (strchr(r, ':') ? 128 : 32);
   if (q) {
     *q = 0;
-    if (atoi(q + 1) < prefix)
-      prefix = atoi(q + 1);
+    if (egg_atoi(q + 1) < prefix)
+      prefix = egg_atoi(q + 1);
   }
   return cidr_match(r, s, prefix);
 }
@@ -394,7 +394,7 @@ static int cron_matchfld(char *mask, int match)
       if (q == mask)
         continue;
       *q++ = 0;
-      skip = atoi(q);
+      skip = egg_atoi(q);
     }
     if (!strcmp(mask, "*") && (!skip || !(match % skip)))
       return 1;

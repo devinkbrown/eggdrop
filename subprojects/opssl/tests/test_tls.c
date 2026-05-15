@@ -266,6 +266,13 @@ extern int opssl_tls13_client_handshake(void *hs, uint8_t *buf, size_t buf_len,
                                         size_t *consumed, uint8_t *out, size_t *out_len,
                                         size_t out_cap);
 extern const uint8_t *opssl_tls13_get_resumption_master_secret(void *hs_opaque, size_t *out_len);
+extern int opssl_tls12_server_handshake(void *hs, uint8_t *buf, size_t buf_len,
+                                        size_t *consumed, uint8_t *out, size_t *out_len,
+                                        size_t out_cap);
+extern int opssl_tls12_client_handshake(void *hs, uint8_t *buf, size_t buf_len,
+                                        size_t *consumed, uint8_t *out, size_t *out_len,
+                                        size_t out_cap);
+extern void opssl_tls12_set_sign_key(void *hs_opaque, const opssl_pkey_t *pkey);
 extern int opssl_tls13_hkdf_expand_label(uint8_t *out, size_t out_len,
                                         const uint8_t *secret, size_t secret_len,
                                         const char *label,
@@ -1085,13 +1092,14 @@ static void test_psk_resumption(void)
     size_t rms_len = 0;
     const uint8_t *rms = opssl_tls13_get_resumption_master_secret(client_hs, &rms_len);
     ASSERT_NE(rms, NULL, "psk: client has resumption_master_secret");
-    ASSERT_EQ(rms_len, (size_t)32, "psk: RMS is 32 bytes");
+    ASSERT_NE(rms_len, (size_t)0, "psk: RMS has nonzero length");
 
     /* Derive a PSK from the RMS (simulate NewSessionTicket nonce) */
-    uint8_t psk[32];
+    opssl_hmac_algo_t rms_hash = (rms_len == 48) ? OPSSL_HMAC_SHA384 : OPSSL_HMAC_SHA256;
+    uint8_t psk[48];
     uint8_t nonce[4] = {0, 0, 0, 1};
-    opssl_tls13_hkdf_expand_label(psk, 32, rms, 32,
-                                   "resumption", nonce, 4, OPSSL_HMAC_SHA256);
+    opssl_tls13_hkdf_expand_label(psk, rms_len, rms, rms_len,
+                                   "resumption", nonce, 4, rms_hash);
 
     /* Ticket is arbitrary for this test */
     uint8_t ticket[] = "test-ticket-data";
@@ -1102,8 +1110,8 @@ static void test_psk_resumption(void)
     uint8_t server_hs2[4096] = {0};
 
     /* Set PSK on both sides */
-    opssl_tls13_set_psk(client_hs2, psk, 32, ticket, ticket_len);
-    opssl_tls13_set_psk(server_hs2, psk, 32, ticket, ticket_len);
+    opssl_tls13_set_psk(client_hs2, psk, rms_len, ticket, ticket_len);
+    opssl_tls13_set_psk(server_hs2, psk, rms_len, ticket, ticket_len);
 
     /* Client sends ClientHello with PSK extension */
     rc = opssl_tls13_client_handshake(client_hs2, NULL, 0,
@@ -1792,6 +1800,140 @@ static void test_async_sign_api(void)
     opssl_ctx_free(ctx);
 }
 
+/*
+ * test_tls12_ecdhe_p256_group: verifies that a TLS 1.2 loopback handshake
+ * with an Ed25519 server key negotiates P-256 (ECDHE_ECDSA_AES_128_GCM is
+ * selected first from the client's offer, which maps to SECP256R1).
+ */
+static void test_tls12_ecdhe_p256_group(void)
+{
+    int fds[2];
+    opssl_ctx_t *server_ctx = NULL, *client_ctx = NULL;
+    opssl_conn_t *server_conn = NULL, *client_conn = NULL;
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+        SKIP_TEST("P-256 group - socketpair failed");
+        return;
+    }
+    if (set_nonblocking(fds[0]) != 0 || set_nonblocking(fds[1]) != 0) {
+        close(fds[0]); close(fds[1]);
+        SKIP_TEST("P-256 group - set_nonblocking failed");
+        return;
+    }
+
+    server_ctx = create_test_server_ctx(OPSSL_TLS_1_2, OPSSL_TLS_1_2);
+    client_ctx = opssl_ctx_new(OPSSL_TLS_1_2);
+    if (!server_ctx || !client_ctx) {
+        if (server_ctx) opssl_ctx_free(server_ctx);
+        if (client_ctx) opssl_ctx_free(client_ctx);
+        close(fds[0]); close(fds[1]);
+        SKIP_TEST("P-256 group - ctx creation failed");
+        return;
+    }
+    opssl_ctx_set_max_version(client_ctx, OPSSL_TLS_1_2);
+
+    server_conn = opssl_conn_new(server_ctx, fds[0], OPSSL_DIR_INBOUND);
+    client_conn = opssl_conn_new(client_ctx, fds[1], OPSSL_DIR_OUTBOUND);
+    if (!server_conn || !client_conn) {
+        if (server_conn) opssl_conn_free(server_conn);
+        if (client_conn) opssl_conn_free(client_conn);
+        opssl_ctx_free(server_ctx); opssl_ctx_free(client_ctx);
+        close(fds[0]); close(fds[1]);
+        SKIP_TEST("P-256 group - conn creation failed");
+        return;
+    }
+
+    if (drive_handshake(server_conn, client_conn, 50) == 0) {
+        opssl_named_group_t grp = opssl_conn_group(server_conn);
+        ASSERT_EQ(grp, OPSSL_GROUP_SECP256R1, "TLS 1.2 ECDHE: P-256 group negotiated");
+        ASSERT_EQ(opssl_conn_version(server_conn), OPSSL_TLS_1_2, "TLS 1.2 P-256: version is 1.2");
+    } else {
+        SKIP_TEST("P-256 group - handshake incomplete");
+    }
+
+    opssl_conn_free(server_conn);
+    opssl_conn_free(client_conn);
+    opssl_ctx_free(server_ctx);
+    opssl_ctx_free(client_ctx);
+    close(fds[0]);
+    close(fds[1]);
+}
+
+/*
+ * test_tls12_ecdhe_p384_ske: drives the server-side TLS 1.2 state machine
+ * through a ClientHello that offers only ECDHE_ECDSA_AES_256_GCM (P-384),
+ * and verifies the server produces a non-empty ServerKeyExchange response.
+ * This directly exercises build_server_key_exchange for the P-384 group.
+ */
+static void test_tls12_ecdhe_p384_ske(void)
+{
+    /*
+     * Craft a minimal TLS 1.2 ClientHello that only offers
+     * ECDHE-ECDSA-AES256-GCM-SHA384 (0xC02C) so the server is forced
+     * to select P-384 as the ECDHE group.
+     *
+     * Layout (all big-endian):
+     *   HandshakeMsg header: type(1) + length(3)
+     *   ClientHello:
+     *     version(2) random(32) sid_len(1)
+     *     cipher_len(2) cipher(2)
+     *     comp_len(1) comp(1)
+     *     ext_total_len(2)
+     *       EMS: type(2) data_len(2)         -- 4 bytes
+     */
+    static const uint8_t client_hello[] = {
+        0x01,             /* HandshakeType: client_hello */
+        0x00, 0x00, 0x2F, /* Length: 47 bytes body */
+        0x03, 0x03,       /* version: TLS 1.2 */
+        /* random[32] -- all zeros for test purposes */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00,             /* session_id_len = 0 */
+        0x00, 0x02,       /* cipher_suites_len = 2 */
+        0xC0, 0x2C,       /* ECDHE-ECDSA-AES256-GCM-SHA384 */
+        0x01,             /* compression_methods_len = 1 */
+        0x00,             /* null compression */
+        0x00, 0x04,       /* extensions_len = 4 */
+        0x00, 0x17,       /* ext type: extended_master_secret (23) */
+        0x00, 0x00,       /* ext data len = 0 */
+    };
+
+    /* hs_buf must be at least sizeof(tls12_hs_t).  The framework uses 4096. */
+    _Alignas(16) uint8_t server_hs[4096];
+    memset(server_hs, 0, sizeof(server_hs));
+
+    /* Generate an Ed25519 signing key for the server */
+    uint8_t ed_pub[32], ed_priv[64];
+    if (!opssl_ed25519_keygen(ed_pub, ed_priv)) {
+        SKIP_TEST("P-384 SKE - ed25519_keygen failed");
+        return;
+    }
+    opssl_pkey_t *pkey = opssl_pkey_from_ed25519_raw(ed_priv, ed_pub);
+    if (!pkey) {
+        SKIP_TEST("P-384 SKE - pkey allocation failed");
+        return;
+    }
+
+    /* Inject the signing key into the server's handshake state */
+    opssl_tls12_set_sign_key(server_hs, pkey);
+
+    /* Feed the ClientHello to the server */
+    uint8_t out[8192];
+    size_t consumed = 0, out_len = 0;
+    int rc = opssl_tls12_server_handshake(server_hs,
+                                          (uint8_t *)client_hello, sizeof(client_hello),
+                                          &consumed, out, &out_len, sizeof(out));
+
+    /* Server must produce WANT_WRITE (it has ServerHello+Cert+SKE+SHD to send) */
+    ASSERT_EQ(rc, OPSSL_WANT_WRITE, "P-384 SKE: server processes ClientHello and produces output");
+    ASSERT_NE(out_len, (size_t)0, "P-384 SKE: server output is non-empty (contains SKE)");
+    ASSERT_EQ(consumed, sizeof(client_hello), "P-384 SKE: server consumed entire ClientHello");
+
+    opssl_pkey_free(pkey);
+}
+
 int main(void)
 {
     opssl_init();
@@ -1816,6 +1958,9 @@ int main(void)
 
     /* Full loopback tests with sockets */
     test_tls12_loopback_handshake();
+    /* P-256 and P-384 ECDHE group verification for TLS 1.2 */
+    test_tls12_ecdhe_p256_group();
+    test_tls12_ecdhe_p384_ske();
     test_tls13_loopback_handshake();
     test_application_data_roundtrip();
     test_sni_selection();

@@ -40,7 +40,7 @@ static int tcl_countusers STDVAR
 {
   BADARGS(1, 1, "");
 
-  Tcl_AppendResult(irp, int_to_base10(count_users(userlist)), NULL);
+  Tcl_AppendResult(irp, int_to_base10(count_users(userlist)), nullptr);
   return TCL_OK;
 }
 
@@ -49,13 +49,13 @@ static int tcl_validuser STDVAR
   BADARGS(2, 2, " handle");
 
   Tcl_AppendResult(irp, get_user_by_handle(userlist, argv[1]) ? "1" : "0",
-                   NULL);
+                   nullptr);
   return TCL_OK;
 }
 
 static int tcl_finduser STDVAR
 {
-  __attribute__((unused)) struct userrec *u;
+  [[maybe_unused]] struct userrec *u;
 
   BADARGS(2, 3, " ?-account? searchString");
 
@@ -63,24 +63,24 @@ static int tcl_finduser STDVAR
     if (!strcasecmp(argv[1], "-account")) {
       u = get_user_by_account(argv[2]);
     } else {
-      Tcl_AppendResult(irp, "invalid option, must be -account", NULL);
+      Tcl_AppendResult(irp, "invalid option, must be -account", nullptr);
       return TCL_ERROR;
     }
   } else {
     u = get_user_by_host(argv[1]);
   }
-  Tcl_AppendResult(irp, u ? u->handle : "*", NULL);
+  Tcl_AppendResult(irp, u ? u->handle : "*", nullptr);
   return TCL_OK;
 }
 
 static int tcl_passwdOk STDVAR
 {
-  __attribute__((unused)) struct userrec *u;
+  [[maybe_unused]] struct userrec *u;
 
   BADARGS(3, 3, " handle passwd");
 
   Tcl_AppendResult(irp, ((u = get_user_by_handle(userlist, argv[1])) &&
-                   u_pass_match(u, argv[2])) ? "1" : "0", NULL);
+                   u_pass_match(u, argv[2])) ? "1" : "0", nullptr);
   return TCL_OK;
 }
 
@@ -94,7 +94,7 @@ static int tcl_chattr STDVAR
   BADARGS(2, 4, " handle ?changes? ?channel?");
 
   if ((argv[1][0] == '*') || !(u = get_user_by_handle(userlist, argv[1]))) {
-    Tcl_AppendResult(irp, "*", NULL);
+    Tcl_AppendResult(irp, "*", nullptr);
     return TCL_OK;
   }
   if (argc == 4) {
@@ -102,32 +102,32 @@ static int tcl_chattr STDVAR
     chan = argv[3];
     chg = argv[2];
   } else if (argc == 3 && argv[2][0]) {
-    int ischan = (findchan_by_dname(argv[2]) != NULL);
+    int ischan = (findchan_by_dname(argv[2]) != nullptr);
 
     if (strchr(CHANMETA, argv[2][0]) && !ischan && argv[2][0] != '+' &&
         argv[2][0] != '-') {
-      Tcl_AppendResult(irp, "no such channel", NULL);
+      Tcl_AppendResult(irp, "no such channel", nullptr);
       return TCL_ERROR;
     } else if (ischan) {
       /* Channel exists */
       user.match = FR_GLOBAL | FR_CHAN;
       chan = argv[2];
-      chg = NULL;
+      chg = nullptr;
     } else {
       /* 3rd possibility... channel doesnt exist, does start with a +.
        * In this case we assume the string is flags.
        */
       user.match = FR_GLOBAL;
-      chan = NULL;
+      chan = nullptr;
       chg = argv[2];
     }
   } else {
     user.match = FR_GLOBAL;
-    chan = NULL;
-    chg = NULL;
+    chan = nullptr;
+    chg = nullptr;
   }
   if (chan && !findchan_by_dname(chan)) {
-    Tcl_AppendResult(irp, "no such channel", NULL);
+    Tcl_AppendResult(irp, "no such channel", nullptr);
     return TCL_ERROR;
   }
   /* Retrieve current flags */
@@ -162,8 +162,8 @@ static int tcl_chattr STDVAR
   }
   user.chan &= ~BOT_AGGRESSIVE; /* actually not a user flag, hide it */
   /* Build flag string */
-  build_flags(work, &user, NULL);
-  Tcl_AppendResult(irp, work, NULL);
+  build_flags(work, &user, nullptr);
+  Tcl_AppendResult(irp, work, nullptr);
   return TCL_OK;
 }
 
@@ -177,14 +177,14 @@ static int tcl_botattr STDVAR
 
   u = get_user_by_handle(userlist, argv[1]);
   if ((argv[1][0] == '*') || !u || !(u->flags & USER_BOT)) {
-    Tcl_AppendResult(irp, "*", NULL);
+    Tcl_AppendResult(irp, "*", nullptr);
     return TCL_OK;
   }
   if (argc == 4) {
     user.match = FR_BOT | FR_CHAN;
     chan = argv[3];
     chg = argv[2];
-  } else if (argc == 3 && argv[2][0] && strchr(CHANMETA, argv[2][0]) != NULL) {
+  } else if (argc == 3 && argv[2][0] && strchr(CHANMETA, argv[2][0]) != nullptr) {
     /* We need todo extra checking here to stop us mixing up +channel's
      * with flags. <cybah>
      */
@@ -192,31 +192,31 @@ static int tcl_botattr STDVAR
       /* Channel doesnt exist, and it cant possibly be flags as there
        * is no + at the start of the string.
        */
-      Tcl_AppendResult(irp, "no such channel", NULL);
+      Tcl_AppendResult(irp, "no such channel", nullptr);
       return TCL_ERROR;
     } else if (findchan_by_dname(argv[2])) {
       /* Channel exists */
       user.match = FR_BOT | FR_CHAN;
       chan = argv[2];
-      chg = NULL;
+      chg = nullptr;
     } else {
       /* 3rd possibility... channel doesnt exist, does start with a +.
        * In this case we assume the string is flags.
        */
       user.match = FR_BOT;
-      chan = NULL;
+      chan = nullptr;
       chg = argv[2];
     }
   } else {
     user.match = FR_BOT;
-    chan = NULL;
+    chan = nullptr;
     if (argc < 3)
-      chg = NULL;
+      chg = nullptr;
     else
       chg = argv[2];
   }
   if (chan && !findchan_by_dname(chan)) {
-    Tcl_AppendResult(irp, "no such channel", NULL);
+    Tcl_AppendResult(irp, "no such channel", nullptr);
     return TCL_ERROR;
   }
   /* Retrieve current flags */
@@ -245,16 +245,16 @@ static int tcl_botattr STDVAR
   user.udef_chan = 0; /* User definable bot flags are global only,
                          anything here is a regular flag, so hide it. */
   /* Build flag string */
-  build_flags(work, &user, NULL);
-  Tcl_AppendResult(irp, work, NULL);
+  build_flags(work, &user, nullptr);
+  Tcl_AppendResult(irp, work, nullptr);
   return TCL_OK;
 }
 
 static int tcl_matchattr STDVAR
 {
   struct userrec *u;
-  struct flag_record plus = {0}, minus = {0}, user = {0};
-  __attribute__((unused)) bool ok = false, nom = false;
+  struct flag_record plus = {}, minus = {}, user = {};
+  [[maybe_unused]] bool ok = false, nom = false;
 
   BADARGS(3, 4, " handle flags ?channel?");
 
@@ -270,7 +270,7 @@ static int tcl_matchattr STDVAR
       if (!plus.global && !plus.udef_global && !plus.chan &&
           !plus.udef_chan && !plus.bot) {
         /* No flags (e.g. "-" or "+" or "-|-" matches anyone */
-        Tcl_AppendResult(irp, "1", NULL);
+        Tcl_AppendResult(irp, "1", nullptr);
         return TCL_OK;
       }
     }
@@ -280,7 +280,7 @@ static int tcl_matchattr STDVAR
       }
     }
   }
-  Tcl_AppendResult(irp, ok ? "1" : "0", NULL);
+  Tcl_AppendResult(irp, ok ? "1" : "0", nullptr);
   return TCL_OK;
 }
 
@@ -298,10 +298,10 @@ static int tcl_adduser STDVAR
 
   if ((argv[1][0] == '*') || strchr(BADHANDCHARS, argv[1][0]) ||
       get_user_by_handle(userlist, argv[1]))
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   else {
     userlist = adduser(userlist, argv[1], argv[2], "-", default_flags);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   }
   return TCL_OK;
 }
@@ -321,13 +321,13 @@ static int tcl_addbot STDVAR
 
   for (p = hand; *p; p++)
     if ((unsigned char) *p <= 32 || *p == '@') {
-      Tcl_AppendResult(irp, "Invalid character in handle", NULL);
+      Tcl_AppendResult(irp, "Invalid character in handle", nullptr);
       return TCL_ERROR;
     }
 
   if ((argv[1][0] == '*') || strchr(BADHANDCHARS, argv[1][0]) ||
       get_user_by_handle(userlist, hand))
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   else {
     for (int i = 0; addr[i]; i++) {
       if (addr[i] == ':') {
@@ -346,14 +346,14 @@ static int tcl_addbot STDVAR
         || (ipv6)
 #endif
       ) {
-      Tcl_AppendResult(irp, "0", NULL);
+      Tcl_AppendResult(irp, "0", nullptr);
       return TCL_OK;
     }
     /* Check that the char following the / is not null */
     if ((q = strrchr(addr, '/'))) {
       if (!q[1]) {
         *q = 0;
-        q = NULL;
+        q = nullptr;
       }
     }
 
@@ -364,7 +364,7 @@ static int tcl_addbot STDVAR
       q = strrchr(addr, ':');
     } else {
       /* IPv6 address with no braces or braces without port(s) after */
-      q = NULL;
+      q = nullptr;
     }
 
     if (q) {
@@ -375,7 +375,7 @@ static int tcl_addbot STDVAR
         *p++ = 0;
     } else {
       /* No port in address field, check next args */
-      p = NULL;
+      p = nullptr;
       if (argc == 4 || argc == 5) {
         q = argv[3];
       }
@@ -388,19 +388,19 @@ static int tcl_addbot STDVAR
 #ifndef TLS
     /* Check TLS */
     if ((q && *q == '+') || (p && *p == '+')) {
-      Tcl_AppendResult(irp, "0", NULL);
+      Tcl_AppendResult(irp, "0", nullptr);
       return TCL_OK;
     }
 
 #endif
     /* Verify */
-    /* check_int_range returns 0 if q or p is NULL */
+    /* check_int_range returns 0 if q or p is nullptr */
     if (q && !check_int_range(q, 0, 65536)) {
-      Tcl_AppendResult(irp, "0", NULL);
+      Tcl_AppendResult(irp, "0", nullptr);
       return TCL_OK;
     }
     if (p && !check_int_range(p, 0, 65536)) {
-      Tcl_AppendResult(irp, "0", NULL);
+      Tcl_AppendResult(irp, "0", nullptr);
       return TCL_OK;
     }
 
@@ -423,13 +423,13 @@ static int tcl_addbot STDVAR
 
     if (!q) {
       bi->address = user_malloc(count + 1);
-      strcpy(bi->address, addr);
+      strlcpy(bi->address, addr, count + 1);
       bi->telnet_port = 3333;
       bi->relay_port = 3333;
     } else {
       bi->address = user_malloc(count + 1);
-      strcpy(bi->address, addr);
-      bi->telnet_port = atoi(q);
+      strlcpy(bi->address, addr, count + 1);
+      bi->telnet_port = egg_atoi(q);
 #ifdef TLS
       if (*q == '+')
         bi->ssl = TLS_BOT;
@@ -440,7 +440,7 @@ static int tcl_addbot STDVAR
         bi->ssl *= TLS_BOT + TLS_RELAY;
 #endif
       } else {
-        bi->relay_port = atoi(p);
+        bi->relay_port = egg_atoi(p);
 #ifdef TLS
         if (*p == '+')
           bi->ssl |= TLS_RELAY;
@@ -448,7 +448,7 @@ static int tcl_addbot STDVAR
       }
     }
     set_user(&USERENTRY_BOTADDR, get_user_by_handle(userlist, hand), bi);
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   }
   return TCL_OK;
 }
@@ -458,7 +458,7 @@ static int tcl_deluser STDVAR
   BADARGS(2, 2, " handle");
 
   Tcl_AppendResult(irp, (argv[1][0] == '*') ? "0" :
-                   int_to_base10(deluser(argv[1])), NULL);
+                   int_to_base10(deluser(argv[1])), nullptr);
   return TCL_OK;
 }
 
@@ -467,10 +467,10 @@ static int tcl_delhost STDVAR
   BADARGS(3, 3, " handle hostmask");
 
   if ((!get_user_by_handle(userlist, argv[1])) || (argv[1][0] == '*')) {
-    Tcl_AppendResult(irp, "non-existent user", NULL);
+    Tcl_AppendResult(irp, "non-existent user", nullptr);
     return TCL_ERROR;
   }
-  Tcl_AppendResult(irp, delhost_by_handle(argv[1], argv[2]) ? "1" : "0", NULL);
+  Tcl_AppendResult(irp, delhost_by_handle(argv[1], argv[2]) ? "1" : "0", nullptr);
   return TCL_OK;
 }
 
@@ -483,7 +483,7 @@ static int tcl_userlist STDVAR
   BADARGS(1, 3, " ?flags ?channel??");
 
   if (argc == 3 && !findchan_by_dname(argv[2])) {
-    Tcl_AppendResult(irp, "Invalid channel: ", argv[2], NULL);
+    Tcl_AppendResult(irp, "Invalid channel: ", argv[2], nullptr);
     return TCL_ERROR;
   }
   if (argc >= 2) {
@@ -499,7 +499,7 @@ static int tcl_userlist STDVAR
       if (argc == 3)
         get_user_flagrec(u, &user, argv[2]);
       else
-        get_user_flagrec(u, &user, NULL);
+        get_user_flagrec(u, &user, nullptr);
       ok = flagrec_eq(&plus, &user) && !(f && flagrec_eq(&minus, &user));
     }
     if (ok)
@@ -536,7 +536,7 @@ static int tcl_chhandle STDVAR
     for (i = 0; i < strlen(newhand); i++)
       if (((unsigned char) newhand[i] <= 32) || (newhand[i] == '@'))
         newhand[i] = '?';
-    if (strchr(BADHANDCHARS, newhand[0]) != NULL)
+    if (strchr(BADHANDCHARS, newhand[0]) != nullptr)
       x = 0;
     else if (strlen(newhand) < 1)
       x = 0;
@@ -551,7 +551,7 @@ static int tcl_chhandle STDVAR
   if (x)
     x = change_handle(u, newhand);
 
-  Tcl_AppendResult(irp, x ? "1" : "0", NULL);
+  Tcl_AppendResult(irp, x ? "1" : "0", nullptr);
   return TCL_OK;
 }
 
@@ -561,11 +561,11 @@ static int tcl_getting_users STDVAR
 
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_BOT && dcc[i].status & STAT_GETTING) {
-      Tcl_AppendResult(irp, "1", NULL);
+      Tcl_AppendResult(irp, "1", nullptr);
       return TCL_OK;
     }
   }
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -573,7 +573,7 @@ static int tcl_isignore STDVAR
 {
   BADARGS(2, 2, " nick!user@host");
 
-  Tcl_AppendResult(irp, match_ignore(argv[1]) ? "1" : "0", NULL);
+  Tcl_AppendResult(irp, match_ignore(argv[1]) ? "1" : "0", nullptr);
   return TCL_OK;
 }
 
@@ -599,7 +599,7 @@ static int tcl_killignore STDVAR
 {
   BADARGS(2, 2, " hostmask");
 
-  Tcl_AppendResult(irp, delignore(argv[1]) ? "1" : "0", NULL);
+  Tcl_AppendResult(irp, delignore(argv[1]) ? "1" : "0", nullptr);
   return TCL_OK;
 }
 
@@ -631,7 +631,7 @@ static int tcl_ignorelist STDVAR
 
 static int tcl_getuser STDVAR
 {
-  struct user_entry_type *et = NULL;
+  struct user_entry_type *et = nullptr;
   struct userrec *u;
   struct user_entry *e;
 
@@ -639,7 +639,7 @@ static int tcl_getuser STDVAR
 
   if (!(u = get_user_by_handle(userlist, argv[1]))) {
     if (argv[1][0] != '*') {
-      Tcl_AppendResult(irp, "No such user.", NULL);
+      Tcl_AppendResult(irp, "No such user.", nullptr);
       return TCL_ERROR;
     } else
       return TCL_OK; /* silently ignore user */
@@ -647,11 +647,11 @@ static int tcl_getuser STDVAR
   if (argc >= 3) {
     if (!(et = find_entry_type(argv[2])) &&
         strcasecmp(argv[2], "HANDLE")) {
-      Tcl_AppendResult(irp, "No such info type: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "No such info type: ", argv[2], nullptr);
       return TCL_ERROR;
     }
     if (!strcasecmp(argv[2], "HANDLE"))
-      Tcl_AppendResult(irp, u->handle, NULL);
+      Tcl_AppendResult(irp, u->handle, nullptr);
     else {
       e = find_user_entry(et, u);
       if (e)
@@ -690,12 +690,12 @@ static int tcl_setuser STDVAR
   BADARGS(3, -1, " handle type ?setting....?");
 
   if (!(et = find_entry_type(argv[2]))) {
-    Tcl_AppendResult(irp, "No such info type: ", argv[2], NULL);
+    Tcl_AppendResult(irp, "No such info type: ", argv[2], nullptr);
     return TCL_ERROR;
   }
   if (!(u = get_user_by_handle(userlist, argv[1]))) {
     if (argv[1][0] != '*') {
-      Tcl_AppendResult(irp, "No such user.", NULL);
+      Tcl_AppendResult(irp, "No such user.", nullptr);
       return TCL_ERROR;
     } else
       return TCL_OK; /* Silently ignore user * */
@@ -704,13 +704,13 @@ static int tcl_setuser STDVAR
   if (me && !strcasecmp(argv[2], "hosts") && argc == 3) {
     Function *func = me->funcs;
 
-    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 1, NULL);
+    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 1, nullptr);
   }
   if (!(e = find_user_entry(et, u))) {
     e = alloc_user_entry();
     e->type = et;
-    e->name = NULL;
-    e->u.list = NULL;
+    e->name = nullptr;
+    e->u.list = nullptr;
     list_insert((&(u->entries)), e);
   }
   r = et->tcl_set(irp, u, e, argc, argv);
@@ -722,7 +722,7 @@ static int tcl_setuser STDVAR
   if (me && !strcasecmp(argv[2], "hosts") && argc == 4) {
     Function *func = me->funcs;
 
-    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 0, NULL);
+    ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 0, nullptr);
   }
   return r;
 }
@@ -752,5 +752,5 @@ tcl_cmds tcluser_cmds[] = {
   {"ignorelist",       tcl_ignorelist},
   {"getuser",             tcl_getuser},
   {"setuser",             tcl_setuser},
-  {NULL,                         NULL}
+  {nullptr,                         nullptr}
 };

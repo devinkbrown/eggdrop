@@ -24,7 +24,7 @@ typedef struct userstate {
   char channel[CHANNELLEN + 1];
   char handle[HANDLEN + 1];
   int badge_info;
-  char *badges;           /* dynamically allocated; NULL until first USERSTATE */
+  char *badges;           /* dynamically allocated; nullptr until first USERSTATE */
   char color[8];
   char display_name[64];  /* Twitch display names are max ~25 chars */
   char *emote_sets;       /* dynamically allocated; can be a long comma list */
@@ -37,8 +37,8 @@ typedef struct twitchchan {
   char name[CHANNELLEN + 1];  /* actual name (!BARfoo) - THIS IS SET WHEN THE BOT
                                * ACTUALLY JOINS THE CHANNEL */
   userstate_t userstate;
-  char *mods;   /* dynamically allocated; NULL until /mods response */
-  char *vips;   /* dynamically allocated; NULL until /vips response */
+  char *mods;   /* dynamically allocated; nullptr until /mods response */
+  char *vips;   /* dynamically allocated; nullptr until /vips response */
   unsigned int emote_only:1;
   unsigned int subs_only:1;
   unsigned int r9k:1;

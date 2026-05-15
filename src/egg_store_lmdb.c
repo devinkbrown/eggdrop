@@ -31,7 +31,6 @@
 #include "tandem.h"
 #include <lmdb.h>
 #include <sys/stat.h>
-#include <stdbool.h>
 
 extern struct userrec *userlist;
 extern struct igrec *global_ign;
@@ -81,12 +80,12 @@ static char *slurp_file(const char *path, size_t *out_len)
 {
   FILE *f = fopen(path, "r");
   if (!f)
-    return NULL;
+    return nullptr;
 
   struct stat st;
   if (fstat(fileno(f), &st) != 0 || st.st_size == 0) {
     fclose(f);
-    return NULL;
+    return nullptr;
   }
 
   char *buf = op_malloc(st.st_size + 1);
@@ -117,16 +116,16 @@ static int lmdb_open(const char *path)
   if (rc) {
     putlog(LOG_MISC, "*", "LMDB: mdb_env_open(%s) failed: %s", path, mdb_strerror(rc));
     mdb_env_close(env);
-    env = NULL;
+    env = nullptr;
     return -1;
   }
 
   MDB_txn *txn;
-  rc = mdb_txn_begin(env, NULL, 0, &txn);
+  rc = mdb_txn_begin(env, nullptr, 0, &txn);
   if (rc) {
     putlog(LOG_MISC, "*", "LMDB: txn_begin failed: %s", mdb_strerror(rc));
     mdb_env_close(env);
-    env = NULL;
+    env = nullptr;
     return -1;
   }
 
@@ -146,7 +145,7 @@ static void lmdb_close(void)
   if (env) {
     mdb_env_sync(env, 1);
     mdb_env_close(env);
-    env = NULL;
+    env = nullptr;
     putlog(LOG_MISC, "*", "LMDB: database closed.");
   }
 }
@@ -160,6 +159,7 @@ static void delete_user_entries(MDB_txn *txn, MDB_dbi dbi, const char *handle)
   MDB_cursor *cursor;
   MDB_val key, val;
   op_strbuf_t prefix;
+  op_strbuf_init(&prefix);
   size_t handle_len = strlen(handle);
   int rc;
 
@@ -212,7 +212,7 @@ static void lmdb_save_users(int idx)
     return;
   }
 
-  rc = mdb_txn_begin(env, NULL, 0, &txn);
+  rc = mdb_txn_begin(env, nullptr, 0, &txn);
   if (rc) {
     putlog(LOG_MISC, "*", "LMDB: save txn_begin failed: %s", mdb_strerror(rc));
     return;
@@ -243,6 +243,7 @@ static void lmdb_save_users(int idx)
     mdb_put(txn, dbi_meta, &k, &v, 0);
 
     op_strbuf_t ts;
+    op_strbuf_init(&ts);
     op_strbuf_appendf(&ts, "%" PRId64, (int64_t) now);
     k = mk_str("timestamp");
     v = mk_val(op_strbuf_str(&ts), op_strbuf_len(&ts));
@@ -274,15 +275,16 @@ static void lmdb_save_users(int idx)
     mdb_drop(txn, dbi_ignores, 0);
 
     for (struct userrec *u = userlist; u; u = u->next) {
-      struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_GLOBAL };
       char flags[128];
 
       fr.global = u->flags;
       fr.udef_global = u->flags_udef;
-      build_flags(flags, &fr, NULL);
+      build_flags(flags, &fr, nullptr);
 
       /* User record: flags + channel count as a compact summary. */
       op_strbuf_t sb;
+      op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%s", flags);
 
       int nchan = 0;
@@ -318,6 +320,7 @@ static void lmdb_save_users(int idx)
     /* Always rebuild ignores completely (they're small and change rarely) */
     for (struct igrec *ig = global_ign; ig; ig = ig->next) {
       op_strbuf_t sb;
+      op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%" PRId64 " %" PRId64 " %d %s %s",
                        (int64_t) ig->expire, (int64_t) ig->added,
                        ig->flags, ig->user ? ig->user : "",
@@ -335,15 +338,16 @@ static void lmdb_save_users(int idx)
       if (!u->dirty)
         continue;
 
-      struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_GLOBAL };
       char flags[128];
 
       fr.global = u->flags;
       fr.udef_global = u->flags_udef;
-      build_flags(flags, &fr, NULL);
+      build_flags(flags, &fr, nullptr);
 
       /* Update user record */
       op_strbuf_t sb;
+      op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%s", flags);
 
       int nchan = 0;
@@ -384,6 +388,7 @@ static void lmdb_save_users(int idx)
     mdb_drop(txn, dbi_ignores, 0);
     for (struct igrec *ig = global_ign; ig; ig = ig->next) {
       op_strbuf_t sb;
+      op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%" PRId64 " %" PRId64 " %d %s %s",
                        (int64_t) ig->expire, (int64_t) ig->added,
                        ig->flags, ig->user ? ig->user : "",
@@ -429,7 +434,7 @@ static int lmdb_load_users(const char *path, struct userrec **list)
   }
 
   MDB_txn *txn;
-  int rc = mdb_txn_begin(env, NULL, MDB_RDONLY, &txn);
+  int rc = mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
   if (rc)
     return 0;
 

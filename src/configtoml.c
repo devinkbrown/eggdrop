@@ -75,40 +75,43 @@ typedef enum {
  * accumulated and emitted as a single ircxautoowner call when the block
  * ends (next [[chanset]], next [section], or EOF).
  * --------------------------------------------------------------------- */
-static char chanset_channel[64];
-static char chanset_ownerkey[128];
-static int  chanset_ircx_create;
-static char chanset_ircx_modes[32];
-static int  chanset_has_ircx;
+static struct {
+  char channel[64];
+  char ownerkey[128];
+  int ircx_create;
+  char ircx_modes[32];
+  int has_ircx;
+} chanset_state;
 
 static void run_tcl_cmd(const char *cmd);   /* forward decl */
 static void set_tcl_var(const char *key, const char *value); /* forward decl */
 
 static void reset_chanset_state(void)
 {
-  chanset_channel[0]    = '\0';
-  chanset_ownerkey[0]   = '\0';
-  chanset_ircx_create   = 0;
-  chanset_ircx_modes[0] = '\0';
-  chanset_has_ircx      = 0;
+  chanset_state.channel[0]     = '\0';
+  chanset_state.ownerkey[0]    = '\0';
+  chanset_state.ircx_create    = 0;
+  chanset_state.ircx_modes[0]  = '\0';
+  chanset_state.has_ircx       = 0;
 }
 
 /* Emit ircxautoowner for the current block if any IRCX keys were set. */
 static void flush_chanset_ircx(void)
 {
-  if (!chanset_has_ircx || !chanset_channel[0])
+  if (!chanset_state.has_ircx || !chanset_state.channel[0])
     return;
   op_strbuf_t cmd;
-  if (chanset_ircx_modes[0])
+  op_strbuf_init(&cmd);
+  if (chanset_state.ircx_modes[0])
     op_strbuf_appendf(&cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
-                     chanset_channel, chanset_ownerkey,
-                     chanset_ircx_create, chanset_ircx_modes);
+                     chanset_state.channel, chanset_state.ownerkey,
+                     chanset_state.ircx_create, chanset_state.ircx_modes);
   else
     op_strbuf_appendf(&cmd, "ircxautoowner %s \"%s\" %d",
-                     chanset_channel, chanset_ownerkey, chanset_ircx_create);
+                     chanset_state.channel, chanset_state.ownerkey, chanset_state.ircx_create);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
-  chanset_has_ircx = 0;
+  chanset_state.has_ircx = 0;
 }
 
 /* Tcl interpreter declared in tcl.c and extern'd via main.h. */
@@ -186,7 +189,7 @@ static void run_tcl_cmd(const char *cmd)
         opts[0] = '\0';
       }
       if (chan_add)
-        chan_add(NULL, name, opts);
+        chan_add(nullptr, name, opts);
     } else {
       /* "channel set NAME OP [VAL]" */
       int (*chan_mod)(Tcl_Interp *, struct chanset_t *, int, char **) =
@@ -253,7 +256,7 @@ static void run_tcl_cmd(const char *cmd)
             j++;
           }
         }
-        chan_mod(NULL, chan, items, item);
+        chan_mod(nullptr, chan, items, item);
         for (i = 0; i < items; i++)
           op_free(item[i]);
         op_free(item);
@@ -303,6 +306,7 @@ static void run_tcl_cmd(const char *cmd)
       }
       {
         op_strbuf_t es;
+        op_strbuf_init(&es);
         if (pass[0])
           op_strbuf_appendf(&es, "%s:%s:%s", host, port, pass);
         else if (port[0])
@@ -325,15 +329,17 @@ typedef void (*ArrayCb)(const char *item, void *ud);
  * Array callbacks for special sections
  * --------------------------------------------------------------------- */
 
-/* Count of servers added during the current readtomlconfig() call. */
-static int toml_server_count = 0;
-/* Count of modules loaded during the current readtomlconfig() call. */
-static int toml_module_count = 0;
+/* TOML parsing state counters */
+static struct {
+  int server_count;    /* Count of servers added during the current readtomlconfig() call */
+  int module_count;    /* Count of modules loaded during the current readtomlconfig() call */
+} toml_parse_state;
 
 static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
 {
   if (interp) {
     op_strbuf_t cmd;
+    op_strbuf_init(&cmd);
     op_strbuf_appendf(&cmd, "loadmodule %s", name);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
@@ -342,7 +348,7 @@ static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
     if (err && strcmp(err, "Already loaded."))
       putlog(LOG_MISC, "*", "TOML config: loadmodule %s: %s", name, err);
   }
-  toml_module_count++;
+  toml_parse_state.module_count++;
 }
 
 /*
@@ -354,7 +360,7 @@ static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
  */
 static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
 {
-  char host[256] = {0}, portpart[68] = {0}, pass[128] = {0};
+  char host[256] = {}, portpart[68] = {}, pass[128] = {};
 
   strlcpy(host, entry, sizeof host);
 
@@ -378,6 +384,7 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
 
   {
     op_strbuf_t cmd;
+    op_strbuf_init(&cmd);
     if (pass[0])
       op_strbuf_appendf(&cmd, "server add %s %s %s", host, portpart, pass);
     else if (portpart[0])
@@ -387,12 +394,13 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
   }
-  toml_server_count++;
+  toml_parse_state.server_count++;
 }
 
 static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
 {
   op_strbuf_t cmd;
+  op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "channel add %s", name);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
@@ -405,6 +413,7 @@ static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
 static void cb_logfile(const char *entry, [[maybe_unused]] void *ud)
 {
   op_strbuf_t cmd;
+  op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "logfile %s", entry);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
@@ -420,6 +429,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
   }
   if (interp) {
     op_strbuf_t cmd;
+    op_strbuf_init(&cmd);
     op_strbuf_appendf(&cmd, "source %s", path);
     run_tcl_cmd(op_strbuf_str(&cmd));
     op_strbuf_free(&cmd);
@@ -431,6 +441,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
 static void cb_loadhelp(const char *file, [[maybe_unused]] void *ud)
 {
   op_strbuf_t cmd;
+  op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "loadhelp %s", file);
   run_tcl_cmd(op_strbuf_str(&cmd));
   op_strbuf_free(&cmd);
@@ -460,7 +471,7 @@ static int is_chan_flag(const char *key)
     "secret",        "seen",          "shared",
     "static",        "statuslog",     "userbans",
     "userexempts",   "userinvites",
-    NULL
+    nullptr
   };
   const char * const *f;
   for (f = flags; *f; f++)
@@ -508,26 +519,26 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
     case SEC_CHANSET:
       /* channel = "#name" — identifies which channel this block configures. */
       if (strcmp(key, "channel") == 0) {
-        strlcpy(chanset_channel, value, sizeof chanset_channel);
+        strlcpy(chanset_state.channel, value, sizeof chanset_state.channel);
         return;
       }
-      if (!chanset_channel[0])
+      if (!chanset_state.channel[0])
         return; /* channel key must appear before other settings */
 
       /* IRCX / Ophion settings — accumulated and emitted as ircxautoowner. */
       if (strcmp(key, "ownerkey") == 0 || strcmp(key, "ircx_ownerkey") == 0) {
-        strlcpy(chanset_ownerkey, value, sizeof chanset_ownerkey);
-        chanset_has_ircx = 1;
+        strlcpy(chanset_state.ownerkey, value, sizeof chanset_state.ownerkey);
+        chanset_state.has_ircx = 1;
         return;
       }
       if (strcmp(key, "ircx_create") == 0) {
-        chanset_ircx_create = atoi(value);
-        chanset_has_ircx = 1;
+        chanset_state.ircx_create = egg_atoi(value);
+        chanset_state.has_ircx = 1;
         return;
       }
       if (strcmp(key, "ircx_create_modes") == 0) {
-        strlcpy(chanset_ircx_modes, value, sizeof chanset_ircx_modes);
-        chanset_has_ircx = 1;
+        strlcpy(chanset_state.ircx_modes, value, sizeof chanset_state.ircx_modes);
+        chanset_state.has_ircx = 1;
         return;
       }
 
@@ -538,14 +549,15 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         char tclkey[64];
         key_to_tclvar(key, tclkey, sizeof tclkey);
         op_strbuf_t cmd;
+        op_strbuf_init(&cmd);
         if (is_chan_flag(tclkey))
           op_strbuf_appendf(&cmd, "channel set %s %s%s",
-                           chanset_channel,
+                           chanset_state.channel,
                            (strcmp(value, "0") == 0) ? "-" : "+",
                            tclkey);
         else
           op_strbuf_appendf(&cmd, "channel set %s %s %s",
-                           chanset_channel, tclkey, value);
+                           chanset_state.channel, tclkey, value);
         run_tcl_cmd(op_strbuf_str(&cmd));
         op_strbuf_free(&cmd);
       }
@@ -618,7 +630,7 @@ static void walk_key_cb(const char *key, void *ud)
   /* Array keys: dispatch through the matching callback. */
   op_toml_arr_t *arr = op_toml_arr(ctx->tbl, key);
   if (arr) {
-    ArrayCb cb = NULL;
+    ArrayCb cb = nullptr;
     if (ctx->sec == SEC_MODULES  && strcmp(key, "load") == 0)     cb = cb_loadmodule;
     if (ctx->sec == SEC_SERVERS  && strcmp(key, "list") == 0)     cb = cb_server_add;
     if (ctx->sec == SEC_CHANNELS && strcmp(key, "list") == 0)     cb = cb_channel_add;
@@ -630,7 +642,7 @@ static void walk_key_cb(const char *key, void *ud)
       for (int i = 0; i < op_toml_arr_len(arr); i++) {
         const char *s;
         if (op_toml_arr_str(arr, i, &s) == 1)
-          cb(s, NULL);
+          cb(s, nullptr);
       }
     }
     return;
@@ -646,7 +658,7 @@ static void walk_key_cb(const char *key, void *ud)
   int bval;
   op_strbuf_t _b;
   op_strbuf_init(&_b);
-  const char *val = NULL;
+  const char *val = nullptr;
 
   if (op_toml_str(ctx->tbl, key, &sval) == 1)
     val = sval;
@@ -689,7 +701,7 @@ static int is_known_section(const char *name)
   static const char *known[] = {
     "bot", "network", "security", "paths", "modules",
     "servers", "channels", "logging", "scripts", "help", "tcl",
-    "chanset", NULL
+    "chanset", nullptr
   };
   for (const char **k = known; *k; k++)
     if (strcmp(name, *k) == 0) return 1;
@@ -703,7 +715,7 @@ static void walk_unknown_cb(const char *key, void *ud)
   if (is_known_section(key)) return;
   op_toml_table_t *t = op_toml_table(root, key);
   if (!t) return;
-  walk_section(SEC_OTHER, t, NULL, NULL);
+  walk_section(SEC_OTHER, t, nullptr, nullptr);
 }
 
 /* -----------------------------------------------------------------------
@@ -740,7 +752,7 @@ int readtomlconfig(const char *fname)
 
   for (size_t i = 0; i < sizeof order / sizeof order[0]; i++) {
     op_toml_table_t *t = op_toml_table(root, order[i].name);
-    if (t) walk_section(order[i].sec, t, NULL, NULL);
+    if (t) walk_section(order[i].sec, t, nullptr, nullptr);
   }
 
   /* [paths] — buffer entries for replay after module vars are registered. */
@@ -757,7 +769,7 @@ int readtomlconfig(const char *fname)
         op_toml_table_t *ct = op_toml_arr_table(arr, i);
         if (!ct) continue;
         reset_chanset_state();
-        walk_section(SEC_CHANSET, ct, NULL, NULL);
+        walk_section(SEC_CHANSET, ct, nullptr, nullptr);
         flush_chanset_ircx();
       }
     }
@@ -787,18 +799,18 @@ int readtomlconfig(const char *fname)
              "ERROR: 'owner' is required in [security] section of %s", fname);
       ok = 0;
     }
-    if (toml_server_count == 0) {
+    if (toml_parse_state.server_count == 0) {
       putlog(LOG_MISC, "*",
              "TOML config: no servers defined in [servers] list — "
              "the bot will not connect to IRC.");
       ok = 0;
     }
-    toml_server_count = 0;
-    if (toml_module_count == 0)
+    toml_parse_state.server_count = 0;
+    if (toml_parse_state.module_count == 0)
       putlog(LOG_MISC, "*",
              "WARNING: No modules configured in %s — bot may not function correctly",
              fname);
-    toml_module_count = 0;
+    toml_parse_state.module_count = 0;
   }
 
   if (ok)
@@ -882,7 +894,7 @@ static void prompt_required(const char *question, char *buf, size_t buflen)
 }
 
 /*
- * Numbered-menu prompt.  options[] must be NULL-terminated.
+ * Numbered-menu prompt.  options[] must be nullptr-terminated.
  * def is the 0-based default index.  Returns the 0-based chosen index.
  */
 static int prompt_menu(const char *question,
@@ -906,7 +918,7 @@ static int prompt_menu(const char *question,
     buf[strcspn(buf, "\r\n")] = '\0';
     if (!*buf)
       return def;
-    i = atoi(buf) - 1;
+    i = egg_atoi(buf) - 1;
     if (i >= 0 && i < n)
       return i;
     printf("  Please enter a number between 1 and %d.\n", n);
@@ -956,7 +968,7 @@ int run_setup_wizard(const char *outfile)
     "Libera.Chat",   "EFnet",     "IRCnet",
     "Undernet",      "DALnet",    "QuakeNet",
     "Rizon",         "Ophion (IRCX)", "Other / custom",
-    NULL
+    nullptr
   };
   static const char * const net_defaults[] = {
     "irc.libera.chat",   "irc.efnet.org",    "irc.ircnet.net",
@@ -974,7 +986,7 @@ int run_setup_wizard(const char *outfile)
     "EXTERNAL  (client certificate)",
     "SCRAM-SHA-256",
     "SCRAM-SHA-512",
-    NULL
+    nullptr
   };
   /* Maps sasl_labels index → sasl_mechanism Tcl value */
   static const int sasl_mech_map[] = { 0, 2, 3, 4 };
@@ -994,6 +1006,7 @@ int run_setup_wizard(const char *outfile)
   /* Smart defaults derived from nick */
   {
     op_strbuf_t _t;
+    op_strbuf_init(&_t);
     op_strbuf_appendf(&_t, "%s?", nick);
     prompt("Alternate nick (? replaced by a random digit)", op_strbuf_str(&_t),
            altnick, sizeof altnick);
@@ -1001,6 +1014,7 @@ int run_setup_wizard(const char *outfile)
   }
   {
     op_strbuf_t _t;
+    op_strbuf_init(&_t);
     op_strbuf_appendf(&_t, "/msg %s help", nick);
     prompt("Real name (IRC GECOS)", op_strbuf_str(&_t), realname, sizeof realname);
     op_strbuf_free(&_t);
@@ -1034,11 +1048,12 @@ int run_setup_wizard(const char *outfile)
 
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s", int_to_base10(use_ssl ? 6697 : 6667));
     prompt("Port", op_strbuf_str(&_b), port_buf, sizeof port_buf);
     op_strbuf_free(&_b);
   }
-  port = atoi(port_buf);
+  port = egg_atoi(port_buf);
   if (port <= 0 || port > 65535)
     port = use_ssl ? 6697 : 6667;
 
@@ -1135,6 +1150,7 @@ int run_setup_wizard(const char *outfile)
   /* Defaults derived from nick */
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s.user", nick);
     prompt("User file", op_strbuf_str(&_b), userfile, sizeof userfile);
     op_strbuf_clear(&_b);
@@ -1154,13 +1170,13 @@ int run_setup_wizard(const char *outfile)
 
   prompt("DCC / telnet port (for users connecting to the bot)", "3333",
          tmp, sizeof tmp);
-  listen_port = atoi(tmp);
+  listen_port = egg_atoi(tmp);
   if (listen_port < 0 || listen_port > 65535)
     listen_port = 3333;
 
   prompt("Botnet port (for linking with other Eggdrop bots, 0 = none)", "0",
          tmp, sizeof tmp);
-  botnet_port = atoi(tmp);
+  botnet_port = egg_atoi(tmp);
   if (botnet_port < 0 || botnet_port > 65535)
     botnet_port = 0;
 

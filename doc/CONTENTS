@@ -1,115 +1,47 @@
-Directory Contents - doc/
+doc/ directory contents
+======================
 
-Directory Contents
+Getting started
+  ABOUT               What Eggdrop is, requirements
+  COMPILE-GUIDE       Build troubleshooting and platform notes
+  DESIGN.md           Architecture, internals, data structures
 
-  html/
-    An HTML version of Eggdrop's documentation generated from the
-    Sphinx source. Open index.html in a web browser to view.
+Configuration and usage
+  eggdrop.toml        Full config reference (128+ settings)
+  core.settings       Core settings documentation
+  tcl-commands.doc    Tcl command reference
+  twitch-tcl-commands.doc   Twitch-specific Tcl commands
 
-  man1/
-    Unix man page files for Eggdrop.
+Features
+  TLS                 TLS/SSL setup and certificate generation
+  IPV6                IPv6 support
+  IRCv3               IRCv3 capabilities
+  ACCOUNTS            User account tracking
+  PBKDF2              Password hashing migration
 
-  settings/
-    Configuration file documentation for all settings, modules, and
-    capabilities.
+User and bot management
+  USERS               User database and flags
+  BOTNET              Botnet setup and management
+  BANS                Ban, exempt, and invite lists
+  PARTYLINE           Partyline interface and DCC chat
 
-  sphinx_source/
-    Sphinx source files used to generate the HTML documentation.
+Scripting
+  FIRST-SCRIPT        Beginner's Tcl scripting guide
+  AUTOSCRIPTS         Auto-script functionality
 
-  modules/
-    Module-specific documentation.
+Advanced
+  TRICKS              Tips and configuration tweaks
+  PATCH-HOWTO         Creating and submitting patches
+  BUG-REPORT          Bug report instructions
 
-GETTING STARTED
+Subdirectories
+  html/               HTML documentation (open index.html)
+  man1/               Unix man pages
+  settings/           Per-module settings documentation
+  sphinx_source/      Sphinx source for HTML generation
+  modules/            Module-specific documentation
 
-  ABOUT
-    Information about Eggdrop, its history, and basic requirements.
-
-  COMPILE-GUIDE
-    Instructions for building Eggdrop with Meson on various operating
-    systems. Start here if you're having build issues.
-
-  INSTALL
-    Quick start guide for basic setup and installation.
-
-CONFIGURATION AND USAGE
-
-  eggdrop.toml
-    Reference for all configuration settings in TOML format.
-
-  tcl-commands.doc
-    Complete documentation on Eggdrop Tcl commands available to
-    scripters.
-
-  twitch-tcl-commands.doc
-    Tcl commands specific to the Twitch module.
-
-FEATURES AND CAPABILITIES
-
-  TLS
-    Documentation on TLS/SSL support (version 1.2 and 1.3). Includes
-    certificate generation and authentication.
-
-  IPv6
-    Information about IPv6 support and how to use IPv6 addresses in
-    Eggdrop.
-
-  IRCv3
-    Documentation on IRCv3 capabilities supported by Eggdrop.
-
-  ACCOUNTS
-    Information on tracking user accounts and authentication in Eggdrop.
-
-  PBKDF2
-    Documentation on modern password hashing using PBKDF2. Covers
-    migration from older hashing methods.
-
-USER AND BOT MANAGEMENT
-
-  USERS
-    Explanation of Eggdrop's user database and user flags.
-
-  BOTNET
-    Guide to setting up and managing Eggdrops linked in a botnet.
-
-  BANS
-    Documentation on channel ban, exempt, and invite lists.
-
-  PARTYLINE
-    Information about the Eggdrop partyline interface and DCC chat.
-
-SCRIPTING
-
-  FIRST-SCRIPT
-    Beginner's guide to writing Tcl scripts for Eggdrop.
-
-  AUTOSCRIPTS
-    Documentation on Eggdrop's auto-script functionality.
-
-ADVANCED TOPICS
-
-  TRICKS
-    Advanced tips and configuration tweaks for Eggdrop.
-
-  PATCH-HOWTO
-    Guide to creating and submitting patches to Eggdrop.
-
-  BUG-REPORT
-    Bug report form and instructions for reporting issues on GitHub.
-
-LEGAL
-
-  LEGAL
-    Copyright and license information for Eggdrop.
-
-  Changes*
-    Version history and changelog for Eggdrop releases (archived).
-
-  Versions
-    Complete list of Eggdrop versions and release dates (archived).
-
-TWITCH-SPECIFIC
-
-  TWITCH
-    Documentation on Eggdrop's Twitch module and capabilities.
-
-  Copyright (C) 2003 - 2025 Eggheads Development Team
+Legal
+  LEGAL               Copyright and license
+  Changes*            Version changelogs (archived)
+  Versions            Release date history

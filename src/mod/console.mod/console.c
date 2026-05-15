@@ -27,7 +27,7 @@
 #include "src/mod/module.h"
 #include "console.h"
 
-static Function *global = NULL;
+static Function *global = nullptr;
 static int console_autosave = 0;
 static int force_channel = 0;
 static int info_party = 0;
@@ -59,9 +59,9 @@ static int console_unpack(struct userrec *u, struct user_entry *e)
   arg = newsplit(&par);
   ci->echoflags = (arg[0] == '1') ? 1 : 0;
   arg = newsplit(&par);
-  ci->page = atoi(arg);
+  ci->page = egg_atoi(arg);
   arg = newsplit(&par);
-  ci->conchan = atoi(arg);
+  ci->conchan = egg_atoi(arg);
   list_type_kill(e->u.list);
   e->u.extra = ci;
   return 1;
@@ -74,13 +74,14 @@ static int console_pack(struct userrec *u, struct user_entry *e)
   ci = (struct console_info *) e->u.extra;
 
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s %s %s %d %d %d",
                    ci->channel, masktype(ci->conflags),
                    stripmasktype(ci->stripflags), ci->echoflags,
                    ci->page, ci->conchan);
 
   e->u.list = alloc_list_type();
-  e->u.list->next = NULL;
+  e->u.list->next = nullptr;
   e->u.list->extra = op_strbuf_steal(&_b);
 
   op_free(ci->channel);
@@ -181,9 +182,9 @@ static int console_tcl_set(Tcl_Interp *irp, struct userrec *u,
       if (argc > 6) {
         i->echoflags = (argv[6][0] == '1') ? 1 : 0;
         if (argc > 7) {
-          i->page = atoi(argv[7]);
+          i->page = egg_atoi(argv[7]);
           if (argc > 8)
-            i->conchan = atoi(argv[8]);
+            i->conchan = egg_atoi(argv[8]);
         }
       }
     }
@@ -229,14 +230,14 @@ static int console_dupuser(struct userrec *new, struct userrec *old,
 }
 
 static struct user_entry_type USERENTRY_CONSOLE = {
-  NULL,                         /* always 0 ;) */
-  NULL,
+  nullptr,                         /* always 0 ;) */
+  nullptr,
   console_dupuser,
   console_unpack,
   console_pack,
   console_write_userfile,
   console_kill,
-  NULL,
+  nullptr,
   console_set,
   console_tcl_get,
   console_tcl_set,
@@ -248,7 +249,7 @@ static struct user_entry_type USERENTRY_CONSOLE = {
 
 static int console_chon(char *handle, int idx)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   struct console_info *i = get_user(&USERENTRY_CONSOLE, dcc[idx].user);
 
   if (dcc[idx].type == &DCC_CHAT) {
@@ -285,8 +286,9 @@ static int console_chon(char *handle, int idx)
           chanout_but(-1, dcc[idx].u.chat->channel,
                       "*** [%s] %s\n", dcc[idx].nick, p);
           op_strbuf_t _b;
+          op_strbuf_init(&_b);
           op_strbuf_appendf(&_b, "[%s] %s", dcc[idx].nick, p);
-          botnet_send_chan(-1, botnetnick, NULL, dcc[idx].u.chat->channel,
+          botnet_send_chan(-1, botnetnick, nullptr, dcc[idx].u.chat->channel,
                           op_strbuf_str(&_b));
           op_strbuf_free(&_b);
         }
@@ -333,7 +335,7 @@ static int console_store(struct userrec *u, int idx, char *par)
 static int console_dostore(int idx)
 {
   if (console_autosave)
-    console_store(dcc[idx].user, idx, NULL);
+    console_store(dcc[idx].user, idx, nullptr);
   return 0;
 }
 
@@ -341,17 +343,17 @@ static tcl_ints myints[] = {
   {"console-autosave", &console_autosave, 0},
   {"force-channel",    &force_channel,    0},
   {"info-party",       &info_party,       0},
-  {NULL,               NULL,              0}
+  {nullptr,               nullptr,              0}
 };
 
 static cmd_t mychon[] = {
   {"*",  "",   console_chon, "console:chon"},
-  {NULL, NULL, NULL,                   NULL}
+  {nullptr, nullptr, nullptr,                   nullptr}
 };
 
 static cmd_t mydcc[] = {
-  {"store", "",   console_store, NULL},
-  {NULL,    NULL, NULL,          NULL}
+  {"store", "",   console_store, nullptr},
+  {nullptr,    nullptr, nullptr,          nullptr}
 };
 
 static char *console_close(void)
@@ -363,7 +365,7 @@ static char *console_close(void)
   del_entry_type(&USERENTRY_CONSOLE);
   del_lang_section("console");
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *console_start(Function *global_funcs);
@@ -371,8 +373,8 @@ EXPORT_SCOPE char *console_start(Function *global_funcs);
 static Function console_table[] = {
   (Function) console_start,
   (Function) console_close,
-  (Function) NULL,
-  (Function) NULL,
+  (Function) nullptr,
+  (Function) nullptr,
   (Function) console_dostore,
 };
 
@@ -392,5 +394,5 @@ char *console_start(Function *global_funcs)
   USERENTRY_CONSOLE.get = def_get;
   add_entry_type(&USERENTRY_CONSOLE);
   add_lang_section("console");
-  return NULL;
+  return nullptr;
 }

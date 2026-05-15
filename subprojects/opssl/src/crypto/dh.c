@@ -6,20 +6,7 @@
 #include <opssl/crypto.h>
 #include <opssl/platform.h>
 #include <string.h>
-
-/* Internal bignum API from bignum.c */
-#define OPSSL_BN_MAX_LIMBS 64
-typedef struct { uint64_t d[OPSSL_BN_MAX_LIMBS]; int width; } opssl_bn_t;
-typedef struct { opssl_bn_t n; uint64_t n0_inv; int width; } opssl_bn_mont_ctx_t;
-
-extern void opssl_bn_zero(opssl_bn_t *bn, int width);
-extern void opssl_bn_from_bytes(opssl_bn_t *bn, const uint8_t *buf, size_t len);
-extern void opssl_bn_to_bytes(uint8_t *buf, size_t len, const opssl_bn_t *bn);
-extern void opssl_bn_mont_ctx_init(opssl_bn_mont_ctx_t *ctx, const opssl_bn_t *modulus, int width);
-extern void opssl_bn_to_mont(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_mont_ctx_t *mont);
-extern void opssl_bn_from_mont(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_mont_ctx_t *mont);
-extern void opssl_bn_mod_exp_ct(opssl_bn_t *r, const opssl_bn_t *base, const opssl_bn_t *exp, int exp_width, const opssl_bn_mont_ctx_t *mont);
-extern int  opssl_bn_cmp(const opssl_bn_t *a, const opssl_bn_t *b, int width);
+#include "bignum_internal.h"
 
 struct opssl_ffdh_ctx {
     opssl_ffdhe_group_t group;
@@ -234,76 +221,55 @@ opssl_ffdh_free(opssl_ffdh_ctx_t *ctx)
 int
 opssl_ffdh_keygen(opssl_ffdh_ctx_t *ctx)
 {
-    if (!ctx) return -1;
+    if (!ctx) return 0;
 
-    uint8_t priv_bytes[512]; /* Max for FFDHE-4096 */
-    opssl_bn_t g, temp;
+    /* RFC 7919 §5.2: private exponent needs 2*SecurityStrength bits.
+     * 256 bits for FFDHE-2048/3072, 384 bits for FFDHE-4096+.
+     * Always < p, so no modular reduction needed. */
+    size_t priv_bytes_len = (ctx->prime_len <= 384) ? 32 : 48;
+    uint8_t priv_bytes[48];
+    opssl_bn_t g;
 
-    /* Generate private key of same bit length as prime */
-    if (opssl_random_bytes(priv_bytes, ctx->prime_len) != 0) {
-        return -1;
+    if (opssl_random_bytes(priv_bytes, priv_bytes_len) != 0) {
+        return 0;
     }
 
-    /* Ensure private key is in range [2, p-2] by setting MSB and clearing low bit */
-    priv_bytes[0] |= 0x80;  /* Set MSB */
-    priv_bytes[ctx->prime_len - 1] |= 0x02;  /* Ensure >= 2 */
+    priv_bytes[0] |= 0x80;
+    priv_bytes[priv_bytes_len - 1] |= 0x02;
 
-    opssl_bn_from_bytes(&ctx->priv, priv_bytes, ctx->prime_len);
+    opssl_bn_from_bytes(&ctx->priv, priv_bytes, priv_bytes_len);
 
-    /* Reduce private key modulo (p-1) - approximate by reducing mod p */
-    opssl_bn_t prime_bn;
-    opssl_bn_from_bytes(&prime_bn, ctx->prime, ctx->prime_len);
-
-    /* If priv >= p, subtract p (simple reduction) */
-    if (opssl_bn_cmp(&ctx->priv, &prime_bn, ctx->width) >= 0) {
-        /* Simple subtraction: this is not constant time but good enough for key generation */
-        int borrow = 0;
-        for (int i = 0; i < ctx->width; i++) {
-            uint64_t diff = ctx->priv.d[i] - prime_bn.d[i] - borrow;
-            borrow = (diff > ctx->priv.d[i]) ? 1 : 0;
-            ctx->priv.d[i] = diff;
-        }
-    }
-
-    /* Compute public key: g^priv mod p, where g = 2 */
+    /* g^priv mod p — mod_exp_ct handles Montgomery conversion internally */
     opssl_bn_zero(&g, ctx->width);
     g.d[0] = 2;
     g.width = ctx->width;
 
-    /* Convert generator to Montgomery form */
-    opssl_bn_to_mont(&temp, &g, &ctx->mont);
-
-    /* Compute g^priv mod p using Montgomery ladder */
-    opssl_bn_mod_exp_ct(&temp, &temp, &ctx->priv, ctx->width, &ctx->mont);
-
-    /* Convert result back from Montgomery form */
-    opssl_bn_from_mont(&ctx->pub, &temp, &ctx->mont);
+    opssl_bn_mod_exp_ct(&ctx->pub, &g, &ctx->priv, ctx->width, &ctx->mont);
 
     ctx->has_key = 1;
 
-    /* Clear private key bytes from stack */
     opssl_memzero(priv_bytes, sizeof(priv_bytes));
 
-    return 0;
+    return 1;
 }
 
 int
 opssl_ffdh_get_public(opssl_ffdh_ctx_t *ctx, uint8_t *pub, size_t *pub_len)
 {
     if (!ctx || !pub || !pub_len || !ctx->has_key) {
-        return -1;
+        return 0;
     }
 
     if (*pub_len < ctx->prime_len) {
         *pub_len = ctx->prime_len;
-        return -1;
+        return 0;
     }
 
     /* Export public key as big-endian bytes with fixed length */
     opssl_bn_to_bytes(pub, ctx->prime_len, &ctx->pub);
     *pub_len = ctx->prime_len;
 
-    return 0;
+    return 1;
 }
 
 int
@@ -311,16 +277,16 @@ opssl_ffdh_derive(opssl_ffdh_ctx_t *ctx, const uint8_t *peer_pub, size_t peer_pu
                   uint8_t *shared, size_t *shared_len)
 {
     if (!ctx || !peer_pub || !shared || !shared_len || !ctx->has_key) {
-        return -1;
+        return 0;
     }
 
     if (peer_pub_len != ctx->prime_len) {
-        return -1;
+        return 0;
     }
 
     if (*shared_len < ctx->prime_len) {
         *shared_len = ctx->prime_len;
-        return -1;
+        return 0;
     }
 
     /* Import peer public key */
@@ -337,12 +303,11 @@ opssl_ffdh_derive(opssl_ffdh_ctx_t *ctx, const uint8_t *peer_pub, size_t peer_pu
 
     /* Check peer_pub > 1 */
     if (opssl_bn_cmp(&peer_pub_bn, &one, ctx->width) <= 0) {
-        return -1;
+        return 0;
     }
 
     /* Compute p-1 for upper bound check */
     memcpy(&p_minus_one, &prime_bn, sizeof(prime_bn));
-    /* Subtract 1: p_minus_one = p - 1 */
     int borrow = 1;
     for (int i = 0; i < ctx->width && borrow; i++) {
         uint64_t diff = p_minus_one.d[i] - borrow;
@@ -352,35 +317,26 @@ opssl_ffdh_derive(opssl_ffdh_ctx_t *ctx, const uint8_t *peer_pub, size_t peer_pu
 
     /* Check peer_pub < p-1 */
     if (opssl_bn_cmp(&peer_pub_bn, &p_minus_one, ctx->width) >= 0) {
-        return -1;
+        return 0;
     }
 
-    /* Convert peer public key to Montgomery form */
-    opssl_bn_t peer_mont;
-    opssl_bn_to_mont(&peer_mont, &peer_pub_bn, &ctx->mont);
-
-    /* Compute shared secret: peer_pub^priv mod p */
-    opssl_bn_mod_exp_ct(&peer_mont, &peer_mont, &ctx->priv, ctx->width, &ctx->mont);
-
-    /* Convert back from Montgomery form */
-    opssl_bn_from_mont(&shared_secret, &peer_mont, &ctx->mont);
+    /* mod_exp_ct handles Montgomery conversion internally */
+    opssl_bn_mod_exp_ct(&shared_secret, &peer_pub_bn, &ctx->priv, ctx->width, &ctx->mont);
 
     /* Check shared secret is not 0 or 1 (weak values) */
     if (opssl_ct_is_zero(shared_secret.d, ctx->width * sizeof(uint64_t))) {
-        return -1;
+        return 0;
     }
 
     if (opssl_bn_cmp(&shared_secret, &one, ctx->width) == 0) {
-        return -1;
+        return 0;
     }
 
     /* Export shared secret */
     opssl_bn_to_bytes(shared, ctx->prime_len, &shared_secret);
     *shared_len = ctx->prime_len;
 
-    /* Clear sensitive data */
-    opssl_memzero(&peer_mont, sizeof(peer_mont));
     opssl_memzero(&shared_secret, sizeof(shared_secret));
 
-    return 0;
+    return 1;
 }

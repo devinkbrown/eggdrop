@@ -49,7 +49,7 @@
 constexpr int BUFLEN = 512;
 
 
-static Function *global = NULL, *share_funcs = NULL;
+static Function *global = nullptr, *share_funcs = nullptr;
 
 static unsigned int compressed_files;   /* Number of files compressed.      */
 static unsigned int uncompressed_files; /* Number of files uncompressed.    */
@@ -238,6 +238,7 @@ static int compress_to_file(char *f_src, char *f_target, int mode_num)
 
   adjust_mode_num(&mode_num);
   op_strbuf_t mode_buf;
+  op_strbuf_init(&mode_buf);
   op_strbuf_appendf(&mode_buf, "wb%s", int_to_base10(mode_num));
   const char *mode = op_strbuf_str(&mode_buf);
 
@@ -318,6 +319,7 @@ static int compress_file(char *filename, int mode_num)
   make_rand_str(rands, sizeof rands - 1);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", filename, rands);
     temp_fn = op_strbuf_steal(&_b);
   }
@@ -346,6 +348,7 @@ static int uncompress_file(char *filename)
   make_rand_str(rands, sizeof rands - 1);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", filename, rands);
     temp_fn = op_strbuf_steal(&_b);
   }
@@ -390,7 +393,7 @@ static int uff_ask_compress(int idx)
 
 static uff_table_t compress_uff_table[] = {
   {"compress", UFF_COMPRESS, uff_ask_compress, 100, uff_comp, uff_uncomp},
-  {NULL,       0,            NULL,             0,   NULL,           NULL}
+  {nullptr,       0,            nullptr,             0,   nullptr,           nullptr}
 };
 
 /*
@@ -400,7 +403,7 @@ static uff_table_t compress_uff_table[] = {
 static tcl_ints my_tcl_ints[] = {
   {"share-compressed", (int *)&share_compressed, 0},
   {"compress-level",     (int *)&compress_level, 0},
-  {NULL,                                   NULL, 0}
+  {nullptr,                                   nullptr, 0}
 };
 
 static int compress_expmem(void)
@@ -432,7 +435,7 @@ static char *compress_close(void)
   uff_deltable(compress_uff_table);
 
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *compress_start(Function *global_funcs);
@@ -477,5 +480,5 @@ char *compress_start(Function *global_funcs)
   add_tcl_ints(my_tcl_ints);
   add_tcl_commands(my_tcl_cmds);
   add_help_reference("compress.help");
-  return NULL;
+  return nullptr;
 }

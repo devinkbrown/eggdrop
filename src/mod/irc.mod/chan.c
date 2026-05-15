@@ -37,7 +37,7 @@ static memberlist *newmember(struct chanset_t *chan)
     abort();
   }
   x->next = (memberlist *) channel_malloc_member();
-  x->next->next = NULL;
+  x->next->next = nullptr;
   x->next->nick[0] = 0;
   x->next->split = 0L;
   x->next->last = 0L;

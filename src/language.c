@@ -83,13 +83,13 @@ typedef struct lang_t {
 } lang_tab;
 
 static lang_tab *langtab[64];
-static lang_sec *langsection = NULL;
-static lang_pri *langpriority = NULL;
+static lang_sec *langsection = nullptr;
+static lang_pri *langpriority = nullptr;
 static char lang_dir_override[512] = "";  /* set via set_lang_dir() */
 
-static op_bh *lang_tab_bh  = NULL;
-static op_bh *lang_sec_bh  = NULL;
-static op_bh *lang_pri_bh  = NULL;
+static op_bh *lang_tab_bh  = nullptr;
+static op_bh *lang_sec_bh  = nullptr;
+static op_bh *lang_pri_bh  = nullptr;
 
 static int del_lang(char *);
 static int add_message(int, char *);
@@ -110,7 +110,7 @@ char language[64];
  */
 static void add_lang(char *lang)
 {
-  lang_pri *lp = langpriority, *lpo = NULL;
+  lang_pri *lp = langpriority, *lpo = nullptr;
 
   while (lp) {
     /* The language already exists, moving to the beginning */
@@ -132,7 +132,7 @@ static void add_lang(char *lang)
     lang_pri_bh = op_bh_create(sizeof(lang_pri), 8, "lang_pri");
   lp = op_bh_alloc(lang_pri_bh);
   lp->lang = op_strdup(lang);
-  lp->next = NULL;
+  lp->next = nullptr;
 
   /* If we have other entries, point to the beginning of the old list */
   if (langpriority)
@@ -145,7 +145,7 @@ static void add_lang(char *lang)
  */
 static int del_lang(char *lang)
 {
-  lang_pri *lp = langpriority, *lpo = NULL;
+  lang_pri *lp = langpriority, *lpo = nullptr;
 
   while (lp) {
     /* Found the language? */
@@ -217,7 +217,7 @@ static void read_lang(char *langfile)
 {
   FILE *FLANG;
   char lbuf[256];
-  char *ltext = NULL;
+  char *ltext = nullptr;
   char *ctmp, *ctmp1;
   int ltextsize = sizeof lbuf;
   unsigned int lidx;
@@ -228,7 +228,7 @@ static void read_lang(char *langfile)
   int ladd = 0, lupdate = 0;
 
   FLANG = fopen(langfile, "r");
-  if (FLANG == NULL) {
+  if (FLANG == nullptr) {
     putlog(LOG_MISC, "*", "LANG: unexpected: reading from file %s failed.",
            langfile);
     return;
@@ -237,7 +237,7 @@ static void read_lang(char *langfile)
   for (*(ltext = op_malloc(sizeof lbuf)) = 0; fgets(lbuf, sizeof lbuf, FLANG);
        lskip = 0) {
     if (lnew) {
-      if ((lbuf[0] == '#') || (sscanf(lbuf, "%s", ltext) == EOF))
+      if ((lbuf[0] == '#') || (sscanf(lbuf, "%255s", ltext) == EOF))
         lskip = 1;
       else if (sscanf(lbuf, "0x%x,", &lidx) != 1) {
         putlog(LOG_MISC, "*", "LANG: Malformed text line in %s at %d.",
@@ -245,10 +245,10 @@ static void read_lang(char *langfile)
         lskip = 1;
       }
       if (lskip) {
-        while (!strchr(lbuf, '\n') && fgets(lbuf, sizeof lbuf, FLANG) != NULL) {
+        while (!strchr(lbuf, '\n') && fgets(lbuf, sizeof lbuf, FLANG) != nullptr) {
           lline++;
         }
-        /* fgets == NULL means error or empty file, so check for error */
+        /* fgets == nullptr means error or empty file, so check for error */
         if (ferror(FLANG)) {
           putlog(LOG_MISC, "*", "LANG: Error reading lang file.");
         }
@@ -322,8 +322,8 @@ int exist_lang_section(char *section)
  */
 void add_lang_section(char *section)
 {
-  char *langfile = NULL;
-  lang_sec *ls, *ols = NULL;
+  char *langfile = nullptr;
+  lang_sec *ls, *ols = nullptr;
   int ok = 0;
 
   for (ls = langsection; ls; ols = ls, ls = ls->next)
@@ -336,8 +336,8 @@ void add_lang_section(char *section)
     lang_sec_bh = op_bh_create(sizeof(lang_sec), 16, "lang_sec");
   ls = op_bh_alloc(lang_sec_bh);
   ls->section = op_strdup(section);
-  ls->lang = NULL;
-  ls->next = NULL;
+  ls->lang = nullptr;
+  ls->next = nullptr;
 
   /* Connect to existing list of sections */
   if (ols)
@@ -369,7 +369,7 @@ int del_lang_section(char *section)
 {
   lang_sec *ls, *ols;
 
-  for (ls = langsection, ols = NULL; ls; ols = ls, ls = ls->next)
+  for (ls = langsection, ols = nullptr; ls; ols = ls, ls = ls->next)
     if (ls->section && !strcmp(ls->section, section)) {
       if (ols)
         ols->next = ls->next;
@@ -392,7 +392,7 @@ void set_lang_dir(const char *dir)
 {
   strlcpy(lang_dir_override, dir ? dir : "", sizeof lang_dir_override);
   /* Retry sections whose lang files were not found under the previous path
-   * (those have ls->lang == NULL after add_lang_section was called). */
+   * (those have ls->lang == nullptr after add_lang_section was called). */
   {
     lang_sec *ls;
     char *langfile;
@@ -428,17 +428,19 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
 
   for (int i = 0; i < ndirs; i++) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
     langfile = op_strbuf_steal(&_b);
     if (file_readable(langfile)) {
       /* Save language used for this section */
-      sec->lang = op_realloc(sec->lang, strlen(language) + 1);
-      strcpy(sec->lang, language);
+      size_t _len = strlen(language) + 1;
+      sec->lang = op_realloc(sec->lang, _len);
+      strlcpy(sec->lang, language, _len);
       return langfile;
     }
     op_free(langfile);
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Searches for available language files and returns the file with the
@@ -452,7 +454,7 @@ static char *get_langfile(lang_sec *sec)
   for (lp = langpriority; lp; lp = lp->next) {
     /* There is no need to reload the same language */
     if (sec->lang && !strcmp(sec->lang, lp->lang))
-      return NULL;
+      return nullptr;
     langfile = get_specific_langfile(lp->lang, sec);
     if (langfile)
       return langfile;
@@ -460,8 +462,8 @@ static char *get_langfile(lang_sec *sec)
   /* We did not find any files, clear the language field */
   if (sec->lang)
     op_free(sec->lang);
-  sec->lang = NULL;
-  return NULL;
+  sec->lang = nullptr;
+  return nullptr;
 }
 
 /* Split up a string /path/<section>.<language>.lang into the
@@ -583,7 +585,7 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
     if (strlen(par) > 2 && par[0] == '0' && par[1] == 'x')
       sscanf(par, "%x", &idx2);
     else
-      idx2 = (int) strtol(par, (char **) NULL, 10);
+      idx2 = (int) strtol(par, (char **) nullptr, 10);
     dprintf(idx, "0x%x: %s\n", idx2, get_language(idx2));
     return 0;
   }
@@ -657,15 +659,15 @@ static int cmd_languagestatus(struct userrec *u, int idx, char *par)
 }
 
 static cmd_t langdcc[] = {
-  {"language", "n",  cmd_loadlanguage,   NULL},
-  {"+lang",    "n",  cmd_plslang,        NULL},
-  {"-lang",    "n",  cmd_mnslang,        NULL},
-  {"+lsec",    "n",  cmd_plslsec,        NULL},
-  {"-lsec",    "n",  cmd_mnslsec,        NULL},
-  {"ldump",    "n",  cmd_languagedump,   NULL},
-  {"lstat",    "n",  cmd_languagestatus, NULL},
-  {"relang",   "n",  cmd_relang,         NULL},
-  {NULL,       NULL, NULL,               NULL}
+  {"language", "n",  cmd_loadlanguage,   nullptr},
+  {"+lang",    "n",  cmd_plslang,        nullptr},
+  {"-lang",    "n",  cmd_mnslang,        nullptr},
+  {"+lsec",    "n",  cmd_plslsec,        nullptr},
+  {"-lsec",    "n",  cmd_mnslsec,        nullptr},
+  {"ldump",    "n",  cmd_languagedump,   nullptr},
+  {"lstat",    "n",  cmd_languagestatus, nullptr},
+  {"relang",   "n",  cmd_relang,         nullptr},
+  {nullptr,       nullptr, nullptr,               nullptr}
 };
 
 /* Tcl command handlers. In non-Tcl builds these compile as dead code
@@ -752,7 +754,7 @@ static tcl_cmds langtcls[] = {
   {"addlangsection", tcl_addlangsection},
   {"dellangsection", tcl_dellangsection},
   {"relang",                 tcl_relang},
-  {NULL,                           NULL}
+  {nullptr,                           nullptr}
 };
 
 void init_language(int flag)

@@ -209,7 +209,7 @@ opssl_base64_decode(const char *in, size_t in_len, uint8_t *out, size_t *out_len
 
         /* Extract complete bytes */
         if (accum_bits >= 8) {
-            if (out_p - out >= max_out) {
+            if ((size_t)(out_p - out) >= max_out) {
                 OPSSL_ERR(OPSSL_ERR_X509, 55);
                 return 0;
             }
@@ -274,15 +274,16 @@ opssl_base64_encode(const uint8_t *in, size_t in_len, char *out, size_t *out_len
         /* Pad to complete triple */
         triple <<= (3 - triple_bytes) * 8;
 
-        /* Extract 4 base64 characters */
+        /* Extract 4 base64 characters: triple_bytes+1 real chars, rest '=' */
+        int real_chars = triple_bytes + 1;
         for (int i = 3; i >= 0; i--) {
-            if (triple_bytes * 8 > i * 6) {
+            int char_idx = 3 - i;
+            if (char_idx < real_chars) {
                 *out_p++ = base64_chars[(triple >> (i * 6)) & 0x3F];
-                line_pos++;
             } else {
                 *out_p++ = '=';
-                line_pos++;
             }
+            line_pos++;
         }
 
         /* Add newline every 64 characters */

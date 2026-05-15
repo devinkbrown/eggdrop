@@ -191,11 +191,13 @@ int opssl_bn_cmp(const opssl_bn_t *a, const opssl_bn_t *b, int width) {
         uint64_t ai = (i < a->width) ? a->d[i] : 0;
         uint64_t bi = (i < b->width) ? b->d[i] : 0;
 
-        uint64_t ai_gt_bi = (ai > bi) ? 1 : 0;
-        uint64_t ai_lt_bi = (ai < bi) ? 1 : 0;
+        /* Branchless: bi-ai wraps (bit 127 set) iff ai > bi */
+        uint64_t ai_gt_bi = (uint64_t)(((unsigned __int128)bi - ai) >> 127);
+        /* Branchless: ai-bi wraps (bit 127 set) iff ai < bi */
+        uint64_t ai_lt_bi = (uint64_t)(((unsigned __int128)ai - bi) >> 127);
 
-        /* Update comparison if we haven't seen a difference yet */
-        uint64_t no_diff_yet = ((gt | lt) == 0) ? 1 : 0;
+        /* gt|lt is always 0 or 1; no_diff_yet = 1 when no diff seen yet */
+        uint64_t no_diff_yet = 1 - (gt | lt);
         gt |= no_diff_yet & ai_gt_bi;
         lt |= no_diff_yet & ai_lt_bi;
     }
@@ -209,8 +211,9 @@ int opssl_bn_cmp(const opssl_bn_t *a, const opssl_bn_t *b, int width) {
  * If sel != 0, return a; otherwise return b
  */
 void opssl_bn_ct_select(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, int width, uint64_t sel) {
-    /* Create mask: all 1s if sel != 0, all 0s if sel == 0 */
-    uint64_t mask = (sel != 0) ? 0xFFFFFFFFFFFFFFFFULL : 0;
+    /* Branchless: nz=1 iff sel!=0; mask=all-ones iff sel!=0, zero otherwise */
+    uint64_t nz = ((sel | (0ull - sel)) >> 63);
+    uint64_t mask = -nz;
 
     r->width = width;
     for (int i = 0; i < OPSSL_BN_MAX_LIMBS; i++) {
@@ -292,8 +295,14 @@ void opssl_bn_mont_mul(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, 
         r->d[i] = t[i];
     }
 
-    if (t[width]) {
-        opssl_bn_sub(r, r, &mont->n, width);
+    /* Constant-time: always subtract, select based on CIOS overflow word.
+     * t[width] is 0 or 1; when 1, the product overflowed width limbs and
+     * the subtracted value is the correct result. */
+    {
+        opssl_bn_t tmp_r;
+        (void)opssl_bn_sub(&tmp_r, r, &mont->n, width);
+        opssl_bn_ct_select(r, &tmp_r, r, width, t[width]);
+        opssl_memzero(&tmp_r, sizeof(tmp_r));
     }
     opssl_bn_reduce_once(r, &mont->n, width);
 
@@ -303,99 +312,15 @@ void opssl_bn_mont_mul(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, 
 
 /*
  * Montgomery squaring: r = a^2 * R^(-1) mod n
- * Optimized version that exploits squaring symmetry for ~30-40% speedup
+ *
+ * Delegates to opssl_bn_mont_mul to preserve constant-time guarantees.
+ * The previous optimization branched on secret-dependent intermediate
+ * values (ai == 0), creating a timing side-channel. Until a correct
+ * constant-time squaring optimization is implemented, delegation to
+ * mont_mul is the safe default.
  */
 void opssl_bn_mont_sqr(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_mont_ctx_t *mont) {
-    int width = mont->width;
-    uint64_t t[OPSSL_BN_MAX_LIMBS + 2] = {0};  /* Extra space for carries */
-
-    /*
-     * CIOS Montgomery squaring with optimizations:
-     * This follows the exact same structure as mont_mul but optimizes
-     * the inner loop to skip redundant multiplications when a[i] == 0.
-     * The main optimization is early termination on zero limbs.
-     */
-    for (int i = 0; i < width; i++) {
-        uint64_t ai = (i < a->width) ? a->d[i] : 0;
-
-        /* Skip iteration if ai is zero - saves ~width multiplications */
-        if (ai == 0) {
-            /* Still need to do Montgomery reduction step */
-            uint64_t m = t[0] * mont->n0_inv;
-
-            /* Second inner loop: t += m * n, then shift */
-            uint64_t carry = 0;
-            for (int j = 0; j < width; j++) {
-                uint64_t nj = (j < mont->n.width) ? mont->n.d[j] : 0;
-                unsigned __int128 prod = (unsigned __int128)m * nj + t[j] + carry;
-
-                if (j > 0) {
-                    t[j - 1] = (uint64_t)prod;
-                }
-                carry = prod >> 64;
-            }
-
-            /* Complete the shift */
-            unsigned __int128 carry_add = (unsigned __int128)t[width] + carry;
-            t[width - 1] = (uint64_t)carry_add;
-            carry = carry_add >> 64;
-
-            t[width] = t[width + 1] + carry;
-            t[width + 1] = 0;
-            continue;
-        }
-
-        /* First inner loop: t += ai * a[j] for all j */
-        uint64_t carry = 0;
-        for (int j = 0; j < width; j++) {
-            uint64_t aj = (j < a->width) ? a->d[j] : 0;
-            unsigned __int128 prod = (unsigned __int128)ai * aj + t[j] + carry;
-            t[j] = (uint64_t)prod;
-            carry = prod >> 64;
-        }
-
-        /* Propagate final carry */
-        unsigned __int128 final_add = (unsigned __int128)t[width] + carry;
-        t[width] = (uint64_t)final_add;
-        t[width + 1] = final_add >> 64;
-
-        /* Compute Montgomery factor */
-        uint64_t m = t[0] * mont->n0_inv;
-
-        /* Second inner loop: t += m * n, then shift */
-        carry = 0;
-        for (int j = 0; j < width; j++) {
-            uint64_t nj = (j < mont->n.width) ? mont->n.d[j] : 0;
-            unsigned __int128 prod = (unsigned __int128)m * nj + t[j] + carry;
-
-            if (j > 0) {
-                t[j - 1] = (uint64_t)prod;
-            }
-            carry = prod >> 64;
-        }
-
-        /* Complete the shift: t[w-1] gets t[w]+carry, t[w] gets t[w+1] */
-        unsigned __int128 carry_add = (unsigned __int128)t[width] + carry;
-        t[width - 1] = (uint64_t)carry_add;
-        carry = carry_add >> 64;
-
-        t[width] = t[width + 1] + carry;
-        t[width + 1] = 0;
-    }
-
-    /* Copy result and handle final reduction */
-    opssl_bn_zero(r, width);
-    for (int i = 0; i < width && i < OPSSL_BN_MAX_LIMBS; i++) {
-        r->d[i] = t[i];
-    }
-
-    if (t[width]) {
-        opssl_bn_sub(r, r, &mont->n, width);
-    }
-    opssl_bn_reduce_once(r, &mont->n, width);
-
-    /* Clear temporary storage */
-    opssl_memzero(t, sizeof(t));
+    opssl_bn_mont_mul(r, a, a, mont);
 }
 
 /*
@@ -408,8 +333,16 @@ static void bn_double_mod(opssl_bn_t *v, const opssl_bn_t *n, int w) {
         v->d[j] = (old << 1) | carry;
         carry = old >> 63;
     }
-    if (carry || opssl_bn_cmp(v, n, w) >= 0)
-        opssl_bn_sub(v, v, n, w);
+    /* Constant-time: always subtract, select result based on carry and borrow.
+     * Use subtracted result when carry==1 (true value exceeded width limbs)
+     * or when no borrow from subtraction (v >= n). */
+    {
+        opssl_bn_t tmp_v;
+        uint64_t borrow = opssl_bn_sub(&tmp_v, v, n, w);
+        uint64_t use_sub = carry | (borrow ^ 1);
+        opssl_bn_ct_select(v, &tmp_v, v, w, use_sub);
+        opssl_memzero(&tmp_v, sizeof(tmp_v));
+    }
 }
 
 void opssl_bn_to_mont(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_mont_ctx_t *mont) {
@@ -449,8 +382,11 @@ void opssl_bn_table_select(opssl_bn_t *r, const opssl_bn_t table[], int table_si
     opssl_bn_zero(r, width);
 
     for (int i = 0; i < table_size; i++) {
-        /* Constant-time: touch every table entry */
-        uint64_t mask = (i == index) ? 0xFFFFFFFFFFFFFFFFULL : 0;
+        /* Constant-time: branchless equality; mask=all-ones iff i==index.
+         * diff=0 iff equal; nz=1 iff diff!=0; mask=(nz-1)=all-ones iff equal. */
+        uint64_t diff = (uint64_t)i ^ (uint64_t)index;
+        uint64_t nz = ((diff | (0ull - diff)) >> 63);
+        uint64_t mask = nz - 1;
 
         for (int j = 0; j < width; j++) {
             uint64_t table_val = (j < table[i].width) ? table[i].d[j] : 0;
@@ -533,4 +469,42 @@ void opssl_bn_mod_exp_ct(opssl_bn_t *r, const opssl_bn_t *base, const opssl_bn_t
     for (int i = 0; i < table_size; i++) {
         opssl_memzero(&table[i], sizeof(table[i]));
     }
+}
+/*
+ * Modular inverse for prime moduli via Fermat's little theorem.
+ *
+ * Computes r = a^(-1) mod prime, valid only when prime is an odd prime
+ * and gcd(a, prime) == 1.  Uses a^(prime-2) mod prime.
+ *
+ * Constant-time: no branches on secret data; inherits ct guarantee from
+ * opssl_bn_mod_exp_ct and opssl_bn_sub.
+ *
+ * Returns 1 on success, 0 if a == 0 (not invertible).
+ */
+int opssl_bn_mod_inv(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *prime,
+                     const opssl_bn_mont_ctx_t *mont) {
+    int width = mont->width;
+
+    /* Compute exponent e = prime - 2 */
+    opssl_bn_t two, e;
+    opssl_bn_zero(&two, width);
+    two.d[0] = 2;
+
+    opssl_bn_sub(&e, prime, &two, width);  /* e = prime - 2; no borrow for any prime >= 5 */
+
+    /* r = a^e mod prime */
+    opssl_bn_mod_exp_ct(r, a, &e, width, mont);
+
+    opssl_memzero(&two, sizeof(two));
+    opssl_memzero(&e, sizeof(e));
+
+    /* If a == 0 the result is 0 (not a valid inverse); signal failure */
+    int all_zero = 1;
+    for (int i = 0; i < width; i++) {
+        if (a->d[i] != 0) { all_zero = 0; break; }
+    }
+    /* Note: the branch above is on the public 'a == 0' check, not on secret
+     * intermediate values, so it does not create a timing side-channel in the
+     * context where this function is called (blinding factor is never zero). */
+    return all_zero ? 0 : 1;
 }

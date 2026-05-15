@@ -182,35 +182,31 @@ constexpr int PASSWORDLEN = PASSWORDMAX + 1;
 #include <time.h> /* POSIX 2001 */
 #include <sys/resource.h> /* getrusage() setrlimit() after time.h because of BSD */
 
-/* Yikes...who would have thought finding a usable random() would be so much
- * trouble?
- * Note: random() is *not* thread safe.
- *
- * QNX doesn't include random() and srandom() in libc.so, only in libc.a
- * So we can only use these functions in static builds on QNX.
- */
-#if defined QNX_HACKS && defined MAKING_MODS
-#  undef HAVE_RANDOM
-#  undef HAVE_SRANDOM
-#endif
-
-/* On systems with random(), RANDOM_MAX may or may not be defined.
- *
- * If RANDOM_MAX isn't defined, we use 0x7FFFFFFF (2^31-1), or 2147483647
- * since this follows the 4.3BSD and POSIX.1-2001 standards. This of course
- * assumes random() uses a 32 bit long int type per the standards.
- */
+/* Legacy upper bound kept for Tcl [rand] and delay sanity checks. */
 #ifndef RANDOM_MAX
-#  define RANDOM_MAX 0x7FFFFFFF  /* random() -- 2^31-1 */
+#  define RANDOM_MAX 0x7FFFFFFF  /* 2^31-1 */
 #endif
 
 
-/* Use high-order bits for getting the random integer. With a modern
- * random() implementation, modulo would probably be sufficient, but on
- * systems lacking random(), it may just be a macro for an older rand()
- * function.
+/* CSPRNG-backed uniform random integer in [0, n).
+ * Uses getrandom(2) directly — no weak PRNG state to seed.
  */
-#define randint(n) (uint64_t) (random() / (RANDOM_MAX + 1.0) * n)
+#ifdef HAVE_GETRANDOM
+#  include <sys/random.h>
+#else
+/* Fallback: arc4random_buf from stdlib (glibc 2.36+) or compat layer. */
+void arc4random_buf(void *, size_t);
+#endif
+static inline uint64_t randint(uint64_t n) {
+  uint64_t r;
+#ifdef HAVE_GETRANDOM
+  if (getrandom(&r, sizeof(r), 0) != sizeof(r))
+    r = 0;
+#else
+  arc4random_buf(&r, sizeof(r));
+#endif
+  return r % n;
+}
 
 
 /* opssl forward declarations — avoids pulling in full opssl headers. */
@@ -224,13 +220,13 @@ typedef struct opssl_conn opssl_conn_t;
  *
  *    All allocations route through libop's OOM-safe allocators.
  *    op_malloc() calls calloc(1, size) so memory is always zeroed;
- *    op_free() is a no-op on NULL.
+ *    op_free() is a no-op on nullptr.
  */
 
 #ifdef DEBUG_ASSERT
 #  define Assert(expr) do {                                             \
           if (!(expr))                                                  \
-            eggAssert(__FILE__, __LINE__, NULL);                        \
+            eggAssert(__FILE__, __LINE__, nullptr);                        \
 } while (0)
 #else
 #  define Assert(expr) do {} while (0)
@@ -262,6 +258,8 @@ typedef uint32_t IP;
 #define egg_islower(x)  islower((int)  (unsigned char) (x))
 
 /* The following functions are for backward compatibility only */
+static inline int egg_atoi(const char *s) { return (int)strtol(s, nullptr, 10); }
+
 #define egg_bzero(dest, len) memset(dest, 0, len)
 #define egg_memcpy memcpy
 #define egg_memset memset
@@ -360,7 +358,7 @@ struct dcc_t {
 };
 
 struct chat_info {
-  char *away;                    /* non-NULL if user is away             */
+  char *away;                    /* non-nullptr if user is away             */
   int msgs_per_sec;              /* used to stop flooding                */
   int con_flags;                 /* with console: what to show           */
   int strip_flags;               /* what codes to strip (b,r,u,c,a,g,*)  */
@@ -736,26 +734,6 @@ enum {
 #ifndef STRINGIFY
 #  define STRINGIFY(x) STRINGIFY1(x)
 #  define STRINGIFY1(x) #x
-#endif
-
-#ifdef EGG_TDNS
-#include <pthread.h>
-#define DTN_TYPE_HOSTBYIP 0
-#define DTN_TYPE_IPBYHOST 1
-
-/* linked list instead of array because of multi threading */
-struct dns_thread_node {
-  pthread_t thread_id;
-  pthread_mutex_t mutex;
-  int fildes[2];
-  int type;
-  sockname_t addr;
-  char host[256];
-  char strerror[3 * 64]; /* msg + gai_strerror() + strerror() */
-  struct dns_thread_node *next;
-};
-
-extern struct dns_thread_node *dns_thread_head;
 #endif
 
 #endif /* _EGG_EGGDROP_H */

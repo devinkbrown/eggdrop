@@ -35,7 +35,7 @@ static p_tcl_bind_list H_topc, H_splt, H_sign, H_rejn, H_part, H_pub, H_pubm;
 static p_tcl_bind_list H_nick, H_mode, H_kick, H_join, H_need, H_invt, H_ircaway;
 static p_tcl_bind_list H_account, H_chghost;
 
-static Function *global = NULL, *channels_funcs = NULL, *server_funcs = NULL;
+static Function *global = nullptr, *channels_funcs = nullptr, *server_funcs = nullptr;
 
 static int ctcp_mode;
 static int wait_split = 300;    /* Time to wait for user to return from net-split. */
@@ -82,7 +82,7 @@ static int want_to_revenge(struct chanset_t *chan, struct userrec *u,
                            struct userrec *u2, const char *badnick,
                            const char *victim, int mevictim)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   /* Do not take revenge upon ourselves. */
   if (match_my_nick(badnick))
@@ -95,7 +95,7 @@ static int want_to_revenge(struct chanset_t *chan, struct userrec *u,
     if (mevictim && channel_revengebot(chan))
       return 1;
     else if (channel_revenge(chan) && u2) {
-      struct flag_record fr2 = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+      struct flag_record fr2 = { FR_GLOBAL | FR_CHAN };
 
       get_user_flagrec(u2, &fr2, chan->dname);
       /* Protecting friends? */
@@ -118,7 +118,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
   op_strbuf_t reason, comment;
   char ct[7], *kick_msg;
   memberlist *m;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   m = ismember(chan, badnick);
   if (!m)
@@ -184,7 +184,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
         if (!strncmp(s1, "bad", 3)) {
           int i;
 
-          i = atoi(s1 + 3);
+          i = egg_atoi(s1 + 3);
           strlcpy(s1 + 3, int_to_base10(i + 1), sizeof s1 - 3);
         } else
           strlcpy(s1, "bad1", sizeof s1);   /* Start with '1' */
@@ -226,7 +226,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
   if (!mevictim && (chan->revenge_mode > 1) && (!channel_dontkickops(chan) ||
       (!chan_op(fr) && (!glob_op(fr) || chan_deop(fr)))) &&
       !chan_sentkick(m) && (me_op(chan) || (me_halfop(chan) &&
-      !chan_hasop(m) && (strchr(NOHALFOPS_MODES, 'b') == NULL)))) {
+      !chan_hasop(m) && (strchr(NOHALFOPS_MODES, 'b') == nullptr)))) {
     dprintf(DP_MODE, "KICK %s %s :%s\n", chan->name, badnick, kick_msg);
     m->flags |= SENTKICK;
   }
@@ -257,7 +257,7 @@ static void maybe_revenge(struct chanset_t *chan, const char *whobad,
   bp = bad;
   badnick = splitnick(&bp);
   m = ismember(chan, badnick);
-  u = lookup_user_record(m, m ? m->account : NULL, buf);
+  u = lookup_user_record(m, m ? m->account : nullptr, buf);
 
   /* Get info about victim */
   strlcpy(vic, whovictim, sizeof vic);
@@ -265,7 +265,7 @@ static void maybe_revenge(struct chanset_t *chan, const char *whobad,
   vp = vic;
   victim = splitnick(&vp);
   m = ismember(chan, victim);
-  u2 = lookup_user_record(m, m ? m->account : NULL, buf);
+  u2 = lookup_user_record(m, m ? m->account : nullptr, buf);
   mevictim = match_my_nick(victim);
 
   /* Do we want to revenge? */
@@ -278,7 +278,7 @@ static void maybe_revenge(struct chanset_t *chan, const char *whobad,
 static void set_key(struct chanset_t *chan, char *k)
 {
   op_free(chan->channel.key);
-  if (k == NULL) {
+  if (k == nullptr) {
     chan->channel.key = (char *) channel_malloc(1);
     chan->channel.key[0] = 0;
     return;
@@ -327,7 +327,7 @@ static void newmask(masklist *m, op_htab *ht, const char *s, const char *who)
   }
 
   m->next = (masklist *) channel_malloc_mask();
-  m->next->next = NULL;
+  m->next->next = nullptr;
   m->next->mask = (char *) channel_malloc(1);
   m->next->mask[0] = 0;
   op_free(m->mask);
@@ -335,7 +335,7 @@ static void newmask(masklist *m, op_htab *ht, const char *s, const char *who)
   m->who = op_strdup(who);
   m->timer = now;
   if (ht)
-    op_htab_set(ht, m->mask, m, NULL);
+    op_htab_set(ht, m->mask, m, nullptr);
 }
 
 /* Removes a nick from the channel member list (returns 1 if successful)
@@ -344,7 +344,7 @@ static int killmember(struct chanset_t *chan, char *nick)
 {
   memberlist *x, *old;
 
-  old = NULL;
+  old = nullptr;
   for (x = chan->channel.member; x && x->nick[0]; old = x, x = x->next)
     if (!rfc_casecmp(x->nick, nick))
       break;
@@ -375,7 +375,7 @@ static int killmember(struct chanset_t *chan, char *nick)
   if (!chan->channel.member) {
     chan->channel.member = (memberlist *) channel_malloc_member();
     chan->channel.member->nick[0] = 0;
-    chan->channel.member->next = NULL;
+    chan->channel.member->next = nullptr;
   }
   return 1;
 }
@@ -384,7 +384,7 @@ static int killmember(struct chanset_t *chan, char *nick)
  */
 static int me_op(struct chanset_t *chan)
 {
-  memberlist *mx = NULL;
+  memberlist *mx = nullptr;
 
   mx = ismember(chan, botname);
   if (!mx)
@@ -399,7 +399,7 @@ static int me_op(struct chanset_t *chan)
  */
 static int me_owner(struct chanset_t *chan)
 {
-  memberlist *mx = NULL;
+  memberlist *mx = nullptr;
 
   mx = ismember(chan, botname);
   if (!mx)
@@ -411,7 +411,7 @@ static int me_owner(struct chanset_t *chan)
  */
 static int me_halfop(struct chanset_t *chan)
 {
-  memberlist *mx = NULL;
+  memberlist *mx = nullptr;
 
   mx = ismember(chan, botname);
   if (!mx)
@@ -515,7 +515,7 @@ static void do_channel_part(struct chanset_t *chan)
 
     /* As we don't know of this channel anymore when we receive the server's
      * ack for the above PART, we have to notify about it _now_. */
-    check_tcl_part(botname, botuserhost, NULL, chan->dname, NULL);
+    check_tcl_part(botname, botuserhost, nullptr, chan->dname, nullptr);
   }
 }
 
@@ -535,7 +535,7 @@ static void status_log(void)
 
   op_strbuf_init(&s);
   op_strbuf_init(&s2);
-  for (chan = chanset; chan != NULL; chan = chan->next) {
+  for (chan = chanset; chan != nullptr; chan = chan->next) {
     if (channel_active(chan) && channel_logstatus(chan) &&
         !channel_inactive(chan)) {
       chops = 0;
@@ -653,7 +653,7 @@ static void check_expired_chanstuff(void)
   memberlist *m, *n;
   char *key;
   struct chanset_t *chan;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!server_online)
     return;
@@ -757,12 +757,12 @@ static void check_expired_chanstuff(void)
 
 static int channels_6char STDVAR
 {
-  __attribute__((unused)) Function F = (Function) cd;
+  [[maybe_unused]] Function F = (Function) cd;
 
   BADARGS(7, 7, " nick user@host handle desto/chan keyword/nick text");
 
   CHECKVALIDITY(channels_6char);
-  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6])), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6])), nullptr);
   return TCL_OK;
 }
 
@@ -813,11 +813,12 @@ static int invite_4char STDVAR
 static int check_tcl_chghost(char *nick, char *from, const char *mask, struct userrec *u,
                              char *chan, char *ident, char *host)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
   op_strbuf_t usermask;
+  op_strbuf_init(&usermask);
   int x;
 
-  get_user_flagrec(u, &fr, NULL);
+  get_user_flagrec(u, &fr, nullptr);
   op_strbuf_appendf(&usermask, "%s!%s@%s", nick, ident, host);
 
   Tcl_SetVar(interp, "_chghost1", nick, 0);
@@ -837,7 +838,7 @@ static int check_tcl_ircaway(char *nick, char *from, const char *mask,
 {
   int x;
   char *hand = u ? u->handle : "*";
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   Tcl_SetVar(interp, "_ircaway1", nick, 0);
   Tcl_SetVar(interp, "_ircaway2", from, 0);
@@ -852,7 +853,7 @@ static int check_tcl_ircaway(char *nick, char *from, const char *mask,
 static void check_tcl_joinspltrejn(char *nick, char *uhost, struct userrec *u,
                                    char *chname, p_tcl_bind_list table)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t args;
 
   op_strbuf_init(&args);
@@ -872,7 +873,7 @@ static void check_tcl_joinspltrejn(char *nick, char *uhost, struct userrec *u,
 static void check_tcl_part(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *text)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t args;
 
   op_strbuf_init(&args);
@@ -892,7 +893,7 @@ static void check_tcl_signtopcnick(char *nick, char *uhost, struct userrec *u,
                                    char *chname, char *reason,
                                    p_tcl_bind_list table)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t args;
 
   op_strbuf_init(&args);
@@ -915,7 +916,7 @@ static void check_tcl_signtopcnick(char *nick, char *uhost, struct userrec *u,
 static void check_tcl_mode(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *mode, char *target)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t args;
 
   get_user_flagrec(u, &fr, chname);
@@ -936,7 +937,7 @@ static void check_tcl_mode(char *nick, char *uhost, struct userrec *u,
 static void check_tcl_kick(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *dest, char *reason)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   op_strbuf_t args;
 
   get_user_flagrec(u, &fr, chname);
@@ -957,6 +958,7 @@ static void check_tcl_kick(char *nick, char *uhost, struct userrec *u,
 static void check_tcl_invite(char *nick, char *from, char *chan, char *invitee)
 {
   op_strbuf_t args;
+  op_strbuf_init(&args);
 
   Tcl_SetVar(interp, "_invite1", nick, 0);
   Tcl_SetVar(interp, "_invite2", from, 0);
@@ -971,11 +973,11 @@ static void check_tcl_invite(char *nick, char *from, char *chan, char *invitee)
 
 static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   int x;
   char buf[512], *args = buf, *cmd, *hand;
   struct chanset_t *chan;
-  struct userrec *u = NULL;
+  struct userrec *u = nullptr;
   memberlist *m;
 
   strlcpy(buf, msg, sizeof buf);
@@ -984,7 +986,7 @@ static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
   m = ismember(chan, nick);
   if (!m)
     m = find_member_from_nick(nick);
-  u = lookup_user_record(m, m ? m->account : NULL, from);
+  u = lookup_user_record(m, m ? m->account : nullptr, from);
   hand = u ? u->handle : "*";
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_pub1", nick, 0);
@@ -1003,9 +1005,10 @@ static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
 
 static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   int x;
   op_strbuf_t buf;
+  op_strbuf_init(&buf);
   struct userrec *u;
   struct chanset_t *chan;
   memberlist *m;
@@ -1015,7 +1018,7 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
   m = ismember(chan, nick);
   if (!m)
     m = find_member_from_nick(nick);
-  u = lookup_user_record(m, m ? m->account : NULL, from);
+  u = lookup_user_record(m, m ? m->account : nullptr, from);
   get_user_flagrec(u, &fr, chname);
   Tcl_SetVar(interp, "_pubm1", nick, 0);
   Tcl_SetVar(interp, "_pubm2", from, 0);
@@ -1056,9 +1059,10 @@ static void check_tcl_need(char *chname, char *type)
 static void check_tcl_account(char *nick, char *uhost, struct userrec *u, char *chan, char *account)
 {
   op_strbuf_t mask;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
-  op_strbuf_appendf(&mask, "%s %s!%s %s", chan, nick, uhost, account);
+  op_strbuf_init(&mask);
+  op_strbuf_appendf(&mask, "%s %s!%s %s", chan, nick, uhost, account ? account : "*");
   Tcl_SetVar(interp, "_acnt1", nick, 0);
   Tcl_SetVar(interp, "_acnt2", uhost, 0);
   Tcl_SetVar(interp, "_acnt3", u ? u->handle : "*", 0);
@@ -1072,7 +1076,7 @@ static void check_tcl_account(char *nick, char *uhost, struct userrec *u, char *
 
 static tcl_strings mystrings[] = {
   {"opchars", opchars, 7, 0},
-  {NULL,      NULL,    0, 0}
+  {nullptr,      nullptr,    0, 0}
 };
 
 static tcl_ints myints[] = {
@@ -1100,7 +1104,7 @@ static tcl_ints myints[] = {
   {"prevent-mixing",  &prevent_mixing,  0},
   {"rfc-compliant",   &rfc_compliant,   0},
   {"include-lk",      &include_lk,      0},
-  {NULL,              NULL,             0}  /* arthur2 */
+  {nullptr,              nullptr,             0}  /* arthur2 */
 };
 
 /* Flush the modes for EVERY channel.
@@ -1146,7 +1150,7 @@ static void tell_account_tracking_status(int idx, int details)
    */
   /* Check if CAPs are enabled */
   current = cap;
-  while (current != NULL) {
+  while (current != nullptr) {
     if (!strcasecmp("extended-join", current->name) && current->enabled) {
       extjoin = 1;
     } else if (!strcasecmp("account-notify", current->name) && current->enabled) {
@@ -1192,7 +1196,7 @@ static void tell_account_tracking_status(int idx, int details)
 
 static void irc_report(int idx, int details)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   char q[256], *p;
   int k, l;
   struct chanset_t *chan;
@@ -1205,7 +1209,7 @@ static void irc_report(int idx, int details)
     if (idx != DP_STDOUT)
       get_user_flagrec(dcc[idx].user, &fr, chan->dname);
     if ((idx == DP_STDOUT) || glob_master(fr) || chan_master(fr)) {
-      p = NULL;
+      p = nullptr;
       if (!channel_inactive(chan)) {
         if (chan->status & CHAN_JUPED)
           p = MISC_JUPED;
@@ -1225,7 +1229,7 @@ static void irc_report(int idx, int details)
         strlcpy(q, "          ", sizeof(q));
         k = 10;
       }
-      k += my_strcpy(q + k, op_strbuf_str(&_bch));
+      k = (int)(stpcpy(q + k, op_strbuf_str(&_bch)) - q);
     }
   }
   op_strbuf_free(&_bch);
@@ -1370,16 +1374,16 @@ static void do_nettype(void)
   add_hook(HOOK_RFC_CASECMP, (Function) (intptr_t) rfc_compliant);
 }
 
-static __attribute__((unused)) char *traced_nettype(ClientData cdata,
+[[maybe_unused]] static char *traced_nettype(ClientData cdata,
                             Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
   do_nettype();
-  return NULL;
+  return nullptr;
 }
 
-static __attribute__((unused)) char *traced_rfccompliant(ClientData cdata,
+[[maybe_unused]] static char *traced_rfccompliant(ClientData cdata,
                                  Tcl_Interp *irp,
                                  EGG_CONST char *name1,
                                  EGG_CONST char *name2, int flags)
@@ -1389,7 +1393,7 @@ static __attribute__((unused)) char *traced_rfccompliant(ClientData cdata,
    * is 1, or to the normal version if it's 0.
    */
   add_hook(HOOK_RFC_CASECMP, (Function) (intptr_t) rfc_compliant);
-  return NULL;
+  return nullptr;
 }
 
 static int irc_expmem(void)
@@ -1438,12 +1442,12 @@ static char *irc_close(void)
   del_hook(HOOK_IDLE, (Function) flush_modes);
   Tcl_UntraceVar(interp, "rfc-compliant",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_rfccompliant, NULL);
+                 traced_rfccompliant, nullptr);
   Tcl_UntraceVar(interp, "net-type",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_nettype, NULL);
+                 traced_nettype, nullptr);
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *irc_start(Function *global_funcs);
@@ -1527,10 +1531,10 @@ char *irc_start(Function *global_funcs)
   add_hook(HOOK_IDLE, (Function) flush_modes);
   Tcl_TraceVar(interp, "net-type",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_nettype, NULL);
+               traced_nettype, nullptr);
   Tcl_TraceVar(interp, "rfc-compliant",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_rfccompliant, NULL);
+               traced_rfccompliant, nullptr);
   strlcpy(opchars, "@", sizeof(opchars));
   add_tcl_strings(mystrings);
   add_tcl_ints(myints);
@@ -1560,5 +1564,5 @@ char *irc_start(Function *global_funcs)
   H_account = add_bind_table("account", HT_STACKABLE, channels_5char);
   H_chghost = add_bind_table("chghost", HT_STACKABLE, channels_5char);
   do_nettype();
-  return NULL;
+  return nullptr;
 }

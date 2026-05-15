@@ -9,6 +9,37 @@
  * so we need -DHAVE_CONFIG_H and libop_dep in the build.
  */
 #include "../src/rfc1459.c"
+
+/* Provide symbols needed by addr_match/cron_match in match.c */
+int (*rfc_toupper)(int) = _rfc_toupper;
+
+int str_isdigit(const char *str)
+{
+  if (!*str)
+    return 0;
+  for (; *str; ++str)
+    if (!egg_isdigit(*str))
+      return 0;
+  return 1;
+}
+
+char *newsplit(char **rest)
+{
+  char *o, *r;
+  if (!rest)
+    return "";
+  o = *rest;
+  while (*o == ' ')
+    o++;
+  r = o;
+  while (*o && *o != ' ')
+    o++;
+  if (*o)
+    *o++ = 0;
+  *rest = o;
+  return r;
+}
+
 #include "../src/match.c"
 
 /* Tests */
@@ -81,6 +112,85 @@ TEST(wild_match_rfc1459_special) {
     ASSERT_TRUE(wild_match("*|*", "before\\after"));
 }
 
+/* CIDR matching tests */
+
+TEST(cidr_match_same_subnet) {
+    ASSERT_TRUE(cidr_match("192.168.1.0", "192.168.1.100", 24) > 0);
+    ASSERT_TRUE(cidr_match("10.0.0.0", "10.0.0.255", 24) > 0);
+}
+
+TEST(cidr_match_different_subnet) {
+    ASSERT_EQ(cidr_match("192.168.1.0", "192.168.2.100", 24), 0);
+    ASSERT_EQ(cidr_match("10.0.0.0", "10.0.1.0", 24), 0);
+}
+
+TEST(cidr_match_exact_32) {
+    ASSERT_TRUE(cidr_match("10.0.0.1", "10.0.0.1", 32) > 0);
+    ASSERT_EQ(cidr_match("10.0.0.1", "10.0.0.2", 32), 0);
+}
+
+TEST(cidr_match_zero_prefix) {
+    ASSERT_EQ(cidr_match("1.2.3.4", "5.6.7.8", 0), 1);
+    ASSERT_EQ(cidr_match("255.255.255.255", "0.0.0.0", 0), 1);
+}
+
+TEST(cidr_match_invalid_count) {
+    ASSERT_EQ(cidr_match("192.168.1.0", "192.168.1.100", 33), 0);
+    ASSERT_EQ(cidr_match("10.0.0.1", "10.0.0.1", 99), 0);
+}
+
+TEST(cidr_match_invalid_ip) {
+    ASSERT_EQ(cidr_match("not.an.ip", "192.168.1.1", 24), 0);
+    ASSERT_EQ(cidr_match("192.168.1.1", "garbage", 24), 0);
+    ASSERT_EQ(cidr_match("", "", 24), 0);
+}
+
+/* cron_match tests */
+
+TEST(cron_match_wildcard_all) {
+    ASSERT_EQ(cron_match("* * * * *", "30 12 15 06 3"), 1);
+    ASSERT_EQ(cron_match("* * * * *", "0 0 1 1 0"), 1);
+}
+
+TEST(cron_match_exact_minute) {
+    ASSERT_EQ(cron_match("30 * * * *", "30 12 15 06 3"), 1);
+}
+
+TEST(cron_match_exact_minute_no_match) {
+    ASSERT_EQ(cron_match("45 * * * *", "30 12 15 06 3"), 0);
+}
+
+TEST(cron_match_range) {
+    ASSERT_EQ(cron_match("25-35 * * * *", "30 12 15 06 3"), 1);
+    ASSERT_EQ(cron_match("0-10 * * * *", "30 12 15 06 3"), 0);
+}
+
+TEST(cron_match_empty_mask) {
+    ASSERT_EQ(cron_match("", "30 12 15 06 3"), 0);
+}
+
+/* addr_match tests */
+
+TEST(addr_match_simple_hostmask) {
+    ASSERT_TRUE(addr_match("*!*@*.example.com",
+                           "nick!user@host.example.com", 0, 0) > 0);
+}
+
+TEST(addr_match_no_match) {
+    ASSERT_EQ(addr_match("*!*@*.net",
+                         "nick!user@host.example.com", 0, 0), 0);
+}
+
+TEST(addr_match_cidr_notation) {
+    int saved = cidr_support;
+    cidr_support = 1;
+    ASSERT_TRUE(addr_match("*!*@192.168.1.0/24",
+                           "nick!user@192.168.1.50", 0, 0) > 0);
+    ASSERT_EQ(addr_match("*!*@10.0.0.0/8",
+                         "nick!user@192.168.1.50", 0, 0), 0);
+    cidr_support = saved;
+}
+
 int main(void) {
     TEST_MAIN_BEGIN;
 
@@ -92,6 +202,23 @@ int main(void) {
     RUN_TEST(wild_match_case_insensitive);
     RUN_TEST(wild_match_edge_cases);
     RUN_TEST(wild_match_rfc1459_special);
+
+    RUN_TEST(cidr_match_same_subnet);
+    RUN_TEST(cidr_match_different_subnet);
+    RUN_TEST(cidr_match_exact_32);
+    RUN_TEST(cidr_match_zero_prefix);
+    RUN_TEST(cidr_match_invalid_count);
+    RUN_TEST(cidr_match_invalid_ip);
+
+    RUN_TEST(cron_match_wildcard_all);
+    RUN_TEST(cron_match_exact_minute);
+    RUN_TEST(cron_match_exact_minute_no_match);
+    RUN_TEST(cron_match_range);
+    RUN_TEST(cron_match_empty_mask);
+
+    RUN_TEST(addr_match_simple_hostmask);
+    RUN_TEST(addr_match_no_match);
+    RUN_TEST(addr_match_cidr_notation);
 
     TEST_MAIN_END;
 }

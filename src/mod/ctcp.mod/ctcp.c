@@ -30,7 +30,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-static Function *global = NULL, *server_funcs = NULL;
+static Function *global = nullptr, *server_funcs = nullptr;
 
 static char ctcp_version[121];
 static char ctcp_finger[121];
@@ -84,7 +84,7 @@ static int ctcp_USERINFO(char *nick, char *uhost, char *handle,
 static int ctcp_CLIENTINFO(char *nick, char *uhosr, char *handle,
                            char *object, char *keyword, char *msg)
 {
-  char *p = NULL;
+  char *p = nullptr;
 
   if (ctcp_mode == 1)
     return 1;
@@ -114,7 +114,7 @@ static int ctcp_CLIENTINFO(char *nick, char *uhosr, char *handle,
     p = CLIENTINFO_PING;
   else if (!strcasecmp(msg, "echo"))
     p = CLIENTINFO_ECHO;
-  if (p == NULL)
+  if (p == nullptr)
     op_strbuf_appendf(&ctcp_reply, "\001ERRMSG CLIENTINFO: %s is not a valid function\001", msg);
   else
     op_strbuf_appendf(&ctcp_reply, "\001CLIENTINFO %s\001", p);
@@ -181,7 +181,7 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
 #endif
           (!strcmp(dcc[i].nick, "(telnet)") ||
            !strcmp(dcc[i].nick, "(users)")) &&
-          getdccfamilyaddr(NULL, s, sizeof s, chatv)) {
+          getdccfamilyaddr(nullptr, s, sizeof s, chatv)) {
         /* Do me a favour and don't change this back to a CTCP reply,
          * CTCP replies are NOTICE's this has to be a PRIVMSG
          * -poptix 5/1/1997 */
@@ -206,39 +206,39 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
 }
 
 static cmd_t myctcp[] = {
-  {"FINGER",     "",   ctcp_FINGER,     NULL},
-  {"ECHO",       "",   ctcp_ECHOERR,    NULL},
-  {"PING",       "",   ctcp_PING,       NULL},
-  {"ERRMSG",     "",   ctcp_ECHOERR,    NULL},
-  {"VERSION",    "",   ctcp_VERSION,    NULL},
-  {"USERINFO",   "",   ctcp_USERINFO,   NULL},
-  {"CLIENTINFO", "",   ctcp_CLIENTINFO, NULL},
-  {"TIME",       "",   ctcp_TIME,       NULL},
-  {"CHAT",       "",   ctcp_CHAT,       NULL},
-  {"CHAT4",      "",   ctcp_CHAT,       NULL},
+  {"FINGER",     "",   ctcp_FINGER,     nullptr},
+  {"ECHO",       "",   ctcp_ECHOERR,    nullptr},
+  {"PING",       "",   ctcp_PING,       nullptr},
+  {"ERRMSG",     "",   ctcp_ECHOERR,    nullptr},
+  {"VERSION",    "",   ctcp_VERSION,    nullptr},
+  {"USERINFO",   "",   ctcp_USERINFO,   nullptr},
+  {"CLIENTINFO", "",   ctcp_CLIENTINFO, nullptr},
+  {"TIME",       "",   ctcp_TIME,       nullptr},
+  {"CHAT",       "",   ctcp_CHAT,       nullptr},
+  {"CHAT4",      "",   ctcp_CHAT,       nullptr},
 #ifdef IPV6
-  {"CHAT6",      "",   ctcp_CHAT,       NULL},
+  {"CHAT6",      "",   ctcp_CHAT,       nullptr},
 #endif
 #ifdef TLS
-  {"SCHAT",      "",   ctcp_CHAT,       NULL},
-  {"SCHAT4",     "",   ctcp_CHAT,       NULL},
+  {"SCHAT",      "",   ctcp_CHAT,       nullptr},
+  {"SCHAT4",     "",   ctcp_CHAT,       nullptr},
 #ifdef IPV6
-  {"SCHAT6",     "",   ctcp_CHAT,       NULL},
+  {"SCHAT6",     "",   ctcp_CHAT,       nullptr},
 #endif
 #endif
-  {NULL,         NULL, NULL,            NULL}
+  {nullptr,         nullptr, nullptr,            nullptr}
 };
 
 static tcl_strings mystrings[] = {
   {"ctcp-version",  ctcp_version,  120, 0},
   {"ctcp-finger",   ctcp_finger,   120, 0},
   {"ctcp-userinfo", ctcp_userinfo, 120, 0},
-  {NULL,            NULL,          0,   0}
+  {nullptr,            nullptr,          0,   0}
 };
 
 static tcl_ints myints[] = {
   {"ctcp-mode", &ctcp_mode, 0},
-  {NULL,              NULL, 0}
+  {nullptr,              nullptr, 0}
 };
 
 static char *ctcp_close(void)
@@ -248,7 +248,7 @@ static char *ctcp_close(void)
   rem_builtins(H_ctcp, myctcp);
   rem_help_reference("ctcp.help");
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *ctcp_start(Function *global_funcs);
@@ -256,8 +256,8 @@ EXPORT_SCOPE char *ctcp_start(Function *global_funcs);
 static Function ctcp_table[] = {
   (Function) ctcp_start,
   (Function) ctcp_close,
-  (Function) NULL,
-  (Function) NULL,
+  (Function) nullptr,
+  (Function) nullptr,
 };
 
 char *ctcp_start(Function *global_funcs)
@@ -283,5 +283,5 @@ char *ctcp_start(Function *global_funcs)
     strlcpy(ctcp_finger, ver, sizeof ctcp_finger);
   if (!ctcp_userinfo[0])
     strlcpy(ctcp_userinfo, ver, sizeof ctcp_userinfo);
-  return NULL;
+  return nullptr;
 }

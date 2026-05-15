@@ -37,18 +37,19 @@ static int convert_old_files(char *path, char *newfiledb)
 {
   FILE *f, *fdb;
   char s[121], *fn, *nick, *tm, *s1;
-  filedb_entry *fdbe = NULL;
+  filedb_entry *fdbe = nullptr;
   int in_file = 0, i;
   struct stat st;
 
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/.files", path);
     s1 = op_strbuf_steal(&_b);
   }
   f = fopen(s1, "r");
   my_free(s1);
-  if (f == NULL)
+  if (f == nullptr)
     return 0;
 
   fdb = fopen(newfiledb, "w+b");
@@ -63,7 +64,7 @@ static int convert_old_files(char *path, char *newfiledb)
 
   putlog(LOG_FILES, "*", FILES_CONVERT, path);
   /* Scan contents of .files and painstakingly create .filedb entries */
-  while (fgets(s, sizeof s, f) != NULL) {
+  while (fgets(s, sizeof s, f) != nullptr) {
     s1 = s;
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
@@ -78,10 +79,10 @@ static int convert_old_files(char *path, char *newfiledb)
           if (fdbe->desc) {
             {
               op_strbuf_t _b;
+              op_strbuf_init(&_b);
               op_strbuf_appendf(&_b, "%s\n%s", fdbe->desc, s);
-              fdbe->desc = op_realloc(fdbe->desc, op_strbuf_len(&_b) + 1);
-              strlcpy(fdbe->desc, op_strbuf_str(&_b), op_strbuf_len(&_b) + 1);
-              op_strbuf_free(&_b);
+              op_free(fdbe->desc);
+              fdbe->desc = op_strbuf_steal(&_b);
             }
           } else {
             size_t desc_sz = strlen(s) + 1;
@@ -107,9 +108,10 @@ static int convert_old_files(char *path, char *newfiledb)
           fn[i] = 0;
         malloc_strcpy(fdbe->filename, fn);
         malloc_strcpy(fdbe->uploader, nick);
-        fdbe->gots = atoi(s1);
-        fdbe->uploaded = atoi(tm);
+        fdbe->gots = egg_atoi(s1);
+        fdbe->uploaded = egg_atoi(tm);
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s/%s", path, fn);
         if (stat(op_strbuf_str(&_b), &st) == 0) {
           /* File is okay */
@@ -119,10 +121,10 @@ static int convert_old_files(char *path, char *newfiledb)
               char x[100];
 
               /* Only do global flags, it's an old one */
-              struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+              struct flag_record fr = { FR_GLOBAL };
 
-              break_down_flags(nick + 1, &fr, NULL);
-              build_flags(x, &fr, NULL);
+              break_down_flags(nick + 1, &fr, nullptr);
+              build_flags(x, &fr, nullptr);
               /* We only want valid flags */
               malloc_strcpy_nocheck(fdbe->flags_req, x);
             }
@@ -223,7 +225,7 @@ static void convert_version2(FILE *fdb_s, FILE *fdb_t)
  * On failure the backup is used to restore the original content.
  *
  * Also remember to check the returned *fdb_s on failure, as it could be
- * NULL.
+ * nullptr.
  */
 static int convert_old_db(FILE **fdb_s, char *filedb)
 {
@@ -241,6 +243,7 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
     /* Create backup name */
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s-tmp", filedb);
       tempdb = op_strbuf_steal(&_b);
     }

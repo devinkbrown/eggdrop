@@ -38,9 +38,9 @@ static struct {
 };
 
 #define TCL_ERR_NOTSET(irp, keyobj) do {                                 \
-  __attribute__((unused)) Tcl_Obj *_tclobj = Tcl_NewStringObj("key \"", -1); \
+  [[maybe_unused]] Tcl_Obj *_tclobj = Tcl_NewStringObj("key \"", -1); \
   Tcl_AppendObjToObj(_tclobj, (keyobj));                                 \
-  Tcl_AppendStringsToObj(_tclobj, "\" is not set", NULL);                \
+  Tcl_AppendStringsToObj(_tclobj, "\" is not set", nullptr);                \
   Tcl_SetObjResult((irp), _tclobj);                                      \
   return TCL_ERROR;                                                      \
 } while (0)
@@ -48,7 +48,7 @@ static struct {
 int tcl_isupport STDOBJVAR
 {
   const char *subcmd;
-  __attribute__((unused)) Tcl_Obj *str;
+  [[maybe_unused]] Tcl_Obj *str;
 
   BADOBJARGS(2, -1, 1, "subcommand ?args?");
 
@@ -59,9 +59,9 @@ int tcl_isupport STDOBJVAR
   }
 
   str = Tcl_NewStringObj("", 0);
-  Tcl_AppendStringsToObj(str, "Invalid subcommand, must be one of:", NULL);
+  Tcl_AppendStringsToObj(str, "Invalid subcommand, must be one of:", nullptr);
   for (int i = 0; i < sizeof subcmds / sizeof *subcmds; i++)
-    Tcl_AppendStringsToObj(str, " ", subcmds[i].subcmd, NULL);
+    Tcl_AppendStringsToObj(str, " ", subcmds[i].subcmd, nullptr);
   Tcl_SetObjResult(interp, str);
   return TCL_ERROR;
 }
@@ -70,11 +70,11 @@ static int tcl_isupport_get STDOBJVAR
 {
   Tcl_Size keylen;
   const char *key, *value;
-  __attribute__((unused)) Tcl_Obj *tclres;
+  [[maybe_unused]] Tcl_Obj *tclres;
 
   BADOBJARGS(2, 3, 2, "?setting?");
   if (objc == 2) {
-    tclres = Tcl_NewListObj(0, NULL);
+    tclres = Tcl_NewListObj(0, nullptr);
 
    for (struct isupport *data = isupport_list; data; data = data->next) {
       Tcl_ListObjAppendElement(irp, tclres, Tcl_NewStringObj(data->key, -1));
@@ -97,7 +97,7 @@ static int tcl_isupport_get STDOBJVAR
 static int tcl_isupport_isset STDOBJVAR
 {
   Tcl_Size keylen;
-  __attribute__((unused)) const char *key, *value;
+  [[maybe_unused]] const char *key, *value;
 
   BADOBJARGS(3, 3, 2, "setting");
   key = Tcl_GetStringFromObj(objv[2], &keylen);
@@ -112,7 +112,7 @@ char *traced_isupport(ClientData cdata, Tcl_Interp *irp,
 {
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     Tcl_SetVar2(interp, name1, name2, isupport_default, TCL_GLOBAL_ONLY);
-    __attribute__((unused)) const char *value;
+    [[maybe_unused]] const char *value;
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
 
@@ -139,7 +139,7 @@ char *traced_isupport(ClientData cdata, Tcl_Interp *irp,
     isupport_clear_values(1);
     isupport_parse(cval, isupport_setdefault);
   }
-  return NULL;
+  return nullptr;
 }
 
 int isupport_bind STDVAR

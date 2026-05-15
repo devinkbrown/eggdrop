@@ -20,3 +20,10 @@ test_x509 = executable('test_x509',
   dependencies: test_deps,
 )
 test('x509', test_x509)
+
+# ML-KEM shared secret mismatch diagnostic
+test_mlkem_debug = executable('test_mlkem_debug',
+  'test_mlkem_debug.c',
+  dependencies: test_deps,
+)
+test('mlkem_debug', test_mlkem_debug)

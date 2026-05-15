@@ -1,265 +1,156 @@
 Eggdrop Build Guide
+===================
 
-Eggdrop Build Guide and FAQ
-
-  This guide will help you successfully build and install Eggdrop using
-  the Meson build system. Suggestions come from various contributors.
-  If you think something should be added, please submit an issue at
-  https://github.com/eggheads/eggdrop/issues.
-
-  NOTE: This is not a 'quick install' guide. See the INSTALL file for
-  basic setup information. This guide is intended to help you build the
-  bot on uncommon operating systems or work past problems encountered
-  during the build.
-
-  Contents:
-    Build Guide:
-      A. Requirements
-      B. Standard build process (Linux, FreeBSD, macOS, etc.)
-      C. Build options and configuration
-      D. Platform-specific notes
-      E. Tcl detection and installation
-      F. Troubleshooting
-
-    Frequently Asked Questions:
-      1. I get build warnings—is that a problem?
-      2. I get a compile error with C23 features
-      3. How do I enable/disable modules?
-      4. How do I cross-compile Eggdrop?
+Detailed build instructions and troubleshooting. For the quick-start
+version, see the INSTALL file.
 
 
-  REQUIREMENTS
+Requirements
+------------
 
-  - Meson 0.63 or later
-  - Ninja build system
-  - C compiler with C23 support (GCC 11+, Clang 13+, or later)
-  - Tcl 8.5 or later (required)
-  - Python 3.6+ (optional, for Python scripting support)
+  - Meson >= 0.63
+  - Ninja
+  - C compiler with C23 support (GCC 11+, Clang 13+)
+  - Tcl >= 8.6 (optional, for Tcl scripting)
+  - Python >= 3.8 (optional, for Python scripting)
 
-  Eggdrop bundles its own TLS library (opssl), so no external TLS
-  library installation is needed. IPv6 support is always compiled in.
+TLS is provided by the bundled opssl library — no external OpenSSL or
+wolfSSL installation needed. IPv6 is always compiled in.
 
-  A. Standard build process (Linux, FreeBSD, macOS, etc.)
+At least one of Tcl or Python should be present for scripting support.
+Neither is required for the bot to connect and manage channels.
 
-  1. From the Eggdrop directory, configure the build:
 
-       meson setup builddir
+Standard build
+--------------
 
-     Some common meson options:
-       -Dtls=disabled        disable TLS support (not recommended)
-       -Dmodule-python=true  enable Python scripting support
-       -Dprefix=/custom/path install to a custom directory
-       -Dbuildtype=debug     build with debug symbols for crash analysis
+    meson setup builddir
+    ninja -C builddir
+    ninja -C builddir install
 
-  2. Build Eggdrop:
+Common options:
 
-       ninja -C builddir
+    -Dtcl=disabled          Build without Tcl
+    -Dpython=auto           Enable Python if found
+    -Dtls=disabled          Disable TLS (not recommended)
+    -Dmodule-python=false   Skip python.mod
+    -Dprefix=$HOME/eggdrop  Custom install path
+    -Degg-debug=true        ASAN + UBSAN debug build
+    -Dbuildtype=debug       Debug symbols for crash analysis
 
-  3. Install Eggdrop:
 
-       ninja -C builddir install
+Advanced options
+----------------
 
-     By default, this installs to ~/eggdrop. To install elsewhere, set
-     the prefix during step 1 with -Dprefix=/desired/path.
+List all options:
 
-  4. (Optional) Generate TLS certificates for your bot:
+    meson configure builddir
 
-       cd ~/eggdrop
-       make sslcert
+Modify after setup:
 
-     Or for non-interactive certificate generation:
+    meson configure builddir -Doption=value
 
-       make sslsilent
 
-  B. Advanced build options
+Platform notes
+--------------
 
-  - List all available build options:
+Linux:
 
-      meson configure builddir
+  I/O backend auto-detected: io_uring (5.1+), epoll, or select.
+  No additional configuration needed.
 
-  - Modify options after initial setup:
+macOS:
 
-      meson configure builddir -Doption=value
+  Uses kqueue for event-driven I/O. TLS is bundled (opssl).
 
-  - Build with optimizations for a specific CPU:
-
-      meson setup builddir -Dcpu_family=x86_64 -Dcpu=native
-
-  C. Platform-specific notes
-
-  Linux
-
-    Eggdrop automatically detects and uses the most efficient I/O
-    backend available:
-
-      - io_uring (best performance, Linux 5.6+)
-      - epoll (Linux 2.6+)
-      - select() (portable fallback)
-
-    No additional configuration is needed.
-
-  macOS
-
-    Eggdrop uses the kqueue I/O event backend on macOS, which provides
-    efficient event-driven networking without the overhead of select().
-
-    TLS is provided by opssl, which is bundled and built automatically.
-    No external TLS library (such as OpenSSL) needs to be installed.
-
-    If you need to install Tcl on macOS:
+  If Meson cannot find Tcl:
 
       brew install tcl-tk
+      export PKG_CONFIG_PATH=$(brew --prefix tcl-tk)/lib/pkgconfig
 
-    Make sure Meson can find Tcl by setting the PKG_CONFIG_PATH:
+FreeBSD / OpenBSD / NetBSD:
 
-      export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+  Uses kqueue. Install: pkg install meson ninja tcl
 
-  FreeBSD / OpenBSD / NetBSD
+Windows (MSYS2 / MinGW-w64):
 
-    Eggdrop uses the kqueue I/O backend on BSD systems for efficient
-    event handling.
+  Use the UCRT64 shell. Winsock2 and MsWSock (for IOCP) ship with the
+  Windows SDK and are linked automatically.
 
-    Install required dependencies:
+Windows (MSVC):
 
-      pkg install meson ninja tcl
+  Use an x64 Native Tools Command Prompt. Point PKG_CONFIG_PATH at
+  vcpkg output. Add --vsenv to meson setup.
 
-    Then follow the standard build process in Section A.
+Cygwin:
 
-  Cygwin / Windows
+  POSIX emulation layer — uses select() as I/O backend. Does not
+  expose Win32 IOCP APIs.
 
-    1. Download and install Cygwin (www.cygwin.com). Make sure to
-       install the following packages: gcc, meson, ninja, tcl-devel,
-       pkg-config.
+Cross-compilation:
 
-    2. Extract the Eggdrop source:
-
-         tar -zxf eggdrop-1.10.1.tar.gz
-         cd eggdrop-1.10.1
-
-    3. Build and install:
-
-         meson setup builddir
-         ninja -C builddir
-         ninja -C builddir install DESTDIR=/your/install/path
-
-  Cross-compilation
-
-    To cross-compile Eggdrop, create a Meson cross file and pass it
-    to meson setup:
+  Create a Meson cross-file:
 
       [binaries]
       c = 'arm-linux-gnueabihf-gcc'
       ar = 'arm-linux-gnueabihf-ar'
 
-      [properties]
-      c_args = ['-march=armv7-a']
-      c_link_args = ['-march=armv7-a']
+  Then: meson setup builddir --cross-file=cross.ini
 
-    Then:
 
-      meson setup builddir --cross-file=cross.ini
+Tcl detection
+-------------
 
-  D. Tcl detection and installation
+If Meson cannot find Tcl automatically, specify paths:
 
-    If Meson cannot automatically detect Tcl on your system, you can
-    manually specify its location:
+    meson setup builddir \
+      -Dtcl_include_path=/path/to/tcl/include \
+      -Dtcl_lib_path=/path/to/tcl/lib
 
-      meson setup builddir -Dtcl_include_path=/path/to/tcl/include \
-        -Dtcl_lib_path=/path/to/tcl/lib
+To compile Tcl from source:
 
-    To compile Tcl from source in your home directory:
+    tar -zxf tcl<VERSION>-src.tar.gz
+    cd tcl<VERSION>/unix
+    ./configure --prefix=$HOME/tcl
+    make && make install
+    export LD_LIBRARY_PATH=$HOME/tcl/lib:$LD_LIBRARY_PATH
 
-      1. Download Tcl from https://www.tcl.tk/
-      2. Extract and compile:
 
-           tar -zxf tcl<VERSION>-src.tar.gz
-           cd tcl<VERSION>/unix
-           ./configure --prefix=$HOME/tcl
-           make
-           make install
+FAQ
+---
 
-      3. Configure Eggdrop to use your Tcl installation:
+Q: I get build warnings — is that a problem?
 
-           export LD_LIBRARY_PATH=$HOME/tcl/lib:$LD_LIBRARY_PATH
-           meson setup builddir -Dtcl_include_path=$HOME/tcl/include \
-             -Dtcl_lib_path=$HOME/tcl/lib
+  Warnings do not prevent a successful build. The codebase builds
+  with zero warnings on GCC 15. If you see warnings on a different
+  compiler, they are likely harmless. Errors (not warnings) cause
+  build failure.
 
-  E. Troubleshooting
+Q: Compiler does not support C23 features.
 
-  1. I get build warnings—is that a problem?
+  GCC 11+ or Clang 13+ is required. Update your compiler.
 
-    Build warnings do not necessarily indicate problems. As long as the
-    build completes successfully, there is nothing to worry about.
-    However, if you encounter errors (not warnings), the build will fail.
+Q: How do I enable/disable specific modules?
 
-  2. I get a compile error with C23 features
+    meson setup builddir -Dmodule-compress=false
+    meson configure builddir | grep module-
 
-    Ensure your C compiler supports C23. Update your compiler:
+Q: "Tcl not found" error.
 
-      GCC:   version 11 or later
-      Clang: version 13 or later
+  Install Tcl dev headers (tcl-dev, tcl-devel, or tcl-tk depending
+  on distro), or build with -Dtcl=disabled to skip Tcl entirely.
 
-    If using an older compiler, update it before attempting to build
-    Eggdrop.
+Q: "Meson" or "Ninja" not found.
 
-  3. How do I enable/disable modules?
+  Install them: apt install meson ninja-build (Debian/Ubuntu),
+  dnf install meson ninja-build (Fedora), brew install meson ninja
+  (macOS), pkg install meson ninja (FreeBSD).
 
-    During meson setup, specify which modules to build. For example, to
-    disable the Python module:
+Q: Permission denied on install.
 
-      meson setup builddir -Dmodule-python=false
+  Use sudo ninja -C builddir install, or set a user-writable prefix:
+  meson setup builddir --prefix=$HOME/eggdrop
 
-    List all available module options with:
 
-      meson configure builddir | grep module-
-
-  4. "Tcl not found" or "Could not find dependency Tcl with any of the
-     specified package managers"
-
-    Meson cannot detect Tcl on your system. Install Tcl development
-    files:
-
-      Linux (Ubuntu/Debian):
-        apt-get install tcl-dev
-
-      Linux (Fedora/RHEL):
-        dnf install tcl-devel
-
-      macOS:
-        brew install tcl-tk
-
-      FreeBSD:
-        pkg install tcl
-
-    Then try again. If it still fails, manually specify Tcl paths as
-    described in Section D.
-
-  5. "Meson" or "Ninja" not found
-
-    Install Meson and Ninja:
-
-      Linux (Ubuntu/Debian):
-        apt-get install meson ninja-build
-
-      Linux (Fedora/RHEL):
-        dnf install meson ninja-build
-
-      macOS:
-        brew install meson ninja
-
-      FreeBSD:
-        pkg install meson ninja
-
-  6. Permission denied when running ninja install
-
-    If you do not have permission to write to the installation
-    directory, use sudo:
-
-      sudo ninja -C builddir install
-
-    Or specify a different installation directory during setup:
-
-      meson setup builddir --prefix=$HOME/eggdrop
-
-  Copyright (C) 1997 Robey Pointer
-  Copyright (C) 1999 - 2025 Eggheads Development Team
+Copyright (C) 1997 Robey Pointer
+Copyright (C) 1999-2026 Eggheads Development Team

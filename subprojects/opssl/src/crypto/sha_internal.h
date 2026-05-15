@@ -39,6 +39,7 @@ struct opssl_hmac_ctx {
     opssl_hmac_algo_t algo;
     uint8_t           key_pad[128];
     union {
+        opssl_sha1_ctx_t        sha1;
         struct opssl_sha256_ctx sha256;
         struct opssl_sha512_ctx sha512;
     } inner;

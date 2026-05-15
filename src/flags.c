@@ -965,7 +965,7 @@ int bot_sanity_check(intptr_t * const atr, intptr_t const pls_atr, intptr_t cons
  */
 char geticon(int idx)
 {
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   if (!dcc[idx].user)
     return '-';
@@ -1266,7 +1266,7 @@ int flagrec_eq(struct flag_record *req, struct flag_record *have)
 void set_user_flagrec(struct userrec *u, struct flag_record *fr,
                       const char *chname)
 {
-  struct chanuserrec *cr = NULL;
+  struct chanuserrec *cr = nullptr;
   int oldflags = fr->match;
   char buffer[100];
   struct chanset_t *ch;
@@ -1281,8 +1281,8 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
     u->dirty = 1;
     if (!noshare && !(u->flags & USER_UNSHARED)) {
       fr->match = FR_GLOBAL;
-      build_flags(buffer, fr, NULL);
-      shareout(NULL, "a %s %s\n", u->handle, buffer);
+      build_flags(buffer, fr, nullptr);
+      shareout(nullptr, "a %s %s\n", u->handle, buffer);
     }
   }
   if ((oldflags & FR_BOT) && (u->flags & USER_BOT))
@@ -1307,7 +1307,7 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
       u->dirty = 1;
       if (!noshare && !(u->flags & USER_UNSHARED) && channel_shared(ch)) {
         fr->match = FR_CHAN;
-        build_flags(buffer, fr, NULL);
+        build_flags(buffer, fr, nullptr);
         shareout(ch, "a %s %s %s\n", u->handle, buffer, chname);
       }
     }
@@ -1320,7 +1320,7 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
 void get_user_flagrec(struct userrec *u, struct flag_record *fr,
                       const char *chname)
 {
-  struct chanuserrec *cr = NULL;
+  struct chanuserrec *cr = nullptr;
 
   if (!u) {
     fr->global = fr->udef_global = fr->chan = fr->udef_chan = fr->bot = 0;
@@ -1367,9 +1367,9 @@ void get_user_flagrec(struct userrec *u, struct flag_record *fr,
 
 static int botfl_unpack(struct userrec *u, struct user_entry *e)
 {
-  struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_BOT };
 
-  break_down_flags(e->u.list->extra, &fr, NULL);
+  break_down_flags(e->u.list->extra, &fr, nullptr);
   list_type_kill(e->u.list);
   e->u.ulong = fr.bot;
   return 1;
@@ -1378,13 +1378,14 @@ static int botfl_unpack(struct userrec *u, struct user_entry *e)
 static int botfl_pack(struct userrec *u, struct user_entry *e)
 {
   char x[100];
-  struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_BOT };
 
   fr.bot = e->u.ulong;
   e->u.list = alloc_list_type();
-  e->u.list->next = NULL;
-  e->u.list->extra = user_malloc(build_flags(x, &fr, NULL) + 1);
-  strcpy(e->u.list->extra, x);
+  e->u.list->next = nullptr;
+  size_t _len = build_flags(x, &fr, nullptr) + 1;
+  e->u.list->extra = user_malloc(_len);
+  strlcpy(e->u.list->extra, x, _len);
   return 1;
 }
 
@@ -1398,10 +1399,10 @@ static int botfl_write_userfile(FILE *f, struct userrec *u,
                                 struct user_entry *e)
 {
   char x[100];
-  struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_BOT };
 
   fr.bot = e->u.ulong;
-  build_flags(x, &fr, NULL);
+  build_flags(x, &fr, nullptr);
   if (fprintf(f, "--%s %s\n", e->type->name, x) == EOF)
     return 0;
   return 1;
@@ -1423,10 +1424,10 @@ static int botfl_tcl_get(Tcl_Interp *interp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
   char x[100];
-  struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_BOT };
 
   fr.bot = e->u.ulong;
-  build_flags(x, &fr, NULL);
+  build_flags(x, &fr, nullptr);
   Tcl_SetResult(interp, x, TCL_STATIC);
   return TCL_OK;
 }
@@ -1434,13 +1435,13 @@ static int botfl_tcl_get(Tcl_Interp *interp, struct userrec *u,
 static int botfl_tcl_set(Tcl_Interp *irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-  struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_BOT };
 
   BADARGS(4, 4, " handle BOTFL flags");
 
   if (u->flags & USER_BOT) {
     /* Silently ignore for users */
-    break_down_flags(argv[3], &fr, NULL);
+    break_down_flags(argv[3], &fr, nullptr);
     botfl_set(u, e, (void *) fr.bot);
   }
   return TCL_OK;
@@ -1453,11 +1454,11 @@ static int botfl_expmem(struct user_entry *e)
 
 static void botfl_display(int idx, struct user_entry *e)
 {
-  struct flag_record fr = { FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_BOT };
   char x[100];
 
   fr.bot = e->u.ulong;
-  build_flags(x, &fr, NULL);
+  build_flags(x, &fr, nullptr);
   dprintf(idx, "  BOT FLAGS: %s\n", x);
 }
 
@@ -1476,5 +1477,5 @@ struct user_entry_type USERENTRY_BOTFL = {
   botfl_expmem,
   botfl_display,
   "BOTFL",
-  NULL
+  nullptr
 };

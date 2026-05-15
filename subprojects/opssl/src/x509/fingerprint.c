@@ -150,8 +150,10 @@ int opssl_x509_fingerprint(const opssl_x509_t *cert, opssl_fingerprint_method_t 
     size_t data_len;
 
     if (is_spki_method(method)) {
-        /* Hash the Subject Public Key Info */
-        if (!opssl_x509_get_spki(cert, &data_to_hash, &data_len)) {
+        /* Hash the full DER-encoded SubjectPublicKeyInfo (including
+         * the SEQUENCE tag+length) to match openssl's output. */
+        extern int opssl_x509_get_spki_der(const opssl_x509_t *, const uint8_t **, size_t *);
+        if (!opssl_x509_get_spki_der(cert, &data_to_hash, &data_len)) {
             opssl_set_error(OPSSL_ERR_CERT_PARSE, "Failed to get SPKI");
             return 0;
         }

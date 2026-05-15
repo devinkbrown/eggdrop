@@ -28,9 +28,11 @@
 #include <sys/stat.h>
 #include <ctype.h>
 #include <op_lib.h>
+#include <op_async.h>
 #include "src/mod/module.h"
+#include "src/async_fileio.h"
 
-static Function *global = NULL;
+static Function *global = nullptr;
 
 static char chanfile[121], glob_chanmode[65];
 static char *lastdeletedmask;
@@ -69,8 +71,8 @@ static int gfld_chan_thr, gfld_chan_time, gfld_deop_thr, gfld_deop_time,
  * These functions are defined here, before the unity-build includes below,
  * so that tclchan.c / cmdschan.c / userchan.c can call them directly.
  * ----------------------------------------------------------------------- */
-static op_bh *memberlist_heap = NULL;
-static op_bh *masklist_heap   = NULL;
+static op_bh *memberlist_heap = nullptr;
+static op_bh *masklist_heap   = nullptr;
 
 static void channel_bh_init(void)
 {
@@ -89,11 +91,11 @@ static void channel_bh_destroy(void)
 {
   if (memberlist_heap) {
     op_bh_destroy(memberlist_heap);
-    memberlist_heap = NULL;
+    memberlist_heap = nullptr;
   }
   if (masklist_heap) {
     op_bh_destroy(masklist_heap);
-    masklist_heap = NULL;
+    masklist_heap = nullptr;
   }
 }
 
@@ -213,7 +215,7 @@ static void set_mode_protect(struct chanset_t *chan, char *set)
       if (pos) {
         s1 = newsplit(&set);
         if (s1[0])
-          chan->limit_prot = atoi(s1);
+          chan->limit_prot = egg_atoi(s1);
       }
       break;
     case 'k':
@@ -340,7 +342,7 @@ int check_tcl_chanset(const char *chan, const char *setting, const char *value)
 static int ismodeline(masklist *m, op_htab *ht, const char *user)
 {
   if (ht)
-    return op_htab_get(ht, user) != NULL;
+    return op_htab_get(ht, user) != nullptr;
   for (; m && m->mask[0]; m = m->next)
     if (!rfc_casecmp(m->mask, user))
       return 1;
@@ -361,7 +363,7 @@ static int ismasked(masklist *m, const char *user)
  */
 static int chanset_unlink(struct chanset_t *chan)
 {
-  struct chanset_t *c, *c_old = NULL;
+  struct chanset_t *c, *c_old = nullptr;
 
   for (c = chanset; c; c_old = c, c = c->next) {
     if (c == chan) {
@@ -389,7 +391,7 @@ static void remove_channel(struct chanset_t *chan)
   chan_htab_del(chan);
   (void) chanset_unlink(chan);
 
-  if ((me = module_find("irc", 1, 3)) != NULL)
+  if ((me = module_find("irc", 1, 3)) != nullptr)
     ((void (*)(struct chanset_t *)) me->funcs[IRC_DO_CHANNEL_PART])(chan);
 
   clear_channel(chan, 0);
@@ -405,16 +407,16 @@ static void remove_channel(struct chanset_t *chan)
     u_delinvite(chan, chan->invites->mask, 1);
   /* Destroy exact-match hash tables for persistent masks */
   if (chan->bans_ht) {
-    op_htab_destroy(chan->bans_ht, NULL, NULL);
-    chan->bans_ht = NULL;
+    op_htab_destroy(chan->bans_ht, nullptr, nullptr);
+    chan->bans_ht = nullptr;
   }
   if (chan->exempts_ht) {
-    op_htab_destroy(chan->exempts_ht, NULL, NULL);
-    chan->exempts_ht = NULL;
+    op_htab_destroy(chan->exempts_ht, nullptr, nullptr);
+    chan->exempts_ht = nullptr;
   }
   if (chan->invites_ht) {
-    op_htab_destroy(chan->invites_ht, NULL, NULL);
-    chan->invites_ht = NULL;
+    op_htab_destroy(chan->invites_ht, nullptr, nullptr);
+    chan->invites_ht = nullptr;
   }
   /* Destroy any remaining CIDR trie structures */
   ip_trie_destroy(&chan->ban_ip_trie);
@@ -438,7 +440,7 @@ static void remove_channel(struct chanset_t *chan)
  */
 static int channels_chon(char *handle, int idx)
 {
-  struct flag_record fr = { FR_CHAN | FR_ANYWH | FR_GLOBAL, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_CHAN | FR_ANYWH | FR_GLOBAL };
   int find, found = 0;
   struct chanset_t *chan = chanset;
 
@@ -446,7 +448,7 @@ static int channels_chon(char *handle, int idx)
     if (!findchan_by_dname(dcc[idx].u.chat->con_chan) &&
         ((dcc[idx].u.chat->con_chan[0] != '*') ||
          (dcc[idx].u.chat->con_chan[1] != 0))) {
-      get_user_flagrec(dcc[idx].user, &fr, NULL);
+      get_user_flagrec(dcc[idx].user, &fr, nullptr);
       if (glob_op(fr))
         found = 1;
       if (chan_owner(fr))
@@ -476,7 +478,7 @@ static int channels_chon(char *handle, int idx)
 
 static char *convert_element(char *src, char *dst)
 {
-  __attribute__((unused)) int flags;
+  [[maybe_unused]] int flags;
 
   Tcl_ScanElement(src, &flags);
 /* Work around Tcl bug 3371644 (only present in 8.5.10) */
@@ -497,7 +499,6 @@ static char *convert_element(char *src, char *dst)
  */
 static void write_channels(void)
 {
-  FILE *f;
   char s1[26], w[1024], w2[1024], name[163];
   char need1[242], need2[242], need3[242], need4[242], need5[242];
   struct chanset_t *chan;
@@ -505,17 +506,12 @@ static void write_channels(void)
 
   if (!chanfile[0])
     return;
-  char *tmpfile;
-  {
-    op_strbuf_t _b;
-    op_strbuf_appendf(&_b, "%s~new", chanfile);
-    tmpfile = op_strbuf_steal(&_b);
-  }
-  f = fopen(tmpfile, "w");
-  chmod(tmpfile, userfile_perm);
-  if (f == NULL) {
+
+  char *buf = nullptr;
+  size_t buflen = 0;
+  FILE *f = open_memstream(&buf, &buflen);
+  if (f == nullptr) {
     putlog(LOG_MISC, "*", "ERROR writing channel file.");
-    op_free(tmpfile);
     return;
   }
   if (!quiet_save)
@@ -599,7 +595,6 @@ static void write_channels(void)
           debug1("UDEF-ERROR: unknown type %d", ul->type);
       }
     }
-    /* Save IRCX per-channel settings if configured */
     if (chan->ircx_ownerkey[0] || chan->ircx_create) {
       char ircx_key[130], ircx_modes[36];
       convert_element(chan->ircx_ownerkey[0] ? chan->ircx_ownerkey : "", ircx_key);
@@ -607,17 +602,10 @@ static void write_channels(void)
       fprintf(f, "ircxautoowner %s %s %d %s\n",
               name, ircx_key, chan->ircx_create, ircx_modes);
     }
-    if (fflush(f)) {
-      putlog(LOG_MISC, "*", "ERROR writing channel file.");
-      fclose(f);
-      op_free(tmpfile);
-      return;
-    }
   }
   fclose(f);
-  unlink(chanfile);
-  movefile(tmpfile, chanfile);
-  op_free(tmpfile);
+
+  async_writebuf(chanfile, buf, buflen, userfile_perm);
 }
 
 static void read_channels(int create, int reload)
@@ -666,8 +654,9 @@ static void backup_chanfile(void)
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "Backing up channel file...");
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s~bak", chanfile);
-  copyfile(chanfile, op_strbuf_str(&_b));
+  async_copyfile(chanfile, op_strbuf_str(&_b));
   op_strbuf_free(&_b);
 }
 
@@ -685,14 +674,14 @@ static void channels_rehash(void)
 
 static cmd_t my_chon[] = {
   {"*",  "",   (IntFunc) channels_chon, "channels:chon"},
-  {NULL, NULL, NULL,                                NULL}
+  {nullptr, nullptr, nullptr,                                nullptr}
 };
 
 static void channels_report(int idx, int details)
 {
   char s2[256];
   struct chanset_t *chan;
-  struct flag_record fr = { FR_CHAN | FR_GLOBAL, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_CHAN | FR_GLOBAL };
 
   for (chan = chanset; chan; chan = chan->next) {
 
@@ -705,6 +694,7 @@ static void channels_report(int idx, int details)
       continue;
 
     op_strbuf_t s;
+    op_strbuf_init(&s);
     op_strbuf_appendf(&s, "    %-20s: ", chan->dname);
 
     if (channel_inactive(chan))
@@ -862,24 +852,24 @@ static int channels_expmem(void)
 /* In non-Tcl builds, Tcl_TraceVar is a no-op so this callback is never
  * invoked, but it must still compile so the TraceVar call below resolves.
  */
-static __attribute__((unused)) char *traced_globchanset(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *traced_globchanset(ClientData cdata, Tcl_Interp *irp,
                                 EGG_CONST char *name1,
                                 EGG_CONST char *name2, int flags)
 {
   Tcl_Size i, items;
   char *t, *s;
   EGG_CONST char **item;
-  __attribute__((unused)) EGG_CONST char *s2;
+  [[maybe_unused]] EGG_CONST char *s2;
 
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     Tcl_SetVar2(interp, name1, name2, glob_chanset, TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS) {
       Tcl_TraceVar(interp, "global-chanset",
                    TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                   traced_globchanset, NULL); /* keep for backward compatibility */
+                   traced_globchanset, nullptr); /* keep for backward compatibility */
       Tcl_TraceVar(interp, "default-chanset",
                    TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                   traced_globchanset, NULL);
+                   traced_globchanset, nullptr);
     }
   } else {                        /* Write */
     s2 = Tcl_GetVar2(interp, name1, name2, TCL_GLOBAL_ONLY);
@@ -889,7 +879,7 @@ static __attribute__((unused)) char *traced_globchanset(ClientData cdata, Tcl_In
         continue;
       s = glob_chanset;
       while (s[0]) {
-        t = strchr(s, ' ');     /* Can't be NULL coz of the extra space */
+        t = strchr(s, ' ');     /* Can't be nullptr coz of the extra space */
         t[0] = 0;
         if (!strcmp(s + 1, item[i] + 1)) {
           s[0] = item[i][0];    /* +- */
@@ -904,7 +894,7 @@ static __attribute__((unused)) char *traced_globchanset(ClientData cdata, Tcl_In
       Tcl_Free((char *) item);
     Tcl_SetVar2(interp, name1, name2, glob_chanset, TCL_GLOBAL_ONLY);
   }
-  return NULL;
+  return nullptr;
 }
 
 static tcl_ints my_tcl_ints[] = {
@@ -930,7 +920,7 @@ static tcl_ints my_tcl_ints[] = {
   {"ban-time",                &global_ban_time,         0},
   {"exempt-time",             &global_exempt_time,      0},
   {"invite-time",             &global_invite_time,      0},
-  {NULL,                      NULL,                     0}
+  {nullptr,                      nullptr,                     0}
 };
 
 static tcl_coups mychan_tcl_coups[] = {
@@ -949,7 +939,7 @@ static tcl_coups mychan_tcl_coups[] = {
   {"global-flood-ctcp", &gfld_ctcp_thr,  &gfld_ctcp_time},
   {"global-flood-nick", &gfld_nick_thr,  &gfld_nick_time},
   {"global-aop-delay",  &global_aop_min, &global_aop_max},
-  {NULL,                NULL,                       NULL}
+  {nullptr,                nullptr,                       nullptr}
 };
 
 static tcl_strings my_tcl_strings[] = {
@@ -957,7 +947,7 @@ static tcl_strings my_tcl_strings[] = {
   {"default-chanmode", glob_chanmode, 64,            0},
   /* keep global-chanmode for backward compatibility */
   {"global-chanmode", glob_chanmode, 64,            0},
-  {NULL,              NULL,          0,             0}
+  {nullptr,              nullptr,          0,             0}
 };
 
 static char *channels_close(void)
@@ -965,12 +955,12 @@ static char *channels_close(void)
   write_channels();
   channel_bh_destroy();
   /* Destroy global mask htabs */
-  if (global_bans_ht)    { op_htab_destroy(global_bans_ht, NULL, NULL);    global_bans_ht = NULL; }
-  if (global_exempts_ht) { op_htab_destroy(global_exempts_ht, NULL, NULL); global_exempts_ht = NULL; }
-  if (global_invites_ht) { op_htab_destroy(global_invites_ht, NULL, NULL); global_invites_ht = NULL; }
+  if (global_bans_ht)    { op_htab_destroy(global_bans_ht, nullptr, nullptr);    global_bans_ht = nullptr; }
+  if (global_exempts_ht) { op_htab_destroy(global_exempts_ht, nullptr, nullptr); global_exempts_ht = nullptr; }
+  if (global_invites_ht) { op_htab_destroy(global_invites_ht, nullptr, nullptr); global_invites_ht = nullptr; }
   free_udef(udef);
-  if (udef_struct_bh) { op_bh_destroy(udef_struct_bh); udef_struct_bh = NULL; }
-  if (udef_chans_bh)  { op_bh_destroy(udef_chans_bh);  udef_chans_bh  = NULL; }
+  if (udef_struct_bh) { op_bh_destroy(udef_struct_bh); udef_struct_bh = nullptr; }
+  if (udef_chans_bh)  { op_bh_destroy(udef_chans_bh);  udef_chans_bh  = nullptr; }
   if (lastdeletedmask)
     op_free(lastdeletedmask);
   rem_builtins(H_chon, my_chon);
@@ -988,14 +978,14 @@ static char *channels_close(void)
   del_hook(HOOK_MINUTELY, (Function) check_expired_invites);
   Tcl_UntraceVar(interp, "global-chanset",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_globchanset, NULL); /* keep for backward compatibility */
+                 traced_globchanset, nullptr); /* keep for backward compatibility */
   Tcl_UntraceVar(interp, "default-chanset",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_globchanset, NULL);
+                 traced_globchanset, nullptr);
   rem_help_reference("channels.help");
   rem_help_reference("chaninfo.help");
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *channels_start(Function *global_funcs);
@@ -1023,28 +1013,28 @@ static Function channels_table[] = {
   (Function) clear_channel,
   /* 16 - 19 */
   (Function) set_handle_laston,
-  (Function) NULL,           /* [17] used to be ban_time <Wcc[07/19/02]>    */
+  (Function) nullptr,           /* [17] used to be ban_time <Wcc[07/19/02]>    */
   (Function) & use_info,
   (Function) get_handle_chaninfo,
   /* 20 - 23 */
   (Function) u_sticky_mask,
   (Function) ismasked,
   (Function) add_chanrec_by_handle,
-  (Function) NULL,           /* [23] used to be isexempted() <cybah>         */
+  (Function) nullptr,           /* [23] used to be isexempted() <cybah>         */
   /* 24 - 27 */
-  (Function) NULL,           /* [24] used to be exempt_time <Wcc[07/19/02]>  */
-  (Function) NULL,           /* [25] used to be isinvited() <cybah>          */
-  (Function) NULL,           /* [26] used to be ban_time <Wcc[07/19/02]>     */
-  (Function) NULL,
+  (Function) nullptr,           /* [24] used to be exempt_time <Wcc[07/19/02]>  */
+  (Function) nullptr,           /* [25] used to be isinvited() <cybah>          */
+  (Function) nullptr,           /* [26] used to be ban_time <Wcc[07/19/02]>     */
+  (Function) nullptr,
   /* 28 - 31 */
-  (Function) NULL,           /* [28] used to be u_setsticky_exempt() <cybah> */
+  (Function) nullptr,           /* [28] used to be u_setsticky_exempt() <cybah> */
   (Function) u_delexempt,
   (Function) u_addexempt,
-  (Function) NULL,
+  (Function) nullptr,
   /* 32 - 35 */
-  (Function) NULL,           /* [32] used to be u_sticky_exempt() <cybah>    */
-  (Function) NULL,
-  (Function) NULL,           /* [34] used to be killchanset().               */
+  (Function) nullptr,           /* [32] used to be u_sticky_exempt() <cybah>    */
+  (Function) nullptr,
+  (Function) nullptr,           /* [34] used to be killchanset().               */
   (Function) u_delinvite,
   /* 36 - 39 */
   (Function) u_addinvite,
@@ -1106,7 +1096,7 @@ char *channels_start(Function *global_funcs)
   chan_hack = 0;
   quiet_save = 0;
   strlcpy(glob_chanmode, "nt", sizeof(glob_chanmode));
-  udef = NULL;
+  udef = nullptr;
   global_stopnethack_mode = 0;
   global_revenge_mode = 0;
   global_ban_type = 3;
@@ -1153,10 +1143,10 @@ char *channels_start(Function *global_funcs)
   add_hook(HOOK_PRE_REHASH, (Function) channels_prerehash);
   Tcl_TraceVar(interp, "global-chanset",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_globchanset, NULL); /* keep for backward compatibility */
+               traced_globchanset, nullptr); /* keep for backward compatibility */
   Tcl_TraceVar(interp, "default-chanset",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_globchanset, NULL);
+               traced_globchanset, nullptr);
   H_chanset = add_bind_table("chanset", HT_STACKABLE, builtin_chanset);
   add_builtins(H_chon, my_chon);
   add_builtins(H_dcc, C_dcc_irc);
@@ -1167,5 +1157,5 @@ char *channels_start(Function *global_funcs)
   add_tcl_ints(my_tcl_ints);
   add_tcl_coups(mychan_tcl_coups);
   read_channels(0, 0);
-  return NULL;
+  return nullptr;
 }

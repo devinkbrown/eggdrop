@@ -38,12 +38,12 @@ extern Tcl_Interp *interp;
 extern int resolve_timeout;
 extern sigjmp_buf alarmret;
 
-devent_t *dns_events = NULL;
+devent_t *dns_events = nullptr;
 
 /* Slab allocators for DNS event nodes — lazy-initialised on first DNS call. */
-static op_bh *devent_bh  = NULL;
-static op_bh *tclinfo_bh = NULL;
-static op_bh *sockname_bh = NULL;
+static op_bh *devent_bh  = nullptr;
+static op_bh *tclinfo_bh = nullptr;
+static op_bh *sockname_bh = nullptr;
 
 static int ipaddr_equal(const sockname_t *ip, const sockname_t *ip2)
 {
@@ -123,7 +123,7 @@ struct dcc_table DCC_DNSWAIT = {
   expmem_dcc_dnswait,
   kill_dcc_dnswait,
   0,
-  NULL
+  nullptr
 };
 
 
@@ -155,8 +155,9 @@ static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
     {
       if (dcc[idx].u.dns->host)
         op_free(dcc[idx].u.dns->host);
-      dcc[idx].u.dns->host = get_data_ptr(strlen(hostn) + 1);
-      strcpy(dcc[idx].u.dns->host, hostn);
+      size_t _len = strlen(hostn) + 1;
+      dcc[idx].u.dns->host = get_data_ptr(_len);
+      strlcpy(dcc[idx].u.dns->host, hostn, _len);
       if (ok)
         dcc[idx].u.dns->dns_success(idx);
       else
@@ -276,6 +277,7 @@ static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other
 {
   devent_tclinfo_t *tclinfo = (devent_tclinfo_t *) other;
   op_strbuf_t sb;
+  op_strbuf_init(&sb);
 
   /* Build the command: proc ip host ok ?paras? */
   op_strbuf_appendf(&sb, "%s {%s} {%s} %s",
@@ -351,7 +353,7 @@ static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
   if (paras) {
     tclinfo->paras = op_strdup(paras);
   } else
-    tclinfo->paras = NULL;
+    tclinfo->paras = nullptr;
   de->other = tclinfo;
 
   /* Send request. */
@@ -387,7 +389,7 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   if (paras) {
     tclinfo->paras = op_strdup(paras);
   } else
-    tclinfo->paras = NULL;
+    tclinfo->paras = nullptr;
   de->other = tclinfo;
 
   /* Send request. */
@@ -399,7 +401,7 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
  *    Event functions
  */
 
-static __attribute__((unused)) int dnsevent_expmem(void)
+[[maybe_unused]] static int dnsevent_expmem(void)
 {
   devent_t *de;
   int tot = 0;
@@ -416,7 +418,7 @@ static __attribute__((unused)) int dnsevent_expmem(void)
 
 void call_hostbyip(sockname_t *ip, char *hostn, int ok)
 {
-  devent_t *de = dns_events, *ode = NULL, *nde = NULL;
+  devent_t *de = dns_events, *ode = nullptr, *nde = nullptr;
 
   while (de) {
     nde = de->next;
@@ -445,7 +447,7 @@ void call_hostbyip(sockname_t *ip, char *hostn, int ok)
 
 void call_ipbyhost(char *hostn, sockname_t *ip, int ok)
 {
-  devent_t *de = dns_events, *ode = NULL, *nde = NULL;
+  devent_t *de = dns_events, *ode = nullptr, *nde = nullptr;
 
   while (de) {
     nde = de->next;
@@ -488,7 +490,7 @@ void core_dns_hostbyip(sockname_t *addr)
     if (!sigsetjmp(alarmret, 1)) {
       alarm(resolve_timeout);
       i = getnameinfo((const struct sockaddr *) &addr->addr.s4,
-                      sizeof (struct sockaddr_in), host, sizeof host, NULL, 0, 0);
+                      sizeof (struct sockaddr_in), host, sizeof host, nullptr, 0, 0);
       alarm(0);
       if (i)
         debug1("dns: core_dns_hostbyip(): getnameinfo(): error = %s", gai_strerror(i));
@@ -500,7 +502,7 @@ void core_dns_hostbyip(sockname_t *addr)
     if (!sigsetjmp(alarmret, 1)) {
       alarm(resolve_timeout);
       i = getnameinfo((const struct sockaddr *) &addr->addr.s6,
-                      sizeof (struct sockaddr_in6), host, sizeof host, NULL, 0, 0);
+                      sizeof (struct sockaddr_in6), host, sizeof host, nullptr, 0, 0);
       alarm(0);
       if (i)
         debug1("dns: core_dns_hostbyip(): getnameinfo(): error = %s", gai_strerror(i));
@@ -537,7 +539,7 @@ static int tcl_dnslookup STDVAR
 
   if (argc < 3) {
     Tcl_AppendResult(irp, "wrong # args: should be \"", argv[0],
-                     " ip-address/hostname proc ?args...?\"", NULL);
+                     " ip-address/hostname proc ?args...?\"", nullptr);
     return TCL_ERROR;
   }
 
@@ -565,5 +567,5 @@ static int tcl_dnslookup STDVAR
 
 tcl_cmds tcldns_cmds[] = {
   {"dnslookup", (IntFunc) tcl_dnslookup},
-  {NULL,                          NULL}
+  {nullptr,                          nullptr}
 };

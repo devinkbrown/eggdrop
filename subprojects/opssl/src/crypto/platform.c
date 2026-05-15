@@ -61,5 +61,5 @@ opssl_key_free(void *ptr, size_t size)
         return;
     opssl_memzero(ptr, size);
     munlock(ptr, size);
-    free(ptr);
+    op_free(ptr);
 }

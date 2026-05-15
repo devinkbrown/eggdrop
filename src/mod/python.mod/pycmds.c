@@ -22,7 +22,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <stdint.h>
 #include <inttypes.h>
-#include <stdatomic.h>
 #include "md5/md5.h"
 
 #ifdef HAVE_TCL
@@ -61,14 +60,7 @@ extern void set_away(int, char *);
 extern void not_away(int);
 extern int findidx(int);
 extern p_tcl_bind_list bind_table_list;
-extern _Atomic uint64_t otraffic_irc, otraffic_irc_today,
-                         otraffic_bn, otraffic_bn_today,
-                         otraffic_dcc, otraffic_dcc_today,
-                         otraffic_trans, otraffic_trans_today,
-                         itraffic_irc, itraffic_irc_today,
-                         itraffic_bn, itraffic_bn_today,
-                         itraffic_dcc, itraffic_dcc_today,
-                         itraffic_trans, itraffic_trans_today;
+#include "../../egg_perf_types.h"
 
 #ifndef HAVE_TCL
 /* Dict mapping tclcmdname → PythonBind object for no-Tcl dispatch.
@@ -128,7 +120,7 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
     // format backtrace and print (format_exception(exc) — single-arg form, Python 3.10+)
     pyfunc = PyObject_GetAttrString(pymodule, "format_exception");
     if (pyfunc && PyCallable_Check(pyfunc)) {
-      pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, NULL);
+      pyval = PyObject_CallFunctionObjArgs(pyfunc, exc, nullptr);
       // Check if traceback is a list and handle as such
       if (pyval && PyList_Check(pyval)) {
         n = PyList_Size(pyval);
@@ -159,7 +151,7 @@ static void cmd_python(struct userrec *u, int idx, char *par) {
     // format backtrace and print
     pyfunc = PyObject_GetAttrString(pymodule, "format_exception");
     if (pyfunc && PyCallable_Check(pyfunc)) {
-      pyval = PyObject_CallFunctionObjArgs(pyfunc, ptype, pvalue, ptraceback, NULL);
+      pyval = PyObject_CallFunctionObjArgs(pyfunc, ptype, pvalue, ptraceback, nullptr);
       // Check if traceback is a list and handle as such
       if (pyval && PyList_Check(pyval)) {
         n = PyList_Size(pyval);
@@ -201,13 +193,13 @@ static PyObject *make_ircuser_dict(memberlist *m) {
 }
 
 static PyObject *py_findircuser(PyObject *self, PyObject *args) {
-  char *nick, *chan = NULL;
+  char *nick, *chan = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan)) {
     PyErr_SetString(EggdropError, "wrong number of args");
-    return NULL;
+    return nullptr;
   }
-  for (struct chanset_t *ch = chan ? findchan_by_dname(chan) : chanset; ch; ch = chan ? NULL : ch->next) {
+  for (struct chanset_t *ch = chan ? findchan_by_dname(chan) : chanset; ch; ch = chan ? nullptr : ch->next) {
     memberlist *m = ismember(ch, nick);
     if (m) {
       return make_ircuser_dict(m);
@@ -224,9 +216,9 @@ static int tcl_call_python(ClientData cd, Tcl_Interp *irp, int objc, Tcl_Obj *co
 
   // objc[0] is procname
   for (int i = 1; i < objc; i++) {
-    PyTuple_SET_ITEM(args, i - 1, Py_BuildValue("s", Tcl_GetStringFromObj(objv[i], NULL)));
+    PyTuple_SET_ITEM(args, i - 1, Py_BuildValue("s", Tcl_GetStringFromObj(objv[i], nullptr)));
   }
-  if (!PyObject_Call(bind->callback, args, NULL)) {
+  if (!PyObject_Call(bind->callback, args, nullptr)) {
     PyErr_Print();
     Tcl_SetResult(irp, "Error calling python code", TCL_STATIC);
     return TCL_ERROR;
@@ -251,7 +243,7 @@ static int python_script_call(const char *name, int argc, const char **argv)
   for (int i = 0; i < argc; i++)
     PyTuple_SET_ITEM(pyargs, i, PyUnicode_FromString(argv[i] ? argv[i] : ""));
 
-  result = PyObject_Call(((PythonBind *)pybind)->callback, pyargs, NULL);
+  result = PyObject_Call(((PythonBind *)pybind)->callback, pyargs, nullptr);
   Py_DECREF(pyargs);
   if (!result) {
     PyErr_Print();
@@ -309,14 +301,14 @@ static PyObject *py_parse_tcl_list(PyObject *self, PyObject *args) {
 
   if (!PyArg_ParseTuple(args, "s", &str)) {
     PyErr_SetString(PyExc_TypeError, "Argument is not a unicode string");
-    return NULL;
+    return nullptr;
   }
   strobj = Tcl_NewStringObj(str, -1);
   Tcl_IncrRefCount(strobj);
   if (Tcl_ListObjLength(tclinterp, strobj, &max) != TCL_OK) {
     Tcl_DecrRefCount(strobj);
     PyErr_SetString(EggdropError, "Supplied string is not a Tcl list");
-    return NULL;  /* missing before: fell through to PyList_New(uninit max) */
+    return nullptr;  /* missing before: fell through to PyList_New(uninit max) */
   }
   result = PyList_New(max);
   for (int i = 0; i < max; i++) {
@@ -326,7 +318,7 @@ static PyObject *py_parse_tcl_list(PyObject *self, PyObject *args) {
 
     Tcl_ListObjIndex(tclinterp, strobj, i, &tclobj);
     tclstr = Tcl_GetStringFromObj(tclobj, &tclstrlen);
-    PyList_SetItem(result, i, PyUnicode_DecodeUTF8(tclstr, tclstrlen, NULL));
+    PyList_SetItem(result, i, PyUnicode_DecodeUTF8(tclstr, tclstrlen, nullptr));
   }
   Tcl_DecrRefCount(strobj);
   return result;
@@ -341,18 +333,18 @@ static PyObject *py_parse_tcl_dict(PyObject *self, PyObject *args) {
 
   if (!PyArg_ParseTuple(args, "s", &str)) {
     PyErr_SetString(PyExc_TypeError, "Argument is not a unicode string");
-    return NULL;
+    return nullptr;
   }
   strobj = Tcl_NewStringObj(str, -1);
   if (Tcl_DictObjFirst(tclinterp, strobj, &search, &key, &value, &done) != TCL_OK) {
     PyErr_SetString(EggdropError, "Supplied string is not a Tcl dictionary");
-    return NULL;
+    return nullptr;
   }
   result = PyDict_New();
   while (!done) {
     Tcl_Size len;
     const char *valstr = Tcl_GetStringFromObj(value, &len);
-    PyObject *pyval = PyUnicode_DecodeUTF8(valstr, len, NULL);
+    PyObject *pyval = PyUnicode_DecodeUTF8(valstr, len, nullptr);
     PyDict_SetItemString(result, Tcl_GetString(key), pyval);
     Tcl_DictObjNext(&search, &key, &value, &done);
   }
@@ -366,7 +358,7 @@ static PyObject *py_unbind(PyObject *self, PyObject *args) {
 
   if (!PyObject_TypeCheck(self, &PythonBindType)) {
     PyErr_SetString(EggdropError, "Invalid argument for unbind method");
-    return NULL;
+    return nullptr;
   }
 
   bind = (PythonBind *)self;
@@ -379,9 +371,9 @@ static PyObject *py_unbind(PyObject *self, PyObject *args) {
   if (python_callbacks)
     PyDict_DelItemString(python_callbacks, bind->tclcmdname);
   Py_XDECREF(bind->callback);
-  bind->callback = NULL;
-  if (bind->mask)  { op_free(bind->mask);  bind->mask  = NULL; }
-  if (bind->flags) { op_free(bind->flags); bind->flags = NULL; }
+  bind->callback = nullptr;
+  if (bind->mask)  { op_free(bind->mask);  bind->mask  = nullptr; }
+  if (bind->flags) { op_free(bind->flags); bind->flags = nullptr; }
 #endif
   Py_RETURN_NONE;
 }
@@ -407,19 +399,19 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   // type flags mask callback
   if (!PyArg_ParseTuple(args, "sssO", &bindtype, &flags, &mask, &callback) || !callback) {
     PyErr_SetString(EggdropError, "wrong arguments");
-    return NULL;
+    return nullptr;
   }
   if (!(tl = find_bind_table(bindtype))) {
     PyErr_SetString(EggdropError, "unknown bind type");
-    return NULL;
+    return nullptr;
   }
   if (callback == Py_None) {
     PyErr_SetString(EggdropError, "callback is None");
-    return NULL;
+    return nullptr;
   }
   if (!PyCallable_Check(callback)) {
     PyErr_SetString(EggdropError, "callback is not callable");
-    return NULL;
+    return nullptr;
   }
   Py_INCREF(callback);
 
@@ -431,6 +423,7 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   hash = PyObject_Hash((PyObject *)bind);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
     strlcpy(bind->tclcmdname, op_strbuf_str(&_b), sizeof bind->tclcmdname);
     op_strbuf_free(&_b);
@@ -457,7 +450,7 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
 #ifdef HAVE_TCL
 static Tcl_Obj *py_list_to_tcl_obj(PyObject *o) {
   int max = PyList_GET_SIZE(o);
-  Tcl_Obj *result = Tcl_NewListObj(0, NULL);
+  Tcl_Obj *result = Tcl_NewListObj(0, nullptr);
 
   for (int i = 0; i < max; i++) {
     Tcl_ListObjAppendElement(tclinterp, result, py_to_tcl_obj(PyList_GET_ITEM(o, i)));
@@ -467,7 +460,7 @@ static Tcl_Obj *py_list_to_tcl_obj(PyObject *o) {
 
 static Tcl_Obj *py_tuple_to_tcl_obj(PyObject *o) {
   int max = PyTuple_GET_SIZE(o);
-  Tcl_Obj *result = Tcl_NewListObj(0, NULL);
+  Tcl_Obj *result = Tcl_NewListObj(0, nullptr);
 
   for (int i = 0; i < max; i++) {
     Tcl_ListObjAppendElement(tclinterp, result, py_to_tcl_obj(PyTuple_GET_ITEM(o, i)));
@@ -536,7 +529,7 @@ static PyObject *python_call_tcl(PyObject *self, PyObject *args, PyObject *kwarg
 
   if (retcode != TCL_OK) {
     PyErr_Format(EggdropError, "Tcl error: %s", Tcl_GetStringResult(tclinterp));
-    return NULL;
+    return nullptr;
   }
   result = Tcl_GetStringResult(tclinterp);
   //putlog(LOG_MISC, "*", "Python called '%s' -> '%s'", Tcl_DStringValue(&ds), result);
@@ -546,7 +539,7 @@ static PyObject *python_call_tcl(PyObject *self, PyObject *args, PyObject *kwarg
     Py_RETURN_NONE;
   }
 
-  return PyUnicode_DecodeUTF8(result, strlen(result), NULL);
+  return PyUnicode_DecodeUTF8(result, strlen(result), nullptr);
 }
 
 static PyObject *py_dir(PyObject *self, PyObject *args) {
@@ -560,7 +553,7 @@ static PyObject *py_dir(PyObject *self, PyObject *args) {
   py_list = PyList_New(0);
   for (i = 0; i < sizeof info / sizeof info[0]; i++) {
     s = info[i];
-    if (Tcl_VarEval(tclinterp, s, NULL, NULL) == TCL_ERROR)
+    if (Tcl_VarEval(tclinterp, s, nullptr, nullptr) == TCL_ERROR)
       putlog(LOG_MISC, "*", "python error: Tcl_VarEval(%s)", s);
     else {
       tcl_list = Tcl_GetObjResult(tclinterp);
@@ -587,11 +580,11 @@ static PyObject *py_findtclfunc(PyObject *self, PyObject *args) {
 
   if (!PyArg_ParseTuple(args, "s", &cmdname)) {
     PyErr_SetString(EggdropError, "wrong arguments");
-    return NULL;
+    return nullptr;
   }
-  if (!(Tcl_FindCommand(tclinterp, cmdname, NULL, TCL_GLOBAL_ONLY))) {
+  if (!(Tcl_FindCommand(tclinterp, cmdname, nullptr, TCL_GLOBAL_ONLY))) {
     PyErr_SetString(PyExc_AttributeError, cmdname);
-    return NULL;
+    return nullptr;
   }
   result = PyObject_New(TclFunc, &TclFuncType);
   strlcpy(result->tclcmdname, cmdname, sizeof result->tclcmdname);
@@ -629,7 +622,7 @@ static PyObject *py_dnsdot(PyObject *self, PyObject *args)
 
   if (retcode != TCL_OK) {
     PyErr_Format(EggdropError, "%s", Tcl_GetStringResult(tclinterp));
-    return NULL;
+    return nullptr;
   }
   result = Tcl_GetStringResult(tclinterp);
   if (!*result)
@@ -646,7 +639,7 @@ static PyObject *py_putserv(PyObject *self, PyObject *args)
   char *text, s[MSGMAX], *p;
 
   if (!PyArg_ParseTuple(args, "s", &text))
-    return NULL;
+    return nullptr;
   strlcpy(s, text, sizeof s);
   if ((p = strchr(s, '\n'))) *p = 0;
   if ((p = strchr(s, '\r'))) *p = 0;
@@ -660,7 +653,7 @@ static PyObject *py_putquick(PyObject *self, PyObject *args)
   char *text, s[MSGMAX], *p;
 
   if (!PyArg_ParseTuple(args, "s", &text))
-    return NULL;
+    return nullptr;
   strlcpy(s, text, sizeof s);
   if ((p = strchr(s, '\n'))) *p = 0;
   if ((p = strchr(s, '\r'))) *p = 0;
@@ -674,7 +667,7 @@ static PyObject *py_putnow(PyObject *self, PyObject *args)
   char *text, s[MSGMAX], *p;
 
   if (!PyArg_ParseTuple(args, "s", &text))
-    return NULL;
+    return nullptr;
   strlcpy(s, text, sizeof s);
   if ((p = strchr(s, '\n'))) *p = 0;
   if ((p = strchr(s, '\r'))) *p = 0;
@@ -690,7 +683,7 @@ static PyObject *py_putdcc(PyObject *self, PyObject *args)
   char *text;
 
   if (!PyArg_ParseTuple(args, "is", &idx, &text))
-    return NULL;
+    return nullptr;
   dprintf(idx, "%s\n", text);
   Py_RETURN_NONE;
 }
@@ -703,7 +696,7 @@ static PyObject *py_putlog(PyObject *self, PyObject *args)
   int lev = LOG_MISC;
 
   if (!PyArg_ParseTuple(args, "s|is", &text, &lev, &chan))
-    return NULL;
+    return nullptr;
   putlog(lev, chan, "%s", text);
   Py_RETURN_NONE;
 }
@@ -715,7 +708,7 @@ static PyObject *py_isonchan(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (ch && ismember(ch, nick))
     Py_RETURN_TRUE;
@@ -730,7 +723,7 @@ static PyObject *py_getchanhost(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_NONE;
@@ -749,11 +742,11 @@ static PyObject *py_chanlist(PyObject *self, PyObject *args)
   PyObject *list;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   list = PyList_New(0);
   for (m = ch->channel.member; m && m->nick[0]; m = m->next)
@@ -788,7 +781,7 @@ static PyObject *py_isop(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -806,7 +799,7 @@ static PyObject *py_ishalfop(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -824,7 +817,7 @@ static PyObject *py_isvoice(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -842,7 +835,7 @@ static PyObject *py_isaway(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -860,7 +853,7 @@ static PyObject *py_botisop(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -878,7 +871,7 @@ static PyObject *py_botishalfop(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -896,7 +889,7 @@ static PyObject *py_botisvoice(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -914,7 +907,7 @@ static PyObject *py_getaccount(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_NONE;
@@ -933,7 +926,7 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_NONE;
@@ -942,6 +935,7 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
     u = get_user_by_host(op_strbuf_str(&_b));
     op_strbuf_free(&_b);
@@ -960,13 +954,14 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_NONE;
   for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
       u = get_user_by_host(op_strbuf_str(&_b));
       op_strbuf_free(&_b);
@@ -983,7 +978,7 @@ static PyObject *py_isbotnick(PyObject *self, PyObject *args)
   char *nick;
 
   if (!PyArg_ParseTuple(args, "s", &nick))
-    return NULL;
+    return nullptr;
   if (!strcasecmp(nick, botname))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -1003,7 +998,7 @@ static PyObject *py_validuser(PyObject *self, PyObject *args)
   char *handle;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   if (get_user_by_handle(userlist, handle))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -1016,7 +1011,7 @@ static PyObject *py_finduser(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "s", &host))
-    return NULL;
+    return nullptr;
   u = get_user_by_host((char *)host);
   if (!u)
     Py_RETURN_NONE;
@@ -1042,63 +1037,31 @@ static PyObject *py_rand(PyObject *self, PyObject *args)
   long n;
 
   if (!PyArg_ParseTuple(args, "l", &n))
-    return NULL;
+    return nullptr;
   if (n <= 0) {
     PyErr_SetString(PyExc_ValueError, "rand() argument must be positive");
-    return NULL;
+    return nullptr;
   }
-  return PyLong_FromLong((long)(random() % n));
+  return PyLong_FromLong((long)randint(n));
 }
 
 /* unixtime() — return current Unix timestamp as an integer */
 static PyObject *py_unixtime(PyObject *self, PyObject *args)
 {
-  return PyLong_FromLong((long)time(NULL));
+  return PyLong_FromLong((long)time(nullptr));
 }
 
 /* isbotnick already defined above */
 
-/* duration(seconds) — convert seconds to human-readable string */
 static PyObject *py_duration(PyObject *self, PyObject *args)
 {
-  op_strbuf_t s;
-  uint64_t sec, tmp;
   long n;
-  PyObject *ret;
+  char buf[256];
 
   if (!PyArg_ParseTuple(args, "l", &n))
-    return NULL;
-  if (n <= 0)
-    return PyUnicode_FromString("0 seconds");
-  sec = (uint64_t) n;
-  op_strbuf_init(&s);
-  if (sec >= 31536000) {
-    tmp = sec / 31536000; sec -= tmp * 31536000;
-    op_strbuf_appendf(&s, "%" PRIu64 " year%s ", tmp, tmp == 1 ? "" : "s");
-  }
-  if (sec >= 604800) {
-    tmp = sec / 604800; sec -= tmp * 604800;
-    op_strbuf_appendf(&s, "%" PRIu64 " week%s ", tmp, tmp == 1 ? "" : "s");
-  }
-  if (sec >= 86400) {
-    tmp = sec / 86400; sec -= tmp * 86400;
-    op_strbuf_appendf(&s, "%" PRIu64 " day%s ", tmp, tmp == 1 ? "" : "s");
-  }
-  if (sec >= 3600) {
-    tmp = sec / 3600; sec -= tmp * 3600;
-    op_strbuf_appendf(&s, "%" PRIu64 " hour%s ", tmp, tmp == 1 ? "" : "s");
-  }
-  if (sec >= 60) {
-    tmp = sec / 60; sec -= tmp * 60;
-    op_strbuf_appendf(&s, "%" PRIu64 " minute%s ", tmp, tmp == 1 ? "" : "s");
-  }
-  if (sec > 0)
-    op_strbuf_appendf(&s, "%" PRIu64 " second%s", sec, sec == 1 ? "" : "s");
-  else if (!op_strbuf_empty(&s))
-    op_strbuf_truncate(&s, op_strbuf_len(&s) - 1);  /* strip trailing space */
-  ret = PyUnicode_FromString(op_strbuf_str(&s));
-  op_strbuf_free(&s);
-  return ret;
+    return nullptr;
+  egg_format_duration(n > 0 ? (uint64_t)n : 0, buf, sizeof buf);
+  return PyUnicode_FromString(buf);
 }
 
 /* maskhost(nick, userhost) — create a standard IRC hostmask from nick!user@host */
@@ -1107,9 +1070,10 @@ static PyObject *py_maskhost(PyObject *self, PyObject *args)
   [[maybe_unused]] char *nick;
   char *userhost, *at, *dot;
   op_strbuf_t buf;
+  op_strbuf_init(&buf);
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &userhost))
-    return NULL;
+    return nullptr;
   at = strchr(userhost, '@');
   if (!at) {
     /* If only host given, build *!*@*.domain or *!*@host */
@@ -1136,12 +1100,12 @@ static PyObject *py_maskhost(PyObject *self, PyObject *args)
  * is omitted. */
 static PyObject *py_isidentified(PyObject *self, PyObject *args)
 {
-  char *nick, *chan = NULL;
-  struct chanset_t *ch, *the_chan = NULL;
+  char *nick, *chan = nullptr;
+  struct chanset_t *ch, *the_chan = nullptr;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     the_chan = findchan_by_dname(chan);
     if (!the_chan)
@@ -1165,10 +1129,10 @@ static PyObject *py_isidentified(PyObject *self, PyObject *args)
  * With value:    sends PROP target propname :value (sets the property). */
 static PyObject *py_ircxprop(PyObject *self, PyObject *args)
 {
-  char *target, *prop, *value = NULL;
+  char *target, *prop, *value = nullptr;
 
   if (!PyArg_ParseTuple(args, "ss|s", &target, &prop, &value))
-    return NULL;
+    return nullptr;
   if (value && value[0])
     dprintf(DP_SERVER, "PROP %s %s :%s\n", target, prop, value);
   else
@@ -1183,27 +1147,27 @@ static PyObject *py_ircxprop(PyObject *self, PyObject *args)
  * action='del', mask        — remove entry (ACCESS channel DEL mask) */
 static PyObject *py_ircxaccess(PyObject *self, PyObject *args)
 {
-  char *channel, *action, *level = NULL, *mask = NULL;
+  char *channel, *action, *level = nullptr, *mask = nullptr;
 
   if (!PyArg_ParseTuple(args, "ss|ss", &channel, &action, &level, &mask))
-    return NULL;
+    return nullptr;
   if (!strcasecmp(action, "list")) {
     dprintf(DP_SERVER, "ACCESS %s LIST\n", channel);
   } else if (!strcasecmp(action, "add")) {
     if (!level || !mask) {
       PyErr_SetString(PyExc_TypeError, "ircxaccess 'add' requires level and mask");
-      return NULL;
+      return nullptr;
     }
     dprintf(DP_SERVER, "ACCESS %s ADD %s %s\n", channel, level, mask);
   } else if (!strcasecmp(action, "del")) {
     if (!mask) {
       PyErr_SetString(PyExc_TypeError, "ircxaccess 'del' requires mask");
-      return NULL;
+      return nullptr;
     }
     dprintf(DP_SERVER, "ACCESS %s DEL %s\n", channel, mask);
   } else {
     PyErr_SetString(PyExc_ValueError, "ircxaccess: action must be 'list', 'add', or 'del'");
-    return NULL;
+    return nullptr;
   }
   Py_RETURN_NONE;
 }
@@ -1211,10 +1175,10 @@ static PyObject *py_ircxaccess(PyObject *self, PyObject *args)
 /* ircxcreate(channel[, modes]) — send IRCX CREATE to create a channel */
 static PyObject *py_ircxcreate(PyObject *self, PyObject *args)
 {
-  char *channel, *modes = NULL;
+  char *channel, *modes = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &channel, &modes))
-    return NULL;
+    return nullptr;
   if (modes && modes[0])
     dprintf(DP_SERVER, "CREATE %s %s\n", channel, modes);
   else
@@ -1234,11 +1198,12 @@ static PyObject *py_ircxnegotiate(PyObject *self, PyObject *args)
 /* die([reason]) — shut down the bot with optional quit message */
 static PyObject *py_die(PyObject *self, PyObject *args)
 {
-  char *reason = NULL;
+  char *reason = nullptr;
   op_strbuf_t s;
+  op_strbuf_init(&s);
 
   if (!PyArg_ParseTuple(args, "|s", &reason))
-    return NULL;
+    return nullptr;
   if (reason && reason[0]) {
     op_strbuf_appendf(&s, "BOT SHUTDOWN (%s)", reason);
     strlcpy(quit_msg, reason, 1024);
@@ -1286,7 +1251,7 @@ static PyObject *py_getinfo(PyObject *self, PyObject *args)
   char *info;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u)
     Py_RETURN_NONE;
@@ -1303,13 +1268,13 @@ static PyObject *py_setinfo(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &info))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
-  set_user(&USERENTRY_INFO, u, info[0] ? info : NULL);
+  set_user(&USERENTRY_INFO, u, info[0] ? info : nullptr);
   Py_RETURN_NONE;
 }
 
@@ -1321,7 +1286,7 @@ static PyObject *py_getcomment(PyObject *self, PyObject *args)
   char *comment;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u)
     Py_RETURN_NONE;
@@ -1338,13 +1303,13 @@ static PyObject *py_setcomment(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &comment))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
-  set_user(&USERENTRY_COMMENT, u, comment[0] ? comment : NULL);
+  set_user(&USERENTRY_COMMENT, u, comment[0] ? comment : nullptr);
   Py_RETURN_NONE;
 }
 
@@ -1358,7 +1323,7 @@ static PyObject *py_gethosts(PyObject *self, PyObject *args)
   PyObject *list, *s;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   list = PyList_New(0);
   if (!u)
@@ -1382,7 +1347,7 @@ static PyObject *py_getaccount_str(PyObject *self, PyObject *args)
   char *acc;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u)
     Py_RETURN_NONE;
@@ -1402,11 +1367,11 @@ static PyObject *py_chanset(PyObject *self, PyObject *args)
   PyObject *d;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   d = PyDict_New();
   /* Flood control */
@@ -1473,17 +1438,17 @@ static PyObject *py_twitchmods(PyObject *self, PyObject *args)
   char *result;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   me = module_find("twitch", 0, 1);
   if (!me) {
     PyErr_SetString(EggdropError, "twitch module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (char *(*)(char *))me->funcs[12];
   result = fn(chan);
   if (!result) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(result);
 }
@@ -1497,17 +1462,17 @@ static PyObject *py_twitchvips(PyObject *self, PyObject *args)
   char *result;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   me = module_find("twitch", 0, 1);
   if (!me) {
     PyErr_SetString(EggdropError, "twitch module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (char *(*)(char *))me->funcs[13];
   result = fn(chan);
   if (!result) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(result);
 }
@@ -1515,23 +1480,23 @@ static PyObject *py_twitchvips(PyObject *self, PyObject *args)
 /* ismod(nick[, channel]) — True if nick is a Twitch moderator */
 static PyObject *py_ismod(PyObject *self, PyObject *args)
 {
-  char *nick, *chan = NULL;
+  char *nick, *chan = nullptr;
   module_entry *me;
   int (*fn)(char *, char *);
   int result;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
-    return NULL;
+    return nullptr;
   me = module_find("twitch", 0, 1);
   if (!me) {
     PyErr_SetString(EggdropError, "twitch module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (int (*)(char *, char *))me->funcs[14];
   result = fn(nick, chan);
   if (result < 0) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return PyBool_FromLong(result);
 }
@@ -1539,23 +1504,23 @@ static PyObject *py_ismod(PyObject *self, PyObject *args)
 /* isvip(nick[, channel]) — True if nick is a Twitch VIP */
 static PyObject *py_isvip(PyObject *self, PyObject *args)
 {
-  char *nick, *chan = NULL;
+  char *nick, *chan = nullptr;
   module_entry *me;
   int (*fn)(char *, char *);
   int result;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
-    return NULL;
+    return nullptr;
   me = module_find("twitch", 0, 1);
   if (!me) {
     PyErr_SetString(EggdropError, "twitch module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (int (*)(char *, char *))me->funcs[15];
   result = fn(nick, chan);
   if (result < 0) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return PyBool_FromLong(result);
 }
@@ -1566,12 +1531,12 @@ static PyObject *py_isvip(PyObject *self, PyObject *args)
  * Returns True on success, False if handle already exists or is invalid. */
 static PyObject *py_adduser(PyObject *self, PyObject *args)
 {
-  char *handle, *host = NULL;
+  char *handle, *host = nullptr;
   unsigned char *p;
   char hbuf[HANDLEN + 1];
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &host))
-    return NULL;
+    return nullptr;
   strlcpy(hbuf, handle, sizeof hbuf);
   for (p = (unsigned char *)hbuf; *p; p++)
     if (*p <= 32 || *p == '@')
@@ -1589,7 +1554,7 @@ static PyObject *py_deluser(PyObject *self, PyObject *args)
   char *handle;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   if (handle[0] == '*')
     Py_RETURN_FALSE;
   return PyBool_FromLong(deluser(handle));
@@ -1601,10 +1566,10 @@ static PyObject *py_addhost(PyObject *self, PyObject *args)
   char *handle, *mask;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &mask))
-    return NULL;
+    return nullptr;
   if (!get_user_by_handle(userlist, handle)) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
   addhost_by_handle(handle, mask);
   Py_RETURN_NONE;
@@ -1616,10 +1581,10 @@ static PyObject *py_delhost(PyObject *self, PyObject *args)
   char *handle, *mask;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &mask))
-    return NULL;
+    return nullptr;
   if (!get_user_by_handle(userlist, handle)) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
   return PyBool_FromLong(delhost_by_handle(handle, mask));
 }
@@ -1629,13 +1594,13 @@ static PyObject *py_delhost(PyObject *self, PyObject *args)
  * With changes like "+o-v": applies flag changes and returns new flags. */
 static PyObject *py_chattr(PyObject *self, PyObject *args)
 {
-  char *handle, *chg = NULL, *chan = NULL;
-  struct flag_record pls = {0}, mns = {0}, user = {0};
+  char *handle, *chg = nullptr, *chan = nullptr;
+  struct flag_record pls = {}, mns = {}, user = {};
   struct userrec *u;
   char work[100];
 
   if (!PyArg_ParseTuple(args, "s|ss", &handle, &chg, &chan))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u || handle[0] == '*') {
     Py_RETURN_NONE;
@@ -1644,7 +1609,7 @@ static PyObject *py_chattr(PyObject *self, PyObject *args)
     user.match = FR_GLOBAL | FR_CHAN;
     if (!findchan_by_dname(chan)) {
       PyErr_SetString(EggdropError, "no such channel");
-      return NULL;
+      return nullptr;
     }
   } else {
     user.match = FR_GLOBAL;
@@ -1663,20 +1628,20 @@ static PyObject *py_chattr(PyObject *self, PyObject *args)
     }
     set_user_flagrec(u, &user, chan);
   }
-  build_flags(work, &user, NULL);
+  build_flags(work, &user, nullptr);
   return PyUnicode_FromString(work);
 }
 
 /* matchattr(handle, flags[, channel]) — True if user matches flag string */
 static PyObject *py_matchattr(PyObject *self, PyObject *args)
 {
-  char *handle, *flags, *chan = NULL;
-  struct flag_record plus = {0}, minus = {0}, user = {0};
+  char *handle, *flags, *chan = nullptr;
+  struct flag_record plus = {}, minus = {}, user = {};
   struct userrec *u;
   int ok = 0, nom = 0;
 
   if (!PyArg_ParseTuple(args, "ss|s", &handle, &flags, &chan))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (u) {
     user.match = FR_GLOBAL | (chan ? FR_CHAN : 0) | FR_BOT;
@@ -1706,7 +1671,7 @@ static PyObject *py_passwdok(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &passwd))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (u && u_pass_match(u, passwd))
     Py_RETURN_TRUE;
@@ -1721,7 +1686,7 @@ static PyObject *py_chhandle(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &oldh, &newh))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, oldh);
   if (!u)
     Py_RETURN_FALSE;
@@ -1750,7 +1715,7 @@ static PyObject *py_isignore(PyObject *self, PyObject *args)
   char *mask;
 
   if (!PyArg_ParseTuple(args, "s", &mask))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(match_ignore(mask));
 }
 
@@ -1763,7 +1728,7 @@ static PyObject *py_newignore(PyObject *self, PyObject *args)
   time_t expire_time;
 
   if (!PyArg_ParseTuple(args, "sss|l", &mask, &creator, &comment, &lifetime))
-    return NULL;
+    return nullptr;
   if (lifetime < 0)
     expire_time = (ignore_time > 0) ? (now + 60L * ignore_time) : 0;
   else if (lifetime == 0)
@@ -1780,7 +1745,7 @@ static PyObject *py_killignore(PyObject *self, PyObject *args)
   char *mask;
 
   if (!PyArg_ParseTuple(args, "s", &mask))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(delignore(mask));
 }
 
@@ -1812,7 +1777,7 @@ static PyObject *py_hand2idx(PyObject *self, PyObject *args)
   char *handle;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
         !strcasecmp(handle, dcc[i].nick))
@@ -1826,7 +1791,7 @@ static PyObject *py_idx2hand(PyObject *self, PyObject *args)
   long sock;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock == sock)
       return PyUnicode_FromString(dcc[i].nick);
@@ -1837,10 +1802,10 @@ static PyObject *py_idx2hand(PyObject *self, PyObject *args)
 static PyObject *py_killdcc(PyObject *self, PyObject *args)
 {
   long sock;
-  char *reason = NULL;
+  char *reason = nullptr;
 
   if (!PyArg_ParseTuple(args, "l|s", &sock, &reason))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (dcc[i].type->flags & DCT_CHAT) {
@@ -1852,17 +1817,17 @@ static PyObject *py_killdcc(PyObject *self, PyObject *args)
     }
   }
   PyErr_SetString(EggdropError, "invalid socket");
-  return NULL;
+  return nullptr;
 }
 
 /* dcclist([type]) — return list of dicts describing DCC connections */
 static PyObject *py_dcclist(PyObject *self, PyObject *args)
 {
-  char *typefilter = NULL;
+  char *typefilter = nullptr;
   PyObject *list, *d;
 
   if (!PyArg_ParseTuple(args, "|s", &typefilter))
-    return NULL;
+    return nullptr;
   list = PyList_New(0);
   for (int i = 0; i < dcc_total; i++) {
     if (!dcc[i].type)
@@ -1914,11 +1879,11 @@ static PyObject *py_chanbans(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return py_chanmasks_list(ch->channel.ban);
 }
@@ -1930,11 +1895,11 @@ static PyObject *py_chanexempts(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return py_chanmasks_list(ch->channel.exempt);
 }
@@ -1946,11 +1911,11 @@ static PyObject *py_chaninvites(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   return py_chanmasks_list(ch->channel.invite);
 }
@@ -1963,7 +1928,7 @@ static PyObject *py_getchanidle(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     return PyLong_FromLong(-1L);
@@ -1980,11 +1945,11 @@ static PyObject *py_getchan_topic(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "channel not found");
-    return NULL;
+    return nullptr;
   }
   if (!ch->channel.topic)
     Py_RETURN_NONE;
@@ -1994,11 +1959,11 @@ static PyObject *py_getchan_topic(PyObject *self, PyObject *args)
 /* botonchan([channel]) — True if the bot is on channel (or any channel if omitted) */
 static PyObject *py_botonchan(PyObject *self, PyObject *args)
 {
-  char *chan = NULL;
-  struct chanset_t *ch, *thechan = NULL;
+  char *chan = nullptr;
+  struct chanset_t *ch, *thechan = nullptr;
 
   if (!PyArg_ParseTuple(args, "|s", &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thechan = findchan_by_dname(chan);
     if (!thechan)
@@ -2023,7 +1988,7 @@ static PyObject *py_wasop(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -2041,7 +2006,7 @@ static PyObject *py_washalfop(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -2054,12 +2019,12 @@ static PyObject *py_washalfop(PyObject *self, PyObject *args)
 /* isircbot(nick[, channel]) — True if nick is marked as a bot (IRCv3/005) */
 static PyObject *py_isircbot(PyObject *self, PyObject *args)
 {
-  char *nick, *chan = NULL;
-  struct chanset_t *ch, *thechan = NULL;
+  char *nick, *chan = nullptr;
+  struct chanset_t *ch, *thechan = nullptr;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thechan = findchan_by_dname(chan);
     if (!thechan)
@@ -2080,19 +2045,19 @@ static PyObject *py_isircbot(PyObject *self, PyObject *args)
 /* account2nicks(account[, channel]) — return list of nicks with given IRC account */
 static PyObject *py_account2nicks(PyObject *self, PyObject *args)
 {
-  char *account, *chan = NULL;
-  struct chanset_t *ch, *thechan = NULL;
+  char *account, *chan = nullptr;
+  struct chanset_t *ch, *thechan = nullptr;
   memberlist *m;
   PyObject *list, *nick_str;
   int found;
 
   if (!PyArg_ParseTuple(args, "s|s", &account, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thechan = findchan_by_dname(chan);
     if (!thechan) {
       PyErr_SetString(EggdropError, "channel not found");
-      return NULL;
+      return nullptr;
     }
     ch = thechan;
   } else {
@@ -2124,20 +2089,20 @@ static PyObject *py_account2nicks(PyObject *self, PyObject *args)
 /* hand2nicks(handle[, channel]) — return list of nicks for a given handle */
 static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
 {
-  char *handle, *chan = NULL;
-  struct chanset_t *ch, *thechan = NULL;
+  char *handle, *chan = nullptr;
+  struct chanset_t *ch, *thechan = nullptr;
   memberlist *m;
   struct userrec *u;
   PyObject *list, *nick_str;
   int found;
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thechan = findchan_by_dname(chan);
     if (!thechan) {
       PyErr_SetString(EggdropError, "channel not found");
-      return NULL;
+      return nullptr;
     }
     ch = thechan;
   } else {
@@ -2173,13 +2138,14 @@ static PyObject *py_putbot(PyObject *self, PyObject *args)
 {
   char *botnick, *msg;
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "ss", &botnick, &msg))
-    return NULL;
+    return nullptr;
   int i = nextbot(botnick);
   if (i < 0) {
     PyErr_SetString(EggdropError, "bot is not on the botnet");
-    return NULL;
+    return nullptr;
   }
   op_strbuf_appendf(&_b, "%s", msg);
   botnet_send_zapf(i, botnetnick, botnick, op_strbuf_str(&_b));
@@ -2192,11 +2158,12 @@ static PyObject *py_putallbots(PyObject *self, PyObject *args)
 {
   char *msg;
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "s", &msg))
-    return NULL;
+    return nullptr;
   op_strbuf_appendf(&_b, "%s", msg);
-  botnet_send_zapf_broad(-1, botnetnick, NULL, op_strbuf_str(&_b));
+  botnet_send_zapf_broad(-1, botnetnick, nullptr, op_strbuf_str(&_b));
   op_strbuf_free(&_b);
   Py_RETURN_NONE;
 }
@@ -2207,7 +2174,7 @@ static PyObject *py_islinked(PyObject *self, PyObject *args)
   char *botnick;
 
   if (!PyArg_ParseTuple(args, "s", &botnick))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(nextbot(botnick) >= 0);
 }
 
@@ -2241,7 +2208,7 @@ static PyObject *py_stripcodes(PyObject *self, PyObject *args)
   const char *p;
 
   if (!PyArg_ParseTuple(args, "ss", &flagstr, &text))
-    return NULL;
+    return nullptr;
   for (p = flagstr; *p; p++)
     switch (*p) {
     case 'c': flags |= STRIP_COLOR;     break;
@@ -2255,7 +2222,7 @@ static PyObject *py_stripcodes(PyObject *self, PyObject *args)
     case '*': flags |= STRIP_ALL;       break;
     default:
       PyErr_Format(PyExc_ValueError, "invalid strip flag: '%c'", *p);
-      return NULL;
+      return nullptr;
     }
   buf = op_strdup(text);
   strip_mirc_codes(flags, buf);
@@ -2270,7 +2237,7 @@ static PyObject *py_matchstr(PyObject *self, PyObject *args)
   char *pattern, *string;
 
   if (!PyArg_ParseTuple(args, "ss", &pattern, &string))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(wild_match_per(pattern, string));
 }
 
@@ -2282,7 +2249,7 @@ static PyObject *py_puthelp(PyObject *self, PyObject *args)
   char *s;
 
   if (!PyArg_ParseTuple(args, "s", &s))
-    return NULL;
+    return nullptr;
   dprintf(DP_HELP, "%s\n", s);
   Py_RETURN_NONE;
 }
@@ -2293,7 +2260,7 @@ static PyObject *py_tagmsg(PyObject *self, PyObject *args)
   char *tag, *target;
 
   if (!PyArg_ParseTuple(args, "ss", &tag, &target))
-    return NULL;
+    return nullptr;
   dprintf(DP_SERVER, "@%s TAGMSG %s\n", tag, target);
   Py_RETURN_NONE;
 }
@@ -2306,7 +2273,7 @@ static PyObject *py_cap(PyObject *self, PyObject *args)
   char *action, *arg;
 
   if (!PyArg_ParseTuple(args, "ss", &action, &arg))
-    return NULL;
+    return nullptr;
 
   if (!strcasecmp(action, "req")) {
     dprintf(DP_SERVER, "CAP REQ :%s\n", arg);
@@ -2317,7 +2284,7 @@ static PyObject *py_cap(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
   }
   PyErr_SetString(PyExc_ValueError, "cap: action must be 'req' or 'raw'");
-  return NULL;
+  return nullptr;
 }
 
 /* ---- Channel presence queries ----------------------------------------- */
@@ -2325,11 +2292,11 @@ static PyObject *py_cap(PyObject *self, PyObject *args)
 /* onchan(nick[, channel]) — True if nick is on channel (or any channel) */
 static PyObject *py_onchan(PyObject *self, PyObject *args)
 {
-  char *nick, *chan = NULL;
-  struct chanset_t *ch, *thech = NULL;
+  char *nick, *chan = nullptr;
+  struct chanset_t *ch, *thech = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thech = findchan_by_dname(chan);
     if (!thech)
@@ -2337,7 +2304,7 @@ static PyObject *py_onchan(PyObject *self, PyObject *args)
     ch = thech;
   } else
     ch = chanset;
-  while (ch && (thech == NULL || thech == ch)) {
+  while (ch && (thech == nullptr || thech == ch)) {
     if (ismember(ch, nick))
       Py_RETURN_TRUE;
     ch = ch->next;
@@ -2348,13 +2315,13 @@ static PyObject *py_onchan(PyObject *self, PyObject *args)
 /* handonchan(handle[, channel]) — True if handle's user is on channel */
 static PyObject *py_handonchan(PyObject *self, PyObject *args)
 {
-  char *handle, *chan = NULL;
-  struct chanset_t *ch, *thech = NULL;
+  char *handle, *chan = nullptr;
+  struct chanset_t *ch, *thech = nullptr;
   struct userrec *u;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thech = findchan_by_dname(chan);
     if (!thech)
@@ -2362,7 +2329,7 @@ static PyObject *py_handonchan(PyObject *self, PyObject *args)
     ch = thech;
   } else
     ch = chanset;
-  while (ch && (thech == NULL || thech == ch)) {
+  while (ch && (thech == nullptr || thech == ch)) {
     for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
       u = get_user_from_member(m);
       if (u && !strcasecmp(u->handle, handle))
@@ -2376,12 +2343,12 @@ static PyObject *py_handonchan(PyObject *self, PyObject *args)
 /* onchansplit(nick[, channel]) — True if nick is on a netsplit */
 static PyObject *py_onchansplit(PyObject *self, PyObject *args)
 {
-  char *nick, *chan = NULL;
-  struct chanset_t *ch, *thech = NULL;
+  char *nick, *chan = nullptr;
+  struct chanset_t *ch, *thech = nullptr;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &nick, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     thech = findchan_by_dname(chan);
     if (!thech)
@@ -2389,7 +2356,7 @@ static PyObject *py_onchansplit(PyObject *self, PyObject *args)
     ch = thech;
   } else
     ch = chanset;
-  while (ch && (thech == NULL || thech == ch)) {
+  while (ch && (thech == nullptr || thech == ch)) {
     m = ismember(ch, nick);
     if (m && chan_issplit(m))
       Py_RETURN_TRUE;
@@ -2405,11 +2372,11 @@ static PyObject *py_topic(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(ch->channel.topic ? ch->channel.topic : "");
 }
@@ -2420,7 +2387,7 @@ static PyObject *py_validchan(PyObject *self, PyObject *args)
   char *chan;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   if (findchan_by_dname(chan))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -2434,16 +2401,16 @@ static PyObject *py_getchanjoin(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   m = ismember(ch, nick);
   if (!m) {
     PyErr_Format(EggdropError, "%s is not on %s", nick, chan);
-    return NULL;
+    return nullptr;
   }
   return PyLong_FromLongLong((long long)m->joined);
 }
@@ -2451,12 +2418,12 @@ static PyObject *py_getchanjoin(PyObject *self, PyObject *args)
 /* botisowner([channel]) — True if bot has channel owner (+q) status */
 static PyObject *py_botisowner(PyObject *self, PyObject *args)
 {
-  char *chan = NULL;
+  char *chan = nullptr;
   struct chanset_t *ch;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "|s", &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch)
@@ -2482,7 +2449,7 @@ static PyObject *py_isowner(PyObject *self, PyObject *args)
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -2502,16 +2469,16 @@ static PyObject *py_getchanmode(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(((const char *(*)(struct chanset_t *))me->funcs[24])(ch));
 }
@@ -2519,16 +2486,16 @@ static PyObject *py_getchanmode(PyObject *self, PyObject *args)
 /* pushmode(channel, mode[, arg]) — queue a mode change */
 static PyObject *py_pushmode(PyObject *self, PyObject *args)
 {
-  char *chan, *modestr, *arg = NULL;
+  char *chan, *modestr, *arg = nullptr;
   struct chanset_t *ch;
   char plus, mode;
 
   if (!PyArg_ParseTuple(args, "ss|s", &chan, &modestr, &arg))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   plus = modestr[0];
   mode = modestr[1];
@@ -2548,16 +2515,16 @@ static PyObject *py_flushmode(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   ((void (*)(struct chanset_t *, int))me->funcs[IRC_FLUSH_MODE])(ch, 0);
   Py_RETURN_NONE;
@@ -2570,11 +2537,11 @@ static PyObject *py_putkick(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss|s", &chan, &nicks, &comment))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   /* Send individual kicks for each comma-separated nick */
   {
@@ -2603,16 +2570,16 @@ static PyObject *py_resetbans(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0x08, 0);
   Py_RETURN_NONE;
@@ -2626,16 +2593,16 @@ static PyObject *py_resetexempts(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0x10, 0);
   Py_RETURN_NONE;
@@ -2649,16 +2616,16 @@ static PyObject *py_resetinvites(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0x20, 0);
   Py_RETURN_NONE;
@@ -2672,16 +2639,16 @@ static PyObject *py_resetchan(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0xFF, 1);
   Py_RETURN_NONE;
@@ -2695,16 +2662,16 @@ static PyObject *py_refreshchan(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   me = module_find("irc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "irc module not loaded");
-    return NULL;
+    return nullptr;
   }
   ((void (*)(struct chanset_t *, int, int))me->funcs[IRC_RESET_CHAN_INFO])(ch, 0xFF, 0);
   Py_RETURN_NONE;
@@ -2717,13 +2684,13 @@ static PyObject *maskrec_to_list(maskrec *rec)
 {
   PyObject *list = PyList_New(0);
   if (!list)
-    return NULL;
+    return nullptr;
 
   for (; rec; rec = rec->next) {
     PyObject *d = PyDict_New(), *val;
     if (!d) {
       Py_DECREF(list);
-      return NULL;
+      return nullptr;
     }
 #define SET_STR(key, s) do {                       \
     val = PyUnicode_FromString(s);                 \
@@ -2755,16 +2722,16 @@ static PyObject *maskrec_to_list(maskrec *rec)
 /* banlist([channel]) — return list of ban dicts (global or channel) */
 static PyObject *py_banlist(PyObject *self, PyObject *args)
 {
-  char *chan = NULL;
+  char *chan = nullptr;
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "|s", &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     return maskrec_to_list(ch->bans);
   }
@@ -2774,16 +2741,16 @@ static PyObject *py_banlist(PyObject *self, PyObject *args)
 /* exemptlist([channel]) — return list of exempt dicts */
 static PyObject *py_exemptlist(PyObject *self, PyObject *args)
 {
-  char *chan = NULL;
+  char *chan = nullptr;
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "|s", &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     return maskrec_to_list(ch->exempts);
   }
@@ -2793,16 +2760,16 @@ static PyObject *py_exemptlist(PyObject *self, PyObject *args)
 /* invitelist([channel]) — return list of invite dicts */
 static PyObject *py_invitelist(PyObject *self, PyObject *args)
 {
-  char *chan = NULL;
+  char *chan = nullptr;
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "|s", &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     return maskrec_to_list(ch->invites);
   }
@@ -2812,7 +2779,7 @@ static PyObject *py_invitelist(PyObject *self, PyObject *args)
 /* newban(ban, creator, comment[, lifetime[, options]]) — add a global ban */
 static PyObject *py_newban(PyObject *self, PyObject *args)
 {
-  char *ban, *creator, *comment, *opts = NULL;
+  char *ban, *creator, *comment, *opts = nullptr;
   long lifetime = -1;
   int sticky = 0;
   time_t expire_time;
@@ -2820,7 +2787,7 @@ static PyObject *py_newban(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "sss|ls", &ban, &creator, &comment, &lifetime, &opts))
-    return NULL;
+    return nullptr;
   if (opts && !strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
@@ -2829,7 +2796,7 @@ static PyObject *py_newban(PyObject *self, PyObject *args)
     expire_time = 0;
   else
     expire_time = now + 60 * lifetime;
-  if (u_addban(NULL, ban, creator, comment, expire_time, sticky)) {
+  if (u_addban(nullptr, ban, creator, comment, expire_time, sticky)) {
     me = module_find("irc", 0, 0);
     if (me)
       for (ch = chanset; ch; ch = ch->next)
@@ -2845,8 +2812,8 @@ static PyObject *py_killban(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &ban))
-    return NULL;
-  if (u_delban(NULL, ban, 1) > 0) {
+    return nullptr;
+  if (u_delban(nullptr, ban, 1) > 0) {
     for (ch = chanset; ch; ch = ch->next)
       add_mode(ch, '-', 'b', ban);
     Py_RETURN_TRUE;
@@ -2861,11 +2828,11 @@ static PyObject *py_killchanban(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &chan, &ban))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (u_delban(ch, ban, 1) > 0) {
     add_mode(ch, '-', 'b', ban);
@@ -2877,13 +2844,13 @@ static PyObject *py_killchanban(PyObject *self, PyObject *args)
 /* newexempt(exempt, creator, comment[, lifetime[, options]]) — add global exempt */
 static PyObject *py_newexempt(PyObject *self, PyObject *args)
 {
-  char *exempt, *creator, *comment, *opts = NULL;
+  char *exempt, *creator, *comment, *opts = nullptr;
   long lifetime = -1;
   int sticky = 0;
   time_t expire_time;
 
   if (!PyArg_ParseTuple(args, "sss|ls", &exempt, &creator, &comment, &lifetime, &opts))
-    return NULL;
+    return nullptr;
   if (opts && !strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
@@ -2892,7 +2859,7 @@ static PyObject *py_newexempt(PyObject *self, PyObject *args)
     expire_time = 0;
   else
     expire_time = now + 60 * lifetime;
-  u_addexempt(NULL, exempt, creator, comment, expire_time, sticky);
+  u_addexempt(nullptr, exempt, creator, comment, expire_time, sticky);
   Py_RETURN_NONE;
 }
 
@@ -2903,8 +2870,8 @@ static PyObject *py_killexempt(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &exempt))
-    return NULL;
-  if (u_delexempt(NULL, exempt, 1) > 0) {
+    return nullptr;
+  if (u_delexempt(nullptr, exempt, 1) > 0) {
     for (ch = chanset; ch; ch = ch->next)
       add_mode(ch, '-', 'e', exempt);
     Py_RETURN_TRUE;
@@ -2915,13 +2882,13 @@ static PyObject *py_killexempt(PyObject *self, PyObject *args)
 /* newinvite(invite, creator, comment[, lifetime[, options]]) — add global invite */
 static PyObject *py_newinvite(PyObject *self, PyObject *args)
 {
-  char *invite, *creator, *comment, *opts = NULL;
+  char *invite, *creator, *comment, *opts = nullptr;
   long lifetime = -1;
   int sticky = 0;
   time_t expire_time;
 
   if (!PyArg_ParseTuple(args, "sss|ls", &invite, &creator, &comment, &lifetime, &opts))
-    return NULL;
+    return nullptr;
   if (opts && !strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
@@ -2930,7 +2897,7 @@ static PyObject *py_newinvite(PyObject *self, PyObject *args)
     expire_time = 0;
   else
     expire_time = now + 60 * lifetime;
-  u_addinvite(NULL, invite, creator, comment, expire_time, sticky);
+  u_addinvite(nullptr, invite, creator, comment, expire_time, sticky);
   Py_RETURN_NONE;
 }
 
@@ -2941,8 +2908,8 @@ static PyObject *py_killinvite(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s", &invite))
-    return NULL;
-  if (u_delinvite(NULL, invite, 1) > 0) {
+    return nullptr;
+  if (u_delinvite(nullptr, invite, 1) > 0) {
     for (ch = chanset; ch; ch = ch->next)
       add_mode(ch, '-', 'I', invite);
     Py_RETURN_TRUE;
@@ -2956,7 +2923,7 @@ static PyObject *py_matchban(PyObject *self, PyObject *args)
   char *mask;
 
   if (!PyArg_ParseTuple(args, "s", &mask))
-    return NULL;
+    return nullptr;
   if (u_match_mask(global_bans, mask))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -2968,7 +2935,7 @@ static PyObject *py_matchexempt(PyObject *self, PyObject *args)
   char *mask;
 
   if (!PyArg_ParseTuple(args, "s", &mask))
-    return NULL;
+    return nullptr;
   if (u_match_mask(global_exempts, mask))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -2980,7 +2947,7 @@ static PyObject *py_matchinvite(PyObject *self, PyObject *args)
   char *mask;
 
   if (!PyArg_ParseTuple(args, "s", &mask))
-    return NULL;
+    return nullptr;
   if (u_match_mask(global_invites, mask))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -2989,16 +2956,16 @@ static PyObject *py_matchinvite(PyObject *self, PyObject *args)
 /* stickban(ban[, channel]) — make a ban sticky; returns True if found */
 static PyObject *py_stickban(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *ban, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
   }
   if (u_setsticky_ban(ch, ban, 1))
@@ -3009,16 +2976,16 @@ static PyObject *py_stickban(PyObject *self, PyObject *args)
 /* unstickban(ban[, channel]) — make a ban non-sticky; returns True if found */
 static PyObject *py_unstickban(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *ban, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
   }
   if (u_setsticky_ban(ch, ban, 0))
@@ -3029,11 +2996,11 @@ static PyObject *py_unstickban(PyObject *self, PyObject *args)
 /* isban(ban[, channel]) — True if ban exists in the bot's ban list */
 static PyObject *py_isban(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
+  char *ban, *chan = nullptr;
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch)
@@ -3050,11 +3017,11 @@ static PyObject *py_isban(PyObject *self, PyObject *args)
 /* isexempt(exempt[, channel]) — True if exempt exists */
 static PyObject *py_isexempt(PyObject *self, PyObject *args)
 {
-  char *exempt, *chan = NULL;
+  char *exempt, *chan = nullptr;
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s|s", &exempt, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch)
@@ -3071,11 +3038,11 @@ static PyObject *py_isexempt(PyObject *self, PyObject *args)
 /* isinvite(invite[, channel]) — True if invite exists */
 static PyObject *py_isinvite(PyObject *self, PyObject *args)
 {
-  char *invite, *chan = NULL;
+  char *invite, *chan = nullptr;
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "s|s", &invite, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch)
@@ -3099,7 +3066,7 @@ static PyObject *py_getchaninfo(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u || (u->flags & USER_BOT))
     Py_RETURN_NONE;
@@ -3117,13 +3084,13 @@ static PyObject *py_setchaninfo(PyObject *self, PyObject *args)
   char *handle, *chan, *info;
 
   if (!PyArg_ParseTuple(args, "sss", &handle, &chan, &info))
-    return NULL;
+    return nullptr;
   if (!findchan_by_dname(chan)) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (!strcasecmp(info, "none"))
-    set_handle_chaninfo(userlist, handle, chan, NULL);
+    set_handle_chaninfo(userlist, handle, chan, nullptr);
   else
     set_handle_chaninfo(userlist, handle, chan, info);
   Py_RETURN_NONE;
@@ -3136,7 +3103,7 @@ static PyObject *py_addchanrec(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u || !findchan_by_dname(chan) || get_chanrec(u, chan))
     Py_RETURN_FALSE;
@@ -3151,7 +3118,7 @@ static PyObject *py_delchanrec(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u || !get_chanrec(u, chan))
     Py_RETURN_FALSE;
@@ -3166,7 +3133,7 @@ static PyObject *py_haschanrec(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &chan))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (u && get_chanrec(u, chan))
     Py_RETURN_TRUE;
@@ -3176,16 +3143,16 @@ static PyObject *py_haschanrec(PyObject *self, PyObject *args)
 /* setlaston(handle[, channel[, timestamp]]) — set last-seen time for user */
 static PyObject *py_setlaston(PyObject *self, PyObject *args)
 {
-  char *handle, *chan = NULL;
+  char *handle, *chan = nullptr;
   long ts = -1;
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "s|sl", &handle, &chan, &ts))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u) {
     PyErr_Format(EggdropError, "no such user: %s", handle);
-    return NULL;
+    return nullptr;
   }
   if (ts < 0)
     ts = (long)now;
@@ -3203,11 +3170,11 @@ static PyObject *py_encrypt(PyObject *self, PyObject *args)
   char *(*fn)(char *, char *);
 
   if (!PyArg_ParseTuple(args, "ss", &key, &str))
-    return NULL;
+    return nullptr;
   me = module_find("blowfish", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "blowfish module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (char *(*)(char *, char *))me->funcs[4];
   result = fn(key, str);
@@ -3226,11 +3193,11 @@ static PyObject *py_decrypt(PyObject *self, PyObject *args)
   char *(*fn)(char *, char *);
 
   if (!PyArg_ParseTuple(args, "ss", &key, &str))
-    return NULL;
+    return nullptr;
   me = module_find("blowfish", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "blowfish module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (char *(*)(char *, char *))me->funcs[5];
   result = fn(key, str);
@@ -3249,7 +3216,7 @@ static PyObject *py_storenote(PyObject *self, PyObject *args)
   char *from, *to, *msg;
 
   if (!PyArg_ParseTuple(args, "sss", &from, &to, &msg))
-    return NULL;
+    return nullptr;
   return PyLong_FromLong(add_note(to, from, msg, -1, 0));
 }
 
@@ -3261,15 +3228,15 @@ static PyObject *py_notes(PyObject *self, PyObject *args)
   int (*fn)(char *);
 
   if (!PyArg_ParseTuple(args, "s", &handle))
-    return NULL;
+    return nullptr;
   if (!get_user_by_handle(userlist, handle)) {
     PyErr_Format(EggdropError, "no such user: %s", handle);
-    return NULL;
+    return nullptr;
   }
   me = module_find("notes", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "notes module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (int (*)(char *))me->funcs[5];
   return PyLong_FromLong(fn(handle));
@@ -3282,16 +3249,16 @@ static PyObject *py_assoc(PyObject *self, PyObject *args)
   module_entry *me;
 
   if (!PyArg_ParseTuple(args, "s", &arg))
-    return NULL;
+    return nullptr;
   me = module_find("assoc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "assoc module not loaded");
-    return NULL;
+    return nullptr;
   }
   if (arg[0] >= '0' && arg[0] <= '9') {
     /* Numeric — look up channel name */
     char *(*fn)(int) = (char *(*)(int))me->funcs[5];
-    char *name = fn(atoi(arg));
+    char *name = fn(egg_atoi(arg));
     if (!name)
       Py_RETURN_NONE;
     return PyUnicode_FromString(name);
@@ -3313,11 +3280,11 @@ static PyObject *py_killassoc(PyObject *self, PyObject *args)
   void (*fn)(int);
 
   if (!PyArg_ParseTuple(args, "i", &chan))
-    return NULL;
+    return nullptr;
   me = module_find("assoc", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "assoc module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (void (*)(int))me->funcs[7];
   fn(chan);
@@ -3329,11 +3296,11 @@ static PyObject *py_killassoc(PyObject *self, PyObject *args)
 /* jump([server[, port[, password]]]) — disconnect and reconnect to a new server */
 static PyObject *py_jump(PyObject *self, PyObject *args)
 {
-  char *server = NULL, *pass = NULL;
+  char *server = nullptr, *pass = nullptr;
   int port = 0;
 
   if (!PyArg_ParseTuple(args, "|sis", &server, &port, &pass))
-    return NULL;
+    return nullptr;
   if (server)
     strlcpy(newserver, server, NEWSERVERMAX);
   if (port > 0)
@@ -3357,7 +3324,7 @@ static PyObject *py_utimer(PyObject *self, PyObject *args)
   char *result;
 
   if (!PyArg_ParseTuple(args, "is|i", &seconds, &cmd, &count))
-    return NULL;
+    return nullptr;
   result = add_timer(&utimer, 1, seconds, (char *)cmd, (char *)cmd, 0);
   if (result) {
     tcl_timer_t *t;
@@ -3375,7 +3342,7 @@ static PyObject *py_timer(PyObject *self, PyObject *args)
   char *result;
 
   if (!PyArg_ParseTuple(args, "is|i", &minutes, &cmd, &count))
-    return NULL;
+    return nullptr;
   result = add_timer(&timer, 60, minutes, (char *)cmd, (char *)cmd, 0);
   if (result) {
     tcl_timer_t *t;
@@ -3391,7 +3358,7 @@ static PyObject *py_killtimer(PyObject *self, PyObject *args)
   const char *name;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   if (remove_timer(&timer, (char *)name))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -3403,7 +3370,7 @@ static PyObject *py_killutimer(PyObject *self, PyObject *args)
   const char *name;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   if (remove_timer(&utimer, (char *)name))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -3414,7 +3381,7 @@ static PyObject *py_timers(PyObject *self, PyObject *args)
 {
   PyObject *list = PyList_New(0);
   tcl_timer_t *t;
-  time_t now_t = time(NULL);
+  time_t now_t = time(nullptr);
 
   for (t = timer; t; t = t->next) {
     unsigned int remaining = (t->fire_at > now_t)
@@ -3433,7 +3400,7 @@ static PyObject *py_utimers(PyObject *self, PyObject *args)
 {
   PyObject *list = PyList_New(0);
   tcl_timer_t *t;
-  time_t now_t = time(NULL);
+  time_t now_t = time(nullptr);
 
   for (t = utimer; t; t = t->next) {
     unsigned int remaining = (t->fire_at > now_t)
@@ -3453,7 +3420,7 @@ static PyObject *py_timerexists(PyObject *self, PyObject *args)
   const char *name;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   if (find_timer(timer, (char *)name))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -3465,7 +3432,7 @@ static PyObject *py_utimerexists(PyObject *self, PyObject *args)
   const char *name;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   if (find_timer(utimer, (char *)name))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
@@ -3480,11 +3447,11 @@ static PyObject *py_getuser(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &etype))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
   if (!strcasecmp(etype, "HOSTS")) {
     struct user_entry *e;
@@ -3528,10 +3495,10 @@ static PyObject *py_getuser(PyObject *self, PyObject *args)
     Py_RETURN_FALSE;
   } else if (!strcasecmp(etype, "BOTFL")) {
     long fl = (long)get_user(&USERENTRY_BOTFL, u);
-    struct flag_record fr = {FR_BOT, 0, 0, 0, 0, 0};
+    struct flag_record fr = {FR_BOT};
     char work[100];
     fr.bot = fl;
-    build_flags(work, &fr, NULL);
+    build_flags(work, &fr, nullptr);
     return PyUnicode_FromString(work);
   }
   Py_RETURN_NONE;
@@ -3544,23 +3511,23 @@ static PyObject *py_setuser(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "sss", &handle, &etype, &value))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
   if (!strcasecmp(etype, "INFO")) {
-    set_user(&USERENTRY_INFO, u, value[0] ? value : NULL);
+    set_user(&USERENTRY_INFO, u, value[0] ? value : nullptr);
   } else if (!strcasecmp(etype, "COMMENT")) {
-    set_user(&USERENTRY_COMMENT, u, value[0] ? value : NULL);
+    set_user(&USERENTRY_COMMENT, u, value[0] ? value : nullptr);
   } else if (!strcasecmp(etype, "HOSTS")) {
     addhost_by_handle(handle, value);
   } else if (!strcasecmp(etype, "PASS")) {
-    set_user(&USERENTRY_PASS, u, value[0] ? value : NULL);
+    set_user(&USERENTRY_PASS, u, value[0] ? value : nullptr);
   } else {
     PyErr_SetString(EggdropError, "unknown entry type");
-    return NULL;
+    return nullptr;
   }
   Py_RETURN_NONE;
 }
@@ -3572,13 +3539,13 @@ static PyObject *py_setpass(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &pass))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u) {
     PyErr_SetString(EggdropError, "no such user");
-    return NULL;
+    return nullptr;
   }
-  set_user(&USERENTRY_PASS, u, pass[0] ? pass : NULL);
+  set_user(&USERENTRY_PASS, u, pass[0] ? pass : nullptr);
   Py_RETURN_NONE;
 }
 
@@ -3590,11 +3557,11 @@ static PyObject *py_encpass(PyObject *self, PyObject *args)
   char *(*fn)(char *, char *);
 
   if (!PyArg_ParseTuple(args, "s", &pass))
-    return NULL;
+    return nullptr;
   me = module_find("blowfish", 0, 0);
   if (!me) {
     PyErr_SetString(EggdropError, "blowfish module not loaded");
-    return NULL;
+    return nullptr;
   }
   fn = (char *(*)(char *, char *))me->funcs[4];
   result = fn(pass, "");
@@ -3612,11 +3579,11 @@ static PyObject *py_addbot(PyObject *self, PyObject *args)
   struct userrec *u;
 
   if (!PyArg_ParseTuple(args, "ss", &handle, &address))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, (char *)handle);
   if (u) {
     PyErr_SetString(PyExc_ValueError, "user already exists");
-    return NULL;
+    return nullptr;
   }
   userlist = adduser(userlist, (char *)handle, "none", "-", USER_BOT);
   u = get_user_by_handle(userlist, (char *)handle);
@@ -3637,25 +3604,25 @@ static PyObject *py_addbot(PyObject *self, PyObject *args)
 /* botattr(handle[, changes]) — get/set bot flags */
 static PyObject *py_botattr(PyObject *self, PyObject *args)
 {
-  char *handle, *chg = NULL;
-  struct flag_record pls = {0}, mns = {0}, user = {0};
+  char *handle, *chg = nullptr;
+  struct flag_record pls = {}, mns = {}, user = {};
   struct userrec *u;
   char work[100];
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &chg))
-    return NULL;
+    return nullptr;
   u = get_user_by_handle(userlist, handle);
   if (!u || handle[0] == '*')
     Py_RETURN_NONE;
   user.match = FR_BOT;
-  get_user_flagrec(u, &user, NULL);
+  get_user_flagrec(u, &user, nullptr);
   if (chg) {
     pls.match = FR_BOT;
     break_down_flags(chg, &pls, &mns);
     user.bot = (user.bot | pls.bot) & ~mns.bot;
-    set_user_flagrec(u, &user, NULL);
+    set_user_flagrec(u, &user, nullptr);
   }
-  build_flags(work, &user, NULL);
+  build_flags(work, &user, nullptr);
   return PyUnicode_FromString(work);
 }
 
@@ -3666,11 +3633,11 @@ static PyObject *py_loadmodule(PyObject *self, PyObject *args)
   const char *result;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   result = module_load((char *)name);
   if (result) {
     PyErr_SetString(PyExc_RuntimeError, result);
-    return NULL;
+    return nullptr;
   }
   Py_RETURN_NONE;
 }
@@ -3682,11 +3649,11 @@ static PyObject *py_unloadmodule(PyObject *self, PyObject *args)
   char *result;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   result = module_unload((char *)name, botnetnick);
   if (result) {
     PyErr_SetString(PyExc_RuntimeError, result);
-    return NULL;
+    return nullptr;
   }
   Py_RETURN_NONE;
 }
@@ -3725,7 +3692,7 @@ static PyObject *py_whom(PyObject *self, PyObject *args)
   PyObject *list, *d;
 
   if (!PyArg_ParseTuple(args, "|i", &chan))
-    return NULL;
+    return nullptr;
   list = PyList_New(0);
   /* Local DCC_CHAT users */
   for (int i = 0; i < dcc_total; i++) {
@@ -3775,7 +3742,7 @@ static PyObject *py_dccbroadcast(PyObject *self, PyObject *args)
   const char *msg;
 
   if (!PyArg_ParseTuple(args, "s", &msg))
-    return NULL;
+    return nullptr;
   chatout("*** %s\n", msg);
   Py_RETURN_NONE;
 }
@@ -3783,10 +3750,10 @@ static PyObject *py_dccbroadcast(PyObject *self, PyObject *args)
 /* boot(handle[, reason]) — boot a user from the partyline */
 static PyObject *py_boot(PyObject *self, PyObject *args)
 {
-  char *handle, *reason = NULL;
+  char *handle, *reason = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &reason))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type->flags & DCT_CANBOOT) &&
         !strcasecmp(dcc[i].nick, handle)) {
@@ -3804,7 +3771,7 @@ static PyObject *py_console(PyObject *self, PyObject *args)
   PyObject *d;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock && dcc[i].type == &DCC_CHAT && dcc[i].u.chat) {
       d = PyDict_New();
@@ -3818,7 +3785,7 @@ static PyObject *py_console(PyObject *self, PyObject *args)
     }
   }
   PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-  return NULL;
+  return nullptr;
 }
 
 /* echo(idx[, value]) — get/set echo for DCC */
@@ -3828,7 +3795,7 @@ static PyObject *py_echo(PyObject *self, PyObject *args)
   int val = -1;
 
   if (!PyArg_ParseTuple(args, "l|i", &sock, &val))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock && dcc[i].type == &DCC_CHAT) {
       if (val >= 0) {
@@ -3841,7 +3808,7 @@ static PyObject *py_echo(PyObject *self, PyObject *args)
     }
   }
   PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-  return NULL;
+  return nullptr;
 }
 
 /* dccputchan(chan, msg) — send to a partyline channel */
@@ -3851,7 +3818,7 @@ static PyObject *py_dccputchan(PyObject *self, PyObject *args)
   const char *msg;
 
   if (!PyArg_ParseTuple(args, "is", &chan, &msg))
-    return NULL;
+    return nullptr;
   chanout_but(-1, chan, "*** %s\n", msg);
   Py_RETURN_NONE;
 }
@@ -3862,13 +3829,13 @@ static PyObject *py_getdccidle(PyObject *self, PyObject *args)
   long sock;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock)
       return PyLong_FromLong((long)(now - dcc[i].timeval));
   }
   PyErr_SetString(EggdropError, "invalid idx");
-  return NULL;
+  return nullptr;
 }
 
 /* getdccaway(idx) — get away message for DCC connection, or None */
@@ -3877,7 +3844,7 @@ static PyObject *py_getdccaway(PyObject *self, PyObject *args)
   long sock;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock && dcc[i].type == &DCC_CHAT && dcc[i].u.chat) {
       if (dcc[i].u.chat->away)
@@ -3886,23 +3853,23 @@ static PyObject *py_getdccaway(PyObject *self, PyObject *args)
     }
   }
   PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-  return NULL;
+  return nullptr;
 }
 
 /* strftime(format[, time]) — format a time string */
 static PyObject *py_strftime(PyObject *self, PyObject *args)
 {
   const char *fmt;
-  long ts = (long)time(NULL);
+  long ts = (long)time(nullptr);
   char buf[512];
   struct tm *tm1;
 
   if (!PyArg_ParseTuple(args, "s|l", &fmt, &ts))
-    return NULL;
+    return nullptr;
   tm1 = localtime((time_t *)&ts);
   if (!tm1) {
     PyErr_SetString(EggdropError, "invalid time value");
-    return NULL;
+    return nullptr;
   }
   strftime(buf, sizeof buf, fmt, tm1);
   return PyUnicode_FromString(buf);
@@ -3911,12 +3878,12 @@ static PyObject *py_strftime(PyObject *self, PyObject *args)
 /* ctime([time]) — convert time to readable string */
 static PyObject *py_ctime(PyObject *self, PyObject *args)
 {
-  long ts = (long)time(NULL);
+  long ts = (long)time(nullptr);
   char *result;
   size_t len;
 
   if (!PyArg_ParseTuple(args, "|l", &ts))
-    return NULL;
+    return nullptr;
   result = ctime((time_t *)&ts);
   if (!result)
     Py_RETURN_NONE;
@@ -3941,7 +3908,7 @@ static PyObject *py_callevent(PyObject *self, PyObject *args)
   const char *event;
 
   if (!PyArg_ParseTuple(args, "s", &event))
-    return NULL;
+    return nullptr;
   check_tcl_event(event);
   Py_RETURN_NONE;
 }
@@ -3953,17 +3920,19 @@ static PyObject *py_md5(PyObject *self, PyObject *args)
   Py_ssize_t len;
   MD5_CTX ctx;
   unsigned char digest[16];
-  char hex[33];
 
   if (!PyArg_ParseTuple(args, "s#", &input, &len))
-    return NULL;
+    return nullptr;
   MD5_Init(&ctx);
   MD5_Update(&ctx, (void *)input, (unsigned long)len);
   MD5_Final(digest, &ctx);
+  op_strbuf_t hex;
+  op_strbuf_init(&hex);
   for (int i = 0; i < 16; i++)
-    snprintf(hex + i * 2, 3, "%02x", digest[i]);
-  hex[32] = '\0';
-  return PyUnicode_FromString(hex);
+    op_strbuf_appendf(&hex, "%02x", digest[i]);
+  PyObject *result = PyUnicode_FromString(op_strbuf_str(&hex));
+  op_strbuf_free(&hex);
+  return result;
 }
 
 /* dccsimul(idx, text) — simulate DCC input from a user */
@@ -3973,12 +3942,12 @@ static PyObject *py_dccsimul(PyObject *self, PyObject *args)
   char *text;
 
   if (!PyArg_ParseTuple(args, "ls", &sock, &text))
-    return NULL;
+    return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (!(dcc[i].type->flags & DCT_SIMUL)) {
         PyErr_SetString(EggdropError, "this connection type cannot be simulated");
-        return NULL;
+        return nullptr;
       }
       if (dcc[i].type->activity)
         dcc[i].type->activity(i, text, (int)strlen(text));
@@ -3986,46 +3955,23 @@ static PyObject *py_dccsimul(PyObject *self, PyObject *args)
     }
   }
   PyErr_SetString(EggdropError, "invalid idx");
-  return NULL;
+  return nullptr;
 }
 
-/* traffic() — get traffic statistics */
 static PyObject *py_traffic(PyObject *self, PyObject *args)
 {
-  PyObject *d = PyDict_New();
+  struct egg_traffic_snap in, out;
+  egg_traffic_get_snap(&in, &out);
 
-  PyDict_SetItemString(d, "irc_out",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&otraffic_irc, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&otraffic_irc_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "irc_in",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&itraffic_irc, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&itraffic_irc_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "bn_out",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&otraffic_bn, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&otraffic_bn_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "bn_in",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&itraffic_bn, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&itraffic_bn_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "dcc_out",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&otraffic_dcc, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&otraffic_dcc_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "dcc_in",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&itraffic_dcc, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&itraffic_dcc_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "trans_out",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&otraffic_trans, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&otraffic_trans_today, memory_order_relaxed)));
-  PyDict_SetItemString(d, "trans_in",
-    PyLong_FromUnsignedLongLong(
-      (unsigned long long)atomic_load_explicit(&itraffic_trans, memory_order_relaxed) +
-      (unsigned long long)atomic_load_explicit(&itraffic_trans_today, memory_order_relaxed)));
+  PyObject *d = PyDict_New();
+  PyDict_SetItemString(d, "irc_out",   PyLong_FromUnsignedLongLong(out.irc));
+  PyDict_SetItemString(d, "irc_in",    PyLong_FromUnsignedLongLong(in.irc));
+  PyDict_SetItemString(d, "bn_out",    PyLong_FromUnsignedLongLong(out.bn));
+  PyDict_SetItemString(d, "bn_in",     PyLong_FromUnsignedLongLong(in.bn));
+  PyDict_SetItemString(d, "dcc_out",   PyLong_FromUnsignedLongLong(out.partyline));
+  PyDict_SetItemString(d, "dcc_in",    PyLong_FromUnsignedLongLong(in.partyline));
+  PyDict_SetItemString(d, "trans_out", PyLong_FromUnsignedLongLong(out.trans));
+  PyDict_SetItemString(d, "trans_in",  PyLong_FromUnsignedLongLong(in.trans));
   return d;
 }
 
@@ -4034,10 +3980,10 @@ static PyObject *py_traffic(PyObject *self, PyObject *args)
 /* link([via,] bot) — attempt to link to a bot, optionally through another bot */
 static PyObject *py_link(PyObject *self, PyObject *args)
 {
-  char *bot, *via = NULL;
+  char *bot, *via = nullptr;
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &via))
-    return NULL;
+    return nullptr;
   if (via) {
     /* link(via, bot) — two-arg form: send link request through via-bot */
     op_strbuf_t _via, _bot;
@@ -4055,6 +4001,7 @@ static PyObject *py_link(PyObject *self, PyObject *args)
     return PyLong_FromLong(1L);
   }
   op_strbuf_t _bot;
+  op_strbuf_init(&_bot);
   op_strbuf_appendf(&_bot, "%s", bot);
   PyObject *_ret = PyLong_FromLong((long)botlink("", -2, (char *)op_strbuf_str(&_bot)));
   op_strbuf_free(&_bot);
@@ -4066,9 +4013,10 @@ static PyObject *py_unlink(PyObject *self, PyObject *args)
 {
   char *bot, *comment = "";
   op_strbuf_t _b;
+  op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &comment))
-    return NULL;
+    return nullptr;
   op_strbuf_appendf(&_b, "%s", bot);
   int i = nextbot((char *)op_strbuf_str(&_b));
   if (i < 0) {
@@ -4094,7 +4042,7 @@ static PyObject *py_valididx(PyObject *self, PyObject *args)
   long sock;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0 || !(dcc[idx].type->flags & DCT_VALIDIDX))
     Py_RETURN_FALSE;
@@ -4130,11 +4078,11 @@ static PyObject *py_setdccaway(PyObject *self, PyObject *args)
   char *msg;
 
   if (!PyArg_ParseTuple(args, "ls", &sock, &msg))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
     PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-    return NULL;
+    return nullptr;
   }
   if (!msg[0]) {
     if (dcc[idx].u.chat->away)
@@ -4151,11 +4099,11 @@ static PyObject *py_getchan(PyObject *self, PyObject *args)
   long sock;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
     PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-    return NULL;
+    return nullptr;
   }
   return PyLong_FromLong((long)dcc[idx].u.chat->channel);
 }
@@ -4167,15 +4115,15 @@ static PyObject *py_setchan(PyObject *self, PyObject *args)
   int chan;
 
   if (!PyArg_ParseTuple(args, "li", &sock, &chan))
-    return NULL;
+    return nullptr;
   if (chan < -1 || chan > 199999) {
     PyErr_SetString(EggdropError, "channel out of range; must be -1 through 199999");
-    return NULL;
+    return nullptr;
   }
   int idx = findidx((int)sock);
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
     PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-    return NULL;
+    return nullptr;
   }
   int oldchan = dcc[idx].u.chat->channel;
 
@@ -4198,11 +4146,11 @@ static PyObject *py_putloglev(PyObject *self, PyObject *args)
   int lev;
 
   if (!PyArg_ParseTuple(args, "sss", &flags, &chan, &text))
-    return NULL;
+    return nullptr;
   lev = logmodes(flags);
   if (!lev) {
     PyErr_SetString(EggdropError, "no valid log flag given");
-    return NULL;
+    return nullptr;
   }
   putlog(lev, chan, "%s", text);
   Py_RETURN_NONE;
@@ -4214,7 +4162,7 @@ static PyObject *py_putcmdlog(PyObject *self, PyObject *args)
   char *text;
 
   if (!PyArg_ParseTuple(args, "s", &text))
-    return NULL;
+    return nullptr;
   putlog(LOG_CMDS, "*", "%s", text);
   Py_RETURN_NONE;
 }
@@ -4227,7 +4175,7 @@ static PyObject *py_matchaddr(PyObject *self, PyObject *args)
   char *mask, *address;
 
   if (!PyArg_ParseTuple(args, "ss", &mask, &address))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(addr_match(mask, address, 0, 0));
 }
 
@@ -4237,15 +4185,15 @@ static PyObject *py_rfcequal(PyObject *self, PyObject *args)
   char *s1, *s2;
 
   if (!PyArg_ParseTuple(args, "ss", &s1, &s2))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(!rfc_casecmp(s1, s2));
 }
 
 /* binds([type]) — return list of dicts describing all active binds */
 static PyObject *py_binds(PyObject *self, PyObject *args)
 {
-  char *typefilter = NULL;
-  tcl_bind_list_t *tl, *tl_kind = NULL;
+  char *typefilter = nullptr;
+  tcl_bind_list_t *tl, *tl_kind = nullptr;
   tcl_bind_mask_t *tm;
   tcl_cmd_t *tc;
   PyObject *list;
@@ -4253,7 +4201,7 @@ static PyObject *py_binds(PyObject *self, PyObject *args)
   char flg[100];
 
   if (!PyArg_ParseTuple(args, "|s", &typefilter))
-    return NULL;
+    return nullptr;
   if (typefilter) {
     tl_kind = find_bind_table(typefilter);
     if (!tl_kind)
@@ -4261,7 +4209,7 @@ static PyObject *py_binds(PyObject *self, PyObject *args)
   }
   list = PyList_New(0);
   for (tl = tl_kind ? tl_kind : bind_table_list; tl;
-       tl = tl_kind ? NULL : tl->next) {
+       tl = tl_kind ? nullptr : tl->next) {
     if (tl->flags & HT_DELETED)
       continue;
     for (tm = tl->first; tm; tm = tm->next) {
@@ -4275,7 +4223,7 @@ static PyObject *py_binds(PyObject *self, PyObject *args)
             !wild_match_per(typefilter, tm->mask) &&
             !wild_match_per(typefilter, tc->func_name))
           continue;
-        build_flags(flg, &(tc->flags), NULL);
+        build_flags(flg, &(tc->flags), nullptr);
         PyObject *d = Py_BuildValue("{s:s, s:s, s:s, s:I, s:s}",
           "type", tl->name, "flags", flg, "mask", tm->mask,
           "hits", tc->hits, "func", tc->func_name);
@@ -4296,11 +4244,11 @@ static PyObject *py_ischanban(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &ban, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (ismodeline(ch->channel.ban, ch->channel.ban_ht, ban))
     Py_RETURN_TRUE;
@@ -4314,11 +4262,11 @@ static PyObject *py_ischanexempt(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &exempt, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (ismodeline(ch->channel.exempt, ch->channel.exempt_ht, exempt))
     Py_RETURN_TRUE;
@@ -4332,11 +4280,11 @@ static PyObject *py_ischaninvite(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &invite, &chan))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (ismodeline(ch->channel.invite, ch->channel.invite_ht, invite))
     Py_RETURN_TRUE;
@@ -4348,7 +4296,7 @@ static PyObject *py_ischaninvite(PyObject *self, PyObject *args)
 /* newchanban(chan, ban, creator, comment[, lifetime[, options]]) — add channel ban */
 static PyObject *py_newchanban(PyObject *self, PyObject *args)
 {
-  char *chan, *ban, *creator, *comment, *opts = NULL;
+  char *chan, *ban, *creator, *comment, *opts = nullptr;
   long lifetime = -1;
   int sticky = 0;
   time_t expire_time;
@@ -4357,11 +4305,11 @@ static PyObject *py_newchanban(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "ssss|ls", &chan, &ban, &creator, &comment,
                          &lifetime, &opts))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (opts && !strcasecmp(opts, "sticky"))
     sticky = 1;
@@ -4382,7 +4330,7 @@ static PyObject *py_newchanban(PyObject *self, PyObject *args)
 /* newchanexempt(chan, exempt, creator, comment[, lifetime[, options]]) — add channel exempt */
 static PyObject *py_newchanexempt(PyObject *self, PyObject *args)
 {
-  char *chan, *exempt, *creator, *comment, *opts = NULL;
+  char *chan, *exempt, *creator, *comment, *opts = nullptr;
   long lifetime = -1;
   int sticky = 0;
   time_t expire_time;
@@ -4390,11 +4338,11 @@ static PyObject *py_newchanexempt(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "ssss|ls", &chan, &exempt, &creator, &comment,
                          &lifetime, &opts))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (opts && !strcasecmp(opts, "sticky"))
     sticky = 1;
@@ -4412,7 +4360,7 @@ static PyObject *py_newchanexempt(PyObject *self, PyObject *args)
 /* newchaninvite(chan, invite, creator, comment[, lifetime[, options]]) — add channel invite */
 static PyObject *py_newchaninvite(PyObject *self, PyObject *args)
 {
-  char *chan, *invite, *creator, *comment, *opts = NULL;
+  char *chan, *invite, *creator, *comment, *opts = nullptr;
   long lifetime = -1;
   int sticky = 0;
   time_t expire_time;
@@ -4420,11 +4368,11 @@ static PyObject *py_newchaninvite(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "ssss|ls", &chan, &invite, &creator, &comment,
                          &lifetime, &opts))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (opts && !strcasecmp(opts, "sticky"))
     sticky = 1;
@@ -4446,11 +4394,11 @@ static PyObject *py_killchanexempt(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &chan, &exempt))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (u_delexempt(ch, exempt, 1) > 0) {
     add_mode(ch, '-', 'e', exempt);
@@ -4466,11 +4414,11 @@ static PyObject *py_killchaninvite(PyObject *self, PyObject *args)
   struct chanset_t *ch;
 
   if (!PyArg_ParseTuple(args, "ss", &chan, &invite))
-    return NULL;
+    return nullptr;
   ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (u_delinvite(ch, invite, 1) > 0) {
     add_mode(ch, '-', 'I', invite);
@@ -4482,22 +4430,22 @@ static PyObject *py_killchaninvite(PyObject *self, PyObject *args)
 /* stick(banmask[, channel]) — make a ban sticky */
 static PyObject *py_stick(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *ban, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   int ok = 0;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     if (u_setsticky_ban(ch, ban, 1))
       ok = 1;
   }
-  if (!ok && u_setsticky_ban(NULL, ban, 1))
+  if (!ok && u_setsticky_ban(nullptr, ban, 1))
     ok = 1;
   return PyBool_FromLong(ok);
 }
@@ -4505,22 +4453,22 @@ static PyObject *py_stick(PyObject *self, PyObject *args)
 /* unstick(banmask[, channel]) — make a ban non-sticky */
 static PyObject *py_unstick(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *ban, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   int ok = 0;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     if (u_setsticky_ban(ch, ban, 0))
       ok = 1;
   }
-  if (!ok && u_setsticky_ban(NULL, ban, 0))
+  if (!ok && u_setsticky_ban(nullptr, ban, 0))
     ok = 1;
   return PyBool_FromLong(ok);
 }
@@ -4528,22 +4476,22 @@ static PyObject *py_unstick(PyObject *self, PyObject *args)
 /* stickexempt(exempt[, channel]) — make an exempt sticky */
 static PyObject *py_stickexempt(PyObject *self, PyObject *args)
 {
-  char *exempt, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *exempt, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   int ok = 0;
 
   if (!PyArg_ParseTuple(args, "s|s", &exempt, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     if (u_setsticky_mask(ch, ch->exempts, exempt, 1, "se"))
       ok = 1;
   }
-  if (!ok && u_setsticky_mask(NULL, global_exempts, exempt, 1, "se"))
+  if (!ok && u_setsticky_mask(nullptr, global_exempts, exempt, 1, "se"))
     ok = 1;
   return PyBool_FromLong(ok);
 }
@@ -4551,22 +4499,22 @@ static PyObject *py_stickexempt(PyObject *self, PyObject *args)
 /* unstickexempt(exempt[, channel]) — make an exempt non-sticky */
 static PyObject *py_unstickexempt(PyObject *self, PyObject *args)
 {
-  char *exempt, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *exempt, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   int ok = 0;
 
   if (!PyArg_ParseTuple(args, "s|s", &exempt, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     if (u_setsticky_mask(ch, ch->exempts, exempt, 0, "se"))
       ok = 1;
   }
-  if (!ok && u_setsticky_mask(NULL, global_exempts, exempt, 0, "se"))
+  if (!ok && u_setsticky_mask(nullptr, global_exempts, exempt, 0, "se"))
     ok = 1;
   return PyBool_FromLong(ok);
 }
@@ -4574,22 +4522,22 @@ static PyObject *py_unstickexempt(PyObject *self, PyObject *args)
 /* stickinvite(invite[, channel]) — make an invite sticky */
 static PyObject *py_stickinvite(PyObject *self, PyObject *args)
 {
-  char *invite, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *invite, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   int ok = 0;
 
   if (!PyArg_ParseTuple(args, "s|s", &invite, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     if (u_setsticky_mask(ch, ch->invites, invite, 1, "sInv"))
       ok = 1;
   }
-  if (!ok && u_setsticky_mask(NULL, global_invites, invite, 1, "sInv"))
+  if (!ok && u_setsticky_mask(nullptr, global_invites, invite, 1, "sInv"))
     ok = 1;
   return PyBool_FromLong(ok);
 }
@@ -4597,22 +4545,22 @@ static PyObject *py_stickinvite(PyObject *self, PyObject *args)
 /* unstickinvite(invite[, channel]) — make an invite non-sticky */
 static PyObject *py_unstickinvite(PyObject *self, PyObject *args)
 {
-  char *invite, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *invite, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   int ok = 0;
 
   if (!PyArg_ParseTuple(args, "s|s", &invite, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
     if (!ch) {
       PyErr_SetString(EggdropError, "invalid channel");
-      return NULL;
+      return nullptr;
     }
     if (u_setsticky_mask(ch, ch->invites, invite, 0, "sInv"))
       ok = 1;
   }
-  if (!ok && u_setsticky_mask(NULL, global_invites, invite, 0, "sInv"))
+  if (!ok && u_setsticky_mask(nullptr, global_invites, invite, 0, "sInv"))
     ok = 1;
   return PyBool_FromLong(ok);
 }
@@ -4623,7 +4571,6 @@ static PyObject *py_unstickinvite(PyObject *self, PyObject *args)
 
 extern int max_logs;
 extern log_t *logs;
-extern float getcputime(void);
 extern unsigned long cache_hit, cache_miss;
 extern int cidr_match(char *, char *, int);
 extern void reload(void);
@@ -4635,11 +4582,11 @@ static PyObject *py_putidx(PyObject *self, PyObject *args)
   char *text;
 
   if (!PyArg_ParseTuple(args, "ls", &sock, &text))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0) {
     PyErr_SetString(EggdropError, "invalid idx");
-    return NULL;
+    return nullptr;
   }
   dprintf(idx, "%s\n", text);
   Py_RETURN_NONE;
@@ -4648,10 +4595,10 @@ static PyObject *py_putidx(PyObject *self, PyObject *args)
 /* socklist([type]) — return list of DCC connection dicts */
 static PyObject *py_socklist(PyObject *self, PyObject *args)
 {
-  char *typefilter = NULL;
+  char *typefilter = nullptr;
 
   if (!PyArg_ParseTuple(args, "|s", &typefilter))
-    return NULL;
+    return nullptr;
 
   PyObject *list = PyList_New(0);
   for (int i = 0; i < dcc_total; i++) {
@@ -4676,15 +4623,15 @@ static PyObject *py_control(PyObject *self, PyObject *args)
   char *cmd;
 
   if (!PyArg_ParseTuple(args, "ls", &sock, &cmd))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0) {
     PyErr_SetString(EggdropError, "invalid idx");
-    return NULL;
+    return nullptr;
   }
   if (dcc[idx].type != &DCC_CHAT) {
     PyErr_SetString(EggdropError, "not a chat connection");
-    return NULL;
+    return nullptr;
   }
   /* Simulate input: process the command as if user typed it */
   dcc[idx].timeval = now;
@@ -4699,22 +4646,22 @@ static PyObject *py_connect(PyObject *self, PyObject *args)
   int port;
 
   if (!PyArg_ParseTuple(args, "si", &host, &port))
-    return NULL;
+    return nullptr;
   if (dcc_total == max_dcc && increase_socks_max()) {
     PyErr_SetString(EggdropError, "out of dcc table space");
-    return NULL;
+    return nullptr;
   }
   int i = new_dcc(&DCC_DNSWAIT, 0);
   if (i < 0) {
     PyErr_SetString(EggdropError, "could not allocate socket");
-    return NULL;
+    return nullptr;
   }
   int sock = open_telnet(i, host, port);
   if (sock < 0) {
     lostdcc(i);
     PyErr_SetString(EggdropError, sock == -2 ? "DNS lookup failed" :
                     sock == -3 ? "no free socket" : strerror(errno));
-    return NULL;
+    return nullptr;
   }
   strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
   strlcpy(dcc[i].host, host, UHOSTMAX);
@@ -4726,15 +4673,15 @@ static PyObject *py_listen(PyObject *self, PyObject *args)
 {
   /* Simplified: just open a script listen port */
   int port;
-  char *type = NULL, *mask_or_proc = NULL, *flag = NULL;
+  char *type = nullptr, *mask_or_proc = nullptr, *flag = nullptr;
 
   if (!PyArg_ParseTuple(args, "i|sss", &port, &type, &mask_or_proc, &flag))
-    return NULL;
+    return nullptr;
 
   if (port == 0) {
     /* listen 0 = remove all listeners — but we just return for safety */
     PyErr_SetString(EggdropError, "listen 0 (remove) not supported from Python");
-    return NULL;
+    return nullptr;
   }
   /* Delegate to the actual listen setup — for now return the port.
    * The full Tcl listen command is deeply tied to the DCC type system,
@@ -4742,7 +4689,7 @@ static PyObject *py_listen(PyObject *self, PyObject *args)
   int idx = open_listen(&port);
   if (idx < 0) {
     PyErr_SetString(EggdropError, "could not open listen port");
-    return NULL;
+    return nullptr;
   }
   return PyLong_FromLong((long)port);
 }
@@ -4750,10 +4697,10 @@ static PyObject *py_listen(PyObject *self, PyObject *args)
 /* logfile([flags, channel, filename]) — list/add/remove logfiles */
 static PyObject *py_logfile(PyObject *self, PyObject *args)
 {
-  char *flags = NULL, *chan = NULL, *filename = NULL;
+  char *flags = nullptr, *chan = nullptr, *filename = nullptr;
 
   if (!PyArg_ParseTuple(args, "|sss", &flags, &chan, &filename))
-    return NULL;
+    return nullptr;
 
   /* List mode: no args — return list of active logfiles */
   if (!flags) {
@@ -4771,7 +4718,7 @@ static PyObject *py_logfile(PyObject *self, PyObject *args)
 
   if (!chan || !filename) {
     PyErr_SetString(EggdropError, "logfile requires flags, channel, and filename");
-    return NULL;
+    return nullptr;
   }
 
   /* Check if logfile already exists */
@@ -4780,11 +4727,11 @@ static PyObject *py_logfile(PyObject *self, PyObject *args)
       logs[i].flags &= ~LF_EXPIRING;
       logs[i].mask = logmodes(flags);
       op_free(logs[i].chname);
-      logs[i].chname = NULL;
+      logs[i].chname = nullptr;
       if (!logs[i].mask) {
         op_free(logs[i].filename);
-        logs[i].filename = NULL;
-        if (logs[i].f) { fclose(logs[i].f); logs[i].f = NULL; }
+        logs[i].filename = nullptr;
+        if (logs[i].f) { fclose(logs[i].f); logs[i].f = nullptr; }
         logs[i].flags = 0;
       } else {
         logs[i].chname = op_strdup(chan);
@@ -4797,20 +4744,20 @@ static PyObject *py_logfile(PyObject *self, PyObject *args)
   int mask = logmodes(flags);
   if (!mask) {
     PyErr_SetString(EggdropError, "no valid log modes specified");
-    return NULL;
+    return nullptr;
   }
   for (int i = 0; i < max_logs; i++) {
     if (!logs[i].filename) {
       logs[i].filename = op_strdup(filename);
       logs[i].chname = op_strdup(chan);
       logs[i].mask = mask;
-      logs[i].f = NULL;
+      logs[i].f = nullptr;
       logs[i].flags = 0;
       return PyUnicode_FromString(filename);
     }
   }
   PyErr_SetString(EggdropError, "max logfiles reached");
-  return NULL;
+  return nullptr;
 }
 
 /* sendnote(from, to, message) — send a note to a user, returns status code */
@@ -4819,7 +4766,7 @@ static PyObject *py_sendnote(PyObject *self, PyObject *args)
   char *from, *to, *msg;
 
   if (!PyArg_ParseTuple(args, "sss", &from, &to, &msg))
-    return NULL;
+    return nullptr;
   return PyLong_FromLong((long)add_note(to, from, (char *)msg, -1, 0));
 }
 
@@ -4830,27 +4777,24 @@ static PyObject *py_matchcidr(PyObject *self, PyObject *args)
   int prefix;
 
   if (!PyArg_ParseTuple(args, "ssi", &block, &address, &prefix))
-    return NULL;
+    return nullptr;
   return PyBool_FromLong(cidr_match(block, address, prefix));
 }
 
 /* status([type]) — return bot status info as dict */
 static PyObject *py_status(PyObject *self, PyObject *args)
 {
-  char *type = NULL;
+  char *type = nullptr;
   PyObject *d = PyDict_New();
 
   if (!PyArg_ParseTuple(args, "|s", &type))
-    return NULL;
+    return nullptr;
 
   if (!type || !strcmp(type, "cpu"))
     PyDict_SetItemString(d, "cputime", PyFloat_FromDouble((double)getcputime()));
 
-  if (!type || !strcmp(type, "mem")) {
-    struct rusage ru;
-    getrusage(RUSAGE_SELF, &ru);
-    PyDict_SetItemString(d, "rss_kb", PyLong_FromLong(ru.ru_maxrss));
-  }
+  if (!type || !strcmp(type, "mem"))
+    PyDict_SetItemString(d, "rss_kb", PyLong_FromLong(egg_get_rss_kb()));
 
   if (!type || !strcmp(type, "ipv6"))
     PyDict_SetItemString(d, "ipv6",
@@ -4885,7 +4829,7 @@ static PyObject *py_chnick(PyObject *self, PyObject *args)
   char *oldh, *newh;
 
   if (!PyArg_ParseTuple(args, "ss", &oldh, &newh))
-    return NULL;
+    return nullptr;
   struct userrec *u = get_user_by_handle(userlist, oldh);
   if (!u)
     return PyLong_FromLong(0L);
@@ -4910,7 +4854,7 @@ static PyObject *py_clearqueue(PyObject *self, PyObject *args)
   char *queue;
 
   if (!PyArg_ParseTuple(args, "s", &queue))
-    return NULL;
+    return nullptr;
   /* Queue clearing is managed by the server module's internal state.
    * Send a signal via the raw queue to reset the named queue. */
   (void)queue;
@@ -4920,10 +4864,10 @@ static PyObject *py_clearqueue(PyObject *self, PyObject *args)
 /* queuesize([queue]) — return the number of items in a server queue */
 static PyObject *py_queuesize(PyObject *self, PyObject *args)
 {
-  char *queue = NULL;
+  char *queue = nullptr;
 
   if (!PyArg_ParseTuple(args, "|s", &queue))
-    return NULL;
+    return nullptr;
   /* Quick access: return modeq size by counting msgq_head entries.
    * Full queue differentiation depends on server.mod internals. */
   int count = 0;
@@ -4937,7 +4881,7 @@ static PyObject *py_monitor(PyObject *self, PyObject *args)
   char *action;
 
   if (!PyArg_ParseTuple(args, "s", &action))
-    return NULL;
+    return nullptr;
   if (!strcasecmp(action, "list") || !strcasecmp(action, "status")) {
     /* These would require server.mod state — return empty list */
     return PyList_New(0);
@@ -4945,27 +4889,28 @@ static PyObject *py_monitor(PyObject *self, PyObject *args)
   /* +nick or -nick: send raw MONITOR command */
   if (action[0] == '+' || action[0] == '-') {
     op_strbuf_t buf;
+    op_strbuf_init(&buf);
     op_strbuf_appendf(&buf, "MONITOR %c %s", action[0], action + 1);
     dprintf(DP_SERVER, "%s\n", op_strbuf_str(&buf));
     op_strbuf_free(&buf);
     Py_RETURN_TRUE;
   }
   PyErr_SetString(EggdropError, "monitor: use +nick, -nick, 'list', or 'status'");
-  return NULL;
+  return nullptr;
 }
 
 /* isbansticky(ban[, chan]) — True if ban is sticky */
 static PyObject *py_isbansticky(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *ban, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   maskrec *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
-    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return NULL; }
+    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return nullptr; }
     for (m = ch->bans; m; m = m->next)
       if (!rfc_casecmp(m->mask, ban))
         return PyBool_FromLong(m->flags & MASKREC_STICKY);
@@ -4979,15 +4924,15 @@ static PyObject *py_isbansticky(PyObject *self, PyObject *args)
 /* isexemptsticky(exempt[, chan]) — True if exempt is sticky */
 static PyObject *py_isexemptsticky(PyObject *self, PyObject *args)
 {
-  char *exempt, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *exempt, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   maskrec *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &exempt, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
-    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return NULL; }
+    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return nullptr; }
     for (m = ch->exempts; m; m = m->next)
       if (!rfc_casecmp(m->mask, exempt))
         return PyBool_FromLong(m->flags & MASKREC_STICKY);
@@ -5001,15 +4946,15 @@ static PyObject *py_isexemptsticky(PyObject *self, PyObject *args)
 /* isinvitesticky(invite[, chan]) — True if invite is sticky */
 static PyObject *py_isinvitesticky(PyObject *self, PyObject *args)
 {
-  char *invite, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *invite, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   maskrec *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &invite, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
-    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return NULL; }
+    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return nullptr; }
     for (m = ch->invites; m; m = m->next)
       if (!rfc_casecmp(m->mask, invite))
         return PyBool_FromLong(m->flags & MASKREC_STICKY);
@@ -5023,15 +4968,15 @@ static PyObject *py_isinvitesticky(PyObject *self, PyObject *args)
 /* ispermban(ban[, chan]) — True if ban has no expiry (permanent) */
 static PyObject *py_ispermban(PyObject *self, PyObject *args)
 {
-  char *ban, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *ban, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   maskrec *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &ban, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
-    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return NULL; }
+    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return nullptr; }
     for (m = ch->bans; m; m = m->next)
       if (!rfc_casecmp(m->mask, ban))
         return PyBool_FromLong(m->expire == 0);
@@ -5045,15 +4990,15 @@ static PyObject *py_ispermban(PyObject *self, PyObject *args)
 /* ispermexempt(exempt[, chan]) — True if exempt is permanent */
 static PyObject *py_ispermexempt(PyObject *self, PyObject *args)
 {
-  char *exempt, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *exempt, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   maskrec *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &exempt, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
-    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return NULL; }
+    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return nullptr; }
     for (m = ch->exempts; m; m = m->next)
       if (!rfc_casecmp(m->mask, exempt))
         return PyBool_FromLong(m->expire == 0);
@@ -5067,15 +5012,15 @@ static PyObject *py_ispermexempt(PyObject *self, PyObject *args)
 /* isperminvite(invite[, chan]) — True if invite is permanent */
 static PyObject *py_isperminvite(PyObject *self, PyObject *args)
 {
-  char *invite, *chan = NULL;
-  struct chanset_t *ch = NULL;
+  char *invite, *chan = nullptr;
+  struct chanset_t *ch = nullptr;
   maskrec *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &invite, &chan))
-    return NULL;
+    return nullptr;
   if (chan) {
     ch = findchan_by_dname(chan);
-    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return NULL; }
+    if (!ch) { PyErr_SetString(EggdropError, "invalid channel"); return nullptr; }
     for (m = ch->invites; m; m = m->next)
       if (!rfc_casecmp(m->mask, invite))
         return PyBool_FromLong(m->expire == 0);
@@ -5089,17 +5034,17 @@ static PyObject *py_isperminvite(PyObject *self, PyObject *args)
 /* matchchanattr(handle, flags[, chan]) — match user channel flags */
 static PyObject *py_matchchanattr(PyObject *self, PyObject *args)
 {
-  char *handle, *flags, *chan = NULL;
+  char *handle, *flags, *chan = nullptr;
 
   if (!PyArg_ParseTuple(args, "ss|s", &handle, &flags, &chan))
-    return NULL;
+    return nullptr;
   struct userrec *u = get_user_by_handle(userlist, handle);
   if (!u)
     Py_RETURN_FALSE;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_BOT, 0, 0, 0, 0, 0 };
-  struct flag_record want = { FR_GLOBAL | FR_CHAN | FR_BOT, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_BOT };
+  struct flag_record want = { FR_GLOBAL | FR_CHAN | FR_BOT };
   get_user_flagrec(u, &fr, chan);
-  break_down_flags(flags, &want, NULL);
+  break_down_flags(flags, &want, nullptr);
   return PyBool_FromLong(flagrec_ok(&want, &fr));
 }
 
@@ -5116,11 +5061,11 @@ static PyObject *py_getvar(PyObject *self, PyObject *args)
   char buf[1024];
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   const char *v = notcl_getvar(name, buf, sizeof buf);
   if (!v) {
     PyErr_Format(PyExc_KeyError, "no such variable: %s", name);
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(v);
 }
@@ -5131,7 +5076,7 @@ static PyObject *py_setvar(PyObject *self, PyObject *args)
   const char *name, *value;
 
   if (!PyArg_ParseTuple(args, "ss", &name, &value))
-    return NULL;
+    return nullptr;
   notcl_setvar(name, value);
   Py_RETURN_NONE;
 }
@@ -5142,7 +5087,7 @@ static PyObject *py_eval(PyObject *self, PyObject *args)
   const char *script;
 
   if (!PyArg_ParseTuple(args, "s", &script))
-    return NULL;
+    return nullptr;
   int rc = egg_eval(script);
   if (rc != 0) {
     const char *err = tcl_resultstring();
@@ -5163,6 +5108,7 @@ static PyObject *py_unames(PyObject *self, PyObject *args)
   if (uname(&un) < 0)
     return PyUnicode_FromString("unknown");
   op_strbuf_t buf;
+  op_strbuf_init(&buf);
   op_strbuf_appendf(&buf, "%s %s %s %s %s", un.sysname, un.nodename,
                    un.release, un.version, un.machine);
   PyObject *result = PyUnicode_FromString(op_strbuf_str(&buf));
@@ -5192,7 +5138,7 @@ static PyObject *py_putxferlog(PyObject *self, PyObject *args)
   char *text;
 
   if (!PyArg_ParseTuple(args, "s", &text))
-    return NULL;
+    return nullptr;
   putlog(LOG_FILES, "*", "%s", text);
   Py_RETURN_NONE;
 }
@@ -5203,11 +5149,11 @@ static PyObject *py_resetconsole(PyObject *self, PyObject *args)
   long sock;
 
   if (!PyArg_ParseTuple(args, "l", &sock))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
     PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-    return NULL;
+    return nullptr;
   }
   dcc[idx].u.chat->con_flags = 0;
   dcc[idx].u.chat->channel = 0;
@@ -5221,11 +5167,11 @@ static PyObject *py_page(PyObject *self, PyObject *args)
   int lines = -1;
 
   if (!PyArg_ParseTuple(args, "l|i", &sock, &lines))
-    return NULL;
+    return nullptr;
   int idx = findidx((int)sock);
   if (idx < 0 || dcc[idx].type != &DCC_CHAT) {
     PyErr_SetString(EggdropError, "invalid idx or not a chat connection");
-    return NULL;
+    return nullptr;
   }
   if (lines >= 0)
     dcc[idx].u.chat->max_line = lines;
@@ -5238,11 +5184,11 @@ static PyObject *py_chandname2name(PyObject *self, PyObject *args)
   char *dname;
 
   if (!PyArg_ParseTuple(args, "s", &dname))
-    return NULL;
+    return nullptr;
   struct chanset_t *ch = findchan_by_dname(dname);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(ch->name);
 }
@@ -5253,11 +5199,11 @@ static PyObject *py_channame2dname(PyObject *self, PyObject *args)
   char *name;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
+    return nullptr;
   struct chanset_t *ch = findchan(name);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   return PyUnicode_FromString(ch->dname);
 }
@@ -5278,7 +5224,7 @@ static PyObject *py_isdynamic(PyObject *self, PyObject *args)
   char *chan;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   struct chanset_t *ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -5298,11 +5244,11 @@ static PyObject *py_getting_users(PyObject *self, PyObject *args)
 /* resetchanidle([nick,] channel) — reset idle timer for nick or all on channel */
 static PyObject *py_resetchanidle(PyObject *self, PyObject *args)
 {
-  char *nick = NULL, *chan;
+  char *nick = nullptr, *chan;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &chan, &nick))
-    return NULL;
+    return nullptr;
   /* If two args: first is nick, second is channel */
   if (nick) {
     /* swap: chan was actually nick, nick is chan */
@@ -5313,13 +5259,13 @@ static PyObject *py_resetchanidle(PyObject *self, PyObject *args)
   struct chanset_t *ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (nick) {
     m = ismember(ch, nick);
     if (!m) {
       PyErr_Format(EggdropError, "%s is not on %s", nick, chan);
-      return NULL;
+      return nullptr;
     }
     m->last = now;
   } else {
@@ -5332,11 +5278,11 @@ static PyObject *py_resetchanidle(PyObject *self, PyObject *args)
 /* resetchanjoin([nick,] channel) — reset join time for nick or all on channel */
 static PyObject *py_resetchanjoin(PyObject *self, PyObject *args)
 {
-  char *nick = NULL, *chan;
+  char *nick = nullptr, *chan;
   memberlist *m;
 
   if (!PyArg_ParseTuple(args, "s|s", &chan, &nick))
-    return NULL;
+    return nullptr;
   if (nick) {
     char *tmp = chan;
     chan = nick;
@@ -5345,13 +5291,13 @@ static PyObject *py_resetchanjoin(PyObject *self, PyObject *args)
   struct chanset_t *ch = findchan_by_dname(chan);
   if (!ch) {
     PyErr_SetString(EggdropError, "invalid channel");
-    return NULL;
+    return nullptr;
   }
   if (nick) {
     m = ismember(ch, nick);
     if (!m) {
       PyErr_Format(EggdropError, "%s is not on %s", nick, chan);
-      return NULL;
+      return nullptr;
     }
     m->joined = now;
   } else {
@@ -5367,22 +5313,22 @@ static PyObject *py_checkmodule(PyObject *self, PyObject *args)
   char *name;
 
   if (!PyArg_ParseTuple(args, "s", &name))
-    return NULL;
-  return PyBool_FromLong(module_find(name, 0, 0) != NULL);
+    return nullptr;
+  return PyBool_FromLong(module_find(name, 0, 0) != nullptr);
 }
 
 /* dumpfile(nick, filename) — send file contents to a user via notice */
 static PyObject *py_dumpfile(PyObject *self, PyObject *args)
 {
   char *nick, *filename;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &filename))
-    return NULL;
+    return nullptr;
   /* Look up user by handle to get proper flag display */
   struct userrec *u = get_user_by_handle(userlist, nick);
   if (u)
-    get_user_flagrec(u, &fr, NULL);
+    get_user_flagrec(u, &fr, nullptr);
   showhelp(nick, filename, &fr, HELP_TEXT);
   Py_RETURN_NONE;
 }
@@ -5393,7 +5339,7 @@ static PyObject *py_ischanjuped(PyObject *self, PyObject *args)
   char *chan;
 
   if (!PyArg_ParseTuple(args, "s", &chan))
-    return NULL;
+    return nullptr;
   struct chanset_t *ch = findchan_by_dname(chan);
   if (!ch)
     Py_RETURN_FALSE;
@@ -5679,37 +5625,37 @@ static PyMethodDef MyPyMethods[] = {
     {"getvar",          py_getvar,           METH_VARARGS, "read a bot config variable: getvar(name)"},
     {"setvar",          py_setvar,           METH_VARARGS, "write a bot config variable: setvar(name, value)"},
     {"eval",            py_eval,             METH_VARARGS, "evaluate a script: eval(script)"},
-    {NULL, NULL, 0, NULL}        /* Sentinel */
+    {nullptr, nullptr, 0, nullptr}        /* Sentinel */
 };
 
 #ifdef HAVE_TCL
 static PyMethodDef EggTclMethods[] = {
     {"__dir__", py_dir, METH_VARARGS, ""},
     {"__getattr__", py_findtclfunc, METH_VARARGS, "fallback to call Tcl functions transparently"},
-    {NULL, NULL, 0, NULL}
+    {nullptr, nullptr, 0, nullptr}
 };
 #endif /* HAVE_TCL */
 
 static cmd_t mydcc[] = {
   /* command  flags  function     tcl-name */
-  {"python",    "n",    (IntFunc) cmd_python,   NULL},
-  {NULL,        NULL,   NULL,                   NULL}  /* Mark end. */
+  {"python",    "n",    (IntFunc) cmd_python,   nullptr},
+  {nullptr,        nullptr,   nullptr,                   nullptr}  /* Mark end. */
 };
 
 static struct PyModuleDef eggdrop = {
     PyModuleDef_HEAD_INIT,
     "eggdrop",      /* name of module */
-    0,              /* module documentation, may be NULL */
+    0,              /* module documentation, may be nullptr */
     -1,             /* size of per-interpreter state of the module,
                     or -1 if the module keeps state in global variables. */
     MyPyMethods
 };
 
 #ifdef HAVE_TCL
-static struct PyModuleDef eggdrop_tcl = { PyModuleDef_HEAD_INIT, "eggdrop.tcl", NULL, -1, EggTclMethods };
+static struct PyModuleDef eggdrop_tcl = { PyModuleDef_HEAD_INIT, "eggdrop.tcl", nullptr, -1, EggTclMethods };
 
 static PyTypeObject TclFuncType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "eggdrop.TclFunc",
     .tp_doc = "Tcl function that is callable from Python.",
     .tp_basicsize = sizeof(TclFunc),
@@ -5722,11 +5668,11 @@ static PyTypeObject TclFuncType = {
 
 static PyMethodDef PythonBindMethods[] = {
     {"unbind", py_unbind, METH_VARARGS, "deregister an eggdrop python bind"},
-    {NULL, NULL, 0, NULL}        /* Sentinel */
+    {nullptr, nullptr, 0, nullptr}        /* Sentinel */
 };
 
 static PyTypeObject PythonBindType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "eggdrop.PythonBind",
     .tp_doc = "Eggdrop bind to a python callback",
     .tp_basicsize = sizeof(PythonBind),
@@ -5740,16 +5686,16 @@ PyMODINIT_FUNC PyInit_eggdrop(void) {
   PyObject *pymodobj;
 
   pymodobj = PyModule_Create(&eggdrop);
-  if (pymodobj == NULL)
-    return NULL;
+  if (pymodobj == nullptr)
+    return nullptr;
 
-  EggdropError = PyErr_NewException("eggdrop.error", NULL, NULL);
+  EggdropError = PyErr_NewException("eggdrop.error", nullptr, nullptr);
   Py_INCREF(EggdropError);
   if (PyModule_AddObject(pymodobj, "error", EggdropError) < 0) {
     Py_DECREF(EggdropError);
     Py_CLEAR(EggdropError);
     Py_DECREF(pymodobj);
-    return NULL;
+    return nullptr;
   }
 
 #ifdef HAVE_TCL

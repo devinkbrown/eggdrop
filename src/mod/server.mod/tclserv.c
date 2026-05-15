@@ -28,9 +28,9 @@ static int tcl_isbotnick STDVAR
   BADARGS(2, 2, " nick");
 
   if (match_my_nick(argv[1]))
-    Tcl_AppendResult(irp, "1", NULL);
+    Tcl_AppendResult(irp, "1", nullptr);
   else
-    Tcl_AppendResult(irp, "0", NULL);
+    Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -43,7 +43,7 @@ static int tcl_putnow STDVAR
 
   if ((argc == 3) && strcasecmp(argv[2], "-oneline")) {
     Tcl_AppendResult(irp, "unknown putnow option: should be ",
-                     "-oneline", NULL);
+                     "-oneline", nullptr);
     return TCL_ERROR;
   }
   if (!serv) /* no server - no output */
@@ -94,16 +94,16 @@ static int tcl_putquick STDVAR
   if ((argc == 3) && strcasecmp(argv[2], "-next") &&
       strcasecmp(argv[2], "-normal")) {
     Tcl_AppendResult(irp, "unknown putquick option: should be one of: ",
-                     "-normal -next", NULL);
+                     "-normal -next", nullptr);
     return TCL_ERROR;
   }
   strlcpy(s, argv[1], sizeof s);
 
   p = strchr(s, '\n');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   p = strchr(s, '\r');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   if (argc == 3 && !strcasecmp(argv[2], "-next"))
     dprintf(DP_MODE_NEXT, "%s\n", s);
@@ -121,16 +121,16 @@ static int tcl_putserv STDVAR
   if ((argc == 3) && strcasecmp(argv[2], "-next") &&
       strcasecmp(argv[2], "-normal")) {
     Tcl_AppendResult(irp, "unknown putserv option: should be one of: ",
-                     "-normal -next", NULL);
+                     "-normal -next", nullptr);
     return TCL_ERROR;
   }
   strlcpy(s, argv[1], sizeof s);
 
   p = strchr(s, '\n');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   p = strchr(s, '\r');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   if (argc == 3 && !strcasecmp(argv[2], "-next"))
     dprintf(DP_SERVER_NEXT, "%s\n", s);
@@ -148,16 +148,16 @@ static int tcl_puthelp STDVAR
   if ((argc == 3) && strcasecmp(argv[2], "-next") &&
       strcasecmp(argv[2], "-normal")) {
     Tcl_AppendResult(irp, "unknown puthelp option: should be one of: ",
-                     "-normal -next", NULL);
+                     "-normal -next", nullptr);
     return TCL_ERROR;
   }
   strlcpy(s, argv[1], sizeof s);
 
   p = strchr(s, '\n');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   p = strchr(s, '\r');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   if (argc == 3 && !strcasecmp(argv[2], "-next"))
     dprintf(DP_HELP_NEXT, "%s\n", s);
@@ -171,7 +171,7 @@ static int tcl_puthelp STDVAR
   */
 static int tcl_getaccount STDVAR {
   memberlist *m;
-  struct chanset_t *chan, *thechan = NULL;
+  struct chanset_t *chan, *thechan = nullptr;
 
   BADARGS(2, 3, " nickname ?channel?");
 
@@ -179,26 +179,26 @@ static int tcl_getaccount STDVAR {
     chan = findchan_by_dname(argv[2]);
     thechan = chan;
     if (!thechan) {
-      Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
   } else {
     chan = chanset;
   }
-  while (chan && (thechan == NULL || thechan == chan)) {
+  while (chan && (thechan == nullptr || thechan == chan)) {
     if ((m = ismember(chan, argv[1]))) {
-      Tcl_AppendResult(irp, m->account, NULL);
+      Tcl_AppendResult(irp, m->account, nullptr);
       return TCL_OK;
     }
     chan = chan->next;
   }
-  Tcl_AppendResult(irp, "", NULL);
+  Tcl_AppendResult(irp, "", nullptr);
   return TCL_OK;
 }
 
 static int tcl_isidentified STDVAR {
   memberlist *m;
-  struct chanset_t *chan, *thechan = NULL;
+  struct chanset_t *chan, *thechan = nullptr;
 
   BADARGS(2, 3, " nickname ?channel?");
 
@@ -206,22 +206,22 @@ static int tcl_isidentified STDVAR {
     chan = findchan_by_dname(argv[2]);
     thechan = chan;
     if (!thechan) {
-      Tcl_AppendResult(irp, "illegal channel: ", argv[2], NULL);
+      Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
   } else {
     chan = chanset;
   }
-  while (chan && (thechan == NULL || thechan == chan)) {
+  while (chan && (thechan == nullptr || thechan == chan)) {
     if ((m = ismember(chan, argv[1]))) {
       if (strcmp(m->account, "*") && strcmp(m->account, "")) {
-        Tcl_AppendResult(irp, "1", NULL);
+        Tcl_AppendResult(irp, "1", nullptr);
         return TCL_OK;
       }
     }
     chan = chan->next;
   }
-  Tcl_AppendResult(irp, "0", NULL);
+  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -237,15 +237,15 @@ static int tcl_tagmsg STDVAR {
 
   current = find_capability("message-tags");
   if ((!current) || (!(current->enabled))) {
-    Tcl_AppendResult(irp, "message-tags not enabled, cannot send tag", NULL);
+    Tcl_AppendResult(irp, "message-tags not enabled, cannot send tag", nullptr);
     return TCL_ERROR;
   }
-  char *saveptr = NULL;
+  char *saveptr = nullptr;
   strlcpy(tagdict, argv[1], sizeof tagdict);
   strlcpy(target, argv[2], sizeof target);
   op_strbuf_init(&tag);
   p = strtok_r(tagdict, " ", &saveptr);
-  while (p != NULL) {
+  while (p != nullptr) {
     if ((i % 2) != 0) {
       op_strbuf_append_cstr(&tag, p);
     } else {
@@ -258,13 +258,13 @@ static int tcl_tagmsg STDVAR {
       }
     }
     i++;
-    p = strtok_r(NULL, " ", &saveptr);
+    p = strtok_r(nullptr, " ", &saveptr);
   }
   p = strchr(target, '\n');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   p = strchr(target, '\r');
-  if (p != NULL)
+  if (p != nullptr)
     *p = 0;
   dprintf(DP_SERVER, "@%s TAGMSG %s\n", op_strbuf_str(&tag), target);
   op_strbuf_free(&tag);
@@ -277,21 +277,21 @@ static int tcl_cap STDVAR {
   int found = 0;
   struct capability *current;
   struct cap_values *currentvalue;
-  __attribute__((unused)) Tcl_Obj *capes, *values;
+  [[maybe_unused]] Tcl_Obj *capes, *values;
   BADARGS(2, 3, " sub-cmd ?arg?");
 
-  capes = Tcl_NewListObj(0, NULL);
+  capes = Tcl_NewListObj(0, nullptr);
   current = cap;
   /* List capabilities available on server */
   if (!strcasecmp(argv[1], "ls")) {
-    while (current != NULL) {
+    while (current != nullptr) {
       Tcl_ListObjAppendElement(irp, capes, Tcl_NewStringObj(current->name, -1));
       current = current->next;
     }
     Tcl_SetObjResult(irp, capes);
   /* List capabilities Eggdrop is internally tracking as enabled with server */
   } else if (!strcasecmp(argv[1], "enabled")) {
-    while (current != NULL) {
+    while (current != nullptr) {
       if (current->enabled) {
         Tcl_ListObjAppendElement(irp, capes, Tcl_NewStringObj(current->name, -1));
       }
@@ -299,15 +299,15 @@ static int tcl_cap STDVAR {
     }
     Tcl_SetObjResult(irp, capes);
   } else if (!strcasecmp(argv[1], "values")) {
-    capes = Tcl_NewListObj(0, NULL);
-    values = Tcl_NewListObj(0, NULL);
+    capes = Tcl_NewListObj(0, nullptr);
+    values = Tcl_NewListObj(0, nullptr);
     current = cap;
-    while (current != NULL) {
+    while (current != nullptr) {
       if ((argc == 3) &&(!strcasecmp(argv[2], current->name))) {
         found = 1;
       }
       currentvalue = current->value;
-      while (currentvalue != NULL) {
+      while (currentvalue != nullptr) {
         if (argc == 3) {
           if (!strcasecmp(argv[2], current->name)) {
             /* Don't get confused, we use the capes var but its really values */
@@ -326,13 +326,14 @@ static int tcl_cap STDVAR {
         Tcl_ListObjAppendElement(irp, capes, values);
       }
       /* Clear out the list so it isn't repeatedly added */
-      values = Tcl_NewListObj(0, NULL);
+      values = Tcl_NewListObj(0, nullptr);
       current = current->next;
     }
     if ((argc == 3) && (!found)) {
       op_strbuf_t errmsg;
+      op_strbuf_init(&errmsg);
       op_strbuf_appendf(&errmsg, "Capability \"%s\" is not enabled", argv[2]);
-      Tcl_AppendResult(irp, op_strbuf_str(&errmsg), NULL);
+      Tcl_AppendResult(irp, op_strbuf_str(&errmsg), nullptr);
       op_strbuf_free(&errmsg);
       return TCL_ERROR;
     }
@@ -340,10 +341,11 @@ static int tcl_cap STDVAR {
   /* Send a request to negotiate a capability with server */
   } else if (!strcasecmp(argv[1], "req")) {
     if (argc != 3) {
-      Tcl_AppendResult(irp, "No CAP request provided", NULL);
+      Tcl_AppendResult(irp, "No CAP request provided", nullptr);
       return TCL_ERROR;
     } else {
       op_strbuf_t cap_req;
+      op_strbuf_init(&cap_req);
       op_strbuf_appendf(&cap_req, "CAP REQ :%s", argv[2]);
       dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_req));
       op_strbuf_free(&cap_req);
@@ -352,16 +354,17 @@ static int tcl_cap STDVAR {
   } else if (!strcasecmp(argv[1], "raw")) {
     if (argc == 3) {
       op_strbuf_t cap_raw;
+      op_strbuf_init(&cap_raw);
       op_strbuf_appendf(&cap_raw, "CAP %s", argv[2]);
       dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_raw));
       op_strbuf_free(&cap_raw);
     } else {
       Tcl_AppendResult(irp, "Raw requires a CAP sub-command to be provided",
-        NULL);
+        nullptr);
       return TCL_ERROR;
     }
   } else {
-      Tcl_AppendResult(irp, "Invalid cap command, must be ls, enabled, req, or raw", NULL);
+      Tcl_AppendResult(irp, "Invalid cap command, must be ls, enabled, req, or raw", nullptr);
       return TCL_ERROR;
   }
   return TCL_OK;
@@ -373,71 +376,71 @@ static int tcl_monitor STDVAR
   int ret;
   BADARGS(2, 3, " command ?nick?");
 
-  monitorlist = Tcl_NewListObj(0, NULL);
+  monitorlist = Tcl_NewListObj(0, nullptr);
   if (!strcmp(argv[1], "add")) {
     if (argc == 3) {
       ret = monitor_add(argv[2], 1);
       if (!ret) {
-        Tcl_AppendResult(irp, "1", NULL);
+        Tcl_AppendResult(irp, "1", nullptr);
         return TCL_OK;
       } else if (ret == 1) {
-        Tcl_AppendResult(irp, "nickname already present in monitor list", NULL);
+        Tcl_AppendResult(irp, "nickname already present in monitor list", nullptr);
         return TCL_OK;
         /* ret = 2 */
       } else {
         Tcl_AppendResult(irp,
-                "maximum number of nicknames allowed by server reached", NULL);
+                "maximum number of nicknames allowed by server reached", nullptr);
         return TCL_ERROR;
       }
     } else {
-      Tcl_AppendResult(irp, "nickname required", NULL);
+      Tcl_AppendResult(irp, "nickname required", nullptr);
       return TCL_ERROR;
     }
   } else if (!strcmp(argv[1], "delete")) {
     if (argc == 3) {
       ret = monitor_del(argv[2]);
       if (ret) {
-        Tcl_AppendResult(irp, "nickname not found", NULL);
+        Tcl_AppendResult(irp, "nickname not found", nullptr);
         return TCL_ERROR;
       } else {
-        Tcl_AppendResult(irp, "1", NULL);
+        Tcl_AppendResult(irp, "1", nullptr);
         return TCL_OK;
       }
     } else {
-      Tcl_AppendResult(irp, "nickname required", NULL);
+      Tcl_AppendResult(irp, "nickname required", nullptr);
       return TCL_ERROR;
     }
   } else if (!strcmp(argv[1], "list")) {
-    monitor_show(monitorlist, 0, NULL);
-    Tcl_AppendResult(irp, Tcl_GetString(monitorlist), NULL);
+    monitor_show(monitorlist, 0, nullptr);
+    Tcl_AppendResult(irp, Tcl_GetString(monitorlist), nullptr);
     return TCL_OK;
   } else if (!strcmp(argv[1], "online")) {
-    monitor_show(monitorlist, 1, NULL);
-    Tcl_AppendResult(irp, Tcl_GetString(monitorlist), NULL);
+    monitor_show(monitorlist, 1, nullptr);
+    Tcl_AppendResult(irp, Tcl_GetString(monitorlist), nullptr);
     return TCL_OK;
   } else if (!strcmp(argv[1], "offline")) {
-    monitor_show(monitorlist, 2, NULL);
-    Tcl_AppendResult(irp, Tcl_GetString(monitorlist), NULL);
+    monitor_show(monitorlist, 2, nullptr);
+    Tcl_AppendResult(irp, Tcl_GetString(monitorlist), nullptr);
     return TCL_OK;
   } else if (!strcmp(argv[1], "status")) {
     if (argc < 3) {
-      Tcl_AppendResult(irp, "nickname required", NULL);
+      Tcl_AppendResult(irp, "nickname required", nullptr);
       return TCL_OK;
     }
     ret = monitor_show(monitorlist, 3, argv[2]);
     if (!ret) {
-      Tcl_AppendResult(irp, Tcl_GetString(monitorlist), NULL);
+      Tcl_AppendResult(irp, Tcl_GetString(monitorlist), nullptr);
       return TCL_OK;
     } else {
-      Tcl_AppendResult(irp, "nickname not found", NULL);
+      Tcl_AppendResult(irp, "nickname not found", nullptr);
       return TCL_ERROR;
     }
   } else if (!strcasecmp(argv[1], "clear")) {
     monitor_clear();
-    Tcl_AppendResult(irp, "MONITOR list cleared.", NULL);
+    Tcl_AppendResult(irp, "MONITOR list cleared.", nullptr);
     return TCL_OK;
   } else {
-    Tcl_AppendResult(irp, "command must be add, delete, list, clear, online, offline, status", NULL);
+    Tcl_AppendResult(irp, "command must be add, delete, list, clear, online, offline, status", nullptr);
     return TCL_ERROR;
   }
 }
@@ -455,10 +458,10 @@ static int tcl_jump STDVAR
         use_ssl = 1;
       else
         use_ssl = 0;
-      newserverport = atoi(argv[2]);
+      newserverport = egg_atoi(argv[2]);
     }
 #else
-      newserverport = atoi(argv[2]);
+      newserverport = egg_atoi(argv[2]);
 #endif
     else
       newserverport = default_port;
@@ -474,7 +477,7 @@ static int tcl_jump STDVAR
 static int tcl_clearqueue STDVAR
 {
   struct msgq *q, *qq;
-  __attribute__((unused)) int msgs = 0;
+  [[maybe_unused]] int msgs = 0;
 
   BADARGS(2, 2, " queue");
 
@@ -545,13 +548,13 @@ static int tcl_clearqueue STDVAR
     return TCL_OK;
   }
   Tcl_AppendResult(irp, "bad option \"", argv[1],
-                   "\": must be mode, server, help, or all", NULL);
+                   "\": must be mode, server, help, or all", nullptr);
   return TCL_ERROR;
 }
 
 static int tcl_queuesize STDVAR
 {
-  __attribute__((unused)) int x;
+  [[maybe_unused]] int x;
 
   BADARGS(1, 2, " ?queue?");
 
@@ -574,14 +577,14 @@ static int tcl_queuesize STDVAR
   }
 
   Tcl_AppendResult(irp, "bad option \"", argv[1],
-                   "\": must be mode, server, or help", NULL);
+                   "\": must be mode, server, or help", nullptr);
   return TCL_ERROR;
 }
 
 static int tcl_server STDVAR {
   int ret;
   struct server_list *z;
-  __attribute__((unused)) Tcl_Obj *server;
+  [[maybe_unused]] Tcl_Obj *server;
 
   BADARGS(2, 5, " subcommand ?host ?port? ?password?");
   if (!strcmp(argv[1], "add")) {
@@ -591,7 +594,7 @@ static int tcl_server STDVAR {
     }
     ret = add_server(argv[2], argc >= 4 && argv[3] ? argv[3] : "", argc >= 5 && argv[4] ? argv[4] : "");
     if (!ret) {
-      server = Tcl_NewListObj(0, NULL);
+      server = Tcl_NewListObj(0, nullptr);
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(argv[2], -1));
       if ((argc >= 4) && argv[3]) {
         Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(argv[3], -1));
@@ -612,14 +615,15 @@ static int tcl_server STDVAR {
     }
     ret = del_server(argv[2], argc >= 4 && argv[3] ? argv[3] : "");
   } else if (!strcmp(argv[1], "list")) {
-    __attribute__((unused)) Tcl_Obj *servers = Tcl_NewListObj(0, NULL);
+    [[maybe_unused]] Tcl_Obj *servers = Tcl_NewListObj(0, nullptr);
     z = serverlist;
-    while(z != NULL) {
-      server = Tcl_NewListObj(0, NULL);
+    while(z != nullptr) {
+      server = Tcl_NewListObj(0, nullptr);
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->name, -1));
 #ifdef TLS
       {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%d", z->ssl ? "+" : "", z->port);
         Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(op_strbuf_str(&_b), -1));
         op_strbuf_free(&_b);
@@ -636,7 +640,7 @@ static int tcl_server STDVAR {
     return TCL_OK;
   } else {
     Tcl_AppendResult(irp, "Invalid subcommand: ", argv[1],
-        ". Should be \"add\", \"remove\", or \"list\"", NULL);
+        ". Should be \"add\", \"remove\", or \"list\"", nullptr);
     return TCL_ERROR;
   }
   if (ret == 0) {
@@ -644,13 +648,13 @@ static int tcl_server STDVAR {
   }
   if (ret == 1) {
     Tcl_AppendResult(irp, "A ':' was detected in the non-IPv6 address ", argv[2],
-            " Make sure the port is separated by a space, not a ':'. ", NULL);
+            " Make sure the port is separated by a space, not a ':'. ", nullptr);
   } else if (ret == 2) {
     Tcl_AppendResult(irp, "Attempted to add SSL-enabled server, but Eggdrop "
-            "was not compiled with SSL libraries.", NULL);
+            "was not compiled with SSL libraries.", nullptr);
   } else if (ret == 3) {    /* del_server only */
     Tcl_AppendResult(irp, "Server ", argv[2], argc >= 4 && argv[3] ? ":" : "",
-            argc >= 4 && argv[3] ? argv[3] : ""," not found.", NULL);
+            argc >= 4 && argv[3] ? argv[3] : ""," not found.", nullptr);
   }
   return TCL_ERROR;
 }
@@ -692,14 +696,14 @@ static int tcl_ircxprop STDVAR
   BADARGS(3, 4, " target propname ?value?");
 
   if (!serv) {
-    Tcl_AppendResult(irp, "not connected to server", NULL);
+    Tcl_AppendResult(irp, "not connected to server", nullptr);
     return TCL_ERROR;
   }
   if (!ircx_enabled && !ircx_prop_support) {
-    Tcl_AppendResult(irp, "IRCX not enabled on this server", NULL);
+    Tcl_AppendResult(irp, "IRCX not enabled on this server", nullptr);
     return TCL_ERROR;
   }
-  ircx_prop_send(argv[1], argv[2], argc == 4 ? argv[3] : NULL);
+  ircx_prop_send(argv[1], argv[2], argc == 4 ? argv[3] : nullptr);
   return TCL_OK;
 }
 
@@ -708,30 +712,30 @@ static int tcl_ircxaccess STDVAR
   BADARGS(3, 5, " channel list|add|del ?level? ?mask?");
 
   if (!serv) {
-    Tcl_AppendResult(irp, "not connected to server", NULL);
+    Tcl_AppendResult(irp, "not connected to server", nullptr);
     return TCL_ERROR;
   }
   if (!ircx_enabled) {
-    Tcl_AppendResult(irp, "IRCX not enabled on this server", NULL);
+    Tcl_AppendResult(irp, "IRCX not enabled on this server", nullptr);
     return TCL_ERROR;
   }
   if (!strcasecmp(argv[2], "list")) {
     ircx_access_list_send(argv[1]);
   } else if (!strcasecmp(argv[2], "add")) {
     if (argc < 5) {
-      Tcl_AppendResult(irp, "wrong # args: ircxaccess channel add level mask", NULL);
+      Tcl_AppendResult(irp, "wrong # args: ircxaccess channel add level mask", nullptr);
       return TCL_ERROR;
     }
     ircx_access_add(argv[1], argv[4], argv[3]);
   } else if (!strcasecmp(argv[2], "del")) {
     if (argc < 4) {
-      Tcl_AppendResult(irp, "wrong # args: ircxaccess channel del mask", NULL);
+      Tcl_AppendResult(irp, "wrong # args: ircxaccess channel del mask", nullptr);
       return TCL_ERROR;
     }
     ircx_access_del(argv[1], argv[3]);
   } else {
     Tcl_AppendResult(irp, "unknown subcommand '", argv[2],
-                     "': should be list, add, or del", NULL);
+                     "': should be list, add, or del", nullptr);
     return TCL_ERROR;
   }
   return TCL_OK;
@@ -742,20 +746,20 @@ static int tcl_ircxcreate STDVAR
   BADARGS(2, 3, " channel ?modes?");
 
   if (!serv) {
-    Tcl_AppendResult(irp, "not connected to server", NULL);
+    Tcl_AppendResult(irp, "not connected to server", nullptr);
     return TCL_ERROR;
   }
   if (!ircx_enabled) {
-    Tcl_AppendResult(irp, "IRCX not enabled on this server", NULL);
+    Tcl_AppendResult(irp, "IRCX not enabled on this server", nullptr);
     return TCL_ERROR;
   }
-  ircx_chan_create(argv[1], argc == 3 ? argv[2] : NULL);
+  ircx_chan_create(argv[1], argc == 3 ? argv[2] : nullptr);
   return TCL_OK;
 }
 
 static int tcl_ircxautoowner STDVAR
 {
-  ircx_autoowner_t *ao, *prev = NULL, *existing = NULL;
+  ircx_autoowner_t *ao, *prev = nullptr, *existing = nullptr;
 
   BADARGS(2, 5, " channel ?ownerkey? ?create 0|1? ?modes?");
 
@@ -775,9 +779,9 @@ static int tcl_ircxautoowner STDVAR
       else
         ircx_autoowner_list = existing->next;
       op_free(existing);
-      Tcl_AppendResult(irp, "removed", NULL);
+      Tcl_AppendResult(irp, "removed", nullptr);
     } else {
-      Tcl_AppendResult(irp, "not found", NULL);
+      Tcl_AppendResult(irp, "not found", nullptr);
     }
     return TCL_OK;
   }
@@ -791,7 +795,7 @@ static int tcl_ircxautoowner STDVAR
   if (argc >= 3)
     strlcpy(existing->ownerkey, argv[2], sizeof(existing->ownerkey));
   if (argc >= 4)
-    existing->create_if_missing = atoi(argv[3]);
+    existing->create_if_missing = egg_atoi(argv[3]);
   if (argc >= 5)
     strlcpy(existing->create_modes, argv[4], sizeof(existing->create_modes));
   /* Mirror settings into chanset so they are saved in the channel file */
@@ -820,7 +824,7 @@ static int tcl_ircxautoowner STDVAR
              existing->channel);
     } else if (existing->create_if_missing) {
       ircx_chan_create(existing->channel,
-                       existing->create_modes[0] ? existing->create_modes : NULL);
+                       existing->create_modes[0] ? existing->create_modes : nullptr);
     }
   }
   return TCL_OK;
@@ -831,7 +835,7 @@ static int tcl_ircxnegotiate STDVAR
   BADARGS(1, 1, "");
 
   if (serv < 0) {
-    Tcl_AppendResult(irp, "not connected to server", NULL);
+    Tcl_AppendResult(irp, "not connected to server", nullptr);
     return TCL_ERROR;
   }
   /* Force re-negotiate even if already enabled */
@@ -862,5 +866,5 @@ static tcl_cmds my_tcl_cmds[] = {
   {"ircxcreate",    tcl_ircxcreate},
   {"ircxautoowner", tcl_ircxautoowner},
   {"ircxnegotiate", tcl_ircxnegotiate},
-  {NULL,         NULL}
+  {nullptr,         nullptr}
 };

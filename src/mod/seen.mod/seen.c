@@ -77,7 +77,7 @@
 #include "src/chan.h"
 #include "channels.mod/channels.h"
 
-static Function *global = NULL;
+static Function *global = nullptr;
 static void wordshift(char *first, char *rest);
 static void do_seen(int idx, const char *prefix, char *nick, char *hand, char *channel, char *text);
 static char *match_trigger(char *word);
@@ -94,9 +94,9 @@ static trig_data trigdata[] = {
   {"jesus",    "Let's not get into a religious discussion, %s"},
   {"shit",                         "Here's looking at you, %s"},
   {"yourself",          "Yeah, whenever I look in a mirror..."},
-  {NULL, "                                  You found me, %s!"},
+  {nullptr, "                                  You found me, %s!"},
   {"elvis",                 "Last time I was on the moon man."},
-  {NULL,                                                  NULL}
+  {nullptr,                                                  nullptr}
 };
 
 static int seen_expmem(void)
@@ -110,7 +110,7 @@ static int pub_seen(char *nick, char *host, char *hand,
 {
   struct chanset_t *chan = findchan_by_dname(channel);
 
-  if ((chan != NULL) && channel_seen(chan)) {
+  if ((chan != nullptr) && channel_seen(chan)) {
     op_strbuf_t sb;
     op_strbuf_init(&sb);
     op_strbuf_appendf(&sb, "PRIVMSG %s :", chan->name);
@@ -129,6 +129,7 @@ static int msg_seen(char *nick, char *host, struct userrec *u, char *text)
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! SEEN %s", nick, host, u->handle, text);
   {
     op_strbuf_t _p;
+    op_strbuf_init(&_p);
     op_strbuf_appendf(&_p, "PRIVMSG %s :", nick);
     do_seen(DP_SERVER, op_strbuf_str(&_p), nick, u->handle, "", text);
     op_strbuf_free(&_p);
@@ -153,7 +154,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
   struct chanset_t *chan;
   struct laston_info *li;
   struct chanuserrec *cr;
-  memberlist *m = NULL;
+  memberlist *m = nullptr;
   int onchan = 0, i;
   long tv;
   time_t laston = 0, work;
@@ -311,6 +312,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
   /* Check for keyword match in the internal table */
   else if (match_trigger(word1)) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s\n", prefix, match_trigger(word1));
     dprintf(idx, op_strbuf_str(&_b), nick);
     op_strbuf_free(&_b);
@@ -422,7 +424,7 @@ targetcont:
   /* Target known, but nowhere to be seen. Give last IRC and botnet time */
   wordshift(word1, text);
   if (!strcasecmp(word1, "anywhere"))
-    cr = NULL;
+    cr = nullptr;
   else
     for (cr = urec->chanrec; cr; cr = cr->next) {
       if (!rfc_casecmp(cr->channel, channel)) {
@@ -470,7 +472,8 @@ targetcont:
     }
     {
       op_strbuf_t _w;
-      if (lastonplace[0] && (strchr(CHANMETA, lastonplace[0]) != NULL))
+      op_strbuf_init(&_w);
+      if (lastonplace[0] && (strchr(CHANMETA, lastonplace[0]) != nullptr))
         op_strbuf_appendf(&_w, "on IRC channel %s", lastonplace);
       else if (lastonplace[0] == '@')
         op_strbuf_appendf(&_w, "on %s", lastonplace + 1);
@@ -493,7 +496,7 @@ static const char *fixnick(char *nick)
   static op_strbuf_t _fixit;
 
   if (!nick)
-    return NULL;
+    return nullptr;
   if (!nick[0])
     op_strbuf_clear(&_fixit);
   else {
@@ -515,7 +518,7 @@ static char *match_trigger(char *word)
       return t->text;
     t++;
   }
-  return (char *) NULL;
+  return (char *) nullptr;
 }
 
 static char *getxtra(char *hand, char *field)
@@ -551,7 +554,7 @@ static void wordshift(char *first, char *rest)
 
   do {
     p = newsplit(&q);
-    strcpy(first, p);
+    strlcpy(first, p, 512);
     memmove(rest, q, strlen(q) + 1);
   } while (!strcasecmp(first, "and") || !strcasecmp(first, "or"));
 }
@@ -569,18 +572,18 @@ static void seen_report(int idx, int details)
 
 /* PUB channel builtin commands. */
 static cmd_t seen_pub[] = {
-  {"seen", "",    pub_seen, NULL},
-  {NULL,   NULL, NULL,      NULL}
+  {"seen", "",    pub_seen, nullptr},
+  {nullptr,   nullptr, nullptr,      nullptr}
 };
 
 static cmd_t seen_dcc[] = {
-  {"seen", "",   dcc_seen, NULL},
-  {NULL,   NULL, NULL,     NULL}
+  {"seen", "",   dcc_seen, nullptr},
+  {nullptr,   nullptr, nullptr,     nullptr}
 };
 
 static cmd_t seen_msg[] = {
-  {"seen", "",   msg_seen, NULL},
-  {NULL,   NULL, NULL,     NULL}
+  {"seen", "",   msg_seen, nullptr},
+  {nullptr,   nullptr, nullptr,     nullptr}
 };
 
 static int server_seen_setup(char *mod)
@@ -602,9 +605,9 @@ static int irc_seen_setup(char *mod)
 }
 
 static cmd_t seen_load[] = {
-  {"server", "",   server_seen_setup, NULL},
-  {"irc",    "",   irc_seen_setup,    NULL},
-  {NULL,     NULL, NULL,              NULL}
+  {"server", "",   server_seen_setup, nullptr},
+  {"irc",    "",   irc_seen_setup,    nullptr},
+  {nullptr,     nullptr, nullptr,              nullptr}
 };
 
 static char *seen_close(void)
@@ -619,7 +622,7 @@ static char *seen_close(void)
   if ((H_temp = find_bind_table("msg")))
     rem_builtins(H_temp, seen_msg);
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *seen_start(Function *egg_func_table);
@@ -643,8 +646,8 @@ char *seen_start(Function *egg_func_table)
   add_builtins(H_load, seen_load);
   add_builtins(H_dcc, seen_dcc);
   add_help_reference("seen.help");
-  server_seen_setup(NULL);
-  irc_seen_setup(NULL);
+  server_seen_setup(nullptr);
+  irc_seen_setup(nullptr);
   trigdata[4].key = botnetnick;
-  return NULL;
+  return nullptr;
 }

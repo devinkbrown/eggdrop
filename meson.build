@@ -476,13 +476,23 @@ if cc.has_argument('-fstack-clash-protection')
   add_project_arguments('-fstack-clash-protection', language: 'c')
 endif
 
-# -fcf-protection=full: Intel Control-Flow Enforcement Technology — inserts
-# ENDBR instructions and enables indirect-branch / return tracking (IBT +
-# shadow stack).  Only meaningful on x86/x86_64.
-# (GCC >= 8, Clang >= 7)
+# Control-flow integrity — architecture-specific.
+#
+# x86/x86_64: Intel CET (Control-Flow Enforcement Technology).
+# -fcf-protection=full inserts ENDBR instructions and enables indirect-branch
+# tracking + shadow stack (IBT + SHSTK).  (GCC >= 8, Clang >= 7)
+#
+# AArch64: ARM Branch Target Identification + Pointer Authentication.
+# -mbranch-protection=standard enables BTI (landing pads for indirect branches)
+# and PAC (signed return addresses).  Equivalent hardening to Intel CET.
+# (GCC >= 9, Clang >= 8)
 if host_machine.cpu_family() in ['x86', 'x86_64']
   if cc.has_argument('-fcf-protection=full')
     add_project_arguments('-fcf-protection=full', language: 'c')
+  endif
+elif host_machine.cpu_family() == 'aarch64'
+  if cc.has_argument('-mbranch-protection=standard')
+    add_project_arguments('-mbranch-protection=standard', language: 'c')
   endif
 endif
 

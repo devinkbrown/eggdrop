@@ -25,6 +25,7 @@ typedef struct {
     __m128i rk[15];
     __m128i H;
     __m128i H2, H3, H4;
+    __m128i H5, H6, H7, H8;
     int nr;
 } aesni_gcm_ctx_t;
 
@@ -221,10 +222,14 @@ aesni_gcm_init(aesni_gcm_ctx_t *ctx, const uint8_t *key, size_t key_len)
     __m128i h = aesni_encrypt_block(ctx, zero);
     ctx->H = mul_by_x(bswap128(h));
 
-    /* Precompute H^2, H^3, H^4 for aggregated GHASH */
+    /* Precompute H^2..H^8 for 8-block aggregated GHASH */
     ctx->H2 = gfmul(ctx->H, ctx->H);
     ctx->H3 = gfmul(ctx->H2, ctx->H);
     ctx->H4 = gfmul(ctx->H3, ctx->H);
+    ctx->H5 = gfmul(ctx->H4, ctx->H);
+    ctx->H6 = gfmul(ctx->H5, ctx->H);
+    ctx->H7 = gfmul(ctx->H6, ctx->H);
+    ctx->H8 = gfmul(ctx->H7, ctx->H);
 }
 
 static inline __m128i
@@ -242,23 +247,84 @@ inc_counter(__m128i ctr)
     return bswap128(ctr);
 }
 
+/*
+ * Deferred-reduction GHASH: accumulate lo/mid/hi across N multiplications,
+ * reduce once at the end. Saves ~60% of the reduction work vs per-mul reduce.
+ */
+static inline void
+gfmul_accum(__m128i a, __m128i b, __m128i *lo_acc, __m128i *mid_acc, __m128i *hi_acc)
+{
+    *lo_acc  = _mm_xor_si128(*lo_acc,  _mm_clmulepi64_si128(a, b, 0x00));
+    *hi_acc  = _mm_xor_si128(*hi_acc,  _mm_clmulepi64_si128(a, b, 0x11));
+    *mid_acc = _mm_xor_si128(*mid_acc, _mm_xor_si128(
+        _mm_clmulepi64_si128(a, b, 0x01),
+        _mm_clmulepi64_si128(a, b, 0x10)));
+}
+
+static inline __m128i
+gfmul_reduce(__m128i lo, __m128i mid, __m128i hi)
+{
+    lo = _mm_xor_si128(lo, _mm_slli_si128(mid, 8));
+    hi = _mm_xor_si128(hi, _mm_srli_si128(mid, 8));
+
+    __m128i poly = _mm_set_epi64x(0, (long long)0xC200000000000000ULL);
+    __m128i r;
+    r = _mm_clmulepi64_si128(lo, poly, 0x00);
+    lo = _mm_xor_si128(_mm_shuffle_epi32(lo, 0x4E), r);
+    r = _mm_clmulepi64_si128(lo, poly, 0x00);
+    return _mm_xor_si128(_mm_xor_si128(_mm_shuffle_epi32(lo, 0x4E), r), hi);
+}
+
 static void
 ghash_blocks(const aesni_gcm_ctx_t *ctx, __m128i *state,
              const uint8_t *data, size_t nblocks)
 {
-    /* Process 4 blocks at a time with aggregated multiplication */
+    /* Process 8 blocks at a time with deferred-reduction aggregation */
+    while (nblocks >= 8) {
+        __m128i d0 = _mm_xor_si128(*state, bswap128(_mm_loadu_si128((const __m128i *)data)));
+        __m128i d1 = bswap128(_mm_loadu_si128((const __m128i *)(data + 16)));
+        __m128i d2 = bswap128(_mm_loadu_si128((const __m128i *)(data + 32)));
+        __m128i d3 = bswap128(_mm_loadu_si128((const __m128i *)(data + 48)));
+        __m128i d4 = bswap128(_mm_loadu_si128((const __m128i *)(data + 64)));
+        __m128i d5 = bswap128(_mm_loadu_si128((const __m128i *)(data + 80)));
+        __m128i d6 = bswap128(_mm_loadu_si128((const __m128i *)(data + 96)));
+        __m128i d7 = bswap128(_mm_loadu_si128((const __m128i *)(data + 112)));
+
+        __m128i lo = _mm_setzero_si128();
+        __m128i mid = _mm_setzero_si128();
+        __m128i hi = _mm_setzero_si128();
+
+        gfmul_accum(d0, ctx->H8, &lo, &mid, &hi);
+        gfmul_accum(d1, ctx->H7, &lo, &mid, &hi);
+        gfmul_accum(d2, ctx->H6, &lo, &mid, &hi);
+        gfmul_accum(d3, ctx->H5, &lo, &mid, &hi);
+        gfmul_accum(d4, ctx->H4, &lo, &mid, &hi);
+        gfmul_accum(d5, ctx->H3, &lo, &mid, &hi);
+        gfmul_accum(d6, ctx->H2, &lo, &mid, &hi);
+        gfmul_accum(d7, ctx->H,  &lo, &mid, &hi);
+
+        *state = gfmul_reduce(lo, mid, hi);
+        data += 128;
+        nblocks -= 8;
+    }
+
+    /* 4-block tail with deferred reduction */
     while (nblocks >= 4) {
         __m128i d0 = _mm_xor_si128(*state, bswap128(_mm_loadu_si128((const __m128i *)data)));
         __m128i d1 = bswap128(_mm_loadu_si128((const __m128i *)(data + 16)));
         __m128i d2 = bswap128(_mm_loadu_si128((const __m128i *)(data + 32)));
         __m128i d3 = bswap128(_mm_loadu_si128((const __m128i *)(data + 48)));
 
-        __m128i r = gfmul(d0, ctx->H4);
-        r = _mm_xor_si128(r, gfmul(d1, ctx->H3));
-        r = _mm_xor_si128(r, gfmul(d2, ctx->H2));
-        r = _mm_xor_si128(r, gfmul(d3, ctx->H));
+        __m128i lo = _mm_setzero_si128();
+        __m128i mid = _mm_setzero_si128();
+        __m128i hi = _mm_setzero_si128();
 
-        *state = r;
+        gfmul_accum(d0, ctx->H4, &lo, &mid, &hi);
+        gfmul_accum(d1, ctx->H3, &lo, &mid, &hi);
+        gfmul_accum(d2, ctx->H2, &lo, &mid, &hi);
+        gfmul_accum(d3, ctx->H,  &lo, &mid, &hi);
+
+        *state = gfmul_reduce(lo, mid, hi);
         data += 64;
         nblocks -= 4;
     }
@@ -315,9 +381,14 @@ opssl_aesni_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
     if (aad_len > 0)
         ghash_update(&ctx, &ghash_state, aad, aad_len);
 
-    /* CTR encryption with 8-block interleaving */
+    /*
+     * Fused CTR encryption + GHASH pipeline.
+     * AES-NI and PCLMULQDQ use different execution units, so we pipeline:
+     * encrypt current 8-block batch while GHASH-ing the previous batch.
+     */
     __m128i ctr = j0;
     size_t offset = 0;
+    bool have_prev = false;
 
     while (offset + 128 <= pt_len) {
         __m128i c0 = inc_counter(ctr); ctr = c0;
@@ -328,6 +399,32 @@ opssl_aesni_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
         __m128i c5 = inc_counter(ctr); ctr = c5;
         __m128i c6 = inc_counter(ctr); ctr = c6;
         __m128i c7 = inc_counter(ctr); ctr = c7;
+
+        /* GHASH previous 8-block batch while AES rounds are in-flight */
+        if (have_prev) {
+            __m128i g0 = _mm_xor_si128(ghash_state,
+                bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 128))));
+            __m128i g1 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 112)));
+            __m128i g2 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 96)));
+            __m128i g3 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 80)));
+            __m128i g4 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 64)));
+            __m128i g5 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 48)));
+            __m128i g6 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 32)));
+            __m128i g7 = bswap128(_mm_loadu_si128((const __m128i *)(out + offset - 16)));
+
+            __m128i lo = _mm_setzero_si128();
+            __m128i mid = _mm_setzero_si128();
+            __m128i hi = _mm_setzero_si128();
+            gfmul_accum(g0, ctx.H8, &lo, &mid, &hi);
+            gfmul_accum(g1, ctx.H7, &lo, &mid, &hi);
+            gfmul_accum(g2, ctx.H6, &lo, &mid, &hi);
+            gfmul_accum(g3, ctx.H5, &lo, &mid, &hi);
+            gfmul_accum(g4, ctx.H4, &lo, &mid, &hi);
+            gfmul_accum(g5, ctx.H3, &lo, &mid, &hi);
+            gfmul_accum(g6, ctx.H2, &lo, &mid, &hi);
+            gfmul_accum(g7, ctx.H,  &lo, &mid, &hi);
+            ghash_state = gfmul_reduce(lo, mid, hi);
+        }
 
         __m128i k0 = aesni_encrypt_block(&ctx, c0);
         __m128i k1 = aesni_encrypt_block(&ctx, c1);
@@ -356,8 +453,39 @@ opssl_aesni_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
         _mm_storeu_si128((__m128i *)(out + offset + 96), _mm_xor_si128(p6, k6));
         _mm_storeu_si128((__m128i *)(out + offset + 112),_mm_xor_si128(p7, k7));
 
+        have_prev = true;
         offset += 128;
     }
+
+    /* GHASH the final full 8-block batch */
+    if (have_prev) {
+        size_t prev = offset - 128;
+        __m128i g0 = _mm_xor_si128(ghash_state,
+            bswap128(_mm_loadu_si128((const __m128i *)(out + prev))));
+        __m128i g1 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 16)));
+        __m128i g2 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 32)));
+        __m128i g3 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 48)));
+        __m128i g4 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 64)));
+        __m128i g5 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 80)));
+        __m128i g6 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 96)));
+        __m128i g7 = bswap128(_mm_loadu_si128((const __m128i *)(out + prev + 112)));
+
+        __m128i lo = _mm_setzero_si128();
+        __m128i mid = _mm_setzero_si128();
+        __m128i hi = _mm_setzero_si128();
+        gfmul_accum(g0, ctx.H8, &lo, &mid, &hi);
+        gfmul_accum(g1, ctx.H7, &lo, &mid, &hi);
+        gfmul_accum(g2, ctx.H6, &lo, &mid, &hi);
+        gfmul_accum(g3, ctx.H5, &lo, &mid, &hi);
+        gfmul_accum(g4, ctx.H4, &lo, &mid, &hi);
+        gfmul_accum(g5, ctx.H3, &lo, &mid, &hi);
+        gfmul_accum(g6, ctx.H2, &lo, &mid, &hi);
+        gfmul_accum(g7, ctx.H,  &lo, &mid, &hi);
+        ghash_state = gfmul_reduce(lo, mid, hi);
+    }
+
+    /* Encrypt + GHASH remaining blocks (< 128 bytes) */
+    size_t fused_end = offset;
 
     while (offset + 16 <= pt_len) {
         ctr = inc_counter(ctr);
@@ -377,8 +505,9 @@ opssl_aesni_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
         opssl_memzero(ks_buf, 16);
     }
 
-    /* GHASH ciphertext */
-    ghash_update(&ctx, &ghash_state, out, pt_len);
+    /* GHASH any ciphertext bytes not covered by the fused 8-block loop */
+    if (fused_end < pt_len)
+        ghash_update(&ctx, &ghash_state, out + fused_end, pt_len - fused_end);
 
     /* Length block: aad_len*8 || ct_len*8 in bits, big-endian */
     uint8_t lengths[16];
@@ -446,9 +575,49 @@ opssl_aesni_gcm_open(uint8_t *out, size_t *out_len, size_t max_out,
         return 0;
     }
 
-    /* Decrypt (same as encrypt — CTR mode) */
+    /* Decrypt with 8-block interleaving (CTR mode) */
     __m128i ctr = j0;
     size_t offset = 0;
+
+    while (offset + 128 <= pt_len) {
+        __m128i c0 = inc_counter(ctr); ctr = c0;
+        __m128i c1 = inc_counter(ctr); ctr = c1;
+        __m128i c2 = inc_counter(ctr); ctr = c2;
+        __m128i c3 = inc_counter(ctr); ctr = c3;
+        __m128i c4 = inc_counter(ctr); ctr = c4;
+        __m128i c5 = inc_counter(ctr); ctr = c5;
+        __m128i c6 = inc_counter(ctr); ctr = c6;
+        __m128i c7 = inc_counter(ctr); ctr = c7;
+
+        __m128i k0 = aesni_encrypt_block(&ctx, c0);
+        __m128i k1 = aesni_encrypt_block(&ctx, c1);
+        __m128i k2 = aesni_encrypt_block(&ctx, c2);
+        __m128i k3 = aesni_encrypt_block(&ctx, c3);
+        __m128i k4 = aesni_encrypt_block(&ctx, c4);
+        __m128i k5 = aesni_encrypt_block(&ctx, c5);
+        __m128i k6 = aesni_encrypt_block(&ctx, c6);
+        __m128i k7 = aesni_encrypt_block(&ctx, c7);
+
+        __m128i ct0 = _mm_loadu_si128((const __m128i *)(ciphertext + offset));
+        __m128i ct1 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 16));
+        __m128i ct2 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 32));
+        __m128i ct3 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 48));
+        __m128i ct4 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 64));
+        __m128i ct5 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 80));
+        __m128i ct6 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 96));
+        __m128i ct7 = _mm_loadu_si128((const __m128i *)(ciphertext + offset + 112));
+
+        _mm_storeu_si128((__m128i *)(out + offset),      _mm_xor_si128(ct0, k0));
+        _mm_storeu_si128((__m128i *)(out + offset + 16), _mm_xor_si128(ct1, k1));
+        _mm_storeu_si128((__m128i *)(out + offset + 32), _mm_xor_si128(ct2, k2));
+        _mm_storeu_si128((__m128i *)(out + offset + 48), _mm_xor_si128(ct3, k3));
+        _mm_storeu_si128((__m128i *)(out + offset + 64), _mm_xor_si128(ct4, k4));
+        _mm_storeu_si128((__m128i *)(out + offset + 80), _mm_xor_si128(ct5, k5));
+        _mm_storeu_si128((__m128i *)(out + offset + 96), _mm_xor_si128(ct6, k6));
+        _mm_storeu_si128((__m128i *)(out + offset + 112),_mm_xor_si128(ct7, k7));
+
+        offset += 128;
+    }
 
     while (offset + 16 <= pt_len) {
         ctr = inc_counter(ctr);

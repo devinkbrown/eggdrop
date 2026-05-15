@@ -89,9 +89,9 @@ const char *egg_getvar(const char *name)
  * available, otherwise warned about and skipped.
  * ------------------------------------------------------------------------- */
 
-static script_call_t engine_call = NULL;
-static script_load_t engine_load = NULL;
-static script_eval_t engine_eval = NULL;
+static script_call_t engine_call = nullptr;
+static script_load_t engine_load = nullptr;
+static script_eval_t engine_eval = nullptr;
 
 void script_register(script_call_t call, script_load_t load)
 {
@@ -107,9 +107,9 @@ void script_register_eval(script_eval_t eval)
 void script_unregister(script_call_t call)
 {
   if (engine_call == call) {
-    engine_call = NULL;
-    engine_load = NULL;
-    engine_eval = NULL;
+    engine_call = nullptr;
+    engine_load = nullptr;
+    engine_eval = nullptr;
   }
 }
 

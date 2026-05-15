@@ -41,6 +41,30 @@ extern int opssl_chacha20_poly1305_open(uint8_t *out, size_t *out_len, size_t ma
                                         const uint8_t *ciphertext, size_t ct_len,
                                         const uint8_t *aad, size_t aad_len);
 
+/* AES-CCM dispatch */
+extern int opssl_aes_ccm_seal(uint8_t *out, size_t *out_len, size_t max_out,
+                               const uint8_t *key, size_t key_len,
+                               const uint8_t nonce[12], size_t tag_len,
+                               const uint8_t *plaintext, size_t pt_len,
+                               const uint8_t *aad, size_t aad_len);
+extern int opssl_aes_ccm_open(uint8_t *out, size_t *out_len, size_t max_out,
+                               const uint8_t *key, size_t key_len,
+                               const uint8_t nonce[12], size_t tag_len,
+                               const uint8_t *ciphertext, size_t ct_len,
+                               const uint8_t *aad, size_t aad_len);
+
+/* Camellia-GCM dispatch */
+extern int opssl_camellia_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
+                                    const uint8_t *key, size_t key_len,
+                                    const uint8_t nonce[12],
+                                    const uint8_t *plaintext, size_t pt_len,
+                                    const uint8_t *aad, size_t aad_len);
+extern int opssl_camellia_gcm_open(uint8_t *out, size_t *out_len, size_t max_out,
+                                    const uint8_t *key, size_t key_len,
+                                    const uint8_t nonce[12],
+                                    const uint8_t *ciphertext, size_t ct_len,
+                                    const uint8_t *aad, size_t aad_len);
+
 /* Defined in aes.c */
 typedef struct {
     uint32_t rk[60];
@@ -348,6 +372,24 @@ int opssl_aead_seal(opssl_aead_ctx_t *ctx,
                                            aad, aad_len);
     }
 
+    if (ctx->algo == OPSSL_AEAD_AES_128_CCM || ctx->algo == OPSSL_AEAD_AES_256_CCM) {
+        return opssl_aes_ccm_seal(out, out_len, max_out,
+                                  ctx->key, ctx->key_len, nonce, 16,
+                                  plaintext, plaintext_len, aad, aad_len);
+    }
+
+    if (ctx->algo == OPSSL_AEAD_AES_128_CCM_8 || ctx->algo == OPSSL_AEAD_AES_256_CCM_8) {
+        return opssl_aes_ccm_seal(out, out_len, max_out,
+                                  ctx->key, ctx->key_len, nonce, 8,
+                                  plaintext, plaintext_len, aad, aad_len);
+    }
+
+    if (ctx->algo == OPSSL_AEAD_CAMELLIA_128_GCM || ctx->algo == OPSSL_AEAD_CAMELLIA_256_GCM) {
+        return opssl_camellia_gcm_seal(out, out_len, max_out,
+                                       ctx->key, ctx->key_len, nonce,
+                                       plaintext, plaintext_len, aad, aad_len);
+    }
+
     return opssl_aes_gcm_seal(out, out_len, max_out,
                               ctx->key, ctx->key_len,
                               nonce, plaintext, plaintext_len,
@@ -370,6 +412,24 @@ int opssl_aead_open(opssl_aead_ctx_t *ctx,
                                            aad, aad_len);
     }
 
+    if (ctx->algo == OPSSL_AEAD_AES_128_CCM || ctx->algo == OPSSL_AEAD_AES_256_CCM) {
+        return opssl_aes_ccm_open(out, out_len, max_out,
+                                  ctx->key, ctx->key_len, nonce, 16,
+                                  ciphertext, ciphertext_len, aad, aad_len);
+    }
+
+    if (ctx->algo == OPSSL_AEAD_AES_128_CCM_8 || ctx->algo == OPSSL_AEAD_AES_256_CCM_8) {
+        return opssl_aes_ccm_open(out, out_len, max_out,
+                                  ctx->key, ctx->key_len, nonce, 8,
+                                  ciphertext, ciphertext_len, aad, aad_len);
+    }
+
+    if (ctx->algo == OPSSL_AEAD_CAMELLIA_128_GCM || ctx->algo == OPSSL_AEAD_CAMELLIA_256_GCM) {
+        return opssl_camellia_gcm_open(out, out_len, max_out,
+                                       ctx->key, ctx->key_len, nonce,
+                                       ciphertext, ciphertext_len, aad, aad_len);
+    }
+
     return opssl_aes_gcm_open(out, out_len, max_out,
                               ctx->key, ctx->key_len,
                               nonce, ciphertext, ciphertext_len,
@@ -380,8 +440,10 @@ size_t opssl_aead_key_len(opssl_aead_algo_t algo)
 {
     switch (algo) {
         case OPSSL_AEAD_AES_128_GCM:
-        case OPSSL_AEAD_AES_128_CCM: return 16;
-        default:                     return 32;
+        case OPSSL_AEAD_AES_128_CCM:
+        case OPSSL_AEAD_AES_128_CCM_8:
+        case OPSSL_AEAD_CAMELLIA_128_GCM: return 16;
+        default:                          return 32;
     }
 }
 
@@ -393,6 +455,9 @@ size_t opssl_aead_nonce_len(opssl_aead_algo_t algo)
 
 size_t opssl_aead_tag_len(opssl_aead_algo_t algo)
 {
-    (void)algo;
-    return 16;
+    switch (algo) {
+        case OPSSL_AEAD_AES_128_CCM_8:
+        case OPSSL_AEAD_AES_256_CCM_8: return 8;
+        default:                       return 16;
+    }
 }

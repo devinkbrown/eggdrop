@@ -113,7 +113,7 @@ typedef struct res_dlink_list_t {
 #define op_dlink_node   res_dlink_node
 
 static inline void res_dlinkAdd(void *data, res_dlink_node *m, res_dlink_list *list) {
-  m->data = data; m->prev = NULL; m->next = list->head;
+  m->data = data; m->prev = nullptr; m->next = list->head;
   if (list->head) list->head->prev = m; else list->tail = m;
   list->head = m; list->length++;
 }
@@ -228,7 +228,7 @@ static inline void res_get_random(void *buf, size_t len) {
   /* Last resort: time+pid XOR mix (weak, but better than nothing) */
   {
     static uint32_t seed = 0;
-    if (!seed) seed = (uint32_t)(time(NULL) ^ getpid());
+    if (!seed) seed = (uint32_t)(time(nullptr) ^ getpid());
     uint8_t *p = (uint8_t *)buf;
     for (size_t i = 0; i < len; i++) {
       seed = seed * 1664525u + 1013904223u;
@@ -342,11 +342,11 @@ static char irc_domain[IRCD_RES_HOSTLEN + 1];
 static int resfd        = -1;
 static int resfd_family = AF_INET;
 
-/* expireresolves: kept NULL; dns_free_cache() / dns_cache_expmem() in
+/* expireresolves: kept nullptr; dns_free_cache() / dns_cache_expmem() in
  * dns.mod/dns.c iterate this list, but with the new resolver all
  * memory is managed internally per-query.  The cache concept from the
- * old coredns.c no longer applies; we return 0 / NULL safely. */
-static struct resolve *expireresolves [[maybe_unused]] = NULL;
+ * old coredns.c no longer applies; we return 0 / nullptr safely. */
+static struct resolve *expireresolves [[maybe_unused]] = nullptr;
 
 /* myres: struct __res_state used by dns_change() and dns_report() in
  * dns.mod/dns.c to get/set nameserver addresses via TCL "dns-servers"
@@ -583,17 +583,15 @@ static int dns_build_query(unsigned char *buf, size_t buflen,
 
 static void add_nameserver(const char *addr_str)
 {
-  struct addrinfo hints, *res;
+  struct addrinfo hints = {}, *res;
 
   if (irc_nscount >= IRCD_MAXNS)
     return;
-
-  memset(&hints, 0, sizeof hints);
   hints.ai_family   = AF_UNSPEC;
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_flags    = AI_NUMERICHOST;
 
-  if (getaddrinfo(addr_str, "53", &hints, &res) != 0 || res == NULL)
+  if (getaddrinfo(addr_str, "53", &hints, &res) != 0 || res == nullptr)
     return;
   if (res->ai_addrlen <= (socklen_t)sizeof irc_nsaddr_list[0]) {
     memcpy(&irc_nsaddr_list[irc_nscount], res->ai_addr, res->ai_addrlen);
@@ -608,7 +606,7 @@ static void parse_resolv_conf(void)
   char  line[256];
   char *p, *kw, *val, *ve, *nl;
 
-  if (f == NULL) {
+  if (f == nullptr) {
     add_nameserver("127.0.0.1");
     return;
   }
@@ -676,7 +674,7 @@ struct dns_req {
   struct DNSQuery            *query;
 };
 
-static op_dlink_list  req_list   = { NULL, NULL, 0 };
+static op_dlink_list  req_list   = { nullptr, nullptr, 0 };
 static int            ns_failures[IRCD_MAXNS];
 
 /* =========================================================================
@@ -710,7 +708,7 @@ static int            ns_failures[IRCD_MAXNS];
  *   1. getsock(AF, SOCK_STREAM) allocates a TCP fd in eggdrop's socklist.
  *   2. connect() is called directly (avoids open_telnet_raw which assumes
  *      a dcc[] entry exists for the socket).
- *   3. ssl_handshake(dot_fd, TLS_CONNECT, verify_flags, LOG_MISC, dot_host, NULL)
+ *   3. ssl_handshake(dot_fd, TLS_CONNECT, verify_flags, LOG_MISC, dot_host, nullptr)
  *      wraps the fd in an OpenSSL session.  When dot_verify != 0 (default),
  *      TLS_VERIFYPEER is passed so eggdrop's ssl_verify() callback enforces
  *      full chain validation and CN/SAN hostname matching (RFC 7858 §3.2).
@@ -768,7 +766,7 @@ static struct dns_req *find_req_by_id(uint16_t id)
     if (r->id == id)
       return r;
   }
-  return NULL;
+  return nullptr;
 }
 
 static uint16_t next_query_id(void)
@@ -950,11 +948,11 @@ static int process_answer(struct dns_req *req,
   if (rcode == DNS_RC_NXDOMAIN) {
     if (req->last_ns >= 0 && req->last_ns < IRCD_MAXNS)
       ns_failures[req->last_ns] /= 4;
-    handle_req_done(req, NULL);
+    handle_req_done(req, nullptr);
     return 1;
   }
   if (rcode != DNS_RC_NOERR || HDR_ANCOUNT(pkt) == 0) {
-    handle_req_done(req, NULL);
+    handle_req_done(req, nullptr);
     return 1;
   }
 
@@ -1016,9 +1014,8 @@ static int process_answer(struct dns_req *req,
     if (rrtype == DNS_TYPE_A && base_type == DNS_TYPE_A) {
       if (rdlen != 4) { off += rdlen; continue; }
 
-      struct DNSReply reply;
+      struct DNSReply reply = {};
       struct sockaddr_in *v4;
-      memset(&reply, 0, sizeof reply);
       v4 = (struct sockaddr_in *)&reply.addr;
       v4->sin_family = AF_INET;
       memcpy(&v4->sin_addr, pkt + off, 4);
@@ -1033,9 +1030,8 @@ static int process_answer(struct dns_req *req,
     if (rrtype == DNS_TYPE_AAAA && base_type == DNS_TYPE_AAAA) {
       if (rdlen != 16) { off += rdlen; continue; }
 
-      struct DNSReply reply;
+      struct DNSReply reply = {};
       struct sockaddr_in6 *v6;
-      memset(&reply, 0, sizeof reply);
       v6 = (struct sockaddr_in6 *)&reply.addr;
       v6->sin6_family = AF_INET6;
       memcpy(&v6->sin6_addr, pkt + off, 16);
@@ -1083,7 +1079,7 @@ static int process_answer(struct dns_req *req,
     return 1;
   }
 
-  handle_req_done(req, NULL);
+  handle_req_done(req, nullptr);
   return 1;
 }
 
@@ -1110,7 +1106,7 @@ static void start_fcrdns_check(struct dns_req *ptr_req)
 
 static void handle_req_done(struct dns_req *req, struct DNSReply *reply)
 {
-  if ((req->type & DNS_FLAG_FCRDNS) && reply != NULL)
+  if ((req->type & DNS_FLAG_FCRDNS) && reply != nullptr)
     reply->h_name = req->hostname;
 
   (*req->query->callback)(req->query->ptr, reply);
@@ -1211,7 +1207,7 @@ void res_read_dns(void)
         if ((size_t)msglen > DNS_HDR_SIZE) {
           id  = HDR_ID(dot_rxbuf);
           req = find_req_by_id(id);
-          if (req != NULL)
+          if (req != nullptr)
             process_answer(req, dot_rxbuf, (size_t)msglen);
         }
         /* Reset to read next message */
@@ -1270,7 +1266,7 @@ void res_read_dns(void)
 
       id  = HDR_ID(buf);
       req = find_req_by_id(id);
-      if (req == NULL)
+      if (req == nullptr)
         continue;
 
       process_answer(req, buf, (size_t)rc);
@@ -1300,7 +1296,7 @@ static void timeout_resolver([[maybe_unused]] void *unused)
       ns_failures[req->last_ns]++;
 
     if (--req->retries <= 0) {
-      (*req->query->callback)(req->query->ptr, NULL);
+      (*req->query->callback)(req->query->ptr, nullptr);
       free_req(req);
       continue;
     }
@@ -1317,7 +1313,7 @@ void res_secondly_check(void)
 {
   if (++res_timer_seconds >= DNS_TIMER_INTERVAL) {
     res_timer_seconds = 0;
-    timeout_resolver(NULL);
+    timeout_resolver(nullptr);
   }
 
 #ifdef EGG_TLS
@@ -1404,7 +1400,7 @@ void restart_resolver(void)
   /* Cancel all pending queries */
   OP_DLINK_FOREACH_SAFE(n, nt, req_list.head) {
     struct dns_req *req = n->data;
-    (*req->query->callback)(req->query->ptr, NULL);
+    (*req->query->callback)(req->query->ptr, nullptr);
     free_req(req);
   }
 
@@ -1442,7 +1438,7 @@ void gethost_byname_type(const char *name, struct DNSQuery *query, int type)
   req = make_req(query, type);
 
   op_strlcpy(fqdn, name, sizeof fqdn);
-  if (irc_domain[0] && strchr(fqdn, '.') == NULL) {
+  if (irc_domain[0] && strchr(fqdn, '.') == nullptr) {
     size_t nl = strlen(fqdn);
     if (nl + 1 + strlen(irc_domain) < sizeof fqdn) {
       fqdn[nl++] = '.';
@@ -1464,7 +1460,7 @@ void gethost_byaddr(const struct sockaddr_storage *addr,
 
   req = make_req(query, DNS_TYPE_PTR);
   memcpy(&req->orig_addr, addr, sizeof req->orig_addr);
-  build_rdns(req->qname, sizeof req->qname, addr, NULL);
+  build_rdns(req->qname, sizeof req->qname, addr, nullptr);
   send_dns_query(req);
 }
 
@@ -1559,7 +1555,7 @@ void res_enable_dot(const struct sockaddr_storage *sa,
    */
   if (ssl_handshake(dot_fd, TLS_CONNECT,
                     dot_verify ? TLS_VERIFYPEER : 0,
-                    LOG_MISC, dot_host, NULL) != 0) {
+                    LOG_MISC, dot_host, nullptr) != 0) {
     putlog(LOG_MISC, "*",
            "DNS: DoT: TLS handshake with %s failed; disabling DoT", addr_str);
     killsock(dot_fd);
@@ -1615,6 +1611,7 @@ void build_rdns(char *buf, size_t size,
     cp = (const unsigned char *)&v4->sin_addr.s_addr;
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%u.%u.%u.%u.%s",
                        (unsigned)cp[3], (unsigned)cp[2],
                        (unsigned)cp[1], (unsigned)cp[0],
@@ -1629,6 +1626,7 @@ void build_rdns(char *buf, size_t size,
     cp = (const unsigned char *)&v6->sin6_addr.s6_addr;
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b,
           "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
           "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%s",
@@ -1678,11 +1676,9 @@ static void egg_forward_cb(void *ptr, struct DNSReply *reply)
 {
   struct DNSQuery    *q   = (struct DNSQuery *)ptr;
   struct egg_dns_ctx *ctx = (struct egg_dns_ctx *)q->ptr;
-  sockname_t          sn;
+  sockname_t          sn = {};
 
-  memset(&sn, 0, sizeof sn);
-
-  if (reply != NULL) {
+  if (reply != nullptr) {
     int fam = GET_SS_FAMILY(&reply->addr);
     if (fam == AF_INET) {
       const struct sockaddr_in *v4 = (const struct sockaddr_in *)&reply->addr;
@@ -1716,11 +1712,9 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
 {
   struct DNSQuery    *q   = (struct DNSQuery *)ptr;
   struct egg_dns_ctx *ctx = (struct egg_dns_ctx *)q->ptr;
-  sockname_t          sn;
-  const char         *hostname = NULL;
+  sockname_t          sn = {};
+  const char         *hostname = nullptr;
   int                 ok = 0;
-
-  memset(&sn, 0, sizeof sn);
 
   /* Reconstruct the sockname_t from the original address */
   if (GET_SS_FAMILY(&ctx->orig_addr) == AF_INET) {
@@ -1740,7 +1734,7 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
   }
 #endif
 
-  if (reply != NULL && reply->h_name != NULL && reply->h_name[0] != '\0') {
+  if (reply != nullptr && reply->h_name != nullptr && reply->h_name[0] != '\0') {
     /*
      * FCrDNS verification: reply->addr is the forward-confirmed address.
      * Compare it against ctx->orig_addr.

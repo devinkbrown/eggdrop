@@ -96,6 +96,7 @@ static void sasl_errorf(const char *fmt, ...)
 {
   va_list ap;
   op_strbuf_t _m;
+  op_strbuf_init(&_m);
   va_start(ap, fmt);
   op_strbuf_vappendf(&_m, fmt, ap);
   va_end(ap);
@@ -162,6 +163,7 @@ static int got908(char *from, char *msg)
   del_capability("sasl");
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "sasl=%s", msg);
     add_capabilities(op_strbuf_str(&_b));
     op_strbuf_free(&_b);
@@ -245,6 +247,7 @@ static int sasl_scram_step_0(char *client_msg_plain, int client_msg_plain_len)
   b64_ntop(raw_nonce, sizeof raw_nonce, nonce, sizeof nonce);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "n,,n=%s,r=%s", sasl_username, nonce);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
@@ -370,22 +373,21 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
                              int client_msg_plain_len,
                              char *restrict server_msg_plain)
 {
-  char server_first_message[1024];
+  op_strbuf_t server_first_message;
+  op_strbuf_init(&server_first_message);
   char *word, *brkb, *server_nonce = 0, *salt_b64 = 0, *i = 0;
-  int salt_plain_len, iter, j, ret;
+  int salt_plain_len, iter, j;
   char salt_plain[64]; /* atheme: Valid values are 8 to 64 (inclusive) */
-  size_t stored_key_len;
   uint8_t stored_key[OPSSL_HMAC_MAX_DIGEST_LEN];
   uint8_t client_signature[OPSSL_HMAC_MAX_DIGEST_LEN];
   uint8_t client_proof[OPSSL_HMAC_MAX_DIGEST_LEN];
   char client_proof_b64[1024];
-  struct rusage ru1, ru2;
   size_t _hmac_len;
 
-  strlcpy(server_first_message, server_msg_plain, sizeof server_first_message);
+  op_strbuf_append_cstr(&server_first_message, server_msg_plain);
   for (word = strtok_r(server_msg_plain,  ",", &brkb);
        word;
-       word = strtok_r(NULL, ",", &brkb)) {
+       word = strtok_r(nullptr, ",", &brkb)) {
     switch (*word) {
       case 'r':
         if (!opssl_ct_eq(word + 2, nonce, (sizeof nonce) - 1)) {
@@ -435,7 +437,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
       return -1;
     }
     errno = 0;
-    iter = strtol(i, NULL, 10);
+    iter = strtol(i, nullptr, 10);
     if (errno) {
       sasl_errorf("AUTHENTICATE: strtol(%s): %s", i, strerror(errno));
       return -1;
@@ -449,7 +451,8 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
       digest_len = OPSSL_SHA512_DIGEST_LEN;
     }
 
-    ret = getrusage(RUSAGE_SELF, &ru1);
+    struct egg_rusage_timer rt;
+    egg_timer_start(&rt);
     if (opssl_pbkdf2(digest_algo,
                      (const uint8_t *) sasl_password, strlen(sasl_password),
                      (const uint8_t *) salt_plain, salt_plain_len,
@@ -458,18 +461,13 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
                   opssl_err_string(opssl_err_get()));
       return -1;
     }
-    if (!ret && !getrusage(RUSAGE_SELF, &ru2)) {
+    double ums, sms;
+    if (egg_timer_stop(&rt, &ums, &sms))
       debug4("SASL: pbkdf2 digest %s iter %i, user %.3fms sys %.3fms",
              digest_algo == OPSSL_HMAC_SHA256 ? "SHA-256" : "SHA-512",
-             iter,
-             (double) (ru2.ru_utime.tv_usec - ru1.ru_utime.tv_usec) / 1000 +
-             (double) (ru2.ru_utime.tv_sec  - ru1.ru_utime.tv_sec ) * 1000,
-             (double) (ru2.ru_stime.tv_usec - ru1.ru_stime.tv_usec) / 1000 +
-             (double) (ru2.ru_stime.tv_sec  - ru1.ru_stime.tv_sec ) * 1000);
-    }
-    else {
+             iter, ums, sms);
+    else
       debug1("PBKDF2 error: getrusage(): %s", strerror(errno));
-    }
 
     if (opssl_hmac(digest_algo, salted_password, digest_len,
                    CLIENT_KEY, strlen(CLIENT_KEY),
@@ -491,7 +489,6 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
     opssl_sha256(client_key, client_key_len, stored_key);
   else
     opssl_sha512(client_key, client_key_len, stored_key);
-  stored_key_len = digest_len;
 
   /* AuthMessage     := client-first-message-bare + "," +
    *                    server-first-message + "," +
@@ -499,12 +496,14 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
    */
 
   op_strbuf_t _cfmwp;
+  op_strbuf_init(&_cfmwp);
   op_strbuf_appendf(&_cfmwp, "c=biws,r=%s", server_nonce);
 
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s,%s,%s", client_first_message + 3,
-                     server_first_message, op_strbuf_str(&_cfmwp));
+                     op_strbuf_str(&server_first_message), op_strbuf_str(&_cfmwp));
     strlcpy(auth_message, op_strbuf_str(&_b), sizeof auth_message);
     op_strbuf_free(&_b);
   }
@@ -535,6 +534,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
 
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s,p=%s", op_strbuf_str(&_cfmwp), client_proof_b64);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
@@ -675,7 +675,7 @@ static int gotauthenticate(char *from, char *msg)
   return 0;
 }
 
-static __attribute__((unused)) char *traced_sasl_mechanism(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *traced_sasl_mechanism(ClientData cdata, Tcl_Interp *irp,
                                    EGG_CONST char *name1,
                                    EGG_CONST char *name2, int flags)
 {
@@ -688,20 +688,20 @@ static __attribute__((unused)) char *traced_sasl_mechanism(ClientData cdata, Tcl
            "which are not installed on this machine. Please choose the PLAIN "
            "method.";
 #endif /* TLS */
-  return NULL;
+  return nullptr;
 }
 
 static cmd_t sasl_raw[] = {
-  {"901",          "",   (IntFunc) got901,          NULL},
-  {"902",          "",   (IntFunc) gotsasl90X,      NULL},
-  {"903",          "",   (IntFunc) got903,          NULL},
-  {"904",          "",   (IntFunc) gotsasl90X,      NULL},
-  {"905",          "",   (IntFunc) gotsasl90X,      NULL},
-  {"906",          "",   (IntFunc) gotsasl90X,      NULL},
-  {"907",          "",   (IntFunc) got907,          NULL},
-  {"908",          "",   (IntFunc) got908,          NULL},
-  {"AUTHENTICATE", "",   (IntFunc) gotauthenticate, NULL},
-  {NULL,           NULL, NULL,                      NULL}
+  {"901",          "",   (IntFunc) got901,          nullptr},
+  {"902",          "",   (IntFunc) gotsasl90X,      nullptr},
+  {"903",          "",   (IntFunc) got903,          nullptr},
+  {"904",          "",   (IntFunc) gotsasl90X,      nullptr},
+  {"905",          "",   (IntFunc) gotsasl90X,      nullptr},
+  {"906",          "",   (IntFunc) gotsasl90X,      nullptr},
+  {"907",          "",   (IntFunc) got907,          nullptr},
+  {"908",          "",   (IntFunc) got908,          nullptr},
+  {"AUTHENTICATE", "",   (IntFunc) gotauthenticate, nullptr},
+  {nullptr,           nullptr, nullptr,                      nullptr}
 };
 
 static tcl_ints sasl_tcl_ints[] = {
@@ -709,7 +709,7 @@ static tcl_ints sasl_tcl_ints[] = {
   {"sasl-mechanism", &sasl_mechanism, 0},
   {"sasl-continue",  &sasl_continue,  0},
   {"sasl-timeout",   &sasl_timeout,   0},
-  {NULL,             NULL,            0}
+  {nullptr,             nullptr,            0}
 };
 
 static tcl_strings sasl_tcl_strings[] = {
@@ -717,7 +717,7 @@ static tcl_strings sasl_tcl_strings[] = {
   {"sasl-password",   sasl_password,   SASL_PASSWORD_MAX,  0},
   {"sasl-ecdsa-key",  sasl_ecdsa_key,  SASL_ECDSA_KEY_MAX, 0},
   {"sasl-x25519-key", sasl_x25519_key, SASL_ECDSA_KEY_MAX, 0},
-  {NULL,              NULL,            0,                  0}
+  {nullptr,              nullptr,            0,                  0}
 };
 
 static void sasl_close(void)
@@ -726,13 +726,13 @@ static void sasl_close(void)
   rem_tcl_ints(sasl_tcl_ints);
   rem_tcl_strings(sasl_tcl_strings);
   Tcl_UntraceVar(interp, "sasl-mechanism", TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_sasl_mechanism, NULL);
+                 traced_sasl_mechanism, nullptr);
 }
 
 static void sasl_start(void)
 {
   Tcl_TraceVar(interp, "sasl-mechanism", TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_sasl_mechanism, NULL);
+               traced_sasl_mechanism, nullptr);
   add_builtins(H_raw, sasl_raw);
   add_tcl_ints(sasl_tcl_ints);
   add_tcl_strings(sasl_tcl_strings);
@@ -764,6 +764,7 @@ int sasl_authenticate_initial(const struct cap_values *cap_value_list)
     }
     {
       op_strbuf_t _m;
+      op_strbuf_init(&_m);
       op_strbuf_appendf(&_m, "authentication mechanism %s not supported by server",
                        SASL_MECHANISMS[sasl_mechanism]);
       if (op_strbuf_len(&_supported))

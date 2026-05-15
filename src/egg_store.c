@@ -13,10 +13,10 @@
 
 /* Configuration variables (settable via set store-backend / eggdrop.toml). */
 char store_backend[16] = "lmdb";
-char store_path[121]   = "";  /* Empty = auto-derive from botnetnick */
+char store_path[121] = "";  /* Empty = auto-derive from botnetnick */
 
 /* Active backend pointer. */
-egg_store_backend_t *egg_store = NULL;
+egg_store_backend_t *egg_store = nullptr;
 
 extern char botnetnick[];
 
@@ -32,8 +32,9 @@ void egg_store_init(void)
 
   /* Derive path if not explicitly set. */
   if (!store_path[0]) {
-    if (egg_store == &egg_store_lmdb)
+    if (egg_store == &egg_store_lmdb) {
       snprintf(store_path, sizeof store_path, "%s.mdb", botnetnick);
+    }
     /* Flat backend uses the existing `userfile` global. */
   }
 
@@ -54,6 +55,6 @@ void egg_store_shutdown(void)
 {
   if (egg_store) {
     egg_store->close();
-    egg_store = NULL;
+    egg_store = nullptr;
   }
 }

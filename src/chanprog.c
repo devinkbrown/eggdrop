@@ -51,18 +51,18 @@ extern int backgrd, term_z, con_chan, cache_hit, cache_miss, firewallport,
 extern opssl_ctx_t *ssl_ctx;
 #endif
 
-tcl_timer_t *timer = NULL;         /* Minutely timer               */
-tcl_timer_t *utimer = NULL;        /* Secondly timer               */
+tcl_timer_t *timer = nullptr;         /* Minutely timer               */
+tcl_timer_t *utimer = nullptr;        /* Secondly timer               */
 
 /* Slab allocator for tcl_timer_t nodes — lazy-initialised on first timer. */
-static op_bh *timer_bh = NULL;
+static op_bh *timer_bh = nullptr;
 uint64_t timer_id = 1;             /* Next timer of any sort will
                                     * have this number             */
-struct chanset_t *chanset = NULL;  /* Channel list                 */
+struct chanset_t *chanset = nullptr;  /* Channel list                 */
 
 /* O(1) channel lookup by server name and display name. */
-static op_htab *chan_by_name  = NULL;
-static op_htab *chan_by_dname = NULL;
+static op_htab *chan_by_name  = nullptr;
+static op_htab *chan_by_dname = nullptr;
 char admin[121] = "";              /* Admin info                   */
 char origbotname[NICKLEN];
 char botname[NICKLEN];             /* Primary botname              */
@@ -74,7 +74,7 @@ void remove_timer_from_list(tcl_timer_t ** stack);
  */
 void rmspace(char *s)
 {
-  char *p = NULL, *q = NULL;
+  char *p = nullptr, *q = nullptr;
 
   if (!s || !*s)
     return;
@@ -104,16 +104,16 @@ memberlist *ismember(struct chanset_t *chan, const char *nick)
   for (x = chan->channel.member; x && x->nick[0]; x = x->next)
     if (!rfc_casecmp(x->nick, nick))
       return x;
-  return NULL;
+  return nullptr;
 }
 
 /* Initialise (or reinitialise) the channel hash tables. */
 void chan_htab_init(void)
 {
   if (chan_by_name)
-    op_htab_destroy(chan_by_name, NULL, NULL);
+    op_htab_destroy(chan_by_name, nullptr, nullptr);
   if (chan_by_dname)
-    op_htab_destroy(chan_by_dname, NULL, NULL);
+    op_htab_destroy(chan_by_dname, nullptr, nullptr);
   chan_by_name  = op_htab_create_istr("chan_name", 16);
   chan_by_dname = op_htab_create_istr("chan_dname", 16);
 }
@@ -124,9 +124,9 @@ void chan_htab_add(struct chanset_t *chan)
 {
   if (!chan_by_dname)
     chan_htab_init();
-  op_htab_set(chan_by_dname, chan->dname, chan, NULL);
+  op_htab_set(chan_by_dname, chan->dname, chan, nullptr);
   if (chan->name[0])
-    op_htab_set(chan_by_name, chan->name, chan, NULL);
+    op_htab_set(chan_by_name, chan->name, chan, nullptr);
 }
 
 /* Remove a channel from the hash tables. */
@@ -151,7 +151,7 @@ struct chanset_t *findchan(const char *name)
   for (struct chanset_t *chan = chanset; chan; chan = chan->next)
     if (!rfc_casecmp(chan->name, name))
       return chan;
-  return NULL;
+  return nullptr;
 }
 
 /* Find a chanset by display name (ie !channel)
@@ -166,7 +166,7 @@ struct chanset_t *findchan_by_dname(const char *name)
   for (struct chanset_t *chan = chanset; chan; chan = chan->next)
     if (!rfc_casecmp(chan->dname, name))
       return chan;
-  return NULL;
+  return nullptr;
 }
 
 /* Clear the user pointers in the chanlists.
@@ -184,7 +184,7 @@ void clear_chanlist(void)
 
   for (chan = chanset; chan; chan = chan->next)
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-      m->user = NULL;
+      m->user = nullptr;
       m->tried_getuser = 0;
     }
 }
@@ -203,61 +203,31 @@ void clear_chanlist_member(const char *nick)
   for (chan = chanset; chan; chan = chan->next)
     for (m = chan->channel.member; m && m->nick[0]; m = m->next)
       if (!rfc_casecmp(m->nick, nick)) {
-        m->user = NULL;
+        m->user = nullptr;
         m->tried_getuser = 0;
         break;
       }
 }
 
-/* Calculate the memory we should be using
- */
 
-float getcputime(void)
-{
-  float stime, utime;
-  struct rusage ru;
-
-  getrusage(RUSAGE_SELF, &ru);
-  utime = ru.ru_utime.tv_sec + (ru.ru_utime.tv_usec / 1000000.00);
-  stime = ru.ru_stime.tv_sec + (ru.ru_stime.tv_usec / 1000000.00);
-  return (utime + stime);
-}
 
 /* Dump uptime info out to dcc (guppy 9Jan99)
  */
 void tell_verbose_uptime(int idx)
 {
-  time_t now2, hr, min;
-  op_strbuf_t s, s1;
+  char upbuf[64];
 
-  now2 = now - online_since;
-  op_strbuf_init(&s);
-  if (now2 > 86400) {
-    /* days */
-    op_strbuf_appendf(&s, "%d day", (int) (now2 / 86400));
-    if ((int) (now2 / 86400) >= 2)
-      op_strbuf_append_cstr(&s, "s");
-    op_strbuf_append_cstr(&s, ", ");
-    now2 -= (((int) (now2 / 86400)) * 86400);
-  }
-  hr = (time_t) ((int) now2 / 3600);
-  now2 -= (hr * 3600);
-  min = (time_t) ((int) now2 / 60);
-  op_strbuf_appendf(&s, "%02d:%02d", (int) hr, (int) min);
-  op_strbuf_init(&s1);
+  egg_format_uptime(now - online_since, upbuf, sizeof upbuf);
+  const char *mode;
   if (backgrd)
-    op_strbuf_append_cstr(&s1, MISC_BACKGROUND);
-  else {
-    if (term_z >= 0)
-      op_strbuf_append_cstr(&s1, MISC_TERMMODE);
-    else if (con_chan)
-      op_strbuf_append_cstr(&s1, MISC_STATMODE);
-    else
-      op_strbuf_append_cstr(&s1, MISC_LOGMODE);
-  }
-  dprintf(idx, "%s %s  (%s)\n", MISC_ONLINEFOR, op_strbuf_str(&s), op_strbuf_str(&s1));
-  op_strbuf_free(&s1);
-  op_strbuf_free(&s);
+    mode = MISC_BACKGROUND;
+  else if (term_z >= 0)
+    mode = MISC_TERMMODE;
+  else if (con_chan)
+    mode = MISC_STATMODE;
+  else
+    mode = MISC_LOGMODE;
+  dprintf(idx, "%s %s  (%s)\n", MISC_ONLINEFOR, upbuf, mode);
 }
 
 /* Dump status info out to dcc
@@ -265,57 +235,38 @@ void tell_verbose_uptime(int idx)
 void tell_verbose_status(int idx)
 {
   char *sysrel;
-  time_t now2 = now - online_since, hr, min;
+  char upbuf[64];
   double cputime, cache_total;
-  op_strbuf_t s, s1, s2;
 
   int i = count_users(userlist);
-  struct rusage ru;
-  getrusage(RUSAGE_SELF, &ru);
   dprintf(idx, "I am %s, running %s: %d user%s (rss: %ldk).\n",
-          botnetnick, ver, i, i == 1 ? "" : "s", ru.ru_maxrss);
-  op_strbuf_init(&s);
-  if (now2 > 86400) {
-    /* days */
-    op_strbuf_appendf(&s, "%d day", (int) (now2 / 86400));
-    if ((int) (now2 / 86400) >= 2)
-      op_strbuf_append_cstr(&s, "s");
-    op_strbuf_append_cstr(&s, ", ");
-    now2 -= (((int) (now2 / 86400)) * 86400);
-  }
-  hr = (time_t) ((int) now2 / 3600);
-  now2 -= (hr * 3600);
-  min = (time_t) ((int) now2 / 60);
-  op_strbuf_appendf(&s, "%02d:%02d", (int) hr, (int) min);
-  op_strbuf_init(&s1);
+          botnetnick, ver, i, i == 1 ? "" : "s", egg_get_rss_kb());
+  egg_format_uptime(now - online_since, upbuf, sizeof upbuf);
+  const char *mode;
   if (backgrd)
-    op_strbuf_append_cstr(&s1, MISC_BACKGROUND);
-  else {
-    if (term_z >= 0)
-      op_strbuf_append_cstr(&s1, MISC_TERMMODE);
-    else if (con_chan)
-      op_strbuf_append_cstr(&s1, MISC_STATMODE);
-    else
-      op_strbuf_append_cstr(&s1, MISC_LOGMODE);
-  }
+    mode = MISC_BACKGROUND;
+  else if (term_z >= 0)
+    mode = MISC_TERMMODE;
+  else if (con_chan)
+    mode = MISC_STATMODE;
+  else
+    mode = MISC_LOGMODE;
   cputime = getcputime();
+  op_strbuf_t cpubuf;
+  op_strbuf_init(&cpubuf);
   if (cputime < 0)
-    op_strbuf_appendf(&s2, "CPU: unknown");
+    op_strbuf_append_cstr(&cpubuf, "CPU: unknown");
   else {
-    hr = cputime / 60;
+    int hr = (int)(cputime / 60);
     cputime -= hr * 60;
-    op_strbuf_appendf(&s2, "CPU: %02d:%05.2f", (int) hr, cputime); /* Actually min/sec */
+    op_strbuf_appendf(&cpubuf, "CPU: %02d:%05.2f", hr, cputime);
   }
-  if (cache_hit + cache_miss) {      /* 2019, still can't divide by zero */
+  if (cache_hit + cache_miss)
     cache_total = 100.0 * (cache_hit) / (cache_hit + cache_miss);
-  } else
+  else
     cache_total = 0;
   dprintf(idx, "%s %s (%s) - %s - %s: %4.1f%%\n", MISC_ONLINEFOR,
-          op_strbuf_str(&s), op_strbuf_str(&s1), op_strbuf_str(&s2),
-          MISC_CACHEHIT, cache_total);
-  op_strbuf_free(&s);
-  op_strbuf_free(&s1);
-  op_strbuf_free(&s2);
+          upbuf, mode, op_strbuf_str(&cpubuf), MISC_CACHEHIT, cache_total);
   dprintf(idx, "Configured with: " EGG_AC_ARGS "\n");
   if (admin[0])
     dprintf(idx, "Admin: %s\n", admin);
@@ -351,11 +302,7 @@ void tell_verbose_status(int idx)
     for (p = module_list; p; p = p->next) modcount++;
     dprintf(idx, "Loaded modules: %d\n", modcount);
   }
-  {
-    struct rusage ru2;
-    if (!getrusage(RUSAGE_SELF, &ru2))
-      dprintf(idx, "Memory (RSS): %ld KB\n", ru2.ru_maxrss);
-  }
+  dprintf(idx, "Memory (RSS): %ld KB\n", egg_get_rss_kb());
 #ifdef TLS
   dprintf(idx, "TLS support is enabled.\n"
                "TLS library: opssl %s\n",
@@ -368,12 +315,8 @@ void tell_verbose_status(int idx)
 #else
   dprintf(idx, "IPv6 support is not available.\n"
 #endif
-#ifdef EGG_TDNS
-               "Threaded DNS core is enabled.\n"
-#else
-               "Threaded DNS core is disabled.\n"
-#endif
                "Socket table: %d/%d\n", threaddata()->MAXSOCKS, max_socks);
+  op_strbuf_free(&cpubuf);
 }
 
 /* Show all internal state variables
@@ -381,7 +324,7 @@ void tell_verbose_status(int idx)
 void tell_settings(int idx)
 {
   char s[1024];
-  struct flag_record fr = { FR_GLOBAL, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL };
 
   dprintf(idx, "Botnet nickname: %s\n", botnetnick);
   if (firewall[0])
@@ -397,13 +340,13 @@ void tell_settings(int idx)
 #endif
   fr.global = default_flags;
 
-  build_flags(s, &fr, NULL);
+  build_flags(s, &fr, nullptr);
   dprintf(idx, "%s [%s], %s: %s\n", MISC_NEWUSERFLAGS, s,
           MISC_NOTIFY, notify_new);
   if (owner[0])
     dprintf(idx, "%s: %s\n", MISC_PERMOWNER, owner);
   for (int i = 0; i < max_logs; i++)
-    if (logs[i].filename != NULL) {
+    if (logs[i].filename != nullptr) {
       dprintf(idx, "Logfile #%d: %s on %s (%s: %s)\n", i + 1,
               logs[i].filename, logs[i].chname,
               masktype(logs[i].mask), maskname(logs[i].mask));
@@ -484,17 +427,17 @@ void chanprog(void)
 
   for (int i = 0; i < max_logs; i++) {
     if (logs[i].flags & LF_EXPIRING) {
-      if (logs[i].filename != NULL) {
+      if (logs[i].filename != nullptr) {
         op_free(logs[i].filename);
-        logs[i].filename = NULL;
+        logs[i].filename = nullptr;
       }
-      if (logs[i].chname != NULL) {
+      if (logs[i].chname != nullptr) {
         op_free(logs[i].chname);
-        logs[i].chname = NULL;
+        logs[i].chname = nullptr;
       }
-      if (logs[i].f != NULL) {
+      if (logs[i].f != nullptr) {
         fclose(logs[i].f);
-        logs[i].f = NULL;
+        logs[i].f = nullptr;
       }
       logs[i].mask = 0;
       logs[i].flags = 0;
@@ -550,6 +493,7 @@ void chanprog(void)
         printf("User file created.  Say '%s hello' on IRC or connect via DCC to set your password.\n\n", origbotname);
       } else {
         op_strbuf_t tmp;
+        op_strbuf_init(&tmp);
         op_strbuf_appendf(&tmp, MISC_NOUSERFILE, configfile);
         fatal(op_strbuf_str(&tmp), 0);
         op_strbuf_free(&tmp);
@@ -585,7 +529,7 @@ void reload(void)
   noshare = 1;
   clear_userlist(userlist);
   noshare = 0;
-  userlist = NULL;
+  userlist = nullptr;
   if (!readuserfile(userfile, &userlist))
     fatal(MISC_MISSINGUSERF, 0);
   reaffirm_owners();
@@ -600,7 +544,7 @@ void rehash(void)
   noshare = 1;
   clear_userlist(userlist);
   noshare = 0;
-  userlist = NULL;
+  userlist = nullptr;
   chanprog();
   add_hq_user();
 }
@@ -616,6 +560,7 @@ static void egg_timer_fire(void *arg)
 
   {
     op_strbuf_t x;
+    op_strbuf_init(&x);
     op_strbuf_appendf(&x, "timer%lu", t->id);
     do_tcl(op_strbuf_str(&x), t->cmd);
     op_strbuf_free(&x);
@@ -635,7 +580,7 @@ static void egg_timer_fire(void *arg)
   } else {
     if (t->count > 1) t->count--;
     time_t when_secs = (time_t)t->interval * t->secs_per_tick;
-    t->fire_at = time(NULL) + when_secs;
+    t->fire_at = time(nullptr) + when_secs;
     t->ev = op_event_addonce(t->name, egg_timer_fire, t, when_secs);
   }
 }
@@ -670,6 +615,7 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
     }
   } else {
     op_strbuf_t name_buf;
+    op_strbuf_init(&name_buf);
     op_strbuf_appendf(&name_buf, "timer%" PRIu64, (*stack)->id);
     (*stack)->name = op_strdup(op_strbuf_str(&name_buf));
     op_strbuf_free(&name_buf);
@@ -677,7 +623,7 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
   /* Schedule via op_event. */
   {
     time_t when_secs = (time_t)elapse * (*stack)->secs_per_tick;
-    (*stack)->fire_at = time(NULL) + when_secs;
+    (*stack)->fire_at = time(nullptr) + when_secs;
     (*stack)->ev = op_event_addonce((*stack)->name, egg_timer_fire, *stack,
                                     when_secs);
   }
@@ -736,7 +682,7 @@ void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
       op_free(old->name);
     op_bh_free(timer_bh, old);
   }
-  *stack = NULL;
+  *stack = nullptr;
 }
 
 /* Return list of timers (only meaningful when Tcl is present). */
@@ -745,7 +691,7 @@ void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
   char *x;
   EGG_CONST char *argv[4];
   tcl_timer_t *mark;
-  time_t now_t = time(NULL);
+  time_t now_t = time(nullptr);
 
   for (mark = stack; mark; mark = mark->next) {
     unsigned int remaining = (mark->fire_at > now_t)
@@ -785,9 +731,9 @@ int isowner(char *name) {
   char *sep = ", \t\n\v\f\r";
   char *word;
 
-  char *saveptr = NULL;
+  char *saveptr = nullptr;
   strlcpy(s, owner, sizeof(s));
-  for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(NULL, sep, &saveptr)) {
+  for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(nullptr, sep, &saveptr)) {
     if (!strcasecmp(name, word)) {
       return 1;
     }

@@ -651,7 +651,6 @@ op_sctp_bindx(const op_fde_t *F, const struct sockaddr_storage *addrs, size_t le
 
 	return 0;
 #else
-	(void)F; (void)addrs; (void)len;
 	return -1;
 #endif
 }
@@ -659,7 +658,6 @@ op_sctp_bindx(const op_fde_t *F, const struct sockaddr_storage *addrs, size_t le
 int
 op_inet_get_proto(const op_fde_t *F)
 {
-	(void)F;
 #ifdef HAVE_LIBSCTP
 	if (F->type & OP_FD_SCTP)
 		return IPPROTO_SCTP;
@@ -968,8 +966,6 @@ op_connect_sctp(op_fde_t *F, struct sockaddr_storage *dest, size_t dest_len,
 	/* If we get here, we've succeeded, so call with OP_OK */
 	op_connect_callback(F, OP_OK);
 #else
-	(void)dest; (void)dest_len; (void)clocal; (void)clocal_len;
-	(void)callback; (void)data; (void)timeout;
 	op_connect_callback(F, OP_ERR_CONNECT);
 #endif
 }

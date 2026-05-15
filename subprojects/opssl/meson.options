@@ -7,5 +7,11 @@ option('postquantum', type: 'feature', value: 'enabled',
 option('session_export', type: 'feature', value: 'enabled',
   description: 'TLS session state export/import for live migration')
 
+option('ca_cert_file', type: 'string', value: 'auto',
+  description: 'Path to system CA certificate bundle (auto-detected if "auto")')
+
+option('ca_cert_dir', type: 'string', value: 'auto',
+  description: 'Path to system CA certificate directory (auto-detected if "auto")')
+
 option('tests', type: 'boolean', value: true,
   description: 'Build test suite')

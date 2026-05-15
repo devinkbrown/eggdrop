@@ -29,19 +29,19 @@ static int fstat_unpack(struct userrec *u, struct user_entry *e)
 
   arg = newsplit(&par);
   if (arg[0])
-    fs->uploads = atoi(arg);
+    fs->uploads = egg_atoi(arg);
 
   arg = newsplit(&par);
   if (arg[0])
-    fs->upload_ks = atoi(arg);
+    fs->upload_ks = egg_atoi(arg);
 
   arg = newsplit(&par);
   if (arg[0])
-    fs->dnloads = atoi(arg);
+    fs->dnloads = egg_atoi(arg);
 
   arg = newsplit(&par);
   if (arg[0])
-    fs->dnload_ks = atoi(arg);
+    fs->dnload_ks = egg_atoi(arg);
 
   list_type_kill(e->u.list);
   e->u.extra = fs;
@@ -58,12 +58,13 @@ static int fstat_pack(struct userrec *u, struct user_entry *e)
   l->extra = user_malloc(41);
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%09u %09u %09u %09u", fs->uploads, fs->upload_ks,
                      fs->dnloads, fs->dnload_ks);
     strlcpy(l->extra, op_strbuf_str(&_b), 41);
     op_strbuf_free(&_b);
   }
-  l->next = NULL;
+  l->next = nullptr;
   e->u.list = l;
   op_free(fs);
 
@@ -91,7 +92,7 @@ static int fstat_set(struct userrec *u, struct user_entry *e, void *buf)
     if (e->u.extra)
       op_free(e->u.extra);
     e->u.extra = fs;
-  } else if (!fs) /* e->u.extra == NULL && fs == NULL */
+  } else if (!fs) /* e->u.extra == nullptr && fs == nullptr */
     return 1;
 
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED))) {
@@ -109,10 +110,10 @@ static int fstat_set(struct userrec *u, struct user_entry *e, void *buf)
        * Then we wouldn't detect here that something's changed.
        * --rtc
        */
-      shareout(NULL, "ch fstat %09u %09u %09u %09u\n", fs->uploads,
+      shareout(nullptr, "ch fstat %09u %09u %09u %09u\n", fs->uploads,
                fs->upload_ks, fs->dnloads, fs->dnload_ks);
     else
-      shareout(NULL, "ch fstat r\n");
+      shareout(nullptr, "ch fstat r\n");
   }
 
   return 1;
@@ -122,6 +123,7 @@ static int fstat_tcl_format(char *d, size_t max, struct filesys_stats *fs, char 
 {
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     if (!arg)
       op_strbuf_appendf(&_b, "%u %u %u %u", fs->uploads, fs->upload_ks,
                        fs->dnloads, fs->dnload_ks);
@@ -152,12 +154,12 @@ static int fstat_tcl_get(Tcl_Interp *irp, struct userrec *u,
 
   BADARGS(3, 4, " handle FSTAT ?u/d?");
 
-  ret = fstat_tcl_format(d, sizeof d, e->u.extra, (argc > 3 ? argv[3] : NULL));
+  ret = fstat_tcl_format(d, sizeof d, e->u.extra, (argc > 3 ? argv[3] : nullptr));
 
   if (ret != TCL_OK)
     return ret;
 
-  Tcl_AppendResult(irp, d, NULL);
+  Tcl_AppendResult(irp, d, nullptr);
   return TCL_OK;
 }
 
@@ -166,7 +168,7 @@ static int fstat_tcl_append(Tcl_Interp *irp, struct userrec *u, struct user_entr
   int ret;
   char d[50];
 
-  ret = fstat_tcl_format(d, sizeof d, e->u.extra, NULL);
+  ret = fstat_tcl_format(d, sizeof d, e->u.extra, nullptr);
 
   if (ret != TCL_OK)
     return ret;
@@ -200,14 +202,14 @@ static void fstat_display(int idx, struct user_entry *e)
 }
 
 static struct user_entry_type USERENTRY_FSTAT = {
-  NULL,
+  nullptr,
   fstat_gotshare,
   fstat_dupuser,
   fstat_unpack,
   fstat_pack,
   fstat_write_userfile,
   fstat_kill,
-  NULL,
+  nullptr,
   fstat_set,
   fstat_tcl_get,
   fstat_tcl_set,
@@ -229,7 +231,7 @@ static int fstat_gotshare(struct userrec *u, struct user_entry *e,
   case 'd':
     break;
   case 'r':
-    set_user(&USERENTRY_FSTAT, u, NULL);
+    set_user(&USERENTRY_FSTAT, u, nullptr);
     break;
   default:
     if (!(fs = e->u.extra)) {
@@ -239,19 +241,19 @@ static int fstat_gotshare(struct userrec *u, struct user_entry *e,
 
     p = newsplit(&par);
     if (p[0])
-      fs->uploads = atoi(p);
+      fs->uploads = egg_atoi(p);
 
     p = newsplit(&par);
     if (p[0])
-      fs->upload_ks = atoi(p);
+      fs->upload_ks = egg_atoi(p);
 
     p = newsplit(&par);
     if (p[0])
-      fs->dnloads = atoi(p);
+      fs->dnloads = egg_atoi(p);
 
     p = newsplit(&par);
     if (p[0])
-      fs->dnload_ks = atoi(p);
+      fs->dnload_ks = egg_atoi(p);
 
     set_user(&USERENTRY_FSTAT, u, fs);
     break;
@@ -318,9 +320,9 @@ static int fstat_tcl_set(Tcl_Interp *irp, struct userrec *u,
   BADARGS(4, 6, " handle FSTAT u/d ?files ?ks??");
 
   if (argc > 4)
-    f = atoi(argv[4]);
+    f = egg_atoi(argv[4]);
   if (argc > 5)
-    k = atoi(argv[5]);
+    k = egg_atoi(argv[5]);
 
   switch (argv[3][0]) {
   case 'u':
@@ -342,7 +344,7 @@ static int fstat_tcl_set(Tcl_Interp *irp, struct userrec *u,
     set_user(&USERENTRY_FSTAT, u, fs);
     break;
   case 'r':
-    set_user(&USERENTRY_FSTAT, u, NULL);
+    set_user(&USERENTRY_FSTAT, u, nullptr);
     break;
   }
 

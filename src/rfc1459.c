@@ -30,41 +30,56 @@
  * The special IRC mappings are:
  *   { | } ~  (lowercase)  <->  [ \ ] ^  (uppercase)
  *
- * For bytes 0x80-0xFF (UTF-8 multi-byte sequences), each byte maps to itself
- * in both the upper and lower tables, so two NFC-normalised UTF-8 strings that
- * are identical as Unicode text will compare equal here.  Full Unicode case-
- * folding (e.g. comparing 'Ä' with 'ä') is not performed; that would require
- * a Unicode case-fold table and is beyond the scope of RFC 1459 casemapping.
+ * The uppercase range [a-z{|}~] = [0x61-0x7E] maps to [A-Z[\]^] = [0x41-0x5E]
+ * by subtracting 0x20 — the same offset as ASCII lowercase→uppercase.
+ *
+ * Branchless arithmetic replaces the 256-byte lookup table to avoid L1 cache
+ * misses on the cold path.  The table is retained for external callers.
  */
+
+/* Branchless RFC 1459 toupper: no table lookup, no branch.
+ * If c is in [0x61..0x7E], subtract 0x20.  Unsigned underflow handles
+ * the range check: (c - 0x61) > 0x1D for out-of-range bytes. */
+static inline unsigned char rfc_toupper_fast(unsigned char c)
+{
+  unsigned int v = (unsigned int)c - 0x61u;
+  return c - (unsigned char)((v <= 0x1Du) << 5);
+}
+
 int _rfc_casecmp(const char *s1, const char *s2)
 {
-  unsigned char *str1 = (unsigned char *) s1;
-  unsigned char *str2 = (unsigned char *) s2;
-  int res;
+  const unsigned char *a = (const unsigned char *)s1;
+  const unsigned char *b = (const unsigned char *)s2;
 
-  while (!(res = rfc_toupper(*str1) - rfc_toupper(*str2))) {
-    if (*str1 == '\0')
+  for (;;) {
+    unsigned char ua = rfc_toupper_fast(*a);
+    unsigned char ub = rfc_toupper_fast(*b);
+    if (ua != ub)
+      return (int)ua - (int)ub;
+    if (*a == '\0')
       return 0;
-    str1++;
-    str2++;
+    a++;
+    b++;
   }
-  return res;
 }
 
 int _rfc_ncasecmp(const char *str1, const char *str2, int n)
 {
-  unsigned char *s1 = (unsigned char *) str1;
-  unsigned char *s2 = (unsigned char *) str2;
-  int res;
+  const unsigned char *a = (const unsigned char *)str1;
+  const unsigned char *b = (const unsigned char *)str2;
 
-  while (!(res = rfc_toupper(*s1) - rfc_toupper(*s2))) {
-    s1++;
-    s2++;
-    n--;
-    if (!n || (*s1 == '\0' && *s2 == '\0'))
+  while (n > 0) {
+    unsigned char ua = rfc_toupper_fast(*a);
+    unsigned char ub = rfc_toupper_fast(*b);
+    if (ua != ub)
+      return (int)ua - (int)ub;
+    if (*a == '\0')
       return 0;
+    a++;
+    b++;
+    n--;
   }
-  return res;
+  return 0;
 }
 
 unsigned char rfc_tolowertab[] =
@@ -139,10 +154,11 @@ unsigned char rfc_touppertab[] =
 
 int _rfc_tolower(int c)
 {
-  return rfc_tolowertab[(unsigned char) (c)];
+  unsigned int v = (unsigned int)(unsigned char)c - 0x41u;
+  return (unsigned char)c + (unsigned char)((v <= 0x1Du) << 5);
 }
 
 int _rfc_toupper(int c)
 {
-  return rfc_touppertab[(unsigned char) (c)];
+  return rfc_toupper_fast((unsigned char)c);
 }

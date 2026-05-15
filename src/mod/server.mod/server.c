@@ -32,15 +32,15 @@
 #include "src/mod/module.h"
 #include "server.h"
 
-static Function *global = NULL;
+static Function *global = nullptr;
 
 /* Slab allocator for monitor_list nodes.  O(1) alloc/free, zero-init on
  * alloc (no separate memset needed), memory returned to OS on heap destroy. */
-static op_bh *monitor_heap = NULL;
+static op_bh *monitor_heap = nullptr;
 
 /* Slab allocator for struct msgq nodes (mq / hq / modeq IRC send queues).
  * Fields are always set explicitly after allocation; no memset needed. */
-static op_bh *msgq_node_bh = NULL;
+static op_bh *msgq_node_bh = nullptr;
 
 static int ctcp_mode;
 static int serv;                /* sock # of server currently */
@@ -117,7 +117,7 @@ static char sslserver = 0;
 static int monitor005 = 0;      /* Monitor */
 static int max_monitor = 0;     /* Maximum # of monitored nicks, from server */
 static int monitor732 = 0;      /* Monitor */
-static struct monitor_list *monitor = NULL;
+static struct monitor_list *monitor = nullptr;
 
 /* =========================================================================
  * IRCX / Ophion network state (https://github.com/devinkbrown/ophion)
@@ -131,10 +131,10 @@ static char ircx_network[64] = "";     /* Reported IRCX network name          */
 static char ircx_default_ownerkey[128] = ""; /* Global default OWNERKEY       */
 
 /* IRCX access list (per-channel HOST/OWNER/VOICE/GRANT/DENY entries) */
-static ircx_access_t *ircx_access_list = NULL;
+static ircx_access_t *ircx_access_list = nullptr;
 
 /* IRCX auto-owner channel list */
-static ircx_autoowner_t *ircx_autoowner_list = NULL;
+static ircx_autoowner_t *ircx_autoowner_list = nullptr;
 
 
 static p_tcl_bind_list H_wall, H_raw, H_notc, H_msgm, H_msg, H_flud, H_ctcr,
@@ -285,7 +285,7 @@ static void deq_msg(void)
     op_bh_free(msgq_node_bh, mq.head);
     mq.head = q;
     if (!mq.head)
-      mq.last = NULL;
+      mq.last = nullptr;
     return;
   }
 
@@ -312,7 +312,7 @@ static void deq_msg(void)
   op_bh_free(msgq_node_bh, hq.head);
   hq.head = q;
   if (!hq.head)
-    hq.last = NULL;
+    hq.last = nullptr;
 }
 
 static int calc_penalty(char *msg)
@@ -468,7 +468,7 @@ static int fast_deq(int which)
 {
   struct msgq_head *h;
   struct msgq *m, *nm;
-  char *msgstr = NULL, *nextmsgstr, *tosend, *stackable = NULL, *msg, *nextmsg, *cmd,
+  char *msgstr = nullptr, *nextmsgstr, *tosend, *stackable = nullptr, *msg, *nextmsg, *cmd,
        *nextcmd, *to, *nextto, *stckbl;
   op_strbuf_t victims;
   int len, doit = 0, found = 0, cmd_count = 0, stack_method = 1;
@@ -493,6 +493,7 @@ static int fast_deq(int which)
   m = h->head;
   {
     op_strbuf_t _sb;
+    op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", m->msg);
     msgstr = op_strbuf_steal(&_sb);
   }
@@ -501,6 +502,7 @@ static int fast_deq(int which)
   if (use_fastdeq > 1) {
     {
       op_strbuf_t _sb;
+      op_strbuf_init(&_sb);
       op_strbuf_appendf(&_sb, "%s", stackablecmds);
       stackable = op_strbuf_steal(&_sb);
     }
@@ -530,6 +532,7 @@ static int fast_deq(int which)
     op_free(stackable);
     {
       op_strbuf_t _sb;
+      op_strbuf_init(&_sb);
       op_strbuf_appendf(&_sb, "%s", stackable2cmds);
       stackable = op_strbuf_steal(&_sb);
     }
@@ -549,6 +552,7 @@ static int fast_deq(int which)
       break;
     {
       op_strbuf_t _sb;
+      op_strbuf_init(&_sb);
       op_strbuf_appendf(&_sb, "%s", nm->msg);
       nextmsgstr = op_strbuf_steal(&_sb);
     }
@@ -574,6 +578,7 @@ static int fast_deq(int which)
   if (doit) {
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s %s %s", cmd, op_strbuf_str(&victims), msg);
       tosend = op_strbuf_steal(&_b);
     }
@@ -625,12 +630,12 @@ static void check_queues(char *oldnick, char *newnick)
 
 static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
 {
-  struct msgq *m, *lm = NULL;
+  struct msgq *m, *lm = nullptr;
   char *buf, *msg, *nicks, *nick, *chan;
   op_strbuf_t newnicks;
   int changed;
 
-  buf = NULL;
+  buf = nullptr;
   op_strbuf_init(&newnicks);
   for (m = q->head; m;) {
     changed = 0;
@@ -638,6 +643,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
       op_strbuf_clear(&newnicks);
       {
         op_strbuf_t _sb;
+        op_strbuf_init(&_sb);
         op_strbuf_appendf(&_sb, "%s", m->msg);
         buf = op_strbuf_steal(&_sb);
       }
@@ -674,6 +680,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
           q->last = 0;
       } else {
         op_strbuf_t _b;
+        op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, msg);
         op_free(m->msg);
         m->len = op_strbuf_len(&_b);
@@ -681,7 +688,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
       }
     }
     op_free(buf);
-    buf = NULL;
+    buf = nullptr;
     lm = m;
     if (m)
       m = m->next;
@@ -693,8 +700,8 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
 
 static void purge_kicks(struct msgq_head *q)
 {
-  struct msgq *m, *lm = NULL;
-  char *buf = NULL, *reason, *nicks, *nick, *chan, *chans, *chns, *ch;
+  struct msgq *m, *lm = nullptr;
+  char *buf = nullptr, *reason, *nicks, *nick, *chan, *chans, *chns, *ch;
   op_strbuf_t newnicks;
   int changed, found;
   struct chanset_t *cs;
@@ -706,6 +713,7 @@ static void purge_kicks(struct msgq_head *q)
       changed = 0;
       {
         op_strbuf_t _sb;
+        op_strbuf_init(&_sb);
         op_strbuf_appendf(&_sb, "%s", m->msg);
         buf = op_strbuf_steal(&_sb);
       }
@@ -718,6 +726,7 @@ static void purge_kicks(struct msgq_head *q)
         nick = splitnicks(&nicks);
         {
           op_strbuf_t _sb;
+          op_strbuf_init(&_sb);
           op_strbuf_appendf(&_sb, "%s", chan);
           chans = op_strbuf_steal(&_sb);
         }
@@ -753,6 +762,7 @@ static void purge_kicks(struct msgq_head *q)
             q->last = 0;
         } else {
           op_strbuf_t _b;
+          op_strbuf_init(&_b);
           op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
           op_free(m->msg);
           m->len = op_strbuf_len(&_b);
@@ -761,7 +771,7 @@ static void purge_kicks(struct msgq_head *q)
       }
     }
     op_free(buf);
-    buf = NULL;
+    buf = nullptr;
     lm = m;
     if (m)
       m = m->next;
@@ -813,6 +823,7 @@ static int deq_kick(int which)
   msg = h->head;
   {
     op_strbuf_t _sb;
+    op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", msg->msg);
     buf = op_strbuf_steal(&_sb);
   }
@@ -825,13 +836,14 @@ static int deq_kick(int which)
     op_strbuf_appendf(&newnicks, ",%s", _nick);
     nr++;
   }
-  buf2 = NULL;
-  for (m = msg->next, lm = NULL; m && (nr < kick_method);) {
+  buf2 = nullptr;
+  for (m = msg->next, lm = nullptr; m && (nr < kick_method);) {
     if (!strncasecmp(m->msg, "KICK", 4)) {
       changed = 0;
       op_strbuf_clear(&newnicks2);
       {
         op_strbuf_t _sb;
+        op_strbuf_init(&_sb);
         op_strbuf_appendf(&_sb, "%s", m->msg);
         buf2 = op_strbuf_steal(&_sb);
       }
@@ -866,6 +878,7 @@ static int deq_kick(int which)
             h->last = 0;
         } else {
           op_strbuf_t _b;
+          op_strbuf_init(&_b);
           op_strbuf_appendf(&_b, "KICK %s %s %s", chan2, op_strbuf_str(&newnicks2) + 1, reason);
           op_free(m->msg);
           m->len = op_strbuf_len(&_b);
@@ -874,7 +887,7 @@ static int deq_kick(int which)
       }
     }
     op_free(buf2);
-    buf2 = NULL;
+    buf2 = nullptr;
     lm = m;
     if (m)
       m = m->next;
@@ -883,6 +896,7 @@ static int deq_kick(int which)
   }
   {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
     newmsg = op_strbuf_steal(&_b);
   }
@@ -931,7 +945,7 @@ static void empty_msgq(void)
  */
 static void queue_server(int which, const char *msg, int len)
 {
-  struct msgq_head *h = NULL, tempq;
+  struct msgq_head *h = nullptr, tempq;
   struct msgq *q, *tq, *tqq;
   int doublemsg = 0, qnext = 0;
   char *buf;
@@ -945,6 +959,7 @@ static void queue_server(int which, const char *msg, int len)
    */
   {
     op_strbuf_t _sb;
+    op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", msg);
     buf = op_strbuf_steal(&_sb);
   }
@@ -1042,7 +1057,7 @@ static void queue_server(int which, const char *msg, int len)
         h->last = q;
     }
     else {
-      q->next = NULL;
+      q->next = nullptr;
       if (h->last)
         h->last->next = q;
       else
@@ -1151,9 +1166,9 @@ static int add_server(const char *name, const char *port, const char *pass)
   if (pass[0]) {
     x->pass = op_strdup(pass);
   } else
-    x->pass = NULL;
+    x->pass = nullptr;
   if (port[0])
-    x->port = atoi(port);
+    x->port = egg_atoi(port);
 #ifdef TLS
   x->ssl = (port[0] == '+') ? 1 : 0;
 #endif
@@ -1196,7 +1211,7 @@ static int del_server(const char *name, const char *port)
   if (!strcasecmp(name, serverlist->name)) {
     z = serverlist;
     if (strlen(port)) {
-      if ((atoi(port) != serverlist->port)
+      if ((egg_atoi(port) != serverlist->port)
 #ifdef TLS
           || ((port[0] != '+') && serverlist->ssl )) {
 #else
@@ -1214,10 +1229,10 @@ static int del_server(const char *name, const char *port)
   curr = serverlist->next;
   prev = serverlist;
 /* Check the remaining nodes in list */
-  while (curr != NULL && prev != NULL) {
+  while (curr != nullptr && prev != nullptr) {
     if (!strcasecmp(name, curr->name)) {
       if (port[0] != '\0') {
-        if ((atoi(port) != curr->port)
+        if ((egg_atoi(port) != curr->port)
 #ifdef TLS
             || ((port[0] != '+') && curr->ssl )) {
 #else
@@ -1313,7 +1328,7 @@ static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port
     if (pass && pass[0]) {
       x->pass = op_strdup(pass);
     } else
-      x->pass = NULL;
+      x->pass = nullptr;
 #ifdef TLS
     x->ssl = use_ssl;
 #endif
@@ -1323,18 +1338,18 @@ static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port
     return;
   }
   /* Find where i am and boogie */
-  if (x == NULL)
+  if (x == nullptr)
     return;
   i = (*ptr);
-  while (i > 0 && x != NULL) {
+  while (i > 0 && x != nullptr) {
     x = x->next;
     i--;
   }
-  if (x != NULL) {
+  if (x != nullptr) {
     x = x->next;
     (*ptr)++;
   }                             /* Go to next server */
-  if (x == NULL) {
+  if (x == nullptr) {
     x = serverlist;
     *ptr = 0;
   }                             /* Start over at the beginning */
@@ -1360,7 +1375,7 @@ static int monitor_add(char * nick, int send) {
   int count = 0;
 
   /* Check for duplicates before adding */
-  while (current != NULL) {
+  while (current != nullptr) {
     count++;
     if (!rfc_casecmp(current->nick, nick)) {
       return 1;
@@ -1384,13 +1399,13 @@ static int monitor_add(char * nick, int send) {
 /* Remove nickname from monitor list */
 static int monitor_del (char *nick) {
   struct monitor_list *current = monitor;
-  struct monitor_list *previous = NULL;
+  struct monitor_list *previous = nullptr;
 
-  if (monitor == NULL) {
+  if (monitor == nullptr) {
     return 1;
   }
   while (rfc_casecmp(current->nick, nick)) {
-    if (current->next == NULL) {
+    if (current->next == nullptr) {
       return 1;
     } else {
       previous = current;
@@ -1415,11 +1430,11 @@ static int monitor_show(Tcl_Obj *mlist, int mode, char *nick) {
   struct monitor_list *current = monitor;
   int found = 0;
 
-  if (current == NULL) {
+  if (current == nullptr) {
     return 0;
   }
 
-  while (current != NULL) {
+  while (current != nullptr) {
     if (!mode) {
       Tcl_ListObjAppendElement(interp, mlist, Tcl_NewStringObj(current->nick, -1));
     } else if (mode == 1) {
@@ -1452,11 +1467,11 @@ static int monitor_show(Tcl_Obj *mlist, int mode, char *nick) {
 static void monitor_clear(void)
 {
   struct monitor_list *current = monitor;
-  struct monitor_list *next = NULL;
+  struct monitor_list *next = nullptr;
 
-  monitor = NULL;
+  monitor = nullptr;
   dprintf(DP_SERVER, "MONITOR C");
-  while (current != NULL) {
+  while (current != nullptr) {
     next = current->next;
     op_bh_free(monitor_heap, current);
     current = next;
@@ -1465,12 +1480,12 @@ static void monitor_clear(void)
 
 static int server_6char STDVAR
 {
-  __attribute__((unused)) IntFunc F = (IntFunc) cd;
+  [[maybe_unused]] IntFunc F = (IntFunc) cd;
 
   BADARGS(7, 7, " nick user@host handle dest/chan keyword text");
 
   CHECKVALIDITY(server_6char);
-  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6])), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, char *, char *, char *, char *)) F)(argv[1], argv[2], argv[3], argv[4], argv[5], argv[6])), nullptr);
   return TCL_OK;
 }
 
@@ -1509,20 +1524,20 @@ static int server_msg STDVAR
 
 static int server_raw STDVAR
 {
-  __attribute__((unused)) Function F = (Function) cd;
+  [[maybe_unused]] Function F = (Function) cd;
 
   BADARGS(4, 4, " from code args");
 
   CHECKVALIDITY(server_raw);
-  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *)) F)(argv[1], argv[3])), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *)) F)(argv[1], argv[3])), nullptr);
   return TCL_OK;
 }
 
 static int server_rawt STDVAR
 {
   Tcl_Size unused;
-  __attribute__((unused)) Tcl_Obj *tagdict;
-  __attribute__((unused)) Function F = (Function) cd;
+  [[maybe_unused]] Tcl_Obj *tagdict;
+  [[maybe_unused]] Function F = (Function) cd;
 
   BADARGS(5, 5, " from code args tagdict");
 
@@ -1530,11 +1545,11 @@ static int server_rawt STDVAR
   tagdict = Tcl_NewStringObj(argv[4], -1);
   if (Tcl_DictObjSize(irp, tagdict, &unused) != TCL_OK) {
     /* check early, Tcl sets error string first */
-    Tcl_AppendResult(irp, " in call to ", argv[0], NULL);
+    Tcl_AppendResult(irp, " in call to ", argv[0], nullptr);
     return TCL_ERROR;
   }
   Tcl_IncrRefCount(tagdict);
-  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, Tcl_Obj *)) F)(argv[1], argv[3], tagdict)), NULL);
+  Tcl_AppendResult(irp, int_to_base10(((int (*)(char *, char *, Tcl_Obj *)) F)(argv[1], argv[3], tagdict)), nullptr);
   Tcl_DecrRefCount(tagdict);
   return TCL_OK;
 }
@@ -1574,7 +1589,7 @@ static int monitor_2char STDVAR
 
 /* Read/write normal string variable.
  */
-static __attribute__((unused)) char *nick_change(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *nick_change(ClientData cdata, Tcl_Interp *irp,
                          EGG_CONST char *name1,
                          EGG_CONST char *name2, int flags)
 {
@@ -1597,7 +1612,7 @@ static __attribute__((unused)) char *nick_change(ClientData cdata, Tcl_Interp *i
         dprintf(DP_SERVER, "NICK %s\n", origbotname);
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Replace all '?'s in s with a random number.
@@ -1606,7 +1621,7 @@ static void rand_nick(char *nick)
 {
   char *p = nick;
 
-  while ((p = strchr(p, '?')) != NULL) {
+  while ((p = strchr(p, '?')) != nullptr) {
     *p = '0' + randint(10);
     p++;
   }
@@ -1627,16 +1642,16 @@ static char *get_altbotnick(void)
     return altnick;
 }
 
-static __attribute__((unused)) char *altnick_change(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *altnick_change(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
   /* Always unset raltnick. Will be regenerated when needed. */
   raltnick[0] = 0;
-  return NULL;
+  return nullptr;
 }
 
-static __attribute__((unused)) char *traced_serveraddress(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *traced_serveraddress(ClientData cdata, Tcl_Interp *irp,
                                   EGG_CONST char *name1,
                                   EGG_CONST char *name2, int flags)
 {
@@ -1660,10 +1675,10 @@ static __attribute__((unused)) char *traced_serveraddress(ClientData cdata, Tcl_
                  TCL_TRACE_UNSETS, traced_serveraddress, cdata);
   if (flags & TCL_TRACE_WRITES)
     return "read-only variable";
-  return NULL;
+  return nullptr;
 }
 
-static __attribute__((unused)) char *traced_server(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *traced_server(ClientData cdata, Tcl_Interp *irp,
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
 {
@@ -1688,14 +1703,15 @@ static __attribute__((unused)) char *traced_server(ClientData cdata, Tcl_Interp 
                  TCL_TRACE_UNSETS, traced_server, cdata);
   if (flags & TCL_TRACE_WRITES)
     return "read-only variable";
-  return NULL;
+  return nullptr;
 }
 
-static __attribute__((unused)) char *traced_botname(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *traced_botname(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
   op_strbuf_t s;
+  op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%s%s%s", botname,
                    botuserhost[0] ? "!" : "", botuserhost[0] ? botuserhost : "");
   Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&s), TCL_GLOBAL_ONLY);
@@ -1705,7 +1721,7 @@ static __attribute__((unused)) char *traced_botname(ClientData cdata, Tcl_Interp
                  TCL_TRACE_UNSETS, traced_botname, cdata);
   if (flags & TCL_TRACE_WRITES)
     return "read-only variable";
-  return NULL;
+  return nullptr;
 }
 
 static void do_nettype(void)
@@ -1882,7 +1898,7 @@ static void ircx_do_autoowner(void)
       if (ch && ch->key_prot[0])
         dprintf(DP_SERVER, "JOIN %s %s\n", ao->channel, ch->key_prot);
       else if (ao->create_if_missing)
-        ircx_chan_create(ao->channel, ao->create_modes[0] ? ao->create_modes : NULL);
+        ircx_chan_create(ao->channel, ao->create_modes[0] ? ao->create_modes : nullptr);
       else
         dprintf(DP_SERVER, "JOIN %s\n", ao->channel);
     }
@@ -1897,7 +1913,7 @@ static void ircx_free_access_list(void)
     next = a->next;
     op_free(a);
   }
-  ircx_access_list = NULL;
+  ircx_access_list = nullptr;
 }
 
 /* Free the IRCX autoowner list. */
@@ -1908,10 +1924,10 @@ static void ircx_free_autoowner_list(void)
     next = ao->next;
     op_free(ao);
   }
-  ircx_autoowner_list = NULL;
+  ircx_autoowner_list = nullptr;
 }
 
-static __attribute__((unused)) char *traced_nettype(ClientData cdata,
+[[maybe_unused]] static char *traced_nettype(ClientData cdata,
                             Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
@@ -1974,10 +1990,10 @@ static __attribute__((unused)) char *traced_nettype(ClientData cdata,
         "listed in the current configuration file from the source directory\n");
   }
   do_nettype();
-  return NULL;
+  return nullptr;
 }
 
-static __attribute__((unused)) char *traced_nicklen(ClientData cdata, Tcl_Interp *irp,
+[[maybe_unused]] static char *traced_nicklen(ClientData cdata, Tcl_Interp *irp,
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
@@ -1996,11 +2012,11 @@ static __attribute__((unused)) char *traced_nicklen(ClientData cdata, Tcl_Interp
       nick_len = (int) lval;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 static tcl_strings my_tcl_strings[] = {
-  {"botnick",             NULL,           0,          STR_PROTECT},
+  {"botnick",             nullptr,           0,          STR_PROTECT},
   {"altnick",             altnick,        NICKMAX,              0},
   {"realname",            botrealname,    80,                   0},
   {"init-server",         initserver,     120,                  0},
@@ -2011,13 +2027,13 @@ static tcl_strings my_tcl_strings[] = {
   {"net-type",            net_type,       8,                    0},
   {"ircx-network",        ircx_network,   63,                   0},
   {"ircx-ownerkey",       ircx_default_ownerkey, 127,           0},
-  {NULL,                  NULL,           0,                    0}
+  {nullptr,                  nullptr,           0,                    0}
 };
 
 static tcl_coups my_tcl_coups[] = {
   {"flood-ctcp", &flud_ctcp_thr, &flud_ctcp_time},
   {"flood-msg",  &flud_thr,           &flud_time},
-  {NULL,         NULL,                      NULL}
+  {nullptr,         nullptr,                      nullptr}
 };
 
 static tcl_ints my_tcl_ints[] = {
@@ -2060,7 +2076,7 @@ static tcl_ints my_tcl_ints[] = {
   {"ircx-auto-negotiate",  &ircx_auto_negotiate,       0},
   {"ircx-owner-support",   &ircx_owner_support,        0},
   {"ircx-prop-support",    &ircx_prop_support,         0},
-  {NULL,                   NULL,                       0}
+  {nullptr,                   nullptr,                       0}
 };
 
 
@@ -2085,6 +2101,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
     Tcl_DStringInit(&ds);
     for (q = serverlist; q; q = q->next) {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
 #ifdef TLS
       op_strbuf_appendf(&_b, "%s%s%s:%s%d%s%s %s",
                        strchr(q->name, ':') ? "[" : "", q->name,
@@ -2109,10 +2126,10 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
   } else {                        /* TCL_TRACE_WRITES */
     if (serverlist) {
       clearq(serverlist);
-      serverlist = NULL;
+      serverlist = nullptr;
     }
     slist = Tcl_GetVar2(interp, name1, name2, TCL_GLOBAL_ONLY);
-    if (slist != NULL) {
+    if (slist != nullptr) {
       code = Tcl_SplitList(interp, slist, &lc, &list);
       if (code == TCL_ERROR)
         return "variable must be a list";
@@ -2132,7 +2149,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
       Tcl_Free((char *) list);
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 /* Trace the servers */
@@ -2161,10 +2178,11 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
   int ssl = 0;
 #endif
   struct userrec *u = get_user_by_handle(userlist, handle);
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   {
     op_strbuf_t _sb;
+    op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", text);
     buf = op_strbuf_steal(&_sb);
   }
@@ -2206,7 +2224,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
     if (!quiet_reject)
       dprintf(DP_HELP, "NOTICE %s :%s\n", nick, DCC_REFUSED3);
     putlog(LOG_MISC, "*", "%s: %s!%s", DCC_REFUSED4, nick, from);
-  } else if (atoi(prt) < 1024 || atoi(prt) > 65535) {
+  } else if (egg_atoi(prt) < 1024 || egg_atoi(prt) > 65535) {
     /* Invalid port */
     if (!quiet_reject)
       dprintf(DP_HELP, "NOTICE %s :%s (invalid port)\n", nick,
@@ -2226,7 +2244,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
 #ifdef TLS
     dcc[i].ssl = ssl;
 #endif
-    dcc[i].port = atoi(prt);
+    dcc[i].port = egg_atoi(prt);
     (void) setsockname(&dcc[i].sockname, ip, dcc[i].port, 0);
     dcc[i].sock = -1;
     strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
@@ -2258,7 +2276,7 @@ int dcc_chat_sslcb(int sock)
 static void dcc_chat_hostresolved(int i)
 {
   op_strbuf_t buf;
-  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH, 0, 0, 0, 0, 0 };
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   op_strbuf_init(&buf);
   op_strbuf_appendf(&buf, "%s", int_to_base10(dcc[i].port));
@@ -2350,7 +2368,7 @@ static void server_prerehash(void)
 
   strlcpy(oldnick, botname, sizeof oldnick);
 /* Clear out servers, any addservers in config file are about to be re-run */
-  while (serverlist != NULL) {
+  while (serverlist != nullptr) {
       x = serverlist;
       serverlist = serverlist->next;
       free_server(x);
@@ -2363,10 +2381,10 @@ static void server_postrehash(void)
   if (!botname[0])
     fatal("NO BOT NAME.", 0);
 #ifndef TLS
-  if ((serverlist == NULL) && sslserver)
+  if ((serverlist == nullptr) && sslserver)
     fatal("NO NON-SSL SERVERS ADDED (TLS IS DISABLED).", 0);
 #endif
-  if (serverlist == NULL)
+  if (serverlist == nullptr)
     fatal("NO SERVERS ADDED.", 0);
   if (oldnick[0] && !rfc_casecmp(oldnick, botname) &&
       !rfc_casecmp(oldnick, get_altbotnick())) {
@@ -2384,6 +2402,7 @@ static void server_die(void)
   cycle_time = 100;
   if (server_online) {
     op_strbuf_t _b;
+    op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "QUIT :%s", quit_msg);
     dprintf(-serv, "%s\n", op_strbuf_str(&_b));
     if (raw_log)
@@ -2391,7 +2410,7 @@ static void server_die(void)
     op_strbuf_free(&_b);
     sleep(1); /* Give the server time to understand. 1s should be enough. */
   }
-  nuke_server(NULL);
+  nuke_server(nullptr);
 }
 
 
@@ -2404,7 +2423,7 @@ static void msgq_clear(struct msgq_head *qh)
     op_free(q->msg);
     op_bh_free(msgq_node_bh, q);
   }
-  qh->head = qh->last = NULL;
+  qh->head = qh->last = nullptr;
   qh->tot = qh->warned = 0;
 }
 
@@ -2445,8 +2464,9 @@ static int server_expmem(void)
 
 static void server_report(int idx, int details)
 {
-  char *buf = NULL, *bufptr, *endptr;
+  char *buf = nullptr, *bufptr, *endptr;
   op_strbuf_t s;
+  op_strbuf_init(&s);
   struct capability *current;
   int servidx;
 
@@ -2542,7 +2562,7 @@ if (details) {
 
 static cmd_t my_ctcps[] = {
   {"DCC", "",   ctcp_DCC_CHAT, "server:DCC"},
-  {NULL,  NULL, NULL,                  NULL}
+  {nullptr,  nullptr, nullptr,                  nullptr}
 };
 
 static char *server_close(void)
@@ -2558,19 +2578,19 @@ static char *server_close(void)
   isupport_fini();
   if (monitor_heap) {
     op_bh_destroy(monitor_heap);
-    monitor_heap = NULL;
+    monitor_heap = nullptr;
   }
   if (msgq_node_bh) {
     op_bh_destroy(msgq_node_bh);
-    msgq_node_bh = NULL;
+    msgq_node_bh = nullptr;
   }
   if (capability_bh) {
     op_bh_destroy(capability_bh);
-    capability_bh = NULL;
+    capability_bh = nullptr;
   }
   if (cap_values_bh) {
     op_bh_destroy(cap_values_bh);
-    cap_values_bh = NULL;
+    cap_values_bh = nullptr;
   }
   /* Restore original commands. */
   del_bind_table(H_wall);
@@ -2592,25 +2612,25 @@ static char *server_close(void)
   rem_tcl_commands(my_tcl_cmds);
   Tcl_UntraceVar(interp, "nick",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 nick_change, NULL);
+                 nick_change, nullptr);
   Tcl_UntraceVar(interp, "altnick",
-                 TCL_TRACE_WRITES | TCL_TRACE_UNSETS, altnick_change, NULL);
+                 TCL_TRACE_WRITES | TCL_TRACE_UNSETS, altnick_change, nullptr);
   Tcl_UntraceVar(interp, "botname",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_botname, NULL);
+                 traced_botname, nullptr);
   Tcl_UntraceVar(interp, "server",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_server, NULL);
+                 traced_server, nullptr);
   Tcl_UntraceVar(interp, "serveraddress",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_serveraddress, NULL);
+                 traced_serveraddress, nullptr);
   Tcl_UntraceVar(interp, "net-type",
                  TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_nettype, NULL);
+                 traced_nettype, nullptr);
   Tcl_UntraceVar(interp, "nick-len",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-                 traced_nicklen, NULL);
-  tcl_untraceserver("servers", NULL);
+                 traced_nicklen, nullptr);
+  tcl_untraceserver("servers", nullptr);
   empty_msgq();
   del_hook(HOOK_SECONDLY, (Function) server_secondly);
   del_hook(HOOK_5MINUTELY, (Function) server_5minutely);
@@ -2623,7 +2643,7 @@ static char *server_close(void)
   ircx_free_access_list();
   ircx_free_autoowner_list();
   module_undepend(MODULE_NAME);
-  return NULL;
+  return nullptr;
 }
 
 EXPORT_SCOPE char *server_start(Function *global_funcs);
@@ -2634,12 +2654,12 @@ static Function server_table[] = {
   (Function) server_expmem,
   (Function) server_report,
   /* 4 - 7 */
-  (Function) NULL,              /* char * (points to botname later on)  */
+  (Function) nullptr,              /* char * (points to botname later on)  */
   (Function) botuserhost,       /* char *                               */
 #ifdef TLS
   (Function) & use_ssl,         /* int                                  */
 #else
-  (Function) NULL,              /* Was quiet_reject <Wcc[01/21/03]>.    */
+  (Function) nullptr,              /* Was quiet_reject <Wcc[01/21/03]>.    */
 #endif
   (Function) & serv,            /* int                                  */
   /* 8 - 11 */
@@ -2650,12 +2670,12 @@ static Function server_table[] = {
   /* 12 - 15 */
   (Function) match_my_nick,
   (Function) check_tcl_flud,
-  (Function) NULL,              /* was msgtag in 1.9.0, 1.9.1           */
+  (Function) nullptr,              /* was msgtag in 1.9.0, 1.9.1           */
   (Function) & answer_ctcp,     /* int                                  */
   /* 16 - 19 */
   (Function) & trigger_on_ignore, /* int                                */
   (Function) check_tcl_ctcpr,
-  (Function) NULL,
+  (Function) nullptr,
   (Function) nuke_server,
   /* 20 - 23 */
   (Function) newserver,         /* char *                               */
@@ -2685,7 +2705,7 @@ static Function server_table[] = {
   /* 40 - 43 */
   (Function) & H_out,           /* p_tcl_bind_list                      */
   (Function) & net_type_int,    /* int                                  */
-  (Function) NULL,              /* was H_account, now irc.mod           */
+  (Function) nullptr,              /* was H_account, now irc.mod           */
   (Function) & cap,             /* capability_t                         */
   /* 44 - 47 */
   (Function) & extended_join,   /* int                                  */
@@ -2694,7 +2714,7 @@ static Function server_table[] = {
   (Function) & isupport_get,    /*                                      */
   /* 48 - 51 */
   (Function) & isupport_parseint,/*                                     */
-  (Function) NULL,               /* was check_tcl_account, now irc.mod  */
+  (Function) nullptr,               /* was check_tcl_account, now irc.mod  */
   (Function) & find_capability,
   (Function) encode_msgtags,
   /* 52 - 56 */
@@ -2735,7 +2755,7 @@ char *server_start(Function *global_funcs)
   server_cycle_wait = 60;
   strlcpy(botrealname, "A deranged product of evil coders", sizeof(botrealname));
   server_timeout = 60;
-  serverlist = NULL;
+  serverlist = nullptr;
   cycle_time = 0;
   default_port = 6667;
   oldnick[0] = 0;
@@ -2777,32 +2797,32 @@ char *server_start(Function *global_funcs)
   /* Fool bot in reading the values. */
   {
     EGG_CONST char *s;
-    tcl_eggserver(NULL, interp, "servers", NULL, 0);
-    tcl_traceserver("servers", NULL);
+    tcl_eggserver(nullptr, interp, "servers", nullptr, 0);
+    tcl_traceserver("servers", nullptr);
     s = Tcl_GetVar(interp, "nick", TCL_GLOBAL_ONLY);
     if (s)
       strlcpy(origbotname, s, NICKLEN);
   }
   Tcl_TraceVar(interp, "nick",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               nick_change, NULL);
+               nick_change, nullptr);
   Tcl_TraceVar(interp, "altnick",
-               TCL_TRACE_WRITES | TCL_TRACE_UNSETS, altnick_change, NULL);
+               TCL_TRACE_WRITES | TCL_TRACE_UNSETS, altnick_change, nullptr);
   Tcl_TraceVar(interp, "botname",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_botname, NULL);
+               traced_botname, nullptr);
   Tcl_TraceVar(interp, "server",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_server, NULL);
+               traced_server, nullptr);
   Tcl_TraceVar(interp, "serveraddress",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_serveraddress, NULL);
+               traced_serveraddress, nullptr);
   Tcl_TraceVar(interp, "net-type",
                TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_nettype, NULL);
+               traced_nettype, nullptr);
   Tcl_TraceVar(interp, "nick-len",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
-               traced_nicklen, NULL);
+               traced_nicklen, nullptr);
   H_wall = add_bind_table("wall", HT_STACKABLE, server_2char);
   H_raw = add_bind_table("raw", HT_STACKABLE, server_raw);
   H_rawt = add_bind_table("rawt", HT_STACKABLE, server_rawt);
@@ -2836,8 +2856,8 @@ char *server_start(Function *global_funcs)
   add_hook(HOOK_DIE, (Function) server_die);
   monitor_heap   = op_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
   msgq_node_bh   = op_bh_create(sizeof(struct msgq),    64, "server_msgq");
-  mq.head = hq.head = modeq.head = NULL;
-  mq.last = hq.last = modeq.last = NULL;
+  mq.head = hq.head = modeq.head = nullptr;
+  mq.last = hq.last = modeq.last = nullptr;
   mq.tot = hq.tot = modeq.tot = 0;
   mq.warned = hq.warned = modeq.warned = 0;
   double_warned = 0;
@@ -2847,5 +2867,5 @@ char *server_start(Function *global_funcs)
   /* Because this reads the interp variable, the read trace MUST be after */
   do_nettype();
   sasl_start();
-  return NULL;
+  return nullptr;
 }

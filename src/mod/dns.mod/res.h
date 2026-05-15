@@ -44,7 +44,7 @@
 /* ---- resolver callback types ------------------------------------------- */
 
 struct DNSReply {
-  char                    *h_name;  /* hostname (PTR result, or NULL) */
+  char                    *h_name;  /* hostname (PTR result, or nullptr) */
   struct sockaddr_storage  addr;    /* resolved address               */
 };
 

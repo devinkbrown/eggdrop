@@ -97,7 +97,7 @@ constexpr int NEWSERVERPASSMAX = 128;
 #define isupport_get ((struct isupport *(*)(const char *, size_t))(server_funcs[47]))
 /* 48 - 51 */
 #define isupport_parseint ((int (*)(const char *, const char *, int, int, int, int, int *))(server_funcs[48]))
-/* #define check_tcl_account NULL */
+/* #define check_tcl_account nullptr */
 #define find_capability ((struct capability *(*)(char *))(server_funcs[50]))
 #define encode_msgtags ((char *(*)(Tcl_Obj *))(server_funcs[51]))
 /* 52 - 56 */

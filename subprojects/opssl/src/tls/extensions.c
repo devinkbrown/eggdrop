@@ -15,14 +15,23 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* Extension type constants */
+/* Extension type constants (RFC 8446 / IANA) */
 #define EXT_SERVER_NAME 0
+#define EXT_STATUS_REQUEST 5
 #define EXT_SUPPORTED_GROUPS 10
 #define EXT_SIGNATURE_ALGORITHMS 13
 #define EXT_ALPN 16
+#define EXT_SIGNED_CERT_TIMESTAMP 18
 #define EXT_EXTENDED_MASTER_SECRET 23
+#define EXT_COMPRESS_CERTIFICATE 27
 #define EXT_PRE_SHARED_KEY 41
+#define EXT_EARLY_DATA 42
 #define EXT_SUPPORTED_VERSIONS 43
+#define EXT_COOKIE 44
+#define EXT_PSK_KEY_EXCHANGE_MODES 45
+#define EXT_CERTIFICATE_AUTHORITIES 47
+#define EXT_POST_HANDSHAKE_AUTH 49
+#define EXT_SIGNATURE_ALGORITHMS_CERT 50
 #define EXT_KEY_SHARE 51
 
 /* Server name types */
@@ -421,7 +430,10 @@ static int parse_supported_groups_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t
             case 0x0018: parsed->groups[parsed->ngroups] = OPSSL_GROUP_SECP384R1; break;
             case 0x0019: parsed->groups[parsed->ngroups] = OPSSL_GROUP_SECP521R1; break;
             case 0x001e: parsed->groups[parsed->ngroups] = OPSSL_GROUP_X448; break;
-            default: continue; /* Skip unknown groups */
+            case 0x6399: parsed->groups[parsed->ngroups] = OPSSL_GROUP_X25519_MLKEM768; break;
+            case 0x639A: parsed->groups[parsed->ngroups] = OPSSL_GROUP_SECP256R1_MLKEM768; break;
+            case 0x639B: parsed->groups[parsed->ngroups] = OPSSL_GROUP_SECP384R1_MLKEM1024; break;
+            default: continue;
         }
 
         parsed->ngroups++;
@@ -538,7 +550,10 @@ static int parse_key_share_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t *parse
             case 0x0018: parsed->ks_group = OPSSL_GROUP_SECP384R1; break;
             case 0x0019: parsed->ks_group = OPSSL_GROUP_SECP521R1; break;
             case 0x001e: parsed->ks_group = OPSSL_GROUP_X448; break;
-            default: return 0; /* Unknown group */
+            case 0x6399: parsed->ks_group = OPSSL_GROUP_X25519_MLKEM768; break;
+            case 0x639A: parsed->ks_group = OPSSL_GROUP_SECP256R1_MLKEM768; break;
+            case 0x639B: parsed->ks_group = OPSSL_GROUP_SECP384R1_MLKEM1024; break;
+            default: return 0;
         }
 
         parsed->ks_data = opssl_cbs_data(&key_exchange);
@@ -581,7 +596,10 @@ static int build_supported_groups_ext(opssl_cbb_t *ext, opssl_named_group_t *gro
             case OPSSL_GROUP_SECP384R1: wire_group = 0x0018; break;
             case OPSSL_GROUP_SECP521R1: wire_group = 0x0019; break;
             case OPSSL_GROUP_X448: wire_group = 0x001e; break;
-            default: continue; /* Skip unknown groups */
+            case OPSSL_GROUP_X25519_MLKEM768: wire_group = 0x6399; break;
+            case OPSSL_GROUP_SECP256R1_MLKEM768: wire_group = 0x639A; break;
+            case OPSSL_GROUP_SECP384R1_MLKEM1024: wire_group = 0x639B; break;
+            default: continue;
         }
 
         if (!opssl_cbb_add_u16(&groups_list, wire_group)) {

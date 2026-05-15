@@ -15,16 +15,13 @@
 
 #include <opssl/crypto.h>
 #include <opssl/platform.h>
+#include "poly1305_internal.h"
 #include <string.h>
 
 /* Defined in chacha20.c */
 extern void opssl_chacha20(uint8_t *out, const uint8_t *in, size_t len,
                            const uint8_t key[32], const uint8_t nonce[12],
                            uint32_t counter);
-
-/* Defined in poly1305.c */
-extern void opssl_poly1305(uint8_t tag[16], const uint8_t *msg, size_t len,
-                           const uint8_t key[32]);
 
 static inline void
 store64_le(uint8_t *p, uint64_t v)
@@ -47,8 +44,18 @@ pad16(size_t len)
 }
 
 /*
- * Compute Poly1305 tag over the AEAD construction:
- *   AAD || pad(AAD) || ciphertext || pad(ciphertext) || len(AAD) || len(CT)
+ * Compute Poly1305 tag over the AEAD construction without heap allocation.
+ *
+ * Feeds the authenticator in RFC 8439 order using the streaming API:
+ *   poly1305_init
+ *   poly1305_update(aad)
+ *   poly1305_update(zero pad to 16-byte boundary)
+ *   poly1305_update(ciphertext)
+ *   poly1305_update(zero pad to 16-byte boundary)
+ *   poly1305_update(len(aad) LE64 || len(ct) LE64)
+ *   poly1305_final
+ *
+ * All state lives on the stack; no allocation, no size limit.
  */
 static void
 compute_tag(uint8_t tag[16],
@@ -56,34 +63,25 @@ compute_tag(uint8_t tag[16],
             const uint8_t *aad, size_t aad_len,
             const uint8_t *ct, size_t ct_len)
 {
-    /* Build the authenticated message in a buffer.
-     * For large messages this would need streaming, but TLS records
-     * are bounded at 16KB + overhead so this is fine. */
-    size_t msg_len = aad_len + pad16(aad_len) +
-                     ct_len + pad16(ct_len) + 16;
+    static const uint8_t zeros[16] = {0};
+    uint8_t lengths[16];
 
-    uint8_t *msg = op_malloc(msg_len);
-    size_t off = 0;
+    store64_le(lengths,     (uint64_t)aad_len);
+    store64_le(lengths + 8, (uint64_t)ct_len);
 
-    memcpy(msg + off, aad, aad_len);
-    off += aad_len;
-    memset(msg + off, 0, pad16(aad_len));
-    off += pad16(aad_len);
+    poly1305_state_t st;
+    poly1305_init(&st, poly_key);
 
-    memcpy(msg + off, ct, ct_len);
-    off += ct_len;
-    memset(msg + off, 0, pad16(ct_len));
-    off += pad16(ct_len);
+    poly1305_update(&st, aad,    aad_len);
+    poly1305_update(&st, zeros,  pad16(aad_len));
 
-    store64_le(msg + off, (uint64_t)aad_len);
-    off += 8;
-    store64_le(msg + off, (uint64_t)ct_len);
-    off += 8;
+    poly1305_update(&st, ct,     ct_len);
+    poly1305_update(&st, zeros,  pad16(ct_len));
 
-    opssl_poly1305(tag, msg, off, poly_key);
+    poly1305_update(&st, lengths, 16);
 
-    opssl_memzero(msg, msg_len);
-    free(msg);
+    poly1305_final(&st, tag);
+    /* poly1305_final already calls opssl_memzero on st */
 }
 
 int

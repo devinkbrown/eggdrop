@@ -83,7 +83,7 @@ int def_unpack(struct userrec *u, struct user_entry *e)
   char *tmp;
 
   tmp = e->u.list->extra;
-  e->u.list->extra = NULL;
+  e->u.list->extra = nullptr;
   list_type_kill(e->u.list);
   e->u.string = tmp;
   return 1;
@@ -95,7 +95,7 @@ int def_pack(struct userrec *u, struct user_entry *e)
 
   tmp = e->u.string;
   e->u.list = alloc_list_type();
-  e->u.list->next = NULL;
+  e->u.list->next = nullptr;
   e->u.list->extra = tmp;
   return 1;
 }
@@ -124,7 +124,7 @@ int def_set(struct userrec *u, struct user_entry *e, void *buf)
   char *string = (char *) buf;
 
   if (string && !string[0])
-    string = NULL;
+    string = nullptr;
   if (!string && !e->u.string)
     return 1;
   if (string) {
@@ -143,11 +143,11 @@ int def_set(struct userrec *u, struct user_entry *e, void *buf)
         *i = '?';
   } else {
     op_free(e->u.string);
-    e->u.string = NULL;
+    e->u.string = nullptr;
   }
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED))) {
     if (e->type != &USERENTRY_INFO || share_greet)
-      shareout(NULL, "c %s %s %s\n", e->type->name, u->handle,
+      shareout(nullptr, "c %s %s %s\n", e->type->name, u->handle,
                e->u.string ? e->u.string : "");
   }
   return 1;
@@ -163,7 +163,7 @@ int def_gotshare(struct userrec *u, struct user_entry *e, char *data, int idx)
 int def_tcl_get(Tcl_Interp * interp, struct userrec *u,
                 struct user_entry *e, int argc, char **argv)
 {
-  Tcl_AppendResult(interp, e->u.string, NULL);
+  Tcl_AppendResult(interp, e->u.string, nullptr);
   return TCL_OK;
 }
 
@@ -250,14 +250,14 @@ int pass2_set(struct userrec *u, struct user_entry *e, void *new)
     e->u.extra = op_strdup(new);
   }
   else /* remove PASS2 */
-    e->u.extra = NULL;
+    e->u.extra = nullptr;
   return 0;
 }
 
 static int def_tcl_null(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-  Tcl_AppendResult(irp, "Please use PASS instead.", NULL);
+  Tcl_AppendResult(irp, "Please use PASS instead.", nullptr);
   return TCL_ERROR;
 }
 
@@ -296,9 +296,9 @@ int pass_set(struct userrec *u, struct user_entry *e, void *buf)
   if (!pass || !pass[0] || (pass[0] == '-')) {
     /* empty string or '-' means remove passwords */
     if (encrypt_pass) /* remove PASS */
-      e->u.extra = NULL;
+      e->u.extra = nullptr;
     if (encrypt_pass2) /* remove PASS2 */
-      set_user(&USERENTRY_PASS2, u, NULL);
+      set_user(&USERENTRY_PASS2, u, nullptr);
   }
   else {
     /* sanitize password */
@@ -347,14 +347,14 @@ int pass_set(struct userrec *u, struct user_entry *e, void *buf)
       /* set PASS2 */
       set_user(&USERENTRY_PASS2, u, new2);
       if (encrypt_pass && remove_pass && e->u.extra)
-        e->u.extra = NULL; /* remove PASS, e->u.extra already freed */
+        e->u.extra = nullptr; /* remove PASS, e->u.extra already freed */
     }
     explicit_bzero(new, sizeof new);
     if (new2 && new2 != new)
       explicit_bzero(new2, strlen(new2));
   }
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED)))
-    shareout(NULL, "c PASS %s %s\n", u->handle, pass ? pass : "");
+    shareout(nullptr, "c PASS %s %s\n", u->handle, pass ? pass : "");
   return 1;
 }
 
@@ -367,7 +367,7 @@ static int pass_tcl_get(Tcl_Interp * interp, struct userrec *u,
     pass = get_user(&USERENTRY_PASS2, u);
   if (!pass)
     pass = e->u.string;
-  Tcl_AppendResult(interp, pass, NULL);
+  Tcl_AppendResult(interp, pass, nullptr);
 
   return TCL_OK;
 }
@@ -377,7 +377,7 @@ static int pass_tcl_set(Tcl_Interp * irp, struct userrec *u,
 {
   BADARGS(3, 4, " handle PASS ?newpass?");
 
-  pass_set(u, e, argc == 3 ? NULL : argv[3]);
+  pass_set(u, e, argc == 3 ? nullptr : argv[3]);
   return TCL_OK;
 }
 
@@ -410,7 +410,7 @@ static int laston_unpack(struct userrec *u, struct user_entry *e)
     par = "???";
   li = alloc_laston_info();
   li->lastonplace = op_strdup(par);
-  li->laston = atoi(arg);
+  li->laston = egg_atoi(arg);
   list_type_kill(e->u.list);
   e->u.extra = li;
   return 1;
@@ -420,10 +420,11 @@ static int laston_pack(struct userrec *u, struct user_entry *e)
 {
   struct laston_info *li = (struct laston_info *) e->u.extra;
   op_strbuf_t sb;
+  op_strbuf_init(&sb);
 
   op_strbuf_appendf(&sb, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
   e->u.list = alloc_list_type();
-  e->u.list->next = NULL;
+  e->u.list->next = nullptr;
   e->u.list->extra = op_strbuf_steal(&sb);
   op_free(li->lastonplace);
   free_laston_info(li);
@@ -478,17 +479,18 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
   if (argc == 4) {
     for (cr = u->chanrec; cr; cr = cr->next) {
       if (!rfc_casecmp(cr->channel, argv[3])) {
-        Tcl_AppendResult(irp, int_to_base10(cr->laston), NULL);
+        Tcl_AppendResult(irp, int_to_base10(cr->laston), nullptr);
         break;
       }
     }
     if (!cr)
-      Tcl_AppendResult(irp, "0", NULL);
+      Tcl_AppendResult(irp, "0", nullptr);
   } else {
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%" PRId64 " ", (int64_t) li->laston);
-      Tcl_AppendResult(irp, op_strbuf_str(&_b), li->lastonplace, NULL);
+      Tcl_AppendResult(irp, op_strbuf_str(&_b), li->lastonplace, nullptr);
       op_strbuf_free(&_b);
     }
   }
@@ -523,7 +525,7 @@ static int laston_tcl_set(Tcl_Interp * irp, struct userrec *u,
     /* Search for matching channel */
     for (cr = u->chanrec; cr; cr = cr->next)
       if (!rfc_casecmp(cr->channel, argv[4])) {
-        cr->laston = atoi(argv[3]);
+        cr->laston = egg_atoi(argv[3]);
         break;
       }
   }
@@ -535,7 +537,7 @@ static int laston_tcl_set(Tcl_Interp * irp, struct userrec *u,
   } else {
     li->lastonplace = op_strdup("");
   }
-  li->laston = atoi(argv[3]);
+  li->laston = egg_atoi(argv[3]);
   set_user(&USERENTRY_LASTON, u, li);
   return TCL_OK;
 }
@@ -595,16 +597,16 @@ static int botaddr_unpack(struct userrec *u, struct user_entry *e)
     if (*q == '+')
       bi->ssl |= TLS_BOT;
 #endif
-    bi->telnet_port = atoi(q);
+    bi->telnet_port = egg_atoi(q);
     if ((q = strchr(q, '/')))
 #ifdef TLS
     {
       if (q[1] == '+')
         bi->ssl |= TLS_RELAY;
-      bi->relay_port = atoi(q + 1);
+      bi->relay_port = egg_atoi(q + 1);
     }
 #else
-      bi->relay_port = atoi(q + 1);
+      bi->relay_port = egg_atoi(q + 1);
 #endif
   }
 #ifdef IPV6
@@ -637,7 +639,7 @@ static int botaddr_pack(struct userrec *u, struct user_entry *e)
   op_strbuf_appendf(&sb, ":%u/%u", bi->telnet_port, bi->relay_port);
 #endif
   e->u.list = alloc_list_type();
-  e->u.list->next = NULL;
+  e->u.list->next = nullptr;
   e->u.list->extra = op_strbuf_steal(&sb);
   op_free(bi->address);
   op_free(bi);
@@ -695,11 +697,11 @@ static int botaddr_set(struct userrec *u, struct user_entry *e, void *buf)
   }
   if (bi && !noshare && !(u->flags & USER_UNSHARED)) {
 #ifdef TLS
-    shareout(NULL, "c BOTADDR %s %s %s%d %s%d\n", u->handle, bi->address,
+    shareout(nullptr, "c BOTADDR %s %s %s%d %s%d\n", u->handle, bi->address,
              (bi->ssl & TLS_BOT) ? "+" : "", bi->telnet_port,
              (bi->ssl & TLS_RELAY) ? "+" : "", bi->relay_port);
 #else
-    shareout(NULL, "c BOTADDR %s %s %d %d\n", u->handle,
+    shareout(nullptr, "c BOTADDR %s %s %d %d\n", u->handle,
              bi->address, bi->telnet_port, bi->relay_port);
 #endif
   }
@@ -734,7 +736,7 @@ static int botaddr_tcl_get(Tcl_Interp * interp, struct userrec *u,
   Tcl_DStringInit(&ds);
   botaddr_tcl_dstring(&ds, e);
 
-  Tcl_AppendResult(interp, Tcl_DStringValue(&ds), NULL);
+  Tcl_AppendResult(interp, Tcl_DStringValue(&ds), nullptr);
   Tcl_DStringFree(&ds);
   return TCL_OK;
 }
@@ -781,9 +783,9 @@ static int botaddr_tcl_set(Tcl_Interp * irp, struct userrec *u,
         }
       }
 #endif
-      bi->telnet_port = atoi(argv[4]);
+      bi->telnet_port = egg_atoi(argv[4]);
       if (argc == 5) {
-        bi->relay_port = atoi(argv[4]);
+        bi->relay_port = egg_atoi(argv[4]);
       }
     }
     if (argc > 5) {
@@ -794,7 +796,7 @@ static int botaddr_tcl_set(Tcl_Interp * irp, struct userrec *u,
         bi->ssl &= ~TLS_RELAY;
       }
 #endif
-      bi->relay_port = atoi(argv[5]);
+      bi->relay_port = egg_atoi(argv[5]);
     }
     if (!bi->telnet_port)
       bi->telnet_port = 3333;
@@ -841,8 +843,8 @@ static int botaddr_gotshare(struct userrec *u, struct user_entry *e,
   if (*buf == '+')
     bi->ssl |= TLS_RELAY;
 #endif
-  bi->telnet_port = atoi(arg);
-  bi->relay_port = atoi(buf);
+  bi->telnet_port = egg_atoi(arg);
+  bi->relay_port = egg_atoi(buf);
   if (!bi->telnet_port)
     bi->telnet_port = 3333;
   if (!bi->relay_port)
@@ -893,7 +895,7 @@ struct user_entry_type USERENTRY_BOTADDR = {
 
 int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
 {
-  struct xtra_key *curr, *old = NULL, *new = buf;
+  struct xtra_key *curr, *old = nullptr, *new = buf;
 
   for (curr = e->u.extra; curr; curr = curr->next) {
     if (curr->key && !strcasecmp(curr->key, new->key)) {
@@ -914,16 +916,16 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
    * to the botnet now
    */
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED)))
-    shareout(NULL, "c XTRA %s %s %s\n", u->handle, new->key,
+    shareout(nullptr, "c XTRA %s %s %s\n", u->handle, new->key,
              new->data ? new->data : "");
   if ((old && old != new) || !new->data || !new->data[0]) {
     egg_list_delete(&e->u.list, (struct list_type *) old);
     op_free(old->key);
     op_free(old->data);
     if (old == e->u.extra)
-      e->u.extra = NULL;
+      e->u.extra = nullptr;
     free_xtra_key(old);
-    old = NULL;
+    old = nullptr;
   }
   /* don't do anything when old == new */
   if (old != new) {
@@ -973,7 +975,7 @@ int xtra_unpack(struct userrec *u, struct user_entry *e)
   char *key, *data;
 
   head = curr = e->u.list;
-  e->u.extra = NULL;
+  e->u.extra = nullptr;
   while (curr) {
     t = alloc_xtra_key();
 
@@ -996,11 +998,12 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
   struct xtra_key *curr, *next;
 
   curr = e->u.extra;
-  e->u.list = NULL;
+  e->u.list = nullptr;
   while (curr) {
     t = alloc_list_type();
     {
       op_strbuf_t _b;
+      op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s %s", curr->key, curr->data);
       t->extra = op_strbuf_steal(&_b);
     }
@@ -1131,13 +1134,13 @@ static int xtra_tcl_get(Tcl_Interp * irp, struct userrec *u,
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
     xtra_tcl_dstring(&ds, 1, e);
-    Tcl_AppendResult(irp, Tcl_DStringValue(&ds), NULL);
+    Tcl_AppendResult(irp, Tcl_DStringValue(&ds), nullptr);
     Tcl_DStringFree(&ds);
     return TCL_OK;
   }
   for (x = e->u.extra; x; x = x->next)
     if (!strcasecmp(argv[3], x->key)) {
-      Tcl_AppendResult(irp, x->data, NULL);
+      Tcl_AppendResult(irp, x->data, nullptr);
       return TCL_OK;
     }
   return TCL_OK;
@@ -1252,7 +1255,7 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
   if (!buf || !strcasecmp(buf, "none")) {
     /* When the bot crashes, it's in this part, not in the 'else' part */
     list_type_kill(e->u.list);
-    e->u.list = NULL;
+    e->u.list = nullptr;
   } else {
     char *host = buf, *p = strchr(host, ',');
     struct list_type **t;
@@ -1280,7 +1283,7 @@ static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
     }
     *t = alloc_list_type();
 
-    (*t)->next = NULL;
+    (*t)->next = nullptr;
     {
       size_t hostlen = strlen(host) + 1;
       (*t)->extra = user_malloc(hostlen);
@@ -1358,9 +1361,9 @@ int fprint_unpack(struct userrec *u, struct user_entry *e)
 {
   char *tmp;
 
-  tmp = ssl_fpconv(e->u.list->extra, NULL);
+  tmp = ssl_fpconv(e->u.list->extra, nullptr);
   op_free(e->u.list->extra);
-  e->u.list->extra = NULL;
+  e->u.list->extra = nullptr;
   list_type_kill(e->u.list);
   e->u.string = tmp;
   return 1;
@@ -1373,7 +1376,7 @@ int fprint_set(struct userrec *u, struct user_entry *e, void *buf)
   if (!fp || !fp[0] || (fp[0] == '-')) {
     if (e->u.string) {
       op_free(e->u.string);
-      e->u.string = NULL;
+      e->u.string = nullptr;
     }
   } else {
     fp = ssl_fpconv(buf, e->u.string);
@@ -1383,7 +1386,7 @@ int fprint_set(struct userrec *u, struct user_entry *e, void *buf)
       return 0;
   }
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED)))
-    shareout(NULL, "c FPRINT %s %s\n", u->handle, e->u.string ? e->u.string : "");
+    shareout(nullptr, "c FPRINT %s %s\n", u->handle, e->u.string ? e->u.string : "");
   return 1;
 }
 
@@ -1392,7 +1395,7 @@ static int fprint_tcl_set(Tcl_Interp * irp, struct userrec *u,
 {
   BADARGS(3, 4, " handle FPRINT ?new-fingerprint?");
 
-  fprint_set(u, e, argc == 3 ? NULL : argv[3]);
+  fprint_set(u, e, argc == 3 ? nullptr : argv[3]);
   return TCL_OK;
 }
 
@@ -1448,7 +1451,7 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
   if (!buf || !strcasecmp(buf, "none")) {
     /* When the bot crashes, it's in this part, not in the 'else' part */
     list_type_kill(e->u.list);
-    e->u.list = NULL;
+    e->u.list = nullptr;
   } else {
     char *acct = buf, *p = strchr(acct, ',');
     struct list_type **t;
@@ -1474,7 +1477,7 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
     }
     *t = alloc_list_type();
 
-    (*t)->next = NULL;
+    (*t)->next = nullptr;
     {
       size_t acctlen = strlen(acct) + 1;
       (*t)->extra = user_malloc(acctlen);
@@ -1524,7 +1527,7 @@ static int account_tcl_set(Tcl_Interp * irp, struct userrec *u,
 
   if (argc == 4)
     if (!strcmp(argv[3], "")) {
-      Tcl_AppendResult(irp, "Invalid account name", NULL);
+      Tcl_AppendResult(irp, "Invalid account name", nullptr);
       return TCL_OK;
     } else {
       addaccount_by_handle(u->handle, argv[3]);
@@ -1592,7 +1595,7 @@ int add_entry_type(struct user_entry_type *type)
 
       e->type->unpack(u, e);
       op_free(e->name);
-      e->name = NULL;
+      e->name = nullptr;
     }
   }
   return 1;
@@ -1608,7 +1611,7 @@ int del_entry_type(struct user_entry_type *type)
     if (e && !e->name) {
       e->type->pack(u, e);
       e->name = op_strdup(e->type->name);
-      e->type = NULL;
+      e->type = nullptr;
     }
   }
   return egg_list_delete((struct list_type **) &entry_type_list,
@@ -1623,7 +1626,7 @@ struct user_entry_type *find_entry_type(char *name)
     if (!strcasecmp(name, p->name))
       return p;
   }
-  return NULL;
+  return nullptr;
 }
 
 struct user_entry *find_user_entry(struct user_entry_type *et,
@@ -1640,7 +1643,7 @@ struct user_entry *find_user_entry(struct user_entry_type *et,
       return t;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 void *get_user(struct user_entry_type *et, struct userrec *u)
@@ -1664,8 +1667,8 @@ int set_user(struct user_entry_type *et, struct userrec *u, void *d)
     e = alloc_user_entry();
 
     e->type = et;
-    e->name = NULL;
-    e->u.list = NULL;
+    e->name = nullptr;
+    e->u.list = nullptr;
     list_insert((&(u->entries)), e);
   }
   r = et->set(u, e, d);

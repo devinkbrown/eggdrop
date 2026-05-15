@@ -38,7 +38,7 @@ static void cmd_pls_noteign(struct userrec *u, int idx, char *par)
   if (mask[0]) {
     u2 = get_user_by_handle(userlist, handle);
     if (u != u2) {
-      struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
       get_user_flagrec(u, &fr, dcc[idx].u.chat->con_chan);
       if (!(glob_master(fr) || glob_owner(fr))) {
@@ -80,7 +80,7 @@ static void cmd_mns_noteign(struct userrec *u, int idx, char *par)
   if (mask[0]) {
     u2 = get_user_by_handle(userlist, handle);
     if (u != u2) {
-      struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
       get_user_flagrec(u, &fr, dcc[idx].u.chat->con_chan);
       if (!(glob_master(fr) || glob_owner(fr))) {
@@ -116,7 +116,7 @@ static void cmd_noteigns(struct userrec *u, int idx, char *par)
   if (par[0]) {
     u2 = get_user_by_handle(userlist, par);
     if (u != u2) {
-      struct flag_record fr = { FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0 };
+      struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
       get_user_flagrec(u, &fr, dcc[idx].u.chat->con_chan);
       if (!(glob_master(fr) || glob_owner(fr))) {
@@ -167,11 +167,11 @@ static void cmd_fwd(struct userrec *u, int idx, char *par)
   if (!par[0]) {
     putlog(LOG_CMDS, "*", "#%s# fwd %s", dcc[idx].nick, handle);
     dprintf(idx, NOTES_FWD_FOR, handle);
-    set_user(&USERENTRY_FWD, u1, NULL);
+    set_user(&USERENTRY_FWD, u1, nullptr);
     return;
   }
   /* Thanks to vertex & dw */
-  if (strchr(par, '@') == NULL) {
+  if (strchr(par, '@') == nullptr) {
     dprintf(idx, "%s\n", NOTES_FWD_BOTNAME);
     return;
   }
@@ -236,11 +236,11 @@ static void cmd_note(struct userrec *u, int idx, char *par)
 }
 
 static cmd_t notes_cmds[] = {
-  {"fwd",      "m",  (IntFunc) cmd_fwd,         NULL},
-  {"notes",    "",   (IntFunc) cmd_notes,       NULL},
-  {"+noteign", "",   (IntFunc) cmd_pls_noteign, NULL},
-  {"-noteign", "",   (IntFunc) cmd_mns_noteign, NULL},
-  {"noteigns", "",   (IntFunc) cmd_noteigns,    NULL},
-  {"note",     "",   (IntFunc) cmd_note,        NULL},
-  {NULL,       NULL, NULL,                       NULL}
+  {"fwd",      "m",  (IntFunc) cmd_fwd,         nullptr},
+  {"notes",    "",   (IntFunc) cmd_notes,       nullptr},
+  {"+noteign", "",   (IntFunc) cmd_pls_noteign, nullptr},
+  {"-noteign", "",   (IntFunc) cmd_mns_noteign, nullptr},
+  {"noteigns", "",   (IntFunc) cmd_noteigns,    nullptr},
+  {"note",     "",   (IntFunc) cmd_note,        nullptr},
+  {nullptr,       nullptr, nullptr,                       nullptr}
 };
