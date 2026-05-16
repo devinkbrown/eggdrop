@@ -689,7 +689,8 @@ typedef struct sock_list {
   opssl_conn_t *ssl;
 #endif
   short flags;
-  uint8_t commio_ready;           /* set by commio read/write callbacks       */
+  uint8_t commio_read_ready;
+  uint8_t commio_write_ready;
   union {
     struct sock_handler sock;
     struct tclsock_handler tclsock;

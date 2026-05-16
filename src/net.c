@@ -75,7 +75,8 @@
  * I/O multiplexing — libop commio callbacks
  *
  * These are fired by op_select() when a socket becomes readable or writable.
- * They set commio_ready so sockread()'s dispatch loop processes the socket.
+ * They set commio_read_ready / commio_write_ready so the dispatch loops
+ * in sockread() and dequeue_sockets() process the socket independently.
  * ----------------------------------------------------------------------- */
 
 extern sock_list *socklist;
@@ -85,7 +86,6 @@ static void commio_read_cb(op_fde_t *F, void *data)
   int slist_idx = (int)(intptr_t)data;
   struct threaddata *td = threaddata();
 
-  (void)F;
   if (slist_idx < 0 || slist_idx >= td->MAXSOCKS)
     return;
 
@@ -93,7 +93,8 @@ static void commio_read_cb(op_fde_t *F, void *data)
   if (sl->flags & SOCK_UNUSED)
     return;
 
-  sl->commio_ready = 1;
+  sl->commio_read_ready = 1;
+  op_setselect(F, OP_SELECT_READ, commio_read_cb, data);
 }
 
 static void commio_write_cb(op_fde_t *F, void *data)
@@ -101,7 +102,6 @@ static void commio_write_cb(op_fde_t *F, void *data)
   int slist_idx = (int)(intptr_t)data;
   struct threaddata *td = threaddata();
 
-  (void)F;
   if (slist_idx < 0 || slist_idx >= td->MAXSOCKS)
     return;
 
@@ -109,7 +109,19 @@ static void commio_write_cb(op_fde_t *F, void *data)
   if (sl->flags & SOCK_UNUSED)
     return;
 
-  sl->commio_ready = 1;
+  sl->commio_write_ready = 1;
+  op_setselect(F, OP_SELECT_WRITE, commio_write_cb, data);
+}
+
+void socklist_reclaim_from_iot(int sock, int slist_idx)
+{
+  io_thread_del_sock(sock, slist_idx);
+  op_fde_t *F = op_get_fde(sock);
+  if (!F)
+    F = op_open(sock, OP_FD_SOCKET, "eggdrop-tls");
+  if (F)
+    op_setselect(F, OP_SELECT_READ, commio_read_cb,
+                 (void *)(intptr_t)slist_idx);
 }
 
 /* Platform socket shims */
@@ -437,7 +449,8 @@ int allocsock(int sock, int options)
       td->socklist[i].ssl = 0;
 #endif
       /* Register with commio for I/O multiplexing. */
-      td->socklist[i].commio_ready = 0;
+      td->socklist[i].commio_read_ready = 0;
+      td->socklist[i].commio_write_ready = 0;
       if (sock >= 0 && !(options & (SOCK_NONSOCK | SOCK_VIRTUAL))) {
         op_fde_t *F = op_open(sock, OP_FD_SOCKET, "eggdrop");
         if (F) {
@@ -689,7 +702,7 @@ static int proxy_connect(int sock, sockname_t *addr)
     strlcpy(s + 8, botuser, sizeof s - 8);
     tputs(sock, s, strlen(botuser) + 9);
   } else if (proxy == PROXY_SUN) {
-    op_strbuf_t sb;
+    op_strbuf_t sb = {};
     op_strbuf_init(&sb);
     inet_ntop(AF_INET, &addr->addr.s4.sin_addr, host, sizeof host);
     op_strbuf_appendf(&sb, "%s %d\n", host, port);
@@ -807,7 +820,7 @@ int open_telnet(int idx, char *server, int port)
   if (ret == AF_UNSPEC)
     return -2;
   dcc[idx].port = port;
-  dcc[idx].sock = getsock(ret, 0);
+  dcc[idx].sock = getsock(ret, SOCK_CONNECT);
   if (dcc[idx].sock < 0)
     return -3;
   ret = open_telnet_raw(dcc[idx].sock, &dcc[idx].sockname);
@@ -1137,7 +1150,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       if (x < 0)
         x = (errno == EINTR) ? 0 : -1;
     }
-
     if (x == -1) return -2;
 
     /* Count any TCL events ready from the earlier select() */
@@ -1152,33 +1164,31 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
           if (ev2 & slist[i].handler.tclsock.mask) tcl_ready = 1;
         }
       }
-      /* When commio reports no events (x==0) but a TLS handshake is in
-       * progress, do NOT return idle — allow the dispatch loop to run so
-       * SSL_read() can make incremental progress on the handshake. */
-#ifdef TLS
-      {
-        int tls_pending = 0;
-        if (x == 0 && !tcl_ready) {
-          for (int i = 0; i < slistmax; i++) {
-            if (!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL)) && slist[i].ssl) {
-              if (opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) {
-                tls_pending = 1;
-              } else if (slist[i].flags & SOCK_CONNECT) {
-                slist[i].commio_ready = 1;
-                x = 1;
-              }
-            }
+      /* When op_select reports no new events (x==0), check if any socket
+       * already has commio_read_ready set from a prior op_select (e.g. the
+       * zero-timeout poll in dequeue_sockets).  Also check for TLS sockets
+       * whose handshake is in progress — they need to be driven. */
+      if (x == 0 && !tcl_ready) {
+        for (int i = 0; i < slistmax; i++) {
+          if (slist[i].flags & (SOCK_UNUSED | SOCK_TCL))
+            continue;
+          if (slist[i].commio_read_ready) {
+            x = 1;
+            break;
           }
+#ifdef TLS
+          if (slist[i].ssl && slist[i].flags & SOCK_CONNECT &&
+              opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) {
+            slist[i].commio_read_ready = 1;
+            x = 1;
+            break;
+          }
+#endif
         }
-        if (x == 0 && !tcl_ready && !tls_pending)
-          return -3; /* idle */
-        if (x > 0 || tcl_ready || tls_pending) x = 1;
       }
-#else
       if (x == 0 && !tcl_ready)
         return -3; /* idle */
       if (x > 0 || tcl_ready) x = 1;
-#endif
     }
   } else {
     /* tclonly: select() fallback for TCL sockets only */
@@ -1204,13 +1214,13 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
   /* --- Dispatch loop --- */
   for (int i = 0; i < slistmax; i++) {
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
-        ((slist[i].commio_ready) ||
+        ((slist[i].commio_read_ready) ||
 #ifdef TLS
         (slist[i].ssl && opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) ||
 #endif
         ((slist[i].sock == STDOUT) && (!backgrd) &&
          (FD_ISSET(STDIN, &fdr)))))) {
-      slist[i].commio_ready = 0;
+      slist[i].commio_read_ready = 0;
       if (slist[i].flags & (SOCK_LISTEN | SOCK_CONNECT)) {
         if (slist[i].flags & SOCK_PROXYWAIT)
           grab = 10;
@@ -1237,25 +1247,44 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
 #ifdef TLS
       {
         if (slist[i].ssl) {
-          op_fde_t *F = op_get_fde(slist[i].sock);
-          x = (int)op_ssl_read(F, s, grab);
-          if (x == 0) {
-            /* Clean TLS shutdown (close_notify) */
-            *len = slist[i].sock;
-            slist[i].flags &= ~SOCK_CONNECT;
-            debug1("net: op_ssl_read(): received shutdown sock %i", slist[i].sock);
-            return -1;
-          } else if (x == OP_RW_SSL_NEED_READ || x == OP_RW_SSL_NEED_WRITE) {
-            errno = EAGAIN;
-            x = -1;
-          } else if (x == OP_RW_IO_ERROR) {
-            debug0("net: sockread(): op_ssl_read() I/O error");
-            putlog(LOG_MISC, "*", "NET: SSL read failed. Non-SSL connection?");
-            x = -1;
-          } else if (x < 0) {
-            debug1("net: sockread(): op_ssl_read() error %d", x);
-            putlog(LOG_MISC, "*", "NET: SSL read error.");
-            x = -1;
+          if (opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) {
+            /* Drive the TLS handshake forward */
+            opssl_result_t hr = opssl_connect(slist[i].ssl);
+            if (hr == OPSSL_WANT_READ || hr == OPSSL_WANT_WRITE) {
+              errno = EAGAIN;
+              x = -1;
+            } else if (hr == OPSSL_OK) {
+              debug1("net: TLS handshake complete sock %d", slist[i].sock);
+              slist[i].commio_read_ready = 1;
+              continue;
+            } else {
+              debug1("net: TLS handshake failed sock %d", slist[i].sock);
+              putlog(LOG_MISC, "*", "NET: TLS handshake failed.");
+              *len = slist[i].sock;
+              slist[i].flags &= ~SOCK_CONNECT;
+              return -1;
+            }
+          } else {
+            op_fde_t *F = op_get_fde(slist[i].sock);
+            x = (int)op_ssl_read(F, s, grab);
+            if (x == 0) {
+              /* Clean TLS shutdown (close_notify) */
+              *len = slist[i].sock;
+              slist[i].flags &= ~SOCK_CONNECT;
+              debug1("net: op_ssl_read(): received shutdown sock %i", slist[i].sock);
+              return -1;
+            } else if (x == OP_RW_SSL_NEED_READ || x == OP_RW_SSL_NEED_WRITE) {
+              errno = EAGAIN;
+              x = -1;
+            } else if (x == OP_RW_IO_ERROR) {
+              debug0("net: sockread(): op_ssl_read() I/O error");
+              putlog(LOG_MISC, "*", "NET: SSL read failed. Non-SSL connection?");
+              x = -1;
+            } else if (x < 0) {
+              debug1("net: sockread(): op_ssl_read() error %d", x);
+              putlog(LOG_MISC, "*", "NET: SSL read error.");
+              x = -1;
+            }
           }
         } else
           x = read(slist[i].sock, s, grab);
@@ -1543,6 +1572,16 @@ void tputs(int z, const char *s, unsigned int len)
       else
         len = webui_frame(&s2, s, len);
       if (socklist[i].ssl) {
+        if (opssl_conn_get_state(socklist[i].ssl) != OPSSL_HS_COMPLETE) {
+          /* Handshake in progress — buffer data for later delivery */
+          if (!socklist[i].handler.sock.outbuf) {
+            size_t initcap = len < 512 ? 512 : len;
+            socklist[i].handler.sock.outbuf = egg_mbuf_alloc(initcap);
+          }
+          if (socklist[i].handler.sock.outbuf)
+            egg_mbuf_append_grow(socklist[i].handler.sock.outbuf, s2, len);
+          return;
+        }
         op_fde_t *F = op_get_fde(socklist[i].sock);
         x = (int)op_ssl_write(F, s2, len);
         if (x == OP_RW_SSL_NEED_WRITE || x == OP_RW_SSL_NEED_READ) {
@@ -1610,7 +1649,7 @@ void dequeue_sockets(void)
          ) {
         op_fde_t *F = op_get_fde(socklist[j].sock);
         if (F) {
-          socklist[j].commio_ready = 0;
+          socklist[j].commio_write_ready = 0;
           op_setselect(F, OP_SELECT_WRITE, commio_write_cb,
                        (void *)(intptr_t)j);
           any_pending = 1;
@@ -1633,8 +1672,8 @@ void dequeue_sockets(void)
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-        (socklist[i].handler.sock.outbuf != nullptr) && socklist[i].commio_ready) {
-      socklist[i].commio_ready = 0;
+        (socklist[i].handler.sock.outbuf != nullptr) && socklist[i].commio_write_ready) {
+      socklist[i].commio_write_ready = 0;
       /* Drain outbuf ring buffer.
        * Use writev() to send both the head and (optional) wrapped tail
        * chunk in a single syscall, avoiding MSG_MORE + second write(). */
@@ -1647,6 +1686,10 @@ void dequeue_sockets(void)
         errno = 0;
 #ifdef TLS
         if (socklist[i].ssl) {
+          if (opssl_conn_get_state(socklist[i].ssl) != OPSSL_HS_COMPLETE) {
+            /* Handshake still in progress — leave buffered */
+            continue;
+          }
           op_fde_t *F = op_get_fde(socklist[i].sock);
           x = (int)op_ssl_write(F, p1, c1);
           if (x == OP_RW_SSL_NEED_WRITE || x == OP_RW_SSL_NEED_READ) {
@@ -1763,7 +1806,7 @@ int hostsanitycheck_dcc(char *nick, char *from, sockname_t *ip, char *dnsname,
   /* According to the latest RFC, the clients SHOULD be able to handle
    * DNS names that are up to 255 characters long.  This is not broken.
    */
-  op_strbuf_t _badaddress, _hostn;
+  op_strbuf_t _badaddress = {}, _hostn = {};
   op_strbuf_appendf(&_badaddress, "%s", iptostr(&ip->addr.sa));
   op_strbuf_appendf(&_hostn, "%s", extracthostname(from));
   if (!strcasecmp(op_strbuf_str(&_hostn), dnsname)) {
@@ -1932,7 +1975,7 @@ char *traced_natip(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
       putlog(LOG_MISC, "*", "ERROR: inet_pton(): nat-ip %s", value);
       return strerror(errno);
     }
-    op_strbuf_t buf;
+    op_strbuf_t buf = {};
     op_strbuf_init(&buf);
     op_strbuf_appendf(&buf, "%" PRIu32, ntohl(ia.s_addr));
     op_free(nat_ip_string);

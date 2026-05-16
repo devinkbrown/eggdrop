@@ -193,8 +193,11 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
     if (tl->flags & HT_DELETED)
       continue;
     v = strcasecmp(tl->name, nme);
-    if (!v)
-      return tl;                /* Duplicate, just return old value.    */
+    if (!v) {
+      if (func && !tl->func)
+        tl->func = func;
+      return tl;
+    }
     if (v > 0)
       break;                    /* New. Insert at start of list.        */
   }
@@ -784,7 +787,7 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
   table[1].name = nullptr;
   for (int i = 0; cc[i].name; i++) {
     op_arena_mark_t mark = op_arena_save(op_event_arena());
-    op_strbuf_t p;
+    op_strbuf_t p = {};
     op_strbuf_init(&p);
     op_strbuf_appendf(&p, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -807,7 +810,7 @@ void rem_builtins(tcl_bind_list_t *table, cmd_t *cc)
 
   for (int i = 0; cc[i].name; i++) {
     op_arena_mark_t mark = op_arena_save(op_event_arena());
-    op_strbuf_t p;
+    op_strbuf_t p = {};
     op_strbuf_init(&p);
     op_strbuf_appendf(&p, "*%s:%s", table->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -874,7 +877,7 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
   if (!tl)
     return;
   for (int i = 0; cc[i].name; i++) {
-    op_strbuf_t key_buf;
+    op_strbuf_t key_buf = {};
     op_strbuf_init(&key_buf);
     op_strbuf_appendf(&key_buf, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -912,7 +915,7 @@ void rem_builtins(tcl_bind_list_t *tl, cmd_t *cc)
   if (!tl)
     return;
   for (int i = 0; cc[i].name; i++) {
-    op_strbuf_t key_buf;
+    op_strbuf_t key_buf = {};
     op_strbuf_init(&key_buf);
     op_strbuf_appendf(&key_buf, "*%s:%s", tl->name,
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
@@ -1127,7 +1130,7 @@ int check_tcl_dcc(const char *cmd, int idx, const char *args)
   int x;
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%ld", dcc[idx].sock);
   Tcl_SetVar(interp, "_dcc1", (char *) dcc[idx].nick, 0);
@@ -1171,7 +1174,7 @@ void check_tcl_chonof(char *hand, int sock, tcl_bind_list_t *tl)
   touch_laston(u, "partyline", now);
   get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_chonof1", (char *) hand, 0);
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", sock);
   Tcl_SetVar(interp, "_chonof2", op_strbuf_str(&s), 0);
@@ -1183,7 +1186,7 @@ void check_tcl_chonof(char *hand, int sock, tcl_bind_list_t *tl)
 void check_tcl_chatactbcst(const char *from, int chan, const char *text,
                            tcl_bind_list_t *tl)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", chan);
   Tcl_SetVar(interp, "_cab1", (char *) from, 0);
@@ -1227,7 +1230,7 @@ const char *check_tcl_filt(int idx, const char *text)
   int x;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%ld", dcc[idx].sock);
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
@@ -1262,7 +1265,7 @@ int check_tcl_note(const char *from, const char *to, const char *text)
 
 void check_tcl_listen(const char *cmd, int idx)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", idx);
 
@@ -1297,7 +1300,7 @@ void check_tcl_chjn(const char *bot, const char *nick, int chan,
   case '%':
     fr.global = USER_BOTMAST;
   }
-  op_strbuf_t s, u;
+  op_strbuf_t s = {}, u = {};
   op_strbuf_appendf(&s, "%d", chan);
   op_strbuf_appendf(&u, "%d", sock);
   Tcl_SetVar(interp, "_chjn1", (char *) bot, 0);
@@ -1315,7 +1318,7 @@ void check_tcl_chjn(const char *bot, const char *nick, int chan,
 
 void check_tcl_chpt(const char *bot, const char *hand, int sock, int chan)
 {
-  op_strbuf_t u, v;
+  op_strbuf_t u = {}, v = {};
   op_strbuf_appendf(&u, "%d", sock);
   op_strbuf_appendf(&v, "%d", chan);
   Tcl_SetVar(interp, "_chpt1", (char *) bot, 0);
@@ -1330,7 +1333,7 @@ void check_tcl_chpt(const char *bot, const char *hand, int sock, int chan)
 
 void check_tcl_away(const char *bot, int idx, const char *msg)
 {
-  op_strbuf_t u;
+  op_strbuf_t u = {};
   op_strbuf_init(&u);
   op_strbuf_appendf(&u, "%d", idx);
   Tcl_SetVar(interp, "_away1", (char *) bot, 0);
@@ -1343,7 +1346,7 @@ void check_tcl_away(const char *bot, int idx, const char *msg)
 
 void check_tcl_time_and_cron(struct tm *tm)
 {
-  op_strbuf_t y;
+  op_strbuf_t y = {};
   op_strbuf_init(&y);
 
   op_strbuf_appendf(&y, "%02d", tm->tm_min);
@@ -1425,7 +1428,7 @@ void check_tcl_log(int lv, char *chan, char *msg)
   prev_result = Tcl_GetObjResult(interp);
   Tcl_IncrRefCount(prev_result);
 
-  op_strbuf_t mask;
+  op_strbuf_t mask = {};
   op_strbuf_init(&mask);
   op_strbuf_appendf(&mask, "%s %s", chan, msg);
   Tcl_SetVar(interp, "_log1", masktype(lv), TCL_GLOBAL_ONLY);
@@ -1444,7 +1447,7 @@ int check_tcl_tls(int sock)
 {
   int x;
 
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%d", sock);
   Tcl_SetVar(interp, "_tls", op_strbuf_str(&s), 0);

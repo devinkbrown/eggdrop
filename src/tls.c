@@ -132,7 +132,7 @@ void verify_cert_expiry(int idx) {
 int ssl_init(void)
 {
   /* opssl library initialization */
-  if (opssl_init() != 0) {
+  if (opssl_init() == 0) {
     putlog(LOG_MISC, "*", "ERROR: TLS: unable to initialize opssl library. Disabling SSL");
     return -2;
   }
@@ -290,7 +290,7 @@ char *ssl_fpconv(char *in, char *out)
  */
 const char *ssl_getuid(int sock)
 {
-  static op_strbuf_t uid_buf;
+  static op_strbuf_t uid_buf = {};
   static bool uid_inited;
   char subject[512];
   char *uid_pos;
@@ -408,12 +408,17 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
     return -3;
   }
 
+  /* The io_thread must not recv() on a TLS socket — remove it and
+   * re-register the commio read callback (io_thread_add_sock clears it). */
+  socklist_reclaim_from_iot(td->socklist[i].sock, i);
+
   /* Sync the opssl_conn_t pointer onto the commio FDE */
   {
     op_fde_t *F = op_get_fde(td->socklist[i].sock);
-    if (F) {
+    if (!F)
+      F = op_open(td->socklist[i].sock, OP_FD_SOCKET, "eggdrop-tls");
+    if (F)
       F->ssl = td->socklist[i].ssl;
-    }
   }
 
   /* Prepare ssl appdata struct */
@@ -674,7 +679,7 @@ static int tcl_tlsstatus STDVAR
     uint8_t serial[32];
     size_t serial_len = sizeof serial;
     if (opssl_x509_get_serial(cert, serial, &serial_len) == 0) {
-      op_strbuf_t sb;
+      op_strbuf_t sb = {};
       op_strbuf_init(&sb);
       for (size_t si = 0; si < serial_len; si++)
         op_strbuf_appendf(&sb, "%02X", serial[si]);
