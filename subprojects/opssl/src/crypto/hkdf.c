@@ -15,6 +15,18 @@
 #include <string.h>
 #include "sha_internal.h"
 
+static size_t
+hkdf_hash_len(opssl_hmac_algo_t algo)
+{
+    switch (algo) {
+    case OPSSL_HMAC_SHA1: return OPSSL_SHA1_DIGEST_LEN;
+    case OPSSL_HMAC_SHA256: return OPSSL_SHA256_DIGEST_LEN;
+    case OPSSL_HMAC_SHA384: return OPSSL_SHA384_DIGEST_LEN;
+    case OPSSL_HMAC_SHA512: return OPSSL_SHA512_DIGEST_LEN;
+    default: return 0;
+    }
+}
+
 int
 opssl_hkdf_extract(opssl_hmac_algo_t algo,
                    const uint8_t *salt, size_t salt_len,
@@ -24,13 +36,9 @@ opssl_hkdf_extract(opssl_hmac_algo_t algo,
     /* If no salt, use a hash-length string of zeros */
     uint8_t zero_salt[OPSSL_SHA512_DIGEST_LEN];
     if (salt == NULL || salt_len == 0) {
-        size_t hash_len;
-        switch (algo) {
-        case OPSSL_HMAC_SHA256: hash_len = OPSSL_SHA256_DIGEST_LEN; break;
-        case OPSSL_HMAC_SHA384: hash_len = OPSSL_SHA384_DIGEST_LEN; break;
-        case OPSSL_HMAC_SHA512: hash_len = OPSSL_SHA512_DIGEST_LEN; break;
-        default: return 0;
-        }
+        size_t hash_len = hkdf_hash_len(algo);
+        if (hash_len == 0)
+            return 0;
         memset(zero_salt, 0, hash_len);
         salt = zero_salt;
         salt_len = hash_len;
@@ -48,13 +56,9 @@ opssl_hkdf_expand(opssl_hmac_algo_t algo,
                   const uint8_t *info, size_t info_len,
                   uint8_t *okm, size_t okm_len)
 {
-    size_t hash_len;
-    switch (algo) {
-    case OPSSL_HMAC_SHA256: hash_len = OPSSL_SHA256_DIGEST_LEN; break;
-    case OPSSL_HMAC_SHA384: hash_len = OPSSL_SHA384_DIGEST_LEN; break;
-    case OPSSL_HMAC_SHA512: hash_len = OPSSL_SHA512_DIGEST_LEN; break;
-    default: return 0;
-    }
+    size_t hash_len = hkdf_hash_len(algo);
+    if (hash_len == 0)
+        return 0;
 
     size_t n = (okm_len + hash_len - 1) / hash_len;
     if (n > 255)

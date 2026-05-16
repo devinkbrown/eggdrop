@@ -76,6 +76,9 @@ opssl_handshake_state_t opssl_conn_get_state(opssl_conn_t *conn);
 opssl_err_t opssl_conn_get_error(opssl_conn_t *conn);
 const char *opssl_conn_get_error_string(opssl_conn_t *conn);
 
+/* Last WANT direction after EAGAIN (OPSSL_WANT_READ or OPSSL_WANT_WRITE) */
+opssl_result_t opssl_conn_get_last_want(opssl_conn_t *conn);
+
 /* Connection flags */
 bool opssl_conn_is_outgoing(const opssl_conn_t *conn);
 bool opssl_conn_is_ktls(const opssl_conn_t *conn);
@@ -87,6 +90,14 @@ bool opssl_conn_is_postquantum(const opssl_conn_t *conn);
  * Returns OPSSL_OK when drained, WANT_READ if more data pending.
  */
 opssl_result_t opssl_conn_drain_post_handshake(opssl_conn_t *conn);
+
+/*
+ * Flush any buffered outgoing TLS record data (e.g. NewSessionTicket
+ * queued during handshake).  Must be called before kTLS setup so the
+ * kernel inherits correct sequence numbers.
+ * Returns OPSSL_OK when fully flushed, OPSSL_WANT_WRITE if partial.
+ */
+opssl_result_t opssl_conn_flush_write(opssl_conn_t *conn);
 
 /*
  * Key update (TLS 1.3 only).
@@ -147,5 +158,10 @@ const uint8_t *opssl_conn_get_ocsp_response(opssl_conn_t *conn, size_t *len);
 
 int opssl_conn_verify_sct_list(opssl_conn_t *conn);
 const uint8_t *opssl_conn_get_sct_list(opssl_conn_t *conn, size_t *len);
+
+/* ─── Session migration (hot upgrade) ───────────────────────────────── */
+
+int opssl_conn_export(opssl_conn_t *conn, uint8_t *buf, size_t buflen);
+int opssl_conn_import(opssl_conn_t *conn, const uint8_t *buf, size_t len);
 
 #endif /* OPSSL_CONN_H */

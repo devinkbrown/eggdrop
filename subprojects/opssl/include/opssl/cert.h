@@ -12,6 +12,7 @@
 #define OPSSL_CERT_H
 
 #include <opssl/types.h>
+#include <opssl/crypto.h>
 
 /* --- Certificate Loading ------------------------------------------------- */
 
@@ -23,6 +24,9 @@ typedef struct opssl_x509_chain opssl_x509_chain_t;
 
 opssl_x509_chain_t *opssl_x509_chain_from_file(const char *path);
 opssl_x509_chain_t *opssl_x509_chain_from_leaf(const uint8_t *der, size_t der_len);
+opssl_x509_chain_t *opssl_x509_chain_from_ders(const uint8_t *der, size_t der_len,
+                                                const uint8_t * const *intermediates,
+                                                const size_t *ilens, size_t n_intermediates);
 size_t              opssl_x509_chain_count(const opssl_x509_chain_t *chain);
 opssl_x509_t       *opssl_x509_chain_get(const opssl_x509_chain_t *chain, size_t idx);
 void                opssl_x509_chain_free(opssl_x509_chain_t *chain);
@@ -147,6 +151,7 @@ typedef enum {
 } opssl_pkey_type_t;
 
 opssl_pkey_type_t opssl_pkey_type(const opssl_pkey_t *key);
+opssl_curve_t     opssl_pkey_ec_curve(const opssl_pkey_t *key);
 size_t            opssl_pkey_bits(const opssl_pkey_t *key);
 int               opssl_pkey_sign(const opssl_pkey_t *key, const uint8_t *digest,
                                   size_t digest_len, uint8_t *sig, size_t *sig_len);

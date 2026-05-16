@@ -55,6 +55,7 @@ libop_sources = files(
   'helper.c',
   'seccomp.c',
   'lock_debug.c',
+  'crdt.c',
 
   # Portability fallbacks
   'arc4random.c',
@@ -150,6 +151,6 @@ libop_ds = static_library('op',
 lmdb_inc = include_directories('lmdb')
 
 libop_dep = declare_dependency(
-  link_with: libop_ds,
+  link_whole: libop_ds,
   include_directories: [libop_inc, lmdb_inc],
 )

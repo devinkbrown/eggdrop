@@ -143,7 +143,7 @@ static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
                           struct userrec *u, char *arg)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
-  op_strbuf_t args;
+  op_strbuf_t args = {};
   op_strbuf_init(&args);
   int x;
 
@@ -293,7 +293,8 @@ static int check_tcl_out(int which, char *msg, int sent)
 {
   int x;
   const char *queue, *state = sent ? "sent" : "queued";
-  op_strbuf_t args;
+  op_strbuf_t args = {};
+  op_strbuf_init(&args);
 
   switch (which) {
   case DP_MODE:
@@ -515,7 +516,7 @@ static inline struct userrec *lookup_msg_user(char *nick, char *from)
       from);
 }
 
-static op_strbuf_t ctcp_reply;
+static op_strbuf_t ctcp_reply = {};
 
 static int lastmsgs[FLOOD_GLOBAL_MAX];
 static char lastmsghost[FLOOD_GLOBAL_MAX][81];
@@ -587,7 +588,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     if (check_tcl_flud(floodnick, floodhost, u, (char *) ftype, "*"))
       return 0;
     /* Private msg */
-    op_strbuf_t h;
+    op_strbuf_t h = {};
     op_strbuf_init(&h);
     op_strbuf_appendf(&h, "*!*@%s", p);
     putlog(LOG_MISC, "*", IRC_FLOODIGNORE1, p);
@@ -1259,7 +1260,7 @@ static int msgtag_key_valid(const char *key)
 
 static const char *encode_msgtag(const char *key, const char *value)
 {
-  static op_strbuf_t sb;
+  static op_strbuf_t sb = {};
 
   if (!msgtag_key_valid(key)) {
     putlog(LOG_SERV, "*", "Dropping message tag with invalid key: %s", key);
@@ -1432,7 +1433,7 @@ static int got311(char *from, char *msg)
     return 0;
 
   if (match_my_nick(n2)) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s@%s", u, h);
     strlcpy(botuserhost, op_strbuf_str(&_b), sizeof botuserhost);
@@ -1852,7 +1853,7 @@ static int gotcap(char *from, char *msg) {
     current = cap;
     /* Request the desired capabilities from server */
     {
-      op_strbuf_t cape_req;
+      op_strbuf_t cape_req = {};
       op_strbuf_init(&cape_req);
       while (current != nullptr) {
         if (current->requested && (!current->enabled)) {
@@ -1965,7 +1966,7 @@ static int gotcap(char *from, char *msg) {
     }
     current = cap;
     {
-      op_strbuf_t caplog;
+      op_strbuf_t caplog = {};
       op_strbuf_init(&caplog);
       while (current != nullptr) {
         if (current->enabled)
@@ -1984,7 +1985,7 @@ static int gotcap(char *from, char *msg) {
     putlog(LOG_SERV, "*", "CAP: %s capabilities now available", msg);
     add_capabilities(msg);
     {
-      op_strbuf_t newreq;
+      op_strbuf_t newreq = {};
       op_strbuf_init(&newreq);
       char *saveptr = nullptr;
       char *newmsg = op_strdup(msg);
@@ -2050,7 +2051,7 @@ static int got730or1(char *from, char *msg, int code)
 static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
                                char *code, const char *context, char *desc)
 {
-  op_strbuf_t mask;
+  op_strbuf_t mask = {};
   op_strbuf_init(&mask);
   int x;
 
@@ -2074,7 +2075,7 @@ static int check_tcl_stdreply(char *from, const char *msgtype, char *cmd,
 static int gotstdreply(char *from, char *msgtype, char *msg)
 {
   char *cmd, *code, *text, *p;
-  op_strbuf_t context;
+  op_strbuf_t context = {};
   op_strbuf_init(&context);
 
   cmd  = newsplit(&msg);
@@ -2336,7 +2337,7 @@ static int gotwhisper(char *from, char *msg)
   /* Route to the msg bind if the bot is the target, otherwise log only */
   if (match_my_nick(target)) {
     struct userrec *u;
-    op_strbuf_t hostbuf;
+    op_strbuf_t hostbuf = {};
     op_strbuf_init(&hostbuf);
     op_strbuf_appendf(&hostbuf, "%s!%s", nick, from);
     u = get_user_by_host(op_strbuf_str(&hostbuf));
@@ -2702,7 +2703,7 @@ static void connect_server(void)
     check_tcl_event("connect-server");
     next_server(&curserv, botserver, sizeof botserver, &botserverport, pass, sizeof pass);
 
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
 #ifdef IPV6
     if (inet_pton(AF_INET6, botserver, buf))
@@ -2771,13 +2772,13 @@ static void server_resolve_failure(int servidx)
 static void server_resolve_success(int servidx)
 {
   char pass[121];
-  op_strbuf_t errstr2;
+  op_strbuf_t errstr2 = {};
   op_strbuf_init(&errstr2);
 
   resolvserv = 0;
   strlcpy(pass, dcc[servidx].u.dns->cbuf, sizeof pass);
   changeover_dcc(servidx, &SERVER_SOCKET, 0);
-  dcc[servidx].sock = getsock(dcc[servidx].sockname.family, 0);
+  dcc[servidx].sock = getsock(dcc[servidx].sockname.family, SOCK_CONNECT);
   setsnport(dcc[servidx].sockname, dcc[servidx].port);
   serv = open_telnet_raw(dcc[servidx].sock, &dcc[servidx].sockname);
   if (serv < 0) {

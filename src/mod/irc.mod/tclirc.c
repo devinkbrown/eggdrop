@@ -617,7 +617,7 @@ static int tcl_chanmasks(masklist *m, Tcl_Interp *irp)
   for (; m && m->mask && m->mask[0]; m = m->next) {
     list[0] = m->mask;
     list[1] = m->who;
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%" PRId64, (int64_t) (now - m->timer));
     list[2] = op_strbuf_str(&_b);
@@ -705,7 +705,7 @@ static int tcl_getchanjoin STDVAR
     return TCL_ERROR;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%" PRIu64, (uint64_t) m->joined);
     Tcl_AppendResult(irp, op_strbuf_str(&_b), nullptr);
@@ -1140,7 +1140,7 @@ static int tcl_nick2hand STDVAR
 static int tcl_putkick STDVAR
 {
   struct chanset_t *chan;
-  op_strbuf_t kicknick;
+  op_strbuf_t kicknick = {};
   int k = 0, l;
   char *nick, *p, *comment = nullptr;
   memberlist *m;

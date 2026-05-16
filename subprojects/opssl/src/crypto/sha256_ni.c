@@ -70,11 +70,23 @@ opssl_sha256_ni_transform(uint32_t state[8], const uint8_t *data, size_t nblocks
     __m128i msg0, msg1, msg2, msg3;
     __m128i tmp;
 
-    /* Load initial state */
-    /* Intel SHA-NI expects: state0 = {h3, h2, h1, h0}, state1 = {h7, h6, h5, h4} */
-    /* But in memory layout order for the reversal needed by the instruction */
-    state0 = _mm_setr_epi32(state[3], state[2], state[1], state[0]);
-    state1 = _mm_setr_epi32(state[7], state[6], state[5], state[4]);
+    /*
+     * Intel SHA-NI uses an interleaved state layout:
+     *   state0 = ABEF  (lanes [3]=A, [2]=B, [1]=E, [0]=F)
+     *   state1 = CDGH  (lanes [3]=C, [2]=D, [1]=G, [0]=H)
+     *
+     * _mm_sha256rnds2_epu32(dst, src, k):
+     *   dst = CDGH, src = ABEF  →  returns new CDGH
+     *
+     * Load from standard state[0..7] = {A,B,C,D,E,F,G,H} using
+     * the Intel reference shuffle sequence.
+     */
+    __m128i t0 = _mm_loadu_si128((const __m128i *)&state[0]);
+    __m128i t1 = _mm_loadu_si128((const __m128i *)&state[4]);
+    t0     = _mm_shuffle_epi32(t0, 0xB1);
+    t1     = _mm_shuffle_epi32(t1, 0x1B);
+    state0 = _mm_alignr_epi8(t0, t1, 8);
+    state1 = _mm_blend_epi16(t1, t0, 0xF0);
 
     /* Process each 64-byte block */
     for (size_t block = 0; block < nblocks; block++) {
@@ -155,20 +167,14 @@ opssl_sha256_ni_transform(uint32_t state[8], const uint8_t *data, size_t nblocks
         data += 64;
     }
 
-    /* Store the final state back to the context */
-    /* Reverse the order to match the standard state layout */
-    uint32_t result[8] __attribute__((aligned(16)));
-    _mm_storeu_si128((__m128i *)&result[0], state0);
-    _mm_storeu_si128((__m128i *)&result[4], state1);
+    /* Reverse the ABEF/CDGH interleaving back to {A,B,C,D} {E,F,G,H} */
+    t0     = _mm_shuffle_epi32(state0, 0x1B);
+    state1 = _mm_shuffle_epi32(state1, 0xB1);
+    state0 = _mm_blend_epi16(t0, state1, 0xF0);
+    state1 = _mm_alignr_epi8(state1, t0, 8);
 
-    state[0] = result[3];
-    state[1] = result[2];
-    state[2] = result[1];
-    state[3] = result[0];
-    state[4] = result[7];
-    state[5] = result[6];
-    state[6] = result[5];
-    state[7] = result[4];
+    _mm_storeu_si128((__m128i *)&state[0], state0);
+    _mm_storeu_si128((__m128i *)&state[4], state1);
 }
 
 #else /* No SHA-NI support */

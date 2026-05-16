@@ -128,6 +128,28 @@ static void test_hmac_sha256(void)
     ASSERT_MEM_EQ(out, expected, 32, "HMAC-SHA256 test vector 1");
 }
 
+static void test_hmac_sha1(void)
+{
+    uint8_t out[OPSSL_HMAC_MAX_DIGEST_LEN];
+    size_t out_len;
+
+    /* RFC 2202 Test Case 1 */
+    const uint8_t key[20] = {
+        0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
+        0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b
+    };
+    const char *data = "Hi There";
+    const uint8_t expected[OPSSL_SHA1_DIGEST_LEN] = {
+        0xb6, 0x17, 0x31, 0x86, 0x55, 0x05, 0x72, 0x64, 0xe2, 0x8b,
+        0xc0, 0xb6, 0xfb, 0x37, 0x8c, 0x8e, 0xf1, 0x46, 0xbe, 0x00
+    };
+
+    int rc = opssl_hmac(OPSSL_HMAC_SHA1, key, sizeof(key), data, strlen(data), out, &out_len);
+    ASSERT_EQ(rc, 1, "HMAC-SHA1 success");
+    ASSERT_EQ(out_len, OPSSL_SHA1_DIGEST_LEN, "HMAC-SHA1 output length");
+    ASSERT_MEM_EQ(out, expected, OPSSL_SHA1_DIGEST_LEN, "HMAC-SHA1 test vector 1");
+}
+
 static void test_hkdf(void)
 {
     uint8_t prk[32];
@@ -168,6 +190,46 @@ static void test_hkdf(void)
     int rc2 = opssl_hkdf_expand(OPSSL_HMAC_SHA256, prk, prk_len, info, sizeof(info), okm, okm_len);
     ASSERT_EQ(rc2, 1, "HKDF expand success");
     ASSERT_MEM_EQ(okm, expected_okm, 42, "HKDF expand output");
+}
+
+static void test_hkdf_sha1(void)
+{
+    uint8_t prk[OPSSL_SHA1_DIGEST_LEN];
+    uint8_t okm[42];
+    size_t prk_len;
+
+    /* RFC 5869 Test Case 4 */
+    const uint8_t ikm[11] = {
+        0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b
+    };
+    const uint8_t salt[13] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c
+    };
+    const uint8_t info[10] = {
+        0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9
+    };
+    const uint8_t expected_prk[OPSSL_SHA1_DIGEST_LEN] = {
+        0x9b, 0x6c, 0x18, 0xc4, 0x32, 0xa7, 0xbf, 0x8f, 0x0e, 0x71,
+        0xc8, 0xeb, 0x88, 0xf4, 0xb3, 0x0b, 0xaa, 0x2b, 0xa2, 0x43
+    };
+    const uint8_t expected_okm[42] = {
+        0x08, 0x5a, 0x01, 0xea, 0x1b, 0x10, 0xf3, 0x69, 0x33, 0x06,
+        0x8b, 0x56, 0xef, 0xa5, 0xad, 0x81, 0xa4, 0xf1, 0x4b, 0x82,
+        0x2f, 0x5b, 0x09, 0x15, 0x68, 0xa9, 0xcd, 0xd4, 0xf1, 0x55,
+        0xfd, 0xa2, 0xc2, 0x2e, 0x42, 0x24, 0x78, 0xd3, 0x05, 0xf3,
+        0xf8, 0x96
+    };
+
+    prk_len = sizeof(prk);
+    int rc = opssl_hkdf_extract(OPSSL_HMAC_SHA1, salt, sizeof(salt),
+                                ikm, sizeof(ikm), prk, &prk_len);
+    ASSERT_EQ(rc, 1, "HKDF-SHA1 extract success");
+    ASSERT_EQ(prk_len, OPSSL_SHA1_DIGEST_LEN, "HKDF-SHA1 PRK length");
+    ASSERT_MEM_EQ(prk, expected_prk, OPSSL_SHA1_DIGEST_LEN, "HKDF-SHA1 extract output");
+
+    rc = opssl_hkdf_expand(OPSSL_HMAC_SHA1, prk, prk_len, info, sizeof(info), okm, sizeof(okm));
+    ASSERT_EQ(rc, 1, "HKDF-SHA1 expand success");
+    ASSERT_MEM_EQ(okm, expected_okm, sizeof(okm), "HKDF-SHA1 expand output");
 }
 
 static void test_chacha20_poly1305(void)
@@ -583,23 +645,58 @@ static void test_rsa(void)
                           bad_digest, 32, sig, sig_len);
     ASSERT_EQ(rc, 0, "RSA-PSS verify rejects tampered digest");
 
+    uint8_t digest_sha1[OPSSL_SHA1_DIGEST_LEN];
+    opssl_sha1((const uint8_t *)"test message for RSA", 20, digest_sha1);
+
+    sig_len = sizeof(sig);
+    rc = opssl_rsa_sign(rsa, OPSSL_RSA_PKCS1_V15, OPSSL_HMAC_SHA1,
+                        digest_sha1, sizeof(digest_sha1), sig, &sig_len);
+    ASSERT_EQ(rc, 1, "RSA PKCS#1 v1.5 SHA1 sign");
+
+    rc = opssl_rsa_verify(rsa, OPSSL_RSA_PKCS1_V15, OPSSL_HMAC_SHA1,
+                          digest_sha1, sizeof(digest_sha1), sig, sig_len);
+    ASSERT_EQ(rc, 1, "RSA PKCS#1 v1.5 SHA1 verify");
+
+    sig_len = sizeof(sig);
+    rc = opssl_rsa_sign(rsa, OPSSL_RSA_PSS, OPSSL_HMAC_SHA1,
+                        digest_sha1, sizeof(digest_sha1), sig, &sig_len);
+    ASSERT_EQ(rc, 1, "RSA-PSS SHA1 sign");
+
+    rc = opssl_rsa_verify(rsa, OPSSL_RSA_PSS, OPSSL_HMAC_SHA1,
+                          digest_sha1, sizeof(digest_sha1), sig, sig_len);
+    ASSERT_EQ(rc, 1, "RSA-PSS SHA1 verify");
+
     opssl_rsa_free(rsa);
 }
 
 static void test_pbkdf2(void)
 {
     uint8_t out[32];
+    uint8_t out_sha1[OPSSL_SHA1_DIGEST_LEN];
 
-    /* RFC 6070 Test Vector 1: password="password", salt="salt", iterations=1, dkLen=32 */
+    /* RFC 6070 Test Vector 1: PBKDF2-HMAC-SHA1 */
+    const uint8_t expected_sha1_1[OPSSL_SHA1_DIGEST_LEN] = {
+        0x0c, 0x60, 0xc8, 0x0f, 0x96, 0x1f, 0x0e, 0x71, 0xf3, 0xa9,
+        0xb5, 0x24, 0xaf, 0x60, 0x12, 0x06, 0x2f, 0xe0, 0x37, 0xa6
+    };
+
+    int rc = opssl_pbkdf2(OPSSL_HMAC_SHA1,
+                          (const uint8_t *)"password", 8,
+                          (const uint8_t *)"salt", 4,
+                          1, out_sha1, sizeof(out_sha1));
+    ASSERT_EQ(rc, 1, "PBKDF2-HMAC-SHA1 test vector 1 success");
+    ASSERT_MEM_EQ(out_sha1, expected_sha1_1, sizeof(out_sha1), "PBKDF2-HMAC-SHA1 test vector 1 output");
+
+    /* PBKDF2-HMAC-SHA256: password="password", salt="salt", iterations=1, dkLen=32 */
     const uint8_t expected_1[32] = {
         0x12, 0x0f, 0xb6, 0xcf, 0xfc, 0xf8, 0xb3, 0x2c, 0x43, 0xe7, 0x22, 0x52, 0x56, 0xc4, 0xf8, 0x37,
         0xa8, 0x65, 0x48, 0xc9, 0x2c, 0xcc, 0x35, 0x48, 0x08, 0x05, 0x98, 0x7c, 0xb7, 0x0b, 0xe1, 0x7b
     };
 
-    int rc = opssl_pbkdf2(OPSSL_HMAC_SHA256,
-                          (const uint8_t *)"password", 8,
-                          (const uint8_t *)"salt", 4,
-                          1, out, 32);
+    rc = opssl_pbkdf2(OPSSL_HMAC_SHA256,
+                      (const uint8_t *)"password", 8,
+                      (const uint8_t *)"salt", 4,
+                      1, out, 32);
     ASSERT_EQ(rc, 1, "PBKDF2-HMAC-SHA256 test vector 1 success");
     ASSERT_MEM_EQ(out, expected_1, 32, "PBKDF2-HMAC-SHA256 test vector 1 output");
 
@@ -667,6 +764,107 @@ static void test_ecdsa_p256(void)
 
     opssl_ecdsa_free(ctx);
 }
+
+static void test_ecdsa_p384(void)
+{
+    opssl_ecdsa_ctx_t *ctx = opssl_ecdsa_new(OPSSL_CURVE_P384);
+    ASSERT_EQ(ctx != NULL, 1, "ECDSA P-384 context creation");
+
+    ASSERT_EQ(opssl_ecdsa_keygen(ctx), 1, "ECDSA P-384 keygen");
+
+    uint8_t digest[48];
+    opssl_sha384("ecdsa p384 test", 15, digest);
+
+    uint8_t sig[104];
+    size_t sig_len = sizeof(sig);
+    int sign_ret = opssl_ecdsa_sign(ctx, digest, 48, sig, &sig_len);
+    ASSERT_EQ(sign_ret, 1, "ECDSA P-384 sign");
+    ASSERT_EQ(sig_len > 0, 1, "ECDSA P-384 signature length nonzero");
+
+    int ver_ret = opssl_ecdsa_verify(ctx, digest, 48, sig, sig_len);
+    ASSERT_EQ(ver_ret, 1, "ECDSA P-384 verify");
+
+    sig[sig_len / 2] ^= 1;
+    ASSERT_EQ(opssl_ecdsa_verify(ctx, digest, 48, sig, sig_len), 0, "ECDSA P-384 verify (tampered)");
+
+    opssl_ecdsa_free(ctx);
+}
+
+static void test_ecdsa_p521(void)
+{
+    /* Test sign/verify round-trip first */
+    opssl_ecdsa_ctx_t *ctx = opssl_ecdsa_new(OPSSL_CURVE_P521);
+    ASSERT_EQ(ctx != NULL, 1, "ECDSA P-521 context creation");
+    ASSERT_EQ(opssl_ecdsa_keygen(ctx), 1, "ECDSA P-521 keygen");
+
+    uint8_t digest_rt[64];
+    opssl_sha512("ecdsa p521 test", 15, digest_rt);
+
+    uint8_t sig_rt[142];
+    size_t sig_rt_len = sizeof(sig_rt);
+    int sign_ret = opssl_ecdsa_sign(ctx, digest_rt, 64, sig_rt, &sig_rt_len);
+    ASSERT_EQ(sign_ret, 1, "ECDSA P-521 sign");
+
+    int ver_ret = opssl_ecdsa_verify(ctx, digest_rt, 64, sig_rt, sig_rt_len);
+    ASSERT_EQ(ver_ret, 1, "ECDSA P-521 verify round-trip");
+    opssl_ecdsa_free(ctx);
+
+    /* Test against OpenSSL vector */
+    static const uint8_t pub_vec[133] = {
+        0x04, 0x01, 0x8e, 0x9a, 0x34, 0x9a, 0x68, 0x23, 0x04, 0x86, 0xac, 0xb2,
+        0x21, 0xbb, 0x6f, 0x6e, 0x7c, 0xce, 0x00, 0x4a, 0x79, 0xf9, 0x59, 0xa0,
+        0x02, 0x44, 0x35, 0x29, 0xf7, 0x42, 0x98, 0x19, 0x6e, 0x0f, 0x03, 0xa6,
+        0x81, 0x8b, 0x98, 0x1c, 0xae, 0xb3, 0xb5, 0x57, 0x43, 0xc9, 0xba, 0x84,
+        0xd9, 0xd0, 0x98, 0xeb, 0x72, 0xe3, 0x7d, 0x78, 0xa6, 0xaa, 0x6f, 0x7e,
+        0x34, 0xbf, 0x82, 0xee, 0x68, 0x8f, 0x58, 0x01, 0xf1, 0x5b, 0x87, 0x4c,
+        0x37, 0x76, 0x80, 0x7d, 0x04, 0x46, 0x72, 0xa1, 0xe0, 0x5e, 0xd5, 0x9a,
+        0x20, 0x79, 0xca, 0x99, 0xf0, 0x20, 0x37, 0x04, 0xfd, 0x22, 0xdc, 0x13,
+        0xaf, 0x65, 0xca, 0x68, 0xc8, 0x23, 0x8e, 0xbc, 0x77, 0x45, 0xf0, 0x30,
+        0x3e, 0x16, 0x04, 0x41, 0x94, 0x4d, 0x7c, 0xdc, 0xe0, 0x21, 0x50, 0x7c,
+        0xa5, 0x6d, 0xd7, 0x0b, 0x18, 0xaf, 0xdb, 0x92, 0x48, 0xb0, 0x12, 0xdb,
+        0x46
+    };
+    static const uint8_t digest_vec[64] = {
+        0x32, 0x6d, 0x11, 0x59, 0x8a, 0xce, 0xa0, 0x16, 0xdd, 0x42, 0x51, 0xaa,
+        0xea, 0xd7, 0x14, 0x4f, 0x84, 0x05, 0x7e, 0x4b, 0x55, 0x6f, 0x2e, 0x61,
+        0x4d, 0xb5, 0x37, 0x49, 0x6d, 0x48, 0x24, 0x7b, 0xb5, 0xcb, 0x31, 0x7e,
+        0x39, 0xda, 0x27, 0x26, 0xea, 0xef, 0x24, 0xc4, 0x07, 0xad, 0xfe, 0xfc,
+        0xec, 0x41, 0x86, 0x57, 0xd7, 0x27, 0x8d, 0x81, 0x13, 0x0c, 0xb9, 0xb1,
+        0x2e, 0xd9, 0xd1, 0xa0
+    };
+    static const uint8_t sig_vec[139] = {
+        0x30, 0x81, 0x88, 0x02, 0x42, 0x00, 0x9d, 0x9d, 0x9f, 0xc8, 0xdc, 0x67,
+        0xc3, 0xae, 0x78, 0xcc, 0x3a, 0xd1, 0x83, 0xdd, 0xe3, 0xec, 0x4c, 0xb4,
+        0x07, 0x18, 0x42, 0x8e, 0xb4, 0x10, 0xc8, 0xe0, 0x82, 0x6f, 0xf8, 0x46,
+        0x8b, 0x6f, 0x77, 0xd7, 0x64, 0xd7, 0x70, 0x29, 0x25, 0xca, 0x86, 0x50,
+        0x60, 0xc0, 0xe3, 0x46, 0x86, 0xa4, 0x5a, 0x9d, 0xc9, 0xfe, 0x6a, 0x29,
+        0xcb, 0x12, 0x35, 0x23, 0xd8, 0x78, 0xc1, 0xd6, 0xf3, 0x35, 0x34, 0x02,
+        0x42, 0x01, 0x46, 0xc9, 0x05, 0x7d, 0x08, 0x89, 0x0e, 0xef, 0xe3, 0xac,
+        0x0e, 0x18, 0x7b, 0x7c, 0x45, 0xaf, 0x9d, 0x96, 0x13, 0x2e, 0x12, 0x9e,
+        0xdc, 0xc0, 0x9b, 0x85, 0xc1, 0x4f, 0xee, 0xab, 0x86, 0x59, 0x7e, 0xa9,
+        0x02, 0x2c, 0x27, 0x0b, 0x6e, 0x1f, 0xe5, 0x94, 0x7e, 0xa0, 0x81, 0x38,
+        0x56, 0x64, 0x70, 0xbc, 0x25, 0x40, 0x13, 0x47, 0xce, 0xa0, 0x8d, 0x67,
+        0xa8, 0xdb, 0x5e, 0xf2, 0xab, 0x6c, 0xe8
+    };
+
+    opssl_ecdsa_ctx_t *ctx_v = opssl_ecdsa_new(OPSSL_CURVE_P521);
+    ASSERT_EQ(ctx_v != NULL, 1, "ECDSA P-521 context creation (vec)");
+
+    int rc = opssl_ecdsa_set_public(ctx_v, pub_vec, sizeof(pub_vec));
+    ASSERT_EQ(rc, 1, "ECDSA P-521 set public");
+
+    rc = opssl_ecdsa_verify(ctx_v, digest_vec, sizeof(digest_vec), sig_vec, sizeof(sig_vec));
+    ASSERT_EQ(rc, 1, "ECDSA P-521 verify OpenSSL vector");
+
+    uint8_t bad_digest_vec[64];
+    memcpy(bad_digest_vec, digest_vec, sizeof(bad_digest_vec));
+    bad_digest_vec[0] ^= 1;
+    rc = opssl_ecdsa_verify(ctx_v, bad_digest_vec, sizeof(bad_digest_vec), sig_vec, sizeof(sig_vec));
+    ASSERT_EQ(rc, 0, "ECDSA P-521 rejects wrong digest");
+
+    opssl_ecdsa_free(ctx_v);
+}
+
 
 static void test_ecdh_p256(void)
 {
@@ -1332,8 +1530,10 @@ int main(void)
     test_sha1();
     test_sha1_streaming();
     test_sha256_ni();
+    test_hmac_sha1();
     test_hmac_sha256();
     test_hkdf();
+    test_hkdf_sha1();
     test_chacha20_poly1305();
     test_aes_gcm();
     test_aes_ccm();
@@ -1347,6 +1547,8 @@ int main(void)
     test_pbkdf2();
     test_base64();
     test_ecdsa_p256();
+    test_ecdsa_p384();
+    test_ecdsa_p521();
     test_ecdh_p256();
     test_ecdh_p384();
     test_ecdh_p521();

@@ -503,7 +503,7 @@ void isupport_report(int idx, const char *prefix, int details)
     return;
 
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%sisupport:", prefix);
     strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
@@ -518,7 +518,7 @@ void isupport_report(int idx, const char *prefix, int details)
 
   if (details) {
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%sisupport (default):", prefix);
       strlcpy(buf, op_strbuf_str(&_b), sizeof buf);

@@ -183,7 +183,7 @@ static void greet_new_bot(int idx)
 
 static void bot_version(int idx, char *par)
 {
-  op_strbuf_t x;
+  op_strbuf_t x = {};
   int l;
 
   dcc[idx].timeval = now;
@@ -239,7 +239,7 @@ void failed_link(int idx)
   char nick[HANDLEN + 1];
 
   if (dcc[idx].u.bot->linker[0]) {
-    op_strbuf_t msg;
+    op_strbuf_t msg = {};
     op_strbuf_init(&msg);
     op_strbuf_appendf(&msg, "Couldn't link to %s.", dcc[idx].nick);
     strlcpy(s1, dcc[idx].u.bot->linker, sizeof(s1));
@@ -275,7 +275,7 @@ static void cont_link(int idx, char *buf, int i)
       if (i > 0) {
         bots = bots_in_subtree(findbot(dcc[idx].nick));
         users = users_in_subtree(findbot(dcc[idx].nick));
-        op_strbuf_t x;
+        op_strbuf_t x = {};
         op_strbuf_init(&x);
         op_strbuf_appendf(&x,
                      "Unlinked %s (restructure) (lost %d bot%s and %d user%s)",
@@ -498,7 +498,7 @@ static void eof_dcc_bot(int idx)
 
   bots = bots_in_subtree(findbot(dcc[idx].nick));
   users = users_in_subtree(findbot(dcc[idx].nick));
-  op_strbuf_t x;
+  op_strbuf_t x = {};
   op_strbuf_init(&x);
   op_strbuf_appendf(&x,
                "Lost bot: %s (lost %d bot%s and %d user%s)",
@@ -575,7 +575,7 @@ static int dcc_bot_check_digest(int idx, char *remote_digest)
 
   if (!password)
     return 1;
-  op_strbuf_t _seed;
+  op_strbuf_t _seed = {};
   op_strbuf_init(&_seed);
   op_strbuf_appendf(&_seed, "<%lx%" PRIx64 "@", (long) getpid(),
                    (uint64_t) dcc[idx].timeval);
@@ -931,7 +931,7 @@ static void out_dcc_general(int idx, char *buf, void *x)
 
   strip_mirc_codes(p->strip_flags, buf);
   if (dcc[idx].status & STAT_TELNET) {
-    op_strbuf_t escaped;
+    op_strbuf_t escaped = {};
     op_strbuf_init(&escaped);
     escape_telnet(&escaped, buf);
     if (dcc[idx].status & STAT_PAGE)
@@ -1309,7 +1309,7 @@ void dcc_telnet_hostresolved2(int i, int idx) {
     putlog(LOG_MISC, "*", DCC_IDENTFAIL, dcc[i].host, strerror(errno));
   else {
     memcpy(&dcc[j].sockname, &dcc[i].sockname, sizeof(sockname_t));
-    dcc[j].sock = getsock(dcc[j].sockname.family, 0);
+    dcc[j].sock = getsock(dcc[j].sockname.family, SOCK_CONNECT);
     if (dcc[j].sock >= 0) {
       sockname_t name;
       name.family = dcc[j].sockname.family;
@@ -1374,7 +1374,7 @@ static void dcc_telnet_hostresolved(int i)
       return;
     }
   }
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "-telnet!telnet@%s", dcc[i].host);
   userhost = op_strbuf_str(&s) + strlen("-telnet!");
@@ -1480,7 +1480,7 @@ static void timeout_dupwait(int idx)
 {
   /* Still duplicate? */
   if (in_chain(dcc[idx].nick)) {
-    op_strbuf_t x;
+    op_strbuf_t x = {};
     op_strbuf_init(&x);
     op_strbuf_appendf(&x, "%s!%s", dcc[idx].nick, dcc[idx].host);
     dprintf(idx, "error Already connected.\n");
@@ -1821,10 +1821,10 @@ static void dcc_telnet_pass(int idx, int atr)
 
     /* Turn off remote telnet echo (send IAC WILL ECHO). */
     if (dcc[idx].status & (STAT_TELNET | STAT_WS)) {
-      op_strbuf_t prompt;
+      op_strbuf_t prompt = {};
       op_strbuf_init(&prompt);
       escape_telnet(&prompt, DCC_ENTERPASS);
-      op_strbuf_t buf;
+      op_strbuf_t buf = {};
       op_strbuf_init(&buf);
       op_strbuf_appendf(&buf, "\n%s%s\r\n", op_strbuf_str(&prompt),
                TLN_IAC_C TLN_WILL_C TLN_ECHO_C);
@@ -1903,7 +1903,7 @@ static void dcc_telnet_new(int idx, char *buf, int x)
                  USER_PARTY | USER_MASTER | USER_OWNER));
     else {
       p = strchr(dcc[idx].host, '@');
-      op_strbuf_t work;
+      op_strbuf_t work = {};
       op_strbuf_init(&work);
       if (p) {
         q = p;
@@ -1953,7 +1953,7 @@ static void dcc_telnet_pw(int idx, char *new, int x)
          dcc[idx].port);
   if (notify_new[0]) {
     char notify_list[NICKLEN+UHOSTMAX+32], recipient[NICKLEN+UHOSTMAX+32];
-    op_strbuf_t notebuf;
+    op_strbuf_t notebuf = {};
     op_strbuf_init(&notebuf);
 
     op_strbuf_appendf(&notebuf, "Introduced to %s, %s", dcc[idx].nick, dcc[idx].host);
@@ -2048,7 +2048,7 @@ struct dcc_table DCC_TELNET_PW = {
 
 static int call_tcl_func(char *name, int idx, char *args)
 {
-  op_strbuf_t cmd;
+  op_strbuf_t cmd = {};
   op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "%s %d {%s}", name, idx, args);
   if (egg_eval_log(name, op_strbuf_str(&cmd))) {
@@ -2281,7 +2281,7 @@ void dcc_ident(int idx, char *buf, int len)
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_IDENTWAIT) &&
         (dcc[i].sock == dcc[idx].u.ident_sock)) {
-      op_strbuf_t buf1;
+      op_strbuf_t buf1 = {};
       op_strbuf_init(&buf1);
       op_strbuf_appendf(&buf1, "%s@%s", uid, dcc[idx].host);
       dcc_telnet_got_ident(i, op_strbuf_str(&buf1));
@@ -2298,7 +2298,7 @@ void eof_timeout_dcc_ident(int idx, const char *s)
     if ((dcc[i].type == &DCC_IDENTWAIT) &&
         (dcc[i].sock == dcc[idx].u.ident_sock)) {
       putlog(LOG_MISC, "*", "%s", s);
-      op_strbuf_t buf;
+      op_strbuf_t buf = {};
       op_strbuf_init(&buf);
       op_strbuf_appendf(&buf, "telnet@%s", dcc[idx].host);
       dcc_telnet_got_ident(i, op_strbuf_str(&buf));
@@ -2354,7 +2354,7 @@ static void dcc_telnet_got_ident(int i, const char *host)
     return;
   }
   strlcpy(dcc[i].host, host, UHOSTLEN);
-  op_strbuf_t x;
+  op_strbuf_t x = {};
   op_strbuf_init(&x);
   op_strbuf_appendf(&x, "-telnet!%s", dcc[i].host);
   if (protect_telnet && !make_userfile) {

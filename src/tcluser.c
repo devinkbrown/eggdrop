@@ -614,7 +614,7 @@ static int tcl_ignorelist STDVAR
   for (i = global_ign; i; i = i->next) {
     list[0] = i->igmask;
     list[1] = i->msg;
-    op_strbuf_t _expire, _added;
+    op_strbuf_t _expire = {}, _added = {};
     op_strbuf_appendf(&_expire, "%" PRId64, (int64_t) i->expire);
     list[2] = op_strbuf_str(&_expire);
     op_strbuf_appendf(&_added, "%" PRId64, (int64_t) i->added);

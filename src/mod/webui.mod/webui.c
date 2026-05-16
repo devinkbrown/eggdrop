@@ -69,7 +69,7 @@ static void put_404(int idx) {
 
   debug1("webui: put_404() idx %i", idx);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b,
       "HTTP/1.1 404 \r\n" /* textual phrase is OPTIONAL */
@@ -136,7 +136,7 @@ static void put_file(int idx, int file_cache_index) {
     f->st_mtim.tv_nsec = sb.st_mtim.tv_nsec;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b,
       "HTTP/1.1 200 \r\n" /* textual phrase is OPTIONAL */
@@ -217,7 +217,7 @@ static void webui_http_activity(int idx, char *buf, int len)
 
     int i;
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b,
         "HTTP/1.1 101 Switching Protocols\r\n"

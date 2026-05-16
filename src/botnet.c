@@ -393,7 +393,7 @@ char *lastbot(char *who)
  */
 void answer_local_whom(int idx, int chan)
 {
-  op_strbuf_t format;
+  op_strbuf_t format = {};
   char c;
   int t, nicklen, botnicklen, total = 0;
 
@@ -402,7 +402,7 @@ void answer_local_whom(int idx, int chan)
             BOT_LOCALCHAN);
   else if (chan > 0) {
     {
-      op_strbuf_t tcl_cmd;
+      op_strbuf_t tcl_cmd = {};
       op_strbuf_init(&tcl_cmd);
       op_strbuf_appendf(&tcl_cmd, "assoc %d", chan);
       if (egg_eval(op_strbuf_str(&tcl_cmd)) || tcl_resultempty())
@@ -451,7 +451,7 @@ void answer_local_whom(int idx, int chan)
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type == &DCC_CHAT) {
       if ((chan == -1) || ((chan >= 0) && (dcc[i].u.chat->channel == chan))) {
-        op_strbuf_t idle;
+        op_strbuf_t idle = {};
         op_strbuf_init(&idle);
         c = geticon(i);
         if (c == '-')
@@ -482,7 +482,7 @@ void answer_local_whom(int idx, int chan)
     }
   for (int i = 0; i < parties; i++) {
     if ((chan == -1) || ((chan >= 0) && (party[i].chan == chan))) {
-      op_strbuf_t idle;
+      op_strbuf_t idle = {};
       op_strbuf_init(&idle);
       c = party[i].flag;
       if (c == '-')
@@ -524,7 +524,7 @@ void tell_bots(int idx)
     dprintf(idx, "%s\n", BOT_NOBOTSLINKED);
     return;
   }
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_append_cstr(&s, botnetnick);
 
@@ -551,7 +551,7 @@ void tell_bottree(int idx, int showver)
   tand_t *last[20], *this, *bot, *bot2 = nullptr, *lastbot = nullptr;
   int lev = 0, more = 1, mark[20], cnt, i;
   bool ok = false;
-  op_strbuf_t prefix;
+  op_strbuf_t prefix = {};
   op_strbuf_init(&prefix);
   int tothops = 0;
 
@@ -560,7 +560,7 @@ void tell_bottree(int idx, int showver)
     op_strbuf_free(&prefix);
     return;
   }
-  op_strbuf_t _unlinked;
+  op_strbuf_t _unlinked = {};
   op_strbuf_init(&_unlinked);
 
   for (bot = tandbot; bot; bot = bot->next) {
@@ -602,7 +602,7 @@ void tell_bottree(int idx, int showver)
       op_strbuf_append_cstr(&prefix, cnt > 1
           ? (bot->ssl ? "  |=" : "  |-")
           : (bot->ssl ? "  `=" : "  `-"));
-      op_strbuf_t line;
+      op_strbuf_t line = {};
       op_strbuf_init(&line);
       bot = tandbot;
       while (op_strbuf_empty(&line)) {
@@ -643,7 +643,7 @@ void tell_bottree(int idx, int showver)
           return;
         }
         ok = false;
-        op_strbuf_t line;
+        op_strbuf_t line = {};
         op_strbuf_init(&line);
         for (bot = tandbot; bot; bot = bot->next) {
           if (bot->uplink == last[lev - 1]) {
@@ -718,7 +718,7 @@ void dump_links(int z)
   for (tand_t *bot = tandbot; bot; bot = bot->next) {
     char *p = (bot->uplink == (tand_t *) 1) ? botnetnick : bot->uplink->bot;
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "n %s %s %c%s\n", bot->bot, p,
                         bot->share, int_to_base64(bot->ver));
@@ -733,10 +733,10 @@ void dump_links(int z)
         if ((dcc[i].u.chat->channel >= 0) &&
             (dcc[i].u.chat->channel < GLOBAL_CHANS)) {
           {
-            op_strbuf_t b64_chan, b64_sock, b64_idle;
+            op_strbuf_t b64_chan = {}, b64_sock = {}, b64_idle = {};
             op_strbuf_appendf(&b64_chan, "%s", int_to_base64(dcc[i].u.chat->channel));
             op_strbuf_appendf(&b64_sock, "%s", int_to_base64(dcc[i].sock));
-            op_strbuf_t _bj;
+            op_strbuf_t _bj = {};
             op_strbuf_init(&_bj);
             op_strbuf_appendf(&_bj, "j !%s %s %s %c%s %s\n",
                               botnetnick, dcc[i].nick,
@@ -745,7 +745,7 @@ void dump_links(int z)
             dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
             op_strbuf_free(&_bj);
             op_strbuf_appendf(&b64_idle, "%s", int_to_base64(now - dcc[i].timeval));
-            op_strbuf_t _bi;
+            op_strbuf_t _bi = {};
             op_strbuf_init(&_bi);
             op_strbuf_appendf(&_bi, "i %s %s %s %s\n", botnetnick,
                               op_strbuf_str(&b64_sock), op_strbuf_str(&b64_idle),
@@ -761,10 +761,10 @@ void dump_links(int z)
     }
     for (int i = 0; i < parties; i++) {
       {
-        op_strbuf_t b64_chan, b64_sock;
+        op_strbuf_t b64_chan = {}, b64_sock = {};
         op_strbuf_appendf(&b64_chan, "%s", int_to_base64(party[i].chan));
         op_strbuf_appendf(&b64_sock, "%s", int_to_base64(party[i].sock));
-        op_strbuf_t _bj;
+        op_strbuf_t _bj = {};
         op_strbuf_init(&_bj);
         op_strbuf_appendf(&_bj, "j %s %s %s %c%s %s\n",
                           party[i].bot, party[i].nick,
@@ -773,10 +773,10 @@ void dump_links(int z)
         dprint(z, op_strbuf_str(&_bj), (int) op_strbuf_len(&_bj));
         op_strbuf_free(&_bj);
         if ((party[i].status & PLSTAT_AWAY) || (party[i].timer != 0)) {
-          op_strbuf_t b64_idle;
+          op_strbuf_t b64_idle = {};
           op_strbuf_init(&b64_idle);
           op_strbuf_appendf(&b64_idle, "%s", int_to_base64(now - party[i].timer));
-          op_strbuf_t _bi;
+          op_strbuf_t _bi = {};
           op_strbuf_init(&_bi);
           op_strbuf_appendf(&_bi, "i %s %s %s %s\n", party[i].bot,
                             op_strbuf_str(&b64_sock), op_strbuf_str(&b64_idle),
@@ -866,7 +866,7 @@ int botunlink(int idx, char *nick, char *reason, char *from)
         int bots = bots_in_subtree(bot);
         int users = users_in_subtree(bot);
         {
-          op_strbuf_t s;
+          op_strbuf_t s = {};
           op_strbuf_init(&s);
           if (reason && reason[0]) {
             op_strbuf_appendf(&s, "%s %s (%s (%s)) (lost %d bot%s and %d user%s)",
@@ -1019,7 +1019,7 @@ int botlink(char *linker, int idx, char *nick)
 
 static void botlink_resolve_failure(int i)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
 
   putlog(LOG_BOTS, "*", DCC_LINKFAIL, dcc[i].nick);
@@ -1612,7 +1612,7 @@ void check_botnet_pings(void)
         int bots = bots_in_subtree(bot);
         int users = users_in_subtree(bot);
         {
-          op_strbuf_t s;
+          op_strbuf_t s = {};
           op_strbuf_init(&s);
           op_strbuf_appendf(&s, "%s: %s (lost %d bot%s and %d user%s)",
                    BOT_PINGTIMEOUT, dcc[i].nick, bots,
@@ -1642,7 +1642,7 @@ void check_botnet_pings(void)
             int bots = bots_in_subtree(leaf_bot);
             int users = users_in_subtree(leaf_bot);
             {
-              op_strbuf_t s;
+              op_strbuf_t s = {};
               op_strbuf_init(&s);
               op_strbuf_appendf(&s, "%s %s (%s) (lost %d bot%s and %d user%s)",
                        BOT_DISCONNECTED, dcc[i].nick, BOT_BOTNOTLEAFLIKE,
@@ -1670,7 +1670,7 @@ void zapfbot(int idx)
   int bots = bots_in_subtree(bot);
   int users = users_in_subtree(bot);
   {
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s: %s (lost %d bot%s and %d user%s)", BOT_BOTDROPPED,
              dcc[idx].nick, bots, (bots != 1) ? "s" : "", users,

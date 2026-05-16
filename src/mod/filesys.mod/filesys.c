@@ -439,7 +439,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
     return 0;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     if (dir[0])
       op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dir, fn);
@@ -460,7 +460,7 @@ static int do_dcc_send(int idx, char *dir, char *fn, char *nick, int resend)
     nick = dcc[idx].nick;
   /* Already have too many transfers active for this user?  queue it */
   if (at_limit(nick)) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%d*%s%s", (int) strlen(dccdir), dccdir, dir);
     queue_file(op_strbuf_str(&_b), fn, dcc[idx].nick, nick);
@@ -711,7 +711,7 @@ static char *mktempfile(char *filename)
     strlcpy(fn, filename, l + 1);
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%li-%s-%s", (long) getpid(), rands, fn);
     tempname = op_strbuf_steal(&_b);
@@ -726,7 +726,7 @@ static void filesys_dcc_send_hostresolved(int i)
   char *s1, *param, *tempf;
   int len = dcc[i].u.dns->ibuf, j;
 
-  op_strbuf_t _prt;
+  op_strbuf_t _prt = {};
   op_strbuf_init(&_prt);
   op_strbuf_appendf(&_prt, "%s", int_to_base10(dcc[i].port));
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].u.dns->host, &dcc[i].sockname,
@@ -757,7 +757,7 @@ static void filesys_dcc_send_hostresolved(int i)
     char *p = get_user(&USERENTRY_DCCDIR, dcc[i].user);
 
     if (p) {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s%s/", dccdir, p);
       strlcpy(dcc[i].u.xfer->dir, op_strbuf_str(&_b), sizeof(dcc[i].u.xfer->dir));
@@ -768,7 +768,7 @@ static void filesys_dcc_send_hostresolved(int i)
     strlcpy(dcc[i].u.xfer->dir, dccin, sizeof(dcc[i].u.xfer->dir));
   dcc[i].u.xfer->length = len;
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", dcc[i].u.xfer->dir, dcc[i].u.xfer->origname);
     s1 = op_strbuf_steal(&_b);

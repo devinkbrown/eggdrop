@@ -100,7 +100,7 @@ static void flush_chanset_ircx(void)
 {
   if (!chanset_state.has_ircx || !chanset_state.channel[0])
     return;
-  op_strbuf_t cmd;
+  op_strbuf_t cmd = {};
   op_strbuf_init(&cmd);
   if (chanset_state.ircx_modes[0])
     op_strbuf_appendf(&cmd, "ircxautoowner %s \"%s\" %d \"%s\"",
@@ -305,7 +305,7 @@ static void run_tcl_cmd(const char *cmd)
         }
       }
       {
-        op_strbuf_t es;
+        op_strbuf_t es = {};
         op_strbuf_init(&es);
         if (pass[0])
           op_strbuf_appendf(&es, "%s:%s:%s", host, port, pass);
@@ -338,7 +338,7 @@ static struct {
 static void cb_loadmodule(const char *name, [[maybe_unused]] void *ud)
 {
   if (interp) {
-    op_strbuf_t cmd;
+    op_strbuf_t cmd = {};
     op_strbuf_init(&cmd);
     op_strbuf_appendf(&cmd, "loadmodule %s", name);
     run_tcl_cmd(op_strbuf_str(&cmd));
@@ -383,7 +383,7 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
   }
 
   {
-    op_strbuf_t cmd;
+    op_strbuf_t cmd = {};
     op_strbuf_init(&cmd);
     if (pass[0])
       op_strbuf_appendf(&cmd, "server add %s %s %s", host, portpart, pass);
@@ -399,7 +399,7 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
 
 static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
 {
-  op_strbuf_t cmd;
+  op_strbuf_t cmd = {};
   op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "channel add %s", name);
   run_tcl_cmd(op_strbuf_str(&cmd));
@@ -412,7 +412,7 @@ static void cb_channel_add(const char *name, [[maybe_unused]] void *ud)
  */
 static void cb_logfile(const char *entry, [[maybe_unused]] void *ud)
 {
-  op_strbuf_t cmd;
+  op_strbuf_t cmd = {};
   op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "logfile %s", entry);
   run_tcl_cmd(op_strbuf_str(&cmd));
@@ -428,7 +428,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
     return;
   }
   if (interp) {
-    op_strbuf_t cmd;
+    op_strbuf_t cmd = {};
     op_strbuf_init(&cmd);
     op_strbuf_appendf(&cmd, "source %s", path);
     run_tcl_cmd(op_strbuf_str(&cmd));
@@ -440,7 +440,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
 
 static void cb_loadhelp(const char *file, [[maybe_unused]] void *ud)
 {
-  op_strbuf_t cmd;
+  op_strbuf_t cmd = {};
   op_strbuf_init(&cmd);
   op_strbuf_appendf(&cmd, "loadhelp %s", file);
   run_tcl_cmd(op_strbuf_str(&cmd));
@@ -548,7 +548,7 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
       {
         char tclkey[64];
         key_to_tclvar(key, tclkey, sizeof tclkey);
-        op_strbuf_t cmd;
+        op_strbuf_t cmd = {};
         op_strbuf_init(&cmd);
         if (is_chan_flag(tclkey))
           op_strbuf_appendf(&cmd, "channel set %s %s%s",
@@ -656,7 +656,7 @@ static void walk_key_cb(const char *key, void *ud)
   const char *sval;
   long ival;
   int bval;
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   const char *val = nullptr;
 
@@ -1005,7 +1005,7 @@ int run_setup_wizard(const char *outfile)
 
   /* Smart defaults derived from nick */
   {
-    op_strbuf_t _t;
+    op_strbuf_t _t = {};
     op_strbuf_init(&_t);
     op_strbuf_appendf(&_t, "%s?", nick);
     prompt("Alternate nick (? replaced by a random digit)", op_strbuf_str(&_t),
@@ -1013,7 +1013,7 @@ int run_setup_wizard(const char *outfile)
     op_strbuf_free(&_t);
   }
   {
-    op_strbuf_t _t;
+    op_strbuf_t _t = {};
     op_strbuf_init(&_t);
     op_strbuf_appendf(&_t, "/msg %s help", nick);
     prompt("Real name (IRC GECOS)", op_strbuf_str(&_t), realname, sizeof realname);
@@ -1047,7 +1047,7 @@ int run_setup_wizard(const char *outfile)
   use_ssl = prompt_yn("Use SSL/TLS?", 1);
 
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s", int_to_base10(use_ssl ? 6697 : 6667));
     prompt("Port", op_strbuf_str(&_b), port_buf, sizeof port_buf);
@@ -1149,7 +1149,7 @@ int run_setup_wizard(const char *outfile)
 
   /* Defaults derived from nick */
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s.user", nick);
     prompt("User file", op_strbuf_str(&_b), userfile, sizeof userfile);

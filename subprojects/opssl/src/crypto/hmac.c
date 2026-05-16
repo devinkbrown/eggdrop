@@ -20,7 +20,7 @@ static size_t
 get_block_size(opssl_hmac_algo_t algo)
 {
     switch (algo) {
-    case OPSSL_HMAC_SHA1:   return 64;
+    case OPSSL_HMAC_SHA1: return 64;
     case OPSSL_HMAC_SHA256: return 64;
     case OPSSL_HMAC_SHA384: return 128;
     case OPSSL_HMAC_SHA512: return 128;
@@ -32,7 +32,7 @@ static size_t
 get_digest_size(opssl_hmac_algo_t algo)
 {
     switch (algo) {
-    case OPSSL_HMAC_SHA1:   return OPSSL_SHA1_DIGEST_LEN;
+    case OPSSL_HMAC_SHA1: return OPSSL_SHA1_DIGEST_LEN;
     case OPSSL_HMAC_SHA256: return OPSSL_SHA256_DIGEST_LEN;
     case OPSSL_HMAC_SHA384: return OPSSL_SHA384_DIGEST_LEN;
     case OPSSL_HMAC_SHA512: return OPSSL_SHA512_DIGEST_LEN;
@@ -44,6 +44,9 @@ int
 opssl_hmac_init(opssl_hmac_ctx_t *ctx, opssl_hmac_algo_t algo,
                 const uint8_t *key, size_t key_len)
 {
+    if (!key)
+        return 0;
+
     memset(ctx, 0, sizeof(*ctx));
     ctx->algo = algo;
     ctx->block_size = get_block_size(algo);
@@ -92,7 +95,6 @@ opssl_hmac_init(opssl_hmac_ctx_t *ctx, opssl_hmac_algo_t algo,
         opssl_sha256_update(&ctx->inner.sha256, ipad, ctx->block_size);
         break;
     case OPSSL_HMAC_SHA384:
-        opssl_sha512_init(&ctx->inner.sha512);
         opssl_sha384_init(&ctx->inner.sha512);
         opssl_sha512_update(&ctx->inner.sha512, ipad, ctx->block_size);
         break;

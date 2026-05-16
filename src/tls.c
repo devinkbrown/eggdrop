@@ -408,10 +408,6 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
     return -3;
   }
 
-  /* The io_thread must not recv() on a TLS socket — remove it and
-   * re-register the commio read callback (io_thread_add_sock clears it). */
-  socklist_reclaim_from_iot(td->socklist[i].sock, i);
-
   /* Sync the opssl_conn_t pointer onto the commio FDE */
   {
     op_fde_t *F = op_get_fde(td->socklist[i].sock);

@@ -248,14 +248,14 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
           strlcat(s, "/", s_sz);
       }
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s", s, elem);
         work = op_strbuf_steal(&_b);
       }
       malloc_strcpy(*real, work);
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s", dccdir, *real);
         op_free(s);
@@ -271,7 +271,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
     my_free(work);
   /* Sanity check: does this dir exist? */
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", dccdir, *real);
     op_free(s);
@@ -511,7 +511,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
           if (!whoto[0])
             malloc_strcpy(whoto, dcc[idx].nick);
           {
-            op_strbuf_t _b;
+            op_strbuf_t _b = {};
             op_strbuf_init(&_b);
             op_strbuf_appendf(&_b, "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
             s = op_strbuf_steal(&_b);
@@ -521,7 +521,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
           /* Increase got count now (or never) */
           fdbe->gots++;
           {
-            op_strbuf_t _b;
+            op_strbuf_t _b = {};
             op_strbuf_init(&_b);
             op_strbuf_appendf(&_b, "%s:%s", bot, fdbe->sharelink);
             op_free(s);
@@ -569,7 +569,7 @@ static void cmd_file_help(int idx, char *par)
   if (par[0]) {
     putlog(LOG_FILES, "*", "files: #%s# help %s", dcc[idx].nick, par);
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "filesys/%s", par);
       s = op_strbuf_steal(&_b);
@@ -834,7 +834,7 @@ static void cmd_desc(int idx, char *par)
     return;
   }
   /* Fix up desc */
-  op_strbuf_t _desc_b;
+  op_strbuf_t _desc_b = {};
   op_strbuf_init(&_desc_b);
   op_strbuf_appendf(&_desc_b, "%s|", par);
   desc = op_strbuf_steal(&_desc_b);
@@ -950,7 +950,7 @@ static void cmd_rm(int idx, char *par)
     where = ftell(fdb);
     if (!(fdbe->stat & (FILE_HIDDEN | FILE_DIR))) {
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, fdbe->filename);
         s = op_strbuf_steal(&_b);
@@ -1024,7 +1024,7 @@ static void cmd_mkdir(int idx, char *par)
     fdbe = filedb_matchfile(fdb, ftell(fdb), name);
     if (!fdbe) {
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%s/%s", dccdir, dcc[idx].u.file->dir, name);
         s = op_strbuf_steal(&_b);
@@ -1109,7 +1109,7 @@ static void cmd_rmdir(int idx, char *par)
     }
     /* Erase '.filedb' and '.files' if they exist */
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s%s/%s/.filedb", dccdir, dcc[idx].u.file->dir, name);
       unlink(op_strbuf_str(&_b));
@@ -1255,7 +1255,7 @@ static void cmd_mv_cp(int idx, char *par, int copy)
     skip_this = 0;
     if (!(fdbe_old->stat & (FILE_HIDDEN | FILE_DIR))) {
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         if (oldpath[0])
           op_strbuf_appendf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);
@@ -1510,7 +1510,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
         malloc_strcpy(whoto, dcc[idx].nick);
       }
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%ld:%s@%s", dcc[idx].sock, whoto, botnetnick);
         s = op_strbuf_steal(&_b);
@@ -1520,7 +1520,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
       /* Increase got count now (or never) */
       fdbe->gots++;
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s:%s", bot, fdbe->sharelink);
         op_free(s);

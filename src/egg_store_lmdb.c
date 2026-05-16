@@ -158,7 +158,7 @@ static void delete_user_entries(MDB_txn *txn, MDB_dbi dbi, const char *handle)
 {
   MDB_cursor *cursor;
   MDB_val key, val;
-  op_strbuf_t prefix;
+  op_strbuf_t prefix = {};
   op_strbuf_init(&prefix);
   size_t handle_len = strlen(handle);
   int rc;
@@ -242,7 +242,7 @@ static void lmdb_save_users(int idx)
     v = mk_str(botnetnick);
     mdb_put(txn, dbi_meta, &k, &v, 0);
 
-    op_strbuf_t ts;
+    op_strbuf_t ts = {};
     op_strbuf_init(&ts);
     op_strbuf_appendf(&ts, "%" PRId64, (int64_t) now);
     k = mk_str("timestamp");
@@ -283,7 +283,7 @@ static void lmdb_save_users(int idx)
       build_flags(flags, &fr, nullptr);
 
       /* User record: flags + channel count as a compact summary. */
-      op_strbuf_t sb;
+      op_strbuf_t sb = {};
       op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%s", flags);
 
@@ -300,7 +300,7 @@ static void lmdb_save_users(int idx)
 
       /* Host masks. */
       for (struct list_type *h = get_user(&USERENTRY_HOSTS, u); h; h = h->next) {
-        op_strbuf_t kb;
+        op_strbuf_t kb = {};
         key = mk_key2(&kb, u->handle, h->extra);
         val = mk_val("", 0);
         mdb_put(txn, dbi_hosts, &key, &val, 0);
@@ -309,7 +309,7 @@ static void lmdb_save_users(int idx)
 
       /* Accounts. */
       for (struct list_type *a = get_user(&USERENTRY_ACCOUNT, u); a; a = a->next) {
-        op_strbuf_t kb;
+        op_strbuf_t kb = {};
         key = mk_key2(&kb, u->handle, a->extra);
         val = mk_val("", 0);
         mdb_put(txn, dbi_accounts, &key, &val, 0);
@@ -319,7 +319,7 @@ static void lmdb_save_users(int idx)
 
     /* Always rebuild ignores completely (they're small and change rarely) */
     for (struct igrec *ig = global_ign; ig; ig = ig->next) {
-      op_strbuf_t sb;
+      op_strbuf_t sb = {};
       op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%" PRId64 " %" PRId64 " %d %s %s",
                        (int64_t) ig->expire, (int64_t) ig->added,
@@ -346,7 +346,7 @@ static void lmdb_save_users(int idx)
       build_flags(flags, &fr, nullptr);
 
       /* Update user record */
-      op_strbuf_t sb;
+      op_strbuf_t sb = {};
       op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%s", flags);
 
@@ -367,7 +367,7 @@ static void lmdb_save_users(int idx)
 
       /* Re-insert current host masks */
       for (struct list_type *h = get_user(&USERENTRY_HOSTS, u); h; h = h->next) {
-        op_strbuf_t kb;
+        op_strbuf_t kb = {};
         key = mk_key2(&kb, u->handle, h->extra);
         val = mk_val("", 0);
         mdb_put(txn, dbi_hosts, &key, &val, 0);
@@ -376,7 +376,7 @@ static void lmdb_save_users(int idx)
 
       /* Re-insert current accounts */
       for (struct list_type *a = get_user(&USERENTRY_ACCOUNT, u); a; a = a->next) {
-        op_strbuf_t kb;
+        op_strbuf_t kb = {};
         key = mk_key2(&kb, u->handle, a->extra);
         val = mk_val("", 0);
         mdb_put(txn, dbi_accounts, &key, &val, 0);
@@ -387,7 +387,7 @@ static void lmdb_save_users(int idx)
     /* Always rebuild ignores completely (they're small and change rarely) */
     mdb_drop(txn, dbi_ignores, 0);
     for (struct igrec *ig = global_ign; ig; ig = ig->next) {
-      op_strbuf_t sb;
+      op_strbuf_t sb = {};
       op_strbuf_init(&sb);
       op_strbuf_appendf(&sb, "%" PRId64 " %" PRId64 " %d %s %s",
                        (int64_t) ig->expire, (int64_t) ig->added,

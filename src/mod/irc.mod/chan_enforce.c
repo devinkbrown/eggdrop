@@ -171,7 +171,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
       if (use_exempts && (u_match_mask(global_exempts, from) ||
           u_match_mask_trie(chan->exempts, chan->exempt_ip_trie, from)))
         return 1;
-      op_strbuf_t _bh;
+      op_strbuf_t _bh = {};
       op_strbuf_init(&_bh);
       op_strbuf_appendf(&_bh, "*!*@%s", p);
       if (!isbanned(chan, op_strbuf_str(&_bh)) && (me_op(chan) || me_halfop(chan))) {
@@ -190,7 +190,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
       strlcpy(ftype + 4, " flood", sizeof(ftype) - 4);
       u_addban(chan, op_strbuf_str(&_bh), botnetnick, ftype, now + (60 * chan->ban_time), 0);
       if (!channel_enforcebans(chan) && (me_op(chan) || me_halfop(chan))) {
-        op_strbuf_t _bs;
+        op_strbuf_t _bs = {};
 
         op_strbuf_init(&_bs);
         for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
@@ -253,7 +253,7 @@ static void kick_all(struct chanset_t *chan, char *hostmask,
                      const char *comment, int bantype)
 {
   memberlist *m;
-  op_strbuf_t kicknick, _s;
+  op_strbuf_t kicknick = {}, _s = {};
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   int k, l, flushed;
 
@@ -322,7 +322,7 @@ static void refresh_ban_kick(struct chanset_t *chan, const char *user, char *nic
         get_user_flagrec(get_user_from_member(m), &fr,
                          chan->dname);
         if (!glob_friend(fr) && !chan_friend(fr)) {
-          op_strbuf_t _bc;
+          op_strbuf_t _bc = {};
           op_strbuf_init(&_bc);
           add_mode(chan, '-', 'o', nick);       /* Guess it can't hurt. */
           check_exemptlist(chan, user);
@@ -394,7 +394,7 @@ static void refresh_invite(struct chanset_t *chan, const char *user)
  */
 static void enforce_bans(struct chanset_t *chan)
 {
-  op_strbuf_t _bme;
+  op_strbuf_t _bme = {};
   op_strbuf_init(&_bme);
   masklist *b;
 
@@ -522,7 +522,7 @@ static void resetmasks(struct chanset_t *chan, masklist *m, maskrec *mrec,
 static void check_this_ban(struct chanset_t *chan, char *banmask, int sticky)
 {
   memberlist *m;
-  op_strbuf_t _bu;
+  op_strbuf_t _bu = {};
   op_strbuf_init(&_bu);
 
   if (HALFOP_CANTDOMODE('b'))
@@ -713,7 +713,7 @@ static void check_this_member(struct chanset_t *chan, char *nick,
         (strchr(NOHALFOPS_MODES, 'I') != nullptr)))
       return;
 
-    op_strbuf_t _bs;
+    op_strbuf_t _bs = {};
     op_strbuf_init(&_bs);
     op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
     if (use_invites && (u_match_mask(global_invites, op_strbuf_str(&_bs)) ||
@@ -744,7 +744,7 @@ static void check_this_user(char *hand, int delete, char *host)
   struct userrec *u;
   struct chanset_t *chan;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t _s;
+  op_strbuf_t _s = {};
 
   op_strbuf_init(&_s);
   for (chan = chanset; chan; chan = chan->next)

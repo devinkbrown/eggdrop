@@ -470,7 +470,7 @@ static int fast_deq(int which)
   struct msgq *m, *nm;
   char *msgstr = nullptr, *nextmsgstr, *tosend, *stackable = nullptr, *msg, *nextmsg, *cmd,
        *nextcmd, *to, *nextto, *stckbl;
-  op_strbuf_t victims;
+  op_strbuf_t victims = {};
   int len, doit = 0, found = 0, cmd_count = 0, stack_method = 1;
 
   if (!use_fastdeq)
@@ -492,7 +492,7 @@ static int fast_deq(int which)
 
   m = h->head;
   {
-    op_strbuf_t _sb;
+    op_strbuf_t _sb = {};
     op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", m->msg);
     msgstr = op_strbuf_steal(&_sb);
@@ -501,7 +501,7 @@ static int fast_deq(int which)
   cmd = newsplit(&msg);
   if (use_fastdeq > 1) {
     {
-      op_strbuf_t _sb;
+      op_strbuf_t _sb = {};
       op_strbuf_init(&_sb);
       op_strbuf_appendf(&_sb, "%s", stackablecmds);
       stackable = op_strbuf_steal(&_sb);
@@ -531,7 +531,7 @@ static int fast_deq(int which)
     /* we check for the stacking method (default=1) */
     op_free(stackable);
     {
-      op_strbuf_t _sb;
+      op_strbuf_t _sb = {};
       op_strbuf_init(&_sb);
       op_strbuf_appendf(&_sb, "%s", stackable2cmds);
       stackable = op_strbuf_steal(&_sb);
@@ -551,7 +551,7 @@ static int fast_deq(int which)
     if (!nm)
       break;
     {
-      op_strbuf_t _sb;
+      op_strbuf_t _sb = {};
       op_strbuf_init(&_sb);
       op_strbuf_appendf(&_sb, "%s", nm->msg);
       nextmsgstr = op_strbuf_steal(&_sb);
@@ -577,7 +577,7 @@ static int fast_deq(int which)
   }
   if (doit) {
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s %s %s", cmd, op_strbuf_str(&victims), msg);
       tosend = op_strbuf_steal(&_b);
@@ -632,7 +632,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
 {
   struct msgq *m, *lm = nullptr;
   char *buf, *msg, *nicks, *nick, *chan;
-  op_strbuf_t newnicks;
+  op_strbuf_t newnicks = {};
   int changed;
 
   buf = nullptr;
@@ -642,7 +642,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
     if (optimize_kicks == 2 && !strncasecmp(m->msg, "KICK ", 5)) {
       op_strbuf_clear(&newnicks);
       {
-        op_strbuf_t _sb;
+        op_strbuf_t _sb = {};
         op_strbuf_init(&_sb);
         op_strbuf_appendf(&_sb, "%s", m->msg);
         buf = op_strbuf_steal(&_sb);
@@ -679,7 +679,7 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
         if (!q->head)
           q->last = 0;
       } else {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, msg);
         op_free(m->msg);
@@ -702,7 +702,7 @@ static void purge_kicks(struct msgq_head *q)
 {
   struct msgq *m, *lm = nullptr;
   char *buf = nullptr, *reason, *nicks, *nick, *chan, *chans, *chns, *ch;
-  op_strbuf_t newnicks;
+  op_strbuf_t newnicks = {};
   int changed, found;
   struct chanset_t *cs;
 
@@ -712,7 +712,7 @@ static void purge_kicks(struct msgq_head *q)
       op_strbuf_clear(&newnicks);
       changed = 0;
       {
-        op_strbuf_t _sb;
+        op_strbuf_t _sb = {};
         op_strbuf_init(&_sb);
         op_strbuf_appendf(&_sb, "%s", m->msg);
         buf = op_strbuf_steal(&_sb);
@@ -725,7 +725,7 @@ static void purge_kicks(struct msgq_head *q)
         found = 0;
         nick = splitnicks(&nicks);
         {
-          op_strbuf_t _sb;
+          op_strbuf_t _sb = {};
           op_strbuf_init(&_sb);
           op_strbuf_appendf(&_sb, "%s", chan);
           chans = op_strbuf_steal(&_sb);
@@ -761,7 +761,7 @@ static void purge_kicks(struct msgq_head *q)
           if (!q->head)
             q->last = 0;
         } else {
-          op_strbuf_t _b;
+          op_strbuf_t _b = {};
           op_strbuf_init(&_b);
           op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
           op_free(m->msg);
@@ -786,7 +786,7 @@ static int deq_kick(int which)
   struct msgq_head *h;
   struct msgq *msg, *m, *lm;
   char *buf, *buf2, *reason2, *nicks, *chan, *chan2, *reason, *nick, *newmsg;
-  op_strbuf_t newnicks, newnicks2;
+  op_strbuf_t newnicks = {}, newnicks2 = {};
   int changed = 0, nr = 0;
 
   if (!optimize_kicks)
@@ -822,7 +822,7 @@ static int deq_kick(int which)
 
   msg = h->head;
   {
-    op_strbuf_t _sb;
+    op_strbuf_t _sb = {};
     op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", msg->msg);
     buf = op_strbuf_steal(&_sb);
@@ -842,7 +842,7 @@ static int deq_kick(int which)
       changed = 0;
       op_strbuf_clear(&newnicks2);
       {
-        op_strbuf_t _sb;
+        op_strbuf_t _sb = {};
         op_strbuf_init(&_sb);
         op_strbuf_appendf(&_sb, "%s", m->msg);
         buf2 = op_strbuf_steal(&_sb);
@@ -877,7 +877,7 @@ static int deq_kick(int which)
           if (!h->head)
             h->last = 0;
         } else {
-          op_strbuf_t _b;
+          op_strbuf_t _b = {};
           op_strbuf_init(&_b);
           op_strbuf_appendf(&_b, "KICK %s %s %s", chan2, op_strbuf_str(&newnicks2) + 1, reason);
           op_free(m->msg);
@@ -895,7 +895,7 @@ static int deq_kick(int which)
       m = h->head->next;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "KICK %s %s %s", chan, op_strbuf_str(&newnicks) + 1, reason);
     newmsg = op_strbuf_steal(&_b);
@@ -958,7 +958,7 @@ static void queue_server(int which, const char *msg, int len)
    * - Wcc [01/09/2004]
    */
   {
-    op_strbuf_t _sb;
+    op_strbuf_t _sb = {};
     op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", msg);
     buf = op_strbuf_steal(&_sb);
@@ -1655,7 +1655,7 @@ static char *get_altbotnick(void)
                                   EGG_CONST char *name1,
                                   EGG_CONST char *name2, int flags)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
 
   if (server_online) {
@@ -1682,7 +1682,7 @@ static char *get_altbotnick(void)
                            EGG_CONST char *name1,
                            EGG_CONST char *name2, int flags)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
 
   if (server_online && realservername) {
@@ -1710,7 +1710,7 @@ static char *get_altbotnick(void)
                             EGG_CONST char *name1,
                             EGG_CONST char *name2, int flags)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%s%s%s", botname,
                    botuserhost[0] ? "!" : "", botuserhost[0] ? botuserhost : "");
@@ -2100,7 +2100,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
     /* Create server list */
     Tcl_DStringInit(&ds);
     for (q = serverlist; q; q = q->next) {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
 #ifdef TLS
       op_strbuf_appendf(&_b, "%s%s%s:%s%d%s%s %s",
@@ -2181,7 +2181,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   {
-    op_strbuf_t _sb;
+    op_strbuf_t _sb = {};
     op_strbuf_init(&_sb);
     op_strbuf_appendf(&_sb, "%s", text);
     buf = op_strbuf_steal(&_sb);
@@ -2275,7 +2275,7 @@ int dcc_chat_sslcb(int sock)
 
 static void dcc_chat_hostresolved(int i)
 {
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   op_strbuf_init(&buf);
@@ -2401,7 +2401,7 @@ static void server_die(void)
 {
   cycle_time = 100;
   if (server_online) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "QUIT :%s", quit_msg);
     dprintf(-serv, "%s\n", op_strbuf_str(&_b));
@@ -2465,7 +2465,7 @@ static int server_expmem(void)
 static void server_report(int idx, int details)
 {
   char *buf = nullptr, *bufptr, *endptr;
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   struct capability *current;
   int servidx;
@@ -2512,7 +2512,7 @@ static void server_report(int idx, int details)
             (int) ((float) (hq.tot * 100.0) / (float) maxqmsg), (int) hq.tot);
 
   {
-    op_strbuf_t _cb;
+    op_strbuf_t _cb = {};
     op_strbuf_init(&_cb);
     for (current = cap; current; current = current->next) {
       if (current->enabled)

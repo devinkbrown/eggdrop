@@ -351,7 +351,7 @@ static int u_delban(struct chanset_t *c, char *who, int doit)
   int j, i = 0;
   maskrec *t;
   maskrec **u = (c) ? &c->bans : &global_bans;
-  op_strbuf_t _temp;
+  op_strbuf_t _temp = {};
 
   op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
@@ -419,7 +419,7 @@ static int u_delexempt(struct chanset_t *c, char *who, int doit)
 {
   int j, i = 0;
   maskrec *t, **u = c ? &(c->exempts) : &global_exempts;
-  op_strbuf_t _temp;
+  op_strbuf_t _temp = {};
 
   op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
@@ -487,7 +487,7 @@ static int u_delinvite(struct chanset_t *c, char *who, int doit)
   int j, i = 0;
   maskrec *t;
   maskrec **u = c ? &(c->invites) : &global_invites;
-  op_strbuf_t _temp;
+  op_strbuf_t _temp = {};
 
   op_strbuf_init(&_temp);
   if (!strchr(who, '!') && str_isdigit(who)) {
@@ -576,7 +576,7 @@ static void fix_broken_mask(op_strbuf_t *sb, const char *oldmask)
 static int u_addban(struct chanset_t *chan, const char *ban, char *from, const char *note,
                     time_t expire_time, int flags)
 {
-  op_strbuf_t _host;
+  op_strbuf_t _host = {};
   op_strbuf_init(&_host);
   maskrec *p = nullptr, *l, **u = chan ? &chan->bans : &global_bans;
   module_entry *me;
@@ -587,7 +587,7 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
   fix_broken_mask(&_host, ban);
 
   if ((me = module_find("server", 0, 0)) && me->funcs) {
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
                      (char *) me->funcs[SERVER_BOTUSERHOST]);
@@ -669,7 +669,7 @@ cleanup:
 static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
                        char *note, time_t expire_time, int flags)
 {
-  op_strbuf_t _host;
+  op_strbuf_t _host = {};
   op_strbuf_init(&_host);
   maskrec *p = nullptr, *l, **u = chan ? &chan->invites : &global_invites;
 
@@ -740,7 +740,7 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
 static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
                        char *note, time_t expire_time, int flags)
 {
-  op_strbuf_t _host;
+  op_strbuf_t _host = {};
   op_strbuf_init(&_host);
   maskrec *p = nullptr, *l, **u = chan ? &chan->exempts : &global_exempts;
 
@@ -811,7 +811,7 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
 static void display_ban(int idx, int number, maskrec *ban,
                         struct chanset_t *chan, int show_inact)
 {
-  op_strbuf_t dates, status;
+  op_strbuf_t dates = {}, status = {};
 
   op_strbuf_init(&dates);
   if (ban->added) {
@@ -852,7 +852,7 @@ static void display_ban(int idx, int number, maskrec *ban,
 static void display_exempt(int idx, int number, maskrec *exempt,
                            struct chanset_t *chan, int show_inact)
 {
-  op_strbuf_t dates, status;
+  op_strbuf_t dates = {}, status = {};
 
   op_strbuf_init(&dates);
   if (exempt->added) {
@@ -893,7 +893,7 @@ static void display_exempt(int idx, int number, maskrec *exempt,
 static void display_invite(int idx, int number, maskrec *invite,
                            struct chanset_t *chan, int show_inact)
 {
-  op_strbuf_t dates, status;
+  op_strbuf_t dates = {}, status = {};
 
   op_strbuf_init(&dates);
   if (invite->added) {
@@ -1004,7 +1004,7 @@ static void tell_bans(int idx, int show_inact, char *match)
       for (b = chan->channel.ban; b && b->mask[0]; b = b->next) {
         if ((!u_equals_mask(global_bans, global_bans_ht, b->mask)) &&
             (!u_equals_mask(chan->bans, chan->bans_ht, b->mask))) {
-          op_strbuf_t fill;
+          op_strbuf_t fill = {};
           op_strbuf_init(&fill);
           strlcpy(s, b->who, sizeof(s));
           s2 = s;
@@ -1096,7 +1096,7 @@ static void tell_exempts(int idx, int show_inact, char *match)
       for (e = chan->channel.exempt; e && e->mask[0]; e = e->next) {
         if ((!u_equals_mask(global_exempts, global_exempts_ht, e->mask)) &&
             (!u_equals_mask(chan->exempts, chan->exempts_ht, e->mask))) {
-          op_strbuf_t fill;
+          op_strbuf_t fill = {};
           op_strbuf_init(&fill);
           strlcpy(s, e->who, sizeof(s));
           s2 = s;
@@ -1187,7 +1187,7 @@ static void tell_invites(int idx, int show_inact, char *match)
       for (i = chan->channel.invite; i && i->mask[0]; i = i->next) {
         if ((!u_equals_mask(global_invites, global_invites_ht, i->mask)) &&
             (!u_equals_mask(chan->invites, chan->invites_ht, i->mask))) {
-          op_strbuf_t fill;
+          op_strbuf_t fill = {};
           op_strbuf_init(&fill);
           strlcpy(s, i->who, sizeof(s));
           s2 = s;
@@ -1401,7 +1401,7 @@ static void channels_writeuserfile(void)
   int ret = 0;
 
   {
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s~new", userfile);
     f = fopen(op_strbuf_str(&s), "a");

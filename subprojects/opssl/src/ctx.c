@@ -14,7 +14,10 @@
 #include <opssl/platform.h>
 #include <opssl/err.h>
 #include <op_memory.h>
+#include "opssl_config.h"
+#include <stdatomic.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 
 extern int opssl_pem_decode(const char *pem, size_t pem_len,
@@ -39,6 +42,7 @@ struct opssl_ctx {
     /* Verification */
     opssl_x509_store_t *trust_store;
     bool verify_peer;
+    bool request_client_cert;
     opssl_verify_cb verify_cb;
     void *verify_userdata;
 
@@ -205,7 +209,7 @@ opssl_ctx_ref(opssl_ctx_t *ctx)
 {
     if (!ctx)
         return NULL;
-    ctx->refcount++;
+    atomic_fetch_add_explicit(&ctx->refcount, 1, memory_order_relaxed);
     return ctx;
 }
 
@@ -216,8 +220,7 @@ opssl_ctx_free(opssl_ctx_t *ctx)
     if (!ctx)
         return;
 
-    ctx->refcount--;
-    if (ctx->refcount > 0)
+    if (atomic_fetch_sub_explicit(&ctx->refcount, 1, memory_order_acq_rel) > 1)
         return;
 
     /* Free certificate chain and private key */
@@ -367,7 +370,7 @@ opssl_ctx_use_dh_params_file(opssl_ctx_t *ctx, const char *path)
     if (der_len > 4 && der[0] == 0x30) {
         /* Skip SEQUENCE tag + length */
         size_t pos = 1;
-        if (der[pos] & 0x80) {
+        if (pos < der_len && (der[pos] & 0x80)) {
             size_t len_bytes = der[pos] & 0x7f;
             pos += 1 + len_bytes;
         } else {
@@ -377,12 +380,12 @@ opssl_ctx_use_dh_params_file(opssl_ctx_t *ctx, const char *path)
         if (pos < der_len && der[pos] == 0x02) {
             pos++;
             size_t int_len = 0;
-            if (der[pos] & 0x80) {
+            if (pos < der_len && (der[pos] & 0x80)) {
                 size_t len_bytes = der[pos] & 0x7f;
                 pos++;
                 for (size_t i = 0; i < len_bytes && pos < der_len; i++)
                     int_len = (int_len << 8) | der[pos++];
-            } else {
+            } else if (pos < der_len) {
                 int_len = der[pos++];
             }
             /* Skip leading zero byte if present */
@@ -464,7 +467,19 @@ opssl_ctx_load_default_verify_paths(opssl_ctx_t *ctx)
         return 0;
     }
 
-    return opssl_ctx_load_verify_locations(ctx, ca_file, ca_dir);
+    /*
+     * Default trust discovery should be tolerant: many systems have a good
+     * bundle file plus a certificate directory containing hashed symlinks or
+     * distro-specific metadata.  Requiring both auto-detected locations to
+     * parse successfully downgrades DoT/client verification unnecessarily.
+     */
+    if (ca_file && opssl_ctx_load_verify_locations(ctx, ca_file, NULL))
+        return 1;
+
+    if (ca_dir && opssl_ctx_load_verify_locations(ctx, NULL, ca_dir))
+        return 1;
+
+    return 0;
 }
 
 void
@@ -512,11 +527,18 @@ parse_cipher_list(const char *list, opssl_ciphersuite_t *ciphers, size_t max_cou
     char *saveptr = NULL;
     char *tok = strtok_r(list_copy, ":", &saveptr);
     while (tok && count < max_count) {
+        bool found = false;
         for (size_t i = 0; i < sizeof(cipher_names) / sizeof(cipher_names[0]); i++) {
             if (strcmp(tok, cipher_names[i].name) == 0) {
                 ciphers[count++] = cipher_names[i].id;
+                found = true;
                 break;
             }
+        }
+        if (!found) {
+            fprintf(stderr, "opssl: unknown cipher '%s'\n", tok);
+            free(list_copy);
+            return 0;
         }
         tok = strtok_r(NULL, ":", &saveptr);
     }
@@ -558,11 +580,18 @@ parse_group_list(const char *list, opssl_named_group_t *groups, size_t max_count
     char *saveptr = NULL;
     char *tok = strtok_r(list_copy, ":", &saveptr);
     while (tok && count < max_count) {
+        bool found = false;
         for (size_t i = 0; i < sizeof(group_names) / sizeof(group_names[0]); i++) {
             if (strcmp(tok, group_names[i].name) == 0) {
                 groups[count++] = group_names[i].id;
+                found = true;
                 break;
             }
+        }
+        if (!found) {
+            fprintf(stderr, "opssl: unknown group '%s'\n", tok);
+            free(list_copy);
+            return 0;
         }
         tok = strtok_r(NULL, ":", &saveptr);
     }
@@ -610,6 +639,23 @@ opssl_ctx_set_curves(opssl_ctx_t *ctx, const char *list)
     return 1;
 }
 
+static const struct {
+    const char         *name;
+    opssl_sig_algo_t    id;
+} sigalg_names[] = {
+    { "ed25519",            OPSSL_SIG_ED25519 },
+    { "ed448",              OPSSL_SIG_ED448 },
+    { "ecdsa_secp256r1",    OPSSL_SIG_ECDSA_SECP256R1 },
+    { "ecdsa_secp384r1",    OPSSL_SIG_ECDSA_SECP384R1 },
+    { "ecdsa_secp521r1",    OPSSL_SIG_ECDSA_SECP521R1 },
+    { "rsa_pss_sha256",     OPSSL_SIG_RSA_PSS_SHA256 },
+    { "rsa_pss_sha384",     OPSSL_SIG_RSA_PSS_SHA384 },
+    { "rsa_pss_sha512",     OPSSL_SIG_RSA_PSS_SHA512 },
+    { "rsa_pkcs1_sha256",   OPSSL_SIG_RSA_PKCS1_SHA256 },
+    { "rsa_pkcs1_sha384",   OPSSL_SIG_RSA_PKCS1_SHA384 },
+    { "rsa_pkcs1_sha512",   OPSSL_SIG_RSA_PKCS1_SHA512 },
+};
+
 int
 opssl_ctx_set_sigalgs(opssl_ctx_t *ctx, const char *list)
 {
@@ -618,9 +664,43 @@ opssl_ctx_set_sigalgs(opssl_ctx_t *ctx, const char *list)
         return 0;
     }
 
-    /* For now, just validate the list exists */
-    ctx->sigalg_count = sizeof(default_sigalgs) / sizeof(default_sigalgs[0]);
-    memcpy(ctx->sigalgs, default_sigalgs, sizeof(default_sigalgs));
+    char buf[512];
+    size_t len = strlen(list);
+    if (len >= sizeof(buf)) {
+        opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+        return 0;
+    }
+    memcpy(buf, list, len + 1);
+
+    ctx->sigalg_count = 0;
+
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(buf, ":", &saveptr);
+         tok && ctx->sigalg_count < 16;
+         tok = strtok_r(NULL, ":", &saveptr))
+    {
+        bool found = false;
+        for (size_t i = 0; i < sizeof(sigalg_names) / sizeof(sigalg_names[0]); i++) {
+            if (strcasecmp(tok, sigalg_names[i].name) == 0) {
+                ctx->sigalgs[ctx->sigalg_count++] = sigalg_names[i].id;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+            ctx->sigalg_count = sizeof(default_sigalgs) / sizeof(default_sigalgs[0]);
+            memcpy(ctx->sigalgs, default_sigalgs, sizeof(default_sigalgs));
+            return 0;
+        }
+    }
+
+    if (ctx->sigalg_count == 0) {
+        ctx->sigalg_count = sizeof(default_sigalgs) / sizeof(default_sigalgs[0]);
+        memcpy(ctx->sigalgs, default_sigalgs, sizeof(default_sigalgs));
+        return 0;
+    }
+
     return 1;
 }
 
@@ -673,6 +753,14 @@ opssl_ctx_add_sni(opssl_ctx_t *ctx, const char *hostname, opssl_ctx_t *sni_ctx)
     if (!ctx || !hostname || !sni_ctx) {
         opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
         return 0;
+    }
+
+    for (size_t i = 0; i < ctx->sni_count; i++) {
+        if (strcasecmp(ctx->sni_table[i].hostname, hostname) == 0) {
+            opssl_ctx_free(ctx->sni_table[i].ctx);
+            ctx->sni_table[i].ctx = opssl_ctx_ref(sni_ctx);
+            return 1;
+        }
     }
 
     if (ctx->sni_count >= sizeof(ctx->sni_table) / sizeof(ctx->sni_table[0])) {
@@ -775,6 +863,10 @@ opssl_ctx_enable_postquantum(opssl_ctx_t *ctx, bool enable)
                 ctx->groups[ctx->group_count++] = default_groups[i];
             }
         }
+        if (ctx->group_count == 0) {
+            ctx->group_count = 1;
+            ctx->groups[0] = OPSSL_GROUP_X25519;
+        }
     }
 
     return 1;
@@ -832,6 +924,19 @@ bool
 opssl_ctx_get_verify_peer(opssl_ctx_t *ctx)
 {
     return ctx ? ctx->verify_peer : false;
+}
+
+void
+opssl_ctx_set_request_client_cert(opssl_ctx_t *ctx, bool request)
+{
+    if (ctx)
+        ctx->request_client_cert = request;
+}
+
+bool
+opssl_ctx_get_request_client_cert(opssl_ctx_t *ctx)
+{
+    return ctx ? ctx->request_client_cert : false;
 }
 
 opssl_x509_chain_t *

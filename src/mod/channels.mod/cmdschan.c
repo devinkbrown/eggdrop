@@ -123,7 +123,7 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
       who[UHOSTMAX - 4] = 0;
     /* Fix missing ! or @ BEFORE checking against myself */
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       if (!strchr(who, '!')) {
         if (!strchr(who, '@'))
@@ -138,7 +138,7 @@ static void cmd_pls_ban(struct userrec *u, int idx, char *par)
       op_strbuf_free(&_b);
     }
     if ((me = module_find("server", 0, 0)) && me->funcs) {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s!%s", (char *) me->funcs[SERVER_BOTNAME],
                        (char *) me->funcs[SERVER_BOTUSERHOST]);
@@ -271,7 +271,7 @@ static void cmd_pls_exempt(struct userrec *u, int idx, char *par)
       who[UHOSTMAX - 4] = 0;
     /* Fix missing ! or @ BEFORE checking against myself */
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       if (!strchr(who, '!')) {
         if (!strchr(who, '@'))
@@ -400,7 +400,7 @@ static void cmd_pls_invite(struct userrec *u, int idx, char *par)
       who[UHOSTMAX - 4] = 0;
     /* Fix missing ! or @ BEFORE checking against myself */
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       if (!strchr(who, '!')) {
         if (!strchr(who, '@'))
@@ -1408,7 +1408,7 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
             (chan->ircnet_status & CHAN_NOUSERINVITES) ? '-' : '+');
 
     {
-      op_strbuf_t flagbuf;
+      op_strbuf_t flagbuf = {};
       op_strbuf_init(&flagbuf);
       ii = 1;
       tmp = 0;
@@ -1435,7 +1435,7 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
     }
 
     {
-      op_strbuf_t intbuf;
+      op_strbuf_t intbuf = {};
       op_strbuf_init(&intbuf);
       ii = 1;
       tmp = 0;
@@ -1495,7 +1495,7 @@ static void cmd_chaninfo(struct userrec *u, int idx, char *par)
 static void cmd_chanset(struct userrec *u, int idx, char *par)
 {
   char *chname = nullptr;
-  op_strbuf_t answers;
+  op_strbuf_t answers = {};
   char *list[2], value[2], *bak, *buf;
   char *parcpy;
   struct chanset_t *chan = nullptr;

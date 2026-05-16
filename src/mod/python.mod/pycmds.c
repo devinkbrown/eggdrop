@@ -422,7 +422,7 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
   bind->callback = callback;
   hash = PyObject_Hash((PyObject *)bind);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
     strlcpy(bind->tclcmdname, op_strbuf_str(&_b), sizeof bind->tclcmdname);
@@ -934,7 +934,7 @@ static PyObject *py_nick2hand(PyObject *self, PyObject *args)
   if (!m)
     Py_RETURN_NONE;
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
     u = get_user_by_host(op_strbuf_str(&_b));
@@ -960,7 +960,7 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
   for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
       u = get_user_by_host(op_strbuf_str(&_b));
@@ -1069,7 +1069,7 @@ static PyObject *py_maskhost(PyObject *self, PyObject *args)
 {
   [[maybe_unused]] char *nick;
   char *userhost, *at, *dot;
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   op_strbuf_init(&buf);
 
   if (!PyArg_ParseTuple(args, "ss", &nick, &userhost))
@@ -1199,7 +1199,7 @@ static PyObject *py_ircxnegotiate(PyObject *self, PyObject *args)
 static PyObject *py_die(PyObject *self, PyObject *args)
 {
   char *reason = nullptr;
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
 
   if (!PyArg_ParseTuple(args, "|s", &reason))
@@ -2137,7 +2137,7 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
 static PyObject *py_putbot(PyObject *self, PyObject *args)
 {
   char *botnick, *msg;
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "ss", &botnick, &msg))
@@ -2157,7 +2157,7 @@ static PyObject *py_putbot(PyObject *self, PyObject *args)
 static PyObject *py_putallbots(PyObject *self, PyObject *args)
 {
   char *msg;
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "s", &msg))
@@ -4032,7 +4032,7 @@ static PyObject *py_md5(PyObject *self, PyObject *args)
   MD5_Init(&ctx);
   MD5_Update(&ctx, (void *)input, (unsigned long)len);
   MD5_Final(digest, &ctx);
-  op_strbuf_t hex;
+  op_strbuf_t hex = {};
   op_strbuf_init(&hex);
   for (int i = 0; i < 16; i++)
     op_strbuf_appendf(&hex, "%02x", digest[i]);
@@ -4092,7 +4092,7 @@ static PyObject *py_link(PyObject *self, PyObject *args)
     return nullptr;
   if (via) {
     /* link(via, bot) — two-arg form: send link request through via-bot */
-    op_strbuf_t _via, _bot;
+    op_strbuf_t _via = {}, _bot = {};
     op_strbuf_appendf(&_via, "%s", bot);
     op_strbuf_appendf(&_bot, "%s", via);
     int i = nextbot((char *)op_strbuf_str(&_via));
@@ -4106,7 +4106,7 @@ static PyObject *py_link(PyObject *self, PyObject *args)
     op_strbuf_free(&_bot);
     return PyLong_FromLong(1L);
   }
-  op_strbuf_t _bot;
+  op_strbuf_t _bot = {};
   op_strbuf_init(&_bot);
   op_strbuf_appendf(&_bot, "%s", bot);
   PyObject *_ret = PyLong_FromLong((long)botlink("", -2, (char *)op_strbuf_str(&_bot)));
@@ -4118,7 +4118,7 @@ static PyObject *py_link(PyObject *self, PyObject *args)
 static PyObject *py_unlink(PyObject *self, PyObject *args)
 {
   char *bot, *comment = "";
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &comment))
@@ -4994,7 +4994,7 @@ static PyObject *py_monitor(PyObject *self, PyObject *args)
   }
   /* +nick or -nick: send raw MONITOR command */
   if (action[0] == '+' || action[0] == '-') {
-    op_strbuf_t buf;
+    op_strbuf_t buf = {};
     op_strbuf_init(&buf);
     op_strbuf_appendf(&buf, "MONITOR %c %s", action[0], action + 1);
     dprintf(DP_SERVER, "%s\n", op_strbuf_str(&buf));
@@ -5213,7 +5213,7 @@ static PyObject *py_unames(PyObject *self, PyObject *args)
   struct utsname un;
   if (uname(&un) < 0)
     return PyUnicode_FromString("unknown");
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   op_strbuf_init(&buf);
   op_strbuf_appendf(&buf, "%s %s %s %s %s", un.sysname, un.nodename,
                    un.release, un.version, un.machine);

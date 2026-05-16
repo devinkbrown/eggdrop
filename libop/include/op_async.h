@@ -66,8 +66,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include <op_thread_pool.h>
-
 /* ---- types --------------------------------------------------------------- */
 
 /*
@@ -148,10 +146,17 @@ size_t op_async_pending(void);
 bool op_async_active(void);
 
 /*
- * Compatibility introspection wrappers for consumers that monitor the async
- * executor without holding its private thread-pool pointer.
+ * op_async_nthreads — number of worker threads in the async pool.
+ * Returns 0 if the pool is not active.
  */
 int op_async_nthreads(void);
+
+/*
+ * op_async_get_stats — snapshot per-worker stats from the async pool.
+ * Thin wrapper around op_tpool_get_stats() for the internal pool.
+ * Returns 0 if the pool is not active.
+ */
+#include <op_thread_pool.h>
 int op_async_get_stats(op_tpool_worker_stats_t *out, int max);
 
 #endif /* LIBOP_ASYNC_H */

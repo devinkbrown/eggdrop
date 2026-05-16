@@ -70,7 +70,7 @@ static void ident_activity(int idx, char *buf, int len)
     return;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, " : USERID : UNIX : %s\r\n", botname);
     strlcpy(pos, op_strbuf_str(&_b), (sizeof buf2) - (size_t)(pos - buf2));
@@ -111,7 +111,7 @@ static void ident_oidentd(void)
 {
   char *home = getenv("HOME");
   FILE *fd;
-  op_strbuf_t data_buf, identstr_buf, path_buf;
+  op_strbuf_t data_buf = {}, identstr_buf = {}, path_buf = {};
   char line[256], buf[256];
   char s[EGG_INET_ADDRSTRLEN];
   int ret, prevtime, servidx;

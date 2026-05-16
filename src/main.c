@@ -50,7 +50,6 @@
 #include "configtoml.h"
 #include "script.h"
 #include "async_dns.h"
-#include "io_thread.h"
 #include "perf.h"
 #include <op_commio.h>
 #include <op_async.h>
@@ -131,7 +130,6 @@ extern char last_bind_called[];
 void fatal(const char *s, int recoverable)
 {
   putlog(LOG_MISC, "*", "* %s", s);
-  io_thread_stop();
   op_async_shutdown();
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
@@ -567,7 +565,7 @@ static void core_secondly(void)
           putlog(LOG_MISC, "*", "%s", MISC_LOGSWITCH);
         for (int li = 0; li < max_logs; li++)
           if (logs[li].filename) {
-            op_strbuf_t sb;
+            op_strbuf_t sb = {};
             op_strbuf_init(&sb);
 
             if (logs[li].f) {
@@ -879,7 +877,7 @@ int main(int arg_c, char **arg_v)
 
   /* Version info! */
   {
-    op_strbuf_t egg_version_buf;
+    op_strbuf_t egg_version_buf = {};
     op_strbuf_init(&egg_version_buf);
 #ifdef EGG_PATCH
     op_strbuf_appendf(&egg_version_buf, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
@@ -944,6 +942,7 @@ int main(int arg_c, char **arg_v)
   lastmin = now / 60;
   op_event_init();
   op_init_bh();
+  op_init_dlink_nodes(512);
   op_fdlist_init(0, 1024, 256);
   op_init_netio();
   op_linebuf_init(64);
@@ -1016,7 +1015,7 @@ int main(int arg_c, char **arg_v)
   cache_miss = 0;
   cache_hit = 0;
   if (!pid_file) {
-    op_strbuf_t buf;
+    op_strbuf_t buf = {};
     op_strbuf_init(&buf);
     op_strbuf_appendf(&buf, "pid.%s", botnetnick);
     pid_file = op_strbuf_steal(&buf);
@@ -1135,15 +1134,6 @@ int main(int arg_c, char **arg_v)
 
   call_hook(HOOK_LOADED);
 
-  /* Auto-detect optimal CPU core for I/O thread based on cache topology.
-   * Selects a core on a different L2 cache domain for maximum cache
-   * independence from the main thread. */
-  if (io_thread_get_affinity() < 0) {
-    int best = io_thread_detect_best_core();
-    if (best >= 0)
-      io_thread_set_affinity(best);
-  }
-  io_thread_start();
   debug0("main: entering loop");
   while (1) {
     mainloop(1);

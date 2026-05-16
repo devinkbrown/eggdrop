@@ -39,6 +39,9 @@
 static void
 strbuf_grow(op_strbuf_t *sb, size_t need_cap)
 {
+	if (op_unlikely(sb->ptr == NULL))
+		op_strbuf_init(sb);
+
 	if (need_cap <= sb->cap)
 		return;
 
@@ -110,6 +113,9 @@ op_strbuf_appendc(op_strbuf_t *sb, char c)
 int
 op_strbuf_vappendf(op_strbuf_t *sb, const char *fmt, va_list ap)
 {
+	if (op_unlikely(sb->ptr == NULL))
+		op_strbuf_init(sb);
+
 	for (;;)
 	{
 		size_t  avail = sb->cap - sb->len;

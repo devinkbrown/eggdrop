@@ -239,7 +239,7 @@ static void uf_features_parse(int idx, char *par)
 {
   char *buf, *s, *p;
   uff_list_t *ul;
-  op_strbuf_t _sb;
+  op_strbuf_t _sb = {};
 
   op_strbuf_init(&_sb);
   size_t par_sz = strlen(par) + 1;
@@ -276,7 +276,7 @@ static void uf_features_parse(int idx, char *par)
 static char *uf_features_dump(int idx)
 {
   uff_list_t *ul;
-  op_strbuf_t _sb;
+  op_strbuf_t _sb = {};
 
   op_strbuf_init(&_sb);
   for (ul = uff_list.start; ul; ul = ul->next)

@@ -19,49 +19,49 @@ test_strbuf = executable('test_strbuf',
   'test_strbuf.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 test_rfc1459 = executable('test_rfc1459',
   'test_rfc1459.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 test_match = executable('test_match',
   'test_match.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 test_flags = executable('test_flags',
   'test_flags.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 test_botmsg = executable('test_botmsg',
   'test_botmsg.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 test_net = executable('test_net',
   'test_net.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 test_misc = executable('test_misc',
   'test_misc.c',
   include_directories: test_inc,
   c_args: test_c_args,
-  dependencies: [libop_dep],
+  dependencies: [libop_dep, uring_dep],
 )
 
 # Register tests with meson

@@ -96,6 +96,10 @@ int opssl_ctx_enable_postquantum(opssl_ctx_t *ctx, bool enable);
 /* Key logging (SSLKEYLOGFILE format for Wireshark decryption) */
 void opssl_ctx_set_keylog_callback(opssl_ctx_t *ctx, opssl_keylog_cb cb, void *userdata);
 
+/* Request (but don't require) client certificates — needed for SASL EXTERNAL */
+void opssl_ctx_set_request_client_cert(opssl_ctx_t *ctx, bool request);
+bool opssl_ctx_get_request_client_cert(opssl_ctx_t *ctx);
+
 /* Internal accessor functions */
 const char **opssl_ctx_get_alpn_protos(opssl_ctx_t *ctx, size_t *count);
 

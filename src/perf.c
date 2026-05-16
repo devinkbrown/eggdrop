@@ -74,15 +74,7 @@ void egg_perf_tick_end(int was_idle)
   pm_write_end();
 }
 
-void egg_perf_io_drain(int results)
-{
-  pm_write_begin();
-  pm.io_drain_count++;
-  pm.io_drain_results += (uint64_t)results;
-  if ((uint64_t)results > pm.io_drain_max_batch)
-    pm.io_drain_max_batch = (uint64_t)results;
-  pm_write_end();
-}
+
 
 void egg_perf_bind_dispatch(int was_exact)
 {

@@ -419,7 +419,7 @@ static int laston_unpack(struct userrec *u, struct user_entry *e)
 static int laston_pack(struct userrec *u, struct user_entry *e)
 {
   struct laston_info *li = (struct laston_info *) e->u.extra;
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
   op_strbuf_init(&sb);
 
   op_strbuf_appendf(&sb, "%" PRId64 " %s", (int64_t) li->laston, li->lastonplace);
@@ -487,7 +487,7 @@ static int laston_tcl_get(Tcl_Interp * irp, struct userrec *u,
       Tcl_AppendResult(irp, "0", nullptr);
   } else {
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%" PRId64 " ", (int64_t) li->laston);
       Tcl_AppendResult(irp, op_strbuf_str(&_b), li->lastonplace, nullptr);
@@ -626,7 +626,7 @@ static int botaddr_unpack(struct userrec *u, struct user_entry *e)
 static int botaddr_pack(struct userrec *u, struct user_entry *e)
 {
   struct bot_addr *bi = (struct bot_addr *) e->u.extra;
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
 
   op_strbuf_init(&sb);
   for (char *p = bi->address; *p; p++)
@@ -1002,7 +1002,7 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
   while (curr) {
     t = alloc_list_type();
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s %s", curr->key, curr->data);
       t->extra = op_strbuf_steal(&_b);
@@ -1229,7 +1229,7 @@ static int hosts_expmem(struct user_entry *e)
 
 static void hosts_display(int idx, struct user_entry *e)
 {
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
   struct list_type *q;
 
   op_strbuf_init(&sb);
@@ -1420,7 +1420,7 @@ struct user_entry_type USERENTRY_FPRINT = {
 
 static void account_display(int idx, struct user_entry *e)
 {
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
   struct list_type *q;
 
   op_strbuf_init(&sb);

@@ -212,7 +212,7 @@ static void cmd_userstate(struct userrec *u, int idx, char *par) {
 static int check_tcl_clearchat(char *chan, char *nick) {
   int x;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
@@ -227,7 +227,7 @@ static int check_tcl_clearchat(char *chan, char *nick) {
 static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
   int x;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s!%s@%s.tmi.twitch.tv", chan, nick, nick, nick);
@@ -244,7 +244,7 @@ static int check_tcl_clearmsg(char *nick, char *chan, char *msgid, char *msg) {
 static int check_tcl_hosttarget(char *chan, char *nick, char *viewers) {
   int x;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, nick);
@@ -282,7 +282,7 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
   char buf[UHOSTMAX], *uhost=buf, *nick, *hand;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   struct userrec *u = nullptr;
-  op_strbuf_t args_buf;
+  op_strbuf_t args_buf = {};
   op_strbuf_init(&args_buf);
   int x;
 
@@ -307,7 +307,7 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
 }
 
 static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
@@ -319,7 +319,7 @@ static void check_tcl_roomstate(char *chan, Tcl_Obj *tags) {
 }
 
 static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
@@ -331,7 +331,7 @@ static void check_tcl_userstate(char *chan, Tcl_Obj *tags) {
 }
 
 static void check_tcl_usernotice(char *chan, char *msg, Tcl_Obj *tags) {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, "%s %s", chan, encode_msgtags(tags));
@@ -450,7 +450,7 @@ static int gotclearchat(char *from, char *msg) {
 
 static int gothosttarget(char *from, char *msg) {
   char *nick, *chan, *viewers;
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   chan = newsplit(&msg);

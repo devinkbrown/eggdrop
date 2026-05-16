@@ -237,7 +237,7 @@ static int compress_to_file(char *f_src, char *f_target, int mode_num)
   int len;
 
   adjust_mode_num(&mode_num);
-  op_strbuf_t mode_buf;
+  op_strbuf_t mode_buf = {};
   op_strbuf_init(&mode_buf);
   op_strbuf_appendf(&mode_buf, "wb%s", int_to_base10(mode_num));
   const char *mode = op_strbuf_str(&mode_buf);
@@ -318,7 +318,7 @@ static int compress_file(char *filename, int mode_num)
   /* Create temporary filename. */
   make_rand_str(rands, sizeof rands - 1);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", filename, rands);
     temp_fn = op_strbuf_steal(&_b);
@@ -347,7 +347,7 @@ static int uncompress_file(char *filename)
   /* Create temporary filename. */
   make_rand_str(rands, sizeof rands - 1);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", filename, rands);
     temp_fn = op_strbuf_steal(&_b);

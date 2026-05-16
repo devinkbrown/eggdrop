@@ -46,11 +46,6 @@ struct egg_perf_metrics {
   uint64_t arena_peak_bytes;
   uint64_t arena_overflows;
 
-  /* I/O thread */
-  uint64_t io_drain_count;
-  uint64_t io_drain_results;
-  uint64_t io_drain_max_batch;
-
   /* Bind dispatch */
   uint64_t bind_dispatches;
   uint64_t bind_exact_hits;
@@ -64,7 +59,6 @@ struct egg_perf_metrics {
 /* Seqlock-protected metrics snapshot */
 void egg_perf_tick_begin(void);
 void egg_perf_tick_end(int was_idle);
-void egg_perf_io_drain(int results);
 void egg_perf_bind_dispatch(int was_exact);
 void egg_perf_traffic_tick(uint64_t bytes_in, uint64_t bytes_out);
 struct egg_perf_metrics egg_perf_snapshot(void);

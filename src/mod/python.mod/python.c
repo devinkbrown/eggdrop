@@ -115,7 +115,7 @@ static char *init_python() {
   config.install_signal_handlers = 0;
   config.parse_argv = 0;
   if ((venv = getenv("VIRTUAL_ENV"))) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/bin/python3", venv);
     const char *venvpython = op_strbuf_str(&_b);

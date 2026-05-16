@@ -42,6 +42,7 @@ void opssl_bn_mod_exp_ct(opssl_bn_t *r, const opssl_bn_t *base, const opssl_bn_t
 uint64_t opssl_bn_add(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, int width);
 uint64_t opssl_bn_sub(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, int width);
 int opssl_bn_cmp(const opssl_bn_t *a, const opssl_bn_t *b, int width);
+int opssl_bn_is_zero(const opssl_bn_t *bn, int width);
 void opssl_bn_ct_select(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *b, int width, uint64_t sel);
 void opssl_bn_copy(opssl_bn_t *dst, const opssl_bn_t *src, int width);
 uint64_t opssl_bn_reduce_once(opssl_bn_t *r, const opssl_bn_t *n, int width);

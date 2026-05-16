@@ -32,7 +32,6 @@
 #endif
 #include <op_async.h>
 #include <op_thread_pool.h>
-#include "io_thread.h"
 #include "perf.h"
 
 /* Tcl command handlers. In non-Tcl builds these compile as dead code
@@ -64,7 +63,7 @@ static int tcl_logfile STDVAR
     for (int i = 0; i < max_logs; i++)
       if (logs[i].filename != nullptr) {
         {
-          op_strbuf_t logline;
+          op_strbuf_t logline = {};
           op_strbuf_init(&logline);
           op_strbuf_appendf(&logline, "%s %s %s", masktype(logs[i].mask),
                            logs[i].chname, logs[i].filename);
@@ -136,7 +135,7 @@ static int tcl_putlog STDVAR
   BADARGS(2, 2, " text");
 
   {
-    op_strbuf_t _logtext;
+    op_strbuf_t _logtext = {};
     op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_MISC, "*", "%s", op_strbuf_str(&_logtext));
@@ -150,7 +149,7 @@ static int tcl_putcmdlog STDVAR
   BADARGS(2, 2, " text");
 
   {
-    op_strbuf_t _logtext;
+    op_strbuf_t _logtext = {};
     op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_CMDS, "*", "%s", op_strbuf_str(&_logtext));
@@ -164,7 +163,7 @@ static int tcl_putxferlog STDVAR
   BADARGS(2, 2, " text");
 
   {
-    op_strbuf_t _logtext;
+    op_strbuf_t _logtext = {};
     op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[1]);
     putlog(LOG_FILES, "*", "%s", op_strbuf_str(&_logtext));
@@ -185,7 +184,7 @@ static int tcl_putloglev STDVAR
     return TCL_ERROR;
   }
   {
-    op_strbuf_t _logtext;
+    op_strbuf_t _logtext = {};
     op_strbuf_init(&_logtext);
     op_strbuf_appendf(&_logtext, "%s", argv[3]);
     putlog(lev, argv[2], "%s", op_strbuf_str(&_logtext));
@@ -228,7 +227,7 @@ static int tcl_binds STDVAR
           continue;
         build_flags(flg, &(tc->flags), nullptr);
         {
-          op_strbuf_t _hits;
+          op_strbuf_t _hits = {};
           op_strbuf_init(&_hits);
           op_strbuf_appendf(&_hits, "%s", int_to_base10((int) tc->hits));
           list[0] = tl->name;
@@ -454,7 +453,7 @@ static int tcl_sendnote STDVAR
   BADARGS(4, 4, " from to message");
 
   {
-    op_strbuf_t _from, _to, _msg;
+    op_strbuf_t _from = {}, _to = {}, _msg = {};
     op_strbuf_appendf(&_from, "%s", argv[1]);
     op_strbuf_appendf(&_to, "%s", argv[2]);
     op_strbuf_appendf(&_msg, "%s", argv[3]);
@@ -475,7 +474,7 @@ static int tcl_dumpfile STDVAR
   BADARGS(3, 3, " nickname filename");
 
   {
-    op_strbuf_t _nick;
+    op_strbuf_t _nick = {};
     op_strbuf_init(&_nick);
     op_strbuf_appendf(&_nick, "%s", argv[1]);
     get_user_flagrec(get_user_by_nick((char *)op_strbuf_str(&_nick)), &fr, nullptr);
@@ -514,7 +513,7 @@ static int tcl_backup STDVAR
 
 static int tcl_die STDVAR
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
 
   BADARGS(1, 2, " ?reason?");
@@ -570,7 +569,7 @@ static int tcl_modules STDVAR
 
   for (current = module_list; current; current = current->next) {
     list[0] = current->name;
-    op_strbuf_t ver;
+    op_strbuf_t ver = {};
     op_strbuf_init(&ver);
     op_strbuf_appendf(&ver, "%d.%d", current->major, current->minor);
     list[1] = op_strbuf_str(&ver);
@@ -578,7 +577,7 @@ static int tcl_modules STDVAR
     for (dep = dependancy_list; dep && (i < 100); dep = dep->next) {
       if (dep->needing == current) {
         list2[0] = dep->needed->name;
-        op_strbuf_t depver;
+        op_strbuf_t depver = {};
         op_strbuf_init(&depver);
         op_strbuf_appendf(&depver, "%d.%d", dep->major, dep->minor);
         list2[1] = op_strbuf_str(&depver);
@@ -742,7 +741,7 @@ static int tcl_status STDVAR
   BADARGS(1, 2, " ?type?");
 
   if ((argc < 2) || !strcmp(argv[1], "cpu")) {
-    op_strbuf_t cpu_buf;
+    op_strbuf_t cpu_buf = {};
     op_strbuf_init(&cpu_buf);
     Tcl_AppendElement(irp, "cputime");
     op_strbuf_appendf(&cpu_buf, "%f", getcputime());
@@ -765,7 +764,7 @@ static int tcl_status STDVAR
     Tcl_AppendElement(irp, "tls");
 #ifdef TLS
     {
-      op_strbuf_t tls_ver;
+      op_strbuf_t tls_ver = {};
       op_strbuf_init(&tls_ver);
       op_strbuf_appendf(&tls_ver, "opssl %s", opssl_version_string());
       Tcl_AppendElement(irp, op_strbuf_str(&tls_ver));
@@ -776,7 +775,7 @@ static int tcl_status STDVAR
 #endif
   }
   if ((argc < 2) || !strcmp(argv[1], "cache")) {
-    op_strbuf_t cache_buf;
+    op_strbuf_t cache_buf = {};
     op_strbuf_init(&cache_buf);
     Tcl_AppendElement(irp, "usercache");
     op_strbuf_appendf(&cache_buf, "%4.1f", 100.0 *
@@ -818,23 +817,17 @@ static int tcl_threadinfo STDVAR
   Tcl_AppendElement(irp, "pool_threads");
   Tcl_AppendElement(irp, int_to_base10(op_async_nthreads()));
 
-  op_strbuf_t pending_buf;
+  op_strbuf_t pending_buf = {};
   op_strbuf_init(&pending_buf);
   Tcl_AppendElement(irp, "pool_pending");
   op_strbuf_appendf(&pending_buf, "%zu", op_async_pending());
   Tcl_AppendElement(irp, op_strbuf_str(&pending_buf));
   op_strbuf_free(&pending_buf);
 
-  Tcl_AppendElement(irp, "io_thread");
-  Tcl_AppendElement(irp, io_thread_active() ? "1" : "0");
-
-  Tcl_AppendElement(irp, "io_thread_cpu");
-  Tcl_AppendElement(irp, int_to_base10(io_thread_get_affinity()));
-
   {
     struct egg_perf_metrics pm = egg_perf_snapshot();
     uint64_t avg_ns = pm.tick_count ? pm.tick_ns_total / pm.tick_count : 0;
-    op_strbuf_t pbuf;
+    op_strbuf_t pbuf = {};
     op_strbuf_init(&pbuf);
 
     Tcl_AppendElement(irp, "tick_count");
@@ -882,21 +875,6 @@ static int tcl_threadinfo STDVAR
     Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
     op_strbuf_free(&pbuf);
 
-    Tcl_AppendElement(irp, "io_drains");
-    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.io_drain_count);
-    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
-    op_strbuf_free(&pbuf);
-
-    Tcl_AppendElement(irp, "io_drain_results");
-    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.io_drain_results);
-    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
-    op_strbuf_free(&pbuf);
-
-    Tcl_AppendElement(irp, "io_drain_max_batch");
-    op_strbuf_appendf(&pbuf, "%llu", (unsigned long long)pm.io_drain_max_batch);
-    Tcl_AppendElement(irp, op_strbuf_str(&pbuf));
-    op_strbuf_free(&pbuf);
-
     Tcl_AppendElement(irp, "tick_hist");
     op_strbuf_appendf(&pbuf, "<%s:%llu <%s:%llu <%s:%llu <%s:%llu >=%s:%llu",
       "10us",  (unsigned long long)pm.tick_hist[0],
@@ -938,13 +916,13 @@ static int tcl_threadinfo STDVAR
     op_tpool_worker_stats_t stats[16];
     int n = op_async_get_stats(stats, nth < 16 ? nth : 16);
     for (int i = 0; i < n; i++) {
-      op_strbuf_t wbuf;
+      op_strbuf_t wbuf = {};
       op_strbuf_init(&wbuf);
       op_strbuf_appendf(&wbuf, "worker_%d", stats[i].id);
       Tcl_AppendElement(irp, op_strbuf_str(&wbuf));
       op_strbuf_free(&wbuf);
 
-      op_strbuf_t vbuf;
+      op_strbuf_t vbuf = {};
       op_strbuf_init(&vbuf);
       op_strbuf_appendf(&vbuf, "%s dispatched:%llu stolen:%llu fast:%llu",
                         worker_state_str(stats[i].state),

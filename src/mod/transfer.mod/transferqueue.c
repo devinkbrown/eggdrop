@@ -107,7 +107,7 @@ static void send_next_file(char *to)
     return;
 
   if (this->dir[0] == '*') { /* Absolute path */
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/%s", &this->dir[1], this->file);
     s = op_strbuf_steal(&_b);
@@ -121,7 +121,7 @@ static void send_next_file(char *to)
 
     p++;
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       if (p[0])
         op_strbuf_appendf(&_b, "%s/%s", p, this->file);
@@ -132,13 +132,13 @@ static void send_next_file(char *to)
     strlcpy(this->dir, &(p[egg_atoi(this->dir)]), sizeof(this->dir));
   }
   if (this->dir[0] == '*') {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/%s", &this->dir[1], this->file);
     op_free(s);
     s = op_strbuf_steal(&_b);
   } else {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     if (this->dir[0])
       op_strbuf_appendf(&_b, "%s/%s", this->dir, this->file);
@@ -248,7 +248,7 @@ static void fileq_cancel(int idx, char *par)
     while (q != nullptr) {
       if (!strcasecmp(dcc[idx].nick, q->nick)) {
         {
-          op_strbuf_t _b;
+          op_strbuf_t _b = {};
           op_strbuf_init(&_b);
           if (q->dir[0] == '*') {
             op_strbuf_appendf(&_b, "%s/%s", &q->dir[1], q->file);

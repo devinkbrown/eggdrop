@@ -227,7 +227,7 @@ static int tcl_isidentified STDVAR {
 
 /* Send a msg to the server prefixed with an IRCv3 message-tag */
 static int tcl_tagmsg STDVAR {
-  op_strbuf_t tag;
+  op_strbuf_t tag = {};
   char tagdict[CLITAGMAX-9];
   char target[MSGMAX];
   struct capability *current = 0;
@@ -330,7 +330,7 @@ static int tcl_cap STDVAR {
       current = current->next;
     }
     if ((argc == 3) && (!found)) {
-      op_strbuf_t errmsg;
+      op_strbuf_t errmsg = {};
       op_strbuf_init(&errmsg);
       op_strbuf_appendf(&errmsg, "Capability \"%s\" is not enabled", argv[2]);
       Tcl_AppendResult(irp, op_strbuf_str(&errmsg), nullptr);
@@ -344,7 +344,7 @@ static int tcl_cap STDVAR {
       Tcl_AppendResult(irp, "No CAP request provided", nullptr);
       return TCL_ERROR;
     } else {
-      op_strbuf_t cap_req;
+      op_strbuf_t cap_req = {};
       op_strbuf_init(&cap_req);
       op_strbuf_appendf(&cap_req, "CAP REQ :%s", argv[2]);
       dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_req));
@@ -353,7 +353,7 @@ static int tcl_cap STDVAR {
   /* Send a raw CAP command to the server */
   } else if (!strcasecmp(argv[1], "raw")) {
     if (argc == 3) {
-      op_strbuf_t cap_raw;
+      op_strbuf_t cap_raw = {};
       op_strbuf_init(&cap_raw);
       op_strbuf_appendf(&cap_raw, "CAP %s", argv[2]);
       dprintf(DP_SERVER, "%s\n", op_strbuf_str(&cap_raw));
@@ -622,7 +622,7 @@ static int tcl_server STDVAR {
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->name, -1));
 #ifdef TLS
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s%d", z->ssl ? "+" : "", z->port);
         Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(op_strbuf_str(&_b), -1));
@@ -903,7 +903,7 @@ static int tcl_ircxmodex STDVAR {
  * ircxevent list ?event? */
 static int tcl_ircxevent STDVAR {
   BADARGS(2, 4, " subcmd ?event? ?mask?");
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   op_strbuf_init(&buf);
   op_strbuf_append_cstr(&buf, "EVENT");
   for (int i = 1; i < argc; i++)

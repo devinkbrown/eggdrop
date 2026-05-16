@@ -58,6 +58,7 @@ static size_t
 hmac_hash_len(opssl_hmac_algo_t hash)
 {
     switch (hash) {
+    case OPSSL_HMAC_SHA1: return 0;
     case OPSSL_HMAC_SHA256: return OPSSL_SHA256_DIGEST_LEN;
     case OPSSL_HMAC_SHA384: return OPSSL_SHA384_DIGEST_LEN;
     case OPSSL_HMAC_SHA512: return OPSSL_SHA512_DIGEST_LEN;

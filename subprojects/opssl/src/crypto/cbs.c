@@ -180,9 +180,38 @@ cbb_grow(opssl_cbb_t *cbb, size_t need)
     if (required <= cbb->cap)
         return 1;
 
+    /* Children delegate growth to the root CBB, then update their pointers */
     if (cbb->is_child) {
-        cbb->error = 1;
-        return 0;
+        opssl_cbb_t *root = cbb->parent;
+        while (root && root->is_child)
+            root = root->parent;
+        if (!root) {
+            cbb->error = 1;
+            return 0;
+        }
+
+        size_t new_cap = root->cap ? root->cap : 64;
+        while (new_cap < required) {
+            size_t doubled = new_cap * 2;
+            if (doubled <= new_cap) {
+                cbb->error = 1;
+                return 0;
+            }
+            new_cap = doubled;
+        }
+
+        uint8_t *new_buf = op_realloc(root->buf, new_cap);
+        root->buf = new_buf;
+        root->cap = new_cap;
+
+        /* Update buf/cap for all children in the parent chain */
+        opssl_cbb_t *p = cbb;
+        while (p && p->is_child) {
+            p->buf = new_buf;
+            p->cap = new_cap;
+            p = p->parent;
+        }
+        return 1;
     }
 
     size_t new_cap = cbb->cap ? cbb->cap : 64;
@@ -357,6 +386,10 @@ opssl_cbb_flush(opssl_cbb_t *cbb)
         return 1;
 
     opssl_cbb_t *parent = cbb->parent;
+    if (cbb->len < cbb->offset + cbb->prefix_len) {
+        cbb->error = 1;
+        return 0;
+    }
     size_t child_len = cbb->len - (cbb->offset + cbb->prefix_len);
 
     if (cbb->prefix_len == 1) {

@@ -417,7 +417,7 @@ struct userrec *get_user_from_member(memberlist *m)
 
   /* Check if there is a user with a matching hostmask if one is provided */
   if ((m->userhost[0] != '\0') && (m->nick[0] != '\0')) {
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s!%s", m->nick, m->userhost);
     ret = get_user_by_host(op_strbuf_str(&s));
@@ -850,7 +850,7 @@ void backup_userfile(void)
 {
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "%s", USERF_BACKUP);
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   op_strbuf_appendf(&s, "%s~bak", userfile);
   async_copyfile(userfile, op_strbuf_str(&s));
@@ -926,7 +926,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
     xk->key = op_malloc(8);
     strlcpy(xk->key, "created", sizeof(xk->key));
     {
-      op_strbuf_t ts;
+      op_strbuf_t ts = {};
       op_strbuf_init(&ts);
       op_strbuf_appendf(&ts, "%" PRId64, (int64_t) now);
       xk->data = op_strdup(op_strbuf_str(&ts));
@@ -1203,7 +1203,7 @@ struct userrec *get_user_by_nick(char *nick)
   for (chan = chanset; chan; chan = chan->next) {
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       if (!rfc_casecmp(nick, m->nick)) {
-        op_strbuf_t word;
+        op_strbuf_t word = {};
         op_strbuf_init(&word);
         op_strbuf_appendf(&word, "%s!%s", m->nick, m->userhost);
         struct userrec *r = get_user_by_host(op_strbuf_str(&word));

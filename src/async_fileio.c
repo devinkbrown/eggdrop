@@ -12,10 +12,6 @@
 #  define _GNU_SOURCE
 #endif
 
-/* op_thread.h before main.h: gets real malloc/free into inline function
- * bodies before eggdrop.h poisons them. */
-#include <op_thread.h>
-
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
@@ -167,7 +163,7 @@ void async_writebuf(const char *finalpath, char *buf, size_t len, int perm)
 {
   unsigned int seq = atomic_fetch_add_explicit(&awrite_seq, 1,
                                                memory_order_relaxed);
-  op_strbuf_t tmp;
+  op_strbuf_t tmp = {};
   op_strbuf_init(&tmp);
   op_strbuf_appendf(&tmp, "%s~new.%u", finalpath, seq);
 

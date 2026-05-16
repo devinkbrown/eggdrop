@@ -28,8 +28,10 @@ extern int opssl_pem_decode_multi(const char *pem, size_t pem_len,
 
 static const char *const system_trust_paths[] = {
     "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
     "/etc/pki/tls/certs/ca-bundle.crt",
     "/etc/ssl/ca-bundle.pem",
+    "/etc/ssl/cert.pem",
     "/usr/local/share/certs/ca-root-nss.crt",
     NULL
 };

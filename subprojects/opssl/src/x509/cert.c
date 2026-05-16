@@ -44,8 +44,9 @@ struct opssl_x509 {
     size_t key_bits;
 
     /* SANs (Subject Alternative Names) */
-    char sans[16][256];
+    char **sans;
     int san_count;
+    int san_cap;
 
     /* Reference count */
     int refcount;
@@ -112,8 +113,10 @@ static int parse_san_extension(opssl_x509_t *cert, opssl_cbs_t *ext_value) {
         return 0;
 
     cert->san_count = 0;
+    cert->san_cap = 0;
+    cert->sans = NULL;
 
-    while (CBS_len(&san_seq) > 0 && cert->san_count < 16) {
+    while (CBS_len(&san_seq) > 0) {
         opssl_cbs_t name_value;
         uint8_t tag;
 
@@ -126,9 +129,19 @@ static int parse_san_extension(opssl_x509_t *cert, opssl_cbs_t *ext_value) {
                 break;
 
             size_t name_len = CBS_len(&name_value);
-            if (name_len >= sizeof(cert->sans[0]))
-                name_len = sizeof(cert->sans[0]) - 1;
+            if (name_len > 255)
+                name_len = 255;
 
+            if (cert->san_count >= cert->san_cap) {
+                int new_cap = cert->san_cap ? cert->san_cap * 2 : 16;
+                char **tmp = realloc(cert->sans, new_cap * sizeof(char *));
+                if (!tmp) break;
+                cert->sans = tmp;
+                cert->san_cap = new_cap;
+            }
+
+            cert->sans[cert->san_count] = malloc(name_len + 1);
+            if (!cert->sans[cert->san_count]) break;
             memcpy(cert->sans[cert->san_count], CBS_data(&name_value), name_len);
             cert->sans[cert->san_count][name_len] = '\0';
             cert->san_count++;
@@ -382,6 +395,9 @@ void opssl_x509_free(opssl_x509_t *cert) {
     if (cert->refcount > 0)
         return;
 
+    for (int i = 0; i < cert->san_count; i++)
+        free(cert->sans[i]);
+    free(cert->sans);
     free(cert->der);
     free(cert);
 }

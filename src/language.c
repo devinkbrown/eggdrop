@@ -427,7 +427,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
   }
 
   for (int i = 0; i < ndirs; i++) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/%s.%s.lang", dirs[i], sec->section, language);
     langfile = op_strbuf_steal(&_b);
@@ -596,7 +596,7 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
   return 0;
 }
 
-static op_strbuf_t text;
+static op_strbuf_t text = {};
 char *get_language(int idx)
 {
   lang_tab *l;

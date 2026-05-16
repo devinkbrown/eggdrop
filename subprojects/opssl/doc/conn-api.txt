@@ -1,0 +1,403 @@
+opssl CONNECTION API REFERENCE
+==============================
+
+This document describes the per-connection TLS API in opssl/conn.h.
+
+Each opssl_conn_t wraps a file descriptor and provides non-blocking TLS
+operations. All I/O returns immediately with WANT_READ/WANT_WRITE when
+the operation cannot complete, integrating naturally with event loops
+(epoll, kqueue, io_uring).
+
+Return Convention: int-returning functions use 1 = success, 0 = failure.
+Thread Safety: A single connection must not be used from multiple threads
+simultaneously. Different connections can be used concurrently.
+
+
+LIFECYCLE
+=========
+
+    opssl_conn_t *opssl_conn_new(opssl_ctx_t *ctx, int fd,
+                                 opssl_direction_t dir);
+
+Create a new TLS connection bound to the given file descriptor. The
+direction indicates whether this is a server-side (OPSSL_DIR_INBOUND) or
+client-side (OPSSL_DIR_OUTBOUND) connection. The context is reference-
+counted; the connection holds a reference until freed.
+
+The fd should be a non-blocking TCP socket. opssl never calls fcntl
+on the fd — the caller is responsible for setting O_NONBLOCK.
+
+    void opssl_conn_free(opssl_conn_t *conn);
+
+Free the connection and all associated TLS state. Does not close the fd.
+Securely erases all key material before freeing memory.
+
+
+HANDSHAKE
+=========
+
+    opssl_result_t opssl_accept(opssl_conn_t *conn);
+
+Perform the server-side TLS handshake (non-blocking).
+
+Returns:
+    OPSSL_OK         — handshake complete
+    OPSSL_WANT_READ  — need more data from the peer (wait for POLLIN)
+    OPSSL_WANT_WRITE — need to send data to the peer (wait for POLLOUT)
+    OPSSL_ERROR      — handshake failed (call opssl_conn_get_error)
+
+Typical usage:
+    opssl_result_t r;
+    while ((r = opssl_accept(conn)) != OPSSL_OK) {
+        if (r == OPSSL_WANT_READ)  { /* arm POLLIN */  continue; }
+        if (r == OPSSL_WANT_WRITE) { /* arm POLLOUT */ continue; }
+        /* r == OPSSL_ERROR: handle failure */
+        break;
+    }
+
+    opssl_result_t opssl_connect(opssl_conn_t *conn);
+
+Perform the client-side TLS handshake (non-blocking). Same return
+semantics as opssl_accept. Set SNI hostname before calling.
+
+
+DATA TRANSFER
+=============
+
+    ssize_t opssl_read(opssl_conn_t *conn, void *buf, size_t len);
+
+Read decrypted data from the TLS connection.
+
+Returns:
+    > 0  — number of bytes read
+    0    — peer sent close_notify (clean shutdown)
+    -1   — error or would block (check opssl_conn_get_last_want)
+
+When the return is -1 and opssl_conn_get_last_want returns WANT_READ
+or WANT_WRITE, retry after the fd becomes ready.
+
+    ssize_t opssl_write(opssl_conn_t *conn, const void *buf, size_t len);
+
+Write data to the TLS connection (encrypts and sends).
+
+Returns:
+    > 0  — number of bytes written
+    -1   — error or would block
+
+    int opssl_pending(opssl_conn_t *conn);
+
+Return the number of bytes already decrypted and buffered in the TLS
+layer, available for immediate read without fd I/O. Useful for draining
+all available data before returning to the event loop.
+
+
+SHUTDOWN
+========
+
+    opssl_result_t opssl_shutdown(opssl_conn_t *conn);
+
+Send a close_notify alert and wait for the peer's close_notify.
+Non-blocking: may return WANT_READ or WANT_WRITE. Call repeatedly
+until OPSSL_OK or OPSSL_ERROR.
+
+
+SNI (CLIENT SIDE)
+=================
+
+    int opssl_conn_set_sni(opssl_conn_t *conn, const char *hostname);
+
+Set the SNI hostname to send in the ClientHello. Must be called before
+opssl_connect.
+
+    const char *opssl_conn_get_sni(opssl_conn_t *conn);
+
+Get the SNI hostname from the ClientHello (server side) or the hostname
+set by opssl_conn_set_sni (client side).
+
+
+ALPN
+====
+
+    int opssl_conn_set_alpn(opssl_conn_t *conn, const char **protos,
+                            size_t count);
+
+Set the ALPN protocol list for this connection (client side). Overrides
+the context-level ALPN setting.
+
+    const char *opssl_conn_get_alpn(opssl_conn_t *conn, size_t *len);
+
+Get the negotiated ALPN protocol after handshake. Returns NULL if no
+protocol was negotiated.
+
+
+CONNECTION INFO
+===============
+
+    opssl_tls_version_t opssl_conn_version(opssl_conn_t *conn);
+
+Get the negotiated TLS version (OPSSL_TLS_1_2 or OPSSL_TLS_1_3).
+
+    const char *opssl_conn_cipher_name(opssl_conn_t *conn);
+
+Get the negotiated cipher suite name as a human-readable string.
+
+    opssl_ciphersuite_t opssl_conn_cipher_id(opssl_conn_t *conn);
+
+Get the IANA cipher suite identifier.
+
+    opssl_named_group_t opssl_conn_group(opssl_conn_t *conn);
+
+Get the key exchange group used during handshake.
+
+
+PEER CERTIFICATE
+================
+
+    opssl_x509_t *opssl_conn_get_peer_cert(opssl_conn_t *conn);
+
+Get the peer's certificate after handshake. Returns NULL if no peer
+certificate was presented. The returned certificate is reference-counted;
+the caller must call opssl_x509_free when done.
+
+    int opssl_conn_get_fingerprint(opssl_conn_t *conn,
+                                   opssl_fingerprint_method_t method,
+                                   uint8_t *out, size_t *outlen);
+
+Compute the peer certificate fingerprint using the given method. See
+opssl_fingerprint_method_t in types.h for available methods (SHA1,
+SHA256, SHA512, SHA3-256, SHA3-512, SPKI variants).
+
+
+KEYING MATERIAL EXPORT
+======================
+
+    int opssl_conn_export_keying_material(opssl_conn_t *conn,
+                                          uint8_t *out, size_t outlen,
+                                          const char *label,
+                                          const uint8_t *context,
+                                          size_t context_len);
+
+Export keying material per RFC 5705 (TLS 1.2) / RFC 8446 §7.5 (TLS 1.3).
+Used for channel binding (tls-exporter) and external authentication.
+
+
+CUSTOM I/O
+==========
+
+    void opssl_conn_set_bio(opssl_conn_t *conn,
+                            opssl_read_cb read_cb, opssl_write_cb write_cb,
+                            void *userdata);
+
+Replace fd-based I/O with custom callbacks. The callbacks must follow
+the same semantics as read(2)/write(2): return bytes transferred, or
+-1 with errno set to EAGAIN for would-block.
+
+    int  opssl_conn_get_fd(opssl_conn_t *conn);
+    void opssl_conn_set_fd(opssl_conn_t *conn, int fd);
+
+Get or replace the underlying file descriptor.
+
+
+HANDSHAKE STATE
+===============
+
+    opssl_handshake_state_t opssl_conn_get_state(opssl_conn_t *conn);
+
+Get the current handshake state. Returns one of:
+    OPSSL_HS_IDLE, OPSSL_HS_CLIENT_HELLO, OPSSL_HS_SERVER_HELLO,
+    OPSSL_HS_ENCRYPTED_EXTENSIONS, OPSSL_HS_CERTIFICATE,
+    OPSSL_HS_CERTIFICATE_VERIFY, OPSSL_HS_FINISHED,
+    OPSSL_HS_WAIT_FINISHED, OPSSL_HS_COMPLETE, OPSSL_HS_ERROR
+
+
+ERROR INSPECTION
+================
+
+    opssl_err_t opssl_conn_get_error(opssl_conn_t *conn);
+
+Get the error code from the last failed operation on this connection.
+
+    const char *opssl_conn_get_error_string(opssl_conn_t *conn);
+
+Get a human-readable error string for the last failure.
+
+    opssl_result_t opssl_conn_get_last_want(opssl_conn_t *conn);
+
+After a read/write returns -1, this indicates whether the operation
+needs to retry with POLLIN (OPSSL_WANT_READ) or POLLOUT (OPSSL_WANT_WRITE).
+
+
+CONNECTION FLAGS
+================
+
+    bool opssl_conn_is_outgoing(const opssl_conn_t *conn);
+
+Returns true if this is an outbound (client) connection.
+
+    bool opssl_conn_is_ktls(const opssl_conn_t *conn);
+
+Returns true if the connection has been promoted to kernel TLS.
+
+    bool opssl_conn_is_postquantum(const opssl_conn_t *conn);
+
+Returns true if the handshake used a post-quantum key exchange group
+(X25519+ML-KEM-768, P-256+ML-KEM-768, or P-384+ML-KEM-1024).
+
+
+POST-HANDSHAKE OPERATIONS (TLS 1.3)
+====================================
+
+    opssl_result_t opssl_conn_drain_post_handshake(opssl_conn_t *conn);
+
+Drain buffered post-handshake messages (NewSessionTicket, KeyUpdate).
+Call after handshake completes. Returns OPSSL_OK when fully drained,
+OPSSL_WANT_READ if more data is pending.
+
+    opssl_result_t opssl_conn_flush_write(opssl_conn_t *conn);
+
+Flush any queued outgoing TLS records (e.g. NewSessionTicket queued
+during handshake). Must be called before kTLS setup so the kernel
+inherits correct sequence numbers. Returns OPSSL_OK when flushed,
+OPSSL_WANT_WRITE if partial.
+
+    opssl_result_t opssl_conn_key_update(opssl_conn_t *conn,
+                                         bool request_peer_update);
+
+Trigger a TLS 1.3 KeyUpdate to rotate traffic keys. If
+request_peer_update is true, the peer is also asked to update.
+
+
+KEY EXTRACTION (kTLS SETUP)
+===========================
+
+    int opssl_conn_get_write_key(opssl_conn_t *conn, uint8_t *key, size_t *len);
+    int opssl_conn_get_read_key(opssl_conn_t *conn, uint8_t *key, size_t *len);
+    int opssl_conn_get_write_iv(opssl_conn_t *conn, uint8_t *iv, size_t *len);
+    int opssl_conn_get_read_iv(opssl_conn_t *conn, uint8_t *iv, size_t *len);
+    int opssl_conn_get_write_seq(opssl_conn_t *conn, uint64_t *seq);
+    int opssl_conn_get_read_seq(opssl_conn_t *conn, uint64_t *seq);
+
+Extract current traffic keys, IVs, and sequence numbers. Used internally
+by opssl_ktls_promote and opssl_ktls_extract_keys. Generally not needed
+by application code.
+
+
+TLS ALERTS
+==========
+
+    opssl_result_t opssl_conn_send_alert(opssl_conn_t *conn,
+                                         opssl_alert_level_t level,
+                                         opssl_alert_desc_t desc);
+
+Send a TLS alert to the peer. See opssl_alert_desc_t in types.h for
+the full list of alert descriptions (RFC 8446 §6.2).
+
+
+CLIENT CERTIFICATE
+==================
+
+    void opssl_conn_request_client_cert(opssl_conn_t *conn, bool request);
+
+Request a client certificate during handshake (server side). Per-connection
+override of the context-level setting.
+
+    void opssl_conn_set_client_cert(opssl_conn_t *conn,
+                                    const opssl_pkey_t *key,
+                                    const opssl_x509_chain_t *chain);
+
+Set the client certificate and key for this connection (client side).
+
+
+OCSP STAPLING
+=============
+
+    void opssl_conn_set_ocsp_response(opssl_conn_t *conn,
+                                      const uint8_t *response, size_t len);
+
+Attach an OCSP response for stapling during the handshake (server side,
+RFC 6066 / RFC 8446 §4.4.2.1).
+
+    int opssl_conn_verify_ocsp_response(opssl_conn_t *conn);
+    const uint8_t *opssl_conn_get_ocsp_response(opssl_conn_t *conn,
+                                                 size_t *len);
+
+Verify and retrieve the stapled OCSP response (client side).
+
+
+CERTIFICATE TRANSPARENCY
+=========================
+
+    void opssl_conn_set_sct_list(opssl_conn_t *conn,
+                                 const uint8_t *sct_list, size_t len);
+
+Attach a Signed Certificate Timestamp list (RFC 6962) for the handshake.
+
+    int opssl_conn_verify_sct_list(opssl_conn_t *conn);
+    const uint8_t *opssl_conn_get_sct_list(opssl_conn_t *conn, size_t *len);
+
+Verify and retrieve the SCT list from the handshake.
+
+
+0-RTT EARLY DATA
+=================
+
+    void opssl_conn_set_early_data_max(opssl_conn_t *conn, size_t max_bytes);
+
+Set the maximum early data size accepted (TLS 1.3, RFC 8446 §4.2.10).
+
+    bool opssl_conn_early_data_accepted(opssl_conn_t *conn);
+
+Check if the server accepted the client's 0-RTT early data.
+
+
+SESSION RESUMPTION
+==================
+
+    opssl_session_t *opssl_conn_get_session(opssl_conn_t *conn);
+
+Get the session object for resumption. Must be called after handshake.
+The caller owns the returned session and must free it.
+
+    int opssl_conn_set_session(opssl_conn_t *conn,
+                               const opssl_session_t *sess);
+
+Set a previously saved session for resumption (client side). Call before
+opssl_connect.
+
+    opssl_session_t *opssl_session_from_bytes(const uint8_t *data, size_t len);
+    int opssl_session_to_bytes(const opssl_session_t *sess,
+                               uint8_t *out, size_t *out_len);
+
+Serialize/deserialize a session for persistent storage.
+
+    void opssl_session_free(opssl_session_t *sess);
+
+Free a session object.
+
+    uint32_t opssl_session_get_lifetime(const opssl_session_t *sess);
+
+Get the session's lifetime hint in seconds.
+
+    bool opssl_session_is_resumable(const opssl_session_t *sess);
+
+Check if the session can be used for resumption (not expired, has ticket
+or PSK).
+
+
+SESSION MIGRATION (HOT UPGRADE)
+================================
+
+    int opssl_conn_export(opssl_conn_t *conn, uint8_t *buf, size_t buflen);
+
+Export the complete TLS session state into a buffer (OPX2 format).
+Includes cipher suite, keys, IVs, sequence numbers, and protocol version.
+Maximum export size: OPSSL_SESSION_EXPORT_MAX (8192 bytes).
+
+Used for live migration when kTLS is unavailable: serialize the TLS
+state alongside the socket fd (via SCM_RIGHTS), then reconstruct in the
+new process with opssl_conn_import.
+
+    int opssl_conn_import(opssl_conn_t *conn, const uint8_t *buf, size_t len);
+
+Import previously exported TLS state. The connection resumes without
+re-handshake.

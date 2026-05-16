@@ -24,7 +24,7 @@
 static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
 {
   char host[UHOSTLEN], s[UHOSTLEN], s1[UHOSTLEN];
-  op_strbuf_t _handle;
+  op_strbuf_t _handle = {};
   char *p1;
   int common = 0;
   int atr = 0;
@@ -53,7 +53,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     return 1;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", nick, h);
     strlcpy(s, op_strbuf_str(&_b), sizeof s);
@@ -68,7 +68,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     maskhost(s, host);
     strlcpy(s, host, sizeof s);
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s!%s", nick, s + 2);
       strlcpy(host, op_strbuf_str(&_b), sizeof host);
@@ -114,7 +114,7 @@ static int msg_hello(char *nick, char *h, struct userrec *u, char *p)
     /* Notify the user that his/her handle was truncated. */
     dprintf(DP_HELP, IRC_NICKTOOLONG, nick, op_strbuf_str(&_handle));
   if (notify_new[0]) {
-    op_strbuf_t _bn;
+    op_strbuf_t _bn = {};
     op_strbuf_init(&_bn);
     op_strbuf_appendf(&_bn, IRC_INITINTRO, nick, host);
     strlcpy(s1, notify_new, sizeof(s1));
@@ -177,7 +177,7 @@ static int msg_pass(char *nick, char *host, struct userrec *u, char *par)
 static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
 {
   char s1[UHOSTLEN], *pass;
-  op_strbuf_t _who;
+  op_strbuf_t _who = {};
   op_strbuf_init(&_who);
   struct userrec *u2;
 
@@ -224,7 +224,7 @@ static int msg_ident(char *nick, char *host, struct userrec *u, char *par)
     } else {
       putlog(LOG_CMDS, "*", "(%s!%s) !*! IDENT %s", nick, host, op_strbuf_str(&_who));
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s!%s", nick, host);
         maskhost(op_strbuf_str(&_b), s1);
@@ -463,7 +463,7 @@ static int msg_who(char *nick, char *host, struct userrec *u, char *par)
 
 static int msg_whois(char *nick, char *host, struct userrec *u, char *par)
 {
-  op_strbuf_t s1, uhost;
+  op_strbuf_t s1 = {}, uhost = {};
   char *s2, stime[14];
   int ok;
   struct chanset_t *chan;
@@ -858,7 +858,7 @@ static int msg_status(char *nick, char *host, struct userrec *u, char *par)
   dprintf(DP_HELP, "NOTICE %s :Online as: %s!%s.\n", nick, botname, botuserhost);
 
   {
-    op_strbuf_t _s;
+    op_strbuf_t _s = {};
     op_strbuf_init(&_s);
     op_strbuf_appendf(&_s, "Channels: ");
     for (chan = chanset; chan; chan = chan->next) {
@@ -933,7 +933,7 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! DIE", nick, host, u->handle);
   dprintf(-serv, "NOTICE %s :%s\n", nick, BOT_MSGDIE);
   {
-    op_strbuf_t _s;
+    op_strbuf_t _s = {};
     op_strbuf_init(&_s);
     if (!par[0])
       op_strbuf_appendf(&_s, "BOT SHUTDOWN (authorized by %s)", u->handle);
@@ -951,7 +951,7 @@ static int msg_die(char *nick, char *host, struct userrec *u, char *par)
   write_userfile(-1);
   sleep(1); /* Give the server time to understand. 1s has proven more than enough. */
   {
-    op_strbuf_t _s;
+    op_strbuf_t _s = {};
     op_strbuf_init(&_s);
     op_strbuf_appendf(&_s, "DEAD BY REQUEST OF %s!%s", nick, host);
     fatal(op_strbuf_str(&_s), 0);

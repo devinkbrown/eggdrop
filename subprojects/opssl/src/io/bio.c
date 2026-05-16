@@ -11,12 +11,7 @@
 #include <errno.h>
 #include <stdlib.h>
 
-/* Local compat: map non-existent error codes to available ones */
-#define OPSSL_ERR_INVALID_FD         OPSSL_ERR_INVALID_ARGUMENT
-#define OPSSL_ERR_NULL_POINTER       OPSSL_ERR_INVALID_ARGUMENT
 #define OPSSL_ERR_MEMORY_ALLOCATION  OPSSL_ERR_ALLOC_FAILED
-#define OPSSL_ERR_NO_SPACE           OPSSL_ERR_BUFFER_TOO_SMALL
-#define OPSSL_ERR_INVALID_OPERATION  OPSSL_ERR_INVALID_ARGUMENT
 #define set_error(code) opssl_set_error((code), NULL)
 
 /*

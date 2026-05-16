@@ -86,6 +86,12 @@ extern int opssl_tls13_extract_traffic_keys(void *hs_opaque,
                                             uint8_t *client_iv,  size_t *client_iv_len,
                                             uint8_t *server_iv,  size_t *server_iv_len,
                                             opssl_ciphersuite_t *cipher);
+extern int opssl_tls13_extract_hs_keys(void *hs_opaque,
+                                       uint8_t *client_key, size_t *client_key_len,
+                                       uint8_t *server_key, size_t *server_key_len,
+                                       uint8_t *client_iv,  size_t *client_iv_len,
+                                       uint8_t *server_iv,  size_t *server_iv_len,
+                                       opssl_ciphersuite_t *cipher);
 extern void opssl_tls13_set_sign_key(void *hs_opaque, const opssl_pkey_t *key);
 extern void opssl_tls13_set_cert_chain(void *hs_opaque, const opssl_x509_chain_t *chain);
 extern void opssl_tls13_set_sni(void *hs_opaque, const char *hostname);
@@ -309,6 +315,8 @@ dtls_send_record(opssl_dtls_conn_t *conn, uint8_t type,
 
     size_t dgram_len = DTLS_RECORD_HEADER_LEN + record_len;
     ssize_t sent = send(conn->fd, dgram, dgram_len, 0);
+    if (sent < 0 && errno == EPERM)
+        sent = write(conn->fd, dgram, dgram_len);
     if (sent > 0) {
         conn->write_seq++;
         dtls_flight_append(conn, dgram, dgram_len);
@@ -355,7 +363,7 @@ dtls_recv_record(opssl_dtls_conn_t *conn, uint8_t *type,
         uint8_t nonce[12];
         memcpy(nonce, conn->read_iv, 12);
         for (int i = 0; i < 8; i++)
-            nonce[4 + i] ^= (uint8_t)(full_seq >> (56 - 8 * i));
+            nonce[4 + i] ^= (uint8_t)(seq >> (56 - 8 * i));
 
         uint8_t aad[DTLS_RECORD_HEADER_LEN];
         memcpy(aad, buf, DTLS_RECORD_HEADER_LEN);
@@ -517,18 +525,13 @@ dtls_make_cookie(opssl_dtls_conn_t *conn,
                  const struct sockaddr *peer, socklen_t peerlen,
                  uint8_t *cookie_out, size_t *cookie_len_out)
 {
-    uint8_t input[sizeof(struct sockaddr_storage) + 32];
+    uint8_t input[sizeof(struct sockaddr_storage)];
     size_t  input_len = 0;
 
     if ((size_t)peerlen <= sizeof(struct sockaddr_storage)) {
         memcpy(input, peer, peerlen);
         input_len = peerlen;
     }
-    if (conn->client_random_set) {
-        memcpy(input + input_len, conn->client_random, 32);
-        input_len += 32;
-    }
-
     size_t mac_len = 32;
     if (opssl_hmac(OPSSL_HMAC_SHA256,
                    conn->cookie_hmac_key, sizeof(conn->cookie_hmac_key),
@@ -547,7 +550,7 @@ dtls_generate_cookie(opssl_dtls_conn_t *conn,
     struct sockaddr_storage peer;
     socklen_t peerlen = sizeof(peer);
     if (getpeername(conn->fd, (struct sockaddr *)&peer, &peerlen) != 0)
-        return 0;
+        peerlen = 0;
     return dtls_make_cookie(conn, (struct sockaddr *)&peer, peerlen,
                             cookie_out, cookie_len_out);
 }
@@ -638,6 +641,36 @@ err:
     return OPSSL_ERROR;
 }
 
+static opssl_result_t
+dtls_setup_handshake_cipher(opssl_dtls_conn_t *conn)
+{
+    if (conn->read_encrypted && conn->write_encrypted)
+        return OPSSL_OK;
+
+    uint8_t client_key[48], server_key[48];
+    uint8_t client_iv[12],  server_iv[12];
+    size_t  ckl = 0, skl = 0, civl = 0, sivl = 0;
+    opssl_ciphersuite_t cipher = 0;
+
+    if (opssl_tls13_extract_hs_keys(conn->hs_buf,
+                                    client_key, &ckl,
+                                    server_key, &skl,
+                                    client_iv,  &civl,
+                                    server_iv,  &sivl,
+                                    &cipher) != OPSSL_OK)
+        return OPSSL_ERROR;
+
+    opssl_result_t rc = dtls_setup_cipher_contexts(conn,
+                                                   client_key, ckl,
+                                                   server_key, skl,
+                                                   client_iv,  civl,
+                                                   server_iv,  sivl,
+                                                   cipher);
+    opssl_memzero(client_key, sizeof(client_key));
+    opssl_memzero(server_key, sizeof(server_key));
+    return rc;
+}
+
 /* ─── TLS 1.3 Engine ──────────────────────────────────────────────── */
 
 static void
@@ -671,13 +704,16 @@ dtls_send_engine_output(opssl_dtls_conn_t *conn, const uint8_t *out_data, size_t
         uint32_t mlen  = ((uint32_t)p[1] << 16) |
                          ((uint32_t)p[2] << 8)  |
                          (uint32_t)p[3];
-
         if (DTLS_TLS_HS_HEADER_LEN + mlen > remaining)
             break;
 
         ssize_t rc = dtls_send_handshake(conn, mtype,
                                          p + DTLS_TLS_HS_HEADER_LEN, mlen);
         if (rc < 0)
+            return OPSSL_ERROR;
+
+        if (mtype == DTLS_HT_SERVER_HELLO &&
+            dtls_setup_handshake_cipher(conn) != OPSSL_OK)
             return OPSSL_ERROR;
 
         p         += DTLS_TLS_HS_HEADER_LEN + mlen;
@@ -724,6 +760,13 @@ dtls_drive_tls13_engine(opssl_dtls_conn_t *conn,
         return OPSSL_ERROR;
 
     opssl_handshake_state_t *hs_state_p = (opssl_handshake_state_t *)conn->hs_buf;
+
+    if (conn->dir == OPSSL_DIR_OUTBOUND &&
+        hs_type == DTLS_HT_SERVER_HELLO &&
+        *hs_state_p > OPSSL_HS_CLIENT_HELLO &&
+        !conn->read_encrypted &&
+        dtls_setup_handshake_cipher(conn) != OPSSL_OK)
+        return OPSSL_ERROR;
 
     /* Pump through engine states that auto-advance without needing new wire data
      * (e.g. server: CLIENT_HELLO->ENCRYPTED_EXTENSIONS->FINISHED->WAIT_FINISHED).
@@ -889,9 +932,10 @@ dtls_process_handshake_record(opssl_dtls_conn_t *conn,
         conn->hs_initialized = false;
         dtls_hs_engine_init(conn);
 
+        uint8_t empty[1] = {0};
         uint8_t out_data[16384];
         size_t consumed = 0, out_len = 0;
-        opssl_tls13_client_handshake(conn->hs_buf, NULL, 0,
+        opssl_tls13_client_handshake(conn->hs_buf, empty, 0,
                                       &consumed, out_data, &out_len, sizeof(out_data));
         /* Inject DTLS cookie into the TLS 1.3 ClientHello body.
          * Cookie field goes after version(2)+random(32)+session_id in DTLS format. */
@@ -1019,9 +1063,10 @@ dtls_do_client_handshake(opssl_dtls_conn_t *conn)
         dtls_hs_engine_init(conn);
         dtls_flight_clear(conn);
 
+        uint8_t empty[1] = {0};
         uint8_t out_data[16384];
         size_t consumed = 0, out_len = 0;
-        opssl_tls13_client_handshake(conn->hs_buf, NULL, 0,
+        opssl_tls13_client_handshake(conn->hs_buf, empty, 0,
                                       &consumed, out_data, &out_len, sizeof(out_data));
         if (out_len > 0)
             dtls_send_engine_output(conn, out_data, out_len);

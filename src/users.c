@@ -63,7 +63,7 @@ int delignore(char *ign)
   int i, j;
   struct igrec **u;
   struct igrec *t;
-  op_strbuf_t temp;
+  op_strbuf_t temp = {};
 
   op_strbuf_init(&temp);
   i = 0;
@@ -144,7 +144,7 @@ void addignore(const char *ign, char *from, char *mnote, time_t expire_time)
 /* take host entry from ignore list and display it ignore-style */
 static void display_ignore(int idx, int number, struct igrec *ignore)
 {
-  op_strbuf_t when, expire;
+  op_strbuf_t when = {}, expire = {};
 
   op_strbuf_init(&when);
   if (ignore->added)
@@ -455,7 +455,7 @@ static void tell_user(int idx, struct userrec *u)
   fr.udef_global = u->flags_udef;
   build_flags(s, &fr, nullptr);
   if (module_find("notes", 0, 0)) {
-    op_strbuf_t cmd;
+    op_strbuf_t cmd = {};
     op_strbuf_init(&cmd);
     op_strbuf_appendf(&cmd, "notes {%s}", u->handle);
     if (!egg_eval(op_strbuf_str(&cmd)))
@@ -662,7 +662,7 @@ int readuserfile(char *file, struct userrec **ret)
   FILE *f;
   struct userrec *bu, *u = nullptr;
   struct chanset_t *cst = nullptr;
-  op_strbuf_t ignored;
+  op_strbuf_t ignored = {};
   struct flag_record fr;
   struct chanuserrec *cr;
 
@@ -779,7 +779,7 @@ int readuserfile(char *file, struct userrec **ret)
           u = nullptr;
           if (!findchan_by_dname(lasthand)) {
             {
-              op_strbuf_t _b;
+              op_strbuf_t _b = {};
               op_strbuf_init(&_b);
               op_strbuf_appendf(&_b, "%s ", lasthand);
               if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
@@ -807,7 +807,7 @@ int readuserfile(char *file, struct userrec **ret)
           u = nullptr;
           if (!findchan_by_dname(lasthand)) {
             {
-              op_strbuf_t _b;
+              op_strbuf_t _b = {};
               op_strbuf_init(&_b);
               op_strbuf_appendf(&_b, "%s ", lasthand);
               if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))
@@ -837,7 +837,7 @@ int readuserfile(char *file, struct userrec **ret)
           u = nullptr;
           if (!findchan_by_dname(lasthand)) {
             {
-              op_strbuf_t _b;
+              op_strbuf_t _b = {};
               op_strbuf_init(&_b);
               op_strbuf_appendf(&_b, "%s ", lasthand);
               if (!strstr(op_strbuf_str(&ignored), op_strbuf_str(&_b)))

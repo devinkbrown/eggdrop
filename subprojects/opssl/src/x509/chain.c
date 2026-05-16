@@ -22,8 +22,12 @@
 #include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <fnmatch.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #define OPSSL_MAX_CERT_CHAIN 10
 
@@ -47,71 +51,453 @@
 static const uint8_t oid_rsa_pss[] = {
     0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A
 };
+static const uint8_t oid_mgf1[] = {
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x08
+};
+static const uint8_t oid_sha1[] = {
+    0x2B, 0x0E, 0x03, 0x02, 0x1A
+};
+static const uint8_t oid_sha256[] = {
+    0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01
+};
+static const uint8_t oid_sha384[] = {
+    0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02
+};
+static const uint8_t oid_sha512[] = {
+    0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03
+};
+static const uint8_t oid_rsa_pkcs1_sha1[] = {
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05
+};
 static const uint8_t oid_rsa_pkcs1_sha256[] = {
     0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B
+};
+static const uint8_t oid_rsa_pkcs1_sha384[] = {
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C
+};
+static const uint8_t oid_rsa_pkcs1_sha512[] = {
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D
+};
+static const uint8_t oid_ecdsa_sha1[] = {
+    0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01
 };
 static const uint8_t oid_ecdsa_sha256[] = {
     0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02
 };
+static const uint8_t oid_ecdsa_sha384[] = {
+    0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03
+};
+static const uint8_t oid_ecdsa_sha512[] = {
+    0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04
+};
 static const uint8_t oid_ed25519[] = {
     0x2B, 0x65, 0x70
 };
+static const uint8_t oid_secp256r1[] = {
+    0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07
+};
+static const uint8_t oid_secp384r1[] = {
+    0x2B, 0x81, 0x04, 0x00, 0x22
+};
+static const uint8_t oid_secp521r1[] = {
+    0x2B, 0x81, 0x04, 0x00, 0x23
+};
+
+static int
+x509_digest_for_hmac_algo(opssl_hmac_algo_t algo, const uint8_t *data, size_t data_len,
+                          uint8_t *digest, size_t *digest_len)
+{
+    switch (algo) {
+    case OPSSL_HMAC_SHA1:
+        opssl_sha1(data, data_len, digest);
+        *digest_len = OPSSL_SHA1_DIGEST_LEN;
+        return 1;
+    case OPSSL_HMAC_SHA256:
+        opssl_sha256(data, data_len, digest);
+        *digest_len = OPSSL_SHA256_DIGEST_LEN;
+        return 1;
+    case OPSSL_HMAC_SHA384:
+        opssl_sha384(data, data_len, digest);
+        *digest_len = OPSSL_SHA384_DIGEST_LEN;
+        return 1;
+    case OPSSL_HMAC_SHA512:
+        opssl_sha512(data, data_len, digest);
+        *digest_len = OPSSL_SHA512_DIGEST_LEN;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int
+x509_oid_eq(const uint8_t *algo, size_t algo_len, const uint8_t *oid, size_t oid_len)
+{
+    return algo_len == oid_len && opssl_ct_eq(algo, oid, oid_len);
+}
+
+static int
+x509_ec_curve_from_spki_alg(const opssl_cbs_t *alg_id, opssl_curve_t *curve)
+{
+    if (!alg_id || !curve)
+        return 0;
+
+    opssl_cbs_t tmp = *alg_id;
+    opssl_cbs_t key_algo, curve_oid;
+    if (!opssl_asn1_get_oid(&tmp, &key_algo))
+        return 0;
+    if (!opssl_asn1_get_oid(&tmp, &curve_oid))
+        return 0;
+
+    const uint8_t *oid = opssl_cbs_data(&curve_oid);
+    size_t oid_len = opssl_cbs_len(&curve_oid);
+    if (x509_oid_eq(oid, oid_len, oid_secp256r1, sizeof(oid_secp256r1))) {
+        *curve = OPSSL_CURVE_P256;
+        return 1;
+    }
+    if (x509_oid_eq(oid, oid_len, oid_secp384r1, sizeof(oid_secp384r1))) {
+        *curve = OPSSL_CURVE_P384;
+        return 1;
+    }
+    if (x509_oid_eq(oid, oid_len, oid_secp521r1, sizeof(oid_secp521r1))) {
+        *curve = OPSSL_CURVE_P521;
+        return 1;
+    }
+    return 0;
+}
+
+static int
+x509_write_all(int fd, const uint8_t *data, size_t len)
+{
+    while (len > 0) {
+        ssize_t n = write(fd, data, len);
+        if (n <= 0)
+            return 0;
+        data += (size_t)n;
+        len -= (size_t)n;
+    }
+    return 1;
+}
+
+static int
+x509_mkstemp_write(char *tmpl, const uint8_t *data, size_t len)
+{
+    int fd = mkstemp(tmpl);
+    if (fd < 0)
+        return -1;
+    if (!x509_write_all(fd, data, len) || close(fd) != 0) {
+        close(fd);
+        unlink(tmpl);
+        return -1;
+    }
+    return 0;
+}
+
+static int
+x509_verify_ecdsa_with_system_openssl(const char *digest_arg,
+                                      const uint8_t *tbs, size_t tbs_len,
+                                      const uint8_t *sig, size_t sig_len,
+                                      const uint8_t *spki, size_t spki_len)
+{
+    char tbs_path[] = "/tmp/opssl-tbs-XXXXXX";
+    char sig_path[] = "/tmp/opssl-sig-XXXXXX";
+    char key_path[] = "/tmp/opssl-key-XXXXXX";
+    int ok = 0;
+
+    if (!digest_arg || !tbs || !sig || !spki)
+        return 0;
+    if (x509_mkstemp_write(tbs_path, tbs, tbs_len) != 0)
+        return 0;
+    if (x509_mkstemp_write(sig_path, sig, sig_len) != 0)
+        goto out_tbs;
+    if (x509_mkstemp_write(key_path, spki, spki_len) != 0)
+        goto out_sig;
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+        execlp("openssl", "openssl", "dgst", digest_arg,
+               "-keyform", "DER", "-verify", key_path,
+               "-signature", sig_path, tbs_path, (char *)NULL);
+        _exit(127);
+    }
+    if (pid > 0) {
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0) {
+            if (errno != EINTR)
+                break;
+        }
+        ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    }
+
+    unlink(key_path);
+out_sig:
+    unlink(sig_path);
+out_tbs:
+    unlink(tbs_path);
+    return ok;
+}
+
+static int
+x509_hash_oid_to_hmac(const uint8_t *oid, size_t oid_len, opssl_hmac_algo_t *hash)
+{
+    if (x509_oid_eq(oid, oid_len, oid_sha1, sizeof(oid_sha1))) {
+        *hash = OPSSL_HMAC_SHA1;
+        return 1;
+    }
+    if (x509_oid_eq(oid, oid_len, oid_sha256, sizeof(oid_sha256))) {
+        *hash = OPSSL_HMAC_SHA256;
+        return 1;
+    }
+    if (x509_oid_eq(oid, oid_len, oid_sha384, sizeof(oid_sha384))) {
+        *hash = OPSSL_HMAC_SHA384;
+        return 1;
+    }
+    if (x509_oid_eq(oid, oid_len, oid_sha512, sizeof(oid_sha512))) {
+        *hash = OPSSL_HMAC_SHA512;
+        return 1;
+    }
+    return 0;
+}
+
+static size_t
+x509_hmac_digest_len(opssl_hmac_algo_t hash)
+{
+    switch (hash) {
+    case OPSSL_HMAC_SHA1: return OPSSL_SHA1_DIGEST_LEN;
+    case OPSSL_HMAC_SHA256: return OPSSL_SHA256_DIGEST_LEN;
+    case OPSSL_HMAC_SHA384: return OPSSL_SHA384_DIGEST_LEN;
+    case OPSSL_HMAC_SHA512: return OPSSL_SHA512_DIGEST_LEN;
+    default: return 0;
+    }
+}
+
+static int
+x509_parse_hash_algorithm(opssl_cbs_t *cbs, opssl_hmac_algo_t *hash)
+{
+    opssl_cbs_t seq, oid;
+    if (!opssl_asn1_get_sequence(cbs, &seq) ||
+        !opssl_asn1_get_oid(&seq, &oid))
+        return 0;
+    return x509_hash_oid_to_hmac(opssl_cbs_data(&oid), opssl_cbs_len(&oid), hash);
+}
+
+static int
+x509_parse_small_uint(opssl_cbs_t *cbs, size_t *value)
+{
+    opssl_cbs_t integer;
+    if (!opssl_asn1_get_integer(cbs, &integer) || opssl_cbs_len(&integer) > sizeof(size_t))
+        return 0;
+
+    size_t v = 0;
+    const uint8_t *p = opssl_cbs_data(&integer);
+    for (size_t i = 0; i < opssl_cbs_len(&integer); i++)
+        v = (v << 8) | p[i];
+    *value = v;
+    return 1;
+}
+
+static int
+x509_parse_rsa_pss_params(const uint8_t *params, size_t params_len,
+                          opssl_hmac_algo_t *hash)
+{
+    opssl_hmac_algo_t pss_hash = OPSSL_HMAC_SHA1;
+    opssl_hmac_algo_t mgf_hash = OPSSL_HMAC_SHA1;
+    size_t salt_len = OPSSL_SHA1_DIGEST_LEN;
+    size_t trailer_field = 1;
+
+    if (params_len == 0) {
+        *hash = pss_hash;
+        return 1;
+    }
+
+    opssl_cbs_t params_cbs, params_seq;
+    opssl_cbs_init(&params_cbs, params, params_len);
+    if (!opssl_asn1_get_sequence(&params_cbs, &params_seq))
+        return 0;
+
+    while (opssl_cbs_len(&params_seq) > 0) {
+        uint8_t tag;
+        opssl_cbs_t field;
+        if (!opssl_cbs_peek_u8(&params_seq, &tag))
+            return 0;
+
+        if (tag == 0xA0) {
+            if (!opssl_asn1_get_element(&params_seq, 0xA0, &field) ||
+                !x509_parse_hash_algorithm(&field, &pss_hash))
+                return 0;
+        } else if (tag == 0xA1) {
+            opssl_cbs_t mgf_seq, mgf_oid;
+            if (!opssl_asn1_get_element(&params_seq, 0xA1, &field) ||
+                !opssl_asn1_get_sequence(&field, &mgf_seq) ||
+                !opssl_asn1_get_oid(&mgf_seq, &mgf_oid) ||
+                !x509_oid_eq(opssl_cbs_data(&mgf_oid), opssl_cbs_len(&mgf_oid),
+                             oid_mgf1, sizeof(oid_mgf1))) {
+                return 0;
+            }
+            if (!x509_parse_hash_algorithm(&mgf_seq, &mgf_hash))
+                return 0;
+        } else if (tag == 0xA2) {
+            if (!opssl_asn1_get_element(&params_seq, 0xA2, &field) ||
+                !x509_parse_small_uint(&field, &salt_len))
+                return 0;
+        } else if (tag == 0xA3) {
+            if (!opssl_asn1_get_element(&params_seq, 0xA3, &field) ||
+                !x509_parse_small_uint(&field, &trailer_field))
+                return 0;
+        } else {
+            return 0;
+        }
+    }
+
+    if (pss_hash != mgf_hash || trailer_field != 1 ||
+        salt_len != x509_hmac_digest_len(pss_hash))
+        return 0;
+
+    *hash = pss_hash;
+    return 1;
+}
 
 static int opssl_verify_signature(const uint8_t *tbs, size_t tbs_len,
                                   const uint8_t *algo, size_t algo_len,
+                                  const uint8_t *params, size_t params_len,
                                   const uint8_t *sig, size_t sig_len,
                                   const uint8_t *spki, size_t spki_len)
 {
     if (!tbs || !algo || !sig || !spki)
         return 0;
 
-    uint8_t hash[32];
-    opssl_sha256(tbs, tbs_len, hash);
+    uint8_t hash[OPSSL_SHA512_DIGEST_LEN];
+    size_t hash_len = 0;
 
-    if (algo_len == sizeof(oid_rsa_pkcs1_sha256) &&
-        opssl_ct_eq(algo, oid_rsa_pkcs1_sha256, sizeof(oid_rsa_pkcs1_sha256))) {
+    opssl_hmac_algo_t rsa_hash;
+    if (x509_oid_eq(algo, algo_len, oid_rsa_pkcs1_sha1, sizeof(oid_rsa_pkcs1_sha1))) {
+        rsa_hash = OPSSL_HMAC_SHA1;
+    } else if (x509_oid_eq(algo, algo_len, oid_rsa_pkcs1_sha256, sizeof(oid_rsa_pkcs1_sha256))) {
+        rsa_hash = OPSSL_HMAC_SHA256;
+    } else if (x509_oid_eq(algo, algo_len, oid_rsa_pkcs1_sha384, sizeof(oid_rsa_pkcs1_sha384))) {
+        rsa_hash = OPSSL_HMAC_SHA384;
+    } else if (x509_oid_eq(algo, algo_len, oid_rsa_pkcs1_sha512, sizeof(oid_rsa_pkcs1_sha512))) {
+        rsa_hash = OPSSL_HMAC_SHA512;
+    } else {
+        rsa_hash = (opssl_hmac_algo_t)-1;
+    }
+
+    if (rsa_hash != (opssl_hmac_algo_t)-1) {
+        if (!x509_digest_for_hmac_algo(rsa_hash, tbs, tbs_len, hash, &hash_len))
+            return 0;
         opssl_rsa_ctx_t *rsa = opssl_rsa_new();
         if (!rsa) return 0;
         if (opssl_rsa_load_public_key(rsa, spki, spki_len) != 1) {
             opssl_rsa_free(rsa); return 0;
         }
-        int result = opssl_rsa_verify(rsa, OPSSL_RSA_PKCS1_V15, OPSSL_HMAC_SHA256,
-                                      hash, sizeof(hash), sig, sig_len);
+        int result = opssl_rsa_verify(rsa, OPSSL_RSA_PKCS1_V15, rsa_hash,
+                                      hash, hash_len, sig, sig_len);
         opssl_rsa_free(rsa);
         return result;
 
-    } else if (algo_len == sizeof(oid_rsa_pss) &&
-               opssl_ct_eq(algo, oid_rsa_pss, sizeof(oid_rsa_pss))) {
+    } else if (x509_oid_eq(algo, algo_len, oid_rsa_pss, sizeof(oid_rsa_pss))) {
+        opssl_hmac_algo_t pss_hash;
+        if (!x509_parse_rsa_pss_params(params, params_len, &pss_hash))
+            return 0;
+        if (!x509_digest_for_hmac_algo(pss_hash, tbs, tbs_len, hash, &hash_len))
+            return 0;
         opssl_rsa_ctx_t *rsa = opssl_rsa_new();
         if (!rsa) return 0;
         if (opssl_rsa_load_public_key(rsa, spki, spki_len) != 1) {
             opssl_rsa_free(rsa); return 0;
         }
-        int result = opssl_rsa_verify(rsa, OPSSL_RSA_PSS, OPSSL_HMAC_SHA256,
-                                      hash, sizeof(hash), sig, sig_len);
+        int result = opssl_rsa_verify(rsa, OPSSL_RSA_PSS, pss_hash,
+                                      hash, hash_len, sig, sig_len);
         opssl_rsa_free(rsa);
         return result;
 
-    } else if (algo_len == sizeof(oid_ecdsa_sha256) &&
-               opssl_ct_eq(algo, oid_ecdsa_sha256, sizeof(oid_ecdsa_sha256))) {
+    }
+
+    opssl_hmac_algo_t ecdsa_hash;
+    opssl_curve_t ecdsa_curve = OPSSL_CURVE_P256;
+    if (x509_oid_eq(algo, algo_len, oid_ecdsa_sha1, sizeof(oid_ecdsa_sha1))) {
+        ecdsa_hash = OPSSL_HMAC_SHA1;
+    } else if (x509_oid_eq(algo, algo_len, oid_ecdsa_sha256, sizeof(oid_ecdsa_sha256))) {
+        ecdsa_hash = OPSSL_HMAC_SHA256;
+    } else if (x509_oid_eq(algo, algo_len, oid_ecdsa_sha384, sizeof(oid_ecdsa_sha384))) {
+        ecdsa_hash = OPSSL_HMAC_SHA384;
+        ecdsa_curve = OPSSL_CURVE_P384;
+    } else if (x509_oid_eq(algo, algo_len, oid_ecdsa_sha512, sizeof(oid_ecdsa_sha512))) {
+        ecdsa_hash = OPSSL_HMAC_SHA512;
+        ecdsa_curve = OPSSL_CURVE_P521;
+    } else {
+        ecdsa_hash = (opssl_hmac_algo_t)-1;
+    }
+
+    if (ecdsa_hash != (opssl_hmac_algo_t)-1) {
+        if (!x509_digest_for_hmac_algo(ecdsa_hash, tbs, tbs_len, hash, &hash_len))
+            return 0;
         opssl_cbs_t spki_cbs, alg_id, pub_bits;
         opssl_cbs_init(&spki_cbs, spki, spki_len);
-        if (!opssl_asn1_get_sequence(&spki_cbs, &alg_id)) return 0;
+        const char *digest_arg = NULL;
+        if (ecdsa_hash == OPSSL_HMAC_SHA1)
+            digest_arg = "-sha1";
+        else if (ecdsa_hash == OPSSL_HMAC_SHA256)
+            digest_arg = "-sha256";
+        else if (ecdsa_hash == OPSSL_HMAC_SHA384)
+            digest_arg = "-sha384";
+        else if (ecdsa_hash == OPSSL_HMAC_SHA512)
+            digest_arg = "-sha512";
+
+        if (!opssl_asn1_get_sequence(&spki_cbs, &alg_id))
+            return x509_verify_ecdsa_with_system_openssl(digest_arg, tbs, tbs_len,
+                                                         sig, sig_len, spki, spki_len);
+        if (!x509_ec_curve_from_spki_alg(&alg_id, &ecdsa_curve))
+            return x509_verify_ecdsa_with_system_openssl(digest_arg, tbs, tbs_len,
+                                                         sig, sig_len, spki, spki_len);
         uint8_t pub_unused;
-        if (!opssl_asn1_get_bit_string(&spki_cbs, &pub_bits, &pub_unused)) return 0;
+        if (!opssl_asn1_get_bit_string(&spki_cbs, &pub_bits, &pub_unused))
+            return x509_verify_ecdsa_with_system_openssl(digest_arg, tbs, tbs_len,
+                                                         sig, sig_len, spki, spki_len);
         const uint8_t *pub_key = opssl_cbs_data(&pub_bits);
         size_t pub_key_len = opssl_cbs_len(&pub_bits);
-        opssl_ecdsa_ctx_t *ecdsa = opssl_ecdsa_new(OPSSL_CURVE_P256);
-        if (!ecdsa) return 0;
+        opssl_ecdsa_ctx_t *ecdsa = opssl_ecdsa_new(ecdsa_curve);
+        if (!ecdsa)
+            return x509_verify_ecdsa_with_system_openssl(digest_arg, tbs, tbs_len,
+                                                         sig, sig_len, spki, spki_len);
         if (opssl_ecdsa_set_public(ecdsa, pub_key, pub_key_len) != 1) {
-            opssl_ecdsa_free(ecdsa); return 0;
+            opssl_ecdsa_free(ecdsa);
+            return x509_verify_ecdsa_with_system_openssl(digest_arg, tbs, tbs_len,
+                                                         sig, sig_len, spki, spki_len);
         }
-        int result = opssl_ecdsa_verify(ecdsa, hash, sizeof(hash), sig, sig_len);
+        uint8_t padded_hash[OPSSL_SHA384_DIGEST_LEN];
+        const uint8_t *verify_hash = hash;
+        size_t verify_hash_len = hash_len;
+        size_t curve_hash_len = 0;
+        if (ecdsa_curve == OPSSL_CURVE_P256)
+            curve_hash_len = OPSSL_SHA256_DIGEST_LEN;
+        else if (ecdsa_curve == OPSSL_CURVE_P384)
+            curve_hash_len = OPSSL_SHA384_DIGEST_LEN;
+        if (curve_hash_len > 0) {
+            if (hash_len < curve_hash_len) {
+                memset(padded_hash, 0, curve_hash_len);
+                memcpy(padded_hash + curve_hash_len - hash_len, hash, hash_len);
+                verify_hash = padded_hash;
+                verify_hash_len = curve_hash_len;
+            } else if (hash_len > curve_hash_len) {
+                verify_hash_len = curve_hash_len;
+            }
+        }
+        int result = opssl_ecdsa_verify(ecdsa, verify_hash, verify_hash_len, sig, sig_len);
         opssl_ecdsa_free(ecdsa);
+        if (!result)
+            result = x509_verify_ecdsa_with_system_openssl(digest_arg,
+                                                           tbs, tbs_len,
+                                                           sig, sig_len,
+                                                           spki, spki_len);
         return result;
 
-    } else if (algo_len == sizeof(oid_ed25519) &&
-               opssl_ct_eq(algo, oid_ed25519, sizeof(oid_ed25519))) {
+    } else if (x509_oid_eq(algo, algo_len, oid_ed25519, sizeof(oid_ed25519))) {
         if (spki_len < 32) return 0;
         return opssl_ed25519_verify(sig, tbs, tbs_len, spki + (spki_len - 32));
     }
@@ -455,7 +841,7 @@ check_key_usage(const opssl_x509_t *cert, int require_cert_sign)
     return 1; /* KeyUsage absent => permissive (RFC 5280 s4.2.1.3) */
 }
 
-/* Find issuer certificate in store by subject name match */
+/* Find issuer certificate in store by subject name and signature match. */
 static opssl_x509_t *find_issuer(const opssl_x509_t *cert, const opssl_x509_store_t *store) {
     if (!cert || !store)
         return NULL;
@@ -464,10 +850,46 @@ static opssl_x509_t *find_issuer(const opssl_x509_t *cert, const opssl_x509_stor
     if (!opssl_x509_get_issuer(cert, cert_issuer, sizeof(cert_issuer)))
         return NULL;
 
+    const uint8_t *cert_der;
+    size_t cert_der_len;
+    if (!opssl_x509_get_der(cert, &cert_der, &cert_der_len))
+        return NULL;
+
+    opssl_cbs_t cert_cbs, cert_seq, tbs_cert, sig_alg_seq, sig_alg_oid, sig_bits;
+    opssl_cbs_init(&cert_cbs, cert_der, cert_der_len);
+
+    if (!opssl_asn1_get_sequence(&cert_cbs, &cert_seq))
+        return NULL;
+
+    const uint8_t *tbs_start = opssl_cbs_data(&cert_seq);
+    if (!opssl_asn1_get_sequence(&cert_seq, &tbs_cert))
+        return NULL;
+    size_t tbs_len = (size_t)(opssl_cbs_data(&cert_seq) - tbs_start);
+
+    if (!opssl_asn1_get_sequence(&cert_seq, &sig_alg_seq) ||
+        !opssl_asn1_get_oid(&sig_alg_seq, &sig_alg_oid))
+        return NULL;
+
+    uint8_t sig_unused;
+    if (!opssl_asn1_get_bit_string(&cert_seq, &sig_bits, &sig_unused))
+        return NULL;
+
     for (size_t i = 0; i < store->count; i++) {
         char ca_subject[512];
         if (opssl_x509_get_subject(store->trusted[i], ca_subject, sizeof(ca_subject))) {
-            if (strcmp(cert_issuer, ca_subject) == 0)
+            if (strcmp(cert_issuer, ca_subject) != 0)
+                continue;
+
+            const uint8_t *spki;
+            size_t spki_len;
+            if (!opssl_x509_get_spki_der(store->trusted[i], &spki, &spki_len))
+                continue;
+
+            if (opssl_verify_signature(tbs_start, tbs_len,
+                                        opssl_cbs_data(&sig_alg_oid), opssl_cbs_len(&sig_alg_oid),
+                                        opssl_cbs_data(&sig_alg_seq), opssl_cbs_len(&sig_alg_seq),
+                                        opssl_cbs_data(&sig_bits), opssl_cbs_len(&sig_bits),
+                                        spki, spki_len))
                 return store->trusted[i];
         }
     }
@@ -572,6 +994,41 @@ opssl_x509_chain_t *opssl_x509_chain_from_leaf(const uint8_t *der, size_t der_le
     return chain;
 }
 
+opssl_x509_chain_t *opssl_x509_chain_from_ders(const uint8_t *der, size_t der_len,
+                                                const uint8_t * const *intermediates,
+                                                const size_t *ilens,
+                                                size_t n_intermediates) {
+    if (!der || der_len == 0 || n_intermediates >= OPSSL_MAX_CERT_CHAIN)
+        return NULL;
+
+    opssl_x509_chain_t *chain = calloc(1, sizeof(opssl_x509_chain_t));
+    if (!chain)
+        return NULL;
+
+    chain->certs[0] = opssl_x509_from_der(der, der_len);
+    if (!chain->certs[0]) {
+        opssl_x509_chain_free(chain);
+        return NULL;
+    }
+    chain->count = 1;
+
+    for (size_t i = 0; i < n_intermediates; i++) {
+        if (!intermediates || !ilens || !intermediates[i] || ilens[i] == 0) {
+            opssl_x509_chain_free(chain);
+            return NULL;
+        }
+
+        chain->certs[chain->count] = opssl_x509_from_der(intermediates[i], ilens[i]);
+        if (!chain->certs[chain->count]) {
+            opssl_x509_chain_free(chain);
+            return NULL;
+        }
+        chain->count++;
+    }
+
+    return chain;
+}
+
 void opssl_x509_chain_free(opssl_x509_chain_t *chain) {
     if (!chain) return;
     for (size_t i = 0; i < chain->count; i++)
@@ -607,11 +1064,48 @@ int opssl_x509_store_load_file(opssl_x509_store_t *store, const char *path) {
         opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, "Invalid store or path");
         return 0;
     }
-    opssl_x509_t *cert = opssl_x509_from_file(path);
-    if (!cert) return 0;
-    int result = opssl_x509_store_add_cert(store, cert);
-    opssl_x509_free(cert);
-    return result;
+
+    /* Read the whole file to handle multi-cert PEM bundles (e.g. ca-certificates.crt). */
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        opssl_set_error(OPSSL_ERR_FILE_READ, "cannot open trust cert file");
+        return 0;
+    }
+    if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 0; }
+    long fsize = ftell(fp);
+    if (fsize <= 0 || fsize > 16L * 1024L * 1024L) {
+        fclose(fp);
+        opssl_set_error(OPSSL_ERR_FILE_READ, "trust cert file is empty or too large");
+        return 0;
+    }
+    rewind(fp);
+    char *pem_data = malloc((size_t)fsize + 1);
+    if (!pem_data) { fclose(fp); return 0; }
+    size_t nread = fread(pem_data, 1, (size_t)fsize, fp);
+    fclose(fp);
+    pem_data[nread] = '\0';
+
+    /* Decode all PEM blocks in the file (handles single certs and bundles). */
+#define STORE_LOAD_MAX 512
+    uint8_t *ders[STORE_LOAD_MAX];
+    size_t der_lens[STORE_LOAD_MAX];
+    size_t count = 0;
+    int added = 0;
+
+    if (opssl_pem_decode_multi(pem_data, nread, ders, der_lens, &count, STORE_LOAD_MAX)) {
+        for (size_t i = 0; i < count; i++) {
+            opssl_x509_t *cert = opssl_x509_from_der(ders[i], der_lens[i]);
+            if (cert) {
+                if (opssl_x509_store_add_cert(store, cert))
+                    added++;
+                opssl_x509_free(cert);
+            }
+            free(ders[i]);
+        }
+    }
+    free(pem_data);
+#undef STORE_LOAD_MAX
+    return added;
 }
 
 int opssl_x509_store_load_dir(opssl_x509_store_t *store, const char *path) {
@@ -689,11 +1183,28 @@ int opssl_x509_verify(const opssl_x509_chain_t *chain, const opssl_x509_store_t 
         }
     }
 
-    /* 3. Verify chain signatures */
+    /* 3. Verify chain signatures — stop early if a chain cert is a trust anchor */
     opssl_x509_t *current = leaf;
     opssl_x509_t *issuer = NULL;
 
     for (size_t i = 0; i < chain->count; i++) {
+        /* If the current cert's SPKI matches a trust anchor, accept it
+         * (handles cross-signed roots that differ in DER but share the same key) */
+        if (i > 0) {
+            const uint8_t *cur_spki;
+            size_t cur_spki_len;
+            if (opssl_x509_get_spki_der(current, &cur_spki, &cur_spki_len)) {
+                for (size_t j = 0; j < store->count; j++) {
+                    const uint8_t *tspki;
+                    size_t tspki_len;
+                    if (opssl_x509_get_spki_der(store->trusted[j], &tspki, &tspki_len) &&
+                        tspki_len == cur_spki_len &&
+                        memcmp(tspki, cur_spki, cur_spki_len) == 0)
+                        goto chain_trusted;
+                }
+            }
+        }
+
         if (i + 1 < chain->count) {
             issuer = chain->certs[i + 1];
         } else {
@@ -748,6 +1259,7 @@ int opssl_x509_verify(const opssl_x509_chain_t *chain, const opssl_x509_store_t 
 
         if (!opssl_verify_signature(tbs_start, tbs_len,
                                     opssl_cbs_data(&sig_alg_oid), opssl_cbs_len(&sig_alg_oid),
+                                    opssl_cbs_data(&sig_alg_seq), opssl_cbs_len(&sig_alg_seq),
                                     opssl_cbs_data(&sig_bits), opssl_cbs_len(&sig_bits),
                                     spki, spki_len)) {
             result->error_code = OPSSL_VERIFY_ERROR_INVALID_SIGNATURE;
@@ -805,6 +1317,7 @@ int opssl_x509_verify(const opssl_x509_chain_t *chain, const opssl_x509_store_t 
         return 0;
     }
 
+chain_trusted:
     /* 5. Intermediate CA validity checks */
     for (size_t i = 1; i < chain->count; i++) {
         /* Must have BasicConstraints cA=TRUE */
@@ -1184,6 +1697,7 @@ opssl_ocsp_verify_response(const uint8_t *response, size_t len,
                             sig_verified = opssl_verify_signature(
                                 tbs_start, tbs_len,
                                 opssl_cbs_data(&sig_alg_oid), opssl_cbs_len(&sig_alg_oid),
+                                opssl_cbs_data(&sig_alg_seq), opssl_cbs_len(&sig_alg_seq),
                                 opssl_cbs_data(&sig_bits), opssl_cbs_len(&sig_bits),
                                 spki, spki_len);
                         }
@@ -1200,6 +1714,7 @@ opssl_ocsp_verify_response(const uint8_t *response, size_t len,
                 if (opssl_x509_get_spki_der(store->trusted[i], &spki, &spki_len) &&
                     opssl_verify_signature(tbs_start, tbs_len,
                                            opssl_cbs_data(&sig_alg_oid), opssl_cbs_len(&sig_alg_oid),
+                                           opssl_cbs_data(&sig_alg_seq), opssl_cbs_len(&sig_alg_seq),
                                            opssl_cbs_data(&sig_bits), opssl_cbs_len(&sig_bits),
                                            spki, spki_len)) {
                     sig_verified = true;

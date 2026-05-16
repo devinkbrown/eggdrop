@@ -205,7 +205,7 @@ void botnet_send_bye(void)
 void botnet_send_chan(int idx, const char *botnick, const char *user, int chan, const char *data)
 {
   if ((tands > 0) && (chan < GLOBAL_CHANS)) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     if (user)
       op_strbuf_appendf(&_b, "c %s@%s %s %s\n", user, botnick, int_to_base64(chan), data);
@@ -219,7 +219,7 @@ void botnet_send_chan(int idx, const char *botnick, const char *user, int chan, 
 void botnet_send_act(int idx, char *botnick, char *user, int chan, char *data)
 {
   if ((tands > 0) && (chan < GLOBAL_CHANS)) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     if (user)
       op_strbuf_appendf(&_b, "a %s@%s %s %s\n", user, botnick, int_to_base64(chan), data);
@@ -233,7 +233,7 @@ void botnet_send_act(int idx, char *botnick, char *user, int chan, char *data)
 void botnet_send_chat(int idx, char *botnick, const char *data)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "ct %s %s\n", botnick, data);
     send_tand_but(idx, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
@@ -254,7 +254,7 @@ void botnet_send_pong(int idx)
 ATTRIBUTE_FORMAT(printf,5,6)
 void botnet_send_priv (int idx, const char *from, const char *to, const char *tobot, const char *format, ...)
 {
-  op_strbuf_t msg;
+  op_strbuf_t msg = {};
   op_strbuf_init(&msg);
   va_list va;
 
@@ -262,7 +262,7 @@ void botnet_send_priv (int idx, const char *from, const char *to, const char *to
   op_strbuf_vappendf(&msg, format, va);
   va_end(va);
 
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   if (tobot) {
       op_strbuf_appendf(&_b, "p %s %s@%s %s\n", from, to, tobot, op_strbuf_str(&msg));
@@ -276,7 +276,7 @@ void botnet_send_priv (int idx, const char *from, const char *to, const char *to
 
 void botnet_send_who(int idx, const char *from, const char *to, int chan)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "w %s %s %s\n", from, to, int_to_base64(chan));
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -285,7 +285,7 @@ void botnet_send_who(int idx, const char *from, const char *to, int chan)
 
 void botnet_send_infoq(int idx, const char *par)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "i? %s\n", par);
   send_tand_but(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -294,7 +294,7 @@ void botnet_send_infoq(int idx, const char *par)
 
 void botnet_send_unlink(int idx, const char *who, char *via, const char *bot, const char *reason)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "ul %s %s %s %s\n", who, via, bot, reason);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -303,7 +303,7 @@ void botnet_send_unlink(int idx, const char *who, char *via, const char *bot, co
 
 void botnet_send_link(int idx, const char *who, char *via, const char *bot)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "l %s %s %s\n", who, via, bot);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -313,7 +313,7 @@ void botnet_send_link(int idx, const char *who, char *via, const char *bot)
 void botnet_send_unlinked(int idx, char *bot, const char *args)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "un %s %s\n", bot, args ? args : "");
     send_tand_but(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -324,7 +324,7 @@ void botnet_send_unlinked(int idx, char *bot, const char *args)
 void botnet_send_nlinked(int idx, char *bot, char *next, char flag, int vernum)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "n %s %s %c%s\n", bot, next, flag, int_to_base64(vernum));
     send_tand_but(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -334,7 +334,7 @@ void botnet_send_nlinked(int idx, char *bot, char *next, char flag, int vernum)
 
 void botnet_send_traced(int idx, const char *bot, const char *buf)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "td %s %s\n", bot, buf);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -343,7 +343,7 @@ void botnet_send_traced(int idx, const char *bot, const char *buf)
 
 void botnet_send_trace(int idx, const char *to, const char *from, const char *buf)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "t %s %s %s:%s\n", to, from, buf, botnetnick);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -353,7 +353,7 @@ void botnet_send_trace(int idx, const char *to, const char *from, const char *bu
 void botnet_send_update(int idx, tand_t *ptr)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "u %s %c%s\n", ptr->bot, ptr->share, int_to_base64(ptr->ver));
     send_tand_but(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -365,7 +365,7 @@ void botnet_send_reject(int idx, char *fromp, char *frombot, char *top,
                         char *tobot, char *reason)
 {
   if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "r ");
     if (frombot)
@@ -385,7 +385,7 @@ void botnet_send_reject(int idx, char *fromp, char *frombot, char *top,
 
 void botnet_send_zapf(int idx, const char *a, const char *b, const char *c)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "z %s %s %s\n", a, b, c);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -395,7 +395,7 @@ void botnet_send_zapf(int idx, const char *a, const char *b, const char *c)
 void botnet_send_zapf_broad(int idx, const char *a, const char *b, const char *c)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     if (b)
       op_strbuf_appendf(&_b, "zb %s %s %s\n", a, b, c);
@@ -408,7 +408,7 @@ void botnet_send_zapf_broad(int idx, const char *a, const char *b, const char *c
 
 void botnet_send_motd(int idx, const char *from, const char *to)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "m %s %s\n", from, to);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -417,7 +417,7 @@ void botnet_send_motd(int idx, const char *from, const char *to)
 
 void botnet_send_filereject(int idx, char *path, char *from, char *reason)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "f! %s %s %s\n", path, from, reason);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -426,7 +426,7 @@ void botnet_send_filereject(int idx, char *path, char *from, char *reason)
 
 void botnet_send_filesend(int idx, const char *path, const char *from, const char *data)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "fs %s %s %s\n", path, from, data);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -435,7 +435,7 @@ void botnet_send_filesend(int idx, const char *path, const char *from, const cha
 
 void botnet_send_filereq(int idx, char *from, char *bot, char *path)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "fr %s %s:%s\n", from, bot, path);
   dprint(idx, op_strbuf_str(&_b), (int)op_strbuf_len(&_b));
@@ -445,10 +445,10 @@ void botnet_send_filereq(int idx, char *from, char *bot, char *path)
 void botnet_send_idle(int idx, char *bot, int sock, int idle, char *away)
 {
   if (tands > 0) {
-    op_strbuf_t _b64_sock, _b64_idle;
+    op_strbuf_t _b64_sock = {}, _b64_idle = {};
     op_strbuf_appendf(&_b64_sock, "%s", int_to_base64(sock));
     op_strbuf_appendf(&_b64_idle, "%s", int_to_base64(idle));
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "i %s %s %s %s\n", bot,
                       op_strbuf_str(&_b64_sock), op_strbuf_str(&_b64_idle),
@@ -463,7 +463,7 @@ void botnet_send_idle(int idx, char *bot, int sock, int idle, char *away)
 void botnet_send_away(int idx, char *bot, int sock, char *msg, int linking)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "aw %s%s %s %s\n",
                       ((idx >= 0) && linking) ? "!" : "",
@@ -476,10 +476,10 @@ void botnet_send_away(int idx, char *bot, int sock, char *msg, int linking)
 void botnet_send_join_idx(int useridx, int oldchan)
 {
   if (tands > 0) {
-    op_strbuf_t _b64_chan, _b64_sock;
+    op_strbuf_t _b64_chan = {}, _b64_sock = {};
     op_strbuf_appendf(&_b64_chan, "%s", int_to_base64(dcc[useridx].u.chat->channel));
     op_strbuf_appendf(&_b64_sock, "%s", int_to_base64(dcc[useridx].sock));
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "j %s %s %s %c%s %s\n",
                       botnetnick, dcc[useridx].nick,
@@ -495,10 +495,10 @@ void botnet_send_join_idx(int useridx, int oldchan)
 void botnet_send_join_party(int idx, int linking, int useridx, int oldchan)
 {
   if (tands > 0) {
-    op_strbuf_t _b64_chan, _b64_sock;
+    op_strbuf_t _b64_chan = {}, _b64_sock = {};
     op_strbuf_appendf(&_b64_chan, "%s", int_to_base64(party[useridx].chan));
     op_strbuf_appendf(&_b64_sock, "%s", int_to_base64(party[useridx].sock));
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "j %s%s %s %s %c%s %s\n",
                       linking ? "!" : "",
@@ -516,7 +516,7 @@ void botnet_send_join_party(int idx, int linking, int useridx, int oldchan)
 void botnet_send_part_idx(int useridx, const char *reason)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "pt %s %s %s %s\n", botnetnick,
                       dcc[useridx].nick, int_to_base64(dcc[useridx].sock),
@@ -529,7 +529,7 @@ void botnet_send_part_idx(int useridx, const char *reason)
 void botnet_send_part_party(int idx, int partyidx, char *reason, int silent)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "pt %s%s %s %s %s\n",
                       silent ? "!" : "", party[partyidx].bot,
@@ -543,7 +543,7 @@ void botnet_send_part_party(int idx, int partyidx, char *reason, int silent)
 void botnet_send_nkch(int useridx, char *oldnick)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "nc %s %s %s\n", botnetnick,
                       int_to_base64(dcc[useridx].sock), dcc[useridx].nick);
@@ -555,7 +555,7 @@ void botnet_send_nkch(int useridx, char *oldnick)
 void botnet_send_nkch_part(int butidx, int useridx, char *oldnick)
 {
   if (tands > 0) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "nc %s %s %s\n", party[useridx].bot,
                       int_to_base64(party[useridx].sock), party[useridx].nick);
@@ -599,7 +599,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
     if (!strcasecmp(p, botnetnick)) /* To me?? */
       return add_note(x, from, msg, idx, echo); /* Start over, dimwit. */
 
-    op_strbuf_t _botf;
+    op_strbuf_t _botf = {};
     op_strbuf_init(&_botf);
     if (strcasecmp(from, botnetnick)) {
       if (strlen(from) > FROMLEN)
@@ -626,7 +626,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
       dprintf(idx, "-> %s@%s: %s\n", x, p, msg);
 
     if (idx >= 0) {
-      op_strbuf_t _ssf;
+      op_strbuf_t _ssf = {};
       op_strbuf_init(&_ssf);
       op_strbuf_appendf(&_ssf, "%lu:%s", dcc[idx].sock, op_strbuf_str(&_botf));
       botnet_send_priv(i, op_strbuf_str(&_ssf), x, p, "%s", msg);
@@ -709,7 +709,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
 
       if (aok) {
         char *fr = from;
-        op_strbuf_t work;
+        op_strbuf_t work = {};
         op_strbuf_init(&work);
 
         while (*msg == '<' || *msg == '>') {
@@ -741,7 +741,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
     return NOTE_OK; /* Error msg from a tandembot: don't store. */
 
   /* Call 'storenote' command. */
-  op_strbuf_t _idx;
+  op_strbuf_t _idx = {};
   op_strbuf_init(&_idx);
   op_strbuf_appendf(&_idx, "%ld", (idx >= 0) ? dcc[idx].sock : -1L);
   Tcl_SetVar(interp, "_from", from, 0);
@@ -749,7 +749,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
   Tcl_SetVar(interp, "_data", msg,  0);
   Tcl_SetVar(interp, "_idx",  op_strbuf_str(&_idx), 0);
   {
-    op_strbuf_t cmd;
+    op_strbuf_t cmd = {};
     op_strbuf_init(&cmd);
     op_strbuf_appendf(&cmd, "storenote {%s} {%s} {%s} %s", from, to, msg,
                      op_strbuf_str(&_idx));

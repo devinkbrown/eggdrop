@@ -121,7 +121,7 @@ static void notes_change(char *oldnick, char *newnick)
   if (f == nullptr)
     return;
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
@@ -156,7 +156,7 @@ static void notes_change(char *oldnick, char *newnick)
   fclose(g);
   unlink(notefile);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
@@ -180,7 +180,7 @@ static void expire_notes(void)
   if (f == nullptr)
     return;
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
@@ -217,7 +217,7 @@ static void expire_notes(void)
   fclose(g);
   unlink(notefile);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
@@ -285,14 +285,14 @@ static int tcl_storenote STDVAR
         }
       }
       if (ok) {
-        op_strbuf_t note_sb;
+        op_strbuf_t note_sb = {};
 
         op_strbuf_init(&note_sb);
         if (p && strchr(argv[1], '@')) {
           op_strbuf_appendf(&note_sb, "<%s@%s >%s %s", argv[2], botnetnick,
                             argv[1], argv[3]);
           {
-            op_strbuf_t _b;
+            op_strbuf_t _b = {};
             op_strbuf_init(&_b);
             op_strbuf_appendf(&_b, "@%s", botnetnick);
             strlcpy(u, op_strbuf_str(&_b), sizeof u);
@@ -332,7 +332,7 @@ static int tcl_storenote STDVAR
           dprintf(idx, "%s\n", NOTES_NOTEFILE_FAILED);
         putlog(LOG_MISC, "*", "%s", NOTES_NOTEFILE_UNREACHABLE);
       } else {
-        op_strbuf_t chain;
+        op_strbuf_t chain = {};
         char *p, *blah = argv[3], *from = argv[1];
 
         op_strbuf_init(&chain);
@@ -427,7 +427,7 @@ static int tcl_erasenotes STDVAR
     return TCL_OK;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
@@ -465,7 +465,7 @@ static int tcl_erasenotes STDVAR
   fclose(g);
   unlink(notefile);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
@@ -548,7 +548,7 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
         lapse = (int) ((now - tt) / 86400);
         if (lapse > note_life - 7) {
           {
-            op_strbuf_t _xd;
+            op_strbuf_t _xd = {};
             op_strbuf_init(&_xd);
             if (lapse >= note_life)
               op_strbuf_appendf(&_xd, "%s%s", wt, NOTES_EXPIRE_TODAY);
@@ -639,7 +639,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
     return;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     g = fopen(op_strbuf_str(&_b), "w");
@@ -681,7 +681,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
   fclose(g);
   unlink(notefile);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s~new", notefile);
     movefile(op_strbuf_str(&_b), notefile);
@@ -1050,7 +1050,7 @@ int add_note_ignore(struct userrec *u, char *mask)
     xtra_set(u, ue, mxk);
   } else {                        /* ... else, we already have other entries. */
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s %s", xk->data, mask);
       xk->data = user_realloc(xk->data, op_strbuf_len(&_b) + 1);
@@ -1076,7 +1076,7 @@ int del_note_ignore(struct userrec *u, char *mask)
   buf[0] = 0;
   for (int i = 0; i < ignoresn; i++) {
     if (strcmp(ignores[i], mask)) {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       if (buf[0])
         op_strbuf_appendf(&_b, "%s %s", buf, ignores[i]);

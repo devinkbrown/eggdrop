@@ -26,6 +26,8 @@
 
 /* Crypto function declarations */
 extern int opssl_ct_eq(const void *a, const void *b, size_t len);
+extern int opssl_asn1_get_sequence(opssl_cbs_t *cbs, opssl_cbs_t *content);
+extern int opssl_asn1_get_bit_string(opssl_cbs_t *cbs, opssl_cbs_t *content, uint8_t *unused_bits);
 
 /* Convenience functions for ECC key operations */
 __attribute__((unused)) static int opssl_ecc_keygen(opssl_named_group_t group, uint8_t *priv_key, uint8_t *pub_key, size_t *pub_len)
@@ -59,6 +61,7 @@ __attribute__((unused)) static int opssl_ecc_keygen(opssl_named_group_t group, u
 #define TLS_MASTER_SECRET_LEN       48
 #define TLS_FINISHED_VERIFY_LEN     12
 #define TLS_MAX_KEY_BLOCK_LEN       256
+#define TLS_MAX_PEER_CERTS          10
 
 /* Handshake message types */
 #define TLS_MT_CLIENT_HELLO         1
@@ -114,6 +117,9 @@ typedef struct {
     /* Peer certificate (leaf only, for verification) */
     uint8_t *peer_cert_der;
     size_t peer_cert_der_len;
+    uint8_t *peer_chain_der[TLS_MAX_PEER_CERTS - 1];
+    size_t peer_chain_der_len[TLS_MAX_PEER_CERTS - 1];
+    size_t peer_chain_count;
 
     /* Server's SPKI from Certificate (for SKE signature verification) */
     const uint8_t *peer_spki;
@@ -170,6 +176,7 @@ tls12_prf(opssl_hmac_algo_t hash,
 
     /* Determine hash output length */
     switch (hash) {
+        case OPSSL_HMAC_SHA1: hash_len = 20; break;
         case OPSSL_HMAC_SHA256: hash_len = 32; break;
         case OPSSL_HMAC_SHA384: hash_len = 48; break;
         case OPSSL_HMAC_SHA512: hash_len = 64; break;
@@ -231,6 +238,187 @@ cleanup:
     opssl_hmac_cleanup(&hmac);
     opssl_memzero(A, sizeof(A));
 err:
+    return ret;
+}
+
+static int
+tls12_sigalg_hash(uint16_t sig_alg, opssl_hmac_algo_t *hash,
+                  opssl_rsa_padding_t *rsa_pad, opssl_curve_t *ecdsa_curve)
+{
+    if (!hash)
+        return 0;
+
+    switch (sig_alg) {
+    case OPSSL_SIG_RSA_PKCS1_SHA1:
+        *hash = OPSSL_HMAC_SHA1;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PKCS1_V15;
+        return 1;
+    case OPSSL_SIG_RSA_PKCS1_SHA256:
+        *hash = OPSSL_HMAC_SHA256;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PKCS1_V15;
+        return 1;
+    case OPSSL_SIG_RSA_PKCS1_SHA384:
+        *hash = OPSSL_HMAC_SHA384;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PKCS1_V15;
+        return 1;
+    case OPSSL_SIG_RSA_PKCS1_SHA512:
+        *hash = OPSSL_HMAC_SHA512;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PKCS1_V15;
+        return 1;
+    case OPSSL_SIG_RSA_PSS_SHA256:
+        *hash = OPSSL_HMAC_SHA256;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PSS;
+        return 1;
+    case OPSSL_SIG_RSA_PSS_SHA384:
+        *hash = OPSSL_HMAC_SHA384;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PSS;
+        return 1;
+    case OPSSL_SIG_RSA_PSS_SHA512:
+        *hash = OPSSL_HMAC_SHA512;
+        if (rsa_pad) *rsa_pad = OPSSL_RSA_PSS;
+        return 1;
+    case OPSSL_SIG_ECDSA_SHA1:
+        *hash = OPSSL_HMAC_SHA1;
+        if (ecdsa_curve) *ecdsa_curve = OPSSL_CURVE_P256;
+        return 1;
+    case OPSSL_SIG_ECDSA_SECP256R1:
+        *hash = OPSSL_HMAC_SHA256;
+        if (ecdsa_curve) *ecdsa_curve = OPSSL_CURVE_P256;
+        return 1;
+    case OPSSL_SIG_ECDSA_SECP384R1:
+        *hash = OPSSL_HMAC_SHA384;
+        if (ecdsa_curve) *ecdsa_curve = OPSSL_CURVE_P384;
+        return 1;
+    case OPSSL_SIG_ECDSA_SECP521R1:
+        *hash = OPSSL_HMAC_SHA512;
+        if (ecdsa_curve) *ecdsa_curve = OPSSL_CURVE_P521;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int
+tls12_hash_for_sigalg(uint16_t sig_alg, const uint8_t *data, size_t data_len,
+                      uint8_t *digest, size_t *digest_len)
+{
+    opssl_hmac_algo_t hash;
+    if (!tls12_sigalg_hash(sig_alg, &hash, NULL, NULL))
+        return 0;
+
+    switch (hash) {
+    case OPSSL_HMAC_SHA1:
+        opssl_sha1(data, data_len, digest);
+        *digest_len = OPSSL_SHA1_DIGEST_LEN;
+        return 1;
+    case OPSSL_HMAC_SHA256:
+        opssl_sha256(data, data_len, digest);
+        *digest_len = OPSSL_SHA256_DIGEST_LEN;
+        return 1;
+    case OPSSL_HMAC_SHA384:
+        opssl_sha384(data, data_len, digest);
+        *digest_len = OPSSL_SHA384_DIGEST_LEN;
+        return 1;
+    case OPSSL_HMAC_SHA512:
+        opssl_sha512(data, data_len, digest);
+        *digest_len = OPSSL_SHA512_DIGEST_LEN;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int
+tls12_verify_server_key_exchange(tls12_hs_t *hs, uint16_t sig_alg,
+                                 const uint8_t *params, size_t params_len,
+                                 const uint8_t *sig, size_t sig_len)
+{
+    if (!hs || !hs->peer_cert_der || !params || !sig)
+        return 0;
+
+    uint8_t sig_input[64 + 256];
+    if (params_len > sizeof(sig_input) - 64)
+        return 0;
+    memcpy(sig_input, hs->client_random, 32);
+    memcpy(sig_input + 32, hs->server_random, 32);
+    memcpy(sig_input + 64, params, params_len);
+
+    uint8_t digest[OPSSL_SHA512_DIGEST_LEN];
+    size_t digest_len = 0;
+    if (!tls12_hash_for_sigalg(sig_alg, sig_input, 64 + params_len, digest, &digest_len))
+        return 0;
+
+    opssl_x509_t *cert = opssl_x509_from_der(hs->peer_cert_der, hs->peer_cert_der_len);
+    if (!cert)
+        return 0;
+
+    const uint8_t *spki_der = NULL;
+    size_t spki_der_len = 0;
+    int ret = 0;
+    if (!opssl_x509_get_spki_der(cert, &spki_der, &spki_der_len))
+        goto done;
+
+    if (sig_alg == OPSSL_SIG_RSA_PKCS1_SHA1 ||
+        sig_alg == OPSSL_SIG_RSA_PKCS1_SHA256 ||
+        sig_alg == OPSSL_SIG_RSA_PKCS1_SHA384 ||
+        sig_alg == OPSSL_SIG_RSA_PKCS1_SHA512 ||
+        sig_alg == OPSSL_SIG_RSA_PSS_SHA256 ||
+        sig_alg == OPSSL_SIG_RSA_PSS_SHA384 ||
+        sig_alg == OPSSL_SIG_RSA_PSS_SHA512) {
+        opssl_rsa_padding_t pad = OPSSL_RSA_PKCS1_V15;
+        opssl_hmac_algo_t hash;
+        if (!tls12_sigalg_hash(sig_alg, &hash, &pad, NULL))
+            goto done;
+
+        opssl_rsa_ctx_t *rsa = opssl_rsa_new();
+        if (!rsa)
+            goto done;
+        if (opssl_rsa_load_public_key(rsa, spki_der, spki_der_len) == 1)
+            ret = opssl_rsa_verify(rsa, pad, hash, digest, digest_len, sig, sig_len);
+        opssl_rsa_free(rsa);
+    } else if (sig_alg == OPSSL_SIG_ECDSA_SHA1 ||
+               sig_alg == OPSSL_SIG_ECDSA_SECP256R1 ||
+               sig_alg == OPSSL_SIG_ECDSA_SECP384R1 ||
+               sig_alg == OPSSL_SIG_ECDSA_SECP521R1) {
+        opssl_curve_t curve = OPSSL_CURVE_P256;
+        opssl_hmac_algo_t hash;
+        if (!tls12_sigalg_hash(sig_alg, &hash, NULL, &curve))
+            goto done;
+
+        opssl_cbs_t spki_cbs, inner, alg_id, pub_bits;
+        uint8_t unused;
+        opssl_cbs_init(&spki_cbs, spki_der, spki_der_len);
+        if (!opssl_asn1_get_sequence(&spki_cbs, &inner) ||
+            !opssl_asn1_get_sequence(&inner, &alg_id) ||
+            !opssl_asn1_get_bit_string(&inner, &pub_bits, &unused))
+            goto done;
+
+        opssl_ecdsa_ctx_t *ecdsa = opssl_ecdsa_new(curve);
+        if (!ecdsa)
+            goto done;
+        int set_rc = opssl_ecdsa_set_public(ecdsa, opssl_cbs_data(&pub_bits), opssl_cbs_len(&pub_bits));
+        if (set_rc == 1) {
+            uint8_t p256_sha1[OPSSL_SHA256_DIGEST_LEN];
+            const uint8_t *verify_digest = digest;
+            size_t verify_digest_len = digest_len;
+            if (hash == OPSSL_HMAC_SHA1) {
+                memset(p256_sha1, 0, sizeof(p256_sha1));
+                memcpy(p256_sha1 + sizeof(p256_sha1) - digest_len, digest, digest_len);
+                verify_digest = p256_sha1;
+                verify_digest_len = sizeof(p256_sha1);
+            }
+            ret = opssl_ecdsa_verify(ecdsa, verify_digest, verify_digest_len, sig, sig_len);
+        }
+        opssl_ecdsa_free(ecdsa);
+    } else if (sig_alg == OPSSL_SIG_ED25519) {
+        if (spki_der_len >= 32)
+            ret = opssl_ed25519_verify(sig, digest, digest_len, spki_der + spki_der_len - 32);
+    }
+
+done:
+    opssl_x509_free(cert);
+    opssl_memzero(sig_input, sizeof(sig_input));
+    opssl_memzero(digest, sizeof(digest));
     return ret;
 }
 
@@ -448,11 +636,19 @@ parse_client_hello(tls12_hs_t *hs, opssl_cbs_t *cbs)
         }
     }
 
-    /* Select cipher suite — must match key type.
-     * ECDHE_RSA requires RSA key, ECDHE_ECDSA works with ECDSA/Ed25519. */
+    /* Select cipher suite — must match key type and curve.
+     * ECDHE_RSA requires RSA key, ECDHE_ECDSA requires ECDSA/Ed25519.
+     * AES-256 suites use SHA-384/P-384; AES-128 use SHA-256/P-256.
+     * Our ECDSA signer requires digest_len == curve_order_bytes, so
+     * the cipher's PRF hash must align with the signing key's curve. */
     bool is_ecdsa_key = hs->sign_key &&
                         (opssl_pkey_type(hs->sign_key) == OPSSL_PKEY_EC ||
                          opssl_pkey_type(hs->sign_key) == OPSSL_PKEY_ED25519);
+    bool is_ed25519 = hs->sign_key &&
+                      opssl_pkey_type(hs->sign_key) == OPSSL_PKEY_ED25519;
+    bool is_p384_key = is_ecdsa_key && hs->sign_key &&
+                       opssl_pkey_type(hs->sign_key) == OPSSL_PKEY_EC &&
+                       opssl_pkey_ec_curve(hs->sign_key) == OPSSL_CURVE_P384;
 
     while (!opssl_cbs_is_empty(&cipher_suites)) {
         uint16_t cipher;
@@ -461,7 +657,7 @@ parse_client_hello(tls12_hs_t *hs, opssl_cbs_t *cbs)
 
         switch (cipher) {
             case OPSSL_TLS_ECDHE_ECDSA_AES_128_GCM:
-                if (!is_ecdsa_key) break;
+                if (!is_ecdsa_key || (!is_ed25519 && is_p384_key)) break;
                 hs->cipher = cipher;
                 hs->prf_hash = OPSSL_HMAC_SHA256;
                 hs->group = OPSSL_GROUP_SECP256R1;
@@ -473,7 +669,7 @@ parse_client_hello(tls12_hs_t *hs, opssl_cbs_t *cbs)
                 hs->group = OPSSL_GROUP_SECP256R1;
                 goto found;
             case OPSSL_TLS_ECDHE_ECDSA_AES_256_GCM:
-                if (!is_ecdsa_key) break;
+                if (!is_ecdsa_key || (!is_ed25519 && !is_p384_key)) break;
                 hs->cipher = cipher;
                 hs->prf_hash = OPSSL_HMAC_SHA384;
                 hs->group = OPSSL_GROUP_SECP384R1;
@@ -537,8 +733,7 @@ build_server_certificate(tls12_hs_t *hs, opssl_cbb_t *cbb)
 
         opssl_cbb_t cert_entry;
         if (!opssl_cbb_add_u24_length_prefixed(&cert_list, &cert_entry) ||
-            !opssl_cbb_add_bytes(&cert_entry, der, der_len) ||
-            !opssl_cbb_flush(&cert_list)) {
+            !opssl_cbb_add_bytes(&cert_entry, der, der_len)) {
             opssl_x509_free(cert);
             return 0;
         }
@@ -579,6 +774,14 @@ build_server_hello(tls12_hs_t *hs, opssl_cbb_t *cbb)
         !opssl_cbb_flush(&ext))
         return 0;
 
+    /* Renegotiation Info (RFC 5746) — empty for initial handshake */
+    opssl_cbb_t ri_ext;
+    if (!opssl_cbb_add_u16(&extensions, 0xff01) ||
+        !opssl_cbb_add_u16_length_prefixed(&extensions, &ri_ext) ||
+        !opssl_cbb_add_u8(&ri_ext, 0) ||
+        !opssl_cbb_flush(&ri_ext))
+        return 0;
+
     /* ALPN negotiation: match server preference against client offers */
     if (hs->alpn_supported_len > 0 && hs->alpn_client_len > 0) {
         size_t soff = 0;
@@ -607,7 +810,8 @@ alpn_done:
             !opssl_cbb_add_u16_length_prefixed(&extensions, &alpn_ext) ||
             !opssl_cbb_add_u16_length_prefixed(&alpn_ext, &alpn_list) ||
             !opssl_cbb_add_u8_length_prefixed(&alpn_list, &alpn_entry) ||
-            !opssl_cbb_add_bytes(&alpn_entry, (const uint8_t *)hs->alpn, hs->alpn_len))
+            !opssl_cbb_add_bytes(&alpn_entry, (const uint8_t *)hs->alpn, hs->alpn_len) ||
+            !opssl_cbb_flush(&alpn_ext))
             return 0;
     }
 
@@ -623,7 +827,7 @@ build_server_key_exchange(tls12_hs_t *hs, opssl_cbb_t *cbb)
 {
     opssl_cbb_t ske;
     uint8_t sig_input[512];
-    uint8_t signature[128];
+    uint8_t signature[512];
     size_t sig_input_len = 0;
     size_t sig_len = sizeof(signature);
 
@@ -729,19 +933,25 @@ build_server_key_exchange(tls12_hs_t *hs, opssl_cbb_t *cbb)
      * For ECDSA keys the hash byte must match the digest used above:
      *   P-384 group -> SHA-384 + ECDSA -> OPSSL_SIG_ECDSA_SECP384R1 (0x0503)
      *   others      -> SHA-256 + ECDSA -> OPSSL_SIG_ECDSA_SECP256R1 (0x0403)
-     * RSA-PSS: opssl_pkey_sign hardcodes SHA-256 internally -> 0x0804.
+     * RSA-PSS: hash byte must match the digest length passed to opssl_pkey_sign.
      * Ed25519: pure signature scheme, hash byte not applicable -> 0x0807.
      */
     uint16_t sig_algo;
     opssl_pkey_type_t ktype = opssl_pkey_type(hs->sign_key);
-    if (ktype == OPSSL_PKEY_RSA)
-        sig_algo = OPSSL_SIG_RSA_PSS_SHA256;
-    else if (ktype == OPSSL_PKEY_ED25519)
+    if (ktype == OPSSL_PKEY_RSA) {
+        if (digest_len == OPSSL_SHA384_DIGEST_LEN)
+            sig_algo = OPSSL_SIG_RSA_PSS_SHA384;
+        else if (digest_len == OPSSL_SHA512_DIGEST_LEN)
+            sig_algo = OPSSL_SIG_RSA_PSS_SHA512;
+        else
+            sig_algo = OPSSL_SIG_RSA_PSS_SHA256;
+    } else if (ktype == OPSSL_PKEY_ED25519) {
         sig_algo = OPSSL_SIG_ED25519;
-    else if (hs->group == OPSSL_GROUP_SECP384R1)
+    } else if (hs->group == OPSSL_GROUP_SECP384R1) {
         sig_algo = OPSSL_SIG_ECDSA_SECP384R1;
-    else
+    } else {
         sig_algo = OPSSL_SIG_ECDSA_SECP256R1;
+    }
 
     /* Add signature to message */
     if (!opssl_cbb_add_u16(&ske, sig_algo) ||
@@ -771,7 +981,7 @@ opssl_tls12_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
     *consumed = 0;
     *out_len = 0;
 
-    if (!opssl_cbb_init(&cbb, 1024))
+    if (!opssl_cbb_init(&cbb, 8192))
         return OPSSL_ERROR;
 
     opssl_cbs_init(&cbs, buf, buf_len);
@@ -792,7 +1002,8 @@ opssl_tls12_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 break;
             }
 
-            if (!parse_client_hello(hs, &msg_data)) {                ret = OPSSL_ERROR;
+            if (!parse_client_hello(hs, &msg_data)) {
+                ret = OPSSL_ERROR;
                 break;
             }
             /* Initialize transcript hash AFTER cipher suite selection determines PRF */
@@ -826,7 +1037,8 @@ opssl_tls12_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 int r7 = r6 ? build_server_key_exchange(hs, &cbb) : 0;
                 int r8 = r7 ? opssl_cbb_add_u8(&cbb, TLS_MT_SERVER_HELLO_DONE) : 0;
                 int r9 = r8 ? opssl_cbb_add_u24(&cbb, 0) : 0;
-                if (!r9) {                    ret = OPSSL_ERROR;
+                if (!r9) {
+                    ret = OPSSL_ERROR;
                     break;
                 }                /* Hash all server messages into transcript */
                 tls12_update_transcript(hs, opssl_cbb_data(&cbb) + out_start,
@@ -1054,7 +1266,7 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                         !opssl_cbb_add_u8(&sni_list, 0) ||  /* host_name type */
                         !opssl_cbb_add_u16_length_prefixed(&sni_list, &sni_entry) ||
                         !opssl_cbb_add_bytes(&sni_entry, (const uint8_t *)hs->sni, sni_len) ||
-                        !opssl_cbb_flush(&sni_list)) {
+                        !opssl_cbb_flush(&sni_ext)) {
                         ret = OPSSL_ERROR;
                         break;
                     }
@@ -1067,7 +1279,8 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                         !opssl_cbb_add_u16_length_prefixed(&extensions, &alpn_ext) ||
                         !opssl_cbb_add_u16_length_prefixed(&alpn_ext, &alpn_list) ||
                         !opssl_cbb_add_bytes(&alpn_list, (const uint8_t *)hs->alpn_offer,
-                                            hs->alpn_offer_len)) {
+                                            hs->alpn_offer_len) ||
+                        !opssl_cbb_flush(&alpn_ext)) {
                         ret = OPSSL_ERROR;
                         break;
                     }
@@ -1085,6 +1298,7 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                         !opssl_cbb_add_u16_length_prefixed(&sg_ext, &sg_list) ||
                         !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_SECP256R1) ||
                         !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_SECP384R1) ||
+                        !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_SECP521R1) ||
                         !opssl_cbb_add_u16(&sg_list, OPSSL_GROUP_X25519) ||
                         !opssl_cbb_flush(&sg_ext)) {
                         ret = OPSSL_ERROR;
@@ -1104,7 +1318,12 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                         !opssl_cbb_add_u16_length_prefixed(&sa_ext, &sa_list) ||
                         !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ECDSA_SECP256R1) ||
                         !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ECDSA_SECP384R1) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ECDSA_SECP521R1) ||
                         !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_RSA_PSS_SHA256) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_RSA_PSS_SHA384) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_RSA_PSS_SHA512) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_RSA_PKCS1_SHA1) ||
+                        !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ECDSA_SHA1) ||
                         !opssl_cbb_add_u16(&sa_list, OPSSL_SIG_ED25519) ||
                         !opssl_cbb_flush(&sa_ext)) {
                         ret = OPSSL_ERROR;
@@ -1223,8 +1442,10 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                         }
                     }
 
-                    /* RFC 8446 §4.1.3: detect downgrade attack via sentinel */
-                    {
+                    /* RFC 8446 §4.1.3: detect downgrade attack via sentinel.
+                     * Only reject when the client also supports TLS 1.3 —
+                     * a pure TLS 1.2 client is not being downgraded. */
+                    if (hs->tls13_capable) {
                         static const uint8_t dg12[8] = {0x44,0x4F,0x57,0x4E,0x47,0x52,0x44,0x01};
                         static const uint8_t dg11[8] = {0x44,0x4F,0x57,0x4E,0x47,0x52,0x44,0x00};
                         if (memcmp(hs->server_random + 24, dg12, 8) == 0 ||
@@ -1246,18 +1467,33 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                     if (!opssl_cbs_get_bytes(&msg_data, &chain_data, chain_len))
                         break;
 
-                    /* Extract leaf certificate (first in chain) */
-                    uint32_t cert_len;
-                    if (opssl_cbs_get_u24(&chain_data, &cert_len) &&
-                        cert_len > 0 && cert_len <= opssl_cbs_len(&chain_data)) {
+                    size_t cert_index = 0;
+                    while (opssl_cbs_len(&chain_data) >= 3 &&
+                           cert_index < TLS_MAX_PEER_CERTS) {
+                        uint32_t cert_len;
+                        if (!opssl_cbs_get_u24(&chain_data, &cert_len) ||
+                            cert_len == 0 || cert_len > opssl_cbs_len(&chain_data))
+                            break;
+
                         opssl_cbs_t cert_der;
                         if (opssl_cbs_get_bytes(&chain_data, &cert_der, cert_len)) {
-                            hs->peer_cert_der = malloc(cert_len);
-                            if (hs->peer_cert_der) {
-                                memcpy(hs->peer_cert_der, opssl_cbs_data(&cert_der), cert_len);
-                                hs->peer_cert_der_len = cert_len;
+                            if (cert_index == 0) {
+                                hs->peer_cert_der = malloc(cert_len);
+                                if (hs->peer_cert_der) {
+                                    memcpy(hs->peer_cert_der, opssl_cbs_data(&cert_der), cert_len);
+                                    hs->peer_cert_der_len = cert_len;
+                                }
+                            } else {
+                                size_t i = cert_index - 1;
+                                hs->peer_chain_der[i] = malloc(cert_len);
+                                if (hs->peer_chain_der[i]) {
+                                    memcpy(hs->peer_chain_der[i], opssl_cbs_data(&cert_der), cert_len);
+                                    hs->peer_chain_der_len[i] = cert_len;
+                                    hs->peer_chain_count++;
+                                }
                             }
                         }
+                        cert_index++;
                     }
                     break;
                 }
@@ -1265,6 +1501,7 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                     /* Parse ECDHE params: curve_type(1) + named_curve(2) + point_len(1) + point */
                     uint8_t curve_type, point_len;
                     uint16_t named_curve;
+                    const uint8_t *params_start = opssl_cbs_data(&msg_data);
                     if (!opssl_cbs_get_u8(&msg_data, &curve_type) ||
                         !opssl_cbs_get_u16(&msg_data, &named_curve) ||
                         !opssl_cbs_get_u8(&msg_data, &point_len)) {
@@ -1283,6 +1520,25 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                     }
                     memcpy(hs->ecdh_pub, server_pub, point_len);
                     hs->ecdh_pub_len = point_len;
+
+                    size_t params_len = 4 + point_len;
+                    uint16_t sig_alg, sig_len;
+                    opssl_cbs_t sig_bytes;
+                    if (!opssl_cbs_get_u16(&msg_data, &sig_alg) ||
+                        !opssl_cbs_get_u16(&msg_data, &sig_len) ||
+                        !opssl_cbs_get_bytes(&msg_data, &sig_bytes, sig_len) ||
+                        !opssl_cbs_is_empty(&msg_data)) {
+                        ret = OPSSL_ERROR;
+                        goto client_done;
+                    }
+
+                    if (!tls12_verify_server_key_exchange(hs, sig_alg,
+                                                          params_start, params_len,
+                                                          opssl_cbs_data(&sig_bytes),
+                                                          opssl_cbs_len(&sig_bytes))) {
+                        ret = OPSSL_ERROR;
+                        goto client_done;
+                    }
                     break;
                 }
                 case TLS_MT_SERVER_HELLO_DONE:
@@ -1294,6 +1550,7 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             }
 
             if (!got_server_hello_done) {
+                *consumed = total_consumed;
                 ret = OPSSL_WANT_READ;
                 break;
             }
@@ -1487,12 +1744,14 @@ opssl_tls12_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             return OPSSL_ERROR;
         }
 
-        if (output_len <= out_cap) {
-            memcpy(out, output, output_len);
-            *out_len = output_len;
-            ret = OPSSL_WANT_WRITE;
-        } else {
-            ret = OPSSL_ERROR;
+        if (output_len > 0) {
+            if (output_len <= out_cap) {
+                memcpy(out, output, output_len);
+                *out_len = output_len;
+                ret = OPSSL_WANT_WRITE;
+            } else {
+                ret = OPSSL_ERROR;
+            }
         }
 
         free(output);
@@ -1514,27 +1773,33 @@ int opssl_tls12_extract_traffic_keys(void *hs_opaque,
 {
     tls12_hs_t *hs = (tls12_hs_t *)hs_opaque;
 
-    if (!hs || hs->state != OPSSL_HS_COMPLETE) {
+    if (!hs || (hs->state != OPSSL_HS_COMPLETE && hs->state != OPSSL_HS_FINISHED)) {
         return OPSSL_ERROR;
     }
 
     *cipher = hs->cipher;
 
-    /* Expand key block if not already done */
-    size_t key_len = 32;  /* AES-256 or ChaCha20 */
-    size_t iv_len = 12;   /* GCM IV or ChaCha20 IV */
+    /* Expand key block if not already done.
+     * TLS 1.2 GCM: iv_len = 4 (implicit nonce only; explicit nonce is per-record).
+     * ChaCha20: iv_len = 12 (full IV XOR'd with sequence number). */
+    size_t key_len = 32;
+    size_t iv_len = 4;
 
-    /* Adjust key length based on cipher */
     switch (hs->cipher) {
         case OPSSL_TLS_ECDHE_RSA_AES_128_GCM:
         case OPSSL_TLS_ECDHE_ECDSA_AES_128_GCM:
             key_len = 16;
+            iv_len = 4;
             break;
         case OPSSL_TLS_ECDHE_RSA_AES_256_GCM:
         case OPSSL_TLS_ECDHE_ECDSA_AES_256_GCM:
+            key_len = 32;
+            iv_len = 4;
+            break;
         case OPSSL_TLS_ECDHE_RSA_CHACHA20:
         case OPSSL_TLS_ECDHE_ECDSA_CHACHA20:
             key_len = 32;
+            iv_len = 12;
             break;
         default:
             return OPSSL_ERROR;
@@ -1691,6 +1956,20 @@ opssl_tls12_get_peer_cert(void *hs_opaque, size_t *out_len)
     return hs->peer_cert_der;
 }
 
+size_t
+opssl_tls12_get_peer_chain(void *hs_opaque, const uint8_t ***ders, const size_t **lens)
+{
+    tls12_hs_t *hs = (tls12_hs_t *)hs_opaque;
+    if (!hs || hs->peer_chain_count == 0) {
+        if (ders) *ders = NULL;
+        if (lens) *lens = NULL;
+        return 0;
+    }
+    if (ders) *ders = (const uint8_t **)hs->peer_chain_der;
+    if (lens) *lens = hs->peer_chain_der_len;
+    return hs->peer_chain_count;
+}
+
 void
 opssl_tls12_free_peer_cert(void *hs_opaque)
 {
@@ -1699,6 +1978,14 @@ opssl_tls12_free_peer_cert(void *hs_opaque)
         free(hs->peer_cert_der);
         hs->peer_cert_der = NULL;
         hs->peer_cert_der_len = 0;
+    }
+    if (hs) {
+        for (size_t i = 0; i < hs->peer_chain_count; i++) {
+            free(hs->peer_chain_der[i]);
+            hs->peer_chain_der[i] = NULL;
+            hs->peer_chain_der_len[i] = 0;
+        }
+        hs->peer_chain_count = 0;
     }
 }
 

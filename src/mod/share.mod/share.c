@@ -1240,7 +1240,7 @@ static void share_ufsend(int idx, char *par)
   char *port;
   int sock;
   FILE *f;
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
 
   op_strbuf_appendf(&_b, ".share.%s.%" PRId64 ".users", botnetnick,
@@ -1479,7 +1479,7 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
   if (!chan || channel_shared(chan)) {
     va_start(va, format);
 
-    op_strbuf_t _s;
+    op_strbuf_t _s = {};
     op_strbuf_init(&_s);
     op_strbuf_appendf(&_s, "s ");
     op_strbuf_vappendf(&_s, format, va);
@@ -1513,7 +1513,7 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
 
   va_start(va, format);
 
-  op_strbuf_t _s;
+  op_strbuf_t _s = {};
   op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "s ");
   op_strbuf_vappendf(&_s, format, va);
@@ -1711,7 +1711,7 @@ static void dump_resync(int idx)
  */
 static void status_tbufs(int idx)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
   tandbuf *t;
   int first = 1;
@@ -2031,7 +2031,7 @@ static void start_sending_users(int idx)
   char s[EGG_INET_ADDRSTRLEN];
 
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, ".share.%s.%" PRId64, dcc[idx].nick, (int64_t) now);
     share_file = op_strbuf_steal(&_b);
@@ -2088,7 +2088,7 @@ static void start_sending_users(int idx)
         if ((u->flags & USER_BOT) && !(u->flags & USER_UNSHARED)) {
           struct bot_addr *bi = get_user(&USERENTRY_BOTADDR, u);
           struct list_type *t;
-          op_strbuf_t _s2;
+          op_strbuf_t _s2 = {};
 
           op_strbuf_init(&_s2);
           /* Send hostmasks */

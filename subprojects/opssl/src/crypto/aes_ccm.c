@@ -159,6 +159,8 @@ opssl_aes_ccm_seal(uint8_t *out, size_t *out_len, size_t max_out,
         return 0;
     if (pt_len > 0xFFFFFF)
         return 0;
+    if (aad_len >= 0xFF00)
+        return 0;
 
     opssl_aes_ctx_t aes;
     memset(&aes, 0, sizeof(aes));
@@ -207,6 +209,8 @@ opssl_aes_ccm_open(uint8_t *out, size_t *out_len, size_t max_out,
     if (tag_len != 8 && tag_len != 16)
         return 0;
     if (pt_len > 0xFFFFFF)
+        return 0;
+    if (aad_len >= 0xFF00)
         return 0;
 
     opssl_aes_ctx_t aes;

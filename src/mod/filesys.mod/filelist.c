@@ -63,7 +63,7 @@ static void filelist_add(filelist_t *flist, char *filename)
 static void filelist_addout(filelist_t *flist, char *desc)
 {
   if (FILELIST_LE(flist).output) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s", FILELIST_LE(flist).output, desc);
     op_free(FILELIST_LE(flist).output);

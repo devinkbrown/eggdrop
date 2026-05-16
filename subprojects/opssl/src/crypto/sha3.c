@@ -21,7 +21,8 @@ static const unsigned int rho_offsets[25] = {
 };
 
 static inline uint64_t rotl64(uint64_t x, unsigned int n) {
-    return (x << (n & 63)) | (x >> ((-n) & 63));
+    n &= 63;
+    return (x << n) | (x >> ((64 - n) & 63));
 }
 
 static void keccak_f1600(uint64_t state[25]) {

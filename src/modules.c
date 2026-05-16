@@ -704,7 +704,7 @@ const char *module_load(char *name)
 #endif
 
 #ifndef STATIC
-  op_strbuf_t _path;
+  op_strbuf_t _path = {};
 #  ifdef MOD_USE_SHL
   shl_t hand;
 #  endif
@@ -755,7 +755,7 @@ const char *module_load(char *name)
   if (!hand)
     return "Can't load module.";
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s_start", name);
     if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
@@ -764,7 +764,7 @@ const char *module_load(char *name)
   }
   if (f == nullptr) {
     /* Some OS's require a _ to be prepended to the symbol name (Darwin, etc). */
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     if (shl_findsym(&hand, op_strbuf_str(&_b), (short) TYPE_PROCEDURE, (void *) &f))
@@ -786,7 +786,7 @@ const char *module_load(char *name)
   hand = NSLinkModule(file, op_strbuf_str(&_path), DYLDFLAGS);
   op_strbuf_free(&_path);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     sym = NSLookupSymbolInModule(hand, op_strbuf_str(&_b));
@@ -808,7 +808,7 @@ const char *module_load(char *name)
   if (!ret)
     return "Can't load module.";
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     ret = rld_lookup(nullptr, op_strbuf_str(&_b), &f);
@@ -825,14 +825,14 @@ const char *module_load(char *name)
   if (hand == LDR_NULL_MODULE)
     return "Can't load module.";
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s_start", name);
     f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
   if (f == nullptr) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     f = (Function) ldr_lookup_package(hand, op_strbuf_str(&_b));
@@ -850,14 +850,14 @@ const char *module_load(char *name)
   if (!hand)
     return dlerror();
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s_start", name);
     f = (Function) dlsym(hand, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
   if (f == nullptr) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "_%s_start", name);
     f = (Function) dlsym(hand, op_strbuf_str(&_b));

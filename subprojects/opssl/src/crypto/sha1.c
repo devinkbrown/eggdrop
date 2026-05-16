@@ -1,9 +1,9 @@
 /*
- * opssl/crypto/sha1.c — SHA-1 for certificate fingerprints only.
+ * opssl/crypto/sha1.c — SHA-1 for legacy compatibility.
  *
  * SHA-1 is cryptographically broken (SHAttered attack) and MUST NOT be used
- * for security purposes. This implementation exists only for compatibility
- * with legacy certificate fingerprinting.
+ * for new security purposes. This implementation exists for compatibility
+ * with legacy certificate fingerprinting, HMAC-based KDFs, and signatures.
  *
  * Standard: FIPS PUB 180-4 (SHA-1)
  *

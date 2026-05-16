@@ -1,0 +1,123 @@
+opssl DATAGRAM TLS API REFERENCE
+=================================
+
+This document describes the DTLS API in opssl/dtls.h.
+
+DTLS provides TLS security guarantees over unreliable transports (UDP).
+opssl handles retransmission, reordering, fragmentation, and anti-replay
+internally. The API mirrors the TLS connection API with additions for
+datagram-specific concerns (MTU, timeouts, cookies).
+
+Supported versions: DTLS 1.2 (0xFEFD), DTLS 1.3 (0xFEFC).
+
+
+LIFECYCLE
+=========
+
+    opssl_dtls_conn_t *opssl_dtls_conn_new(opssl_ctx_t *ctx, int fd,
+                                            opssl_direction_t dir);
+
+Create a new DTLS connection. The fd should be a non-blocking UDP socket.
+
+    void opssl_dtls_conn_free(opssl_dtls_conn_t *conn);
+
+Free the DTLS connection and all associated state.
+
+
+HANDSHAKE
+=========
+
+    opssl_result_t opssl_dtls_accept(opssl_dtls_conn_t *conn);
+    opssl_result_t opssl_dtls_connect(opssl_dtls_conn_t *conn);
+
+Perform the server/client DTLS handshake (non-blocking). Same return
+semantics as the TLS handshake functions. Retransmission of lost
+handshake messages is handled internally.
+
+
+DATA TRANSFER
+=============
+
+    ssize_t opssl_dtls_read(opssl_dtls_conn_t *conn, void *buf, size_t len);
+    ssize_t opssl_dtls_write(opssl_dtls_conn_t *conn, const void *buf,
+                             size_t len);
+
+Read/write encrypted datagrams. Each write produces one DTLS record;
+each read returns one complete datagram. Messages exceeding the MTU
+are fragmented automatically.
+
+
+SHUTDOWN
+========
+
+    opssl_result_t opssl_dtls_shutdown(opssl_dtls_conn_t *conn);
+
+Send close_notify and wait for the peer's response.
+
+
+MTU MANAGEMENT
+==============
+
+    void opssl_dtls_set_mtu(opssl_dtls_conn_t *conn, size_t mtu);
+    size_t opssl_dtls_get_mtu(const opssl_dtls_conn_t *conn);
+
+Set/get the path MTU. DTLS fragments handshake messages to fit within
+the MTU. Application data writes that exceed (MTU - DTLS overhead) are
+rejected.
+
+
+RETRANSMISSION TIMER
+====================
+
+    opssl_result_t opssl_dtls_handle_timeout(opssl_dtls_conn_t *conn);
+
+Call when the retransmission timer expires. Retransmits the last flight
+of handshake messages with exponential backoff.
+
+    int opssl_dtls_get_timeout(const opssl_dtls_conn_t *conn,
+                               struct timeval *tv);
+
+Get the next retransmission timeout. Returns 1 if a timer is active
+(tv is populated), 0 if no timer is pending.
+
+
+COOKIE VERIFICATION (DoS PROTECTION)
+=====================================
+
+    void opssl_ctx_set_dtls_cookie_callbacks(opssl_ctx_t *ctx,
+                                              opssl_dtls_cookie_gen_cb gen,
+                                              opssl_dtls_cookie_verify_cb verify,
+                                              void *userdata);
+
+Register cookie generation and verification callbacks for DTLS server
+mode (RFC 6347 §4.2.1). The cookie exchange prevents amplification
+attacks by requiring the client to prove it can receive traffic at its
+claimed address before the server allocates state.
+
+gen callback: generate a cookie from the client address/port.
+verify callback: verify a returned cookie matches.
+
+
+ANTI-REPLAY
+============
+
+    void opssl_dtls_set_replay_window(opssl_dtls_conn_t *conn,
+                                      size_t window_bits);
+
+Set the anti-replay window size in bits. Default is 64. Incoming records
+with sequence numbers outside the window are silently dropped.
+
+
+CONNECTION INFO
+===============
+
+    opssl_dtls_version_t opssl_dtls_conn_version(const opssl_dtls_conn_t *conn);
+    const char *opssl_dtls_conn_cipher_name(const opssl_dtls_conn_t *conn);
+
+Get the negotiated DTLS version and cipher suite name after handshake.
+
+    int opssl_dtls_conn_set_sni(opssl_dtls_conn_t *conn, const char *hostname);
+    int opssl_dtls_conn_set_alpn(opssl_dtls_conn_t *conn,
+                                  const char **protos, size_t count);
+
+Set SNI hostname and ALPN protocols (client side). Mirrors the TLS API.

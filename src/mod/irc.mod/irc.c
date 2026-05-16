@@ -115,7 +115,7 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
                           struct userrec *u, const char *badnick,
                           const char *victim, int mevictim, int type)
 {
-  op_strbuf_t reason, comment;
+  op_strbuf_t reason = {}, comment = {};
   char ct[7], *kick_msg;
   memberlist *m;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
@@ -527,7 +527,7 @@ static void status_log(void)
   masklist *b;
   memberlist *m;
   struct chanset_t *chan;
-  op_strbuf_t s, s2;
+  op_strbuf_t s = {}, s2 = {};
   int chops, halfops, voice, nonops, bans, invites, exempts;
 
   if (!server_online)
@@ -814,7 +814,7 @@ static int check_tcl_chghost(char *nick, char *from, const char *mask, struct us
                              char *chan, char *ident, char *host)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
-  op_strbuf_t usermask;
+  op_strbuf_t usermask = {};
   op_strbuf_init(&usermask);
   int x;
 
@@ -854,7 +854,7 @@ static void check_tcl_joinspltrejn(char *nick, char *uhost, struct userrec *u,
                                    char *chname, p_tcl_bind_list table)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t args;
+  op_strbuf_t args = {};
 
   op_strbuf_init(&args);
   op_strbuf_appendf(&args, "%s %s!%s", chname, nick, uhost);
@@ -874,7 +874,7 @@ static void check_tcl_part(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *text)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t args;
+  op_strbuf_t args = {};
 
   op_strbuf_init(&args);
   op_strbuf_appendf(&args, "%s %s!%s", chname, nick, uhost);
@@ -894,7 +894,7 @@ static void check_tcl_signtopcnick(char *nick, char *uhost, struct userrec *u,
                                    p_tcl_bind_list table)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t args;
+  op_strbuf_t args = {};
 
   op_strbuf_init(&args);
   if (table == H_sign)
@@ -917,7 +917,7 @@ static void check_tcl_mode(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *mode, char *target)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t args;
+  op_strbuf_t args = {};
 
   get_user_flagrec(u, &fr, chname);
   op_strbuf_init(&args);
@@ -938,7 +938,7 @@ static void check_tcl_kick(char *nick, char *uhost, struct userrec *u,
                            char *chname, char *dest, char *reason)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
-  op_strbuf_t args;
+  op_strbuf_t args = {};
 
   get_user_flagrec(u, &fr, chname);
   op_strbuf_init(&args);
@@ -957,7 +957,7 @@ static void check_tcl_kick(char *nick, char *uhost, struct userrec *u,
 
 static void check_tcl_invite(char *nick, char *from, char *chan, char *invitee)
 {
-  op_strbuf_t args;
+  op_strbuf_t args = {};
   op_strbuf_init(&args);
 
   Tcl_SetVar(interp, "_invite1", nick, 0);
@@ -1007,7 +1007,7 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
 {
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
   int x;
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   op_strbuf_init(&buf);
   struct userrec *u;
   struct chanset_t *chan;
@@ -1045,7 +1045,7 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
 
 static void check_tcl_need(char *chname, char *type)
 {
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
 
   op_strbuf_init(&buf);
   op_strbuf_appendf(&buf, "%s %s", chname, type);
@@ -1058,7 +1058,7 @@ static void check_tcl_need(char *chname, char *type)
 
 static void check_tcl_account(char *nick, char *uhost, struct userrec *u, char *chan, char *account)
 {
-  op_strbuf_t mask;
+  op_strbuf_t mask = {};
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
   op_strbuf_init(&mask);
@@ -1200,7 +1200,7 @@ static void irc_report(int idx, int details)
   char q[256], *p;
   int k, l;
   struct chanset_t *chan;
-  op_strbuf_t _bch;
+  op_strbuf_t _bch = {};
 
   strlcpy(q, "Channels: ", sizeof(q));
   k = 10;

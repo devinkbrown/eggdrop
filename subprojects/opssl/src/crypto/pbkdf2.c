@@ -1,12 +1,11 @@
 /*
  * opssl/crypto/pbkdf2.c — PBKDF2-HMAC key derivation (RFC 2898).
  *
- * Password-Based Key Derivation Function 2 using HMAC-SHA256/SHA512.
+ * Password-Based Key Derivation Function 2 using HMAC-SHA1/SHA256/SHA384/SHA512.
  * Implements RFC 2898 section 5.2.
  *
  * Security note: Use high iteration counts (>=4096) and cryptographically
- * strong salts for password derivation. SHA-1 support deliberately omitted
- * as it is cryptographically broken.
+ * strong salts for password derivation.
  *
  * Copyright (C) 2026 ophion development team
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -22,6 +21,7 @@ static size_t
 get_hash_len(opssl_hmac_algo_t algo)
 {
     switch (algo) {
+        case OPSSL_HMAC_SHA1: return OPSSL_SHA1_DIGEST_LEN;
         case OPSSL_HMAC_SHA256: return OPSSL_SHA256_DIGEST_LEN;
         case OPSSL_HMAC_SHA384: return OPSSL_SHA384_DIGEST_LEN;
         case OPSSL_HMAC_SHA512: return OPSSL_SHA512_DIGEST_LEN;

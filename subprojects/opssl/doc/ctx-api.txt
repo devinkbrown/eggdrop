@@ -1,0 +1,279 @@
+opssl CONTEXT API REFERENCE
+===========================
+
+This document describes the TLS context API in opssl/ctx.h.
+
+A context (opssl_ctx_t) holds shared configuration for multiple connections:
+certificates, cipher preferences, verification settings, SNI table, and
+protocol options. Contexts are reference-counted and thread-safe after setup.
+
+Return Convention: int-returning functions use 1 = success, 0 = failure.
+Thread Safety: All functions are thread-safe. Configuration should be done
+before creating connections; concurrent modification during handshakes is
+undefined.
+
+
+LIFECYCLE
+=========
+
+    opssl_ctx_t *opssl_ctx_new(opssl_tls_version_t min_version);
+
+Create a new TLS context with the given minimum protocol version. Accepts
+OPSSL_TLS_1_2 (0x0303), OPSSL_TLS_1_3 (0x0304), or the DTLS equivalents.
+
+Security defaults applied automatically:
+- No renegotiation
+- No compression
+- Server cipher preference
+- Ephemeral DH/ECDH keys
+- AEAD cipher suites only
+- X25519 preferred curve
+- Post-quantum hybrids enabled when available
+
+    opssl_ctx_t *opssl_ctx_ref(opssl_ctx_t *ctx);
+
+Increment the reference count. Returns the same pointer for convenience.
+
+    void opssl_ctx_free(opssl_ctx_t *ctx);
+
+Decrement the reference count. Frees the context when it reaches zero.
+All associated SNI contexts are also freed.
+
+
+CERTIFICATE & KEY LOADING
+=========================
+
+    int opssl_ctx_use_certificate_file(opssl_ctx_t *ctx, const char *path);
+
+Load a single PEM-encoded certificate from a file.
+
+    int opssl_ctx_use_certificate_chain_file(opssl_ctx_t *ctx, const char *path);
+
+Load a full certificate chain (leaf + intermediates) from a PEM file.
+The first certificate in the file is the leaf; subsequent certificates
+are intermediates in order up to the root.
+
+    int opssl_ctx_use_private_key_file(opssl_ctx_t *ctx, const char *path);
+
+Load a PEM-encoded private key from a file. Supports RSA, EC (P-256,
+P-384, P-521), and Ed25519 keys.
+
+    int opssl_ctx_use_private_key(opssl_ctx_t *ctx, opssl_pkey_t *key);
+
+Use a previously-loaded private key object. The context takes a reference
+to the key; the caller may still free their reference.
+
+    int opssl_ctx_check_private_key(opssl_ctx_t *ctx);
+
+Verify that the loaded private key matches the loaded certificate.
+Returns 1 if the key matches, 0 if it does not.
+
+
+DH PARAMETERS
+=============
+
+    int opssl_ctx_use_dh_params_file(opssl_ctx_t *ctx, const char *path);
+
+Load DH parameters from a PEM file for TLS 1.2 DHE cipher suites.
+If not called, built-in FFDHE parameters (RFC 7919) are used.
+
+
+CA / VERIFICATION
+=================
+
+    int opssl_ctx_load_verify_locations(opssl_ctx_t *ctx,
+                                        const char *ca_file,
+                                        const char *ca_dir);
+
+Load trusted CA certificates from a PEM file and/or a directory of
+hashed certificates (c_rehash format). Either argument may be NULL.
+
+    int opssl_ctx_load_default_verify_paths(opssl_ctx_t *ctx);
+
+Load the system default CA certificate bundle. The path is auto-detected
+at build time (overridable via the ca_cert_file / ca_cert_dir build options).
+
+    void opssl_ctx_set_verify(opssl_ctx_t *ctx, bool require_client_cert,
+                              opssl_verify_cb cb, void *userdata);
+
+Configure certificate verification. If require_client_cert is true, the
+server will require client certificates (mandatory mutual TLS). The
+callback is invoked for each certificate in the chain with the preverify
+result, the certificate, the chain depth, and the userdata pointer.
+
+    void opssl_ctx_set_verify_depth(opssl_ctx_t *ctx, int depth);
+    int  opssl_ctx_get_verify_depth(const opssl_ctx_t *ctx);
+
+Set/get the maximum certificate chain depth for verification. Default is 4.
+
+
+CIPHER CONFIGURATION
+====================
+
+    int opssl_ctx_set_ciphersuites(opssl_ctx_t *ctx, const char *list);
+
+Set the cipher suite preference list as a colon-separated string.
+TLS 1.3 and TLS 1.2 suites can be mixed in the same string.
+
+Example:
+    opssl_ctx_set_ciphersuites(ctx,
+        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
+        "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384");
+
+    int opssl_ctx_set_curves(opssl_ctx_t *ctx, const char *list);
+
+Set the key exchange group preference list as a colon-separated string.
+Valid names: X25519, P-256, P-384, P-521, FFDHE2048, FFDHE3072, FFDHE4096,
+X25519_MLKEM768, P256_MLKEM768, P384_MLKEM1024.
+
+    int opssl_ctx_set_sigalgs(opssl_ctx_t *ctx, const char *list);
+
+Set the signature algorithm preference list as a colon-separated string.
+
+
+PROTOCOL VERSION
+================
+
+    void opssl_ctx_set_min_version(opssl_ctx_t *ctx, opssl_tls_version_t ver);
+    void opssl_ctx_set_max_version(opssl_ctx_t *ctx, opssl_tls_version_t ver);
+
+Override the minimum/maximum TLS version. The minimum cannot go below
+TLS 1.2 (OPSSL_TLS_1_2).
+
+
+OPTIONS / SECURITY FLAGS
+========================
+
+    typedef enum {
+        OPSSL_OPT_NO_RENEGOTIATION    = (1 << 0),
+        OPSSL_OPT_NO_COMPRESSION      = (1 << 1),
+        OPSSL_OPT_CIPHER_SERVER_PREF  = (1 << 2),
+        OPSSL_OPT_SINGLE_DH_USE       = (1 << 3),
+        OPSSL_OPT_SINGLE_ECDH_USE     = (1 << 4),
+        OPSSL_OPT_NO_TICKETS          = (1 << 5),
+        OPSSL_OPT_PREFER_CHACHA       = (1 << 6),
+    } opssl_ctx_opt_t;
+
+    void opssl_ctx_set_options(opssl_ctx_t *ctx, uint32_t opts);
+
+Enable the given options (bitwise OR of opssl_ctx_opt_t values). Options
+are additive — this does not clear previously set options.
+
+OPSSL_OPT_PREFER_CHACHA: when set, ChaCha20-Poly1305 is preferred for
+clients that list it first, regardless of the server's preference order.
+Useful for mobile clients where ChaCha20 is faster than AES without
+hardware acceleration.
+
+    void opssl_ctx_clear_options(opssl_ctx_t *ctx, uint32_t opts);
+
+Clear the given options.
+
+
+SNI (SERVER NAME INDICATION)
+============================
+
+    int opssl_ctx_add_sni(opssl_ctx_t *ctx, const char *hostname,
+                          opssl_ctx_t *sni_ctx);
+
+Register a per-hostname TLS context. Up to OPSSL_MAX_SNI_CONTEXTS (64)
+hostname-to-context mappings are supported. The sni_ctx should have its
+own certificate and key loaded. The main ctx is used as the default when
+no SNI hostname matches.
+
+    void opssl_ctx_set_sni_callback(opssl_ctx_t *ctx, opssl_sni_cb cb,
+                                    void *userdata);
+
+Set a callback for dynamic SNI resolution. Called during the handshake
+with the requested hostname. The callback should return 1 to accept
+(after switching context) or 0 to reject.
+
+
+ALPN (APPLICATION LAYER PROTOCOL NEGOTIATION)
+=============================================
+
+    int opssl_ctx_set_alpn_protos(opssl_ctx_t *ctx, const char **protos,
+                                  size_t count);
+
+Set the server's supported ALPN protocols. Predefined identifiers:
+OPSSL_ALPN_IRC ("irc"), OPSSL_ALPN_HTTP11 ("http/1.1"),
+OPSSL_ALPN_DOT ("dot").
+
+    void opssl_ctx_set_alpn_callback(opssl_ctx_t *ctx, opssl_alpn_cb cb,
+                                     void *userdata);
+
+Set a callback for custom ALPN negotiation. Called with the selected
+protocol after negotiation.
+
+    const char **opssl_ctx_get_alpn_protos(opssl_ctx_t *ctx, size_t *count);
+
+Retrieve the configured ALPN protocol list.
+
+
+SESSION CACHE
+=============
+
+    void opssl_ctx_set_ticket_keys(opssl_ctx_t *ctx, const uint8_t *keys,
+                                   size_t len);
+
+Set session ticket encryption keys. For TLS 1.2 session tickets and
+TLS 1.3 NewSessionTicket messages. The keys buffer should be 48 bytes
+(16 key name + 16 AES key + 16 HMAC key).
+
+    void opssl_ctx_disable_session_cache(opssl_ctx_t *ctx);
+
+Disable all session caching (tickets and server-side cache).
+
+    void opssl_ctx_set_session_cache_mode(opssl_ctx_t *ctx, uint32_t mode);
+    uint32_t opssl_ctx_get_session_cache_mode(const opssl_ctx_t *ctx);
+
+Configure session cache mode using opssl_session_cache_mode_t flags:
+- OPSSL_SESS_CACHE_OFF (0)
+- OPSSL_SESS_CACHE_SERVER (1)
+- OPSSL_SESS_CACHE_CLIENT (2)
+- OPSSL_SESS_CACHE_BOTH (3)
+- OPSSL_SESS_CACHE_TICKETS (4)
+
+
+ASYNC PRIVATE KEY OPERATIONS
+=============================
+
+    void opssl_ctx_set_async_sign_callback(opssl_ctx_t *ctx,
+                                           opssl_async_sign_cb cb,
+                                           void *userdata);
+
+Register a callback for offloading private key signing to external
+hardware (HSM, hardware accelerator). The callback receives the digest
+to sign and must produce the signature. If set, all private key
+operations during handshake are routed through this callback.
+
+
+POST-QUANTUM KEY EXCHANGE
+=========================
+
+    int opssl_ctx_enable_postquantum(opssl_ctx_t *ctx, bool enable);
+
+Enable or disable post-quantum hybrid key exchange (X25519+ML-KEM-768).
+Enabled by default when the postquantum build option is active.
+
+
+KEY LOGGING
+===========
+
+    void opssl_ctx_set_keylog_callback(opssl_ctx_t *ctx, opssl_keylog_cb cb,
+                                       void *userdata);
+
+Register a callback that receives key log lines in SSLKEYLOGFILE format.
+Each line contains the key type, client random, and secret for Wireshark
+decryption. Only use in development/debugging — never in production.
+
+
+CLIENT CERTIFICATE REQUEST
+==========================
+
+    void opssl_ctx_set_request_client_cert(opssl_ctx_t *ctx, bool request);
+    bool opssl_ctx_get_request_client_cert(opssl_ctx_t *ctx);
+
+Request (but don't require) client certificates during the handshake.
+Differs from set_verify(require_client_cert=true) in that the handshake
+succeeds even if the client doesn't present a certificate. Used by
+ophion for optional SASL EXTERNAL (certfp) authentication.

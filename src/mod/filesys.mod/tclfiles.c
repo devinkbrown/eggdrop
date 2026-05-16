@@ -319,7 +319,7 @@ static int tcl_mkdir STDVAR
 
   if (!fdbe) {
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s%s/%s", dccdir, d, p);
       t = op_strbuf_steal(&_b);
@@ -411,7 +411,7 @@ static int tcl_rmdir STDVAR
   }
   /* Erase '.filedb' and '.files' if they exist */
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s/%s/.filedb", dccdir, d, p);
     t = op_strbuf_steal(&_b);
@@ -541,7 +541,7 @@ static int tcl_mv_cp(Tcl_Interp *irp, int argc, char **argv, int copy)
     skip_this = 0;
     if (!(fdbe_old->stat & (FILE_HIDDEN | FILE_DIR))) {
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         if (oldpath[0])
           op_strbuf_appendf(&_b, "%s%s/%s", dccdir, oldpath, fdbe_old->filename);

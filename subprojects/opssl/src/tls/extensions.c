@@ -457,12 +457,14 @@ static int parse_signature_algorithms_ext(opssl_cbs_t *ext_data, opssl_parsed_ex
 
         /* Convert to internal sigalg enum */
         switch (sigalg) {
+            case 0x0201: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PKCS1_SHA1; break;
             case 0x0401: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PKCS1_SHA256; break;
             case 0x0501: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PKCS1_SHA384; break;
             case 0x0601: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PKCS1_SHA512; break;
             case 0x0804: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PSS_SHA256; break;
             case 0x0805: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PSS_SHA384; break;
             case 0x0806: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_RSA_PSS_SHA512; break;
+            case 0x0203: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_ECDSA_SHA1; break;
             case 0x0403: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_ECDSA_SECP256R1; break;
             case 0x0503: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_ECDSA_SECP384R1; break;
             case 0x0603: parsed->sigalgs[parsed->nsigalgs] = OPSSL_SIG_ECDSA_SECP521R1; break;
@@ -628,9 +630,11 @@ static int build_signature_algorithms_ext(opssl_cbb_t *ext)
         0x0804, /* rsa_pss_rsae_sha256 */
         0x0805, /* rsa_pss_rsae_sha384 */
         0x0806, /* rsa_pss_rsae_sha512 */
+        0x0201, /* rsa_pkcs1_sha1 */
         0x0401, /* rsa_pkcs1_sha256 */
         0x0501, /* rsa_pkcs1_sha384 */
         0x0601, /* rsa_pkcs1_sha512 */
+        0x0203, /* ecdsa_sha1 */
     };
 
     for (size_t i = 0; i < sizeof(supported_sigalgs) / sizeof(supported_sigalgs[0]); i++) {

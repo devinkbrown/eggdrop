@@ -1,0 +1,237 @@
+opssl CBS/CBB WIRE FORMAT API REFERENCE
+========================================
+
+This document describes the CBS/CBB API in opssl/cbs.h.
+
+Inspired by BoringSSL's CBS/CBB. Provides safe, bounds-checked parsing
+and building of TLS wire format messages without manual pointer arithmetic.
+
+CBS (Crypto Byte String): read-only view into a byte buffer (parse).
+CBB (Crypto Byte Builder): growable byte buffer builder (build).
+
+All operations return 1 on success, 0 on failure. On failure the
+CBS/CBB enters a sticky error state — all subsequent operations also
+return 0 (fail-closed).
+
+
+CBS: PARSING
+============
+
+    typedef struct {
+        const uint8_t *data;
+        size_t len;
+    } opssl_cbs_t;
+
+Initialization
+--------------
+
+    void opssl_cbs_init(opssl_cbs_t *cbs, const uint8_t *data, size_t len);
+
+Initialize a CBS from a byte buffer. Does not copy the data.
+
+    size_t opssl_cbs_len(const opssl_cbs_t *cbs);
+
+Remaining bytes in the CBS.
+
+    const uint8_t *opssl_cbs_data(const opssl_cbs_t *cbs);
+
+Pointer to current position.
+
+    int opssl_cbs_is_empty(const opssl_cbs_t *cbs);
+
+Returns 1 if no bytes remain (len == 0).
+
+Fixed-Size Integer Reads
+------------------------
+
+All integers are read in network byte order (big-endian).
+
+    int opssl_cbs_get_u8(opssl_cbs_t *cbs, uint8_t *out);
+    int opssl_cbs_get_u16(opssl_cbs_t *cbs, uint16_t *out);
+    int opssl_cbs_get_u24(opssl_cbs_t *cbs, uint32_t *out);
+    int opssl_cbs_get_u32(opssl_cbs_t *cbs, uint32_t *out);
+
+Read 1/2/3/4 bytes as an unsigned integer. Advances the CBS position.
+
+Raw Byte Reads
+--------------
+
+    int opssl_cbs_get_bytes(opssl_cbs_t *cbs, opssl_cbs_t *out, size_t len);
+
+Read exactly len bytes into a child CBS. The child shares the same
+underlying buffer.
+
+    int opssl_cbs_skip(opssl_cbs_t *cbs, size_t len);
+
+Skip len bytes without reading them.
+
+    int opssl_cbs_copy_bytes(opssl_cbs_t *cbs, uint8_t *out, size_t len);
+
+Copy len bytes into a caller-owned buffer.
+
+    int opssl_cbs_peek_u8(const opssl_cbs_t *cbs, uint8_t *out);
+
+Peek at the next byte without consuming it.
+
+Length-Prefixed Fields
+----------------------
+
+TLS uses length-prefixed fields extensively. These functions read the
+length prefix and return a child CBS containing exactly that many bytes.
+
+    int opssl_cbs_get_u8_length_prefixed(opssl_cbs_t *cbs, opssl_cbs_t *out);
+    int opssl_cbs_get_u16_length_prefixed(opssl_cbs_t *cbs, opssl_cbs_t *out);
+    int opssl_cbs_get_u24_length_prefixed(opssl_cbs_t *cbs, opssl_cbs_t *out);
+
+The prefix is 1/2/3 bytes respectively. Fails if the prefixed length
+exceeds the remaining data.
+
+
+CBB: BUILDING
+=============
+
+    struct opssl_cbb {
+        uint8_t *buf;
+        size_t   len;
+        size_t   cap;
+        size_t   offset;
+        opssl_cbb_t *parent;
+        opssl_cbb_t *child;
+        uint8_t  prefix_len;
+        uint8_t  error;
+        uint8_t  is_child;
+    };
+
+Initialization
+--------------
+
+    int opssl_cbb_init(opssl_cbb_t *cbb, size_t initial_cap);
+
+Initialize a dynamic CBB with the given initial capacity. The buffer
+grows as needed.
+
+    int opssl_cbb_init_fixed(opssl_cbb_t *cbb, uint8_t *buf, size_t len);
+
+Initialize a CBB over a fixed caller-owned buffer. Writes beyond the
+buffer size fail.
+
+    void opssl_cbb_cleanup(opssl_cbb_t *cbb);
+
+Free resources associated with the CBB. For dynamic CBBs this frees
+the internal buffer. For fixed CBBs this is a no-op.
+
+    int opssl_cbb_finish(opssl_cbb_t *cbb, uint8_t **out, size_t *out_len);
+
+Finalize the CBB and return the built buffer. For dynamic CBBs the
+caller owns the returned memory (free with op_free). For fixed CBBs
+*out points to the original buffer.
+
+Fixed-Size Integer Writes
+-------------------------
+
+    int opssl_cbb_add_u8(opssl_cbb_t *cbb, uint8_t val);
+    int opssl_cbb_add_u16(opssl_cbb_t *cbb, uint16_t val);
+    int opssl_cbb_add_u24(opssl_cbb_t *cbb, uint32_t val);
+    int opssl_cbb_add_u32(opssl_cbb_t *cbb, uint32_t val);
+
+Write integers in network byte order.
+
+Raw Byte Writes
+---------------
+
+    int opssl_cbb_add_bytes(opssl_cbb_t *cbb, const uint8_t *data, size_t len);
+
+Append raw bytes to the builder.
+
+Length-Prefixed Child Builders
+------------------------------
+
+    int opssl_cbb_add_u8_length_prefixed(opssl_cbb_t *cbb, opssl_cbb_t *child);
+    int opssl_cbb_add_u16_length_prefixed(opssl_cbb_t *cbb, opssl_cbb_t *child);
+    int opssl_cbb_add_u24_length_prefixed(opssl_cbb_t *cbb, opssl_cbb_t *child);
+
+Create a child builder that will be length-prefixed when flushed. Write
+data to the child, then call opssl_cbb_flush or let the parent's finish
+handle it. The length prefix is 1/2/3 bytes respectively.
+
+    int opssl_cbb_flush(opssl_cbb_t *cbb);
+
+Flush a pending child builder back to the parent, writing the length
+prefix with the correct value.
+
+Direct Write Access
+-------------------
+
+    int opssl_cbb_reserve(opssl_cbb_t *cbb, uint8_t **out, size_t len);
+
+Reserve len bytes in the builder and return a pointer for the caller
+to write directly. Follow with opssl_cbb_did_write to confirm how many
+bytes were actually written.
+
+    int opssl_cbb_did_write(opssl_cbb_t *cbb, size_t len);
+
+Confirm that len bytes were written into the reserved space.
+
+Inspection
+----------
+
+    size_t opssl_cbb_len(const opssl_cbb_t *cbb);
+
+Current length of built data.
+
+    const uint8_t *opssl_cbb_data(const opssl_cbb_t *cbb);
+
+Pointer to built data (valid until next write or cleanup).
+
+
+BORINGSSL ALIASES
+=================
+
+For BoringSSL-compatible code, short aliases are provided:
+
+    CBS_init, CBS_len, CBS_data, CBS_get_u8, CBS_get_u16, CBS_get_u24,
+    CBS_get_u32, CBS_get_bytes, CBS_skip, CBS_get_u8_length_prefixed,
+    CBS_get_u16_length_prefixed, CBS_get_u24_length_prefixed,
+    CBS_peek_u8, CBS_copy_bytes, CBS_is_empty
+
+    CBB_init, CBB_init_fixed, CBB_cleanup, CBB_finish, CBB_add_u8,
+    CBB_add_u16, CBB_add_u24, CBB_add_u32, CBB_add_bytes,
+    CBB_add_u8_length_prefixed, CBB_add_u16_length_prefixed,
+    CBB_add_u24_length_prefixed, CBB_flush, CBB_reserve, CBB_did_write,
+    CBB_len, CBB_data
+
+Type aliases: CBS = opssl_cbs_t, CBB = opssl_cbb_t
+
+
+EXAMPLE: PARSING A TLS EXTENSION
+=================================
+
+    opssl_cbs_t input, extensions, ext_data;
+    CBS_init(&input, wire_data, wire_len);
+
+    uint16_t ext_type;
+    if (!CBS_get_u16_length_prefixed(&input, &extensions))
+        return 0;
+
+    while (CBS_len(&extensions) > 0) {
+        if (!CBS_get_u16(&extensions, &ext_type) ||
+            !CBS_get_u16_length_prefixed(&extensions, &ext_data))
+            return 0;
+        handle_extension(ext_type, &ext_data);
+    }
+
+EXAMPLE: BUILDING A TLS RECORD
+================================
+
+    opssl_cbb_t record, payload;
+    CBB_init(&record, 256);
+    CBB_add_u8(&record, 0x16);        /* handshake content type */
+    CBB_add_u16(&record, 0x0303);     /* TLS 1.2 */
+    CBB_add_u16_length_prefixed(&record, &payload);
+    CBB_add_bytes(&payload, hs_data, hs_len);
+    CBB_flush(&record);
+
+    uint8_t *out;
+    size_t out_len;
+    CBB_finish(&record, &out, &out_len);
+    /* send out, then free(out) */

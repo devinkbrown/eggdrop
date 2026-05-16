@@ -95,7 +95,7 @@ static void sasl_errorf(const char *fmt, ...) AFP(1, 2);
 static void sasl_errorf(const char *fmt, ...)
 {
   va_list ap;
-  op_strbuf_t _m;
+  op_strbuf_t _m = {};
   op_strbuf_init(&_m);
   va_start(ap, fmt);
   op_strbuf_vappendf(&_m, fmt, ap);
@@ -162,7 +162,7 @@ static int got908(char *from, char *msg)
   putlog(LOG_SERV, "*", "SASL: Available mechanisms: %s", msg);
   del_capability("sasl");
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "sasl=%s", msg);
     add_capabilities(op_strbuf_str(&_b));
@@ -246,7 +246,7 @@ static int sasl_scram_step_0(char *client_msg_plain, int client_msg_plain_len)
   opssl_random_bytes(raw_nonce, sizeof raw_nonce);
   b64_ntop(raw_nonce, sizeof raw_nonce, nonce, sizeof nonce);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "n,,n=%s,r=%s", sasl_username, nonce);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
@@ -373,7 +373,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
                              int client_msg_plain_len,
                              char *restrict server_msg_plain)
 {
-  op_strbuf_t server_first_message;
+  op_strbuf_t server_first_message = {};
   op_strbuf_init(&server_first_message);
   char *word, *brkb, *server_nonce = 0, *salt_b64 = 0, *i = 0;
   int salt_plain_len, iter, j;
@@ -495,12 +495,12 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
    *                    client-final-message-without-proof
    */
 
-  op_strbuf_t _cfmwp;
+  op_strbuf_t _cfmwp = {};
   op_strbuf_init(&_cfmwp);
   op_strbuf_appendf(&_cfmwp, "c=biws,r=%s", server_nonce);
 
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s,%s,%s", client_first_message + 3,
                      op_strbuf_str(&server_first_message), op_strbuf_str(&_cfmwp));
@@ -533,7 +533,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
   }
 
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s,p=%s", op_strbuf_str(&_cfmwp), client_proof_b64);
     strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
@@ -754,7 +754,7 @@ int sasl_authenticate_initial(const struct cap_values *cap_value_list)
 #endif
   if (!is_cap_value(cap_value_list, SASL_MECHANISMS[sasl_mechanism])) {
     const struct cap_values *v;
-    op_strbuf_t _supported;
+    op_strbuf_t _supported = {};
     op_strbuf_init(&_supported);
     /* Build a space-separated list of what the server actually advertised */
     for (v = cap_value_list; v; v = v->next) {
@@ -763,7 +763,7 @@ int sasl_authenticate_initial(const struct cap_values *cap_value_list)
       op_strbuf_append_cstr(&_supported, v->name);
     }
     {
-      op_strbuf_t _m;
+      op_strbuf_t _m = {};
       op_strbuf_init(&_m);
       op_strbuf_appendf(&_m, "authentication mechanism %s not supported by server",
                        SASL_MECHANISMS[sasl_mechanism]);

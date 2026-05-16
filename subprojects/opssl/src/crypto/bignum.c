@@ -206,6 +206,14 @@ int opssl_bn_cmp(const opssl_bn_t *a, const opssl_bn_t *b, int width) {
     return (int)gt - (int)lt;
 }
 
+int opssl_bn_is_zero(const opssl_bn_t *bn, int width) {
+    uint64_t mask = 0;
+    for (int i = 0; i < width; i++) {
+        mask |= bn->d[i];
+    }
+    return mask == 0;
+}
+
 /*
  * Constant-time conditional select
  * If sel != 0, return a; otherwise return b

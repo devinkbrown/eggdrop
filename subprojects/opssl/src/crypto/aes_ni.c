@@ -361,6 +361,8 @@ opssl_aesni_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
                      const uint8_t *plaintext, size_t pt_len,
                      const uint8_t *aad, size_t aad_len)
 {
+    if (pt_len > SIZE_MAX - 16)
+        return 0;
     size_t needed = pt_len + 16;
     if (max_out < needed)
         return 0;

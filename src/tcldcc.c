@@ -123,7 +123,7 @@ static int tcl_dccbroadcast STDVAR
 {
   BADARGS(2, 2, " message");
 
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s", argv[1]);
   chatout("*** %s\n", op_strbuf_str(&_b));
@@ -508,7 +508,7 @@ static int tcl_putbot STDVAR
     Tcl_AppendResult(irp, "bot is not on the botnet", nullptr);
     return TCL_ERROR;
   }
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s", argv[2]);
   botnet_send_zapf(i, botnetnick, argv[1], (char *)op_strbuf_str(&_b));
@@ -520,7 +520,7 @@ static int tcl_putallbots STDVAR
 {
   BADARGS(2, 2, " message");
 
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s", argv[1]);
   botnet_send_zapf_broad(-1, botnetnick, nullptr, (char *)op_strbuf_str(&_b));
@@ -572,7 +572,7 @@ static int tcl_botlist STDVAR
   char *p, sh[2];
   EGG_CONST char *list[4];
   tand_t *bot;
-  op_strbuf_t ver_buf;
+  op_strbuf_t ver_buf = {};
   op_strbuf_init(&ver_buf);
 
   BADARGS(1, 1, "");
@@ -656,7 +656,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
   for (int i = 0; i < dcc_total; i++) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
         !strcasecmp(dcc[i].type->name, type)))) {
-      op_strbuf_t idxstr, timestamp, other;
+      op_strbuf_t idxstr = {}, timestamp = {}, other = {};
       op_strbuf_appendf(&idxstr, "%ld", dcc[i].sock);
       op_strbuf_appendf(&timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
       op_strbuf_init(&other);
@@ -671,7 +671,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
       }
       /* If this came from dcclist... */
       if (!src) {
-        op_strbuf_t portstring;
+        op_strbuf_t portstring = {};
         op_strbuf_init(&portstring);
 #ifdef TLS
         op_strbuf_appendf(&portstring, "%s%d", dcc[i].ssl ? "+" : "", dcc[i].port);
@@ -734,7 +734,7 @@ static int tcl_whom STDVAR
 {
   int chan;
   char c[2], *p;
-  op_strbuf_t idle, work;
+  op_strbuf_t idle = {}, work = {};
   EGG_CONST char *list[7];
 
   BADARGS(2, 2, " chan");
@@ -879,12 +879,12 @@ static int tcl_link STDVAR
 
   BADARGS(2, 3, " ?via-bot? bot");
 
-  op_strbuf_t _bot;
+  op_strbuf_t _bot = {};
   op_strbuf_init(&_bot);
   op_strbuf_appendf(&_bot, "%s", argv[1]);
   if (argc == 3) {
     x = 1;
-    op_strbuf_t _bot2;
+    op_strbuf_t _bot2 = {};
     op_strbuf_init(&_bot2);
     op_strbuf_appendf(&_bot2, "%s", argv[2]);
     int i = nextbot((char *)op_strbuf_str(&_bot));
@@ -906,7 +906,7 @@ static int tcl_unlink STDVAR
 {
   BADARGS(2, 3, " bot ?comment?");
 
-  op_strbuf_t _bot;
+  op_strbuf_t _bot = {};
   op_strbuf_init(&_bot);
   op_strbuf_appendf(&_bot, "%s", argv[1]);
   int i = nextbot((char *)op_strbuf_str(&_bot));
@@ -1125,7 +1125,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
       setsockname(&name, newip, port, 1);
       i = open_address_listen(&name);
       if (i < 0) {
-        op_strbuf_t msg;
+        op_strbuf_t msg = {};
         op_strbuf_init(&msg);
         op_strbuf_appendf(&msg, "Couldn't listen on port %d on %s: %s. "
                  "Please check that the port is not already in use",
@@ -1137,7 +1137,7 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     } else {
       i = open_listen(&port);
       if (i < 0) {
-        op_strbuf_t msg;
+        op_strbuf_t msg = {};
         op_strbuf_init(&msg);
         op_strbuf_appendf(&msg, "Couldn't listen on port %d on the given "
                  "address: %s. Please check that the port is not already in use",
@@ -1366,7 +1366,7 @@ static int tcl_restart STDVAR
 
 static int tcl_traffic STDVAR
 {
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   op_strbuf_init(&buf);
   uint64_t out_total_today, out_total;
   uint64_t in_total_today, in_total;

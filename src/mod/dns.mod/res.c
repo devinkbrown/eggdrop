@@ -1109,7 +1109,7 @@ static void handle_req_done(struct dns_req *req, struct DNSReply *reply)
   if ((req->type & DNS_FLAG_FCRDNS) && reply != nullptr)
     reply->h_name = req->hostname;
 
-  (*req->query->callback)(req->query->ptr, reply);
+  (*req->query->callback)(req->query, reply);
   free_req(req);
 }
 
@@ -1296,7 +1296,7 @@ static void timeout_resolver([[maybe_unused]] void *unused)
       ns_failures[req->last_ns]++;
 
     if (--req->retries <= 0) {
-      (*req->query->callback)(req->query->ptr, nullptr);
+      (*req->query->callback)(req->query, nullptr);
       free_req(req);
       continue;
     }
@@ -1331,6 +1331,13 @@ void res_secondly_check(void)
  * Network initialisation
  * ====================================================================== */
 
+static void dns_commio_read_cb(op_fde_t *F, void *data)
+{
+  (void)F;
+  (void)data;
+  res_read_dns();
+}
+
 static int init_dns_network(void)
 {
   int family, flags;
@@ -1361,6 +1368,12 @@ static int init_dns_network(void)
     close(resfd);
     resfd = -1;
     return 0;
+  }
+
+  {
+    op_fde_t *F = op_get_fde(resfd);
+    if (F)
+      op_setselect(F, OP_SELECT_READ, dns_commio_read_cb, NULL);
   }
 
   return 1;
@@ -1400,7 +1413,7 @@ void restart_resolver(void)
   /* Cancel all pending queries */
   OP_DLINK_FOREACH_SAFE(n, nt, req_list.head) {
     struct dns_req *req = n->data;
-    (*req->query->callback)(req->query->ptr, nullptr);
+    (*req->query->callback)(req->query, nullptr);
     free_req(req);
   }
 
@@ -1610,7 +1623,7 @@ void build_rdns(char *buf, size_t size,
     const struct sockaddr_in *v4 = (const struct sockaddr_in *)addr;
     cp = (const unsigned char *)&v4->sin_addr.s_addr;
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%u.%u.%u.%u.%s",
                        (unsigned)cp[3], (unsigned)cp[2],
@@ -1625,7 +1638,7 @@ void build_rdns(char *buf, size_t size,
     const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)addr;
     cp = (const unsigned char *)&v6->sin6_addr.s6_addr;
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b,
           "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."

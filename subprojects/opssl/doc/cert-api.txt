@@ -1,0 +1,295 @@
+opssl CERTIFICATE API REFERENCE
+================================
+
+This document describes the X.509 certificate API in opssl/cert.h.
+
+Zero-copy certificate parsing with reference counting. Fingerprinting
+supports SHA1/256/512, SHA3-256/512, and SPKI variants for flexible
+certificate identification. Includes trust store, CRL, and OCSP support.
+
+Return Convention: int-returning functions use 1 = success, 0 = failure.
+
+
+CERTIFICATE LOADING
+===================
+
+    opssl_x509_t *opssl_x509_from_pem(const char *pem, size_t len);
+
+Parse an X.509 certificate from PEM data. Returns NULL on parse failure.
+The returned certificate is reference-counted (initial refcount = 1).
+
+    opssl_x509_t *opssl_x509_from_der(const uint8_t *der, size_t len);
+
+Parse an X.509 certificate from DER (binary ASN.1) data.
+
+    opssl_x509_t *opssl_x509_from_file(const char *path);
+
+Load and parse a PEM-encoded certificate from a file.
+
+    opssl_x509_t *opssl_x509_ref(opssl_x509_t *cert);
+
+Increment the reference count. Returns the same pointer.
+
+    void opssl_x509_free(opssl_x509_t *cert);
+
+Decrement the reference count. Frees when it reaches zero.
+
+
+CERTIFICATE CHAINS
+==================
+
+    opssl_x509_chain_t *opssl_x509_chain_from_file(const char *path);
+
+Load a certificate chain from a PEM file (leaf first, then intermediates).
+
+    opssl_x509_chain_t *opssl_x509_chain_from_leaf(const uint8_t *der,
+                                                     size_t der_len);
+
+Create a single-certificate chain from a DER-encoded leaf.
+
+    opssl_x509_chain_t *opssl_x509_chain_from_ders(
+        const uint8_t *der, size_t der_len,
+        const uint8_t * const *intermediates,
+        const size_t *ilens, size_t n_intermediates);
+
+Build a chain from a DER-encoded leaf and an array of DER-encoded
+intermediate certificates.
+
+    size_t opssl_x509_chain_count(const opssl_x509_chain_t *chain);
+
+Get the number of certificates in the chain.
+
+    opssl_x509_t *opssl_x509_chain_get(const opssl_x509_chain_t *chain,
+                                        size_t idx);
+
+Get the certificate at the given index (0 = leaf).
+
+    void opssl_x509_chain_free(opssl_x509_chain_t *chain);
+
+Free the chain and all certificates in it.
+
+
+CERTIFICATE INFORMATION
+=======================
+
+    int opssl_x509_get_subject(const opssl_x509_t *cert, char *buf, size_t len);
+    int opssl_x509_get_issuer(const opssl_x509_t *cert, char *buf, size_t len);
+
+Get the subject/issuer distinguished name as a string.
+
+    int opssl_x509_get_san_count(const opssl_x509_t *cert);
+    int opssl_x509_get_san(const opssl_x509_t *cert, int idx,
+                           char *buf, size_t len);
+
+Get Subject Alternative Names. san_count returns the number of SANs;
+san retrieves the SAN at the given index as a string.
+
+    int opssl_x509_get_not_before(const opssl_x509_t *cert, int64_t *epoch);
+    int opssl_x509_get_not_after(const opssl_x509_t *cert, int64_t *epoch);
+
+Get the certificate validity period as Unix timestamps.
+
+    int opssl_x509_is_expired(const opssl_x509_t *cert);
+
+Returns 1 if the certificate is currently expired, 0 if valid.
+
+    int opssl_x509_get_serial(const opssl_x509_t *cert,
+                              uint8_t *buf, size_t *len);
+
+Get the certificate serial number as raw bytes.
+
+    int opssl_x509_get_der(const opssl_x509_t *cert,
+                           const uint8_t **der, size_t *len);
+
+Get a pointer to the raw DER encoding. The pointer is valid for the
+lifetime of the certificate object. Does not copy.
+
+    int opssl_x509_get_spki(const opssl_x509_t *cert,
+                            const uint8_t **spki, size_t *len);
+    int opssl_x509_get_spki_der(const opssl_x509_t *cert,
+                                const uint8_t **spki, size_t *len);
+
+Get the Subject Public Key Info (SPKI) field. spki returns the public
+key bytes; spki_der returns the full SPKI DER structure (for hashing).
+
+
+FINGERPRINTING
+==============
+
+    int opssl_x509_fingerprint(const opssl_x509_t *cert,
+                               opssl_fingerprint_method_t method,
+                               uint8_t *out, size_t *out_len);
+
+Compute the certificate fingerprint. Supported methods:
+
+    OPSSL_FP_SHA1           — SHA-1 hash of DER (20 bytes, legacy compat)
+    OPSSL_FP_SHA256         — SHA-256 hash of DER (32 bytes)
+    OPSSL_FP_SHA512         — SHA-512 hash of DER (64 bytes)
+    OPSSL_FP_SHA3_256       — SHA3-256 hash of DER (32 bytes)
+    OPSSL_FP_SHA3_512       — SHA3-512 hash of DER (64 bytes)
+    OPSSL_FP_SPKI_SHA256    — SHA-256 hash of SPKI DER (32 bytes)
+    OPSSL_FP_SPKI_SHA512    — SHA-512 hash of SPKI DER (64 bytes)
+    OPSSL_FP_SPKI_SHA3_256  — SHA3-256 hash of SPKI DER (32 bytes)
+    OPSSL_FP_SPKI_SHA3_512  — SHA3-512 hash of SPKI DER (64 bytes)
+
+    int opssl_x509_fingerprint_hex(const opssl_x509_t *cert,
+                                   opssl_fingerprint_method_t method,
+                                   char *out, size_t out_len);
+
+Same as fingerprint, but produces a hex-encoded string.
+
+
+VERIFICATION
+============
+
+Certificate Store
+-----------------
+
+    opssl_x509_store_t *opssl_x509_store_new(void);
+    void opssl_x509_store_free(opssl_x509_store_t *store);
+
+Create/destroy a certificate store for verification.
+
+    int opssl_x509_store_add_cert(opssl_x509_store_t *store,
+                                  opssl_x509_t *cert);
+
+Add a trusted CA certificate to the store.
+
+    int opssl_x509_store_load_file(opssl_x509_store_t *store,
+                                   const char *path);
+    int opssl_x509_store_load_dir(opssl_x509_store_t *store,
+                                  const char *path);
+
+Load CA certificates from a PEM file or a c_rehash-style directory.
+
+Trust Store
+-----------
+
+    opssl_trust_store_t *opssl_trust_store_new(void);
+    void opssl_trust_store_free(opssl_trust_store_t *store);
+
+Fast hash set of trusted root CA certificates. Keyed by
+SHA-256(SubjectDN_raw || SPKI_DER) for O(1) lookup. A chain is only
+accepted if its root is present here.
+
+    int opssl_trust_store_load_default(opssl_trust_store_t *store);
+
+Load the system default CA bundle.
+
+    int opssl_trust_store_load_file(opssl_trust_store_t *store,
+                                    const char *path);
+    int opssl_trust_store_load_dir(opssl_trust_store_t *store,
+                                   const char *path);
+
+Load trusted certificates from a file or directory.
+
+    int opssl_trust_store_add_cert(opssl_trust_store_t *store,
+                                   const uint8_t *der, size_t len);
+
+Add a DER-encoded trusted root certificate.
+
+    int opssl_trust_store_contains(const opssl_trust_store_t *store,
+                                   const uint8_t *cert_der, size_t cert_len);
+
+Check if a certificate is in the trust store. Returns 1 if found.
+
+Chain Verification
+------------------
+
+    typedef struct {
+        int  depth;
+        int  error_code;
+        const char *error_string;
+        size_t chain_length;
+        uint8_t leaf_fingerprint[32];
+    } opssl_x509_verify_result_t;
+
+    int opssl_x509_verify(const opssl_x509_chain_t *chain,
+                          const opssl_x509_store_t *store,
+                          const char *hostname,
+                          opssl_x509_verify_result_t *result);
+
+Verify a certificate chain against a store. If hostname is non-NULL,
+also performs hostname verification against SANs and CN. The result
+struct is populated with the verification outcome on both success and
+failure.
+
+
+CRL (CERTIFICATE REVOCATION LIST)
+==================================
+
+    opssl_crl_t *opssl_crl_from_der(const uint8_t *der, size_t len);
+    opssl_crl_t *opssl_crl_from_pem(const char *pem, size_t len);
+    void opssl_crl_free(opssl_crl_t *crl);
+
+Parse a CRL from DER or PEM data.
+
+    int opssl_x509_store_add_crl(opssl_x509_store_t *store,
+                                  opssl_crl_t *crl);
+    int opssl_x509_store_load_crl(opssl_x509_store_t *store,
+                                   const char *path);
+
+Add CRL data to a certificate store.
+
+    int opssl_x509_check_revocation(const opssl_x509_t *cert,
+                                    const opssl_x509_store_t *store);
+
+Check if a certificate has been revoked. Returns 1 if not revoked,
+0 if revoked or check failed.
+
+
+OCSP RESPONSE VERIFICATION
+===========================
+
+    typedef enum {
+        OPSSL_OCSP_GOOD    = 0,
+        OPSSL_OCSP_REVOKED = 1,
+        OPSSL_OCSP_UNKNOWN = 2,
+    } opssl_ocsp_status_t;
+
+    opssl_ocsp_status_t opssl_ocsp_verify_response(
+        const uint8_t *response, size_t len,
+        const opssl_x509_t *cert,
+        const opssl_x509_store_t *store);
+
+Verify a standalone OCSP response (RFC 6960). Returns the certificate
+status.
+
+
+PRIVATE KEY
+===========
+
+    opssl_pkey_t *opssl_pkey_from_pem(const char *pem, size_t len);
+    opssl_pkey_t *opssl_pkey_from_der(const uint8_t *der, size_t len);
+    opssl_pkey_t *opssl_pkey_from_file(const char *path);
+
+Load a private key from PEM, DER, or a file.
+
+    opssl_pkey_t *opssl_pkey_from_ed25519_raw(const uint8_t priv[32],
+                                               const uint8_t pub[32]);
+
+Create a private key from raw Ed25519 key bytes.
+
+    void opssl_pkey_free(opssl_pkey_t *key);
+
+Free a private key object.
+
+    int opssl_pkey_matches_cert(const opssl_pkey_t *key,
+                                const opssl_x509_t *cert);
+
+Check if a private key matches a certificate's public key.
+
+    opssl_pkey_type_t opssl_pkey_type(const opssl_pkey_t *key);
+
+Get the key type: OPSSL_PKEY_RSA, OPSSL_PKEY_EC, OPSSL_PKEY_ED25519,
+or OPSSL_PKEY_ED448.
+
+    size_t opssl_pkey_bits(const opssl_pkey_t *key);
+
+Get the key size in bits (e.g. 2048 for RSA-2048, 256 for P-256).
+
+    int opssl_pkey_sign(const opssl_pkey_t *key, const uint8_t *digest,
+                        size_t digest_len, uint8_t *sig, size_t *sig_len);
+
+Sign a digest with the private key. Uses the key's native algorithm
+(RSA-PSS for RSA, ECDSA for EC, Ed25519 for Ed25519).

@@ -326,7 +326,7 @@ static char *tcl_eggcouplet(ClientData cdata, Tcl_Interp *irp,
   }
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%d:%d", *(cp->left), *(cp->right));
       Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
@@ -362,7 +362,7 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
       fr.udef_global = default_uflags;
       build_flags(s1, &fr, 0);
     } else if ((int *) ii->var == &userfile_perm) {
-      op_strbuf_t perm_buf;
+      op_strbuf_t perm_buf = {};
       op_strbuf_init(&perm_buf);
       op_strbuf_appendf(&perm_buf, "0%o", userfile_perm);
       strlcpy(s1, op_strbuf_str(&perm_buf), sizeof s1);
@@ -430,7 +430,7 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
 
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     if ((st->str == firewall) && (firewall[0])) {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s:%d", firewall, firewallport);
       Tcl_SetVar2(interp, name1, name2, op_strbuf_str(&_b), TCL_GLOBAL_ONLY);
@@ -934,7 +934,7 @@ void init_unicodesup_cmd(Tcl_Obj *ensdict, const char *subcmd, int index)
 {
   Tcl_Obj *orig_cmd;
   static struct tcl_unicodesup_info info[3];
-  op_strbuf_t buf;
+  op_strbuf_t buf = {};
   op_strbuf_init(&buf);
 
   if (Tcl_DictObjGet(interp, ensdict, Tcl_NewStringObj(subcmd, -1), &orig_cmd) != TCL_OK || !orig_cmd) {

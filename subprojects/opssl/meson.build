@@ -40,10 +40,7 @@ if meson.is_subproject()
   #   opssl -> libop -> opssl
   # Use global_source_root() to resolve the sibling path — relative '../'
   # is blocked when subprojects are fetched via wrap-git.
-  fs = import('fs')
-  _eggdrop_libop_inc = meson.global_source_root() / 'libop' / 'include'
-  _sibling_libop_inc = meson.global_source_root() / 'subprojects' / 'libop' / 'include'
-  _libop_inc = fs.exists(_eggdrop_libop_inc / 'op_lib.h') ? _eggdrop_libop_inc : _sibling_libop_inc
+  _libop_inc = meson.global_source_root() / 'subprojects' / 'libop' / 'include'
   libop_dep = declare_dependency(
     include_directories: include_directories('compat'),
     compile_args: ['-I' + _libop_inc],
@@ -190,8 +187,6 @@ crypto_src = files(
   'src/crypto/hmac.c',
   'src/crypto/hkdf.c',
   'src/crypto/pbkdf2.c',
-  'src/crypto/bcrypt.c',
-  'src/crypto/totp.c',
   'src/crypto/blake2b.c',
   'src/crypto/argon2id.c',
   'src/crypto/aes.c',
@@ -282,10 +277,14 @@ opssl_dep = declare_dependency(
 )
 
 # CLI tool — unified opssl command (replaces legacy mkdhparam, mkfingerprint, mkverifier)
+_opssl_install_rpath = get_option('prefix') / get_option('libdir')
+
 opssl_cli = executable('opssl',
   'tools/opssl.c',
   dependencies: [opssl_dep, libop_dep, threads_dep],
   install: true,
+  install_rpath: _opssl_install_rpath,
+  build_rpath: meson.current_build_dir(),
 )
 
 # Install headers

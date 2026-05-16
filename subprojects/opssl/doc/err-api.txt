@@ -1,0 +1,148 @@
+opssl ERROR HANDLING API REFERENCE
+===================================
+
+This document describes the error handling API in opssl/err.h.
+
+opssl uses a thread-local error stack with structured error codes. No
+global mutable state. No errno clobbering.
+
+
+ERROR CODES
+===========
+
+Errors are packed into a 32-bit integer: category(8) | reason(24).
+
+    typedef uint32_t opssl_err_t;
+
+    #define OPSSL_ERR_PACK(cat, reason)   ((cat << 24) | (reason & 0x00FFFFFF))
+    #define OPSSL_ERR_GET_CATEGORY(e)     ((e) >> 24)
+    #define OPSSL_ERR_GET_REASON(e)       ((e) & 0x00FFFFFF)
+
+
+ERROR CATEGORIES
+================
+
+    typedef enum {
+        OPSSL_ERR_NONE      = 0,    no error
+        OPSSL_ERR_TLS       = 1,    TLS protocol error
+        OPSSL_ERR_CRYPTO    = 2,    cryptographic failure
+        OPSSL_ERR_X509      = 3,    certificate error
+        OPSSL_ERR_IO        = 4,    I/O / transport error
+        OPSSL_ERR_MEMORY    = 5,    allocation failure
+        OPSSL_ERR_INTERNAL  = 6,    bug / assertion
+    } opssl_err_category_t;
+
+
+TLS ERROR REASONS
+=================
+
+    typedef enum {
+        OPSSL_TLS_ERR_NONE = 0,
+        OPSSL_TLS_ERR_UNEXPECTED_MSG,
+        OPSSL_TLS_ERR_BAD_RECORD_MAC,
+        OPSSL_TLS_ERR_RECORD_OVERFLOW,
+        OPSSL_TLS_ERR_HANDSHAKE_FAILURE,
+        OPSSL_TLS_ERR_BAD_CERTIFICATE,
+        OPSSL_TLS_ERR_UNSUPPORTED_CERT,
+        OPSSL_TLS_ERR_CERT_REVOKED,
+        OPSSL_TLS_ERR_CERT_EXPIRED,
+        OPSSL_TLS_ERR_CERT_UNKNOWN,
+        OPSSL_TLS_ERR_ILLEGAL_PARAM,
+        OPSSL_TLS_ERR_UNKNOWN_CA,
+        OPSSL_TLS_ERR_ACCESS_DENIED,
+        OPSSL_TLS_ERR_DECODE_ERROR,
+        OPSSL_TLS_ERR_DECRYPT_ERROR,
+        OPSSL_TLS_ERR_PROTOCOL_VERSION,
+        OPSSL_TLS_ERR_INSUFFICIENT_SECURITY,
+        OPSSL_TLS_ERR_INTERNAL_ERROR,
+        OPSSL_TLS_ERR_NO_RENEGOTIATION,
+        OPSSL_TLS_ERR_MISSING_EXTENSION,
+        OPSSL_TLS_ERR_UNRECOGNIZED_NAME,
+        OPSSL_TLS_ERR_CERTIFICATE_REQUIRED,
+        OPSSL_TLS_ERR_NO_APPLICATION_PROTOCOL,
+    } opssl_tls_err_t;
+
+These map 1:1 to TLS alert descriptions (RFC 8446 §6.2).
+
+
+COMMON REASON CODES
+====================
+
+Used across all categories:
+
+    OPSSL_ERR_INVALID_ARGUMENT   (1)   — bad parameter
+    OPSSL_ERR_BUFFER_TOO_SMALL   (2)   — output buffer too small
+    OPSSL_ERR_NOT_SUPPORTED      (3)   — feature not available
+    OPSSL_ERR_VERSION_MISMATCH   (4)   — incompatible version
+    OPSSL_ERR_PEM_DECODE         (5)   — PEM parse failure
+    OPSSL_ERR_FILE_READ          (6)   — file I/O error
+    OPSSL_ERR_ALLOC_FAILED       (7)   — memory allocation failure
+    OPSSL_ERR_WANT_READ          (8)   — non-blocking: need POLLIN
+    OPSSL_ERR_WANT_WRITE         (9)   — non-blocking: need POLLOUT
+    OPSSL_ERR_CONNECTION_LOST    (10)  — peer disconnected
+    OPSSL_ERR_IO_ERROR           (11)  — underlying I/O failure
+    OPSSL_ERR_INVALID_FD         (12)  — bad file descriptor
+    OPSSL_ERR_NULL_POINTER       (13)  — NULL argument
+    OPSSL_ERR_NO_SPACE           (14)  — no space left
+    OPSSL_ERR_INVALID_OPERATION  (15)  — wrong state for this operation
+    OPSSL_ERR_PROTOCOL           (16)  — protocol violation
+    OPSSL_ERR_PEER_ALERT         (17)  — received TLS alert from peer
+    OPSSL_ERR_HANDSHAKE_INCOMPLETE (18) — handshake not finished
+    OPSSL_ERR_SHUTDOWN_SENT      (19)  — close_notify already sent
+    OPSSL_ERR_PEER_CLOSED        (20)  — peer sent close_notify
+    OPSSL_ERR_RECORD_TOO_LARGE   (21)  — TLS record exceeds limit
+    OPSSL_ERR_BUFFER_OVERFLOW    (22)  — internal buffer overflow
+
+
+THREAD-LOCAL ERROR STACK
+========================
+
+    opssl_err_t opssl_err_get(void);
+
+Pop and return the most recent error from the thread-local stack. Returns
+OPSSL_ERR_NONE if the stack is empty. Subsequent calls return earlier
+errors (LIFO order).
+
+    opssl_err_t opssl_err_peek(void);
+
+Peek at the most recent error without removing it from the stack.
+
+    void opssl_err_clear(void);
+
+Clear the entire error stack for the current thread.
+
+    const char *opssl_err_string(opssl_err_t err);
+
+Get a human-readable string for the error (includes category and reason).
+
+    const char *opssl_err_reason_string(opssl_err_t err);
+
+Get just the reason string (without the category prefix).
+
+
+INTERNAL ERROR PUSH
+===================
+
+Used by opssl internals to record errors with source location:
+
+    void opssl_err_push(opssl_err_category_t cat, uint32_t reason,
+                        const char *file, int line);
+
+    #define OPSSL_ERR(cat, reason)  opssl_err_push(cat, reason, __FILE__, __LINE__)
+
+    void opssl_set_error(uint32_t reason, const char *msg);
+
+Convenience function that pushes an error with an auto-detected category
+and a descriptive message string.
+
+
+EXAMPLE
+=======
+
+    opssl_result_t r = opssl_accept(conn);
+    if (r == OPSSL_ERROR) {
+        opssl_err_t err = opssl_err_get();
+        fprintf(stderr, "TLS error [%s]: %s\n",
+                opssl_err_string(err),
+                opssl_conn_get_error_string(conn));
+    }

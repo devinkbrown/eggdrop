@@ -246,7 +246,7 @@ static void set_mode_protect(struct chanset_t *chan, char *set)
 static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
 {
   char *p = s;
-  op_strbuf_t s1;
+  op_strbuf_t s1 = {};
   int tst;
 
   op_strbuf_init(&s1);
@@ -653,7 +653,7 @@ static void backup_chanfile(void)
 {
   if (quiet_save < 2)
     putlog(LOG_MISC, "*", "Backing up channel file...");
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   op_strbuf_appendf(&_b, "%s~bak", chanfile);
   async_copyfile(chanfile, op_strbuf_str(&_b));
@@ -693,7 +693,7 @@ static void channels_report(int idx, int details)
     if ((idx != DP_STDOUT) && !glob_master(fr) && !chan_master(fr))
       continue;
 
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "    %-20s: ", chan->dname);
 
@@ -713,7 +713,7 @@ static void channels_report(int idx, int details)
         op_strbuf_appendf(&s, ", enforcing \"%s\"", s2);
 
       /* Build feature list */
-      op_strbuf_t feats;
+      op_strbuf_t feats = {};
       op_strbuf_init(&feats);
       if (channel_greet(chan))   op_strbuf_append_cstr(&feats, "greet, ");
       if (channel_autoop(chan))  op_strbuf_append_cstr(&feats, "auto-op, ");
@@ -734,7 +734,7 @@ static void channels_report(int idx, int details)
     op_strbuf_free(&s);
 
     if (details) {
-      op_strbuf_t opts;
+      op_strbuf_t opts = {};
       op_strbuf_init(&opts);
       if (channel_enforcebans(chan))    op_strbuf_append_cstr(&opts, "enforcebans ");
       if (channel_dynamicbans(chan))    op_strbuf_append_cstr(&opts, "dynamicbans ");

@@ -113,7 +113,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
   out2 = out;
   restlen = outlen;
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "$pbkdf2-%s$rounds=%u$", digest_name, rounds);
     strlcpy((char *) out2, op_strbuf_str(&_b), restlen);
@@ -195,7 +195,7 @@ static char *pbkdf2_verify(const char *pass, const char *encrypted)
   char method[sizeof pbkdf2_method],
        b64salt[B64_NTOP_CALCULATE_SIZE(PBKDF2_SALT_LEN) + 1],
        b64hash[B64_NTOP_CALCULATE_SIZE(256) + 1];
-  op_strbuf_t format_buf;
+  op_strbuf_t format_buf = {};
   op_strbuf_init(&format_buf);
   unsigned int rounds;
   opssl_hmac_algo_t algo;

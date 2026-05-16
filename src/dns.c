@@ -276,7 +276,7 @@ void dcc_dnshostbyip(sockname_t *ip)
 static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other)
 {
   devent_tclinfo_t *tclinfo = (devent_tclinfo_t *) other;
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
   op_strbuf_init(&sb);
 
   /* Build the command: proc ip host ok ?paras? */

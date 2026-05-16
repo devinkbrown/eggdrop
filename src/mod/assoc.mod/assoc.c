@@ -45,7 +45,7 @@ static op_bh *assoc_bh = nullptr;
 
 static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
 {
-  op_strbuf_t _b;
+  op_strbuf_t _b = {};
   op_strbuf_init(&_b);
   int idx2;
 
@@ -76,7 +76,7 @@ static void link_assoc(char *bot, char *via)
 
     if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
       for (a = assoc; a && a->name[0]; a = a->next) {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
                           botnetnick, a->name);
@@ -301,7 +301,7 @@ static int tcl_assoc STDVAR
     return TCL_ERROR;
   }
   if (argc == 3) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%.20s", argv[2]);
     add_assoc((char *)op_strbuf_str(&_b), chan);

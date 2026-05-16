@@ -252,7 +252,7 @@ void tell_verbose_status(int idx)
   else
     mode = MISC_LOGMODE;
   cputime = getcputime();
-  op_strbuf_t cpubuf;
+  op_strbuf_t cpubuf = {};
   op_strbuf_init(&cpubuf);
   if (cputime < 0)
     op_strbuf_append_cstr(&cpubuf, "CPU: unknown");
@@ -492,7 +492,7 @@ void chanprog(void)
         make_userfile = 1;
         printf("User file created.  Say '%s hello' on IRC or connect via DCC to set your password.\n\n", origbotname);
       } else {
-        op_strbuf_t tmp;
+        op_strbuf_t tmp = {};
         op_strbuf_init(&tmp);
         op_strbuf_appendf(&tmp, MISC_NOUSERFILE, configfile);
         fatal(op_strbuf_str(&tmp), 0);
@@ -559,7 +559,7 @@ static void egg_timer_fire(void *arg)
   tcl_timer_t *t = arg;
 
   {
-    op_strbuf_t x;
+    op_strbuf_t x = {};
     op_strbuf_init(&x);
     op_strbuf_appendf(&x, "timer%lu", t->id);
     do_tcl(op_strbuf_str(&x), t->cmd);
@@ -614,7 +614,7 @@ char * add_timer(tcl_timer_t ** stack, int elapse, int count,
       strlcpy((*stack)->name, name, namelen);
     }
   } else {
-    op_strbuf_t name_buf;
+    op_strbuf_t name_buf = {};
     op_strbuf_init(&name_buf);
     op_strbuf_appendf(&name_buf, "timer%" PRIu64, (*stack)->id);
     (*stack)->name = op_strdup(op_strbuf_str(&name_buf));
@@ -696,7 +696,7 @@ void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
   for (mark = stack; mark; mark = mark->next) {
     unsigned int remaining = (mark->fire_at > now_t)
       ? (unsigned int)((mark->fire_at - now_t) / mark->secs_per_tick) : 0;
-    op_strbuf_t ticks, count;
+    op_strbuf_t ticks = {}, count = {};
     op_strbuf_appendf(&ticks, "%u", remaining);
     op_strbuf_appendf(&count, "%u", mark->count);
     argv[0] = op_strbuf_str(&ticks);

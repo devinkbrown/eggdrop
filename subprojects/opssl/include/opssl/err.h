@@ -84,12 +84,21 @@ enum {
     OPSSL_ERR_PEM_DECODE        = 5,
     OPSSL_ERR_FILE_READ         = 6,
     OPSSL_ERR_ALLOC_FAILED      = 7,
-
-    /* I/O range (4000-4999) */
-    OPSSL_ERR_WANT_READ         = 4001,
-    OPSSL_ERR_WANT_WRITE        = 4002,
-    OPSSL_ERR_CONNECTION_LOST   = 4003,
-    OPSSL_ERR_IO_ERROR          = 4004,
+    OPSSL_ERR_WANT_READ         = 8,
+    OPSSL_ERR_WANT_WRITE        = 9,
+    OPSSL_ERR_CONNECTION_LOST   = 10,
+    OPSSL_ERR_IO_ERROR          = 11,
+    OPSSL_ERR_INVALID_FD        = 12,
+    OPSSL_ERR_NULL_POINTER      = 13,
+    OPSSL_ERR_NO_SPACE          = 14,
+    OPSSL_ERR_INVALID_OPERATION = 15,
+    OPSSL_ERR_PROTOCOL          = 16,
+    OPSSL_ERR_PEER_ALERT        = 17,
+    OPSSL_ERR_HANDSHAKE_INCOMPLETE = 18,
+    OPSSL_ERR_SHUTDOWN_SENT     = 19,
+    OPSSL_ERR_PEER_CLOSED       = 20,
+    OPSSL_ERR_RECORD_TOO_LARGE  = 21,
+    OPSSL_ERR_BUFFER_OVERFLOW   = 22,
 };
 
 /* Convenience: push error with a message string (auto-detects category) */

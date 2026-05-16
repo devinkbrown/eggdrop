@@ -186,10 +186,10 @@ int opssl_session_export(opssl_conn_t *conn, uint8_t *buf, size_t *buf_len, size
     *buf_len = ptr - buf;
 
     /* Clear sensitive data */
-    memset(read_key, 0, sizeof(read_key));
-    memset(write_key, 0, sizeof(write_key));
-    memset(read_iv, 0, sizeof(read_iv));
-    memset(write_iv, 0, sizeof(write_iv));
+    opssl_memzero(read_key, sizeof(read_key));
+    opssl_memzero(write_key, sizeof(write_key));
+    opssl_memzero(read_iv, sizeof(read_iv));
+    opssl_memzero(write_iv, sizeof(write_iv));
 
     return 0;
 }
@@ -235,7 +235,7 @@ int opssl_session_import(opssl_conn_t *conn, const uint8_t *buf, size_t buf_len)
     uint16_t read_key_len = read_be16(ptr);
     ptr += 2;
 
-    if (read_key_len > 32 || ptr + read_key_len > end) {
+    if (read_key_len == 0 || read_key_len > 32 || ptr + read_key_len > end) {
         set_error(OPSSL_ERR_INVALID_FORMAT);
         return -1;
     }
@@ -268,7 +268,7 @@ int opssl_session_import(opssl_conn_t *conn, const uint8_t *buf, size_t buf_len)
     uint16_t write_key_len = read_be16(ptr);
     ptr += 2;
 
-    if (write_key_len > 32 || ptr + write_key_len > end) {
+    if (write_key_len == 0 || write_key_len > 32 || ptr + write_key_len > end) {
         set_error(OPSSL_ERR_INVALID_FORMAT);
         return -1;
     }
@@ -302,10 +302,10 @@ int opssl_session_import(opssl_conn_t *conn, const uint8_t *buf, size_t buf_len)
         opssl_conn_set_read_seq(conn, read_seq) < 0 ||
         opssl_conn_set_write_seq(conn, write_seq) < 0) {
         /* Clear sensitive data before returning error */
-        memset(read_key, 0, sizeof(read_key));
-        memset(write_key, 0, sizeof(write_key));
-        memset(read_iv, 0, sizeof(read_iv));
-        memset(write_iv, 0, sizeof(write_iv));
+        opssl_memzero(read_key, sizeof(read_key));
+        opssl_memzero(write_key, sizeof(write_key));
+        opssl_memzero(read_iv, sizeof(read_iv));
+        opssl_memzero(write_iv, sizeof(write_iv));
         set_error(OPSSL_ERR_CONN_STATE_INVALID);
         return -1;
     }
@@ -313,10 +313,10 @@ int opssl_session_import(opssl_conn_t *conn, const uint8_t *buf, size_t buf_len)
     opssl_conn_set_flags(conn, flags);
 
     /* Clear sensitive data */
-    memset(read_key, 0, sizeof(read_key));
-    memset(write_key, 0, sizeof(write_key));
-    memset(read_iv, 0, sizeof(read_iv));
-    memset(write_iv, 0, sizeof(write_iv));
+    opssl_memzero(read_key, sizeof(read_key));
+    opssl_memzero(write_key, sizeof(write_key));
+    opssl_memzero(read_iv, sizeof(read_iv));
+    opssl_memzero(write_iv, sizeof(write_iv));
 
     return 0;
 }
@@ -352,7 +352,7 @@ int opssl_session_export_encrypted(opssl_conn_t *conn,
     /* Generate random nonce */
     uint8_t nonce[12];
     if (opssl_random_bytes(nonce, sizeof(nonce)) < 0) {
-        memset(plaintext, 0, plaintext_len);
+        opssl_memzero(plaintext, plaintext_len);
         free(plaintext);
         set_error(OPSSL_ERR_CRYPTO_ERROR);
         return -1;
@@ -363,14 +363,14 @@ int opssl_session_export_encrypted(opssl_conn_t *conn,
 
     if (*buf_len < required_len) {
         *buf_len = required_len;
-        memset(plaintext, 0, plaintext_len);
+        opssl_memzero(plaintext, plaintext_len);
         free(plaintext);
         set_error(OPSSL_ERR_BUFFER_TOO_SMALL);
         return -1;
     }
 
     if (max_len < required_len) {
-        memset(plaintext, 0, plaintext_len);
+        opssl_memzero(plaintext, plaintext_len);
         free(plaintext);
         set_error(OPSSL_ERR_BUFFER_TOO_SMALL);
         return -1;
@@ -378,7 +378,7 @@ int opssl_session_export_encrypted(opssl_conn_t *conn,
 
     if (!buf) {
         *buf_len = required_len;
-        memset(plaintext, 0, plaintext_len);
+        opssl_memzero(plaintext, plaintext_len);
         free(plaintext);
         return 0;
     }
@@ -388,9 +388,9 @@ int opssl_session_export_encrypted(opssl_conn_t *conn,
 
     /* Encrypt with AES-256-GCM using AEAD context */
     opssl_aead_ctx_t *aead_ctx = opssl_aead_new(OPSSL_AEAD_AES_256_GCM);
-    if (!aead_ctx || opssl_aead_set_key(aead_ctx, wrap_key, key_len) != 0) {
+    if (!aead_ctx || !opssl_aead_set_key(aead_ctx, wrap_key, key_len)) {
         opssl_aead_free(aead_ctx);
-        memset(plaintext, 0, plaintext_len);
+        opssl_memzero(plaintext, plaintext_len);
         free(plaintext);
         set_error(OPSSL_ERR_CRYPTO_ERROR);
         return -1;
@@ -398,12 +398,12 @@ int opssl_session_export_encrypted(opssl_conn_t *conn,
 
     size_t out_len = 0;
     size_t max_out = plaintext_len + 16;
-    if (opssl_aead_seal(aead_ctx, buf + 12, &out_len, max_out,
-                        nonce, 12,
-                        plaintext, plaintext_len,
-                        NULL, 0) != 0) {
+    if (!opssl_aead_seal(aead_ctx, buf + 12, &out_len, max_out,
+                         nonce, 12,
+                         plaintext, plaintext_len,
+                         NULL, 0)) {
         opssl_aead_free(aead_ctx);
-        memset(plaintext, 0, plaintext_len);
+        opssl_memzero(plaintext, plaintext_len);
         free(plaintext);
         set_error(OPSSL_ERR_CRYPTO_ERROR);
         return -1;
@@ -413,7 +413,7 @@ int opssl_session_export_encrypted(opssl_conn_t *conn,
     *buf_len = 12 + out_len;
 
     /* Clear sensitive data */
-    memset(plaintext, 0, plaintext_len);
+    opssl_memzero(plaintext, plaintext_len);
     free(plaintext);
 
     return 0;
@@ -423,7 +423,7 @@ int opssl_session_import_encrypted(opssl_conn_t *conn,
                                    const uint8_t *wrap_key, size_t key_len,
                                    const uint8_t *buf, size_t buf_len)
 {
-    if (!conn || !wrap_key || !buf || key_len != 32 || buf_len < 28) {
+    if (!conn || !wrap_key || !buf || key_len != 32 || buf_len < 29) {
         set_error(OPSSL_ERR_NULL_POINTER);
         return -1;
     }
@@ -431,10 +431,10 @@ int opssl_session_import_encrypted(opssl_conn_t *conn,
     /* Extract nonce */
     const uint8_t *nonce = buf;
 
-    /* Extract ciphertext and tag */
-    size_t ciphertext_len = buf_len - 12 - 16;
+    /* Extract ciphertext + tag (aead_open expects tag appended) */
+    size_t ciphertext_len = buf_len - 12;
     const uint8_t *ciphertext = buf + 12;
-    /* Allocate buffer for plaintext */
+    /* Allocate buffer for plaintext (ct includes tag, plaintext is smaller) */
     uint8_t *plaintext = malloc(ciphertext_len);
     if (!plaintext) {
         set_error(OPSSL_ERR_MEMORY_ALLOCATION);
@@ -443,17 +443,17 @@ int opssl_session_import_encrypted(opssl_conn_t *conn,
 
     /* Decrypt with AES-256-GCM using AEAD context */
     opssl_aead_ctx_t *aead_ctx = opssl_aead_new(OPSSL_AEAD_AES_256_GCM);
-    if (!aead_ctx || opssl_aead_set_key(aead_ctx, wrap_key, key_len) != 0) {
+    if (!aead_ctx || !opssl_aead_set_key(aead_ctx, wrap_key, key_len)) {
         opssl_aead_free(aead_ctx);
         free(plaintext);
         set_error(OPSSL_ERR_CRYPTO_ERROR);
         return -1;
     }
     size_t plaintext_len = 0;
-    if (opssl_aead_open(aead_ctx, plaintext, &plaintext_len, ciphertext_len,
-                        nonce, 12,
-                        ciphertext, ciphertext_len,
-                        NULL, 0) != 0) {
+    if (!opssl_aead_open(aead_ctx, plaintext, &plaintext_len, ciphertext_len,
+                         nonce, 12,
+                         ciphertext, ciphertext_len,
+                         NULL, 0)) {
         opssl_aead_free(aead_ctx);
         free(plaintext);
         set_error(OPSSL_ERR_CRYPTO_ERROR);
@@ -465,7 +465,7 @@ int opssl_session_import_encrypted(opssl_conn_t *conn,
     int result = opssl_session_import(conn, plaintext, plaintext_len);
 
     /* Clear sensitive data */
-    memset(plaintext, 0, plaintext_len);
+    opssl_memzero(plaintext, plaintext_len);
     free(plaintext);
 
     return result;

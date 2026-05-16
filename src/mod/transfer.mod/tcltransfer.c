@@ -45,7 +45,7 @@ static int tcl_dccsend STDVAR
       *nfn = 0;
       nfn++;
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "*%s", argv[1]);
         sys = op_strbuf_steal(&_b);
@@ -71,7 +71,7 @@ static int tcl_getfileq STDVAR
   for (q = fileq; q; q = q->next) {
     if (!strcasecmp(q->nick, argv[1])) {
       {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         if (q->dir[0] == '*') {
           op_strbuf_appendf(&_b, "%s %s/%s", q->to, &q->dir[1], q->file);
@@ -102,7 +102,7 @@ static int tcl_getfilesendtime STDVAR
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].sock == sock) {
       if (dcc[i].type == &DCC_SEND || dcc[i].type == &DCC_GET) {
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%lu", dcc[i].u.xfer->start_time);
         Tcl_AppendResult(irp, op_strbuf_str(&_b), nullptr);

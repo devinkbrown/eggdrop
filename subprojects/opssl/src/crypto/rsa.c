@@ -10,6 +10,9 @@
 #include "sha_internal.h"
 
 /* DigestInfo DER prefixes for PKCS#1 v1.5 */
+static const uint8_t sha1_prefix[] = {
+    0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
+};
 static const uint8_t sha256_prefix[] = {
     0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20
 };
@@ -20,9 +23,6 @@ static const uint8_t sha512_prefix[] = {
     0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40
 };
 
-/* Hash digest sizes */
-static const size_t hash_sizes[] = { 32, 48, 64 }; /* SHA-256, SHA-384, SHA-512 */
-
 /* RSA context structure */
 struct opssl_rsa_ctx {
     opssl_bn_t n, e, d;      /* public modulus, exponent, private exponent */
@@ -32,6 +32,40 @@ struct opssl_rsa_ctx {
     int bits;                 /* key size in bits */
     int has_private;
 };
+
+static size_t
+rsa_hash_len(opssl_hmac_algo_t hash_algo)
+{
+    switch (hash_algo) {
+    case OPSSL_HMAC_SHA1: return OPSSL_SHA1_DIGEST_LEN;
+    case OPSSL_HMAC_SHA256: return OPSSL_SHA256_DIGEST_LEN;
+    case OPSSL_HMAC_SHA384: return OPSSL_SHA384_DIGEST_LEN;
+    case OPSSL_HMAC_SHA512: return OPSSL_SHA512_DIGEST_LEN;
+    default: return 0;
+    }
+}
+
+static int
+rsa_hash_once(opssl_hmac_algo_t hash_algo, const uint8_t *data, size_t len,
+              uint8_t *out)
+{
+    switch (hash_algo) {
+    case OPSSL_HMAC_SHA1:
+        opssl_sha1(data, len, out);
+        return 1;
+    case OPSSL_HMAC_SHA256:
+        opssl_sha256(data, len, out);
+        return 1;
+    case OPSSL_HMAC_SHA384:
+        opssl_sha384(data, len, out);
+        return 1;
+    case OPSSL_HMAC_SHA512:
+        opssl_sha512(data, len, out);
+        return 1;
+    default:
+        return 0;
+    }
+}
 
 /* Simple ASN.1 DER parsing helpers */
 static int parse_tag(const uint8_t **p, const uint8_t *end, int expected_tag) {
@@ -86,11 +120,11 @@ static int parse_integer(opssl_bn_t *bn, const uint8_t **p, const uint8_t *end) 
 static void mgf1(uint8_t *mask, size_t mask_len, const uint8_t *seed, size_t seed_len, opssl_hmac_algo_t hash_algo) {
     uint8_t hash[64]; /* max SHA-512 */
     uint8_t input[512]; /* seed + counter buffer, enough for max seed size */
-    size_t h_len = (hash_algo == OPSSL_HMAC_SHA256) ? 32 : (hash_algo == OPSSL_HMAC_SHA384) ? 48 : 64;
+    size_t h_len = rsa_hash_len(hash_algo);
     size_t done = 0;
 
     /* Check input size constraints */
-    if (seed_len > sizeof(input) - 4) {
+    if (h_len == 0 || seed_len > sizeof(input) - 4) {
         /* Should not happen with reasonable key sizes */
         opssl_memzero(mask, mask_len);
         return;
@@ -107,15 +141,8 @@ static void mgf1(uint8_t *mask, size_t mask_len, const uint8_t *seed, size_t see
         input[seed_len + 3] = c & 0xff;
 
         /* Compute hash = Hash(seed || C) */
-        if (hash_algo == OPSSL_HMAC_SHA256) {
-            opssl_sha256(input, seed_len + 4, hash);
-        } else if (hash_algo == OPSSL_HMAC_SHA384) {
-            /* Use one-shot SHA-384 function */
-            opssl_sha384(input, seed_len + 4, hash);
-        } else { /* SHA-512 */
-            /* Use one-shot SHA-512 function */
-            opssl_sha512(input, seed_len + 4, hash);
-        }
+        if (!rsa_hash_once(hash_algo, input, seed_len + 4, hash))
+            break;
 
         /* Copy hash output to mask, truncate if needed */
         size_t copy_len = (mask_len - done) < h_len ? (mask_len - done) : h_len;
@@ -339,6 +366,10 @@ static int pkcs1_v15_pad(uint8_t *em, size_t em_len, const uint8_t *digest,
 
     /* Select DigestInfo prefix */
     switch (hash_algo) {
+        case OPSSL_HMAC_SHA1:
+            prefix = sha1_prefix;
+            prefix_len = sizeof(sha1_prefix);
+            break;
         case OPSSL_HMAC_SHA256:
             prefix = sha256_prefix;
             prefix_len = sizeof(sha256_prefix);
@@ -376,14 +407,16 @@ static int pkcs1_v15_pad(uint8_t *em, size_t em_len, const uint8_t *digest,
 /* RSA-PSS padding for signature (em_bits = modBits - 1 per RFC 8017) */
 static int pss_pad(uint8_t *em, size_t em_len, int em_bits, const uint8_t *digest,
                   size_t digest_len, opssl_hmac_algo_t hash_algo) {
-    size_t salt_len = hash_sizes[hash_algo];
-    size_t h_len = hash_sizes[hash_algo];
+    size_t salt_len = rsa_hash_len(hash_algo);
+    size_t h_len = salt_len;
 
+    if (h_len == 0) return 0;
     if (em_len < 2 * h_len + 2) return 0;
 
     /* Generate random salt */
     uint8_t salt[64]; /* Max hash size */
-    opssl_random_bytes(salt, salt_len);
+    if (opssl_random_bytes(salt, salt_len) != 0)
+        return 0;
 
     /* Compute H = Hash(0x0000000000000000 || mHash || salt) */
     uint8_t m_prime[8 + 64 + 64]; /* 8 zeros + digest + salt */
@@ -393,22 +426,8 @@ static int pss_pad(uint8_t *em, size_t em_len, int em_bits, const uint8_t *diges
 
     uint8_t h[64];
     /* Compute H = Hash(0x0000000000000000 || mHash || salt) */
-    if (hash_algo == OPSSL_HMAC_SHA256) {
-        struct opssl_sha256_ctx hctx;
-        opssl_sha256_init(&hctx);
-        opssl_sha256_update(&hctx, m_prime, 8 + digest_len + salt_len);
-        opssl_sha256_final(&hctx, h);
-    } else if (hash_algo == OPSSL_HMAC_SHA384) {
-        struct opssl_sha512_ctx hctx;
-        opssl_sha384_init(&hctx);
-        opssl_sha512_update(&hctx, m_prime, 8 + digest_len + salt_len);
-        opssl_sha384_final(&hctx, h);
-    } else {
-        struct opssl_sha512_ctx hctx;
-        opssl_sha512_init(&hctx);
-        opssl_sha512_update(&hctx, m_prime, 8 + digest_len + salt_len);
-        opssl_sha512_final(&hctx, h);
-    }
+    if (!rsa_hash_once(hash_algo, m_prime, 8 + digest_len + salt_len, h))
+        return 0;
 
     /* Construct DB = 0x00...00 || 0x01 || salt */
     size_t db_len = em_len - h_len - 1;
@@ -444,6 +463,10 @@ static int pkcs1_v15_verify(const uint8_t *em, size_t em_len, const uint8_t *dig
     size_t prefix_len;
 
     switch (hash_algo) {
+        case OPSSL_HMAC_SHA1:
+            prefix = sha1_prefix;
+            prefix_len = sizeof(sha1_prefix);
+            break;
         case OPSSL_HMAC_SHA256:
             prefix = sha256_prefix;
             prefix_len = sizeof(sha256_prefix);
@@ -597,6 +620,8 @@ int opssl_rsa_sign(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_alg
     if (!ctx->has_private) return 0;
 
     size_t key_size = opssl_rsa_size(ctx);
+    if (key_size > 512 || digest_len > 64)
+        return 0;
     if (*sig_len < key_size) return 0;
 
     uint8_t em[512]; /* Enough for 4096-bit keys */
@@ -649,6 +674,8 @@ int opssl_rsa_sign(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_alg
 int opssl_rsa_verify(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_algo_t hash,
                      const uint8_t *digest, size_t digest_len, const uint8_t *sig, size_t sig_len) {
     size_t key_size = opssl_rsa_size(ctx);
+    if (key_size > 512 || digest_len > 64)
+        return 0;
     if (sig_len != key_size) return 0;
 
     /* Convert signature to bignum */
@@ -668,7 +695,8 @@ int opssl_rsa_verify(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_a
         verify_ok = pkcs1_v15_verify(em, key_size, digest, digest_len, hash);
     } else {
         /* RSA-PSS verification per RFC 8017 section 9.1.2 */
-        size_t h_len_v = hash_sizes[hash];
+        size_t h_len_v = rsa_hash_len(hash);
+        if (h_len_v == 0) { verify_ok = 0; goto done; }
         if (key_size < 2 * h_len_v + 2) { verify_ok = 0; goto done; }
         if (em[key_size - 1] != 0xbc) { verify_ok = 0; goto done; }
 
@@ -703,14 +731,8 @@ int opssl_rsa_verify(opssl_rsa_ctx_t *ctx, opssl_rsa_padding_t pad, opssl_hmac_a
         memcpy(m_prime_v + 8 + digest_len, db + pad_end + 1, salt_len_v);
 
         uint8_t h_prime[64];
-        if (hash == OPSSL_HMAC_SHA256) {
-            opssl_sha256(m_prime_v, 8 + digest_len + salt_len_v, h_prime);
-        } else if (hash == OPSSL_HMAC_SHA384) {
-            /* Use one-shot SHA-384 function */
-            opssl_sha384(m_prime_v, 8 + digest_len + salt_len_v, h_prime);
-        } else {
-            opssl_sha512(m_prime_v, 8 + digest_len + salt_len_v, h_prime);
-        }
+        if (!rsa_hash_once(hash, m_prime_v, 8 + digest_len + salt_len_v, h_prime))
+            verify_ok = 0;
 
         if (opssl_ct_eq(h_val, h_prime, h_len_v) != 1) verify_ok = 0;
 

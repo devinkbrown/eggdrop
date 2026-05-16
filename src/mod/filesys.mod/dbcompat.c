@@ -42,7 +42,7 @@ static int convert_old_files(char *path, char *newfiledb)
   struct stat st;
 
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s/.files", path);
     s1 = op_strbuf_steal(&_b);
@@ -78,7 +78,7 @@ static int convert_old_files(char *path, char *newfiledb)
           rmspace(s);
           if (fdbe->desc) {
             {
-              op_strbuf_t _b;
+              op_strbuf_t _b = {};
               op_strbuf_init(&_b);
               op_strbuf_appendf(&_b, "%s\n%s", fdbe->desc, s);
               op_free(fdbe->desc);
@@ -110,7 +110,7 @@ static int convert_old_files(char *path, char *newfiledb)
         malloc_strcpy(fdbe->uploader, nick);
         fdbe->gots = egg_atoi(s1);
         fdbe->uploaded = egg_atoi(tm);
-        op_strbuf_t _b;
+        op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s/%s", path, fn);
         if (stat(op_strbuf_str(&_b), &st) == 0) {
@@ -242,7 +242,7 @@ static int convert_old_db(FILE **fdb_s, char *filedb)
            filedb);
     /* Create backup name */
     {
-      op_strbuf_t _b;
+      op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s-tmp", filedb);
       tempdb = op_strbuf_steal(&_b);

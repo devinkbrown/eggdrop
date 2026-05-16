@@ -169,7 +169,7 @@ int findanyidx(int z)
 /* Send buf to sock, inserting \r before each \n (telnet line endings). */
 static void tputs_cr(int sock, const char *buf, int len)
 {
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
 
   op_strbuf_init(&sb);
   for (int i = 0; i < len; i++) {
@@ -256,7 +256,7 @@ void dprint(int idx, const char *buf, int len)
 ATTRIBUTE_FORMAT(printf,1,2)
 void chatout(const char *format, ...)
 {
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
   op_strbuf_init(&sb);
   va_list va;
 
@@ -275,7 +275,7 @@ void chatout(const char *format, ...)
 ATTRIBUTE_FORMAT(printf,3,4)
 void chanout_but(int x, int chan, const char *format, ...)
 {
-  op_strbuf_t sb;
+  op_strbuf_t sb = {};
   op_strbuf_init(&sb);
   va_list va;
 
@@ -426,7 +426,7 @@ void dcc_remove_lost(void)
 void tell_dcc(int zidx)
 {
   int j, nicklen = 0;
-  op_strbuf_t fmt;
+  op_strbuf_t fmt = {};
 
   /* calculate max nicklen */
   for (int i = 0; i < dcc_total; i++) {
@@ -453,7 +453,7 @@ void tell_dcc(int zidx)
                   j, j, nicklen, nicklen);
 
   for (int i = 0; i < dcc_total; i++) {
-    op_strbuf_t sb;
+    op_strbuf_t sb = {};
     op_strbuf_init(&sb);
     if (dcc[i].type && dcc[i].type->display)
       dcc[i].type->display(i, &sb);
@@ -608,7 +608,7 @@ int detect_dcc_flood(time_t *timer, struct chat_info *chat, int idx)
       dprintf(idx, "*** FLOOD: %s.\n", IRC_GOODBYE);
       /* Evil assumption here that flags&DCT_CHAT implies chat type */
       if ((dcc[idx].type->flags & DCT_CHAT) && (chat->channel >= 0)) {
-        op_strbuf_t sb;
+        op_strbuf_t sb = {};
         op_strbuf_init(&sb);
         op_strbuf_appendf(&sb, DCC_FLOODBOOT, dcc[idx].nick);
         chanout_but(idx, chat->channel, "*** %s", op_strbuf_str(&sb));
@@ -643,7 +643,7 @@ void do_boot(int idx, char *by, char *reason)
   /* Horrible assumption that DCT_CHAT using structure uses same format
    * as DCC_CHAT */
   if ((dcc[idx].type->flags & DCT_CHAT) && (dcc[idx].u.chat->channel >= 0)) {
-    op_strbuf_t sb;
+    op_strbuf_t sb = {};
     op_strbuf_init(&sb);
     op_strbuf_appendf(&sb, DCC_BOOTED3, by, dcc[idx].nick,
                      reason[0] ? ": " : "", reason);

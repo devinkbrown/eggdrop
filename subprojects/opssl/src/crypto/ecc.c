@@ -8,6 +8,7 @@
 #include <op_memory.h>
 #include <string.h>
 #include <stdint.h>
+#include "bignum_internal.h"
 
 
 #define OPSSL_SUCCESS 0
@@ -99,6 +100,11 @@ static const p256_point_t p256_g = {
 
 static const p384_fe_t p384_p = {
     0x00000000FFFFFFFFULL, 0xFFFFFFFF00000000ULL, 0xFFFFFFFFFFFFFFFEULL,
+    0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL
+};
+
+static const p384_fe_t p384_n = {
+    0xECEC196ACCC52973ULL, 0x581A0DB248B0A77AULL, 0xC7634D81F4372DDFULL,
     0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL
 };
 
@@ -700,22 +706,15 @@ static void p384_point_dbl(p384_point_t *r, const p384_point_t *p) {
 }
 
 static void p384_point_add(p384_point_t *r, const p384_point_t *p, const p384_point_t *q) {
-    /* Homogeneous projective addition (add-1998-cmo-2) for distinct points:
-     * u = Y2*Z1 - Y1*Z2, v = X2*Z1 - X1*Z2
-     * X3 = v*(u^2*Z1Z2 - v^3 - 2*v^2*X1Z2)
-     * Y3 = u*(v^2*X1Z2 - X3/v) - v^3*Y1Z2  [simplified]
-     * Z3 = v^3*Z1Z2 */
+    /* Homogeneous projective addition (add-1998-cmo-2) for distinct points. */
     p384_fe_t y1z2, x1z2, z1z2, u, uu, v, vv, vvv, rr, aa, x3, y3, z3, t1;
 
     p384_fe_mul(y1z2, p->y, q->z);
     p384_fe_mul(x1z2, p->x, q->z);
     p384_fe_mul(z1z2, p->z, q->z);
 
-    /* u = Y2*Z1 - Y1*Z2 */
     p384_fe_mul(u, q->y, p->z);
     p384_fe_sub(u, u, y1z2);
-
-    /* v = X2*Z1 - X1*Z2 */
     p384_fe_mul(v, q->x, p->z);
     p384_fe_sub(v, v, x1z2);
 
@@ -724,22 +723,16 @@ static void p384_point_add(p384_point_t *r, const p384_point_t *p, const p384_po
     p384_fe_mul(vvv, vv, v);
     p384_fe_mul(rr, vv, x1z2);
 
-    /* A = uu*Z1Z2 - vvv - 2*R */
     p384_fe_mul(aa, uu, z1z2);
     p384_fe_sub(aa, aa, vvv);
     p384_fe_add(t1, rr, rr);
     p384_fe_sub(aa, aa, t1);
 
-    /* X3 = v*A */
     p384_fe_mul(x3, v, aa);
-
-    /* Y3 = u*(R - A) - vvv*Y1Z2 */
     p384_fe_sub(t1, rr, aa);
     p384_fe_mul(y3, u, t1);
     p384_fe_mul(t1, vvv, y1z2);
     p384_fe_sub(y3, y3, t1);
-
-    /* Z3 = vvv*Z1Z2 */
     p384_fe_mul(z3, vvv, z1z2);
 
     memcpy(r->x, x3, sizeof(p384_fe_t));
@@ -751,7 +744,85 @@ static int __attribute__((unused)) p384_fe_is_zero(const p384_fe_t a) {
     return (a[0] | a[1] | a[2] | a[3] | a[4] | a[5]) == 0;
 }
 
-static void p384_point_ct_swap(p384_point_t *a, p384_point_t *b, uint64_t swap) {
+static int p384_fe_equal(const p384_fe_t a, const p384_fe_t b) {
+    uint64_t acc = 0;
+    for (int i = 0; i < 6; i++) acc |= a[i] ^ b[i];
+    return acc == 0;
+}
+
+static int p384_point_is_identity(const p384_point_t *p) {
+    return p384_fe_is_zero(p->z);
+}
+
+static void p384_point_set_identity(p384_point_t *p) {
+    memset(p, 0, sizeof(*p));
+    p->y[0] = 1;
+}
+
+static void p384_point_set_z_one(p384_point_t *p) {
+    p->z[0] = 0xFFFFFFFF00000001ULL;
+    p->z[1] = 0x00000000FFFFFFFFULL;
+    p->z[2] = 0x0000000000000001ULL;
+    p->z[3] = 0;
+    p->z[4] = 0;
+    p->z[5] = 0;
+}
+
+static void p384_point_normalize(p384_point_t *r, const p384_point_t *p) {
+    if (p384_point_is_identity(p)) {
+        p384_point_set_identity(r);
+        return;
+    }
+
+    p384_fe_t zi;
+    p384_fe_inv(zi, p->z);
+    p384_fe_mul(r->x, p->x, zi);
+    p384_fe_mul(r->y, p->y, zi);
+    p384_point_set_z_one(r);
+}
+
+static void p384_point_add_affine(p384_point_t *r, const p384_point_t *p,
+                                  const p384_point_t *q) {
+    if (p384_point_is_identity(p)) {
+        memcpy(r, q, sizeof(*r));
+        return;
+    }
+    if (p384_point_is_identity(q)) {
+        memcpy(r, p, sizeof(*r));
+        return;
+    }
+
+    if (p384_fe_equal(p->x, q->x)) {
+        if (p384_fe_equal(p->y, q->y)) {
+            p384_point_t dbl;
+            p384_point_dbl(&dbl, p);
+            p384_point_normalize(r, &dbl);
+        } else {
+            p384_point_set_identity(r);
+        }
+        return;
+    }
+
+    p384_fe_t num, den, den_inv, lambda, x3, y3, tmp;
+    p384_fe_sub(num, q->y, p->y);
+    p384_fe_sub(den, q->x, p->x);
+    p384_fe_inv(den_inv, den);
+    p384_fe_mul(lambda, num, den_inv);
+
+    p384_fe_mul(x3, lambda, lambda);
+    p384_fe_sub(x3, x3, p->x);
+    p384_fe_sub(x3, x3, q->x);
+
+    p384_fe_sub(tmp, p->x, x3);
+    p384_fe_mul(y3, lambda, tmp);
+    p384_fe_sub(y3, y3, p->y);
+
+    memcpy(r->x, x3, sizeof(p384_fe_t));
+    memcpy(r->y, y3, sizeof(p384_fe_t));
+    p384_point_set_z_one(r);
+}
+
+static void __attribute__((unused)) p384_point_ct_swap(p384_point_t *a, p384_point_t *b, uint64_t swap) {
     uint64_t mask = -(uint64_t)swap;
     for (int i = 0; i < 6; i++) {
         uint64_t t;
@@ -762,38 +833,26 @@ static void p384_point_ct_swap(p384_point_t *a, p384_point_t *b, uint64_t swap) 
 }
 
 static void p384_point_mul(p384_point_t *r, const p384_fe_t scalar, const p384_point_t *p) {
-    /* Montgomery ladder: constant-time scalar multiplication.
-     * Invariant: R1 - R0 = P throughout the loop.
-     * add-1998-cmo-2 produces Z3=0 when either input has Z=0 — it cannot
-     * propagate a non-identity through an identity argument.  Avoid this by
-     * initializing R0=P, R1=2P and consuming the top bit via a swap. */
-    p384_point_t R0, R1;
+    p384_point_t acc, addend;
 
-    memcpy(&R0, p, sizeof(p384_point_t));
-    p384_point_dbl(&R1, p);
+    p384_point_set_identity(&acc);
+    memcpy(&addend, p, sizeof(addend));
 
-    uint64_t top_bit = (scalar[383 / 64] >> (383 % 64)) & 1;
-    p384_point_ct_swap(&R0, &R1, top_bit);
-
-    for (int i = 382; i >= 0; i--) {
+    for (int i = 0; i < 384; i++) {
         uint64_t bit = (scalar[i / 64] >> (i % 64)) & 1;
-        p384_point_ct_swap(&R0, &R1, bit);
-        p384_point_add(&R1, &R0, &R1);
-        p384_point_dbl(&R0, &R0);
-        p384_point_ct_swap(&R0, &R1, bit);
+        if (bit) {
+            p384_point_t sum;
+            p384_point_add_affine(&sum, &acc, &addend);
+            memcpy(&acc, &sum, sizeof(acc));
+        }
+
+        p384_point_t dbl;
+        p384_point_dbl(&dbl, &addend);
+        p384_point_normalize(&addend, &dbl);
     }
 
     /* Normalize result to affine (z = R mod p, the Montgomery 1) */
-    p384_fe_t zi;
-    p384_fe_inv(zi, R0.z);
-    p384_fe_mul(r->x, R0.x, zi);
-    p384_fe_mul(r->y, R0.y, zi);
-    r->z[0] = 0xFFFFFFFF00000001ULL;
-    r->z[1] = 0x00000000FFFFFFFFULL;
-    r->z[2] = 0x0000000000000001ULL;
-    r->z[3] = 0;
-    r->z[4] = 0;
-    r->z[5] = 0;
+    p384_point_normalize(r, &acc);
 }
 
 /* ─── P-521 Field Arithmetic (Mersenne prime p = 2^521 - 1) ────────────── */
@@ -801,6 +860,12 @@ static void p384_point_mul(p384_point_t *r, const p384_fe_t scalar, const p384_p
 static const p521_fe_t p521_p = {
     0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
     0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
+    0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0x1FFULL
+};
+
+static const p521_fe_t p521_n = {
+    0xBB6FB71E91386409ULL, 0x3BB5C9B8899C47AEULL, 0x7FCC0148F709A5D0ULL,
+    0x51868783BF2F966BULL, 0xFFFFFFFFFFFFFFFAULL, 0xFFFFFFFFFFFFFFFFULL,
     0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL, 0x1FFULL
 };
 
@@ -897,6 +962,13 @@ static void p521_fe_mul(p521_fe_t r, const p521_fe_t a, const p521_fe_t b) {
 
 static void p521_fe_sqr(p521_fe_t r, const p521_fe_t a) { p521_fe_mul(r, a, a); }
 
+static int p521_point_is_identity(const p521_point_t *p) {
+    uint64_t z = 0;
+    for (int i = 0; i < 9; i++)
+        z |= p->z[i];
+    return z == 0;
+}
+
 static void p521_fe_inv(p521_fe_t r, const p521_fe_t a) {
     /* a^(p-2) via square-and-multiply. p-2 = 2^521 - 3. */
     p521_fe_t t;
@@ -911,6 +983,11 @@ static void p521_fe_inv(p521_fe_t r, const p521_fe_t a) {
 }
 
 static void p521_point_dbl(p521_point_t *r, const p521_point_t *p) {
+    if (p521_point_is_identity(p)) {
+        memcpy(r, p, sizeof(p521_point_t));
+        return;
+    }
+
     /* dbl-1998-cmo for a=-3: w=3(X^2-Z^2), s=Y*Z, B=X*Y*s, h=w^2-8B */
     p521_fe_t xx, zz, w, s, ss, b, h, x3, y3, z3, t1, t2;
     p521_fe_mul(xx, p->x, p->x);
@@ -947,6 +1024,15 @@ static void p521_point_dbl(p521_point_t *r, const p521_point_t *p) {
 }
 
 static void p521_point_add(p521_point_t *r, const p521_point_t *p, const p521_point_t *q) {
+    if (p521_point_is_identity(p)) {
+        memcpy(r, q, sizeof(p521_point_t));
+        return;
+    }
+    if (p521_point_is_identity(q)) {
+        memcpy(r, p, sizeof(p521_point_t));
+        return;
+    }
+
     /* add-1998-cmo-2: R=vv*X1Z2, A=uu*Z1Z2-vvv-2R, X3=v*A, Y3=u*(R-A)-vvv*Y1Z2, Z3=vvv*Z1Z2 */
     p521_fe_t y1z2, x1z2, z1z2, y2z1, x2z1;
     p521_fe_t u, uu, v, vv, vvv, R, A, x3, y3, z3, t1;
@@ -991,19 +1077,15 @@ static void p521_point_ct_swap(p521_point_t *a, p521_point_t *b, uint64_t swap) 
 }
 
 static void p521_point_mul(p521_point_t *r, const p521_fe_t scalar, const p521_point_t *p) {
-    /* Montgomery ladder: constant-time scalar multiplication.
-     * R0 starts as the all-zero identity (Z=0). The add-1998-cmo-2 formula
-     * produces Z3=0 when either input has Z=0, so initialization is safe.
-     * Result is returned in projective form; callers normalize. */
+    /* P-521 uses raw projective coordinates; identity cases are handled by
+     * add/double above so the ladder can start from the identity point. */
     p521_point_t R0, R1;
 
-    memcpy(&R0, p, sizeof(p521_point_t));
-    p521_point_dbl(&R1, p);
+    memset(&R0, 0, sizeof(R0));
+    R0.y[0] = 1;
+    memcpy(&R1, p, sizeof(p521_point_t));
 
-    uint64_t top_bit = (scalar[520 / 64] >> (520 % 64)) & 1;
-    p521_point_ct_swap(&R0, &R1, top_bit);
-
-    for (int i = 519; i >= 0; i--) {
+    for (int i = 520; i >= 0; i--) {
         uint64_t bit = (scalar[i / 64] >> (i % 64)) & 1;
         p521_point_ct_swap(&R0, &R1, bit);
         p521_point_add(&R1, &R0, &R1);
@@ -1035,6 +1117,33 @@ static int der_decode_integer(const uint8_t *in, size_t in_len, uint8_t *out, si
     if (len > *out_len) return -1;
     memcpy(out, data, len); *out_len = len;
     return OPSSL_SUCCESS;
+}
+
+static int der_decode_sequence_header(const uint8_t *in, size_t in_len,
+                                      size_t *header_len, size_t *content_len) {
+    if (in_len < 2 || in[0] != 0x30 || !header_len || !content_len)
+        return 0;
+
+    if ((in[1] & 0x80) == 0) {
+        *header_len = 2;
+        *content_len = in[1];
+        return *content_len + *header_len == in_len;
+    }
+
+    size_t len_len = in[1] & 0x7f;
+    if (len_len == 0 || len_len > sizeof(size_t) || 2 + len_len > in_len)
+        return 0;
+
+    size_t len = 0;
+    for (size_t i = 0; i < len_len; i++)
+        len = (len << 8) | in[2 + i];
+
+    if (len < 128)
+        return 0;
+
+    *header_len = 2 + len_len;
+    *content_len = len;
+    return *content_len + *header_len == in_len;
 }
 
 /*
@@ -1691,6 +1800,25 @@ int opssl_ecdsa_keygen(opssl_ecdsa_ctx_t *ctx) {
         ctx->has_private = 1;
         ctx->has_public = 1;
         return 1;
+    } else if (ctx->curve == OPSSL_CURVE_P521) {
+        uint8_t key_bytes[66];
+        if (opssl_random_bytes(key_bytes, 66) != 0) return 0;
+        key_bytes[0] &= 0x01;
+
+        for (int i = 0; i < 8; i++) {
+            ctx->key.p521.private_key[i] = 0;
+            for (int j = 0; j < 8; j++)
+                ctx->key.p521.private_key[i] |=
+                    ((uint64_t)key_bytes[65 - i * 8 - j]) << (j * 8);
+        }
+        ctx->key.p521.private_key[8] = ((uint64_t)key_bytes[0] << 8) | key_bytes[1];
+        ctx->key.p521.private_key[8] &= 0x1FFULL;
+
+        p521_point_mul(&ctx->key.p521.public_key, ctx->key.p521.private_key, &p521_g);
+
+        ctx->has_private = 1;
+        ctx->has_public = 1;
+        return 1;
     }
 
     return 0;
@@ -1772,6 +1900,180 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
         opssl_memzero(k_inv, sizeof(k_inv));
 
         return 1; /* Success */
+    }
+
+    if (ctx->curve == OPSSL_CURVE_P384 && digest_len == 48) {
+        if (*sig_len < 104) return 0;
+
+        opssl_bn_t n, k_bn, sk_bn, r_bn, s_bn, h_bn, kinv_bn, tmp_bn;
+        opssl_bn_zero(&n, 6);
+        for (int i = 0; i < 6; i++) n.d[i] = p384_n[i];
+        n.width = 6;
+
+        uint8_t k_bytes[48];
+        int attempts = 0;
+        do {
+            if (opssl_random_bytes(k_bytes, 48) != 0) return 0;
+            opssl_bn_from_bytes(&k_bn, k_bytes, 48);
+            k_bn.width = 6;
+            if (attempts++ > 100) return 0;
+        } while (opssl_bn_is_zero(&k_bn, 6) || opssl_bn_cmp(&k_bn, &n, 6) >= 0);
+
+        p384_fe_t k;
+        for (int i = 0; i < 6; i++) k[i] = k_bn.d[i];
+
+        p384_point_t R;
+        p384_point_mul(&R, k, &p384_g);
+
+        p384_fe_t z_inv, r_affine;
+        p384_fe_inv(z_inv, R.z);
+        p384_fe_mul(r_affine, R.x, z_inv);
+        p384_fe_from_mont(r_affine, r_affine);
+
+        opssl_bn_zero(&r_bn, 6);
+        for (int i = 0; i < 6; i++) r_bn.d[i] = r_affine[i];
+        r_bn.width = 6;
+        while (opssl_bn_cmp(&r_bn, &n, 6) >= 0)
+            opssl_bn_sub(&r_bn, &r_bn, &n, 6);
+        if (opssl_bn_is_zero(&r_bn, 6))
+            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+
+        opssl_bn_mont_ctx_t mont_n;
+        opssl_bn_mont_ctx_init(&mont_n, &n, 6);
+
+        opssl_bn_zero(&sk_bn, 6);
+        for (int i = 0; i < 6; i++) sk_bn.d[i] = ctx->key.p384.private_key[i];
+        sk_bn.width = 6;
+
+        opssl_bn_from_bytes(&h_bn, digest, 48);
+        h_bn.width = 6;
+        while (opssl_bn_cmp(&h_bn, &n, 6) >= 0)
+            opssl_bn_sub(&h_bn, &h_bn, &n, 6);
+
+        if (!opssl_bn_mod_inv(&kinv_bn, &k_bn, &n, &mont_n)) return 0;
+        opssl_bn_mod_mul(&tmp_bn, &r_bn, &sk_bn, &mont_n);
+
+        uint64_t carry = opssl_bn_add(&tmp_bn, &tmp_bn, &h_bn, 6);
+        if (carry || opssl_bn_cmp(&tmp_bn, &n, 6) >= 0)
+            opssl_bn_sub(&tmp_bn, &tmp_bn, &n, 6);
+
+        opssl_bn_mod_mul(&s_bn, &kinv_bn, &tmp_bn, &mont_n);
+        if (opssl_bn_is_zero(&s_bn, 6))
+            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+
+        uint8_t rb[48], sb[48];
+        opssl_bn_to_bytes(rb, 48, &r_bn);
+        opssl_bn_to_bytes(sb, 48, &s_bn);
+
+        uint8_t r_der[52], s_der[52];
+        size_t r_der_len = der_encode_integer(r_der, rb, 48);
+        size_t s_der_len = der_encode_integer(s_der, sb, 48);
+        size_t seq_len = r_der_len + s_der_len;
+        size_t header_len = (seq_len >= 128) ? 3 : 2;
+        size_t total_len = header_len + seq_len;
+        if (*sig_len < total_len) return 0;
+
+        sig[0] = 0x30;
+        if (seq_len >= 128) {
+            sig[1] = 0x81;
+            sig[2] = (uint8_t)seq_len;
+        } else {
+            sig[1] = (uint8_t)seq_len;
+        }
+        memcpy(sig + header_len, r_der, r_der_len);
+        memcpy(sig + header_len + r_der_len, s_der, s_der_len);
+        *sig_len = total_len;
+
+        opssl_memzero(&k_bn, sizeof(k_bn));
+        opssl_memzero(&kinv_bn, sizeof(kinv_bn));
+        return 1;
+    }
+
+    if (ctx->curve == OPSSL_CURVE_P521 && digest_len == 64) {
+        if (*sig_len < 142) return 0;
+
+        opssl_bn_t n, k_bn, sk_bn, r_bn, s_bn, h_bn, kinv_bn, tmp_bn;
+        opssl_bn_zero(&n, 9);
+        for (int i = 0; i < 9; i++) n.d[i] = p521_n[i];
+        n.width = 9;
+
+        uint8_t k_bytes[66];
+        int attempts = 0;
+        do {
+            if (opssl_random_bytes(k_bytes, 66) != 0) return 0;
+            k_bytes[0] &= 0x01;
+            opssl_bn_from_bytes(&k_bn, k_bytes, 66);
+            k_bn.width = 9;
+            if (attempts++ > 100) return 0;
+        } while (opssl_bn_is_zero(&k_bn, 9) || opssl_bn_cmp(&k_bn, &n, 9) >= 0);
+
+        p521_fe_t k;
+        for (int i = 0; i < 9; i++) k[i] = k_bn.d[i];
+
+        p521_point_t R;
+        p521_point_mul(&R, k, &p521_g);
+
+        p521_fe_t z_inv, r_affine;
+        p521_fe_inv(z_inv, R.z);
+        p521_fe_mul(r_affine, R.x, z_inv);
+
+        opssl_bn_zero(&r_bn, 9);
+        for (int i = 0; i < 9; i++) r_bn.d[i] = r_affine[i];
+        r_bn.width = 9;
+        while (opssl_bn_cmp(&r_bn, &n, 9) >= 0)
+            opssl_bn_sub(&r_bn, &r_bn, &n, 9);
+        if (opssl_bn_is_zero(&r_bn, 9))
+            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+
+        opssl_bn_mont_ctx_t mont_n;
+        opssl_bn_mont_ctx_init(&mont_n, &n, 9);
+
+        opssl_bn_zero(&sk_bn, 9);
+        for (int i = 0; i < 9; i++) sk_bn.d[i] = ctx->key.p521.private_key[i];
+        sk_bn.width = 9;
+
+        opssl_bn_from_bytes(&h_bn, digest, 64);
+        h_bn.width = 9;
+        while (opssl_bn_cmp(&h_bn, &n, 9) >= 0)
+            opssl_bn_sub(&h_bn, &h_bn, &n, 9);
+
+        if (!opssl_bn_mod_inv(&kinv_bn, &k_bn, &n, &mont_n)) return 0;
+        opssl_bn_mod_mul(&tmp_bn, &r_bn, &sk_bn, &mont_n);
+
+        uint64_t carry = opssl_bn_add(&tmp_bn, &tmp_bn, &h_bn, 9);
+        if (carry || opssl_bn_cmp(&tmp_bn, &n, 9) >= 0)
+            opssl_bn_sub(&tmp_bn, &tmp_bn, &n, 9);
+
+        opssl_bn_mod_mul(&s_bn, &kinv_bn, &tmp_bn, &mont_n);
+        if (opssl_bn_is_zero(&s_bn, 9))
+            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+
+        uint8_t rb[66], sb[66];
+        opssl_bn_to_bytes(rb, 66, &r_bn);
+        opssl_bn_to_bytes(sb, 66, &s_bn);
+
+        uint8_t r_der[70], s_der[70];
+        size_t r_der_len = der_encode_integer(r_der, rb, 66);
+        size_t s_der_len = der_encode_integer(s_der, sb, 66);
+        size_t seq_len = r_der_len + s_der_len;
+        size_t header_len = (seq_len >= 128) ? 3 : 2;
+        size_t total_len = header_len + seq_len;
+        if (*sig_len < total_len) return 0;
+
+        sig[0] = 0x30;
+        if (seq_len >= 128) {
+            sig[1] = 0x81;
+            sig[2] = (uint8_t)seq_len;
+        } else {
+            sig[1] = (uint8_t)seq_len;
+        }
+        memcpy(sig + header_len, r_der, r_der_len);
+        memcpy(sig + header_len + r_der_len, s_der, s_der_len);
+        *sig_len = total_len;
+
+        opssl_memzero(&k_bn, sizeof(k_bn));
+        opssl_memzero(&kinv_bn, sizeof(kinv_bn));
+        return 1;
     }
 
     return 0;
@@ -1864,6 +2166,177 @@ int opssl_ecdsa_verify(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t dig
         return diff_check == 0 ? 1 : 0;
     }
 
+    if (ctx->curve == OPSSL_CURVE_P384 && digest_len == 48) {
+        if (sig_len < 8) return 0;
+
+        size_t seq_hdr_len, seq_len;
+        if (!der_decode_sequence_header(sig, sig_len, &seq_hdr_len, &seq_len))
+            return 0;
+
+        uint8_t r_bytes[48] = {0};
+        size_t r_len = sizeof(r_bytes);
+        const uint8_t *r_der = sig + seq_hdr_len;
+        if (der_decode_integer(r_der, seq_len, r_bytes, &r_len) != OPSSL_SUCCESS)
+            return 0;
+
+        size_t r_der_len = r_der[1] + 2;
+        if (r_der_len >= seq_len) return 0;
+        const uint8_t *s_der = r_der + r_der_len;
+        size_t s_der_remaining = seq_len - r_der_len;
+        uint8_t s_bytes[48] = {0};
+        size_t s_len = sizeof(s_bytes);
+        if (der_decode_integer(s_der, s_der_remaining, s_bytes, &s_len) != OPSSL_SUCCESS)
+            return 0;
+
+        opssl_bn_t n, r_bn, s_bn, h_bn, w_bn, u1_bn, u2_bn, x_bn, sk_bn, tmp_bn, k_bn;
+        opssl_bn_zero(&n, 6);
+        for (int i = 0; i < 6; i++) n.d[i] = p384_n[i];
+        n.width = 6;
+
+        opssl_bn_from_bytes(&r_bn, r_bytes, r_len);
+        opssl_bn_from_bytes(&s_bn, s_bytes, s_len);
+        opssl_bn_from_bytes(&h_bn, digest, digest_len);
+        r_bn.width = s_bn.width = h_bn.width = 6;
+        while (opssl_bn_cmp(&h_bn, &n, 6) >= 0)
+            opssl_bn_sub(&h_bn, &h_bn, &n, 6);
+
+        if (opssl_bn_is_zero(&r_bn, 6) || opssl_bn_is_zero(&s_bn, 6) ||
+            opssl_bn_cmp(&r_bn, &n, 6) >= 0 || opssl_bn_cmp(&s_bn, &n, 6) >= 0)
+            return 0;
+
+        opssl_bn_mont_ctx_t mont_n;
+        opssl_bn_mont_ctx_init(&mont_n, &n, 6);
+        if (!opssl_bn_mod_inv(&w_bn, &s_bn, &n, &mont_n))
+            return 0;
+
+        if (ctx->has_private) {
+            opssl_bn_zero(&sk_bn, 6);
+            for (int i = 0; i < 6; i++) sk_bn.d[i] = ctx->key.p384.private_key[i];
+            sk_bn.width = 6;
+
+            opssl_bn_mod_mul(&tmp_bn, &r_bn, &sk_bn, &mont_n);
+            uint64_t carry = opssl_bn_add(&tmp_bn, &tmp_bn, &h_bn, 6);
+            if (carry || opssl_bn_cmp(&tmp_bn, &n, 6) >= 0)
+                opssl_bn_sub(&tmp_bn, &tmp_bn, &n, 6);
+            opssl_bn_mod_mul(&k_bn, &tmp_bn, &w_bn, &mont_n);
+
+            p384_fe_t k;
+            for (int i = 0; i < 6; i++) k[i] = k_bn.d[i];
+
+            p384_point_t Rk;
+            p384_point_mul(&Rk, k, &p384_g);
+
+            p384_fe_t z_inv_k, x_affine_k;
+            p384_fe_inv(z_inv_k, Rk.z);
+            p384_fe_mul(x_affine_k, Rk.x, z_inv_k);
+            p384_fe_from_mont(x_affine_k, x_affine_k);
+
+            opssl_bn_zero(&x_bn, 6);
+            for (int i = 0; i < 6; i++) x_bn.d[i] = x_affine_k[i];
+            x_bn.width = 6;
+            while (opssl_bn_cmp(&x_bn, &n, 6) >= 0)
+                opssl_bn_sub(&x_bn, &x_bn, &n, 6);
+
+            return opssl_bn_cmp(&x_bn, &r_bn, 6) == 0 ? 1 : 0;
+        }
+
+        opssl_bn_mod_mul(&u1_bn, &h_bn, &w_bn, &mont_n);
+        opssl_bn_mod_mul(&u2_bn, &r_bn, &w_bn, &mont_n);
+
+        p384_fe_t u1, u2;
+        for (int i = 0; i < 6; i++) {
+            u1[i] = u1_bn.d[i];
+            u2[i] = u2_bn.d[i];
+        }
+
+        p384_point_t u1G, u2Q, R;
+        p384_point_mul(&u1G, u1, &p384_g);
+        p384_point_mul(&u2Q, u2, &ctx->key.p384.public_key);
+        p384_point_add(&R, &u1G, &u2Q);
+
+        p384_fe_t z_inv, x_affine;
+        p384_fe_inv(z_inv, R.z);
+        p384_fe_mul(x_affine, R.x, z_inv);
+        p384_fe_from_mont(x_affine, x_affine);
+
+        opssl_bn_zero(&x_bn, 6);
+        for (int i = 0; i < 6; i++) x_bn.d[i] = x_affine[i];
+        x_bn.width = 6;
+        while (opssl_bn_cmp(&x_bn, &n, 6) >= 0)
+            opssl_bn_sub(&x_bn, &x_bn, &n, 6);
+
+        return opssl_bn_cmp(&x_bn, &r_bn, 6) == 0 ? 1 : 0;
+    }
+
+    if (ctx->curve == OPSSL_CURVE_P521 && digest_len == 64) {
+        if (sig_len < 8) return 0;
+
+        size_t seq_hdr_len, seq_len;
+        if (!der_decode_sequence_header(sig, sig_len, &seq_hdr_len, &seq_len))
+            return 0;
+
+        uint8_t r_bytes[66] = {0};
+        size_t r_len = sizeof(r_bytes);
+        const uint8_t *r_der = sig + seq_hdr_len;
+        if (der_decode_integer(r_der, seq_len, r_bytes, &r_len) != OPSSL_SUCCESS)
+            return 0;
+
+        size_t r_der_len = r_der[1] + 2;
+        if (r_der_len >= seq_len) return 0;
+        const uint8_t *s_der = r_der + r_der_len;
+        size_t s_der_remaining = seq_len - r_der_len;
+        uint8_t s_bytes[66] = {0};
+        size_t s_len = sizeof(s_bytes);
+        if (der_decode_integer(s_der, s_der_remaining, s_bytes, &s_len) != OPSSL_SUCCESS)
+            return 0;
+
+        opssl_bn_t n, r_bn, s_bn, h_bn, w_bn, u1_bn, u2_bn, x_bn;
+        opssl_bn_zero(&n, 9);
+        for (int i = 0; i < 9; i++) n.d[i] = p521_n[i];
+        n.width = 9;
+
+        opssl_bn_from_bytes(&r_bn, r_bytes, r_len);
+        opssl_bn_from_bytes(&s_bn, s_bytes, s_len);
+        opssl_bn_from_bytes(&h_bn, digest, digest_len);
+        r_bn.width = s_bn.width = h_bn.width = 9;
+        while (opssl_bn_cmp(&h_bn, &n, 9) >= 0)
+            opssl_bn_sub(&h_bn, &h_bn, &n, 9);
+
+        if (opssl_bn_is_zero(&r_bn, 9) || opssl_bn_is_zero(&s_bn, 9) ||
+            opssl_bn_cmp(&r_bn, &n, 9) >= 0 || opssl_bn_cmp(&s_bn, &n, 9) >= 0)
+            return 0;
+
+        opssl_bn_mont_ctx_t mont_n;
+        opssl_bn_mont_ctx_init(&mont_n, &n, 9);
+        if (!opssl_bn_mod_inv(&w_bn, &s_bn, &n, &mont_n))
+            return 0;
+        opssl_bn_mod_mul(&u1_bn, &h_bn, &w_bn, &mont_n);
+        opssl_bn_mod_mul(&u2_bn, &r_bn, &w_bn, &mont_n);
+
+        p521_fe_t u1, u2;
+        for (int i = 0; i < 9; i++) {
+            u1[i] = u1_bn.d[i];
+            u2[i] = u2_bn.d[i];
+        }
+
+        p521_point_t u1G, u2Q, R;
+        p521_point_mul(&u1G, u1, &p521_g);
+        p521_point_mul(&u2Q, u2, &ctx->key.p521.public_key);
+        p521_point_add(&R, &u1G, &u2Q);
+
+        p521_fe_t z_inv, x_affine;
+        p521_fe_inv(z_inv, R.z);
+        p521_fe_mul(x_affine, R.x, z_inv);
+
+        opssl_bn_zero(&x_bn, 9);
+        for (int i = 0; i < 9; i++) x_bn.d[i] = x_affine[i];
+        x_bn.width = 9;
+        while (opssl_bn_cmp(&x_bn, &n, 9) >= 0)
+            opssl_bn_sub(&x_bn, &x_bn, &n, 9);
+
+        return opssl_bn_cmp(&x_bn, &r_bn, 9) == 0 ? 1 : 0;
+    }
+
     return 0;
 }
 
@@ -1871,34 +2344,22 @@ int opssl_ecdsa_set_public(opssl_ecdsa_ctx_t *ctx, const uint8_t *pub, size_t pu
     if (!ctx || !pub) return 0;
 
     if (ctx->curve == OPSSL_CURVE_P256 && pub_len == 65 && pub[0] == 0x04) {
-        /* Parse uncompressed point format (0x04 || x || y) */
         p256_fe_t x_coord, y_coord;
 
-        /* Parse x coordinate (big-endian bytes → little-endian limbs) */
         for (int i = 0; i < 4; i++) {
             x_coord[i] = 0;
-            for (int j = 0; j < 8; j++) {
-                x_coord[i] |= ((uint64_t)pub[1 + (3 - i) * 8 + j]) << (56 - j * 8);
-            }
-        }
-
-        /* Parse y coordinate (big-endian bytes → little-endian limbs) */
-        for (int i = 0; i < 4; i++) {
             y_coord[i] = 0;
             for (int j = 0; j < 8; j++) {
+                x_coord[i] |= ((uint64_t)pub[1 + (3 - i) * 8 + j]) << (56 - j * 8);
                 y_coord[i] |= ((uint64_t)pub[33 + (3 - i) * 8 + j]) << (56 - j * 8);
             }
         }
 
-        /* Reject points not on the curve (invalid-curve attack defense) */
         if (!p256_point_on_curve(x_coord, y_coord))
             return 0;
 
-        /* Convert to Montgomery form */
         p256_fe_to_mont(ctx->key.p256.public_key.x, x_coord);
         p256_fe_to_mont(ctx->key.p256.public_key.y, y_coord);
-
-        /* Set Z = 1 in Montgomery form */
         ctx->key.p256.public_key.z[0] = 1;
         ctx->key.p256.public_key.z[1] = 0xFFFFFFFF00000000ULL;
         ctx->key.p256.public_key.z[2] = 0xFFFFFFFFFFFFFFFFULL;
@@ -1906,42 +2367,57 @@ int opssl_ecdsa_set_public(opssl_ecdsa_ctx_t *ctx, const uint8_t *pub, size_t pu
 
         ctx->has_public = 1;
         return 1;
-
     } else if (ctx->curve == OPSSL_CURVE_P384 && pub_len == 97 && pub[0] == 0x04) {
-        /* Parse P-384 uncompressed point format */
         p384_fe_t x_coord, y_coord;
 
-        /* Parse x coordinate (big-endian bytes → little-endian limbs) */
         for (int i = 0; i < 6; i++) {
             x_coord[i] = 0;
-            for (int j = 0; j < 8; j++) {
-                x_coord[i] |= ((uint64_t)pub[1 + (5 - i) * 8 + j]) << (56 - j * 8);
-            }
-        }
-
-        /* Parse y coordinate (big-endian bytes → little-endian limbs) */
-        for (int i = 0; i < 6; i++) {
             y_coord[i] = 0;
             for (int j = 0; j < 8; j++) {
+                x_coord[i] |= ((uint64_t)pub[1 + (5 - i) * 8 + j]) << (56 - j * 8);
                 y_coord[i] |= ((uint64_t)pub[49 + (5 - i) * 8 + j]) << (56 - j * 8);
             }
         }
 
-        /* Reject points not on the curve (invalid-curve attack defense) */
         if (!p384_point_on_curve(x_coord, y_coord))
             return 0;
 
-        /* Convert to Montgomery form */
         p384_fe_to_mont(ctx->key.p384.public_key.x, x_coord);
         p384_fe_to_mont(ctx->key.p384.public_key.y, y_coord);
-
-        /* Set Z = R mod p (Montgomery representation of 1) */
         ctx->key.p384.public_key.z[0] = 0xFFFFFFFF00000001ULL;
         ctx->key.p384.public_key.z[1] = 0x00000000FFFFFFFFULL;
         ctx->key.p384.public_key.z[2] = 0x0000000000000001ULL;
         ctx->key.p384.public_key.z[3] = 0;
         ctx->key.p384.public_key.z[4] = 0;
         ctx->key.p384.public_key.z[5] = 0;
+
+        ctx->has_public = 1;
+        return 1;
+    } else if (ctx->curve == OPSSL_CURVE_P521 && pub_len == 133 && pub[0] == 0x04) {
+        p521_fe_t x_coord, y_coord;
+
+        for (int i = 0; i < 9; i++) {
+            x_coord[i] = 0;
+            y_coord[i] = 0;
+            for (int j = 0; j < 8; j++) {
+                size_t off = (size_t)i * 8 + (size_t)j;
+                if (off < 66) {
+                    x_coord[i] |= ((uint64_t)pub[1 + 65 - off]) << (j * 8);
+                    y_coord[i] |= ((uint64_t)pub[67 + 65 - off]) << (j * 8);
+                }
+            }
+        }
+        x_coord[8] &= 0x1FFULL;
+        y_coord[8] &= 0x1FFULL;
+
+        if (!p521_point_on_curve(x_coord, y_coord))
+            return 0;
+
+        memcpy(ctx->key.p521.public_key.x, x_coord, sizeof(p521_fe_t));
+        memcpy(ctx->key.p521.public_key.y, y_coord, sizeof(p521_fe_t));
+        ctx->key.p521.public_key.z[0] = 1;
+        for (int i = 1; i < 9; i++)
+            ctx->key.p521.public_key.z[i] = 0;
 
         ctx->has_public = 1;
         return 1;
@@ -1954,35 +2430,40 @@ int opssl_ecdsa_set_private(opssl_ecdsa_ctx_t *ctx, const uint8_t *priv, size_t 
     if (!ctx || !priv) return 0;
 
     if (ctx->curve == OPSSL_CURVE_P256 && priv_len == 32) {
-        /* Parse raw 32-byte big-endian private key to little-endian limbs */
         for (int i = 0; i < 4; i++) {
             ctx->key.p256.private_key[i] = 0;
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 8; j++)
                 ctx->key.p256.private_key[i] |=
                     ((uint64_t)priv[(3 - i) * 8 + j]) << (56 - j * 8);
-            }
         }
 
-        /* Compute public key Q = private_key * G */
         p256_point_mul(&ctx->key.p256.public_key, ctx->key.p256.private_key, &p256_g);
-
         ctx->has_private = 1;
         ctx->has_public = 1;
         return 1;
-
     } else if (ctx->curve == OPSSL_CURVE_P384 && priv_len == 48) {
-        /* Parse raw 48-byte big-endian private key to little-endian limbs */
         for (int i = 0; i < 6; i++) {
             ctx->key.p384.private_key[i] = 0;
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 8; j++)
                 ctx->key.p384.private_key[i] |=
                     ((uint64_t)priv[(5 - i) * 8 + j]) << (56 - j * 8);
-            }
         }
 
-        /* Compute public key Q = private_key * G */
         p384_point_mul(&ctx->key.p384.public_key, ctx->key.p384.private_key, &p384_g);
+        ctx->has_private = 1;
+        ctx->has_public = 1;
+        return 1;
+    } else if (ctx->curve == OPSSL_CURVE_P521 && priv_len == 66) {
+        for (int i = 0; i < 8; i++) {
+            ctx->key.p521.private_key[i] = 0;
+            for (int j = 0; j < 8; j++)
+                ctx->key.p521.private_key[i] |=
+                    ((uint64_t)priv[65 - i * 8 - j]) << (j * 8);
+        }
+        ctx->key.p521.private_key[8] = ((uint64_t)priv[0] << 8) | priv[1];
+        ctx->key.p521.private_key[8] &= 0x1FFULL;
 
+        p521_point_mul(&ctx->key.p521.public_key, ctx->key.p521.private_key, &p521_g);
         ctx->has_private = 1;
         ctx->has_public = 1;
         return 1;

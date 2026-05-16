@@ -1,0 +1,244 @@
+opssl TYPES REFERENCE
+=====================
+
+This document describes the core types, enums, and constants in opssl/types.h.
+
+
+OPAQUE HANDLES
+==============
+
+    typedef struct opssl_ctx     opssl_ctx_t;     — TLS context (shared config)
+    typedef struct opssl_conn    opssl_conn_t;    — per-connection TLS state
+    typedef struct opssl_cert    opssl_cert_t;    — certificate (internal)
+    typedef struct opssl_pkey    opssl_pkey_t;    — private key
+    typedef struct opssl_x509    opssl_x509_t;    — X.509 certificate
+    typedef struct opssl_bio     opssl_bio_t;     — BIO I/O abstraction
+
+
+TLS PROTOCOL VERSIONS
+=====================
+
+    typedef enum {
+        OPSSL_TLS_1_2   = 0x0303,
+        OPSSL_TLS_1_3   = 0x0304,
+        OPSSL_DTLS_1_2  = 0xFEFD,
+        OPSSL_DTLS_1_3  = 0xFEFC,
+    } opssl_tls_version_t;
+
+Version numbers follow the TLS wire format. DTLS versions use the
+inverted numbering per RFC 6347 / RFC 9147.
+
+
+CONNECTION DIRECTION
+====================
+
+    typedef enum {
+        OPSSL_DIR_INBOUND  = 0,    — server-side (accepting)
+        OPSSL_DIR_OUTBOUND = 1,    — client-side (connecting)
+    } opssl_direction_t;
+
+
+HANDSHAKE STATE
+===============
+
+    typedef enum {
+        OPSSL_HS_IDLE = 0,
+        OPSSL_HS_CLIENT_HELLO,
+        OPSSL_HS_SERVER_HELLO,
+        OPSSL_HS_ENCRYPTED_EXTENSIONS,
+        OPSSL_HS_CERTIFICATE,
+        OPSSL_HS_CERTIFICATE_VERIFY,
+        OPSSL_HS_FINISHED,
+        OPSSL_HS_WAIT_FINISHED,
+        OPSSL_HS_COMPLETE,
+        OPSSL_HS_ERROR,
+    } opssl_handshake_state_t;
+
+
+I/O RESULT CODES
+=================
+
+    typedef enum {
+        OPSSL_OK           =  1,    — operation completed successfully
+        OPSSL_ERROR        =  0,    — operation failed (check error stack)
+        OPSSL_WANT_READ    = -2,    — need to read more data (POLLIN)
+        OPSSL_WANT_WRITE   = -3,    — need to write data (POLLOUT)
+        OPSSL_CLOSED       = -4,    — peer sent close_notify
+        OPSSL_FATAL        = -5,    — unrecoverable error
+    } opssl_result_t;
+
+
+FINGERPRINT METHODS
+===================
+
+    typedef enum {
+        OPSSL_FP_SHA1           = 0,
+        OPSSL_FP_SHA256         = 1,
+        OPSSL_FP_SHA512         = 2,
+        OPSSL_FP_SHA3_256       = 3,
+        OPSSL_FP_SHA3_512       = 4,
+        OPSSL_FP_SPKI_SHA256    = 5,
+        OPSSL_FP_SPKI_SHA512    = 6,
+        OPSSL_FP_SPKI_SHA3_256  = 7,
+        OPSSL_FP_SPKI_SHA3_512  = 8,
+    } opssl_fingerprint_method_t;
+
+DER methods (0-4) hash the full certificate DER encoding.
+SPKI methods (5-8) hash only the Subject Public Key Info field — this
+remains stable across certificate renewal (same key, new cert).
+
+
+CIPHER SUITE IDs
+================
+
+TLS 1.3 (IANA assigned):
+
+    OPSSL_TLS_AES_128_GCM_SHA256       = 0x1301
+    OPSSL_TLS_AES_256_GCM_SHA384       = 0x1302
+    OPSSL_TLS_CHACHA20_POLY1305_SHA256 = 0x1303
+    OPSSL_TLS_AES_128_CCM_SHA256       = 0x1304
+    OPSSL_TLS_AES_128_CCM_8_SHA256     = 0x1305
+
+TLS 1.3 (opssl extended, private-use range):
+
+    OPSSL_TLS_AES_256_CCM_SHA384           = 0xC0B0
+    OPSSL_TLS_AES_256_CCM_8_SHA384         = 0xC0B1
+    OPSSL_TLS_CAMELLIA_128_GCM_SHA256      = 0xC0B2
+    OPSSL_TLS_CAMELLIA_256_GCM_SHA384      = 0xC0B3
+
+TLS 1.2 ECDHE:
+
+    OPSSL_TLS_ECDHE_RSA_AES_128_GCM       = 0xC02F
+    OPSSL_TLS_ECDHE_RSA_AES_256_GCM       = 0xC030
+    OPSSL_TLS_ECDHE_ECDSA_AES_128_GCM     = 0xC02B
+    OPSSL_TLS_ECDHE_ECDSA_AES_256_GCM     = 0xC02C
+    OPSSL_TLS_ECDHE_RSA_CHACHA20          = 0xCCA8
+    OPSSL_TLS_ECDHE_ECDSA_CHACHA20        = 0xCCA9
+
+TLS 1.2 DHE:
+
+    OPSSL_TLS_DHE_RSA_AES_128_GCM         = 0x009E
+    OPSSL_TLS_DHE_RSA_AES_256_GCM         = 0x009F
+    OPSSL_TLS_DHE_RSA_CHACHA20            = 0xCCAA
+
+TLS 1.2 AES-CCM:
+
+    OPSSL_TLS_ECDHE_ECDSA_AES_128_CCM     = 0xC0AC
+    OPSSL_TLS_ECDHE_ECDSA_AES_256_CCM     = 0xC0AD
+    OPSSL_TLS_DHE_RSA_AES_128_CCM         = 0xC09E
+    OPSSL_TLS_DHE_RSA_AES_256_CCM         = 0xC09F
+    OPSSL_TLS_DHE_RSA_AES_128_CCM_8       = 0xC0A0
+    OPSSL_TLS_DHE_RSA_AES_256_CCM_8       = 0xC0A1
+    OPSSL_TLS_ECDHE_ECDSA_AES_128_CCM_8   = 0xC0AE
+    OPSSL_TLS_ECDHE_ECDSA_AES_256_CCM_8   = 0xC0AF
+
+TLS 1.2 Camellia-GCM (RFC 6367):
+
+    OPSSL_TLS_ECDHE_ECDSA_CAMELLIA_128_GCM = 0xC086
+    OPSSL_TLS_ECDHE_ECDSA_CAMELLIA_256_GCM = 0xC087
+    OPSSL_TLS_ECDHE_RSA_CAMELLIA_128_GCM   = 0xC08A
+    OPSSL_TLS_ECDHE_RSA_CAMELLIA_256_GCM   = 0xC08B
+    OPSSL_TLS_DHE_RSA_CAMELLIA_128_GCM     = 0xC07C
+    OPSSL_TLS_DHE_RSA_CAMELLIA_256_GCM     = 0xC07D
+
+
+NAMED GROUPS
+============
+
+    OPSSL_GROUP_X25519              = 0x001D
+    OPSSL_GROUP_X448                = 0x001E
+    OPSSL_GROUP_SECP256R1           = 0x0017
+    OPSSL_GROUP_SECP384R1           = 0x0018
+    OPSSL_GROUP_SECP521R1           = 0x0019
+    OPSSL_GROUP_FFDHE2048           = 0x0100
+    OPSSL_GROUP_FFDHE3072           = 0x0101
+    OPSSL_GROUP_FFDHE4096           = 0x0102
+
+Post-quantum hybrids (draft-ietf-tls-hybrid-design):
+
+    OPSSL_GROUP_X25519_MLKEM768     = 0x6399
+    OPSSL_GROUP_SECP256R1_MLKEM768  = 0x639A
+    OPSSL_GROUP_SECP384R1_MLKEM1024 = 0x639B
+
+
+SIGNATURE ALGORITHMS
+====================
+
+    OPSSL_SIG_RSA_PSS_SHA256        = 0x0804
+    OPSSL_SIG_RSA_PSS_SHA384        = 0x0805
+    OPSSL_SIG_RSA_PSS_SHA512        = 0x0806
+    OPSSL_SIG_ECDSA_SHA1            = 0x0203
+    OPSSL_SIG_ECDSA_SECP256R1       = 0x0403
+    OPSSL_SIG_ECDSA_SECP384R1       = 0x0503
+    OPSSL_SIG_ECDSA_SECP521R1       = 0x0603
+    OPSSL_SIG_ED25519               = 0x0807
+    OPSSL_SIG_ED448                 = 0x0808
+    OPSSL_SIG_RSA_PKCS1_SHA1        = 0x0201
+    OPSSL_SIG_RSA_PKCS1_SHA256      = 0x0401
+    OPSSL_SIG_RSA_PKCS1_SHA384      = 0x0501
+    OPSSL_SIG_RSA_PKCS1_SHA512      = 0x0601
+
+
+TLS ALERT DESCRIPTIONS (RFC 8446 §6.2)
+=======================================
+
+    OPSSL_ALERT_CLOSE_NOTIFY            = 0
+    OPSSL_ALERT_UNEXPECTED_MESSAGE      = 10
+    OPSSL_ALERT_BAD_RECORD_MAC          = 20
+    OPSSL_ALERT_RECORD_OVERFLOW         = 22
+    OPSSL_ALERT_HANDSHAKE_FAILURE       = 40
+    OPSSL_ALERT_BAD_CERTIFICATE         = 42
+    OPSSL_ALERT_UNSUPPORTED_CERTIFICATE = 43
+    OPSSL_ALERT_CERTIFICATE_REVOKED     = 44
+    OPSSL_ALERT_CERTIFICATE_EXPIRED     = 45
+    OPSSL_ALERT_CERTIFICATE_UNKNOWN     = 46
+    OPSSL_ALERT_ILLEGAL_PARAMETER       = 47
+    OPSSL_ALERT_UNKNOWN_CA              = 48
+    OPSSL_ALERT_ACCESS_DENIED           = 49
+    OPSSL_ALERT_DECODE_ERROR            = 50
+    OPSSL_ALERT_DECRYPT_ERROR           = 51
+    OPSSL_ALERT_PROTOCOL_VERSION        = 70
+    OPSSL_ALERT_INSUFFICIENT_SECURITY   = 71
+    OPSSL_ALERT_INTERNAL_ERROR          = 80
+    OPSSL_ALERT_INAPPROPRIATE_FALLBACK  = 86
+    OPSSL_ALERT_MISSING_EXTENSION       = 109
+    OPSSL_ALERT_UNSUPPORTED_EXTENSION   = 110
+    OPSSL_ALERT_UNRECOGNIZED_NAME       = 112
+    OPSSL_ALERT_BAD_CERTIFICATE_STATUS  = 113
+    OPSSL_ALERT_UNKNOWN_PSK_IDENTITY    = 115
+    OPSSL_ALERT_CERTIFICATE_REQUIRED    = 116
+    OPSSL_ALERT_NO_APPLICATION_PROTOCOL = 120
+
+    typedef enum {
+        OPSSL_ALERT_LEVEL_WARNING = 1,
+        OPSSL_ALERT_LEVEL_FATAL   = 2,
+    } opssl_alert_level_t;
+
+
+ALPN PROTOCOL IDENTIFIERS
+==========================
+
+    #define OPSSL_ALPN_IRC      "irc"
+    #define OPSSL_ALPN_HTTP11   "http/1.1"
+    #define OPSSL_ALPN_DOT      "dot"
+
+
+CALLBACK TYPEDEFS
+=================
+
+    opssl_verify_cb     — certificate verification callback
+    opssl_sni_cb        — SNI hostname callback
+    opssl_alpn_cb       — ALPN negotiation callback
+    opssl_keylog_cb     — key log callback (SSLKEYLOGFILE format)
+    opssl_read_cb       — custom read I/O callback
+    opssl_write_cb      — custom write I/O callback
+
+
+MAXIMUM SIZES
+=============
+
+    OPSSL_MAX_RECORD_SIZE      = 16384   — TLS record payload limit
+    OPSSL_MAX_CERT_CHAIN       = 10      — max certificates in a chain
+    OPSSL_MAX_SNI_CONTEXTS     = 64      — max per-hostname contexts
+    OPSSL_MAX_ALPN_PROTOS      = 8       — max ALPN protocols
+    OPSSL_SESSION_EXPORT_MAX   = 8192    — max session export buffer

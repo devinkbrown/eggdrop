@@ -110,7 +110,7 @@ static void bot_chan2(int idx, char *msg)
     }
     *dst = 0;
   }
-  op_strbuf_t tbuf;
+  op_strbuf_t tbuf = {};
   op_strbuf_init(&tbuf);
   p = strchr(from, '@');
   if (p) {
@@ -276,7 +276,7 @@ static void bot_bye(int idx, char *par)
   int bots  = bots_in_subtree(findbot(dcc[idx].nick));
   int users = users_in_subtree(findbot(dcc[idx].nick));
   {
-    op_strbuf_t s;
+    op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s %s. %s (lost %d bot%s and %d user%s)",
              BOT_DISCONNECTED, dcc[idx].nick, par[0] ?
@@ -299,7 +299,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
   char *realnick = strchr(nick, ':');
   realnick = realnick ? realnick + 1 : nick;
   putlog(LOG_BOTS, "*", "#%s# who", realnick);
-  op_strbuf_t line;
+  op_strbuf_t line = {};
   op_strbuf_init(&line);
   op_strbuf_appendf(&line, "Channels: ");
   for (struct chanset_t *c = chanset; c; c = c->next) {
@@ -341,7 +341,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
                      " %% = botmaster, @ = op, ^ = halfop)", BOT_PARTYMEMBS);
   else {
     {
-      op_strbuf_t tcl_cmd;
+      op_strbuf_t tcl_cmd = {};
       op_strbuf_init(&tcl_cmd);
       op_strbuf_appendf(&tcl_cmd, "assoc %d", chan);
       if (egg_eval(op_strbuf_str(&tcl_cmd)) || tcl_resultempty())
@@ -360,7 +360,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type->flags & DCT_REMOTEWHO)
       if (dcc[i].u.chat->channel == chan) {
-        op_strbuf_t entry;
+        op_strbuf_t entry = {};
         op_strbuf_init(&entry);
         op_strbuf_appendf(&entry, "  %c%-15s %s",
                          (geticon(i) == '-' ? ' ' : geticon(i)),
@@ -390,7 +390,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
         bots_header_shown = true;
         botnet_send_priv(idx, botnetnick, nick, nullptr, "%s:", BOT_BOTSCONNECTED);
       }
-      op_strbuf_t entry;
+      op_strbuf_t entry = {};
       op_strbuf_init(&entry);
       op_strbuf_appendf(&entry, "  %s%c%-15s %s",
               dcc[i].status & STAT_CALLED ? "<-" : "->",
@@ -407,7 +407,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
           other_header_shown = true;
           botnet_send_priv(idx, botnetnick, nick, nullptr, "%s:", BOT_OTHERPEOPLE);
         }
-        op_strbuf_t entry;
+        op_strbuf_t entry = {};
         op_strbuf_init(&entry);
         op_strbuf_appendf(&entry, "  %c%-15s %s",
                          (geticon(i) == '-' ? ' ' : geticon(i)),
@@ -431,7 +431,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
  */
 static void bot_who(int idx, char *par)
 {
-  op_strbuf_t _from_sb;
+  op_strbuf_t _from_sb = {};
   op_strbuf_init(&_from_sb);
 
   char *from = newsplit(&par);
@@ -470,7 +470,7 @@ static void bot_infoq(int idx, char *par)
   egg_format_uptime(now - online_since, upbuf, sizeof upbuf);
 
   if (module_find("server", 0, 0)) {
-    op_strbuf_t chanlist;
+    op_strbuf_t chanlist = {};
     op_strbuf_init(&chanlist);
     for (struct chanset_t *c = chanset; c; c = c->next) {
       if (!channel_secret(c)) {
@@ -588,7 +588,7 @@ static void bot_update(int idx, char *par)
  */
 static void bot_nlinked(int idx, char *par)
 {
-  op_strbuf_t s;
+  op_strbuf_t s = {};
   op_strbuf_init(&s);
 
   char *newbot = newsplit(&par);
@@ -692,7 +692,7 @@ static void bot_trace(int idx, char *par)
   char *from = newsplit(&par);
   char *dest = newsplit(&par);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s:%s", par, botnetnick);
     botnet_send_traced(idx, from, op_strbuf_str(&_b));
@@ -779,7 +779,7 @@ static void bot_reject(int idx, char *par)
       /* I'm the connection to the rejected bot */
       dprintf(i, "bye %s\n", par[0] ? par : MISC_REJECTED);
       {
-        op_strbuf_t s;
+        op_strbuf_t s = {};
         op_strbuf_init(&s);
         op_strbuf_appendf(&s, "%s %s (%s: %s)",
                  MISC_DISCONNECTED, dcc[i].nick, from,
@@ -840,7 +840,7 @@ static void bot_thisbot(int idx, char *par)
     putlog(LOG_BOTS, "*", NET_WRONGBOT, dcc[idx].nick, par);
     dprintf(idx, "bye %s\n", MISC_IMPOSTER);
     {
-      op_strbuf_t s;
+      op_strbuf_t s = {};
       op_strbuf_init(&s);
       op_strbuf_appendf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
                MISC_IMPOSTER);
@@ -1129,7 +1129,7 @@ static void bot_join(int idx, char *par)
   }
   struct userrec *u = get_user_by_handle(userlist, nick);
   if (u) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "@%s", bot);
     touch_laston(u, op_strbuf_str(&_b), now);
@@ -1172,7 +1172,7 @@ static void bot_part(int idx, char *par)
     sock = partysock(bot, nick);
   struct userrec *u = get_user_by_handle(userlist, nick);
   if (u) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "@%s", bot);
     touch_laston(u, op_strbuf_str(&_b), now);

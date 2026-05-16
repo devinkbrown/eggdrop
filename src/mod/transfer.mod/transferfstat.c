@@ -57,7 +57,7 @@ static int fstat_pack(struct userrec *u, struct user_entry *e)
   fs = e->u.extra;
   l->extra = user_malloc(41);
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%09u %09u %09u %09u", fs->uploads, fs->upload_ks,
                      fs->dnloads, fs->dnload_ks);
@@ -122,7 +122,7 @@ static int fstat_set(struct userrec *u, struct user_entry *e, void *buf)
 static int fstat_tcl_format(char *d, size_t max, struct filesys_stats *fs, char *arg)
 {
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     if (!arg)
       op_strbuf_appendf(&_b, "%u %u %u %u", fs->uploads, fs->upload_ks,

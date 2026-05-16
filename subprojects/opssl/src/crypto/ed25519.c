@@ -218,14 +218,12 @@ static const fe25519 ed25519_sqrtm1 = {
     0x61b274a0ea0b0LL, 0xd5a5fc8f189dLL, 0x7ef5e9cbd0c60LL, 0x78595a6804c9eLL, 0x2b8324804fc1dLL
 };
 
-#if 0
 static const ge25519_p3 ed25519_base = {
     {0x62d608f25d51aLL, 0x412a4b4f6592aLL, 0x75b7171a4b31dLL, 0x1ff60527118feLL, 0x216936d3cd6e5LL},
     {0x6666666666658LL, 0x4ccccccccccccLL, 0x1999999999999LL, 0x3333333333333LL, 0x6666666666666LL},
     {1, 0, 0, 0, 0},
     {0x68ab3a5b7dda3LL, 0xeea2a5eadbbLL, 0x2af8df483c27eLL, 0x332b375274732LL, 0x67875f0fd78b7LL}
 };
-#endif
 
 static const ge25519_p3 ed25519_base_comb[4][16] = {
   { /* group 0: i * (2^0 * B) */

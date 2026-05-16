@@ -12,8 +12,6 @@
 
 #include <libop_config.h>
 #include <op_lib.h>
-#include <errno.h>
-#include <stdlib.h>
 #include <string.h>
 
 #ifndef _WIN32
@@ -431,84 +429,6 @@ op_cidr_lpm_ss(const op_cidr_tbl_t *t, const struct sockaddr_storage *ss)
     return NULL;
 }
 
-/* ---- parsing helpers ----------------------------------------------------- */
-
-int
-op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss)
-{
-    struct sockaddr_in *sin4 = (struct sockaddr_in *)ss;
-    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ss;
-
-    if (s == NULL || ss == NULL)
-        return -1;
-
-    memset(ss, 0, sizeof(*ss));
-    if (inet_pton(AF_INET, s, &sin4->sin_addr) == 1)
-    {
-        sin4->sin_family = AF_INET;
-        return 0;
-    }
-    if (inet_pton(AF_INET6, s, &sin6->sin6_addr) == 1)
-    {
-        sin6->sin6_family = AF_INET6;
-        return 0;
-    }
-    return -1;
-}
-
-int
-op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen)
-{
-    char addrbuf[INET6_ADDRSTRLEN + 1];
-    const char *slash;
-    char *end = NULL;
-    long parsed_plen = -1;
-
-    if (s == NULL || ss == NULL || plen == NULL)
-        return -1;
-
-    slash = strchr(s, '/');
-    if (slash != NULL)
-    {
-        size_t addrlen = (size_t)(slash - s);
-        if (addrlen == 0 || addrlen >= sizeof(addrbuf))
-            return -1;
-        memcpy(addrbuf, s, addrlen);
-        addrbuf[addrlen] = '\0';
-
-        errno = 0;
-        parsed_plen = strtol(slash + 1, &end, 10);
-        if (errno != 0 || end == slash + 1 || *end != '\0')
-            return -1;
-        s = addrbuf;
-    }
-
-    if (op_cidr_parse_addr(s, ss) < 0)
-        return -1;
-
-    if (GET_SS_FAMILY(ss) == AF_INET)
-    {
-        if (slash == NULL)
-            parsed_plen = 32;
-        if (parsed_plen < 0 || parsed_plen > 32)
-            return -1;
-    }
-    else if (GET_SS_FAMILY(ss) == AF_INET6)
-    {
-        if (slash == NULL)
-            parsed_plen = 128;
-        if (parsed_plen < 0 || parsed_plen > 128)
-            return -1;
-    }
-    else
-    {
-        return -1;
-    }
-
-    *plen = (int)parsed_plen;
-    return 0;
-}
-
 /* ---- introspection ------------------------------------------------------- */
 
 size_t
@@ -555,4 +475,74 @@ op_cidr_foreach6(const op_cidr_tbl_t *t, op_cidr_each_t fn, void *ud)
     ctx.stop = false;
     ((struct sockaddr_in6 *)&ctx.ss)->sin6_family = AF_INET6;
     trie_foreach(t->root6, &ctx, 0);
+}
+
+/* ---- parse helpers (eggdrop addition) ------------------------------------ */
+
+int
+op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss)
+{
+    struct sockaddr_in  *sin4 = (struct sockaddr_in *)ss;
+    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ss;
+
+    if (s == NULL || ss == NULL)
+        return -1;
+
+    memset(ss, 0, sizeof(*ss));
+    if (inet_pton(AF_INET, s, &sin4->sin_addr) == 1) {
+        sin4->sin_family = AF_INET;
+        return 0;
+    }
+    if (inet_pton(AF_INET6, s, &sin6->sin6_addr) == 1) {
+        sin6->sin6_family = AF_INET6;
+        return 0;
+    }
+    return -1;
+}
+
+int
+op_cidr_parse_str(const char *s, struct sockaddr_storage *ss, int *plen)
+{
+    char        addrbuf[INET6_ADDRSTRLEN + 1];
+    const char *slash;
+    char       *end = NULL;
+    long        parsed_plen = -1;
+
+    if (s == NULL || ss == NULL || plen == NULL)
+        return -1;
+
+    slash = strchr(s, '/');
+    if (slash != NULL) {
+        size_t addrlen = (size_t)(slash - s);
+        if (addrlen == 0 || addrlen >= sizeof(addrbuf))
+            return -1;
+        memcpy(addrbuf, s, addrlen);
+        addrbuf[addrlen] = '\0';
+
+        errno = 0;
+        parsed_plen = strtol(slash + 1, &end, 10);
+        if (errno != 0 || end == slash + 1 || *end != '\0')
+            return -1;
+        s = addrbuf;
+    }
+
+    if (op_cidr_parse_addr(s, ss) < 0)
+        return -1;
+
+    if (GET_SS_FAMILY(ss) == AF_INET) {
+        if (slash == NULL)
+            parsed_plen = 32;
+        if (parsed_plen < 0 || parsed_plen > 32)
+            return -1;
+    } else if (GET_SS_FAMILY(ss) == AF_INET6) {
+        if (slash == NULL)
+            parsed_plen = 128;
+        if (parsed_plen < 0 || parsed_plen > 128)
+            return -1;
+    } else {
+        return -1;
+    }
+
+    *plen = (int)parsed_plen;
+    return 0;
 }

@@ -202,7 +202,7 @@ const char *masktype(int x)
 
 const char *maskname(int x)
 {
-  static op_strbuf_t _b;
+  static op_strbuf_t _b = {};
 
   op_strbuf_clear(&_b);
   if (x & LOG_MSGS)    op_strbuf_append_cstr(&_b, "msgs, ");

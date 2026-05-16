@@ -206,7 +206,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
     return;
   }
   {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
     strlcpy(s, op_strbuf_str(&_b), sizeof s);
@@ -719,7 +719,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
     return;
   putlog(LOG_CMDS, "*", "#%s# (%s) channel", dcc[idx].nick, chan->dname);
   {
-    op_strbuf_t _s1;
+    op_strbuf_t _s1 = {};
     op_strbuf_init(&_s1);
     const char *state = channel_pending(chan) ? IRC_PROCESSINGCHAN
                       : channel_active(chan)   ? IRC_CHANNEL
@@ -851,7 +851,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
       } else {
         /* Determine idle time */
         {
-          op_strbuf_t idle;
+          op_strbuf_t idle = {};
           op_strbuf_init(&idle);
           if (now - (m->last) > 86400)
             op_strbuf_appendf(&idle, "%2" PRId64 "d", ((int64_t) (now - m->last)) / 86400);
@@ -1010,7 +1010,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   }
   if (strlen(hand) > HANDLEN)
     hand[HANDLEN] = 0;
-  op_strbuf_t _bs;
+  op_strbuf_t _bs = {};
   op_strbuf_init(&_bs);
   op_strbuf_appendf(&_bs, "%s!%s", m->nick, m->userhost);
   u = get_user_from_member(m);
@@ -1100,7 +1100,7 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
   } else if (glob_bot(victim) && !glob_owner(user)) {
     dprintf(idx, "You can't remove a bot!\n");
   } else {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%.*s", HANDLEN, u->handle);
     if (deluser(u->handle)) {

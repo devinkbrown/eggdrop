@@ -114,7 +114,7 @@ static void setaccount(char *nick, char *account)
  */
 static const char *getchanmode(struct chanset_t *chan)
 {
-  static op_strbuf_t s;
+  static op_strbuf_t s = {};
   int atr;
 
   op_strbuf_clear(&s);

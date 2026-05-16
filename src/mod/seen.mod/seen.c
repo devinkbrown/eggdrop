@@ -111,7 +111,7 @@ static int pub_seen(char *nick, char *host, char *hand,
   struct chanset_t *chan = findchan_by_dname(channel);
 
   if ((chan != nullptr) && channel_seen(chan)) {
-    op_strbuf_t sb;
+    op_strbuf_t sb = {};
     op_strbuf_init(&sb);
     op_strbuf_appendf(&sb, "PRIVMSG %s :", chan->name);
     do_seen(DP_HELP, op_strbuf_str(&sb), nick, hand, chan->dname, text);
@@ -128,7 +128,7 @@ static int msg_seen(char *nick, char *host, struct userrec *u, char *text)
   }
   putlog(LOG_CMDS, "*", "(%s!%s) !%s! SEEN %s", nick, host, u->handle, text);
   {
-    op_strbuf_t _p;
+    op_strbuf_t _p = {};
     op_strbuf_init(&_p);
     op_strbuf_appendf(&_p, "PRIVMSG %s :", nick);
     do_seen(DP_SERVER, op_strbuf_str(&_p), nick, u->handle, "", text);
@@ -149,7 +149,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
 {
   char word1[512], word2[512], whotarget[128], object[128],
        *oix, *lastonplace = 0;
-  op_strbuf_t whoredirect;
+  op_strbuf_t whoredirect = {};
   struct userrec *urec;
   struct chanset_t *chan;
   struct laston_info *li;
@@ -311,7 +311,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
   }
   /* Check for keyword match in the internal table */
   else if (match_trigger(word1)) {
-    op_strbuf_t _b;
+    op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s%s\n", prefix, match_trigger(word1));
     dprintf(idx, op_strbuf_str(&_b), nick);
@@ -446,7 +446,7 @@ targetcont:
     laston = li->laston;
   }
   {
-    op_strbuf_t dur;
+    op_strbuf_t dur = {};
     op_strbuf_init(&dur);
     word1[0] = 0;
     work = now - laston;
@@ -471,7 +471,7 @@ targetcont:
       op_strbuf_append_cstr(&dur, " ago.");
     }
     {
-      op_strbuf_t _w;
+      op_strbuf_t _w = {};
       op_strbuf_init(&_w);
       if (lastonplace[0] && (strchr(CHANMETA, lastonplace[0]) != nullptr))
         op_strbuf_appendf(&_w, "on IRC channel %s", lastonplace);
@@ -493,7 +493,7 @@ done:
 
 static const char *fixnick(char *nick)
 {
-  static op_strbuf_t _fixit;
+  static op_strbuf_t _fixit = {};
 
   if (!nick)
     return nullptr;
@@ -523,7 +523,7 @@ static char *match_trigger(char *word)
 
 static char *getxtra(char *hand, char *field)
 {
-  static op_strbuf_t _fixit;
+  static op_strbuf_t _fixit = {};
   struct userrec *urec;
   struct user_entry *ue;
   struct xtra_key *xk;

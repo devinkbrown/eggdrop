@@ -86,6 +86,7 @@ typedef struct {
     uint8_t server_hs_traffic[48];
     uint8_t client_ap_traffic[48];
     uint8_t server_ap_traffic[48];
+    uint8_t exporter_master_secret[48];
     size_t hash_len;
 
     /* Random values */
@@ -99,6 +100,9 @@ typedef struct {
     /* Certificate data */
     uint8_t *peer_cert;
     size_t peer_cert_len;
+    uint8_t *peer_chain_der[9];
+    size_t peer_chain_der_len[9];
+    size_t peer_chain_count;
     const opssl_pkey_t *sign_key;
     const opssl_x509_chain_t *cert_chain;
 
@@ -176,6 +180,84 @@ typedef struct {
 #define TLS13_MSG_FINISHED 20
 #define TLS13_MSG_KEY_UPDATE 24
 
+#define TLS13_MAX_PEER_CERTS 10
+
+static void
+tls13_clear_peer_chain(tls13_hs_t *hs)
+{
+    if (!hs)
+        return;
+    if (hs->peer_cert) {
+        free(hs->peer_cert);
+        hs->peer_cert = NULL;
+        hs->peer_cert_len = 0;
+    }
+    for (size_t i = 0; i < hs->peer_chain_count; i++) {
+        free(hs->peer_chain_der[i]);
+        hs->peer_chain_der[i] = NULL;
+        hs->peer_chain_der_len[i] = 0;
+    }
+    hs->peer_chain_count = 0;
+}
+
+static int
+tls13_store_peer_certificate_list(tls13_hs_t *hs, const uint8_t *body, size_t body_len)
+{
+    if (!hs || !body || body_len < 4)
+        return 0;
+
+    uint8_t context_len = body[0];
+    if ((size_t)1 + context_len + 3 > body_len)
+        return 0;
+
+    size_t pos = 1 + context_len;
+    uint32_t list_len = ((uint32_t)body[pos] << 16) |
+                        ((uint32_t)body[pos + 1] << 8) |
+                        body[pos + 2];
+    pos += 3;
+    if (pos + list_len > body_len)
+        return 0;
+
+    tls13_clear_peer_chain(hs);
+
+    size_t end = pos + list_len;
+    size_t cert_index = 0;
+    while (pos + 3 <= end && cert_index < TLS13_MAX_PEER_CERTS) {
+        uint32_t cert_len = ((uint32_t)body[pos] << 16) |
+                            ((uint32_t)body[pos + 1] << 8) |
+                            body[pos + 2];
+        pos += 3;
+        if (cert_len == 0 || pos + cert_len + 2 > end)
+            return 0;
+
+        if (cert_index == 0) {
+            hs->peer_cert = malloc(cert_len);
+            if (!hs->peer_cert)
+                return 0;
+            memcpy(hs->peer_cert, body + pos, cert_len);
+            hs->peer_cert_len = cert_len;
+        } else {
+            size_t i = cert_index - 1;
+            hs->peer_chain_der[i] = malloc(cert_len);
+            if (!hs->peer_chain_der[i])
+                return 0;
+            memcpy(hs->peer_chain_der[i], body + pos, cert_len);
+            hs->peer_chain_der_len[i] = cert_len;
+            hs->peer_chain_count++;
+        }
+        pos += cert_len;
+
+        uint16_t ext_len = ((uint16_t)body[pos] << 8) | body[pos + 1];
+        pos += 2;
+        if (pos + ext_len > end)
+            return 0;
+        pos += ext_len;
+        cert_index++;
+    }
+
+    return cert_index > 0 || list_len == 0;
+}
+
 /* Extension types */
 #define EXT_SERVER_NAME 0
 #define EXT_STATUS_REQUEST 5
@@ -203,6 +285,7 @@ typedef struct {
 #define NAMED_GROUP_X25519 0x001D
 #define NAMED_GROUP_SECP256R1 0x0017
 #define NAMED_GROUP_SECP384R1 0x0018
+#define NAMED_GROUP_SECP521R1 0x0019
 
 static int cbb_finish_to_buf(CBB *cbb, uint8_t *out, size_t *out_len, size_t out_cap)
 {
@@ -489,6 +572,13 @@ static int tls13_derive_application_secrets(tls13_hs_t *hs)
     if (opssl_tls13_derive_secret_compat(hs->server_ap_traffic, hs->hash_len,
                                  hs->master_secret, hs->hash_len,
                                  "s ap traffic", transcript_hash, hash_len,
+                                 hs->hash_algo) != 1)
+        return -1;
+
+    /* exporter_master_secret = Derive-Secret(master_secret, "exp master", transcript) */
+    if (opssl_tls13_derive_secret_compat(hs->exporter_master_secret, hs->hash_len,
+                                 hs->master_secret, hs->hash_len,
+                                 "exp master", transcript_hash, hash_len,
                                  hs->hash_algo) != 1)
         return -1;
 
@@ -1210,35 +1300,22 @@ int opssl_tls13_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
          * when we encounter a non-cert message (i.e. the Finished). */
         if (hs->request_client_cert) {
             while (offset < buf_len) {
-                if (offset + 4 > buf_len) return OPSSL_WANT_READ;
+                if (offset + 4 > buf_len) {
+                    *consumed = offset;
+                    return OPSSL_WANT_READ;
+                }
                 uint8_t mt = buf[offset];
                 uint32_t ml = ((uint32_t)buf[offset+1] << 16) |
                               ((uint32_t)buf[offset+2] << 8) | buf[offset+3];
-                if (offset + 4 + ml > buf_len) return OPSSL_WANT_READ;
+                if (offset + 4 + ml > buf_len) {
+                    *consumed = offset;
+                    return OPSSL_WANT_READ;
+                }
 
                 if (mt == TLS13_MSG_CERTIFICATE) {
-                    /* Parse the client certificate from the message body */
-                    if (!hs->peer_cert && ml > 0) {
-                        const uint8_t *cbody = buf + offset + 4;
-                        /* TLS 1.3 Certificate: 1 byte context + 3 byte list length */
-                        if (ml > 4) {
-                            uint32_t list_len = ((uint32_t)cbody[1] << 16) |
-                                                ((uint32_t)cbody[2] << 8) | cbody[3];
-                            size_t cpos = 4;
-                            if (list_len > 0 && cpos + 3 <= ml) {
-                                uint32_t cert_len = ((uint32_t)cbody[cpos] << 16) |
-                                                    ((uint32_t)cbody[cpos+1] << 8) | cbody[cpos+2];
-                                cpos += 3;
-                                if (cert_len > 0 && cpos + cert_len <= ml) {
-                                    hs->peer_cert = malloc(cert_len);
-                                    if (hs->peer_cert) {
-                                        memcpy(hs->peer_cert, cbody + cpos, cert_len);
-                                        hs->peer_cert_len = cert_len;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    if (ml > 0 &&
+                        !tls13_store_peer_certificate_list(hs, buf + offset + 4, ml))
+                        return OPSSL_ERROR;
                     tls13_update_transcript(hs, buf + offset, 4 + ml);
                     offset += 4 + ml;
                 } else if (mt == TLS13_MSG_CERTIFICATE_VERIFY) {
@@ -1250,11 +1327,16 @@ int opssl_tls13_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                     break;
                 }
             }
-            if (offset >= buf_len)
+            if (offset >= buf_len) {
+                *consumed = offset;
                 return OPSSL_WANT_READ;
+            }
         }
 
-        if (offset + 4 > buf_len) return OPSSL_WANT_READ;
+        if (offset + 4 > buf_len) {
+            *consumed = offset;
+            return OPSSL_WANT_READ;
+        }
         uint8_t msg_type = buf[offset];
         uint32_t msg_len = ((uint32_t)buf[offset+1] << 16) |
                            ((uint32_t)buf[offset+2] << 8) | buf[offset+3];
@@ -1264,6 +1346,7 @@ int opssl_tls13_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
         }
 
         if (offset + 4 + msg_len > buf_len) {
+            *consumed = offset;
             return OPSSL_WANT_READ;
         }
 
@@ -1499,7 +1582,8 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             !CBB_add_u16_length_prefixed(&sg_ext, &sg_list) ||
             !CBB_add_u16(&sg_list, NAMED_GROUP_X25519) ||
             !CBB_add_u16(&sg_list, NAMED_GROUP_SECP256R1) ||
-            !CBB_add_u16(&sg_list, NAMED_GROUP_SECP384R1)) {
+            !CBB_add_u16(&sg_list, NAMED_GROUP_SECP384R1) ||
+            !CBB_add_u16(&sg_list, NAMED_GROUP_SECP521R1)) {
             CBB_cleanup(&cbb);
             return OPSSL_ERROR;
         }
@@ -1510,7 +1594,11 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             !CBB_add_u16_length_prefixed(&extensions, &sa_ext) ||
             !CBB_add_u16_length_prefixed(&sa_ext, &sa_list) ||
             !CBB_add_u16(&sa_list, 0x0804) ||  /* rsa_pss_rsae_sha256 */
-            !CBB_add_u16(&sa_list, 0x0403)) {  /* ecdsa_secp256r1_sha256 */
+            !CBB_add_u16(&sa_list, 0x0805) ||  /* rsa_pss_rsae_sha384 */
+            !CBB_add_u16(&sa_list, 0x0806) ||  /* rsa_pss_rsae_sha512 */
+            !CBB_add_u16(&sa_list, 0x0403) ||  /* ecdsa_secp256r1_sha256 */
+            !CBB_add_u16(&sa_list, 0x0503) ||  /* ecdsa_secp384r1_sha384 */
+            !CBB_add_u16(&sa_list, 0x0603)) {  /* ecdsa_secp521r1_sha512 */
             CBB_cleanup(&cbb);
             return OPSSL_ERROR;
         }
@@ -1700,6 +1788,19 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             return OPSSL_ERROR;
         }
 
+        /* Free unused secondary ECDH context (P-256 generated but X25519 selected) */
+        if (hs->secondary_group == NAMED_GROUP_SECP256R1 ||
+            hs->secondary_group == NAMED_GROUP_SECP384R1) {
+            if (hs->group != hs->secondary_group) {
+                opssl_ecdh_ctx_t *sec_ecdh;
+                memcpy(&sec_ecdh, hs->secondary_priv, sizeof(sec_ecdh));
+                if (sec_ecdh)
+                    opssl_ecdh_free(sec_ecdh);
+                memset(hs->secondary_priv, 0, sizeof(hs->secondary_priv));
+                hs->secondary_group = 0;
+            }
+        }
+
         /* Derive handshake secrets */
         if (tls13_derive_handshake_secrets(hs) != 0) {
             return OPSSL_ERROR;
@@ -1765,38 +1866,8 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             }
 
             if (msg_type == TLS13_MSG_CERTIFICATE) {
-                CBS cert_msg;
-                CBS_init(&cert_msg, buf + offset + 4, msg_len);
-                uint8_t ctx_len;
-                if (!CBS_get_u8(&cert_msg, &ctx_len))
+                if (!tls13_store_peer_certificate_list(hs, buf + offset + 4, msg_len))
                     return OPSSL_ERROR;
-                if (ctx_len > 0) {
-                    CBS ctx_data;
-                    if (!CBS_get_bytes(&cert_msg, &ctx_data, ctx_len))
-                        return OPSSL_ERROR;
-                }
-                uint32_t list_len;
-                if (!CBS_get_u24(&cert_msg, &list_len))
-                    return OPSSL_ERROR;
-                CBS cert_list;
-                if (!CBS_get_bytes(&cert_msg, &cert_list, list_len))
-                    return OPSSL_ERROR;
-                if (CBS_len(&cert_list) > 0 && !hs->peer_cert) {
-                    uint32_t cert_len;
-                    if (CBS_get_u24(&cert_list, &cert_len) && cert_len > 0) {
-                        CBS cert_der;
-                        if (CBS_get_bytes(&cert_list, &cert_der, cert_len)) {
-                            hs->peer_cert = malloc(cert_len);
-                            if (hs->peer_cert) {
-                                memcpy(hs->peer_cert, CBS_data(&cert_der), cert_len);
-                                hs->peer_cert_len = cert_len;
-                            }
-                        }
-                        uint16_t ext_len;
-                        if (CBS_len(&cert_list) >= 2)
-                            CBS_get_u16(&cert_list, &ext_len);
-                    }
-                }
                 tls13_update_transcript(hs, buf + offset, 4 + msg_len);
                 offset += 4 + msg_len;
                 continue;
@@ -2263,15 +2334,25 @@ opssl_tls13_get_peer_cert(void *hs_opaque, size_t *out_len)
     return hs->peer_cert;
 }
 
+size_t
+opssl_tls13_get_peer_chain(void *hs_opaque, const uint8_t ***ders, const size_t **lens)
+{
+    tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
+    if (!hs || hs->peer_chain_count == 0) {
+        if (ders) *ders = NULL;
+        if (lens) *lens = NULL;
+        return 0;
+    }
+    if (ders) *ders = (const uint8_t **)hs->peer_chain_der;
+    if (lens) *lens = hs->peer_chain_der_len;
+    return hs->peer_chain_count;
+}
+
 void
 opssl_tls13_free_peer_cert(void *hs_opaque)
 {
     tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
-    if (hs && hs->peer_cert) {
-        free(hs->peer_cert);
-        hs->peer_cert = NULL;
-        hs->peer_cert_len = 0;
-    }
+    tls13_clear_peer_chain(hs);
 }
 
 void
@@ -2314,6 +2395,54 @@ opssl_tls13_get_resumption_master_secret(void *hs_opaque, size_t *out_len)
     }
     if (out_len) *out_len = hs->hash_len;
     return hs->resumption_master_secret;
+}
+
+const uint8_t *
+opssl_tls13_get_client_app_traffic_secret(void *hs_opaque, size_t *out_len)
+{
+    tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
+    if (!hs || hs->state != OPSSL_HS_COMPLETE || hs->hash_len == 0) {
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    if (out_len) *out_len = hs->hash_len;
+    return hs->client_ap_traffic;
+}
+
+const uint8_t *
+opssl_tls13_get_server_app_traffic_secret(void *hs_opaque, size_t *out_len)
+{
+    tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
+    if (!hs || hs->state != OPSSL_HS_COMPLETE || hs->hash_len == 0) {
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    if (out_len) *out_len = hs->hash_len;
+    return hs->server_ap_traffic;
+}
+
+const uint8_t *
+opssl_tls13_get_exporter_master_secret(void *hs_opaque, size_t *out_len)
+{
+    tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
+    if (!hs || hs->state != OPSSL_HS_COMPLETE || hs->hash_len == 0) {
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    if (out_len) *out_len = hs->hash_len;
+    return hs->exporter_master_secret;
+}
+
+const uint8_t *
+opssl_tls13_get_client_random(void *hs_opaque, size_t *out_len)
+{
+    tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
+    if (!hs) {
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    if (out_len) *out_len = sizeof(hs->client_random);
+    return hs->client_random;
 }
 
 opssl_hmac_algo_t

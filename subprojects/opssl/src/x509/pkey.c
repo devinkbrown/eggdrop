@@ -713,6 +713,14 @@ opssl_pkey_type(const opssl_pkey_t *key)
     return key ? key->type : OPSSL_PKEY_RSA;
 }
 
+opssl_curve_t
+opssl_pkey_ec_curve(const opssl_pkey_t *key)
+{
+    if (!key || key->type != OPSSL_PKEY_EC)
+        return (opssl_curve_t)0;
+    return key->key.ec.curve;
+}
+
 size_t
 opssl_pkey_bits(const opssl_pkey_t *key)
 {
@@ -854,6 +862,15 @@ opssl_pkey_sign(const opssl_pkey_t *key, const uint8_t *digest, size_t digest_le
 
     switch (key->type) {
     case OPSSL_PKEY_RSA: {
+        opssl_hmac_algo_t hash;
+        switch (digest_len) {
+        case OPSSL_SHA1_DIGEST_LEN: hash = OPSSL_HMAC_SHA1; break;
+        case OPSSL_SHA256_DIGEST_LEN: hash = OPSSL_HMAC_SHA256; break;
+        case OPSSL_SHA384_DIGEST_LEN: hash = OPSSL_HMAC_SHA384; break;
+        case OPSSL_SHA512_DIGEST_LEN: hash = OPSSL_HMAC_SHA512; break;
+        default: return 0;
+        }
+
         opssl_rsa_ctx_t *rsa = opssl_rsa_new();
         if (!rsa)
             return 0;
@@ -861,7 +878,7 @@ opssl_pkey_sign(const opssl_pkey_t *key, const uint8_t *digest, size_t digest_le
             opssl_rsa_free(rsa);
             return 0;
         }
-        int ret = opssl_rsa_sign(rsa, OPSSL_RSA_PSS, OPSSL_HMAC_SHA256,
+        int ret = opssl_rsa_sign(rsa, OPSSL_RSA_PSS, hash,
                                  digest, digest_len, sig, sig_len);
         opssl_rsa_free(rsa);
         return ret;

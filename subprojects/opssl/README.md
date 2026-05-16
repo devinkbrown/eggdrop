@@ -24,6 +24,8 @@ meson test -C builddir
 | `ktls` | `auto` | Linux kernel TLS offload (requires `linux/tls.h`) |
 | `postquantum` | `enabled` | ML-KEM (Kyber) post-quantum key exchange |
 | `session_export` | `enabled` | TLS session state export/import for live migration |
+| `ca_cert_file` | `auto` | Path to system CA certificate bundle (auto-detected) |
+| `ca_cert_dir` | `auto` | Path to system CA certificate directory (auto-detected) |
 | `tests` | `true` | Build test suite |
 
 ```bash
@@ -61,7 +63,7 @@ src/crypto/
   sha256.c       SHA-256
   sha512.c       SHA-384, SHA-512
   sha3.c         SHA-3 (Keccak), SHAKE-128/256
-  hmac.c         HMAC-SHA-256/384/512
+  hmac.c         HMAC-SHA-1/256/384/512
   hkdf.c         HKDF extract/expand/expand-label (RFC 5869)
   pbkdf2.c       PBKDF2-HMAC (RFC 2898)
   aes.c          AES-128/256 (software)
@@ -73,7 +75,7 @@ src/crypto/
   poly1305.c     Poly1305 MAC
   chacha20_poly1305.c   ChaCha20-Poly1305 AEAD
   bignum.c       multi-precision arithmetic (64-bit limbs)
-  ecc.c          P-256, P-384 (Montgomery field, complete addition)
+  ecc.c          P-256, P-384, P-521 (Montgomery/Mersenne field, complete addition)
   x25519.c       X25519 key exchange (5x51-bit limbs, Montgomery ladder)
   ed25519.c      Ed25519 sign/verify (extended twisted Edwards)
   rsa.c          RSA (CRT, blinding, PKCS#1 v1.5, PSS)
@@ -120,14 +122,14 @@ All primitives are real implementations, not wrappers around another library.
 | Category | Algorithms |
 |----------|------------|
 | Hash | SHA-1, SHA-256, SHA-384, SHA-512, SHA3-256, SHA3-512, SHAKE-128/256, BLAKE2b |
-| MAC | HMAC-SHA-256/384/512 |
+| MAC | HMAC-SHA-1/256/384/512 |
 | KDF | HKDF (RFC 5869), PBKDF2 (RFC 2898), Argon2id (RFC 9106) |
 | AEAD | AES-128/256-GCM, ChaCha20-Poly1305, AES-128/256-CCM, AES-128/256-CCM_8, Camellia-128/256-GCM |
-| Key exchange | X25519, P-256, P-384, FFDHE-2048/3072/4096 |
-| Signatures | Ed25519, ECDSA (P-256/P-384), RSA (PKCS#1 v1.5, PSS), ML-DSA-65 (FIPS 204) |
+| Key exchange | X25519, P-256, P-384, P-521, FFDHE-2048/3072/4096 |
+| Signatures | Ed25519, ECDSA (P-256/P-384/P-521), RSA (PKCS#1 v1.5, PSS), ML-DSA-65 (FIPS 204) |
 | Post-quantum | ML-KEM-768/1024 (FIPS 203), ML-DSA-65 (FIPS 204) |
 | X.509 | DER/PEM parsing, chain verification, CRL, OCSP, fingerprinting |
-| Encoding | Base64 (standard + URL-safe) |
+| Encoding | Base64 (standard) |
 
 ### Security properties
 
@@ -271,15 +273,33 @@ opssl_x25519_keygen(priv, pub);
 
 ## Tests
 
-Three test suites:
+Four test suites:
 
-- `test_crypto` — SHA-256/512, SHA-1, SHA3-256/512, SHAKE-128/256, BLAKE2b, HMAC, HKDF, PBKDF2, Argon2id, AEAD (AES-GCM, ChaCha20-Poly1305, AES-CCM, Camellia-GCM), X25519, Ed25519, ECDSA, ECDH, RSA, ML-DSA-65, ML-KEM, FFDHE, Base64, constant-time ops, hardware acceleration
+- `test_crypto` — SHA-256/512, SHA-1, SHA3-256/512, SHAKE-128/256, BLAKE2b, HMAC, HKDF, PBKDF2, Argon2id, AEAD (AES-GCM, ChaCha20-Poly1305, AES-CCM, Camellia-GCM), X25519, Ed25519, ECDSA, ECDH (P-256/P-384/P-521), RSA, ML-DSA-65, ML-KEM, FFDHE, Base64, constant-time ops, hardware acceleration
 - `test_tls` — TLS protocol handshake and record layer
 - `test_x509` — certificate parsing, chain verification, fingerprinting
+- `test_mlkem_debug` — ML-KEM intermediate value validation (NTT, sampling, encaps/decaps internals)
 
 ```bash
 meson test -C builddir --verbose
 ```
+
+## Documentation
+
+Detailed API references for each header are in `doc/`:
+
+| Document | Covers |
+|----------|--------|
+| [crypto-api.txt](doc/crypto-api.txt) | Cryptographic primitives (`opssl/crypto.h`) |
+| [ctx-api.txt](doc/ctx-api.txt) | TLS context configuration (`opssl/ctx.h`) |
+| [conn-api.txt](doc/conn-api.txt) | Per-connection TLS operations (`opssl/conn.h`) |
+| [cert-api.txt](doc/cert-api.txt) | X.509 certificate operations (`opssl/cert.h`) |
+| [ktls-api.txt](doc/ktls-api.txt) | Linux kernel TLS offload (`opssl/ktls.h`) |
+| [dtls-api.txt](doc/dtls-api.txt) | Datagram TLS (`opssl/dtls.h`) |
+| [err-api.txt](doc/err-api.txt) | Error handling (`opssl/err.h`) |
+| [cbs-api.txt](doc/cbs-api.txt) | Wire format parser/builder (`opssl/cbs.h`) |
+| [types-api.txt](doc/types-api.txt) | Core types, enums, constants (`opssl/types.h`) |
+| [platform-api.txt](doc/platform-api.txt) | Platform abstraction (`opssl/platform.h`) |
 
 ## Return conventions
 

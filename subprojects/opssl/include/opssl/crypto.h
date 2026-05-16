@@ -117,10 +117,10 @@ int opssl_argon2id_verify(const uint8_t *password, size_t password_len,
 typedef struct opssl_hmac_ctx opssl_hmac_ctx_t;
 
 typedef enum {
-    OPSSL_HMAC_SHA1,
-    OPSSL_HMAC_SHA256,
-    OPSSL_HMAC_SHA384,
-    OPSSL_HMAC_SHA512,
+    OPSSL_HMAC_SHA256 = 0,
+    OPSSL_HMAC_SHA384 = 1,
+    OPSSL_HMAC_SHA512 = 2,
+    OPSSL_HMAC_SHA1   = 3,
 } opssl_hmac_algo_t;
 
 int  opssl_hmac_init(opssl_hmac_ctx_t *ctx, opssl_hmac_algo_t algo,
@@ -160,19 +160,6 @@ int opssl_pbkdf2(opssl_hmac_algo_t algo,
                  const uint8_t *salt, size_t salt_len,
                  uint32_t iterations,
                  uint8_t *out, size_t out_len);
-
-/* ─── bcrypt (OpenBSD password hashing) ────────────────────────────── */
-
-#define OPSSL_BCRYPT_HASH_LEN 60
-
-int opssl_bcrypt_hash(const char *password, const char *salt, char *out);
-int opssl_bcrypt_verify(const char *password, const char *hash);
-int opssl_bcrypt_gensalt(int work_factor, char *out);
-
-/* ─── TOTP (RFC 6238) ───────────────────────────────────────────────── */
-
-int opssl_totp_generate(const uint8_t *secret, size_t secret_len,
-                        uint64_t timestamp, uint32_t digits, uint32_t *out);
 
 /* ─── AEAD Ciphers ───────────────────────────────────────────────────── */
 

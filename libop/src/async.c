@@ -338,14 +338,15 @@ op_async_active(void)
 int
 op_async_nthreads(void)
 {
-	return async_pool != NULL ? op_tpool_nthreads(async_pool) : 0;
+	if (async_pool == NULL)
+		return 0;
+	return op_tpool_nthreads(async_pool);
 }
 
 int
 op_async_get_stats(op_tpool_worker_stats_t *out, int max)
 {
-	if (async_pool == NULL || out == NULL || max <= 0)
+	if (async_pool == NULL)
 		return 0;
-
 	return op_tpool_get_stats(async_pool, out, max);
 }

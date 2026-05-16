@@ -88,7 +88,7 @@ opssl_set_error(uint32_t reason, const char *msg)
 
     /* Store custom message */
     if (msg) {
-        snprintf(entry->msg, ERR_MSG_SIZE, "%.127s", msg);
+        snprintf(entry->msg, ERR_MSG_SIZE, "%s", msg);
     } else {
         entry->msg[0] = '\0';
     }

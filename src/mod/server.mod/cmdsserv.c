@@ -38,7 +38,7 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
     dprintf(idx, "Server list:\n");
     int i = 0;
     for (; x; x = x->next) {
-      op_strbuf_t s;
+      op_strbuf_t s = {};
       op_strbuf_init(&s);
 #ifdef IPV6
       if (inet_pton(AF_INET6, x->name, buf) == 1)

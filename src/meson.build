@@ -31,7 +31,6 @@ core_sources = files(
   'egg_store_flat.c',
   'egg_store_lmdb.c',
   'flags.c',
-  'io_thread.c',
   'language.c',
   'main.c',
   'match.c',
@@ -220,12 +219,15 @@ if opt_static
     c_args: core_cargs + ['-DSTATIC'],
     dependencies: eggdrop_deps,
     install: true,
+    install_rpath: get_option('prefix') / get_option('libdir'),
   )
 
 # -------------------------------------------------------------------------
 # Dynamic build: build each module as a shared_module
 # -------------------------------------------------------------------------
 else
+  _install_rpath = get_option('prefix') / get_option('libdir')
+
   # Build the eggdrop binary (no module objects linked in)
   eggdrop_exe = executable(opt_exec,
     sources: core_sources,
@@ -234,6 +236,7 @@ else
     dependencies: eggdrop_deps,
     export_dynamic: true,   # allow modules to call back into binary
     install: true,
+    install_rpath: _install_rpath,
   )
 
   # Install path for modules
@@ -259,6 +262,7 @@ else
       name_suffix: mod_ext,
       install: true,
       install_dir: modules_dir,
+      install_rpath: _install_rpath,
       # Modules are unity builds (one TU each) — LTO adds link-time
       # code-gen overhead with no cross-TU inlining benefit.
       override_options: ['b_lto=false'],

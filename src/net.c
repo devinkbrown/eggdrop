@@ -40,7 +40,6 @@
 #endif
 #include "main.h"
 #include "modules.h"
-#include "io_thread.h"
 #include <op_commio.h>
 #include <commio-int.h>
 #include <commio-ssl.h>
@@ -111,17 +110,6 @@ static void commio_write_cb(op_fde_t *F, void *data)
 
   sl->commio_write_ready = 1;
   op_setselect(F, OP_SELECT_WRITE, commio_write_cb, data);
-}
-
-void socklist_reclaim_from_iot(int sock, int slist_idx)
-{
-  io_thread_del_sock(sock, slist_idx);
-  op_fde_t *F = op_get_fde(sock);
-  if (!F)
-    F = op_open(sock, OP_FD_SOCKET, "eggdrop-tls");
-  if (F)
-    op_setselect(F, OP_SELECT_READ, commio_read_cb,
-                 (void *)(intptr_t)slist_idx);
 }
 
 /* Platform socket shims */
@@ -460,15 +448,6 @@ int allocsock(int sock, int options)
             op_setselect(F, OP_SELECT_WRITE, commio_write_cb,
                          (void *)(intptr_t)i);
         }
-        /* Hand eligible sockets to the io_thread for pre-reading.
-         * Skip sockets that need main-thread processing (connect,
-         * listen, proxy, websocket, etc.). */
-        if (io_thread_active() &&
-            !(options & (SOCK_CONNECT | SOCK_LISTEN | SOCK_TCL |
-                         SOCK_WS | SOCK_PROXYWAIT | SOCK_PASS)) && F) {
-          io_thread_add_sock(sock, i);
-          op_setselect(F, OP_SELECT_READ, nullptr, nullptr);
-        }
       }
       return i;
     }
@@ -608,8 +587,6 @@ void killsock(int sock)
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if ((td->socklist[i].sock == sock) && !(td->socklist[i].flags & SOCK_UNUSED)) {
       if (!(td->socklist[i].flags & SOCK_TCL)) { /* nothing to free for tclsocks */
-        /* Remove from io_thread BEFORE closing the fd. */
-        io_thread_del_sock(sock, i);
 #ifdef TLS
         if (td->socklist[i].ssl) {
           opssl_shutdown(td->socklist[i].ssl);
@@ -1379,11 +1356,6 @@ int sockgets(char *s, int *len)
   int ret, got;
   struct threaddata *td = threaddata();
 
-  /* Drain any results the io_thread has pre-read so linebufs are
-   * up-to-date before we scan them. */
-  if (io_thread_active())
-    io_thread_drain();
-
   for (int i = 0; i < td->MAXSOCKS; i++) {
     if (socklist[i].flags & (SOCK_UNUSED | SOCK_TCL | SOCK_BUFFER))
       continue;
@@ -1421,33 +1393,6 @@ int sockgets(char *s, int *len)
   *len = 0;
   ret = sockread(xx, len, socklist, td->MAXSOCKS, 0);
   if (ret < 0) {
-    /* io_thread's commio handler may have drained results into linebufs
-     * during op_select().  Re-check before returning idle. */
-    if (ret == -3 && io_thread_active()) {
-      for (int j = 0; j < td->MAXSOCKS; j++) {
-        if (socklist[j].flags & (SOCK_UNUSED | SOCK_TCL | SOCK_BUFFER))
-          continue;
-        if (op_linebuf_len(&socklist[j].handler.sock.recvbuf) > 0) {
-          if (!(socklist[j].flags & SOCK_BINARY)) {
-            got = op_linebuf_get(&socklist[j].handler.sock.recvbuf, s,
-                                 READMAX + 1, 0, 0);
-          } else {
-            got = op_linebuf_get(&socklist[j].handler.sock.recvbuf, s,
-                                 READMAX + 1, 1, 1);
-          }
-          if (got > 0) {
-            *len = got;
-            return socklist[j].sock;
-          }
-        }
-        if (!(socklist[j].flags & SOCK_UNUSED) &&
-            (socklist[j].flags & SOCK_EOFD)) {
-          s[0] = 0;
-          *len = socklist[j].sock;
-          return -1;
-        }
-      }
-    }
     s[0] = 0;
     return ret;
   }
@@ -1467,18 +1412,6 @@ int sockgets(char *s, int *len)
                          (ssize_t)*len, LINEBUF_RAW);
     }
     socklist[ret].flags &= ~SOCK_CONNECT;
-    /* Connection is established — hand to io_thread for pre-reading. */
-    if (io_thread_active() &&
-        !(socklist[ret].flags & (SOCK_TCL | SOCK_WS))
-#ifdef TLS
-        && !socklist[ret].ssl
-#endif
-       ) {
-      io_thread_add_sock(socklist[ret].sock, ret);
-      op_fde_t *F_add = op_get_fde(socklist[ret].sock);
-      if (F_add)
-        op_setselect(F_add, OP_SELECT_READ, nullptr, nullptr);
-    }
     s[0] = 0;
     return socklist[ret].sock;
   }
