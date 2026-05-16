@@ -2600,6 +2600,7 @@ typedef struct {
 	void (*close_fd)(op_fde_t *);     /* optional; cleanup before fd close */
 	bool (*start_pollthread)(void);   /* optional; NULL if not supported */
 	void (*stop_pollthread)(void);    /* optional; NULL if not supported */
+	void (*reinit_after_fork)(void);  /* optional; recreate kernel state after fork */
 	char  name[25];
 } io_ops_t;
 
@@ -2651,6 +2652,7 @@ try_uring(void)
 			.init_event       = op_uring_init_event,
 			.start_pollthread = op_uring_start_pollthread,
 			.stop_pollthread  = op_uring_stop_pollthread,
+			.reinit_after_fork = op_uring_reinit_after_fork,
 			.name             = "uring",
 		};
 		return 0;
@@ -2950,6 +2952,13 @@ int
 op_setup_fd(op_fde_t *F)
 {
 	return g_io.setup_fd(F);
+}
+
+void
+op_reinit_after_fork(void)
+{
+	if (g_io.reinit_after_fork != NULL)
+		g_io.reinit_after_fork();
 }
 
 

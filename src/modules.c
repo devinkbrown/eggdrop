@@ -179,6 +179,7 @@ void (*dns_ipbyhost) (char *) = async_dns_ipbyhost;
 void (*webui_dcc_telnet_hostresolved) (int, int) = 0;
 size_t (*webui_frame) (const char **, const char *, size_t) = 0;
 void (*webui_unframe) (int, char *, int *) = 0;
+void (*hook_log) (int, const char *, const char *) = 0;
 
 module_entry *module_list;
 dependancy *dependancy_list = nullptr;
@@ -1144,6 +1145,9 @@ void add_hook(int hook_num, Function func)
     case HOOK_WEBUI_UNFRAME:
       webui_unframe = (void (*)(int, char *, int *)) func;
       break;
+    case HOOK_LOG:
+      hook_log = (void (*)(int, const char *, const char *)) func;
+      break;
     }
 }
 
@@ -1220,6 +1224,10 @@ void del_hook(int hook_num, Function func)
     case HOOK_WEBUI_UNFRAME:
       if (webui_unframe == (void (*)(int, char *, int *)) func)
         webui_unframe = (void (*)(int, char *, int *)) null_func;
+      break;
+    case HOOK_LOG:
+      if (hook_log == (void (*)(int, const char *, const char *)) func)
+        hook_log = nullptr;
       break;
     }
 }

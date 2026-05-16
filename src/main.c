@@ -48,6 +48,7 @@
 #include "modules.h"
 #include "bg.h"
 #include "configtoml.h"
+#include "websetup.h"
 #include "script.h"
 #include "async_dns.h"
 #include "perf.h"
@@ -115,7 +116,7 @@ int resolve_timeout = RES_TIMEOUT;    /* Hostname/address lookup timeout        
 char quit_msg[1024];                  /* Quit message                           */
 
 /* Moved here for n flag warning, put back in do_arg if removed */
-unsigned char cliflags = 0;
+unsigned short cliflags = 0;
 
 
 /* Traffic stats — cache-line padded atomic counters (see traffic.h) */
@@ -400,6 +401,7 @@ static void show_help(void) {
          "-t  Don't background; use terminal to simulate DCC chat.\n"
          "-m  Create userfile.\n"
          "-s  Run the interactive setup wizard and write a TOML config.\n"
+         "-w  Run the web-based setup wizard (HTTP). Usage: -w [port] [outfile]\n"
          "-h  Show this help and exit.\n"
          "-v  Show version info and exit.\n\n"
          "Config file formats:\n"
@@ -423,8 +425,9 @@ static void do_arg(void)
   #define CLI_H        1 << 5
   #define CLI_BAD_FLAG 1 << 6
   #define CLI_S        1 << 7   /* setup wizard */
+  #define CLI_W        1 << 8   /* web setup wizard */
 
-  while ((option = getopt(argc, argv, "hnctmvs")) != -1) {
+  while ((option = getopt(argc, argv, "hnctmvsw")) != -1) {
     switch (option) {
       case 'n':
         cliflags |= CLI_N;
@@ -455,6 +458,9 @@ static void do_arg(void)
       case 's':
         cliflags |= CLI_S;
         break;
+      case 'w':
+        cliflags |= CLI_W;
+        break;
       default:
         cliflags |= CLI_BAD_FLAG;
         break;
@@ -474,6 +480,22 @@ static void do_arg(void)
     const char *outfile = (argc > optind) ? argv[optind] : "eggdrop.toml";
     printf("\n%s\n", version);
     exit(run_setup_wizard(outfile));
+  } else if (cliflags & CLI_W) {
+    /* Web-based setup wizard — HTTP server, then exits.
+     * Usage: eggdrop -w [port] [outfile]
+     * Defaults: port=8080, outfile=eggdrop.toml
+     */
+    int wport = 8080;
+    const char *outfile = "eggdrop.toml";
+    if (argc > optind && atoi(argv[optind]) > 0) {
+      wport = atoi(argv[optind]);
+      if (argc > optind + 1)
+        outfile = argv[optind + 1];
+    } else if (argc > optind) {
+      outfile = argv[optind];
+    }
+    printf("\n%s\n", version);
+    exit(run_web_setup(wport, outfile));
   } else if (argc > (optind + 1)) {
     printf("\n");
     printf("WARNING: More than one config file value detected\n");

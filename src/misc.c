@@ -580,6 +580,11 @@ void putlog (int type, char *chname, const char *format, ...)
     check_tcl_log(type, chname, out);
     inhere = 0;
   }
+  if (!inhere && hook_log) {
+    inhere = 1;
+    hook_log(type, chname, out);
+    inhere = 0;
+  }
   /* Place the timestamp in the string to be printed */
   if (out[0] && shtime) {
     memcpy(s, stamp, tsl);

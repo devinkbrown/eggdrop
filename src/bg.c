@@ -238,5 +238,7 @@ void bg_do_split(void)
       fatal("CANNOT FORK PROCESS.", 0);
     if (xx != 0)
       bg_do_detach(xx);
+    else
+      op_reinit_after_fork();
   }
 }

@@ -1284,6 +1284,17 @@ static void dcc_telnet(int idx, char *buf, int i)
   dcc[i].u.dns->dns_type = RES_HOSTBYIP;
   dcc[i].u.dns->ibuf = dcc[idx].sock;
   dcc[i].u.dns->type = &DCC_IDENTWAIT;
+
+  /* WebUI serves HTTP immediately — skip async DNS lookup */
+  if (!strcmp(dcc[idx].nick, "(webui)")) {
+    const char *ip = iptostr(&dcc[i].sockname.addr.sa);
+    size_t len = strlen(ip) + 1;
+    dcc[i].u.dns->host = get_data_ptr(len);
+    strlcpy(dcc[i].u.dns->host, ip, len);
+    dcc_telnet_hostresolved(i);
+    return;
+  }
+
   dcc_dnshostbyip(&dcc[i].sockname);
 }
 

@@ -58,6 +58,7 @@ extern int (*match_noterej) (struct userrec *, char *);
 extern void (*webui_dcc_telnet_hostresolved) (int, int);
 extern size_t (*webui_frame) (const char **, const char *, size_t);
 extern void (*webui_unframe) (int, char *, int *);
+extern void (*hook_log) (int, const char *, const char *);
 #endif
 
 /* botcmd.c */

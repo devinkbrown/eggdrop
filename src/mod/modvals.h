@@ -60,6 +60,7 @@ constexpr int HOOK_VERIFY_PASS2            = 117;
 constexpr int HOOK_DCC_TELNET_HOSTRESOLVED = 118;
 constexpr int HOOK_WEBUI_FRAME             = 119;
 constexpr int HOOK_WEBUI_UNFRAME           = 120;
+constexpr int HOOK_LOG                     = 121;
 
 /* These are FIXED once they are in a release they STAY */
 constexpr int MODCALL_START   = 0;

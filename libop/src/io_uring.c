@@ -103,6 +103,8 @@ static int uring_has_sqpoll        = 0;  /* set if SQPOLL kernel thread is activ
 static int uring_has_fixed_files   = 0;  /* set if registered file table active */
 static int uring_has_multishot     = 0;  /* set if IORING_POLL_ADD_MULTI works */
 static unsigned int uring_fixed_file_cap = 0;  /* number of slots in fixed table */
+static unsigned int uring_init_depth = 0;      /* saved ring depth for reinit */
+static unsigned int uring_init_flags = 0;      /* saved init flags for reinit */
 
 /* ---- Worker → I/O thread wake-up ---------------------------------------- */
 
@@ -775,6 +777,9 @@ op_init_netio_uring(void)
 	/* Record the I/O thread identity for the wake-up fast path. */
 	uring_io_tid     = pthread_self();
 	uring_io_tid_set = 1;
+
+	uring_init_depth = depth;
+	uring_init_flags = init_flags;
 
 	op_lib_log("io_uring: ring depth=%u flags=0x%x defer_taskrun=%d "
 	           "sqpoll=%d fixed_files=%u/%u multishot=%d wakeup_fd=%d",
@@ -1566,6 +1571,143 @@ op_uring_supports_event(void)
 	return op_epoll_supports_event();
 }
 
+/*
+ * op_uring_reinit_after_fork — recreate the io_uring ring in a child process.
+ *
+ * After fork(), the parent's io_uring ring is not usable by the child — the
+ * kernel ring memory is COW and diverges immediately.  This function tears
+ * down the stale ring, creates a fresh one, and re-arms all FDEs that have
+ * active read/write handlers.
+ */
+void
+op_uring_reinit_after_fork(void)
+{
+	/* Close the old wakeup eventfd — it belongs to the parent's ring. */
+	if (uring_wakeup_fd >= 0)
+	{
+		close(uring_wakeup_fd);
+		uring_wakeup_fd = -1;
+	}
+
+	/* Close the parent's ring fd.  We cannot call io_uring_queue_exit()
+	 * because the kernel ring context belongs to the parent process —
+	 * just close the fd and let the kernel reclaim it. */
+	close(uring.ring_fd);
+	memset(&uring, 0, sizeof(uring));
+
+	/* Recreate the ring with the same parameters.
+	 * IORING_SETUP_SINGLE_ISSUER is fine — we are the sole issuer now.
+	 * IORING_SETUP_CLAMP is essential: without it, large depths get EINVAL. */
+	unsigned int fallback_flags = 0;
+#if defined(IORING_SETUP_CLAMP)
+	fallback_flags |= IORING_SETUP_CLAMP;
+#endif
+#if defined(IORING_SETUP_NO_SQARRAY)
+	fallback_flags |= IORING_SETUP_NO_SQARRAY;
+#endif
+
+	int rc = io_uring_queue_init(uring_init_depth, &uring, uring_init_flags);
+	if (rc < 0)
+	{
+		/* The parent's ring may still be consuming memlock budget.
+		 * Try a smaller ring with minimal flags. */
+		rc = io_uring_queue_init(1024, &uring, fallback_flags);
+		if (rc < 0)
+			rc = io_uring_queue_init(256, &uring, fallback_flags);
+		if (rc < 0)
+		{
+			op_lib_log("op_uring_reinit_after_fork: FATAL: "
+			           "cannot recreate io_uring ring (err=%d)", -rc);
+			abort();
+		}
+		uring_has_defer_taskrun = 0;
+		uring_has_sqpoll = 0;
+	}
+
+	pthread_spin_init(&uring_sqlock, PTHREAD_PROCESS_PRIVATE);
+
+	/* Reset fixed file table state — re-register below. */
+	uring_has_fixed_files = 0;
+	uring_fixed_file_cap  = 0;
+
+#if defined(IORING_REGISTER_FILES2) || defined(IORING_REGISTER_FILES)
+	{
+		int dtsize = getdtablesize();
+		if (dtsize > 0 && (unsigned)dtsize <= URING_RING_DEPTH_MAX)
+		{
+			int rc = io_uring_register_files_sparse(&uring, (unsigned)dtsize);
+			if (rc == 0)
+			{
+				uring_has_fixed_files = 1;
+				uring_fixed_file_cap  = (unsigned)dtsize;
+			}
+		}
+	}
+#endif
+
+	/* Recreate wakeup eventfd. */
+	uring_wakeup_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+	if (uring_wakeup_fd >= 0)
+	{
+		uring_arm_wakeup();
+	}
+
+	/* Clear the dirty inbox — stale pointers from parent context. */
+	atomic_store_explicit(&uring_dirty_inbox, NULL, memory_order_relaxed);
+
+	/* Update I/O thread identity to the child's main thread. */
+	uring_io_tid     = pthread_self();
+	uring_io_tid_set = 1;
+
+	/* Walk all open FDEs and re-arm those with active handlers.
+	 * Clear PENDING/MULTISHOT flags since the old SQEs are gone. */
+	if (op_fd_table != NULL)
+	{
+		for (unsigned int bucket = 0; bucket < OP_FD_HASH_SIZE; bucket++)
+		{
+			op_dlink_node *ptr;
+			OP_DLINK_FOREACH(ptr, op_fd_table[bucket].head)
+			{
+				op_fde_t *F = ptr->data;
+				if (F == NULL || !IsFDOpen(F))
+					continue;
+
+				/* Reset uring-specific state */
+				F->pflags &= ~(URING_F_PENDING | URING_F_MULTISHOT |
+				               URING_F_KTLS_PEEK | URING_ARMED_MASK);
+				atomic_store_explicit(&F->uring_dirty, 0,
+				                      memory_order_relaxed);
+				atomic_store_explicit(&F->uring_dirty_next, (op_fde_t *)NULL,
+				                      memory_order_relaxed);
+				F->uring_fixed_idx = -1;
+
+				/* Re-register fixed file if supported. */
+				if (uring_has_fixed_files && F->fd >= 0
+				    && (unsigned)F->fd < uring_fixed_file_cap)
+				{
+					int rc = io_uring_register_files_update(
+						&uring, (unsigned)F->fd, &F->fd, 1);
+					if (rc >= 0)
+						F->uring_fixed_idx = F->fd;
+				}
+
+				/* Re-arm if there's active interest. */
+				if (F->read_handler != NULL || F->write_handler != NULL)
+				{
+					pthread_spin_lock(&F->pflags_lock);
+					op_arm_uring(F);
+					pthread_spin_unlock(&F->pflags_lock);
+				}
+			}
+		}
+	}
+
+	io_uring_submit(&uring);
+
+	op_lib_log("io_uring: reinit after fork complete, depth=%u",
+	           uring_init_depth);
+}
+
 #else  /* !HAVE_LIBURING */
 
 int  op_init_netio_uring(void) { return -1; }
@@ -1583,5 +1725,6 @@ void op_uring_unsched_event(struct ev_entry *event __attribute__((unused))) {}
 int  op_uring_supports_event(void) { return 0; }
 bool op_uring_start_pollthread(void) { return false; }
 void op_uring_stop_pollthread(void) {}
+void op_uring_reinit_after_fork(void) {}
 
 #endif /* HAVE_LIBURING */

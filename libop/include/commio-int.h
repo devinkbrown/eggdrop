@@ -200,6 +200,7 @@ void op_uring_unsched_event(struct ev_entry *event);
 int  op_uring_supports_event(void);
 bool op_uring_start_pollthread(void);
 void op_uring_stop_pollthread(void);
+void op_uring_reinit_after_fork(void);
 
 
 /* epoll versions */
