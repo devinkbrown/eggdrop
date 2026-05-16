@@ -19,6 +19,9 @@ Features
   ACCOUNTS            User account tracking
   PBKDF2              Password hashing migration
 
+Web management
+  modules/mod.webui   Dashboard setup, REST API, WebSocket, web wizard
+
 User and bot management
   USERS               User database and flags
   BOTNET              Botnet setup and management

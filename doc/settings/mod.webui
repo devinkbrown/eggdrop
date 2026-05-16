@@ -1,0 +1,45 @@
+webui module settings
+=====================
+
+webui-token
+  Default: "" (empty — all access denied)
+
+  Authentication token for the web dashboard and REST API. Must be
+  set to a non-empty string to enable access. Recommended: 32+ hex
+  characters generated with `openssl rand -hex 32`.
+
+  Can be set in TOML config:
+
+    [webui]
+    webui-token = "your-token-here"
+
+  Or via partyline:
+
+    .set webui-token your-token-here
+
+
+Listen port
+-----------
+
+The webui module does not use its own port setting. Instead, use
+the standard listen command with the "webui" flag:
+
+  [tcl]
+  commands = [
+    "listen 8443 webui",
+  ]
+
+Or in a Tcl script:
+
+  listen 8443 webui
+
+The listener requires TLS. Ensure ssl-certificate and ssl-privatekey
+are configured (defaults: eggdrop.crt and eggdrop.key).
+
+
+Connection limits
+-----------------
+
+  - Maximum 8 concurrent WebSocket connections
+  - HTTP connections are closed after each request (no keep-alive)
+  - No rate limiting on the module level (use firewall rules)

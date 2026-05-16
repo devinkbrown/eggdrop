@@ -1,0 +1,248 @@
+mod.webui — Web Management Dashboard
+=====================================
+
+The webui module provides a full-featured HTTPS dashboard for managing
+the bot from a web browser, plus a REST API for automation and a
+WebSocket endpoint for real-time event streaming.
+
+
+Requirements
+------------
+
+  - TLS-enabled build (always on by default with bundled opssl)
+  - A TLS certificate and key (self-signed is fine for local use)
+  - A listen port configured with the "webui" flag
+
+
+Setup
+-----
+
+1. Add the listen directive to your config:
+
+       [tcl]
+       commands = [
+         "listen 8443 webui",
+       ]
+
+2. Set an authentication token:
+
+       [webui]
+       webui-token = "a-long-random-string"
+
+   If no token is configured, the API is inaccessible (all requests
+   return 401).
+
+3. Ensure your TLS certificate is in place:
+
+       eggdrop.crt    (or configured via ssl-certificate)
+       eggdrop.key    (or configured via ssl-privatekey)
+
+4. Start the bot and open https://yourhost:8443 in a browser.
+
+
+Authentication
+--------------
+
+All API and WebSocket endpoints require authentication. The token can
+be provided in three ways:
+
+  1. Authorization header:
+       Authorization: Bearer <token>
+
+  2. Query parameter:
+       https://host:8443/api/status?token=<token>
+
+  3. Login endpoint (returns the token for browser storage):
+       POST /api/auth
+       Content-Type: application/json
+       {"token": "<token>"}
+
+The dashboard stores the token in localStorage after login.
+
+
+Dashboard Views
+---------------
+
+The single-page application provides 7 views:
+
+  Dashboard    Live overview: uptime, server, channels, users,
+               traffic sparklines, memory usage, module count.
+
+  Channels     All channels with member counts. Click to see
+               member list, bans, and send messages.
+
+  Users        User database with flags, hosts, and last-seen.
+               Add/remove users from the UI.
+
+  Logs         Live scrolling log stream via WebSocket.
+               Historical log ring buffer (last 200 lines).
+
+  Terminal     Direct command interface for sending raw IRC
+               commands, channel messages, and kick operations.
+
+  Network      Botnet topology and linked bots.
+
+  Settings     Bot configuration display and ignore list
+               management (add/remove ignore masks).
+
+
+REST API
+--------
+
+All endpoints return JSON. POST/DELETE bodies are JSON.
+All require valid authentication.
+
+GET endpoints:
+
+  /api/status
+    Bot status: nick, server, uptime, channel count, user count,
+    memory, traffic counters, module count.
+
+  /api/channels
+    List of channels with names and member counts.
+
+  /api/channels/<name>/members
+    Member list for a channel (nick, flags, idle time).
+
+  /api/channels/<name>/bans
+    Ban list for a channel (mask, set-by, timestamp).
+
+  /api/users
+    All user records (handle, flags, hosts, last-seen).
+
+  /api/users/<handle>
+    Single user detail record.
+
+  /api/logs
+    Last 200 log lines from the ring buffer.
+    Each entry: {time, flags, msg}
+
+  /api/ignores
+    Active ignore list (mask, comment, expiry).
+
+  /api/modules
+    Loaded modules (name, description).
+
+  /api/botnet
+    Linked bots in the botnet.
+
+POST endpoints:
+
+  /api/auth
+    Body: {"token": "<token>"}
+    Returns: {"ok": true} on success.
+
+  /api/say
+    Body: {"channel": "#chan", "text": "message"}
+    Sends a PRIVMSG to the channel.
+
+  /api/kick
+    Body: {"channel": "#chan", "nick": "target", "reason": "optional"}
+    Kicks a user from the channel.
+
+  /api/restart
+    Body: {} (empty)
+    Triggers a bot restart.
+
+  /api/users
+    Body: {"handle": "nick", "hostmask": "mask"}
+    Adds a new user to the database.
+
+  /api/ignores
+    Body: {"mask": "*!*@spammer.net", "comment": "reason", "expire": 60}
+    Adds an ignore (expire in minutes, 0 = permanent).
+
+DELETE endpoints:
+
+  /api/users/<handle>
+    Removes a user from the database.
+
+  /api/ignores
+    Body: {"mask": "*!*@spammer.net"}
+    Removes an ignore entry.
+
+
+WebSocket
+---------
+
+  /ws
+
+Connect with a valid token (via query param or first message).
+The server pushes two types of frames:
+
+  Log frames (as they occur):
+    {"type":"log","time":"12:34:56","flags":"mco","msg":"..."}
+
+  Status frames (every 5 seconds):
+    {"type":"status","nick":"bot","server":"irc.net","uptime":12345,
+     "channels":3,"users":42,"memory":8192,"traffic_in":1234,
+     "traffic_out":5678}
+
+The WebSocket uses standard RFC 6455 framing over TLS. Up to 8
+concurrent WebSocket connections are supported.
+
+
+Web Setup Wizard
+----------------
+
+For first-time setup without a config file, the bot provides an
+HTTP-based wizard accessible from a browser:
+
+    ./eggdrop -w              # default port 8080
+    ./eggdrop -w 9090         # custom port
+    ./eggdrop -w 9090 my.toml # custom port and output file
+
+This starts a plain HTTP server (no TLS — intended for localhost)
+serving a 5-step wizard form:
+
+  1. Bot identity (nick, altnick, realname, username, admin, owner)
+  2. IRC server (network, hostname, port, SSL, SASL, DNS-over-TLS)
+  3. Channels (up to 4, plus IRCX settings if Ophion selected)
+  4. Files & ports (userfile, chanfile, logfile, listen ports)
+  5. Modules (notes, seen, transfer, filesys)
+
+On submission, the wizard writes a complete TOML config file and
+exits. The bot can then be started normally:
+
+    ./eggdrop mybot.toml
+
+The web wizard produces identical output to the interactive terminal
+wizard (eggdrop --setup).
+
+
+Security Notes
+--------------
+
+  - The webui listens over TLS only. Plain HTTP connections receive
+    a TLS alert and are disconnected.
+
+  - The authentication token should be a long random string (32+
+    characters). Use: openssl rand -hex 32
+
+  - The web setup wizard (-w flag) uses plain HTTP since it runs
+    before TLS is configured. Only use on localhost or trusted LANs.
+
+  - WebSocket connections without valid auth are closed immediately.
+
+  - The API does not expose raw Tcl eval or arbitrary command
+    execution. Write operations are limited to the endpoints above.
+
+
+Tcl Variables
+-------------
+
+  webui-token    Authentication token for API access.
+                 Set via [webui] section or .set in partyline.
+
+
+Module Loading
+--------------
+
+The webui module requires TLS and will not load without it:
+
+    [modules]
+    load = [
+      "webui",
+    ]
+
+If compiled without TLS support, the module is not built.

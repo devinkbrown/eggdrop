@@ -82,10 +82,19 @@ Build & platform:
 Configuration:
   - TOML as primary config format (eggdrop.toml)
   - Interactive setup wizard: eggdrop --setup
+  - Web-based setup wizard: eggdrop -w [port] [outfile]
   - Full parity with eggdrop.conf (128+ settings)
   - Per-channel settings via [[chanset]] blocks
   - Inline Tcl via [tcl] code = """..."""
   - Auto-create userfile on first run (no -m needed)
+
+Web management:
+  - Full dashboard UI served over HTTPS (webui.mod)
+  - 7 views: Dashboard, Channels, Users, Logs, Terminal, Network, Settings
+  - REST API: GET/POST/DELETE for all bot resources
+  - Real-time WebSocket push (live log stream, status updates)
+  - Token-based authentication (Bearer header or ?token= query)
+  - HTTP setup wizard for first-launch browser configuration
 
 Scripting:
   - Tcl is fully optional (-Dtcl=disabled)
@@ -137,8 +146,9 @@ Quick start
 
     meson setup build/
     ninja -C build/
-    ./eggdrop --setup mybot.toml
-    ./eggdrop -m mybot.toml
+    ./eggdrop --setup mybot.toml    # interactive terminal wizard
+    ./eggdrop -w 8080 mybot.toml    # or: browser wizard at localhost:8080
+    ./eggdrop mybot.toml            # start the bot
 
 See INSTALL for dependencies and platform-specific instructions.
 
@@ -194,6 +204,39 @@ database, botnet, DCC, timers, and every IRC operation. See
 scripts/eggtools.py for the complete API with docstrings.
 
 
+Web UI
+------
+
+The webui module provides a full management dashboard over HTTPS:
+
+    [tcl]
+    commands = [
+      "listen 8443 webui",
+    ]
+
+    [webui]
+    webui-token = "your-secret-token-here"
+
+Then open https://yourbot:8443 in a browser. The dashboard provides:
+
+  - Real-time status (uptime, channels, users, memory, traffic)
+  - Channel management with member lists and ban lists
+  - User account administration (add/remove/edit flags)
+  - Live log stream via WebSocket
+  - Direct channel messaging and kick commands
+  - Module inventory and botnet status
+  - Ignore list management
+
+API endpoints are available for automation:
+
+    curl -H "Authorization: Bearer <token>" https://host:8443/api/status
+    curl -H "Authorization: Bearer <token>" https://host:8443/api/channels
+    curl -X POST -d '{"channel":"#test","text":"hello"}' \
+         -H "Authorization: Bearer <token>" https://host:8443/api/say
+
+See doc/modules/mod.webui for complete API documentation.
+
+
 Auto-restart
 ------------
 
@@ -213,6 +256,7 @@ Documentation
     doc/TLS             TLS certificate setup
     doc/BOTNET          Botnet configuration
     doc/modules/        Per-module documentation
+    doc/modules/mod.webui  Web UI dashboard and API reference
     eggdrop.toml        Full config reference
 
 

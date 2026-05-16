@@ -619,7 +619,7 @@ The loader respects these and loads dependencies before dependents.
 | **transfer** | DCC file transfer |
 | **twitch** | Twitch.tv IRC protocol support |
 | **uptime** | Bot uptime tracking |
-| **webui** | WebSocket HTTP server for web management |
+| **webui** | HTTPS dashboard, REST API, WebSocket push |
 | **woobie** | User greetings and other toys |
 
 ---
@@ -672,17 +672,96 @@ while (fgets(line, sizeof line, f)) {
 
 **Path ordering**: Some settings (like `chanfile`) are registered by modules loaded from `[modules]`. If `[paths]` appears before `[modules]`, the settings are buffered and replayed after modules load.
 
-### Setup Wizard
+### Setup Wizards
 
-Interactive 5-step wizard (`run_setup_wizard()`) for first-time setup:
+**Interactive terminal wizard** (`run_setup_wizard()` in `configtoml.c`):
 
-1. Bot identity (nick, altnick, realname, username)
-2. IRC network (network type menu, server, port, SSL, SASL)
-3. Channels (up to 8 channels with validation)
-4. File paths (userfile, chanfile, logfile with defaults)
-5. Modules (optional: notes, seen, transfer, filesys)
+Invoked via `eggdrop --setup`. 6-step interactive prompt:
 
-Output is written to a `.toml` file.
+1. Bot identity (nick, altnick, realname, username, admin, owner)
+2. IRC server (network selection, hostname, port, SSL, SASL, DNS-over-TLS)
+3. Channels (up to 8 with `#` prefix validation)
+4. File paths (userfile, chanfile, logfile with nick-derived defaults)
+5. Listen ports (DCC/telnet, botnet)
+6. Modules (notes, seen, transfer, filesys)
+
+**Web-based wizard** (`run_web_setup()` in `websetup.c`):
+
+Invoked via `eggdrop -w [port] [outfile]`. Starts a plain HTTP server serving a single-page 5-step form. Architecture:
+
+- Standalone POSIX socket server (no io_uring, no event loop)
+- Dual-stack IPv6/IPv4 on a single socket (`IPV6_V6ONLY=0`)
+- Serves static HTML on GET, processes `application/x-www-form-urlencoded` POST
+- `write_toml_config()` mirrors the terminal wizard's TOML output exactly
+- Process exits after successful config write (single-use server)
+- No TLS (intended for localhost before certificates are configured)
+
+Both wizards produce identical TOML output.
+
+---
+
+## Web Management (webui.mod)
+
+### Architecture
+
+The webui module implements a TLS-secured HTTP/1.1 and WebSocket server within the bot's main event loop:
+
+```
+Browser ─── TLS ───▶ webui listener (DCC slot)
+                         │
+                         ├── GET /          → serve index.html (mmap'd)
+                         ├── GET /api/*     → JSON REST responses
+                         ├── POST /api/*    → JSON write operations
+                         ├── DELETE /api/*  → JSON delete operations
+                         └── GET /ws        → WebSocket upgrade
+                                │
+                                └── push frames (log + status)
+```
+
+### Connection Lifecycle
+
+1. `listen <port> webui` creates a `DCC_WEBUI_LISTEN` entry
+2. On accept, a `DCC_WEBUI_HTTP` entry is created with:
+   - Empty `kill` function (prevents `lostdcc()` from freeing the union int)
+   - DNS resolution skipped (numeric IP used directly)
+3. TLS handshake completes (plain HTTP receives TLS alert and disconnect)
+4. Request is parsed: method, path, headers, optional body
+5. Authentication checked via `check_auth()` (Bearer token or query param)
+6. Response dispatched based on method + path
+7. For WebSocket: upgrade via `Sec-WebSocket-Key` → `Sec-WebSocket-Accept`
+
+### DCC Types
+
+| Type | Purpose | Kill function |
+|------|---------|---------------|
+| `DCC_WEBUI_LISTEN` | Accept new connections | Standard |
+| `DCC_WEBUI_HTTP` | HTTP request/response | `kill_webui_http` (no-op) |
+| `DCC_WEBUI_WS` | WebSocket push connection | Standard |
+
+### WebSocket Push
+
+- Up to 8 concurrent WebSocket connections (`MAX_WS_PUSH`)
+- Log entries broadcast on every `putlog()` via a log hook
+- Status frames broadcast every 5 seconds via `webui_secondly()`
+- Standard RFC 6455 framing with text opcode (0x81)
+
+### Log Ring Buffer
+
+A fixed-size circular buffer (`LOG_RING_SIZE = 200`) stores recent log entries for the `/api/logs` endpoint:
+
+```c
+struct log_entry {
+  char time[20];
+  char flags[8];
+  char msg[LOGLINELEN];
+};
+static struct log_entry log_ring[LOG_RING_SIZE];
+static int log_ring_head, log_ring_count;
+```
+
+### Static File Serving
+
+The `index.html` dashboard is embedded in the module binary and served directly from memory. On development builds, it can be mmap'd from disk with automatic re-mmap on `st_mtim` change.
 
 ---
 

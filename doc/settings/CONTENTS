@@ -94,6 +94,11 @@ ________________________________________________________________________
     Documentation for the uptime module. Provides uptime reporting to
     https://www.eggheads.org/uptime/
 
+  mod.webui
+
+    Documentation for the webui module. Provides HTTPS web dashboard,
+    REST API, WebSocket push, and authentication configuration.
+
   mod.woobie
 
     Documentation for the woobie module. Provides WooBIE protocol support
