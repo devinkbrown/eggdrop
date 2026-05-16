@@ -480,6 +480,7 @@ constexpr int DCT_BOT       = 0x00000200; /* a bot connection of some sort...   
 constexpr int DCT_FILETRAN  = 0x00000400; /* a file transfer of some sort          */
 constexpr int DCT_FILESEND  = 0x00000800; /* a sending file transfer (getting = !this) */
 constexpr int DCT_LISTEN    = 0x00001000; /* a listening port of some sort         */
+constexpr int DCT_PARALLEL  = 0x00002000; /* activity handler is thread-safe       */
 
 /* For dcc chat & files. */
 constexpr int STAT_ECHO    = 0x00001; /* echo commands back?                     */

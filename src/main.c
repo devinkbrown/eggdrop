@@ -49,6 +49,7 @@
 #include "bg.h"
 #include "configtoml.h"
 #include "websetup.h"
+#include "threadpool.h"
 #include "script.h"
 #include "async_dns.h"
 #include "perf.h"
@@ -131,6 +132,7 @@ extern char last_bind_called[];
 void fatal(const char *s, int recoverable)
 {
   putlog(LOG_MISC, "*", "* %s", s);
+  threadpool_shutdown();
   op_async_shutdown();
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
@@ -705,82 +707,96 @@ static void mainloop(int toplevel)
   } else
     cleanup--;
 
-  xx = sockgets(buf, &i);
-  if (op_likely(xx >= 0)) {              /* Non-error — common path */
-    int idx = findanyidx(xx);  /* O(1) via sock→dcc map */
+  /* Batch-process all ready sockets in one tick (up to 64 per pass).
+   * This reduces wakeup overhead and improves throughput under load. */
+  for (int _batch = 0; _batch < 64; _batch++) {
+    xx = sockgets(buf, &i);
+    if (op_likely(xx >= 0)) {              /* Non-error — common path */
+      int idx = findanyidx(xx);  /* O(1) via sock→dcc map */
 
-    if (op_likely(idx >= 0)) {
-      if (op_likely(dcc[idx].type && dcc[idx].type->activity)) {
-        /* Traffic classification — single-byte dispatch replaces 8+ strcmp.
-         * First character of type name uniquely determines the category for
-         * all current DCC types.  Falls through to unknown for unrecognised. */
-        if (op_likely(dcc[idx].type->name != nullptr)) {
-          size_t _nb = strlen(buf) + 1;
-          _Atomic uint64_t *ctr;
-          switch (dcc[idx].type->name[0]) {
-          case 'B': ctr = &itraffic_bn_today;    break; /* BOT* */
-          case 'S': ctr = dcc[idx].type->name[1] == 'E'
-                        ? &itraffic_irc_today     /* SERVER */
-                        : &itraffic_trans_today;  /* SEND */
-                    break;
-          case 'C': ctr = &itraffic_dcc_today;    break; /* CHAT* */
-          case 'W': ctr = &itraffic_dcc_today;
-                    _nb = (size_t)i;              break; /* WEBUI */
-          case 'F': ctr = dcc[idx].type->name[1] == 'I'
-                        ? &itraffic_dcc_today     /* FILES */
-                        : &itraffic_trans_today;  /* FORK_SEND */
-                    break;
-          case 'G': ctr = &itraffic_trans_today;  break; /* GET* */
-          default:  ctr = &itraffic_unknown_today; break;
+      if (op_likely(idx >= 0)) {
+        if (op_likely(dcc[idx].type && dcc[idx].type->activity)) {
+          if (op_likely(dcc[idx].type->name != nullptr)) {
+            size_t _nb = strlen(buf) + 1;
+            _Atomic uint64_t *ctr;
+            switch (dcc[idx].type->name[0]) {
+            case 'B': ctr = &itraffic_bn_today;    break;
+            case 'S': ctr = dcc[idx].type->name[1] == 'E'
+                          ? &itraffic_irc_today
+                          : &itraffic_trans_today;
+                      break;
+            case 'C': ctr = &itraffic_dcc_today;    break;
+            case 'W': ctr = &itraffic_dcc_today;
+                      _nb = (size_t)i;              break;
+            case 'F': ctr = dcc[idx].type->name[1] == 'I'
+                          ? &itraffic_dcc_today
+                          : &itraffic_trans_today;
+                      break;
+            case 'G': ctr = &itraffic_trans_today;  break;
+            default:  ctr = &itraffic_unknown_today; break;
+            }
+            atomic_fetch_add_explicit(ctr, _nb, memory_order_relaxed);
           }
-          atomic_fetch_add_explicit(ctr, _nb, memory_order_relaxed);
-        }
-        dcc[idx].type->activity(idx, buf, i);
-      } else
-        putlog(LOG_MISC, "*", "ERROR: untrapped dcc activity: type %s, sock %ld",
-               dcc[idx].type ? dcc[idx].type->name : "UNKNOWN", dcc[idx].sock);
-    }
-  } else if (op_unlikely(xx == -1)) {        /* EOF from someone */
-    int idx;
+          /* Dispatch: parallel-safe types go to thread pool, others inline */
+          if ((dcc[idx].type->flags & DCT_PARALLEL) &&
+              threadpool_active() &&
+              threadpool_submit((pool_work_fn)dcc[idx].type->activity, idx, buf, i) == 0) {
+            /* Submitted to worker thread */
+          } else {
+            dcc[idx].type->activity(idx, buf, i);
+          }
+        } else
+          putlog(LOG_MISC, "*", "ERROR: untrapped dcc activity: type %s, sock %ld",
+                 dcc[idx].type ? dcc[idx].type->name : "UNKNOWN", dcc[idx].sock);
+      }
+    } else if (op_unlikely(xx == -1)) {        /* EOF from someone */
+      int idx;
 
-    if (i == STDOUT && !backgrd)
-      fatal("END OF FILE ON TERMINAL", 0);
-    idx = findanyidx(i);        /* O(1) via sock→dcc map */
-    if (idx >= 0) {
-      if (dcc[idx].type && dcc[idx].type->eof)
-        dcc[idx].type->eof(idx);
-      else {
+      if (i == STDOUT && !backgrd)
+        fatal("END OF FILE ON TERMINAL", 0);
+      idx = findanyidx(i);
+      if (idx >= 0) {
+        if (dcc[idx].type && dcc[idx].type->eof)
+          dcc[idx].type->eof(idx);
+        else {
+          putlog(LOG_MISC, "*",
+                 "*** ATTENTION: DEAD SOCKET (%d) OF TYPE %s UNTRAPPED",
+                 i, dcc[idx].type ? dcc[idx].type->name : "*UNKNOWN*");
+          killsock(i);
+          lostdcc(idx);
+        }
+      } else {
         putlog(LOG_MISC, "*",
-               "*** ATTENTION: DEAD SOCKET (%d) OF TYPE %s UNTRAPPED",
-               i, dcc[idx].type ? dcc[idx].type->name : "*UNKNOWN*");
+               "(@) EOF socket %d, not a dcc socket, not anything.", i);
+        close(i);
         killsock(i);
-        lostdcc(idx);
       }
+    } else if (op_unlikely(xx == -2 && errno != EINTR)) {
+      putlog(LOG_MISC, "*", "* Socket error #%d; recovering.", errno);
+      for (i = 0; i < dcc_total; i++) {
+        if ((fcntl(dcc[i].sock, F_GETFD, 0) == -1) && (errno == EBADF)) {
+          putlog(LOG_MISC, "*",
+                 "DCC socket %ld (type %s, name '%s') expired -- pfft",
+                 dcc[i].sock, dcc[i].type->name, dcc[i].nick);
+          killsock(dcc[i].sock);
+          lostdcc(i);
+          i--;
+        }
+      }
+      break;
+    } else if (xx == -3) {
+      call_hook(HOOK_IDLE);
+      op_async_drain();
+      cleanup = 0;
+      eggbusy = 0;
+      break;
+    } else if (xx == -5) {
+      eggbusy = 0;
+      break;
     } else {
-      putlog(LOG_MISC, "*",
-             "(@) EOF socket %d, not a dcc socket, not anything.", i);
-      close(i);
-      killsock(i);
+      break;
     }
-  } else if (op_unlikely(xx == -2 && errno != EINTR)) {      /* select() error */
-    putlog(LOG_MISC, "*", "* Socket error #%d; recovering.", errno);
-    for (i = 0; i < dcc_total; i++) {
-      if ((fcntl(dcc[i].sock, F_GETFD, 0) == -1) && (errno == EBADF)) {
-        putlog(LOG_MISC, "*",
-               "DCC socket %ld (type %s, name '%s') expired -- pfft",
-               dcc[i].sock, dcc[i].type->name, dcc[i].nick);
-        killsock(dcc[i].sock);
-        lostdcc(i);
-        i--;
-      }
-    }
-  } else if (xx == -3) {
-    call_hook(HOOK_IDLE);
-    op_async_drain();
-    cleanup = 0; /* If we've been idle, cleanup & flush */
-    eggbusy = 0;
-  } else if (xx == -5)
-    eggbusy = 0;
+  }
 
   if (do_restart) {
     if (do_restart == -2)
@@ -795,6 +811,7 @@ static void mainloop(int toplevel)
       char name[256];
 
       /* oops, I guess we should call this event before tcl is restarted */
+      threadpool_drain();
       check_tcl_event("prerestart");
 
       while (f) {
@@ -1155,6 +1172,10 @@ int main(int arg_c, char **arg_v)
   add_hook(HOOK_LOADED, (Function) event_loaded);
 
   call_hook(HOOK_LOADED);
+
+  /* Start the worker thread pool for parallel I/O dispatch */
+  if (threadpool_init(0) == 0)
+    putlog(LOG_MISC, "*", "Thread pool: %d workers started", threadpool_size());
 
   debug0("main: entering loop");
   while (1) {
