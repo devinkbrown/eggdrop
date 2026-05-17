@@ -140,7 +140,8 @@ void fatal(const char *s, int recoverable)
 #ifdef TLS
   ssl_cleanup();
 #endif
-  unlink(pid_file);
+  if (pid_file)
+    unlink(pid_file);
   if (recoverable != 1) {
     bg_send_quit(BG_ABORT);
     exit(!recoverable);

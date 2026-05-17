@@ -192,8 +192,8 @@ int ssl_init(void)
   }
 
   if ((tls_capath[0] || tls_cafile[0]) &&
-      opssl_ctx_load_verify_locations(ssl_ctx, tls_cafile[0] ? tls_cafile : nullptr,
-      tls_capath[0] ? tls_capath : nullptr) != 0) {
+      !opssl_ctx_load_verify_locations(ssl_ctx, tls_cafile[0] ? tls_cafile : nullptr,
+      tls_capath[0] ? tls_capath : nullptr)) {
     putlog(LOG_MISC, "*", "ERROR: TLS: unable to set CA certificates location: %s",
            opssl_err_string(opssl_err_get()));
   }
