@@ -1178,6 +1178,15 @@ int main(int arg_c, char **arg_v)
   if (threadpool_init(0) == 0)
     putlog(LOG_MISC, "*", "Thread pool: %d workers started", threadpool_size());
 
+#ifdef HAVE_PLEDGE
+  /* OpenBSD: drop to minimal privileges before entering the event loop.
+   * stdio — printf/putlog, rpath/wpath/cpath — userfile/chanfile I/O,
+   * inet — network sockets, dns — hostname resolution, proc — fork (bg),
+   * unix — AF_UNIX for local DCC if ever needed. */
+  if (pledge("stdio rpath wpath cpath inet dns proc unix", NULL) == -1)
+    fatal("pledge", 0);
+#endif
+
   debug0("main: entering loop");
   while (1) {
     mainloop(1);

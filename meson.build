@@ -306,19 +306,23 @@ if cc.has_function('writev', prefix: '#include <sys/uio.h>')
 endif
 
 # -------------------------------------------------------------------------
-# sendfile — zero-copy file-to-socket (Linux ≥ 2.2, sys/sendfile.h)
-# Used by transfer.mod to avoid userspace copy during DCC file sends.
+# sendfile — zero-copy file-to-socket
+# Linux: sys/sendfile.h, sendfile(out_fd, in_fd, offset, count)
+# FreeBSD/macOS: sys/socket.h, sendfile(in_fd, out_fd, offset, nbytes, hdtr, sbytes, flags)
 # -------------------------------------------------------------------------
 if cc.has_header('sys/sendfile.h')
   cdata.set('HAVE_SYS_SENDFILE_H', 1)
   if cc.has_function('sendfile', prefix: '#include <sys/sendfile.h>')
     cdata.set('HAVE_SENDFILE', 1)
-    message('sendfile() detected — zero-copy DCC transfers enabled')
+    message('sendfile() detected (Linux) — zero-copy DCC transfers enabled')
   else
     message('sendfile() not found — using read/write for DCC')
   endif
+elif cc.has_function('sendfile', prefix: '#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/uio.h>')
+  cdata.set('HAVE_BSD_SENDFILE', 1)
+  message('sendfile() detected (BSD) — zero-copy DCC transfers enabled')
 else
-  message('sys/sendfile.h not found — using read/write for DCC')
+  message('sendfile() not found — using read/write for DCC')
 endif
 
 # -------------------------------------------------------------------------

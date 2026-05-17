@@ -40,7 +40,10 @@
 
 #if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
 #  include <sys/sendfile.h>
-#  define EGG_SENDFILE 1
+#  define EGG_SENDFILE_LINUX 1
+#elif defined(HAVE_BSD_SENDFILE)
+#  include <sys/uio.h>
+#  define EGG_SENDFILE_BSD 1
 #endif
 
 
@@ -233,7 +236,7 @@ constexpr int PMAX_SIZE = 4096;
 static uint64_t pump_file_to_sock(FILE *file, long sock,
                                   uint64_t pending_data)
 {
-#ifdef EGG_SENDFILE
+#if defined(EGG_SENDFILE_LINUX) || defined(EGG_SENDFILE_BSD)
   /* Zero-copy fast path: sendfile() moves data file→socket in the kernel,
    * no userspace copy needed.  Skip if outbuf already has queued data so
    * we don't bypass the write ordering. */
@@ -243,18 +246,26 @@ static uint64_t pump_file_to_sock(FILE *file, long sock,
 
     while (pending_data > 0) {
       size_t  want = pending_data > 65536 ? 65536 : (size_t)pending_data;
+#ifdef EGG_SENDFILE_LINUX
       ssize_t sent = sendfile((int)sock, in_fd, &off, want);
+#else
+      off_t sbytes = 0;
+      int rc = sendfile(in_fd, (int)sock, off, (off_t)want, NULL, &sbytes, 0);
+      ssize_t sent = (rc == 0 || sbytes > 0) ? (ssize_t)sbytes : -1;
+#endif
 
-      if (sent > 0)
+      if (sent > 0) {
         pending_data -= (unsigned long)sent;
-      else
+        off += sent;
+      } else {
         break; /* EAGAIN (socket full) or error */
+      }
     }
     /* Keep FILE* position in sync with the kernel-level offset */
     fseek(file, off, SEEK_SET);
     return pending_data;
   }
-#endif /* EGG_SENDFILE */
+#endif
 
   /* Fallback: read chunks into userspace and write via tputs */
   {
