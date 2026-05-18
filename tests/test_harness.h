@@ -25,12 +25,14 @@
 
 static int _test_passes = 0;
 static int _test_failures = 0;
+static int _test_failed = 0;
 
 #define TEST(name) static void test_##name(void)
 
 #define ASSERT_TRUE(expr) do { \
   if (!(expr)) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_TRUE(%s)\n", __FILE__, __LINE__, #expr); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -38,6 +40,7 @@ static int _test_failures = 0;
 #define ASSERT_FALSE(expr) do { \
   if ((expr)) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_FALSE(%s)\n", __FILE__, __LINE__, #expr); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -46,6 +49,7 @@ static int _test_failures = 0;
   if ((a) != (b)) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_EQ(%s, %s) [%ld != %ld]\n", \
            __FILE__, __LINE__, #a, #b, (long)(a), (long)(b)); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -54,6 +58,7 @@ static int _test_failures = 0;
   if ((a) == (b)) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_NEQ(%s, %s) [%ld == %ld]\n", \
            __FILE__, __LINE__, #a, #b, (long)(a), (long)(b)); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -64,6 +69,7 @@ static int _test_failures = 0;
   if (!_sa || !_sb || strcmp(_sa, _sb) != 0) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_STR_EQ(%s, %s) [\"%s\" != \"%s\"]\n", \
            __FILE__, __LINE__, #a, #b, _sa ? _sa : "(null)", _sb ? _sb : "(null)"); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -73,6 +79,7 @@ static int _test_failures = 0;
   if (_sa && _sb && strcmp(_sa, _sb) == 0) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_STR_NEQ(%s, %s) [\"%s\" == \"%s\"]\n", \
            __FILE__, __LINE__, #a, #b, _sa, _sb); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -81,6 +88,7 @@ static int _test_failures = 0;
   if ((ptr) != NULL) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_NULL(%s) [%p]\n", \
            __FILE__, __LINE__, #ptr, (void*)(ptr)); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
@@ -89,15 +97,21 @@ static int _test_failures = 0;
   if ((ptr) == NULL) { \
     printf("\033[31mFAIL\033[0m %s:%d: ASSERT_NOT_NULL(%s)\n", \
            __FILE__, __LINE__, #ptr); \
+    _test_failed = 1; \
     return; \
   } \
 } while(0)
 
 #define RUN_TEST(name) do { \
   printf("Running test_%s... ", #name); \
+  _test_failed = 0; \
   test_##name(); \
-  printf("\033[32mPASS\033[0m\n"); \
-  _test_passes++; \
+  if (_test_failed) { \
+    _test_failures++; \
+  } else { \
+    printf("\033[32mPASS\033[0m\n"); \
+    _test_passes++; \
+  } \
 } while(0)
 
 #define TEST_MAIN_BEGIN do { \

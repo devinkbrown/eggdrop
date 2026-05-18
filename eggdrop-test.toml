@@ -21,8 +21,12 @@ admin    = "CI <ci@localhost>"
 network  = "TestNet"
 owner    = "TestOwner"
 
+[network]
+vhost4 = "eshmaki.me"
+vhost6 = "eshmaki.me"
+
 [servers]
-list = ["127.0.0.1:6667"]
+list = ["95.216.225.58:6667"]
 
 [channels]
 list = ["#test"]

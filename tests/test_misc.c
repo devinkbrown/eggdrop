@@ -88,8 +88,10 @@ TEST(newsplit_multiple_spaces) {
     char *remaining = input;
     char *first = newsplit(&remaining);
 
+    /* newsplit null-terminates at the first separator space and advances one
+     * position; remaining leading spaces are consumed on the next call. */
     ASSERT_STR_EQ(first, "word1");
-    ASSERT_STR_EQ(remaining, "word2   word3");
+    ASSERT_STR_EQ(remaining, "   word2   word3");
 }
 
 TEST(newsplit_leading_spaces) {

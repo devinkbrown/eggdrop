@@ -167,16 +167,19 @@ TEST(empty_buf_gives_zero_counts) {
 
 TEST(single_user_single_note) {
   size_t len;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = make_notebuf("alice bob 1700000000 hi there\n", &len);
   notes_cache_rebuild_from_buf(buf, len);
   ASSERT_EQ(num_notes("alice"), 1);
   ASSERT_EQ(num_notes("bob"), 0);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 
 TEST(single_user_multiple_notes) {
   size_t len;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = make_notebuf(
     "alice bob 1700000001 note one\n"
     "alice carol 1700000002 note two\n"
@@ -185,11 +188,13 @@ TEST(single_user_multiple_notes) {
   notes_cache_rebuild_from_buf(buf, len);
   ASSERT_EQ(num_notes("alice"), 3);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 
 TEST(multiple_users) {
   size_t len;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = make_notebuf(
     "alice bob 1700000001 hi\n"
     "bob alice 1700000002 hey\n"
@@ -201,11 +206,13 @@ TEST(multiple_users) {
   ASSERT_EQ(num_notes("bob"), 1);
   ASSERT_EQ(num_notes("carol"), 1);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 
 TEST(case_insensitive_handle_lookup) {
   size_t len;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = make_notebuf(
     "Alice bob 1700000001 hi\n"
     "ALICE carol 1700000002 hey\n",
@@ -216,11 +223,13 @@ TEST(case_insensitive_handle_lookup) {
   ASSERT_EQ(num_notes("Alice"), 2);
   ASSERT_EQ(num_notes("ALICE"), 2);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 
 TEST(comments_and_blank_lines_ignored) {
   size_t len;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = make_notebuf(
     "# this is a comment\n"
     "; another comment\n"
@@ -231,21 +240,25 @@ TEST(comments_and_blank_lines_ignored) {
   notes_cache_rebuild_from_buf(buf, len);
   ASSERT_EQ(num_notes("alice"), 1);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 
 TEST(unknown_handle_returns_zero) {
   size_t len;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = make_notebuf("alice bob 1700000001 hi\n", &len);
   notes_cache_rebuild_from_buf(buf, len);
   ASSERT_EQ(num_notes("nobody"), 0);
   ASSERT_EQ(num_notes(""), 0);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 
 TEST(rebuild_replaces_previous_cache) {
   size_t len1, len2;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf1 = make_notebuf("alice bob 1700000001 first\n", &len1);
   char *buf2 = make_notebuf(
     "bob alice 1700000002 second\n"
@@ -261,6 +274,7 @@ TEST(rebuild_replaces_previous_cache) {
   ASSERT_EQ(num_notes("bob"), 2);
 
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf1);
   op_free(buf2);
 }
@@ -299,11 +313,13 @@ TEST(cache_survives_no_trailing_newline) {
   /* some editors / truncated writes may omit the final newline */
   const char raw[] = "alice bob 1700000001 no newline";
   size_t len = sizeof raw - 1;
+  op_strlcpy(notefile, "/tmp/notes_test_dummy", sizeof notefile);
   char *buf = op_malloc(len);
   memcpy(buf, raw, len);
   notes_cache_rebuild_from_buf(buf, len);
   ASSERT_EQ(num_notes("alice"), 1);
   notes_cache_clear();
+  notefile[0] = 0;
   op_free(buf);
 }
 

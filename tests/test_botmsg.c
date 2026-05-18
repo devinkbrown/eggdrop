@@ -127,7 +127,9 @@ TEST(int_to_base64_single_chars) {
     ASSERT_STR_EQ(int_to_base64(26), "a");
     ASSERT_STR_EQ(int_to_base64(51), "z");
     ASSERT_STR_EQ(int_to_base64(52), "0");
-    ASSERT_STR_EQ(int_to_base64(63), "9");
+    ASSERT_STR_EQ(int_to_base64(61), "9");
+    ASSERT_STR_EQ(int_to_base64(62), "[");
+    ASSERT_STR_EQ(int_to_base64(63), "]");
 }
 
 TEST(int_to_base64_multi_digit) {
@@ -147,7 +149,9 @@ TEST(base64_to_int_single) {
     ASSERT_EQ(base64_to_int("a"), 26);
     ASSERT_EQ(base64_to_int("z"), 51);
     ASSERT_EQ(base64_to_int("0"), 52);
-    ASSERT_EQ(base64_to_int("9"), 63);
+    ASSERT_EQ(base64_to_int("9"), 61);
+    ASSERT_EQ(base64_to_int("["), 62);
+    ASSERT_EQ(base64_to_int("]"), 63);
 }
 
 TEST(base64_round_trip) {
