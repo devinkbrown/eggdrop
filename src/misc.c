@@ -75,6 +75,105 @@ static op_vec_t    help_refs;
 static op_bh      *help_ref_bh  = nullptr;
 static op_bh      *help_item_bh = nullptr;
 
+/* ---- help topic index --------------------------------------------------- */
+typedef struct {
+  char *refname;  /* op_strdup of ref->name */
+  int   type;     /* item->type: 0=msg/, 1=helpdir, 2=set/ */
+} help_idx_entry_t;
+
+static op_htab *help_idx_irc = nullptr;  /* IRC topics (type==0) */
+static op_htab *help_idx_dcc = nullptr;  /* DCC topics (type!=0) */
+
+static void help_idx_entry_free(void *key, void *val, void *ud)
+{
+  (void)key; (void)ud;
+  help_idx_entry_t *e = (help_idx_entry_t *)val;
+  op_free(e->refname);
+  op_free(e);
+}
+
+static void help_idx_clear(void)
+{
+  if (help_idx_irc) { op_htab_destroy(help_idx_irc, help_idx_entry_free, nullptr); help_idx_irc = nullptr; }
+  if (help_idx_dcc) { op_htab_destroy(help_idx_dcc, help_idx_entry_free, nullptr); help_idx_dcc = nullptr; }
+}
+
+static void help_idx_rebuild(void)
+{
+  help_idx_clear();
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    for (size_t j = 0; j < ref->items.size; j++) {
+      help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
+      op_htab **idx = (item->type == 0) ? &help_idx_irc : &help_idx_dcc;
+      if (!*idx)
+        *idx = op_htab_create_str(item->type == 0 ? "help_idx_irc" : "help_idx_dcc", 64);
+      if (!op_htab_get(*idx, item->name)) {
+        help_idx_entry_t *e = (help_idx_entry_t *)op_malloc(sizeof *e);
+        e->refname = op_strdup(ref->name);
+        e->type    = item->type;
+        op_htab_set(*idx, item->name, e, nullptr);
+      }
+    }
+  }
+}
+
+/* ---- help file content cache -------------------------------------------- */
+typedef struct {
+  char  *path;   /* heap-alloc'd; also the htab key */
+  char  *buf;    /* heap-alloc'd file content */
+  size_t len;
+} help_cache_t;
+
+static op_htab *help_cache_ht = nullptr;
+
+static void help_cache_entry_free(void *key, void *val, void *ud)
+{
+  (void)key; (void)ud;
+  help_cache_t *e = (help_cache_t *)val;
+  op_free(e->path);
+  op_free(e->buf);
+  op_free(e);
+}
+
+static void help_cache_clear(void)
+{
+  if (help_cache_ht) { op_htab_destroy(help_cache_ht, help_cache_entry_free, nullptr); help_cache_ht = nullptr; }
+}
+
+/* Open a help file, reading from the in-memory cache when possible.
+ * Returns a FILE* the caller must fclose().  fclose() on an fmemopen
+ * stream is cheap — it only releases stdio state, not the cached buffer. */
+static FILE *help_fopen_cached(const char *path)
+{
+  if (help_cache_ht) {
+    help_cache_t *e = (help_cache_t *)op_htab_get(help_cache_ht, path);
+    if (e)
+      return fmemopen(e->buf, e->len, "r");
+  }
+  FILE *f = fopen(path, "r");
+  if (!f) return nullptr;
+  char tmp[4096];
+  op_strbuf_t sb = {};
+  op_strbuf_init(&sb);
+  while (fgets(tmp, sizeof tmp, f) != nullptr)
+    op_strbuf_append_cstr(&sb, tmp);
+  fclose(f);
+  size_t len = op_strbuf_len(&sb);
+  if (!len) { op_strbuf_free(&sb); return nullptr; }
+  help_cache_t *e = (help_cache_t *)op_malloc(sizeof *e);
+  e->len  = len;
+  e->buf  = (char *)op_malloc(len + 1);
+  memcpy(e->buf, op_strbuf_str(&sb), len);
+  e->buf[len] = '\0';
+  e->path = op_strdup(path);
+  op_strbuf_free(&sb);
+  if (!help_cache_ht)
+    help_cache_ht = op_htab_create_str("help_cache", 16);
+  op_htab_set(help_cache_ht, e->path, e, nullptr);
+  return fmemopen(e->buf, e->len, "r");
+}
+
 /* Help system state */
 static struct {
   int flags;
@@ -1125,6 +1224,18 @@ static void scan_help_file(help_ref_t *current, const char *filename, int type)
           op_strlcpy(item->name, q, (size_t)(p - q + 1));
           item->type = type;
           op_vec_push(&current->items, item);
+          /* Populate topic index — first-wins for duplicate topic names */
+          {
+            op_htab **idx = (type == 0) ? &help_idx_irc : &help_idx_dcc;
+            if (!*idx)
+              *idx = op_htab_create_str(type == 0 ? "help_idx_irc" : "help_idx_dcc", 64);
+            if (!op_htab_get(*idx, item->name)) {
+              help_idx_entry_t *he = (help_idx_entry_t *)op_malloc(sizeof *he);
+              he->refname = op_strdup(current->name);
+              he->type    = type;
+              op_htab_set(*idx, item->name, he, nullptr);
+            }
+          }
           p++;
         } else
           p = "";
@@ -1172,6 +1283,9 @@ void rem_help_reference(char *file)
   for (size_t i = 0; i < help_refs.size; i++) {
     help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
     if (!strcmp(ref->name, file)) {
+      /* Clear caches before invalidating item->name pointers used as htab keys */
+      help_cache_clear();
+      help_idx_clear();
       for (size_t j = 0; j < ref->items.size; j++) {
         help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
         op_free(item->name);
@@ -1181,6 +1295,7 @@ void rem_help_reference(char *file)
       op_free(ref->name);
       op_vec_remove_fast(&help_refs, i);
       op_bh_free(help_ref_bh, ref);
+      help_idx_rebuild();
       return;
     }
   }
@@ -1188,6 +1303,8 @@ void rem_help_reference(char *file)
 
 void reload_help_data(void)
 {
+  help_cache_clear();
+  help_idx_clear();
   /* Collect names before clearing */
   op_vec_t names;
   op_vec_init(&names, help_refs.size);
@@ -1232,47 +1349,58 @@ void debug_help(int idx)
 
 static FILE *resolve_help(int dcc, char *file)
 {
-  FILE *f;
-
-  /* Somewhere here goes the eventual substitution */
   if (!(dcc & HELP_TEXT)) {
+    /* O(1) htab lookup — avoids double linear scan over all refs×items */
+    op_htab *idx = !dcc ? help_idx_irc : help_idx_dcc;
+    if (idx) {
+      help_idx_entry_t *e = (help_idx_entry_t *)op_htab_get(idx, file);
+      if (e) {
+        op_strbuf_t s = {};
+        op_strbuf_init(&s);
+        if (e->type == 0)
+          op_strbuf_appendf(&s, "%smsg/%s", helpdir, e->refname);
+        else if (e->type == 1)
+          op_strbuf_appendf(&s, "%s%s", helpdir, e->refname);
+        else
+          op_strbuf_appendf(&s, "%sset/%s", helpdir, e->refname);
+        FILE *f = help_fopen_cached(op_strbuf_str(&s));
+        op_strbuf_free(&s);
+        return f;
+      }
+    }
+    /* Fallback linear scan (index not yet populated) */
     for (size_t i = 0; i < help_refs.size; i++) {
       help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
       for (size_t j = 0; j < ref->items.size; j++) {
         help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
         if (!strcmp(item->name, file)) {
+          op_strbuf_t s = {};
+          op_strbuf_init(&s);
+          FILE *f = nullptr;
           if (!item->type && !dcc) {
-            op_strbuf_t s = {};
-            op_strbuf_init(&s);
             op_strbuf_appendf(&s, "%smsg/%s", helpdir, ref->name);
-            f = fopen(op_strbuf_str(&s), "r");
-            op_strbuf_free(&s);
-            if (f)
-              return f;
+            f = help_fopen_cached(op_strbuf_str(&s));
           } else if (dcc && item->type) {
-            op_strbuf_t s = {};
-            op_strbuf_init(&s);
             if (item->type == 1)
               op_strbuf_appendf(&s, "%s%s", helpdir, ref->name);
             else
               op_strbuf_appendf(&s, "%sset/%s", helpdir, ref->name);
-            f = fopen(op_strbuf_str(&s), "r");
-            op_strbuf_free(&s);
-            if (f)
-              return f;
+            f = help_fopen_cached(op_strbuf_str(&s));
           }
+          op_strbuf_free(&s);
+          if (f) return f;
         }
       }
     }
     return nullptr;
   }
-  /* Since we're not dealing with help files, we should just prepend the filename with textdir */
+  /* HELP_TEXT: open from textdir without caching (content may change) */
   {
     op_strbuf_t s = {};
     op_strbuf_init(&s);
     op_strbuf_appendf(&s, "%s%s", textdir, file);
     if (is_file(op_strbuf_str(&s))) {
-      f = fopen(op_strbuf_str(&s), "r");
+      FILE *f = fopen(op_strbuf_str(&s), "r");
       op_strbuf_free(&s);
       return f;
     }
@@ -1368,7 +1496,7 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
           op_strbuf_appendf(&s, "%s%s", helpdir, ref->name);
         else
           op_strbuf_appendf(&s, "%sset/%s", helpdir, ref->name);
-        f = fopen(op_strbuf_str(&s), "r");
+        f = help_fopen_cached(op_strbuf_str(&s));
         op_strbuf_free(&s);
         if (f) {
           display_tellhelp(idx, item->name, f, flags);
@@ -1399,7 +1527,7 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
           op_strbuf_appendf(&s, "%s%s", helpdir, ref->name);
         else
           op_strbuf_appendf(&s, "%sset/%s", helpdir, ref->name);
-        f = fopen(op_strbuf_str(&s), "r");
+        f = help_fopen_cached(op_strbuf_str(&s));
         op_strbuf_free(&s);
         if (f) {
           display_tellhelp(idx, item->name, f, flags);
