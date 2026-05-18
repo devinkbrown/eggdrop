@@ -299,21 +299,29 @@ static void lmdb_save_users(int idx)
       op_strbuf_free(&sb);
 
       /* Host masks. */
-      for (struct list_type *h = get_user(&USERENTRY_HOSTS, u); h; h = h->next) {
-        op_strbuf_t kb = {};
-        key = mk_key2(&kb, u->handle, h->extra);
-        val = mk_val("", 0);
-        mdb_put(txn, dbi_hosts, &key, &val, 0);
-        op_strbuf_free(&kb);
+      {
+        op_vec_t *hv = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
+        if (hv)
+          for (size_t _i = 0; _i < hv->size; _i++) {
+            op_strbuf_t kb = {};
+            key = mk_key2(&kb, u->handle, (const char *)op_vec_get(hv, _i));
+            val = mk_val("", 0);
+            mdb_put(txn, dbi_hosts, &key, &val, 0);
+            op_strbuf_free(&kb);
+          }
       }
 
       /* Accounts. */
-      for (struct list_type *a = get_user(&USERENTRY_ACCOUNT, u); a; a = a->next) {
-        op_strbuf_t kb = {};
-        key = mk_key2(&kb, u->handle, a->extra);
-        val = mk_val("", 0);
-        mdb_put(txn, dbi_accounts, &key, &val, 0);
-        op_strbuf_free(&kb);
+      {
+        op_vec_t *av = (op_vec_t *)get_user(&USERENTRY_ACCOUNT, u);
+        if (av)
+          for (size_t _i = 0; _i < av->size; _i++) {
+            op_strbuf_t kb = {};
+            key = mk_key2(&kb, u->handle, (const char *)op_vec_get(av, _i));
+            val = mk_val("", 0);
+            mdb_put(txn, dbi_accounts, &key, &val, 0);
+            op_strbuf_free(&kb);
+          }
       }
     }
 
@@ -366,21 +374,29 @@ static void lmdb_save_users(int idx)
       delete_user_entries(txn, dbi_accounts, u->handle);
 
       /* Re-insert current host masks */
-      for (struct list_type *h = get_user(&USERENTRY_HOSTS, u); h; h = h->next) {
-        op_strbuf_t kb = {};
-        key = mk_key2(&kb, u->handle, h->extra);
-        val = mk_val("", 0);
-        mdb_put(txn, dbi_hosts, &key, &val, 0);
-        op_strbuf_free(&kb);
+      {
+        op_vec_t *hv = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
+        if (hv)
+          for (size_t _i = 0; _i < hv->size; _i++) {
+            op_strbuf_t kb = {};
+            key = mk_key2(&kb, u->handle, (const char *)op_vec_get(hv, _i));
+            val = mk_val("", 0);
+            mdb_put(txn, dbi_hosts, &key, &val, 0);
+            op_strbuf_free(&kb);
+          }
       }
 
       /* Re-insert current accounts */
-      for (struct list_type *a = get_user(&USERENTRY_ACCOUNT, u); a; a = a->next) {
-        op_strbuf_t kb = {};
-        key = mk_key2(&kb, u->handle, a->extra);
-        val = mk_val("", 0);
-        mdb_put(txn, dbi_accounts, &key, &val, 0);
-        op_strbuf_free(&kb);
+      {
+        op_vec_t *av = (op_vec_t *)get_user(&USERENTRY_ACCOUNT, u);
+        if (av)
+          for (size_t _i = 0; _i < av->size; _i++) {
+            op_strbuf_t kb = {};
+            key = mk_key2(&kb, u->handle, (const char *)op_vec_get(av, _i));
+            val = mk_val("", 0);
+            mdb_put(txn, dbi_accounts, &key, &val, 0);
+            op_strbuf_free(&kb);
+          }
       }
     }
 

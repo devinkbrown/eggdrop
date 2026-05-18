@@ -64,6 +64,13 @@ test_misc = executable('test_misc',
   dependencies: [libop_dep, uring_dep],
 )
 
+test_notes = executable('test_notes',
+  'test_notes.c',
+  include_directories: test_inc,
+  c_args: test_c_args,
+  dependencies: [libop_dep, uring_dep],
+)
+
 # Register tests with meson
 test('strbuf', test_strbuf)
 test('rfc1459', test_rfc1459)
@@ -72,3 +79,4 @@ test('flags', test_flags)
 test('botmsg', test_botmsg)
 test('net', test_net)
 test('misc', test_misc)
+test('notes', test_notes)
