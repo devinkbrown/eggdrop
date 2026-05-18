@@ -33,10 +33,12 @@
 #define MAKING_UPTIME
 
 #include <stdint.h>
+#include <stdatomic.h>
 #include "uptime.h"
 #include "src/mod/module.h"
 #include "../server.mod/server.h"
 #include <netdb.h>
+#include <op_async.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -83,6 +85,7 @@ static time_t next_update = 0;
 static int uptimesock;
 static int uptimecount;
 static uint32_t uptimeip;
+static _Atomic int uptimeip_pending;  /* 1 while async DNS is in flight */
 static char uptime_version[48] = "";
 
 static void check_secondly(void);
@@ -109,24 +112,55 @@ static void uptime_report(int idx, int details)
   }
 }
 
-static uint32_t get_ip(void)
+/* Synchronous fallback: resolves uptime_host via getaddrinfo.
+ * Only called when op_async is not active. */
+static uint32_t get_ip_sync(void)
 {
-  struct hostent *hp;
-  IP ip;
-  struct in_addr *in;
-
-  /* could be pre-defined */
+  /* Numeric address — skip DNS entirely. */
   if (uptime_host[0]) {
-    if ((uptime_host[strlen(uptime_host) - 1] >= '0') &&
-        (uptime_host[strlen(uptime_host) - 1] <= '9'))
+    char last = uptime_host[strlen(uptime_host) - 1];
+    if (last >= '0' && last <= '9')
       return (IP) inet_addr(uptime_host);
   }
-  hp = gethostbyname(uptime_host);
-  if (hp == nullptr)
-    return -1;
-  in = (struct in_addr *) (hp->h_addr_list[0]);
-  ip = (IP) (in->s_addr);
-  return ip;
+  struct addrinfo hints = {}, *res = nullptr;
+  hints.ai_family   = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  if (getaddrinfo(uptime_host, nullptr, &hints, &res) != 0 || !res)
+    return (IP)-1;
+  uint32_t ip = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+  freeaddrinfo(res);
+  return (IP)ip;
+}
+
+/* Async DNS resolution — worker thread calls getaddrinfo, done_fn runs on
+ * main thread and stores the result.  uptime_host is copied at submit time
+ * so it is safe to read from the worker. */
+typedef struct {
+  char     host[256];
+  uint32_t ip;
+  int      ok;
+} uptime_dns_ctx_t;
+
+static void uptime_dns_work(void *arg)
+{
+  uptime_dns_ctx_t *c = arg;
+  struct addrinfo hints = {}, *res = nullptr;
+  hints.ai_family   = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  if (getaddrinfo(c->host, nullptr, &hints, &res) == 0 && res) {
+    c->ip = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+    c->ok = 1;
+    freeaddrinfo(res);
+  }
+}
+
+static void uptime_dns_done(void *arg)
+{
+  uptime_dns_ctx_t *c = arg;
+  if (c->ok)
+    uptimeip = (IP)c->ip;
+  atomic_store_explicit(&uptimeip_pending, 0, memory_order_release);
+  op_free(c);
 }
 
 static int init_uptime(void)
@@ -140,7 +174,8 @@ static int init_uptime(void)
   upPack.packets_sent = 0; /* reused (abused?) to send our packet count */
   upPack.uptime = 0; /* must set this later */
   uptimecount = 0;
-  uptimeip = -1;
+  uptimeip = (IP)-1;
+  atomic_store_explicit(&uptimeip_pending, 0, memory_order_relaxed);
 
   op_strlcpy(x, ver, sizeof x);
   newsplit(&z);
@@ -177,11 +212,33 @@ static int send_uptime(void)
   const char *servhost = "none";
   module_entry *me;
 
-  if (uptimeip == -1) {
-    uptimeip = get_ip();
-    if (uptimeip == -1)
+  if (uptimeip == (IP)-1) {
+    if (atomic_load_explicit(&uptimeip_pending, memory_order_acquire))
+      return 0;  /* resolution already in flight — skip this packet */
+    /* Numeric address: resolve inline (no DNS round-trip needed) */
+    if (uptime_host[0]) {
+      char last = uptime_host[strlen(uptime_host) - 1];
+      if (last >= '0' && last <= '9') {
+        uptimeip = (IP)inet_addr(uptime_host);
+        goto resolved;
+      }
+    }
+    if (op_async_active()) {
+      /* Kick off a non-blocking getaddrinfo() on a worker thread.
+       * Skip this packet and retry next scheduled send. */
+      uptime_dns_ctx_t *c = (uptime_dns_ctx_t *)op_malloc(sizeof *c);
+      op_strlcpy(c->host, uptime_host, sizeof c->host);
+      c->ip = 0;
+      c->ok = 0;
+      atomic_store_explicit(&uptimeip_pending, 1, memory_order_release);
+      op_async_submit(uptime_dns_work, uptime_dns_done, c);
+      return 0;
+    }
+    uptimeip = get_ip_sync();
+    if (uptimeip == (IP)-1)
       return -2;
   }
+  resolved:;
 
   uptimecount++;
   upPack.packets_sent = htonl(uptimecount); /* Tell the server how many
@@ -267,7 +324,10 @@ static void check_secondly(void)
 
 void expire_dnscache(void)
 {
-  uptimeip = -1;
+  uptimeip = (IP)-1;
+  /* If a resolution is in flight its done_fn will still set uptimeip when
+   * it completes, which is fine — we'll use the fresh result. */
+  atomic_store_explicit(&uptimeip_pending, 0, memory_order_release);
 }
 
 static char *uptime_close(void)

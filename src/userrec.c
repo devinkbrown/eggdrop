@@ -761,34 +761,49 @@ static int sort_compare(struct userrec *a, struct userrec *b)
   return (op_strcasecmp(a->handle, b->handle) > 0);
 }
 
+/* Merge two sorted singly-linked user lists into one. */
+static struct userrec *ms_merge(struct userrec *a, struct userrec *b)
+{
+  struct userrec dummy = {};
+  struct userrec *tail = &dummy;
+  while (a && b) {
+    if (sort_compare(a, b)) { /* a > b: b goes first */
+      tail->next = b;
+      b = b->next;
+    } else {
+      tail->next = a;
+      a = a->next;
+    }
+    tail = tail->next;
+  }
+  tail->next = a ? a : b;
+  return dummy.next;
+}
+
+/* Top-down merge sort on a singly-linked list of 'count' nodes. O(n log n). */
+static struct userrec *ms_sort(struct userrec *head, size_t count)
+{
+  if (count < 2 || !head)
+    return head;
+  /* Split: advance half-way, cut the link */
+  struct userrec *p = head;
+  for (size_t i = 1; i < count / 2; i++)
+    p = p->next;
+  struct userrec *second = p->next;
+  p->next = nullptr;
+
+  head   = ms_sort(head,   count / 2);
+  second = ms_sort(second, count - count / 2);
+  return ms_merge(head, second);
+}
+
 static void sort_userlist(void)
 {
-  int again;
-  struct userrec *last, *p, *c, *n;
-
-  again = 1;
-  last = nullptr;
-  while ((userlist != last) && (again)) {
-    p = nullptr;
-    c = userlist;
-    n = c->next;
-    again = 0;
-    while (n != last) {
-      if (sort_compare(c, n)) {
-        again = 1;
-        c->next = n->next;
-        n->next = c;
-        if (p == nullptr)
-          userlist = n;
-        else
-          p->next = n;
-      }
-      p = c;
-      c = n;
-      n = n->next;
-    }
-    last = c;
-  }
+  size_t n = 0;
+  for (struct userrec *u = userlist; u; u = u->next)
+    n++;
+  if (n > 1)
+    userlist = ms_sort(userlist, n);
 }
 
 /* Rewrite the entire user file. Call USERFILE hook as well, probably
