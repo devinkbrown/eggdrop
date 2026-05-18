@@ -52,6 +52,7 @@
 #include "threadpool.h"
 #include "comqueue.h"
 #include "async_log.h"
+#include "async_fileio.h"
 #include "libop/include/op_iothread.h"
 #include "script.h"
 #include "async_dns.h"
@@ -631,7 +632,10 @@ static void core_minutely(void)
 {
   check_tcl_time_and_cron(&nowtm);
   do_check_timers(&timer);
-  check_logsize();
+  if (op_async_active())
+    async_check_logsize();
+  else
+    check_logsize();
 }
 
 static void core_hourly(void)
@@ -711,8 +715,10 @@ static void mainloop(int toplevel)
     then = now;
   }
 
-  /* Drain worker completions before any slot cleanup. */
+  /* Drain both completion queues every tick so DNS/file callbacks land
+   * promptly, not just when the main loop goes idle. */
   comqueue_drain();
+  op_async_drain();
 
   /* Only do this every so often. */
   if (!cleanup) {

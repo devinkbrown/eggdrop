@@ -24,4 +24,10 @@ void async_copyfile(const char *src, const char *dst);
  * Falls back to synchronous write if the async pool is not active. */
 void async_writebuf(const char *finalpath, char *buf, size_t len, int perm);
 
+/* Submit a stat() for every active log file on a worker thread.  The
+ * completion runs on the main thread and rotates files that exceed
+ * max_logsize, mirroring the synchronous check_logsize() in misc.c.
+ * No-op if async is not active, keep_all_logs is set, or max_logsize <= 0. */
+void async_check_logsize(void);
+
 #endif /* _EGG_ASYNC_FILEIO_H */
