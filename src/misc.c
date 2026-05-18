@@ -27,6 +27,7 @@
  */
 
 #include "main.h"
+#include "async_log.h"
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -598,44 +599,75 @@ void putlog (int type, char *chname, const char *format, ...)
       if ((logs[i].filename != nullptr) && (logs[i].mask & type) &&
           ((chname[0] == '*') || (logs[i].chname[0] == '*') ||
            (!rfc_casecmp(chname, logs[i].chname)))) {
-        if (logs[i].f == nullptr) {
-          /* Open this logfile */
-          if (keep_all_logs) {
-            op_strbuf_t path = {};
-            op_strbuf_init(&path);
-            op_strbuf_appendf(&path, "%s%s", logs[i].filename, ct);
-            logs[i].f = fopen(op_strbuf_str(&path), "a");
-            op_strbuf_free(&path);
-            if (logs[i].f)
-              setvbuf(logs[i].f, nullptr, _IOLBF, 0); /* line buffered */
-          } else if ((logs[i].f = fopen(logs[i].filename, "a")))
-            setvbuf(logs[i].f, nullptr, _IOLBF, 0); /* line buffered */
-        }
-        if (logs[i].f != nullptr) {
-          /* Check if this is the same as the last line added to
-           * the log. <cybah>
-           */
-          if (!op_strcasecmp(out + tsl, logs[i].szlast))
-            /* It is a repeat, so increment repeats */
-            logs[i].repeats++;
-          else {
-            /* Not a repeat, check if there were any repeat
-             * lines previously...
-             */
-            if (logs[i].repeats > 0) {
-              /* Yep.. so display 'last message repeated x times'
-               * then reset repeats. We want the current time here,
-               * so put that in the file first.
-               */
-              fprintf(logs[i].f, "%s", stamp);
-              fprintf(logs[i].f, MISC_LOGREPEAT, logs[i].repeats);
-              logs[i].repeats = 0;
-              /* No need to reset logs[i].szlast here
-               * because we update it later on...
-               */
+
+        if (async_log_active()) {
+          /* Async path: writer thread owns all FILE* handles.
+           * Repeat detection stays on the main thread; file I/O is offloaded. */
+          bool slot_open = async_log_slot_open(i);
+
+          /* Determine the open path (NULL when the writer already has it) */
+          const char *open_path = nullptr;
+          op_strbuf_t pathbuf   = {};
+          bool        have_pathbuf = false;
+          if (!slot_open) {
+            if (keep_all_logs) {
+              op_strbuf_init(&pathbuf);
+              op_strbuf_appendf(&pathbuf, "%s%s", logs[i].filename, ct);
+              open_path    = op_strbuf_str(&pathbuf);
+              have_pathbuf = true;
+            } else {
+              open_path = logs[i].filename;
             }
-            fputs(out, logs[i].f);
+          }
+
+          if (!op_strcasecmp(out + tsl, logs[i].szlast)) {
+            logs[i].repeats++;
+          } else {
+            if (logs[i].repeats > 0) {
+              /* Combine stamp + repeat notice into one write */
+              op_strbuf_t rb = {};
+              op_strbuf_init(&rb);
+              op_strbuf_append_cstr(&rb, stamp);
+              op_strbuf_appendf(&rb, MISC_LOGREPEAT, logs[i].repeats);
+              async_log_write(i, open_path, op_strbuf_str(&rb));
+              op_strbuf_free(&rb);
+              logs[i].repeats = 0;
+              open_path = nullptr; /* slot is now open */
+            }
+            async_log_write(i, open_path, out);
             op_strlcpy(logs[i].szlast, out + tsl, LOGLINEMAX);
+          }
+
+          if (have_pathbuf)
+            op_strbuf_free(&pathbuf);
+
+        } else {
+          /* Sync path (original code) */
+          if (logs[i].f == nullptr) {
+            /* Open this logfile */
+            if (keep_all_logs) {
+              op_strbuf_t path = {};
+              op_strbuf_init(&path);
+              op_strbuf_appendf(&path, "%s%s", logs[i].filename, ct);
+              logs[i].f = fopen(op_strbuf_str(&path), "a");
+              op_strbuf_free(&path);
+              if (logs[i].f)
+                setvbuf(logs[i].f, nullptr, _IOLBF, 0);
+            } else if ((logs[i].f = fopen(logs[i].filename, "a")))
+              setvbuf(logs[i].f, nullptr, _IOLBF, 0);
+          }
+          if (logs[i].f != nullptr) {
+            if (!op_strcasecmp(out + tsl, logs[i].szlast))
+              logs[i].repeats++;
+            else {
+              if (logs[i].repeats > 0) {
+                fprintf(logs[i].f, "%s", stamp);
+                fprintf(logs[i].f, MISC_LOGREPEAT, logs[i].repeats);
+                logs[i].repeats = 0;
+              }
+              fputs(out, logs[i].f);
+              op_strlcpy(logs[i].szlast, out + tsl, LOGLINEMAX);
+            }
           }
         }
       }
@@ -678,8 +710,12 @@ void logsuffix_change(char *s)
       s2[0] = '_';
     s2++;
   }
+  if (async_log_active())
+    async_log_flush();  /* ensure all pending lines are on disk before close */
   for (int i = 0; i < max_logs; i++) {
-    if (logs[i].f) {
+    if (async_log_active() && async_log_slot_open(i)) {
+      async_log_close(i);
+    } else if (logs[i].f) {
       fclose(logs[i].f);
       logs[i].f = nullptr;
     }

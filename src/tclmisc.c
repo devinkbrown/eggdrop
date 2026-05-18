@@ -33,6 +33,9 @@
 #include <op_async.h>
 #include <op_thread_pool.h>
 #include "perf.h"
+#include "threadpool.h"
+#include "comqueue.h"
+#include "async_log.h"
 
 /* Tcl command handlers. In non-Tcl builds these compile as dead code
  * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
@@ -782,6 +785,36 @@ static int tcl_threadinfo STDVAR
   op_strbuf_appendf(&pending_buf, "%zu", op_async_pending());
   Tcl_AppendElement(irp, op_strbuf_str(&pending_buf));
   op_strbuf_free(&pending_buf);
+
+  /* DCC handler thread pool (eggdrop's own op_tpool, separate from op_async) */
+  Tcl_AppendElement(irp, "dcc_pool_active");
+  Tcl_AppendElement(irp, threadpool_active() ? "1" : "0");
+
+  Tcl_AppendElement(irp, "dcc_pool_threads");
+  Tcl_AppendElement(irp, int_to_base10(threadpool_size()));
+
+  {
+    op_strbuf_t dcc_buf = {};
+    op_strbuf_init(&dcc_buf);
+    Tcl_AppendElement(irp, "dcc_pool_pending");
+    op_strbuf_appendf(&dcc_buf, "%d", threadpool_pending());
+    Tcl_AppendElement(irp, op_strbuf_str(&dcc_buf));
+    op_strbuf_free(&dcc_buf);
+  }
+
+  /* Completion queue depth (worker→main callbacks awaiting drain) */
+  {
+    op_strbuf_t cq_buf = {};
+    op_strbuf_init(&cq_buf);
+    Tcl_AppendElement(irp, "comqueue_pending");
+    op_strbuf_appendf(&cq_buf, "%d", comqueue_pending());
+    Tcl_AppendElement(irp, op_strbuf_str(&cq_buf));
+    op_strbuf_free(&cq_buf);
+  }
+
+  /* Async log writer */
+  Tcl_AppendElement(irp, "async_log_active");
+  Tcl_AppendElement(irp, async_log_active() ? "1" : "0");
 
   {
     struct egg_perf_metrics pm = egg_perf_snapshot();

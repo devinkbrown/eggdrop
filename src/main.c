@@ -51,6 +51,7 @@
 #include "websetup.h"
 #include "threadpool.h"
 #include "comqueue.h"
+#include "async_log.h"
 #include "libop/include/op_iothread.h"
 #include "script.h"
 #include "async_dns.h"
@@ -138,6 +139,7 @@ void fatal(const char *s, int recoverable)
   op_stop_pollthread();
   threadpool_shutdown();
   comqueue_destroy();
+  async_log_destroy();  /* flushes pending log lines then stops writer */
   op_async_shutdown();
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
@@ -575,10 +577,16 @@ static void core_secondly(void)
         if (quiet_save < 3)
           putlog(LOG_ALL, "*", "--- %.11s%s", s, s + 20);
         call_hook(HOOK_BACKUP);
+        if (async_log_active())
+          async_log_flush();
         for (int j = 0; j < max_logs; j++) {
-          if (logs[j].filename != nullptr && logs[j].f != nullptr) {
-            fclose(logs[j].f);
-            logs[j].f = nullptr;
+          if (logs[j].filename != nullptr) {
+            if (async_log_active() && async_log_slot_open(j))
+              async_log_close(j);
+            else if (logs[j].f != nullptr) {
+              fclose(logs[j].f);
+              logs[j].f = nullptr;
+            }
           }
         }
       }
@@ -593,12 +601,16 @@ static void core_secondly(void)
       if (!keep_all_logs) {
         if (quiet_save < 3)
           putlog(LOG_MISC, "*", "%s", MISC_LOGSWITCH);
+        if (async_log_active())
+          async_log_flush();
         for (int li = 0; li < max_logs; li++)
           if (logs[li].filename) {
             op_strbuf_t sb = {};
             op_strbuf_init(&sb);
 
-            if (logs[li].f) {
+            if (async_log_active() && async_log_slot_open(li)) {
+              async_log_close(li);
+            } else if (logs[li].f) {
               fclose(logs[li].f);
               logs[li].f = nullptr;
             }
@@ -825,6 +837,7 @@ static void mainloop(int toplevel)
       op_stop_pollthread();
       threadpool_drain();
       comqueue_drain();
+      async_log_flush();  /* flush pending log lines before restart */
       check_tcl_event("prerestart");
 
       while (f) {
@@ -1003,6 +1016,7 @@ int main(int arg_c, char **arg_v)
   op_linebuf_init(64);
   if (!op_async_init(0))
     fatal("ERROR: Failed to initialise async thread pool.", 0);
+  async_log_init(max_logs);  /* start dedicated log writer thread */
   if (argc > 1)
     do_arg();
   /* Pre-scan the config for [paths] settings (lang_dir, mod_path) so language
