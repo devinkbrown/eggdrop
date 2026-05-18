@@ -249,6 +249,13 @@ int userfile_perm = 0600;          /* Userfile permissions
                                     * (default rw-------)               */
 char userfile[121];                /* where the user records are stored */
 
+/* Open memstream kept alive during HOOK_USERFILE so hook handlers (e.g.
+ * channels_writeuserfile) can append directly to the in-progress buffer
+ * instead of writing to a separate file.  NULL outside of write_userfile. */
+static FILE *s_userfile_stream = nullptr;
+
+FILE *get_userfile_stream(void) { return s_userfile_stream; }
+
 /* ABI stubs — internal code uses op_malloc/op_realloc directly via the
  * user_malloc/user_realloc macros (which now expand to op_malloc/op_realloc).
  * These functions remain only so that global_table[39]/[229] resolve for
@@ -841,9 +848,13 @@ void write_userfile(int idx)
     op_free(buf);
     return;
   }
-  fclose(f);
 
+  /* Expose the open stream so HOOK_USERFILE handlers can append directly
+   * (e.g. channels_writeuserfile writes bans/exempts/invites here). */
+  s_userfile_stream = f;
   call_hook(HOOK_USERFILE);
+  s_userfile_stream = nullptr;
+  fclose(f);  /* finalises buf/buflen from open_memstream */
 
   if (egg_store && egg_store != &egg_store_flat)
     egg_store->save_users(idx);

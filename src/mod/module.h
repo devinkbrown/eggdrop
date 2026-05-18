@@ -549,6 +549,8 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #define notcl_getvar ((const char *(*)(const char *, char *, size_t))global[339])
 #define egg_eval ((int (*)(const char *))global[340])
 #define egg_eval_log ((int (*)(const char *, const char *))global[341])
+/* 342: in-progress userfile stream; non-NULL only during HOOK_USERFILE */
+#define get_userfile_stream ((FILE *(*)(void))global[342])
 
 /* Check ABI compatibility.  Call early in _start() after setting global.
  * Returns nullptr on success, or an error string on mismatch.

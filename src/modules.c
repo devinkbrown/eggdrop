@@ -72,6 +72,7 @@ extern struct dcc_t *dcc;
 extern struct userrec *userlist, *lastuser;
 extern struct chanset_t *chanset;
 
+extern FILE *get_userfile_stream(void);
 extern char botnetnick[], botname[], origbotname[], botuser[], ver[], log_ts[],
             admin[], userfile[], notify_new[], helpdir[], version[], quit_msg[],
             pid_file[];
@@ -652,7 +653,9 @@ Function global_table[] = {
   (Function) notcl_setvar,
   (Function) notcl_getvar,
   (Function) egg_eval,
-  (Function) egg_eval_log
+  (Function) egg_eval_log,
+/* 342: userfile in-progress stream (valid only during HOOK_USERFILE) */
+  (Function) get_userfile_stream
 };
 
 static eggdrop_api_t eggdrop_api = {

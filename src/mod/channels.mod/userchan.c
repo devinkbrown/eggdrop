@@ -1370,21 +1370,15 @@ static int write_invites(FILE *f, int idx)
 
 static void channels_writeuserfile(void)
 {
-  FILE *f;
+  /* write_userfile keeps its open_memstream alive across HOOK_USERFILE so
+   * we can append directly into the in-progress buffer rather than writing
+   * to a separate file (which async_writebuf would never read). */
+  FILE *f = get_userfile_stream();
   int ret = 0;
-
-  {
-    op_strbuf_t s = {};
-    op_strbuf_init(&s);
-    op_strbuf_appendf(&s, "%s~new", userfile);
-    f = fopen(op_strbuf_str(&s), "a");
-    op_strbuf_free(&s);
-  }
   if (f) {
     ret = write_bans(f, -1);
     ret += write_exempts(f, -1);
     ret += write_invites(f, -1);
-    fclose(f);
   }
   if (ret < 3)
     putlog(LOG_MISC, "*", "%s", USERF_ERRWRITE);
