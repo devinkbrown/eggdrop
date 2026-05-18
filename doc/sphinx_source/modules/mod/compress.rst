@@ -1,4 +1,4 @@
-Last revised: May 27, 2004
+Last revised: May 2026
 
 .. _compress:
 
@@ -12,10 +12,14 @@ share process, saving bandwidth.
 
 This module requires: share
 
-Put this line into your Eggdrop configuration file to load the compress
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule compress
+  [modules]
+  load = [
+    ...
+    "compress",
+  ]
+
 
 There are also some variables you can set in your config file:
 

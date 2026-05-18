@@ -2,53 +2,144 @@
 Eggdrop Features
 ================
 
-  Eggdrop is the most advanced IRC robot available. It has been under
-  development since December 1993, and unlike most other bots, it is still
-  regularly updated. Some of its features include:
+Eggdrop is the most advanced open-source IRC bot available. It has been under
+active development since December 1993 and is still regularly updated. Eggdrop
+1.10 is a major modernization release, rewriting core subsystems for
+performance, security, and reliability while preserving full backward
+compatibility.
 
-    * Capability (CAP) support used to enable IRCv3 features. Eggdrop currently supports the following IRCv3 capability sets: account-notify, account-tag, away-notify, cap-notify, chghost, echo-message, extended-join, invite-notify, message-tags, monitor, SASL, server-time, setname, WHOX, and +typing.
+IRC Protocol Support
+--------------------
 
-    * Support for SSL-enabled IRC servers
+* **IRCv3 capabilities** — account-notify, account-tag, away-notify, cap-notify,
+  chghost, echo-message, extended-join, invite-notify, message-tags, monitor,
+  SASL, server-time, setname, WHOX, and +typing.
 
-    * Support for IPv6 users
+* **TLS/SSL connections** — TLS 1.2 and 1.3 via the bundled opssl library. No
+  external OpenSSL installation required.
 
-    * Support for Twitch servers
+* **IPv6 support** — full dual-stack connectivity to IRC servers and botnets.
 
-    * Completely separate channel user lists like having a separate bot for
-      each channel.
+* **SASL authentication** — PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, EXTERNAL (X.509),
+  ECDSA-NIST256P-CHALLENGE, and ECDH-X25519-CHALLENGE.
 
-    * A "party line" available through dcc chat or telnet, with multiple
-      channels, giving you the ability to talk to people without being
-      affected by netsplits.
+* **Twitch** — specialized support for Twitch's IRC protocol extensions.
 
-    * A "botnet". A botnet consists of one or more bots linked together. This
-      can allow bots to op each other securely, control floods efficiently,
-      and share user lists, ban lists, exempt/invite lists, and ignore lists
-      (if sharing is enabled).
+Channel Management
+------------------
 
-    * User records are saved on disk and alterable via dcc chat. Each user
-      can have a password (encrypted), a list of valid hostmasks, a set of
-      access flags, etc.
+* **Per-channel user lists** — equivalent to having a separate bot for each channel.
 
-    * The ability to "learn" new users (if you choose to let the bot do so)
-      by letting users /MSG the bot "hello". The bot will grant them automatic
-      access of whatever type you specify (or even no access at all).
+* **Automatic enforcement** — protectops, enforcebans, dynamicbans, autoop, and
+  dozens of configurable per-channel settings.
 
-    * A file system where users can upload and download files in an
-      environment that looks and acts (for the most part) like a typical
-      UNIX system. It also has the ability to mark files and directories
-      as hidden -- inaccessible to people without certain user flags.
+* **Ban/exempt/invite lists** — global and per-channel, with wildcard and CIDR
+  notation support.
 
-    * Console mode: you can view each channel through dcc chat or telnet,
-      selectively looking at mode changes, joins and parts, channel talk,
-      or any combination of the above.
+* **Botnet** — link multiple Eggdrops to share user lists, ban lists, and
+  channel management. Includes cryptographically secure bot authentication.
 
-    * A scripting language: commands and features can be easily added to
-      the bot by means of the Tcl scripting language, giving you the power
-      of TOTAL customization of your bot.
+Scripting
+---------
 
-    * Module support: you can remove/add features to your bot by adding or
-      removing modules.
+* **Tcl scripting** — the full Eggdrop Tcl API for custom commands, event binds,
+  timers, and bot-to-bot communication.
+
+* **Python 3.8+ scripting** — 100% API parity with the Tcl interface using
+  Python decorators::
+
+    from eggtools import on_pub, putchan
+
+    @on_pub()
+    def greet(nick, uhost, hand, chan, text):
+        if text.startswith("!hello"):
+            putchan(chan, f"Hello, {nick}!")
+
+User Management
+---------------
+
+* **User records** — persistent handle-based user database with hostmask matching,
+  channel flags, access levels, and optional passwords.
+
+* **PBKDF2 password hashing** — PBKDF2-SHA256 with cryptographically random salt
+  via ``getrandom(2)``. Legacy Blowfish hashing supported for migration.
+
+* **User file sharing** — sync user and ban lists across a botnet (requires
+  share + transfer modules).
+
+* **LMDB storage backend** — optional Lightning Memory-Mapped Database for
+  crash-safe atomic writes alongside the standard flat-file format.
+
+Administration Interfaces
+--------------------------
+
+* **Partyline** — command interface accessible via DCC chat or telnet with multiple
+  channels, letting you talk to people and control the bot without IRC influence.
+
+* **Web dashboard (webui module)** — HTTPS browser interface with real-time log
+  streaming, REST API, and WebSocket push. Manage the bot from any device.
+
+* **Console mode** — view each channel in DCC chat with selective filtering for
+  joins, parts, mode changes, and channel conversation.
+
+Performance
+-----------
+
+* **io_uring / epoll / kqueue** — platform-optimal I/O with zero-copy on Linux 5.1+.
+
+* **Async file I/O** — userfiles, notefiles, and channel files are written via a
+  background worker pool with tmpfile + fsync + atomic rename. The main loop
+  never blocks on disk.
+
+* **O(1) data structures** — hash tables for user lookup, channel member lookup,
+  ban matching, and socket dispatch (replaced all O(n) linear scans).
+
+* **CIDR ban matching** — Patricia trie for O(k) lookups (k = address bits).
+
+* **Block heap allocator** — slab allocator for hot-path objects reduces malloc
+  overhead by ~80%.
+
+* **LTO + PIE** — link-time optimization and position-independent executable
+  enabled by default.
+
+Security
+--------
+
+* **Build hardening** — stack protector, FORTIFY_SOURCE, full RELRO, no-PLT, and
+  position-independent executable (with ``-Dhardening=true``).
+
+* **CSPRNG everywhere** — ``getrandom(2)`` or ``arc4random_buf`` replaces all
+  ``random()`` / ``srandom()`` call sites (password salts, DNS query IDs, etc.).
+
+* **Safe string handling** — all ``strcpy``, ``sprintf``, ``strcat``, ``strtok``,
+  ``gets``, and unbounded ``sscanf %s`` replaced with bounds-safe alternatives.
+
+* **Memory-safe strings** — ``op_strbuf_t`` dynamic string builder eliminates
+  fixed-buffer truncation risks throughout the codebase.
+
+Modules and Extensibility
+--------------------------
+
+* **Module system** — add or remove features at runtime by loading or unloading
+  ``.so`` modules from your TOML configuration.
+
+* **21 built-in modules** — covering IRC protocol, CTCP, channels, file transfer,
+  DNS, authentication, notes, scripting, web UI, and more.
+
+* **Third-party modules** — place source in ``src/mod/yourmodule/`` and Meson
+  picks it up automatically.
+
+Build System
+------------
+
+* **Meson + Ninja** — fast, parallel, dependency-detecting build replacing the
+  legacy autoconf/automake system.
+
+* **Self-contained TLS** — opssl (custom TLS 1.2/1.3 library) is bundled as a
+  Meson subproject. No external SSL library required.
+
+* **C23 codebase** — gnu23 standard with ``_Generic``, ``constexpr``, and
+  variable-at-first-use declarations throughout.
 
 Copyright (C) 1997 Robey Pointer
 

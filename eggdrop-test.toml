@@ -1,0 +1,41 @@
+# Eggdrop test config — uses builddir modules, no real IRC server needed
+
+[modules]
+load = [
+  "pbkdf2",
+  "blowfish",
+  "channels",
+  "server",
+  "ctcp",
+  "irc",
+  "notes",
+  "console",
+]
+
+[bot]
+nick     = "EggTest"
+altnick  = "EggTest?"
+realname = "Eggdrop CI test"
+username = "eggtest"
+admin    = "CI <ci@localhost>"
+network  = "TestNet"
+owner    = "TestOwner"
+
+[servers]
+list = ["127.0.0.1:6667"]
+
+[channels]
+list = ["#test"]
+
+[paths]
+userfile  = "/tmp/eggtest.user"
+chanfile  = "/tmp/eggtest.chan"
+notefile  = "/tmp/eggtest.notes"
+help_path = "help/"
+mod_path  = "builddir/src/"
+
+[logging]
+entries = ["* * /tmp/eggtest.log"]
+
+[tcl]
+commands = ["unbind dcc n simul *dcc:simul"]

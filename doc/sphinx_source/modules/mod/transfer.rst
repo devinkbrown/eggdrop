@@ -1,4 +1,4 @@
-Last revised: November 29, 2023
+Last revised: May 2026
 
 .. _transfer:
 
@@ -11,10 +11,14 @@ support for userfile sharing.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the transfer
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule transfer
+  [modules]
+  load = [
+    ...
+    "transfer",
+  ]
+
 
 There are also some variables you can set in your config file:
 

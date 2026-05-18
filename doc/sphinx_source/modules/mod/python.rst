@@ -1,4 +1,4 @@
-Last revised: 2025
+Last revised: May 2026
 
 .. _python:
 
@@ -25,9 +25,14 @@ The module requires the Global Interpreter Lock (GIL).  Free-threaded
 Loading Python
 --------------
 
-Put this line into your Eggdrop configuration file to load the python module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule python
+  [modules]
+  load = [
+    ...
+    "python",
+  ]
+
 
 To load a python script from your config file, place the .py file in the
 scripts/ folder and add::

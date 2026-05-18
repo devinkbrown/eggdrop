@@ -23,8 +23,9 @@ Eggdrop 1.10 includes a comprehensive set of modules providing core functionalit
     mod/share
     mod/transfer
     mod/twitch
-    mod/woobie
     mod/uptime
+    mod/webui
+    mod/woobie
 
 Core Modules (Always Load These)
 ---------------------------------
@@ -97,6 +98,13 @@ Optional Feature Modules
 :ref:`uptime`
     **Optional reporting.**
     Reports bot uptime statistics to the Eggheads uptime website (https://www.eggheads.org/uptime). Fun tracking of bot longevity. Takes about 9 hours to appear on the website.
+
+:ref:`webui`
+    **Optional web-based administration (requires TLS).**
+    Provides a browser dashboard, JSON REST API, and WebSocket real-time log
+    streaming. Accessible at ``https://<bot-host>:<port>/`` after configuring
+    the ``[webui]`` section. Useful for managing the bot from any device without
+    needing an IRC client or DCC connection.
 
 Advanced/Specialized Modules
 -----------------------------

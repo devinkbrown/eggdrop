@@ -1,4 +1,4 @@
-Last revised: Mar 14, 2023
+Last revised: May 2026
 
 .. _uptime:
 
@@ -15,14 +15,18 @@ Information sent to the server includes the bot's uptime, botnet-nick,
 server, version, and IP address. This information is stored in a temporary
 logfile for debugging purposes only. The only publicly available information
 will be the bot's botnet-nick, version and uptime. If you do not wish for
-this information to be sent, comment out the 'loadmodule uptime' line in your
+this information to be sent, comment out the \`\"uptime\"\` entry in your \`\`[modules]\`\` load list in your
 bot's config file.
 
 This module requires: server
 
-Put this line into your Eggdrop configuration file to load the uptime
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule uptime
+  [modules]
+  load = [
+    ...
+    "information",
+  ]
+
 
 Copyright (C) 2001 - 2025 Eggheads Development Team

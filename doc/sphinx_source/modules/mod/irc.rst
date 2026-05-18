@@ -1,4 +1,4 @@
-Last revised: August 21, 2004
+Last revised: May 2026
 
 .. _irc:
 
@@ -12,10 +12,14 @@ irc.
 
   This module requires: server, channels
 
-Put this line into your Eggdrop configuration file to load the irc
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule irc
+  [modules]
+  load = [
+    ...
+    "irc",
+  ]
+
 
 There are also some variables you can set in your config file:
 

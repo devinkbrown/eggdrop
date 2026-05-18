@@ -1,4 +1,4 @@
-Last revised: January 28, 2003
+Last revised: May 2026
 
 .. _blowfish:
 
@@ -13,9 +13,13 @@ Blowfish Module
 
   This module requires: none
 
-  Put this line into your Eggdrop configuration file to load the blowfish
-  module::
+  **Configuration** — add to your ``eggdrop.toml``::
 
-    loadmodule blowfish
+  [modules]
+  load = [
+    ...
+    "blowfish",
+  ]
+
 
   Copyright (C) 2000 - 2025 Eggheads Development Team

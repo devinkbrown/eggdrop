@@ -1,4 +1,4 @@
-Last revised: Dec 30, 2017
+Last revised: May 2026
 
 .. _filesys:
 
@@ -15,10 +15,14 @@ This module requires: transfer
 Config file setup
 -----------------
 
-Put this line into your Eggdrop configuration file to load the filesys
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-    loadmodule filesys
+  [modules]
+  load = [
+    ...
+    "filesys",
+  ]
+
 
 There are also some variables you can set in your config file:
 

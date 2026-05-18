@@ -1,4 +1,4 @@
-Last revised: November 27, 2003
+Last revised: May 2026
 
 .. _share:
 
@@ -11,9 +11,14 @@ bots.
 
 This module requires: transfer, channels
 
-Put this line into your Eggdrop configuration file to load the share module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule share
+  [modules]
+  load = [
+    ...
+    "share",
+  ]
+
 
 There are also some variables you can set in your config file:
 

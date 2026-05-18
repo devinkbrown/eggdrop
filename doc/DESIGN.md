@@ -467,6 +467,39 @@ else
 
 ## Storage Backend
 
+### Async File I/O
+
+All persistent file writes (userfile, channelfile, notefile) go through an async
+write path that never blocks the main event loop:
+
+```c
+/* In-memory serialization via open_memstream */
+FILE *f = open_memstream(&buf, &buflen);
+/* ... write records to f ... */
+fclose(f);  /* finalises buf/buflen */
+
+/* Hand buf off to background worker thread */
+async_writebuf(path, buf, buflen, perm);
+/* buf ownership transferred; do not free */
+```
+
+`async_writebuf` (`src/async_fileio.c`) uses a worker thread pool (`op_async`):
+
+1. Opens a tmpfile in the same directory as the target.
+2. Writes `buf` to the tmpfile.
+3. `fsync()`s the tmpfile.
+4. Atomically renames it over the target path.
+5. Frees `buf`.
+
+Write coalescing: if a write is already in-flight for a path, the next call
+queues at most one pending write. On completion the pending write fires immediately.
+
+**HOOK_USERFILE and channel data**: The userfile serialization calls
+`call_hook(HOOK_USERFILE)` while the `open_memstream` FILE is still open.
+The hook is how `channels.mod` appends ban/exempt/invite records to the
+userfile stream. The stream is exposed to hook handlers via `get_userfile_stream()`
+(global table slot 342); it is non-NULL only during the hook call.
+
 ### egg_store API
 
 A pluggable storage interface with two implementations:
@@ -515,6 +548,13 @@ ignores  { mask → {expire, added, flags, user, msg} }
 ```
 
 **Why**: Avoids reimplementing all user entry-type serializers. The flat-file format is leveraged for crash safety.
+
+**Host and account iteration**: `USERENTRY_HOSTS` and `USERENTRY_ACCOUNT` store their
+entries as `op_vec_t` (a dynamic vector) after `hosts_unpack()` runs at load time.
+Code that iterates these entries must cast the return value of `get_user()` to
+`op_vec_t *` and use `op_vec_get()` — **not** treat it as a `struct list_type *`
+linked list. The LMDB backend iterates both in its full-resync and incremental-update
+paths.
 
 **Selection**:
 
@@ -610,7 +650,7 @@ The loader respects these and loads dependencies before dependents.
 | **filesys** | File transfer and directory browsing |
 | **ident** | RFC 1413 ident protocol |
 | **irc** | Core IRC protocol handling |
-| **notes** | Leave notes for offline users |
+| **notes** | Leave notes for offline users (async writes + in-memory count cache) |
 | **pbkdf2** | Password hashing and verification |
 | **python** | Python scripting engine (optional) |
 | **seen** | Track when users were last seen |
@@ -1081,7 +1121,7 @@ Output goes to `stderr` and is saved in `DEBUG.DEBUG` on crash.
 
 ### Test Suite
 
-Seven test executables exercise core subsystems:
+Eight test executables exercise core subsystems:
 
 | Test | Tests | Coverage |
 |------|-------|----------|
@@ -1092,6 +1132,7 @@ Seven test executables exercise core subsystems:
 | `test_botmsg` | varies | Base conversion, botnet message formatting |
 | `test_strbuf` | varies | op_strbuf_t operations (libop) |
 | `test_rfc1459` | varies | RFC 1459 case mapping |
+| `test_notes` | 11 | notes count cache: rebuild, path invalidation, case folding, comments |
 
 Tests use a unity build pattern: each test file `#include`s the relevant `.c` source directly to access `static` functions. Test stubs provide minimal symbols needed by included code without pulling in the full eggdrop binary.
 

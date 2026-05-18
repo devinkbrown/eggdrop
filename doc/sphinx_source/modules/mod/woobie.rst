@@ -1,4 +1,4 @@
-Last revised: December 31, 2001
+Last revised: May 2026
 
 .. _woobie:
 
@@ -10,9 +10,13 @@ point in writing modules, woobie is the right thing.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the woobie
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule woobie
+  [modules]
+  load = [
+    ...
+    "woobie",
+  ]
+
 
 Copyright (C) 2000 - 2025 Eggheads Development Team

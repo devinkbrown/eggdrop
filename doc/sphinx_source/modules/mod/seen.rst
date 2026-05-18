@@ -1,4 +1,4 @@
-Last revised: Mar 14, 2023
+Last revised: May 2026
 
 .. _seen:
 
@@ -13,9 +13,14 @@ You can find it at `<https://github.com/michaelortmann/gseen.mod>`_.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the seen module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule seen
+  [modules]
+  load = [
+    ...
+    "seen",
+  ]
+
 
 
 Copyright (C) 2000 - 2025 Eggheads Development Team

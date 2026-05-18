@@ -1,4 +1,4 @@
-Last revised: October 25, 2010
+Last revised: May 2026
 
 .. _server:
 
@@ -7,17 +7,25 @@ Server Module
 =============
 
 This module provides the core server support. You have to load this if
-you want your bot to come on IRC. Not loading this is equivalent to the
-old NO_IRC define.
+you want your bot to come on IRC.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the server
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule server
+  [modules]
+  load = [
+    ...
+    "server",
+  ]
 
-There are also some variables you can set in your config file:
+Most server settings are configured in the ``[servers]``, ``[bot]``, and ``[irc]``
+sections of ``eggdrop.toml``. See `Core Settings <../../using/core.html>`_ for the
+complete TOML reference.
+
+The settings below document the available options and their effect. In Eggdrop 1.10
+these are set via TOML keys (see ``eggdrop-basic.toml`` for examples) or via Tcl
+scripts using the ``set`` command.
 
   set net-type Efnet
     What is your network? Possible allowed values are Efnet, IRCnet, Undernet,

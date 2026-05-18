@@ -1,4 +1,4 @@
-Last revised: October 28, 2020
+Last revised: May 2026
 
 .. _pbkdf2:
 
@@ -6,34 +6,57 @@ Last revised: October 28, 2020
 PBKDF2 Module
 ===============
 
-  Eggdrop encrypts its userfile, so users can have secure passwords.
-  Eggdrop will not start without an encryption module.
+Eggdrop encrypts its userfile, so users can have secure passwords.
+Eggdrop will not start without an encryption module.
 
-  As of Eggdrop 1.9.0, a new encryption module was added, the PBKDF2 module.
-  The PBKDF2 module was designed to work with the previous encryption module
-  (blowfish) to make the transition easier. If this is a new bot, you can
-  safely load just the PBKDF2 module. If you are transitioning a userfile from
-  1.8 or earlier, you should load this AND the blowfish module. By doing so,
-  Eggdrop will seamlessly update the old blowfish hashes to the new PBKDF2
-  hashes once a user logs in for the first time, and allow you to (eventually)
-  remove the blowfish module altogether.
+As of Eggdrop 1.9.0, the PBKDF2 module was added as the recommended
+password hashing algorithm. It works alongside the blowfish module to make
+migration easier. For new bots, load only the PBKDF2 module. When migrating
+from Eggdrop 1.8 or earlier, load both — Eggdrop will silently upgrade old
+blowfish hashes to PBKDF2 on first login, allowing you to eventually drop
+the blowfish module.
 
-  Outside of the specific case noted above, please note that if you change your
-  encryption method later (i.e. using other modules like a rijndael module), you
-  can't use your current userfile anymore.
+This module requires: none
 
-  Put this line into your Eggdrop configuration file to load the server module::
-    loadmodule pbkdf2
+**Configuration** — add to your ``eggdrop.toml``::
 
-There are also some variables you can set in your config file:
+  [modules]
+  load = [
+    "pbkdf2",
+    # "blowfish",   # Load alongside pbkdf2 only when migrating from 1.8 userfiles
+    ...
+  ]
 
-  set pbkdf2-method "SHA256"
-    Cryptographic hash function used. Supported options depend on the
-    hash algorithms provided by opssl (the bundled TLS library).
+  [pbkdf2]
+  method = "SHA256"   # Hash function (SHA256 recommended)
+  rounds = 1600       # Iteration count — higher is slower but more brute-force resistant
 
-  set pbkdf2-rounds 1600
-    Number of rounds. The higher the number, the longer hashing takes; but also generally the higher the protection against brute force attacks.
+Settings
+--------
 
-  This module requires: none
+``method``
+  Cryptographic hash function used for PBKDF2. Supported values depend on the
+  hash algorithms available in opssl (the bundled TLS library). Recommended: ``SHA256``.
 
-  Copyright (C) 2000 - 2025 Eggheads Development Team
+``rounds``
+  Number of PBKDF2 iterations. Higher values increase brute-force resistance at
+  the cost of hashing speed. Default: ``1600``. NIST recommends 600,000+ for
+  SHA-256 in high-security contexts; for IRC bots the default is a reasonable
+  balance.
+
+Migration from Blowfish
+-----------------------
+
+To migrate an existing 1.8/1.9 userfile to PBKDF2:
+
+1. Load both modules in ``eggdrop.toml``::
+
+     [modules]
+     load = ["pbkdf2", "blowfish", ...]
+
+2. Users' passwords are automatically rehashed to PBKDF2 on next login.
+
+3. After all users have logged in at least once, you can remove ``"blowfish"``
+   from the load list and restart.
+
+Copyright (C) 2000 - 2025 Eggheads Development Team

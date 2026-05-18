@@ -1,4 +1,4 @@
-Last revised: October 25, 2010
+Last revised: May 2026
 
 .. _channels:
 
@@ -7,20 +7,33 @@ Channels Module
 ===============
 
 This module provides channel related support for the bot. Without it,
-you won't be able to make the bot join a channel or save channel specific
+you won't be able to make the bot join a channel or save channel-specific
 userfile information.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the channels
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule channels
+  [modules]
+  load = [
+    ...
+    "channels",
+  ]
 
-There are also some variables you can set in your config file:
+  [paths]
+  chanfile = "LamestBot.chan"   # File for dynamic channel settings
 
-    set chanfile "LamestBot.chan"
-      Enter here the filename where dynamic channel settings are stored.
+  [channels]
+  list = ["#mychannel"]         # Channels to join at startup
+
+Per-channel settings are configured via ``[[chanset]]`` blocks in ``eggdrop.toml``
+or via the ``.chanset`` partyline command at runtime. See
+`Core Settings <../../using/core.html>`_ for the complete TOML reference.
+
+The settings below document all available channel options. The ``set`` syntax shown
+is for Tcl scripts; TOML equivalents use the same key names (see ``eggdrop-basic.toml``).
+
+``chanfile``
 
 
     set force-expire 0

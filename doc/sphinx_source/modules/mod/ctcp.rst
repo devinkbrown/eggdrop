@@ -1,4 +1,4 @@
-Last revised: February 12, 2002
+Last revised: May 2026
 
 .. _ctcp:
 
@@ -11,10 +11,14 @@ Without it loaded, CTCP CHAT will not work.
 
 This module requires: server
 
-Put this line into your Eggdrop configuration file to load the ctcp
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule ctcp
+  [modules]
+  load = [
+    ...
+    "ctcp",
+  ]
+
 
 There are also some variables you can set in your config file:
 

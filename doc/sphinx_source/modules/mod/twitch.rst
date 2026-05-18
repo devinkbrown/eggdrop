@@ -1,4 +1,4 @@
-Last revised: 2025
+Last revised: May 2026
 
 .. _twitch:
 
@@ -18,9 +18,14 @@ focuses on:
 
 This module requires: ``server.mod``
 
-Put this line into your Eggdrop configuration file to load the twitch module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule twitch
+  [modules]
+  load = [
+    ...
+    "twitch",
+  ]
+
 
 and set ``net-type "Twitch"`` in your config file.
 

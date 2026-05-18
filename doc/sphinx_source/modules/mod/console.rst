@@ -1,4 +1,4 @@
-Last revised: January 1, 2002
+Last revised: May 2026
 
 .. _console:
 
@@ -11,10 +11,14 @@ type .store on the partyline.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the console
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule console
+  [modules]
+  load = [
+    ...
+    "console",
+  ]
+
 
 There are also some variables you can set in your config file:
 

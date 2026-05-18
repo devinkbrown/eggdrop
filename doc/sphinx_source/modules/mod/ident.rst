@@ -1,4 +1,4 @@
-Last revised: June 27, 2019
+Last revised: May 2026
 
 .. _ident:
 
@@ -50,10 +50,14 @@ This module requires:
   - oident to be running on your shell host, configured to allow user
     spoofing, for the oidentd method.
 
-Put this line into your Eggdrop configuration file to load the ident
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule ident
+  [modules]
+  load = [
+    ...
+    "ident",
+  ]
+
 
 There are also some variables you can set in your config file:
 

@@ -1,4 +1,4 @@
-Last revised: September 26, 2010
+Last revised: May 2026
 
 .. _dns:
 
@@ -12,10 +12,14 @@ often let it timeout on all other connections.
 
 This module requires: none
 
-Put this line into your Eggdrop configuration file to load the dns
-module::
+**Configuration** — add to your ``eggdrop.toml``::
 
-  loadmodule dns
+  [modules]
+  load = [
+    ...
+    "dns",
+  ]
+
 
 There are also some variables you can set in your config file:
 
