@@ -150,6 +150,8 @@ static void del_record(struct isupport *data) {
 
 /* find record — O(1) via hash table */
 static struct isupport *find_record(const char *key, size_t keylen) {
+  if (!isupport_ht)
+    return nullptr;
   char upper[256];
   size_t n = keylen < sizeof upper - 1 ? keylen : sizeof upper - 1;
   for (size_t i = 0; i < n; i++)

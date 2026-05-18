@@ -110,11 +110,13 @@ static void dns_ibh_work(void *arg)
     if (res->ai_family == AF_INET) {
       memcpy(&c->name.addr.s4, res->ai_addr, sizeof(struct sockaddr_in));
       c->name.family = AF_INET;
+      c->name.addrlen = sizeof(struct sockaddr_in);
       c->ok = 1;
 #ifdef IPV6
     } else if (res->ai_family == AF_INET6) {
       memcpy(&c->name.addr.s6, res->ai_addr, sizeof(struct sockaddr_in6));
       c->name.family = AF_INET6;
+      c->name.addrlen = sizeof(struct sockaddr_in6);
       c->ok = 1;
 #endif
     }

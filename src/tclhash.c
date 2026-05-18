@@ -627,6 +627,12 @@ static int trigger_bind(const char *proc, const char *param, char *mask)
     debug3("triggered bind %s, user %.3fms sys %.3fms", proc, ums, sms);
 
   if (x == TCL_ERROR) {
+    /* When builtin_dcc returns TCL_BREAK for CMD_LEAVE (partyline quit),
+     * Tcl converts it to TCL_ERROR with this specific message because the
+     * break occurs outside any loop construct.  Detect it here so .quit
+     * exits the partyline instead of logging a spurious error. */
+    if (proc && proc[0] == '*' && strstr(tcl_resultstring(), "\"break\" outside"))
+      return BIND_QUIT;
     putlog(LOG_MISC, "*", "Tcl error [%s]: %s", proc, tcl_resultstring());
     Tcl_BackgroundError(interp);
 
