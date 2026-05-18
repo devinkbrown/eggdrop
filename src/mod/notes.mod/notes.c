@@ -81,15 +81,10 @@ static void notes_cache_clear(void)
   notes_count_cache = nullptr;
 }
 
-static void notes_cache_build(void)
+/* Scan lines from FILE *f and tally per-handle counts into the cache.
+ * f must already be positioned at the start. */
+static void notes_cache_scan(FILE *f)
 {
-  notes_cache_clear();
-  op_strlcpy(notes_cached_path, notefile, sizeof notes_cached_path);
-  if (!notefile[0])
-    return;
-  FILE *f = fopen(notefile, "r");
-  if (!f)
-    return;
   char s[513];
   while (fgets(s, sizeof s, f) != nullptr) {
     size_t n = strlen(s);
@@ -111,6 +106,34 @@ static void notes_cache_build(void)
       notes_count_cache = e;
     }
   }
+}
+
+/* Rebuild the count cache from an in-memory buffer.
+ * Used after a write so the cache reflects the new file contents
+ * immediately, without waiting for the async disk write to complete. */
+static void notes_cache_rebuild_from_buf(char *buf, size_t len)
+{
+  notes_cache_clear();
+  op_strlcpy(notes_cached_path, notefile, sizeof notes_cached_path);
+  if (!buf || !len)
+    return;
+  FILE *f = fmemopen(buf, len, "r");
+  if (!f)
+    return;
+  notes_cache_scan(f);
+  fclose(f);
+}
+
+static void notes_cache_build(void)
+{
+  notes_cache_clear();
+  op_strlcpy(notes_cached_path, notefile, sizeof notes_cached_path);
+  if (!notefile[0])
+    return;
+  FILE *f = fopen(notefile, "r");
+  if (!f)
+    return;
+  notes_cache_scan(f);
   fclose(f);
 }
 
@@ -196,7 +219,7 @@ static void notes_change(char *oldnick, char *newnick)
     putlog(LOG_MISC, "*", "NOTES: Error reading notes file to change handle");
   fclose(f);
   fclose(g);
-  notes_cache_clear();
+  notes_cache_rebuild_from_buf(nbuf, nbuflen);
   async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   putlog(LOG_MISC, "*", NOTES_SWITCHED_NOTES, tot, tot == 1 ? "" : "s",
          oldnick, newnick);
@@ -242,7 +265,7 @@ static void expire_notes(void)
     putlog(LOG_MISC, "*", "NOTES: Error reading notes file to remove old notes");
   fclose(f);
   fclose(g);
-  notes_cache_clear();
+  notes_cache_rebuild_from_buf(nbuf, nbuflen);
   async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   if (tot > 0)
     putlog(LOG_MISC, "*", NOTES_EXPIRED, tot, tot == 1 ? "" : "s");
@@ -478,7 +501,7 @@ static int tcl_erasenotes STDVAR
   Tcl_AppendResult(irp, int_to_base10(erased), nullptr);
   fclose(f);
   fclose(g);
-  notes_cache_clear();
+  notes_cache_rebuild_from_buf(nbuf, nbuflen);
   async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   return TCL_OK;
 }
@@ -680,7 +703,7 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
     putlog(LOG_MISC, "*", "NOTES: Error reading notes file to delete note.");
   fclose(f);
   fclose(g);
-  notes_cache_clear();
+  notes_cache_rebuild_from_buf(nbuf, nbuflen);
   async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   if ((er == 0) && (in > 1)) {
     if (idx >= 0)
