@@ -28,9 +28,11 @@
 #define MAKING_NOTES
 
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/stat.h>           /* chmod(..) */
 #include "src/mod/module.h"
 #include "src/tandem.h"
+#include "src/async_fileio.h"
 #include "notes.h"
 
 
@@ -45,6 +47,72 @@ static int notify_onjoin = 1;   /* Notify users they have notes on join?
 
 #undef global /* Needs to be undef'd because of fcntl.h. */
 static Function *global = nullptr; /* DAMN fcntl.h */
+
+/* -----------------------------------------------------------------------
+ * In-memory note count cache.
+ *
+ * num_notes() is called on every join and every hour for all channel
+ * members.  Without a cache each call reads the entire notefile.  We
+ * build the cache lazily on the first read after startup or after any
+ * write that modifies the notefile, then serve subsequent reads from
+ * memory.
+ *
+ * The cache is also invalidated when the notefile path changes so that
+ * a reconfigured path is always reflected correctly.
+ * ----------------------------------------------------------------------- */
+
+typedef struct notes_count_entry {
+  char                    handle[HANDLEN + 1];
+  int                     count;
+  struct notes_count_entry *next;
+} notes_count_entry_t;
+
+static notes_count_entry_t *notes_count_cache = nullptr;
+static char                 notes_cached_path[121] = "";
+
+static void notes_cache_clear(void)
+{
+  notes_count_entry_t *e = notes_count_cache;
+  while (e) {
+    notes_count_entry_t *tmp = e->next;
+    op_free(e);
+    e = tmp;
+  }
+  notes_count_cache = nullptr;
+}
+
+static void notes_cache_build(void)
+{
+  notes_cache_clear();
+  op_strlcpy(notes_cached_path, notefile, sizeof notes_cached_path);
+  if (!notefile[0])
+    return;
+  FILE *f = fopen(notefile, "r");
+  if (!f)
+    return;
+  char s[513];
+  while (fgets(s, sizeof s, f) != nullptr) {
+    size_t n = strlen(s);
+    if (n > 0 && s[n - 1] == '\n')
+      s[n - 1] = 0;
+    rmspace(s);
+    if (!s[0] || s[0] == '#' || s[0] == ';')
+      continue;
+    char *s1 = s;
+    char *to = newsplit(&s1);
+    notes_count_entry_t *e;
+    for (e = notes_count_cache; e; e = e->next)
+      if (!op_strcasecmp(e->handle, to)) { e->count++; break; }
+    if (!e) {
+      e = (notes_count_entry_t *)op_malloc(sizeof *e);
+      op_strlcpy(e->handle, to, sizeof e->handle);
+      e->count = 1;
+      e->next  = notes_count_cache;
+      notes_count_cache = e;
+    }
+  }
+  fclose(f);
+}
 
 static struct user_entry_type USERENTRY_FWD = {
   nullptr,
@@ -73,35 +141,19 @@ static void fwd_display(int idx, struct user_entry *e)
 }
 
 /* Determine how many notes are waiting for a user.
+ * Served from the in-memory cache; rebuilt from disk if stale.
  */
 static int num_notes(char *user)
 {
-  int tot = 0;
-  FILE *f;
-  char s[513], *to, *s1;
-
   if (!notefile[0])
     return 0;
-  f = fopen(notefile, "r");
-  if (f == nullptr)
-    return 0;
-  while (fgets(s, sizeof s, f) != nullptr) {
-    if (s[strlen(s) - 1] == '\n')
-      s[strlen(s) - 1] = 0;
-    rmspace(s);
-    if ((s[0]) && (s[0] != '#') && (s[0] != ';')) {   /* Not comment */
-      s1 = s;
-      to = newsplit(&s1);
-      if (!op_strcasecmp(to, user))
-        tot++;
-    }
-  }
-  /* fgets == nullptr means error or empty file, so check for error */
-  if (ferror(f)) {
-    putlog(LOG_MISC, "*", "NOTES: Error reading number of notes.");
-  }
-  fclose(f);
-  return tot;
+  /* Rebuild if cache is empty or the notefile path has changed. */
+  if (!notes_count_cache || strcmp(notes_cached_path, notefile))
+    notes_cache_build();
+  for (notes_count_entry_t *e = notes_count_cache; e; e = e->next)
+    if (!op_strcasecmp(e->handle, user))
+      return e->count;
+  return 0;
 }
 
 /* Change someone's handle.
@@ -109,7 +161,8 @@ static int num_notes(char *user)
 static void notes_change(char *oldnick, char *newnick)
 {
   FILE *f, *g;
-  char s[513], *to, *s1;
+  char *nbuf = nullptr, s[513], *to, *s1;
+  size_t nbuflen = 0;
   int tot = 0;
 
   if (!op_strcasecmp(oldnick, newnick))
@@ -119,18 +172,10 @@ static void notes_change(char *oldnick, char *newnick)
   f = fopen(notefile, "r");
   if (f == nullptr)
     return;
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    g = fopen(op_strbuf_str(&_b), "w");
-    if (g == nullptr) {
-      op_strbuf_free(&_b);
-      fclose(f);
-      return;
-    }
-    chmod(op_strbuf_str(&_b), userfile_perm);
-    op_strbuf_free(&_b);
+  g = open_memstream(&nbuf, &nbuflen);
+  if (g == nullptr) {
+    fclose(f);
+    return;
   }
   while (fgets(s, sizeof s, f) != nullptr) {
     if (s[strlen(s) - 1] == '\n')
@@ -147,20 +192,12 @@ static void notes_change(char *oldnick, char *newnick)
     } else
       fprintf(g, "%s\n", s);
   }
-  /* fgets == nullptr means error or empty file, so check for error */
-  if (ferror(f)) {
+  if (ferror(f))
     putlog(LOG_MISC, "*", "NOTES: Error reading notes file to change handle");
-  }
   fclose(f);
   fclose(g);
-  unlink(notefile);
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    movefile(op_strbuf_str(&_b), notefile);
-    op_strbuf_free(&_b);
-  }
+  notes_cache_clear();
+  async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   putlog(LOG_MISC, "*", NOTES_SWITCHED_NOTES, tot, tot == 1 ? "" : "s",
          oldnick, newnick);
 }
@@ -170,7 +207,8 @@ static void notes_change(char *oldnick, char *newnick)
 static void expire_notes(void)
 {
   FILE *f, *g;
-  char s[513], *to, *from, *ts, *s1;
+  char *nbuf = nullptr, s[513], *to, *from, *ts, *s1;
+  size_t nbuflen = 0;
   int tot = 0, lapse;
 
   if (!notefile[0])
@@ -178,18 +216,10 @@ static void expire_notes(void)
   f = fopen(notefile, "r");
   if (f == nullptr)
     return;
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    g = fopen(op_strbuf_str(&_b), "w");
-    if (g == nullptr) {
-      op_strbuf_free(&_b);
-      fclose(f);
-      return;
-    }
-    chmod(op_strbuf_str(&_b), userfile_perm);
-    op_strbuf_free(&_b);
+  g = open_memstream(&nbuf, &nbuflen);
+  if (g == nullptr) {
+    fclose(f);
+    return;
   }
   while (fgets(s, sizeof s, f) != nullptr) {
     if (s[strlen(s) - 1] == '\n')
@@ -208,20 +238,12 @@ static void expire_notes(void)
     } else
       fprintf(g, "%s\n", s);
   }
-  /* fgets == nullptr means error or empty file, so check for error */
-  if (ferror(f)) {
+  if (ferror(f))
     putlog(LOG_MISC, "*", "NOTES: Error reading notes file to remove old notes");
-  }
   fclose(f);
   fclose(g);
-  unlink(notefile);
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    movefile(op_strbuf_str(&_b), notefile);
-    op_strbuf_free(&_b);
-  }
+  notes_cache_clear();
+  async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   if (tot > 0)
     putlog(LOG_MISC, "*", NOTES_EXPIRED, tot, tot == 1 ? "" : "s");
 }
@@ -347,6 +369,7 @@ static int tcl_storenote STDVAR
                 op_strbuf_str(&chain), blah);
         op_strbuf_free(&chain);
         fclose(f);
+        notes_cache_clear();
         if (idx >= 0)
           dprintf(idx, "%s.\n", NOTES_STORED_MESSAGE);
       }
@@ -406,7 +429,8 @@ static int notes_in(int dl[], int in)
 static int tcl_erasenotes STDVAR
 {
   FILE *f, *g;
-  char s[601], *to, *s1;
+  char *nbuf = nullptr, s[601], *to, *s1;
+  size_t nbuflen = 0;
   int read, erased;
   int nl[128]; /* Is it enough ? */
 
@@ -425,19 +449,11 @@ static int tcl_erasenotes STDVAR
     Tcl_AppendResult(irp, "-2", nullptr);
     return TCL_OK;
   }
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    g = fopen(op_strbuf_str(&_b), "w");
-    if (g == nullptr) {
-      op_strbuf_free(&_b);
-      fclose(f);
-      Tcl_AppendResult(irp, "-2", nullptr);
-      return TCL_OK;
-    }
-    chmod(op_strbuf_str(&_b), userfile_perm);
-    op_strbuf_free(&_b);
+  g = open_memstream(&nbuf, &nbuflen);
+  if (g == nullptr) {
+    fclose(f);
+    Tcl_AppendResult(irp, "-2", nullptr);
+    return TCL_OK;
   }
   read = 0;
   erased = 0;
@@ -462,14 +478,8 @@ static int tcl_erasenotes STDVAR
   Tcl_AppendResult(irp, int_to_base10(erased), nullptr);
   fclose(f);
   fclose(g);
-  unlink(notefile);
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    movefile(op_strbuf_str(&_b), notefile);
-    op_strbuf_free(&_b);
-  }
+  notes_cache_clear();
+  async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   return TCL_OK;
 }
 
@@ -615,7 +625,8 @@ static void notes_read(char *hand, char *nick, char *srd, int idx)
 static void notes_del(char *hand, char *nick, char *sdl, int idx)
 {
   FILE *f, *g;
-  char s[513], *to, *s1;
+  char *nbuf = nullptr, s[513], *to, *s1;
+  size_t nbuflen = 0;
   int in = 1;
   int er = 0;
   int dl[128];                  /* Is it enough ? */
@@ -637,22 +648,14 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
       dprintf(DP_HELP, "NOTICE %s :%s.\n", nick, NOTES_NO_MESSAGES);
     return;
   }
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    g = fopen(op_strbuf_str(&_b), "w");
-    if (g == nullptr) {
-      op_strbuf_free(&_b);
-      if (idx >= 0)
-        dprintf(idx, "%s. :(\n", NOTES_FAILED_CHMOD);
-      else
-        dprintf(DP_HELP, "NOTICE %s :%s. :(\n", nick, NOTES_FAILED_CHMOD);
-      fclose(f);
-      return;
-    }
-    chmod(op_strbuf_str(&_b), userfile_perm);
-    op_strbuf_free(&_b);
+  g = open_memstream(&nbuf, &nbuflen);
+  if (g == nullptr) {
+    if (idx >= 0)
+      dprintf(idx, "%s. :(\n", NOTES_FAILED_CHMOD);
+    else
+      dprintf(DP_HELP, "NOTICE %s :%s. :(\n", nick, NOTES_FAILED_CHMOD);
+    fclose(f);
+    return;
   }
   notes_parse(dl, sdl);
   while (fgets(s, sizeof s, f) != nullptr) {
@@ -673,19 +676,12 @@ static void notes_del(char *hand, char *nick, char *sdl, int idx)
     } else
       fprintf(g, "%s\n", s);
   }
-  if (ferror(f)) {
+  if (ferror(f))
     putlog(LOG_MISC, "*", "NOTES: Error reading notes file to delete note.");
-  }
   fclose(f);
   fclose(g);
-  unlink(notefile);
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s~new", notefile);
-    movefile(op_strbuf_str(&_b), notefile);
-    op_strbuf_free(&_b);
-  }
+  notes_cache_clear();
+  async_writebuf(notefile, nbuf, nbuflen, userfile_perm);
   if ((er == 0) && (in > 1)) {
     if (idx >= 0)
       dprintf(idx, "%s.\n", NOTES_NOT_THAT_MANY);
@@ -865,6 +861,7 @@ static int msg_notes(char *nick, char *host, struct userrec *u, char *par)
     chmod(notefile, userfile_perm); /* Use userfile permissions. */
     fprintf(f, "%s %s %li %s\n", to, u->handle, (long) now, par);
     fclose(f);
+    notes_cache_clear();
     dprintf(DP_HELP, "NOTICE %s :%s\n", nick, NOTES_DELIVERED);
     return 1;
   } else
@@ -1214,6 +1211,7 @@ static char *notes_close(void)
 {
   p_tcl_bind_list H_temp;
 
+  notes_cache_clear();
   rem_tcl_ints(notes_ints);
   rem_tcl_strings(notes_strings);
   rem_tcl_commands(notes_tcls);
