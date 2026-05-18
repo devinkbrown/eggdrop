@@ -378,6 +378,18 @@ but this Eggdrop was not compiled with IPv6 support.");
 
 /* Get socket address to bind to for outbound connections
  */
+/* Resolved-address cache for getvhost().  Each outbound connection calls
+ * getvhost(), which previously called setsockname() every time — triggering
+ * a potentially-blocking getaddrinfo() when vhost/vhost6 is a hostname.
+ * The cache is automatically invalidated whenever the vhost string changes,
+ * so no explicit flush is needed after rehash. */
+static sockname_t getvhost_cache4;
+static char       getvhost_cached_v4[121] = "";
+#ifdef IPV6
+static sockname_t getvhost_cache6;
+static char       getvhost_cached_v6[121] = "";
+#endif
+
 void getvhost(sockname_t *addr, int af)
 {
   char *h = nullptr;
@@ -388,8 +400,34 @@ void getvhost(sockname_t *addr, int af)
   else
     h = vhost6;
 #endif
-  if (!h || !h[0] || setsockname(addr, (h ? h : ""), 0, 1) != af)
+
+  if (!h || !h[0]) {
     setsockname(addr, (af == AF_INET ? "0.0.0.0" : "::"), 0, 0);
+    return;
+  }
+
+#ifdef IPV6
+  char       *cached_str  = (af == AF_INET) ? getvhost_cached_v4 : getvhost_cached_v6;
+  sockname_t *cached_addr = (af == AF_INET) ? &getvhost_cache4   : &getvhost_cache6;
+#else
+  char       *cached_str  = getvhost_cached_v4;
+  sockname_t *cached_addr = &getvhost_cache4;
+#endif
+
+  /* Return cached result if vhost hasn't changed */
+  if (*cached_str && !strcmp(cached_str, h)) {
+    memcpy(addr, cached_addr, sizeof *addr);
+    return;
+  }
+
+  /* Re-resolve and update cache */
+  if (setsockname(addr, h, 0, 1) != af) {
+    setsockname(addr, (af == AF_INET ? "0.0.0.0" : "::"), 0, 0);
+    *cached_str = '\0';  /* don't cache a failed resolution */
+    return;
+  }
+  memcpy(cached_addr, addr, sizeof *addr);
+  op_strlcpy(cached_str, h, sizeof getvhost_cached_v4);
   /* Remember this 'self-lookup failed' thingie?
      I have good news - you won't see it again ;) */
 }

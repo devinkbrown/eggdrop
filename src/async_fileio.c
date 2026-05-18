@@ -119,7 +119,44 @@ void async_movefile(const char *src, const char *dst)
 
 /* ======================================================================
  * Async writebuf  (write buffer → tmpfile → fsync → rename)
+ *
+ * Write coalescing: at most one write per path is in-flight at a time.
+ * If async_writebuf() is called while a write is already in-flight,
+ * the new buffer is stored as "pending".  When the in-flight write
+ * completes, the pending buffer is immediately submitted as the next
+ * write.  Only the latest pending buffer is retained — intermediate
+ * ones are discarded — so rapid callers (e.g. write_userfile on every
+ * join) produce at most two disk writes: the one already in-flight plus
+ * one final write of the most-recent state.
  * ==================================================================== */
+
+/* Per-path coalescing state (main-thread only — done_fn runs on main) */
+typedef struct coalesce_slot {
+  char   *path;
+  char   *pending_buf;   /* newest buffer waiting to be written, or NULL */
+  size_t  pending_len;
+  int     pending_perm;
+  int     in_flight;     /* 1 while a write for this path is queued/running */
+  struct coalesce_slot *next;
+} coalesce_slot_t;
+
+static coalesce_slot_t *coalesce_head = nullptr;  /* main-thread only */
+
+/* Find or create the coalescing slot for a path. */
+static coalesce_slot_t *coalesce_get(const char *path)
+{
+  for (coalesce_slot_t *s = coalesce_head; s; s = s->next)
+    if (!strcmp(s->path, path)) return s;
+  coalesce_slot_t *s = (coalesce_slot_t *)op_malloc(sizeof *s);
+  s->path         = op_strdup(path);
+  s->pending_buf  = nullptr;
+  s->pending_len  = 0;
+  s->pending_perm = 0;
+  s->in_flight    = 0;
+  s->next         = coalesce_head;
+  coalesce_head   = s;
+  return s;
+}
 
 typedef struct {
   char   *finalpath;
@@ -172,6 +209,19 @@ static void awrite_done(void *arg)
   if (c->result != 0)
     putlog(LOG_MISC, "*", "async_fileio: write failed (%s): error %d",
            c->finalpath, c->result);
+
+  /* Coalescing: mark slot idle; submit pending write if one accumulated. */
+  coalesce_slot_t *cs = coalesce_get(c->finalpath);
+  cs->in_flight = 0;
+  if (cs->pending_buf) {
+    char  *pbuf  = cs->pending_buf;
+    size_t plen  = cs->pending_len;
+    int    pperm = cs->pending_perm;
+    cs->pending_buf = nullptr;
+    /* async_writebuf will find cs->in_flight==0 and submit immediately */
+    async_writebuf(c->finalpath, pbuf, plen, pperm);
+  }
+
   op_free(c->finalpath);
   op_free(c->tmppath);
   op_free(c->buf);
@@ -212,26 +262,46 @@ static _Atomic unsigned int awrite_seq = 0;
 
 void async_writebuf(const char *finalpath, char *buf, size_t len, int perm)
 {
+  if (!op_async_active()) {
+    op_strbuf_t tmp = {};
+    op_strbuf_init(&tmp);
+    op_strbuf_appendf(&tmp, "%s~new.%u", finalpath,
+                      atomic_fetch_add_explicit(&awrite_seq, 1,
+                                                memory_order_relaxed));
+    awrite_sync(finalpath, op_strbuf_str(&tmp), buf, len, perm);
+    op_strbuf_free(&tmp);
+    return;
+  }
+
+  /* Coalescing: if a write is already in-flight for this path, store the
+   * new buffer as pending (dropping any previous pending buffer) so the
+   * latest state is always written exactly once after the current write
+   * completes.  This bounds disk writes to two per burst regardless of how
+   * many write_userfile() calls the main loop issues. */
+  coalesce_slot_t *cs = coalesce_get(finalpath);
+  if (cs->in_flight) {
+    op_free(cs->pending_buf);
+    cs->pending_buf  = buf;
+    cs->pending_len  = len;
+    cs->pending_perm = perm;
+    return;  /* awrite_done will submit this buffer when in-flight completes */
+  }
+  cs->in_flight = 1;
+
   unsigned int seq = atomic_fetch_add_explicit(&awrite_seq, 1,
                                                memory_order_relaxed);
   op_strbuf_t tmp = {};
   op_strbuf_init(&tmp);
   op_strbuf_appendf(&tmp, "%s~new.%u", finalpath, seq);
 
-  if (!op_async_active()) {
-    awrite_sync(finalpath, op_strbuf_str(&tmp), buf, len, perm);
-    op_strbuf_free(&tmp);
-    return;
-  }
-
   if (!awrite_bh) awrite_bh = op_bh_create(sizeof(awrite_ctx_t), 8, "awrite_ctx");
   awrite_ctx_t *c = (awrite_ctx_t *)op_bh_alloc(awrite_bh);
   c->finalpath = op_strdup(finalpath);
-  c->tmppath = op_strbuf_steal(&tmp);
-  c->buf = buf;
-  c->len = len;
-  c->perm = perm;
-  c->result = 0;
+  c->tmppath   = op_strbuf_steal(&tmp);
+  c->buf       = buf;
+  c->len       = len;
+  c->perm      = perm;
+  c->result    = 0;
   op_async_submit(awrite_work, awrite_done, c);
 }
 
@@ -288,8 +358,8 @@ static void alogstat_done(void *arg)
     op_strbuf_t yesterday = {};
     op_strbuf_init(&yesterday);
     op_strbuf_appendf(&yesterday, "%s.yesterday", c->filename);
-    unlink(op_strbuf_str(&yesterday));
-    movefile(c->filename, op_strbuf_str(&yesterday));
+    unlink(op_strbuf_str(&yesterday));  /* remove old backup synchronously */
+    async_movefile(c->filename, op_strbuf_str(&yesterday));  /* rename off main thread */
     op_strbuf_free(&yesterday);
   }
 
