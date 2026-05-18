@@ -63,8 +63,12 @@ static pthread_mutex_t flush_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  flush_cond  = PTHREAD_COND_INITIALIZER;
 static _Atomic int     flush_seq;   /* incremented by writer after each FLUSH */
 
-static _Atomic bool    writer_running;
-static int             alog_nslots;  /* set once at init, read-only after */
+static _Atomic bool     writer_running;
+static int              alog_nslots;  /* set once at init, read-only after */
+
+/* Cumulative write stats — updated by writer thread, read by main thread. */
+static _Atomic uint64_t alog_lines_written;
+static _Atomic uint64_t alog_bytes_written;
 
 /* Writer-private file handles */
 static FILE           *slot_files[ALOG_MAX_SLOTS];
@@ -143,6 +147,9 @@ static void writer_write(int slot, const char *path, const char *line)
     writer_open(slot, path);
   if (!slot_files[slot]) return;  /* open failed */
   fputs(line, slot_files[slot]);
+  atomic_fetch_add_explicit(&alog_lines_written, 1, memory_order_relaxed);
+  atomic_fetch_add_explicit(&alog_bytes_written, strlen(line),
+                            memory_order_relaxed);
 }
 
 static void writer_close(int slot)
@@ -319,4 +326,12 @@ bool async_log_slot_open(int slot_idx)
   if (!async_log_active()) return false;
   if (slot_idx < 0 || slot_idx >= alog_nslots) return false;
   return slot_told_open[slot_idx];
+}
+
+void async_log_stats(uint64_t *lines_out, uint64_t *bytes_out)
+{
+  if (lines_out)
+    *lines_out = atomic_load_explicit(&alog_lines_written, memory_order_relaxed);
+  if (bytes_out)
+    *bytes_out = atomic_load_explicit(&alog_bytes_written, memory_order_relaxed);
 }

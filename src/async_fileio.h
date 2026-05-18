@@ -14,6 +14,10 @@
  * copyfile() if the async pool is not active. */
 void async_copyfile(const char *src, const char *dst);
 
+/* Move (rename, or copy+delete across filesystems) a file on a worker thread.
+ * Falls back to synchronous movefile() if the async pool is not active. */
+void async_movefile(const char *src, const char *dst);
+
 /* Write a memory buffer to disk atomically: worker thread writes to a
  * temp file, fsyncs, then renames to finalpath.
  *

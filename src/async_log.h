@@ -12,8 +12,8 @@
 #ifndef _EGG_ASYNC_LOG_H
 #define _EGG_ASYNC_LOG_H
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /* Initialize the async log writer for up to max_slots log slots.
  * Starts the writer thread.  Must be called from the main thread after
@@ -44,5 +44,11 @@ bool async_log_active(void);
  * yet been asked to close it.  Used by the main thread to decide whether
  * to pass an open path with the next write to that slot. */
 bool async_log_slot_open(int slot_idx);
+
+/* Fill *lines_out and *bytes_out with cumulative write counters.
+ * Either pointer may be NULL.  Counters are updated relaxed from the writer
+ * thread and are best-effort (no synchronization guarantee vs in-flight
+ * writes). */
+void async_log_stats(uint64_t *lines_out, uint64_t *bytes_out);
 
 #endif /* _EGG_ASYNC_LOG_H */

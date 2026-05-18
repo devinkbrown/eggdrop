@@ -617,7 +617,7 @@ static void core_secondly(void)
             }
             op_strbuf_appendf(&sb, "%s.yesterday", logs[li].filename);
             unlink(op_strbuf_str(&sb));
-            movefile(logs[li].filename, op_strbuf_str(&sb));
+            async_movefile(logs[li].filename, op_strbuf_str(&sb));
             op_strbuf_free(&sb);
           }
       }

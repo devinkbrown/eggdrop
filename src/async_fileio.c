@@ -74,6 +74,50 @@ void async_copyfile(const char *src, const char *dst)
 }
 
 /* ======================================================================
+ * Async movefile  (unlink dst + rename/copy src→dst off the main thread)
+ * ==================================================================== */
+
+typedef struct {
+  char *src;
+  char *dst;
+  int   result;
+} amove_ctx_t;
+
+static op_bh *amove_bh = nullptr;
+
+static void amove_work(void *arg)
+{
+  amove_ctx_t *c = arg;
+  c->result = movefile(c->src, c->dst);
+}
+
+static void amove_done(void *arg)
+{
+  amove_ctx_t *c = arg;
+  if (c->result != 0)
+    putlog(LOG_MISC, "*", "async_fileio: move failed (%s → %s): error %d",
+           c->src, c->dst, c->result);
+  op_free(c->src);
+  op_free(c->dst);
+  op_bh_free(amove_bh, c);
+}
+
+void async_movefile(const char *src, const char *dst)
+{
+  if (!op_async_active()) {
+    movefile(src, dst);
+    return;
+  }
+
+  if (!amove_bh) amove_bh = op_bh_create(sizeof(amove_ctx_t), 8, "amove_ctx");
+  amove_ctx_t *c = (amove_ctx_t *)op_bh_alloc(amove_bh);
+  c->src    = op_strdup(src);
+  c->dst    = op_strdup(dst);
+  c->result = 0;
+  op_async_submit(amove_work, amove_done, c);
+}
+
+/* ======================================================================
  * Async writebuf  (write buffer → tmpfile → fsync → rename)
  * ==================================================================== */
 

@@ -817,6 +817,23 @@ static int tcl_threadinfo STDVAR
   Tcl_AppendElement(irp, async_log_active() ? "1" : "0");
 
   {
+    uint64_t alog_lines = 0, alog_bytes = 0;
+    async_log_stats(&alog_lines, &alog_bytes);
+    op_strbuf_t alog_buf = {};
+    op_strbuf_init(&alog_buf);
+
+    Tcl_AppendElement(irp, "async_log_lines");
+    op_strbuf_appendf(&alog_buf, "%llu", (unsigned long long)alog_lines);
+    Tcl_AppendElement(irp, op_strbuf_str(&alog_buf));
+    op_strbuf_free(&alog_buf);
+
+    Tcl_AppendElement(irp, "async_log_bytes");
+    op_strbuf_appendf(&alog_buf, "%llu", (unsigned long long)alog_bytes);
+    Tcl_AppendElement(irp, op_strbuf_str(&alog_buf));
+    op_strbuf_free(&alog_buf);
+  }
+
+  {
     struct egg_perf_metrics pm = egg_perf_snapshot();
     uint64_t avg_ns = pm.tick_count ? pm.tick_ns_total / pm.tick_count : 0;
     op_strbuf_t pbuf = {};
