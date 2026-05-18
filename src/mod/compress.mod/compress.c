@@ -77,8 +77,8 @@ static int is_compressedfile(char *filename)
   gzFile zin;
   int len1, len2, i;
 
-  egg_bzero(buf1, sizeof(buf1));
-  egg_bzero(buf2, sizeof(buf2));
+  op_memzero(buf1, sizeof(buf1));
+  op_memzero(buf2, sizeof(buf2));
   if (!is_file(filename))
     return COMPF_FAILED;
 

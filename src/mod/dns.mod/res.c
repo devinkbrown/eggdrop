@@ -92,60 +92,19 @@ extern sock_list *socklist; /* TLS-aware socket list           (net.c)   */
 #endif
 
 /* =========================================================================
- * Portability shims: replace ophion infrastructure types/functions
+ * Eggdrop portability shims
  * ====================================================================== */
 
+/* op_dlink_{node,list}, op_dlinkAdd, op_dlinkDelete, OP_DLINK_FOREACH*,
+ * op_malloc, op_free, op_strcasecmp, op_strlcpy — all provided by
+ * op_lib.h (pulled in via main.h above).  No local reimplementation needed. */
+
 #define op_sockaddr_storage sockaddr_storage
-
-typedef struct res_dlink_node_t {
-  void *data;
-  struct res_dlink_node_t *prev;
-  struct res_dlink_node_t *next;
-} res_dlink_node;
-
-typedef struct res_dlink_list_t {
-  res_dlink_node *head;
-  res_dlink_node *tail;
-  int length;
-} res_dlink_list;
-
-#define op_dlink_list   res_dlink_list
-#define op_dlink_node   res_dlink_node
-
-static inline void res_dlinkAdd(void *data, res_dlink_node *m, res_dlink_list *list) {
-  m->data = data; m->prev = nullptr; m->next = list->head;
-  if (list->head) list->head->prev = m; else list->tail = m;
-  list->head = m; list->length++;
-}
-static inline void res_dlinkDelete(res_dlink_node *m, res_dlink_list *list) {
-  if (m->prev) m->prev->next = m->next; else list->head = m->next;
-  if (m->next) m->next->prev = m->prev; else list->tail = m->prev;
-  list->length--;
-}
-#undef op_dlinkAdd
-#define op_dlinkAdd(data, node, list)    res_dlinkAdd(data, node, list)
-#undef op_dlinkDelete
-#define op_dlinkDelete(node, list)       res_dlinkDelete(node, list)
-#undef OP_DLINK_FOREACH
-#define OP_DLINK_FOREACH(n, head)        for ((n) = (head); (n); (n) = (n)->next)
-#undef OP_DLINK_FOREACH_SAFE
-#define OP_DLINK_FOREACH_SAFE(n, nt, head) \
-  for ((n) = (head); (n) && ((nt) = (n)->next, 1); (n) = (nt))
-
-/* Memory — already routed through libop via op_malloc/op_free */
-#undef op_malloc
-#define op_malloc(n)    op_malloc(n)
-#undef op_free
-#define op_free(p)      op_free(p)
 
 /* Logging */
 #define iwarn(fmt, ...)      putlog(LOG_MISC, "*", "DNS: " fmt, ##__VA_ARGS__)
 #define ilog(lvl, fmt, ...)  putlog(LOG_MISC, "*", "DNS: " fmt, ##__VA_ARGS__)
 #define idebug(fmt, ...)     /* debug only */
-
-/* String helpers replacing op_strcasecmp / op_strlcpy */
-#define op_strcasecmp(a, b)         strcasecmp(a, b)
-#define op_strlcpy(dst, src, sz)    strlcpy(dst, src, sz)
 
 /* Socket helpers */
 [[maybe_unused]] static inline
@@ -660,7 +619,6 @@ static void parse_resolv_conf(void)
  * ====================================================================== */
 
 struct dns_req {
-  op_dlink_node               node;
   uint16_t                    id;
   int                         type;
   int                         retries;
@@ -674,7 +632,8 @@ struct dns_req {
   struct DNSQuery            *query;
 };
 
-static op_dlink_list  req_list   = { nullptr, nullptr, 0 };
+static op_vec_t  req_vec;
+static op_bh    *dns_req_bh = nullptr;   /* block allocator for dns_req */
 static int            ns_failures[IRCD_MAXNS];
 
 /* =========================================================================
@@ -760,9 +719,8 @@ static int           dot_rx_phase = 0; /* 0 = length prefix, 1 = payload */
 
 static struct dns_req *find_req_by_id(uint16_t id)
 {
-  op_dlink_node *n;
-  OP_DLINK_FOREACH(n, req_list.head) {
-    struct dns_req *r = n->data;
+  for (size_t i = 0; i < req_vec.size; i++) {
+    struct dns_req *r = (struct dns_req *)op_vec_get(&req_vec, i);
     if (r->id == id)
       return r;
   }
@@ -782,8 +740,7 @@ static void send_dns_query(struct dns_req *req);
 
 static struct dns_req *make_req(struct DNSQuery *query, int type)
 {
-  struct dns_req *req = op_malloc(sizeof *req);
-  memset(req, 0, sizeof *req);
+  struct dns_req *req = op_bh_alloc(dns_req_bh); /* zeroed by op_bh_alloc */
   req->id      = next_query_id();
   req->type    = type;
   req->retries = DNS_MAX_RETRIES;
@@ -791,14 +748,14 @@ static struct dns_req *make_req(struct DNSQuery *query, int type)
   req->timeout = DNS_INITIAL_TIMEOUT;
   req->last_ns = -1;
   req->query   = query;
-  op_dlinkAdd(req, &req->node, &req_list);
+  op_vec_push(&req_vec, req);
   return req;
 }
 
 static void free_req(struct dns_req *req)
 {
-  op_dlinkDelete(&req->node, &req_list);
-  op_free(req);
+  op_vec_remove_ptr(&req_vec, req);
+  op_bh_free(dns_req_bh, req);
 }
 
 /* =========================================================================
@@ -1283,11 +1240,10 @@ void res_read_udp(void) { res_read_dns(); }
 
 static void timeout_resolver([[maybe_unused]] void *unused)
 {
-  time_t         t = op_current_time();
-  op_dlink_node *n, *nt;
-
-  OP_DLINK_FOREACH_SAFE(n, nt, req_list.head) {
-    struct dns_req *req = n->data;
+  time_t t = op_current_time();
+  /* Iterate backwards so free_req's op_vec_remove_ptr doesn't skip elements */
+  for (size_t i = req_vec.size; i-- > 0; ) {
+    struct dns_req *req = (struct dns_req *)op_vec_get(&req_vec, i);
 
     if (t < req->sent_at + req->timeout)
       continue;
@@ -1373,7 +1329,7 @@ static int init_dns_network(void)
   {
     op_fde_t *F = op_get_fde(resfd);
     if (F)
-      op_setselect(F, OP_SELECT_READ, dns_commio_read_cb, NULL);
+      op_setselect(F, OP_SELECT_READ, dns_commio_read_cb, nullptr);
   }
 
   return 1;
@@ -1408,11 +1364,9 @@ void init_resolver(void)
 
 void restart_resolver(void)
 {
-  op_dlink_node *n, *nt;
-
   /* Cancel all pending queries */
-  OP_DLINK_FOREACH_SAFE(n, nt, req_list.head) {
-    struct dns_req *req = n->data;
+  for (size_t i = req_vec.size; i-- > 0; ) {
+    struct dns_req *req = (struct dns_req *)op_vec_get(&req_vec, i);
     (*req->query->callback)(req->query, nullptr);
     free_req(req);
   }
@@ -1629,7 +1583,7 @@ void build_rdns(char *buf, size_t size,
                        (unsigned)cp[3], (unsigned)cp[2],
                        (unsigned)cp[1], (unsigned)cp[0],
                        suffix ? suffix : "in-addr.arpa");
-      strlcpy(buf, op_strbuf_str(&_b), size);
+      op_strlcpy(buf, op_strbuf_str(&_b), size);
       op_strbuf_free(&_b);
     }
 
@@ -1652,7 +1606,7 @@ void build_rdns(char *buf, size_t size,
           cp[3]  & 0xf, cp[3]  >> 4,  cp[2]  & 0xf, cp[2]  >> 4,
           cp[1]  & 0xf, cp[1]  >> 4,  cp[0]  & 0xf, cp[0]  >> 4,
           suffix ? suffix : "ip6.arpa");
-      strlcpy(buf, op_strbuf_str(&_b), size);
+      op_strlcpy(buf, op_strbuf_str(&_b), size);
       op_strbuf_free(&_b);
     }
 #endif
@@ -1684,6 +1638,9 @@ struct egg_dns_ctx {
   struct  sockaddr_storage orig_addr;  /* for reverse lookups */
   char    hostn[IRCD_RES_HOSTLEN + 1]; /* for forward lookups */
 };
+
+static op_bh *egg_dns_ctx_bh = nullptr;
+static op_bh *dns_query_bh   = nullptr;
 
 static void egg_forward_cb(void *ptr, struct DNSReply *reply)
 {
@@ -1717,8 +1674,8 @@ static void egg_forward_cb(void *ptr, struct DNSReply *reply)
     call_ipbyhost(ctx->hostn, &sn, 0);
   }
 
-  op_free(ctx);
-  op_free(q);
+  op_bh_free(egg_dns_ctx_bh, ctx);
+  op_bh_free(dns_query_bh, q);
 }
 
 static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
@@ -1785,8 +1742,8 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
 
   call_hostbyip(&sn, (char *)hostname, ok);
 
-  op_free(ctx);
-  op_free(q);
+  op_bh_free(egg_dns_ctx_bh, ctx);
+  op_bh_free(dns_query_bh, q);
 }
 
 /*
@@ -1801,8 +1758,9 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
   if (!addr)
     return;
 
-  ctx = op_malloc(sizeof *ctx);
-  memset(ctx, 0, sizeof *ctx);
+  if (!egg_dns_ctx_bh) egg_dns_ctx_bh = op_bh_create(sizeof(struct egg_dns_ctx), 16, "egg_dns_ctx");
+  if (!dns_query_bh)   dns_query_bh   = op_bh_create(sizeof(struct DNSQuery),    16, "dns_query");
+  ctx = (struct egg_dns_ctx *)op_bh_alloc(egg_dns_ctx_bh);
   ctx->is_reverse = 1;
   ctx->aftype     = addr->family;
 
@@ -1817,11 +1775,11 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
   }
 #endif
   else {
-    op_free(ctx);
+    op_bh_free(egg_dns_ctx_bh, ctx);
     return;
   }
 
-  q = op_malloc(sizeof *q);
+  q = (struct DNSQuery *)op_bh_alloc(dns_query_bh);
   q->ptr      = ctx;
   q->callback = egg_reverse_cb;
 
@@ -1848,8 +1806,9 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
     return;
   }
 
-  ctx = op_malloc(sizeof *ctx);
-  memset(ctx, 0, sizeof *ctx);
+  if (!egg_dns_ctx_bh) egg_dns_ctx_bh = op_bh_create(sizeof(struct egg_dns_ctx), 16, "egg_dns_ctx");
+  if (!dns_query_bh)   dns_query_bh   = op_bh_create(sizeof(struct DNSQuery),    16, "dns_query");
+  ctx = (struct egg_dns_ctx *)op_bh_alloc(egg_dns_ctx_bh);
   ctx->is_reverse = 0;
   ctx->aftype     = AF_INET;
   op_strlcpy(ctx->hostn, hostn, sizeof ctx->hostn);
@@ -1860,7 +1819,7 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
   g_type = DNS_TYPE_A;
 #endif
 
-  q = op_malloc(sizeof *q);
+  q = (struct DNSQuery *)op_bh_alloc(dns_query_bh);
   q->ptr      = ctx;
   q->callback = egg_forward_cb;
 
@@ -1891,6 +1850,10 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
  */
 [[maybe_unused]] static int init_dns_core(void)
 {
+  if (!dns_req_bh) {
+    dns_req_bh = op_bh_create(sizeof(struct dns_req), 64, "dns_req");
+    op_vec_init(&req_vec, 64);
+  }
   init_resolver();
 
   if (resfd < 0) {
@@ -1902,6 +1865,20 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
     return 0;
   }
   return 1;
+}
+
+void dns_req_cleanup(void)
+{
+  for (size_t i = req_vec.size; i-- > 0; ) {
+    struct dns_req *req = (struct dns_req *)op_vec_get(&req_vec, i);
+    (*req->query->callback)(req->query, nullptr);
+    op_bh_free(dns_req_bh, req);
+  }
+  op_vec_fini(&req_vec, nullptr, nullptr);
+  if (dns_req_bh) {
+    op_bh_destroy(dns_req_bh);
+    dns_req_bh = nullptr;
+  }
 }
 
 /* Provide myres to callers that need it for nameserver management */

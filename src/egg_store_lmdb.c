@@ -285,7 +285,7 @@ static void lmdb_save_users(int idx)
       /* User record: flags + channel count as a compact summary. */
       op_strbuf_t sb = {};
       op_strbuf_init(&sb);
-      op_strbuf_appendf(&sb, "%s", flags);
+      op_strbuf_append_cstr(&sb, flags);
 
       int nchan = 0;
       for (struct chanuserrec *ch = u->chanrec; ch; ch = ch->next)
@@ -348,7 +348,7 @@ static void lmdb_save_users(int idx)
       /* Update user record */
       op_strbuf_t sb = {};
       op_strbuf_init(&sb);
-      op_strbuf_appendf(&sb, "%s", flags);
+      op_strbuf_append_cstr(&sb, flags);
 
       int nchan = 0;
       for (struct chanuserrec *ch = u->chanrec; ch; ch = ch->next)

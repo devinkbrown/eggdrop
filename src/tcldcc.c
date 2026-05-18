@@ -33,7 +33,7 @@
  */
 
 extern Tcl_Interp *interp;
-extern tcl_timer_t *timer, *utimer;
+extern op_vec_t timer, utimer;
 extern struct dcc_t *dcc;
 extern char botnetnick[], listen_ip[];
 extern int dcc_total, backgrd, parties, make_userfile, remote_boots, max_dcc,
@@ -50,7 +50,8 @@ extern party_t *party;
 extern tand_t *tandbot;
 extern time_t now;
 #include "traffic.h"
-static struct portmap *root = nullptr;
+static op_vec_t portmap_vec;
+static op_bh   *portmap_bh = nullptr;
 
 
 static int tcl_putdcc STDVAR
@@ -59,7 +60,7 @@ static int tcl_putdcc STDVAR
 
   BADARGS(3, 4, " idx text ?options?");
 
-  if ((argc == 4) && strcasecmp(argv[3], "-raw")) {
+  if ((argc == 4) && op_strcasecmp(argv[3], "-raw")) {
     Tcl_AppendResult(irp, "unknown putdcc option: should be ",
                      "-raw", nullptr);
     return TCL_ERROR;
@@ -123,13 +124,9 @@ static int tcl_dccbroadcast STDVAR
 {
   BADARGS(2, 2, " message");
 
-  op_strbuf_t _b = {};
-  op_strbuf_init(&_b);
-  op_strbuf_appendf(&_b, "%s", argv[1]);
-  chatout("*** %s\n", op_strbuf_str(&_b));
-  botnet_send_chat(-1, botnetnick, (char *)op_strbuf_str(&_b));
-  check_tcl_bcst(botnetnick, -1, (char *)op_strbuf_str(&_b));
-  op_strbuf_free(&_b);
+  chatout("*** %s\n", argv[1]);
+  botnet_send_chat(-1, botnetnick, argv[1]);
+  check_tcl_bcst(botnetnick, -1, argv[1]);
   return TCL_OK;
 }
 
@@ -139,7 +136,7 @@ static int tcl_hand2idx STDVAR
 
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
-        !strcasecmp(argv[1], dcc[i].nick)) {
+        !op_strcasecmp(argv[1], dcc[i].nick)) {
       Tcl_AppendResult(irp, int_to_base10((int)dcc[i].sock), nullptr);
       return TCL_OK;
     }
@@ -181,7 +178,7 @@ static int tcl_setchan STDVAR
     return TCL_ERROR;
   }
   if (argv[2][0] < '0' || argv[2][0] > '9') {
-    if (!strcmp(argv[2], "-1") || !strcasecmp(argv[2], "off"))
+    if (!strcmp(argv[2], "-1") || !op_strcasecmp(argv[2], "off"))
       chan = -1;
     else {
       Tcl_SetVar(irp, "_chan", argv[2], 0);
@@ -265,7 +262,7 @@ static int tcl_do_console(Tcl_Interp *irp, ClientData cd, int argc,
         Tcl_AppendResult(irp, "invalid channel", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(dcc[i].u.chat->con_chan, argv[arg], sizeof dcc[i].u.chat->con_chan);
+      op_strlcpy(dcc[i].u.chat->con_chan, argv[arg], sizeof dcc[i].u.chat->con_chan);
     } else {
       if (!reset && (argv[arg][0] != '+') && (argv[arg][0] != '-'))
         dcc[i].u.chat->con_flags = 0;
@@ -448,7 +445,7 @@ static int tcl_control STDVAR
   /* Do not buffer data anymore. All received and stored data is passed
    * over to the dcc functions from now on.  */
   sockoptions(dcc[idx].sock, EGG_OPTION_UNSET, SOCK_BUFFER);
-  strlcpy(dcc[idx].u.script->command, argv[2], sizeof dcc[idx].u.script->command);
+  op_strlcpy(dcc[idx].u.script->command, argv[2], sizeof dcc[idx].u.script->command);
   return TCL_OK;
 }
 
@@ -508,11 +505,7 @@ static int tcl_putbot STDVAR
     Tcl_AppendResult(irp, "bot is not on the botnet", nullptr);
     return TCL_ERROR;
   }
-  op_strbuf_t _b = {};
-  op_strbuf_init(&_b);
-  op_strbuf_appendf(&_b, "%s", argv[2]);
-  botnet_send_zapf(i, botnetnick, argv[1], (char *)op_strbuf_str(&_b));
-  op_strbuf_free(&_b);
+  botnet_send_zapf(i, botnetnick, argv[1], argv[2]);
   return TCL_OK;
 }
 
@@ -520,11 +513,7 @@ static int tcl_putallbots STDVAR
 {
   BADARGS(2, 2, " message");
 
-  op_strbuf_t _b = {};
-  op_strbuf_init(&_b);
-  op_strbuf_appendf(&_b, "%s", argv[1]);
-  botnet_send_zapf_broad(-1, botnetnick, nullptr, (char *)op_strbuf_str(&_b));
-  op_strbuf_free(&_b);
+  botnet_send_zapf_broad(-1, botnetnick, nullptr, argv[1]);
   return TCL_OK;
 }
 
@@ -572,26 +561,20 @@ static int tcl_botlist STDVAR
   char *p, sh[2];
   EGG_CONST char *list[4];
   tand_t *bot;
-  op_strbuf_t ver_buf = {};
-  op_strbuf_init(&ver_buf);
 
   BADARGS(1, 1, "");
 
   sh[1] = 0;
   list[3] = sh;
-  op_strbuf_init(&ver_buf);
   for (bot = tandbot; bot; bot = bot->next) {
     list[0] = bot->bot;
     list[1] = (bot->uplink == (tand_t *) 1) ? botnetnick : bot->uplink->bot;
-    op_strbuf_clear(&ver_buf);
-    op_strbuf_appendf(&ver_buf, "%s", int_to_base10(bot->ver));
-    list[2] = op_strbuf_str(&ver_buf);
+    list[2] = int_to_base10(bot->ver);
     sh[0] = bot->share;
     p = Tcl_Merge(4, list);
     Tcl_AppendElement(irp, p);
     Tcl_Free((char *) p);
   }
-  op_strbuf_free(&ver_buf);
   return TCL_OK;
 }
 
@@ -655,7 +638,7 @@ static void dccsocklist(Tcl_Interp *irp, int argc, char *type, int src) {
     masterlist = Tcl_NewListObj(0, nullptr);
   for (int i = 0; i < dcc_total; i++) {
     if (argc == 1 || ((argc == 2) && (dcc[i].type &&
-        !strcasecmp(dcc[i].type->name, type)))) {
+        !op_strcasecmp(dcc[i].type->name, type)))) {
       op_strbuf_t idxstr = {}, timestamp = {}, other = {};
       op_strbuf_appendf(&idxstr, "%ld", dcc[i].sock);
       op_strbuf_appendf(&timestamp, "%" PRId64, (int64_t) dcc[i].timeval);
@@ -787,7 +770,7 @@ static int tcl_whom STDVAR
       c[0] = party[i].flag;
       c[1] = 0;
       if (party[i].timer == 0L)
-        op_strbuf_appendf(&idle, "0");
+        op_strbuf_append_cstr(&idle, "0");
       else
         op_strbuf_appendf(&idle, "%" PRId64, (int64_t) ((now - party[i].timer) / 60));
       list[0] = party[i].nick;
@@ -879,25 +862,16 @@ static int tcl_link STDVAR
 
   BADARGS(2, 3, " ?via-bot? bot");
 
-  op_strbuf_t _bot = {};
-  op_strbuf_init(&_bot);
-  op_strbuf_appendf(&_bot, "%s", argv[1]);
   if (argc == 3) {
     x = 1;
-    op_strbuf_t _bot2 = {};
-    op_strbuf_init(&_bot2);
-    op_strbuf_appendf(&_bot2, "%s", argv[2]);
-    int i = nextbot((char *)op_strbuf_str(&_bot));
+    int i = nextbot(argv[1]);
     if (i < 0)
       x = 0;
     else
-      botnet_send_link(i, botnetnick, (char *)op_strbuf_str(&_bot),
-                       (char *)op_strbuf_str(&_bot2));
-    op_strbuf_free(&_bot2);
+      botnet_send_link(i, botnetnick, argv[1], argv[2]);
   } else
-    x = botlink("", -2, (char *)op_strbuf_str(&_bot));
+    x = botlink("", -2, argv[1]);
 
-  op_strbuf_free(&_bot);
   Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
   return TCL_OK;
 }
@@ -906,22 +880,17 @@ static int tcl_unlink STDVAR
 {
   BADARGS(2, 3, " bot ?comment?");
 
-  op_strbuf_t _bot = {};
-  op_strbuf_init(&_bot);
-  op_strbuf_appendf(&_bot, "%s", argv[1]);
-  int i = nextbot((char *)op_strbuf_str(&_bot));
+  int i = nextbot(argv[1]);
   [[maybe_unused]] int x;
   if (i < 0)
     x = 0;
   else {
     x = 1;
-    if (!strcasecmp(op_strbuf_str(&_bot), dcc[i].nick))
-      x = botunlink(-2, (char *)op_strbuf_str(&_bot), argv[2], botnetnick);
+    if (!op_strcasecmp(argv[1], dcc[i].nick))
+      x = botunlink(-2, argv[1], argv[2], botnetnick);
     else
-      botnet_send_unlink(i, botnetnick, lastbot((char *)op_strbuf_str(&_bot)),
-                         (char *)op_strbuf_str(&_bot), argv[2]);
+      botnet_send_unlink(i, botnetnick, lastbot(argv[1]), argv[1], argv[2]);
   }
-  op_strbuf_free(&_bot);
   Tcl_SetObjResult(irp, Tcl_NewIntObj(x));
   return TCL_OK;
 }
@@ -966,8 +935,8 @@ static int tcl_connect STDVAR
       dcc[i].ssl = 1;
   }
 #endif
-  strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
-  strlcpy(dcc[i].host, argv[1], UHOSTMAX);
+  op_strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
+  op_strlcpy(dcc[i].host, argv[1], UHOSTMAX);
   Tcl_SetObjResult(irp, Tcl_NewIntObj(sock));
   return TCL_OK;
 }
@@ -975,7 +944,7 @@ static int tcl_connect STDVAR
 static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *maskproc, char *flag) {
   int i, idx = -1, port, realport, found=0, ipv4=1, error;
   char newip[EGG_INET_ADDRSTRLEN];
-  struct portmap *pmap = nullptr, *pold = nullptr;
+  size_t pmap_idx = SIZE_MAX;
   sockname_t name;
   struct in_addr ipaddr4;
   struct addrinfo hint = {}, *ipaddr = nullptr;
@@ -987,15 +956,15 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
   if (!ip[0]) {
 #ifdef IPV6
     if (pref_af) {
-      strlcpy(newip, "::", sizeof newip);
+      op_strlcpy(newip, "::", sizeof newip);
     } else {
 #endif
-      strlcpy(newip, "0.0.0.0", sizeof newip);
+      op_strlcpy(newip, "0.0.0.0", sizeof newip);
 #ifdef IPV6
     }
 #endif
   } else {
-    strlcpy(newip, ip, sizeof newip);
+    op_strlcpy(newip, ip, sizeof newip);
   }
   /* Return addrinfo struct ipaddr containing family... */
   error = getaddrinfo(newip, nullptr, &hint, &ipaddr);
@@ -1022,9 +991,11 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
     putlog(LOG_MISC, "*", "tcldcc: setlisten(): getaddrinfo(): error = %s",
            gai_strerror(error));
   port = realport = egg_atoi(portp);
-  for (pmap = root; pmap; pold = pmap, pmap = pmap->next) {
-    if (pmap->realport == port) {
-      port = pmap->mappedto;
+  for (size_t _i = 0; _i < portmap_vec.size; _i++) {
+    struct portmap *pm = (struct portmap *)op_vec_get(&portmap_vec, _i);
+    if (pm->realport == port) {
+      port = pm->mappedto;
+      pmap_idx = _i;
       break;
     }
   }
@@ -1089,13 +1060,11 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
 #endif
     }
   }
-  if (!strcasecmp(type, "off")) {
-    if (pmap) {
-      if (pold)
-        pold->next = pmap->next;
-      else
-        root = pmap->next;
-      op_free(pmap);
+  if (!op_strcasecmp(type, "off")) {
+    if (pmap_idx != SIZE_MAX) {
+      struct portmap *pm = (struct portmap *)op_vec_get(&portmap_vec, pmap_idx);
+      op_vec_remove_fast(&portmap_vec, pmap_idx);
+      op_free(pm);
     }
     /* Remove */
     if (idx < 0) {
@@ -1163,35 +1132,40 @@ static int setlisten(Tcl_Interp *irp, char *ip, char *portp, char *type, char *m
 #endif
   /* script? */
   if (!strcmp(type, "script")) {
-    strlcpy(dcc[idx].nick, "(script)", sizeof(dcc[idx].nick));
+    op_strlcpy(dcc[idx].nick, "(script)", sizeof(dcc[idx].nick));
     if (flag) {
       dcc[idx].status = LSTN_PUBLIC;
     }
-    strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
+    op_strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
     Tcl_AppendResult(irp, int_to_base10(port), nullptr);
     return TCL_OK;
   }
   /* bots/users/all */
   if (!strcmp(type, "bots"))
-    strlcpy(dcc[idx].nick, "(bots)", sizeof(dcc[idx].nick));
+    op_strlcpy(dcc[idx].nick, "(bots)", sizeof(dcc[idx].nick));
   else if (!strcmp(type, "users"))
-    strlcpy(dcc[idx].nick, "(users)", sizeof(dcc[idx].nick));
+    op_strlcpy(dcc[idx].nick, "(users)", sizeof(dcc[idx].nick));
   else if (!strcmp(type, "all"))
-    strlcpy(dcc[idx].nick, "(telnet)", sizeof(dcc[idx].nick));
+    op_strlcpy(dcc[idx].nick, "(telnet)", sizeof(dcc[idx].nick));
   else if (!strcmp(type, "webui"))
-    strlcpy(dcc[idx].nick, "(webui)", sizeof(dcc[idx].nick));
+    op_strlcpy(dcc[idx].nick, "(webui)", sizeof(dcc[idx].nick));
   if (maskproc[0])
-    strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
+    op_strlcpy(dcc[idx].host, maskproc, UHOSTMAX);
   else
-    strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host));
+    op_strlcpy(dcc[idx].host, "*", sizeof(dcc[idx].host));
   Tcl_AppendResult(irp, int_to_base10(port), nullptr);
-  if (!pmap) {
-    pmap = op_malloc(sizeof(struct portmap));
-    pmap->next = root;
-    root = pmap;
+  if (pmap_idx != SIZE_MAX) {
+    struct portmap *pm = (struct portmap *)op_vec_get(&portmap_vec, pmap_idx);
+    op_vec_remove_fast(&portmap_vec, pmap_idx);
+    op_bh_free(portmap_bh, pm);
   }
-  pmap->realport = realport;
-  pmap->mappedto = port;
+  {
+    if (!portmap_bh) portmap_bh = op_bh_create(sizeof(struct portmap), 8, "portmap");
+    struct portmap *pm = (struct portmap *)op_bh_alloc(portmap_bh);
+    pm->realport = realport;
+    pm->mappedto = port;
+    op_vec_push(&portmap_vec, pm);
+  }
 
 #ifdef TLS
   putlog(LOG_MISC, "*", "Listening for telnet connections on %s port %s%d (%s).",
@@ -1233,7 +1207,7 @@ static int tcl_listen STDVAR
   BADARGS(3, 6, " ?ip? port type ?mask?/?proc flag?");
 
 /* default listen-addr if not specified */
-  strlcpy(ip, listen_ip, sizeof(ip));
+  op_strlcpy(ip, listen_ip, sizeof(ip));
 
 /* Check if IP exists, set to nullptr if not */
   strtol(argv[1], &endptr, 10);
@@ -1243,7 +1217,7 @@ static int tcl_listen STDVAR
         || inet_pton(AF_INET6, argv[1], buf)
 #endif
       ) {
-      strlcpy(ip, argv[1], sizeof(ip));
+      op_strlcpy(ip, argv[1], sizeof(ip));
       i++;
     } else {
       Tcl_AppendResult(irp, "invalid IP address argument", nullptr);
@@ -1255,7 +1229,7 @@ static int tcl_listen STDVAR
     Tcl_AppendResult(irp, "invalid listen port", nullptr);
     return TCL_ERROR;
   }
-  strlcpy(port, argv[i], sizeof(port));
+  op_strlcpy(port, argv[i], sizeof(port));
   i++;
 /* Check for listen type */
   if (!argv[i]) {
@@ -1269,12 +1243,12 @@ static int tcl_listen STDVAR
           "bots, users, all, off, script, webui", nullptr);
     return TCL_ERROR;
   }
-  strlcpy(type, argv[i], sizeof(type));
+  op_strlcpy(type, argv[i], sizeof(type));
 /* Check if mask or proc exists */
   if ((((argc>3) && !ip[0]) || ((argc >4) && ip[0])) &&
         (argv[i+1][0] != '#')) { /* Ignore config comments! */
     i++;
-    strlcpy(maskproc, argv[i], sizeof(maskproc));
+    op_strlcpy(maskproc, argv[i], sizeof(maskproc));
   }
 /* If script, check for proc and flag */
   if (!strcmp(type, "script")) {
@@ -1289,7 +1263,7 @@ static int tcl_listen STDVAR
               nullptr);
         return TCL_ERROR;
       }
-      strlcpy(flag, argv[i], sizeof flag);
+      op_strlcpy(flag, argv[i], sizeof flag);
     }
   }
   return setlisten(irp, ip, port, type, maskproc, flag);
@@ -1301,15 +1275,15 @@ static int tcl_boot STDVAR
 
   BADARGS(2, 3, " user@bot ?reason?");
 
-  strlcpy(who, argv[1], sizeof who);
+  op_strlcpy(who, argv[1], sizeof who);
 
   if (strchr(who, '@') != nullptr) {
     char whonick[HANDLEN + 1];
 
     splitc(whonick, who, '@');
     whonick[HANDLEN] = 0;
-    if (!strcasecmp(who, botnetnick))
-      strlcpy(who, whonick, sizeof who);
+    if (!op_strcasecmp(who, botnetnick))
+      op_strlcpy(who, whonick, sizeof who);
     else if (remote_boots > 0) {
       int i = nextbot(who);
       if (i < 0)
@@ -1322,7 +1296,7 @@ static int tcl_boot STDVAR
   bool ok = false;
   for (int i = 0; i < dcc_total; i++)
     if (!ok && (dcc[i].type->flags & DCT_CANBOOT) &&
-        !strcasecmp(dcc[i].nick, who)) {
+        !op_strcasecmp(dcc[i].nick, who)) {
       do_boot(i, botnetnick, argc >= 3 && argv[2] ? argv[2] : "");
       ok = true;
     }

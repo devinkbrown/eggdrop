@@ -63,32 +63,31 @@ int delignore(char *ign)
   int i, j;
   struct igrec **u;
   struct igrec *t;
-  op_strbuf_t temp = {};
+  char *mask_str = nullptr;
 
-  op_strbuf_init(&temp);
   i = 0;
   if (!strchr(ign, '!') && (j = egg_atoi(ign))) {
     for (u = &global_ign, j--; *u && j; u = &((*u)->next), j--);
     if (*u) {
-      op_strbuf_appendf(&temp, "%s", (*u)->igmask);
+      mask_str = (*u)->igmask;
       i = 1;
     }
   } else {
     /* find the matching host, if there is one */
     for (u = &global_ign; *u && !i; u = &((*u)->next))
       if (!rfc_casecmp(ign, (*u)->igmask)) {
-        op_strbuf_appendf(&temp, "%s", ign);
+        mask_str = ign;
         i = 1;
         break;
       }
   }
   if (i) {
     if (!noshare) {
-      char *mask = str_escape((char *)op_strbuf_str(&temp), ':', '\\');
+      char *escaped = str_escape(mask_str, ':', '\\');
 
-      if (mask) {
-        shareout(nullptr, "-i %s\n", mask);
-        op_free(mask);
+      if (escaped) {
+        shareout(nullptr, "-i %s\n", escaped);
+        op_free(escaped);
       }
     }
     op_free((*u)->igmask);
@@ -100,7 +99,6 @@ int delignore(char *ign)
     *u = (*u)->next;
     free_igrec(t);
   }
-  op_strbuf_free(&temp);
   return i;
 }
 
@@ -151,7 +149,7 @@ static void display_ignore(int idx, int number, struct igrec *ignore)
     op_strbuf_appendf(&when, "Started %s", daysago(now, ignore->added));
 
   if (ignore->flags & IGREC_PERM)
-    op_strbuf_appendf(&expire, "(perm)");
+    op_strbuf_append_cstr(&expire, "(perm)");
   else
     op_strbuf_appendf(&expire, "(expires %s)", days(ignore->expire, now));
 
@@ -464,7 +462,7 @@ static void tell_user(int idx, struct userrec *u)
   }
   li = get_user(&USERENTRY_LASTON, u);
   if (!li || !li->laston)
-    strlcpy(s1, "never", sizeof s1);
+    op_strlcpy(s1, "never", sizeof s1);
   else {
     now2 = now - li->laston;
     if (now2 >= 86400)
@@ -483,7 +481,7 @@ static void tell_user(int idx, struct userrec *u)
     get_user_flagrec(dcc[idx].user, &fr, ch->channel);
     if (glob_op(fr) || chan_op(fr)) {
       if (ch->laston == 0L)
-        strlcpy(s1, "never", sizeof s1);
+        op_strlcpy(s1, "never", sizeof s1);
       else {
         now2 = now - (ch->laston);
         if (now2 >= 86400)
@@ -527,7 +525,6 @@ void tell_users_match(int idx, char *mtch, int start, int limit, char *chname)
 {
   struct userrec *u;
   int fnd = 0, cnt = 0, nomns = 0, flags = 0;
-  struct list_type *q;
   struct flag_record user, pls, mns;
 
   dprintf(idx, "*** %s '%s':\n", MISC_MATCHING, mtch);
@@ -577,17 +574,22 @@ void tell_users_match(int idx, char *mtch, int start, int limit, char *chname)
       }
     } else {
       fnd = 0;
-      for (q = get_user(&USERENTRY_HOSTS, u); q; q = q->next) {
-        if (wild_match(mtch, q->extra) && !fnd) {
-          cnt++;
-          fnd = 1;
-          if ((cnt <= limit) && (cnt >= start)) {
-            tell_user(idx, u);
+      {
+        op_vec_t *_hv = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
+
+        if (_hv)
+          for (size_t _i = 0; _i < _hv->size; _i++) {
+            if (wild_match(mtch, (char *)op_vec_get(_hv, _i)) && !fnd) {
+              cnt++;
+              fnd = 1;
+              if ((cnt <= limit) && (cnt >= start)) {
+                tell_user(idx, u);
+              }
+              if (cnt == limit + 1) {
+                dprintf(idx, MISC_TRUNCATED, limit);
+              }
+            }
           }
-          if (cnt == limit + 1) {
-            dprintf(idx, MISC_TRUNCATED, limit);
-          }
-        }
       }
     }
   }
@@ -607,9 +609,9 @@ static void cleanup_pass(void) {
       p = nullptr;
       p2 = nullptr;
       for (e = u->entries; e; e = e->next) {
-        if (!strcasecmp(e->type->name, "PASS"))
+        if (!op_strcasecmp(e->type->name, "PASS"))
           p = e;
-        else if (!strcasecmp(e->type->name, "PASS2"))
+        else if (!op_strcasecmp(e->type->name, "PASS2"))
           p2 = e;
       }
       if (p && p2) {
@@ -762,7 +764,7 @@ int readuserfile(char *file, struct userrec **ret)
 
                 cr->next = u->chanrec;
                 u->chanrec = cr;
-                strlcpy(cr->channel, chname, sizeof cr->channel);
+                op_strlcpy(cr->channel, chname, sizeof cr->channel);
                 cr->laston = egg_atoi(st);
                 cr->flags = fr.chan;
                 cr->flags_udef = fr.udef_chan;
@@ -775,7 +777,7 @@ int readuserfile(char *file, struct userrec **ret)
           }
         } else if (!strncmp(code, "::", 2)) {
           /* channel-specific bans */
-          strlcpy(lasthand, &code[2], sizeof(lasthand));
+          op_strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = nullptr;
           if (!findchan_by_dname(lasthand)) {
             {
@@ -803,7 +805,7 @@ int readuserfile(char *file, struct userrec **ret)
           }
         } else if (!strncmp(code, "&&", 2)) {
           /* channel-specific exempts */
-          strlcpy(lasthand, &code[2], sizeof(lasthand));
+          op_strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = nullptr;
           if (!findchan_by_dname(lasthand)) {
             {
@@ -833,7 +835,7 @@ int readuserfile(char *file, struct userrec **ret)
           }
         } else if (!strncmp(code, "$$", 2)) {
           /* channel-specific invites */
-          strlcpy(lasthand, &code[2], sizeof(lasthand));
+          op_strlcpy(lasthand, &code[2], sizeof(lasthand));
           u = nullptr;
           if (!findchan_by_dname(lasthand)) {
             {
@@ -866,7 +868,7 @@ int readuserfile(char *file, struct userrec **ret)
             int ok = 0;
 
             for (ue = u->entries; ue && !ok; ue = ue->next)
-              if (ue->name && !strcasecmp(code + 2, ue->name)) {
+              if (ue->name && !op_strcasecmp(code + 2, ue->name)) {
                 struct list_type *list;
 
                 list = alloc_list_type();
@@ -889,16 +891,16 @@ int readuserfile(char *file, struct userrec **ret)
             }
           }
         } else if (!rfc_casecmp(code, BAN_NAME)) {
-          strlcpy(lasthand, code, sizeof(lasthand));
+          op_strlcpy(lasthand, code, sizeof(lasthand));
           u = nullptr;
         } else if (!rfc_casecmp(code, IGNORE_NAME)) {
-          strlcpy(lasthand, code, sizeof(lasthand));
+          op_strlcpy(lasthand, code, sizeof(lasthand));
           u = nullptr;
         } else if (!rfc_casecmp(code, EXEMPT_NAME)) {
-          strlcpy(lasthand, code, sizeof(lasthand));
+          op_strlcpy(lasthand, code, sizeof(lasthand));
           u = nullptr;
         } else if (!rfc_casecmp(code, INVITE_NAME)) {
-          strlcpy(lasthand, code, sizeof(lasthand));
+          op_strlcpy(lasthand, code, sizeof(lasthand));
           u = nullptr;
         } else if (code[0] == '*') {
           lasthand[0] = 0;
@@ -922,20 +924,20 @@ int readuserfile(char *file, struct userrec **ret)
             } else {
               fr.match = FR_GLOBAL;
               break_down_flags(attr, &fr, 0);
-              strlcpy(lasthand, code, sizeof lasthand);
+              op_strlcpy(lasthand, code, sizeof lasthand);
               cst = nullptr;
               if (strlen(code) > HANDLEN)
                 code[HANDLEN] = 0;
               if (strlen(pass) > 20) {
                 putlog(LOG_MISC, "*", "* %s '%s'", USERF_BROKEPASS, code);
-                strlcpy(pass, "-", sizeof(pass));
+                op_strlcpy(pass, "-", sizeof(pass));
               }
               bu = adduser(bu, code, 0, pass,
                            sanity_check(fr.global &USER_VALID));
 
               u = get_user_by_handle(bu, code);
               for (int i = 0; i < dcc_total; i++)
-                if (!strcasecmp(code, dcc[i].nick))
+                if (!op_strcasecmp(code, dcc[i].nick))
                   dcc[i].user = u;
               u->flags_udef = fr.udef_global;
               /* if s starts with '/' it's got file info */
@@ -954,7 +956,7 @@ int readuserfile(char *file, struct userrec **ret)
   for (u = bu; u; u = u->next) {
     struct user_entry *e;
 
-    if (!(u->flags & USER_BOT) && !strcasecmp(u->handle, botnetnick)) {
+    if (!(u->flags & USER_BOT) && !op_strcasecmp(u->handle, botnetnick)) {
       putlog(LOG_MISC, "*", "(!) I have a user record, but without +b");
       /* u->flags |= USER_BOT; */
     }
@@ -1009,7 +1011,7 @@ void autolink_cycle(char *start)
   }                             /* new run through the user list */
   while (u && !autc) {
     while (u && !autc) {
-      if (u->flags & USER_BOT && strcasecmp(u->handle, botnetnick)) {              /* ignore our own user record */
+      if (u->flags & USER_BOT && op_strcasecmp(u->handle, botnetnick)) {              /* ignore our own user record */
         bfl = bot_flags(u);
         if (bfl & (BOT_HUB | BOT_ALT)) {
           linked = 0;
@@ -1041,7 +1043,7 @@ void autolink_cycle(char *start)
           }
           /* did we make it where we're supposed to start?  yay! */
           if (!ready)
-            if (!strcasecmp(u->handle, start)) {
+            if (!op_strcasecmp(u->handle, start)) {
               ready = 1;
               autc = nullptr;
               /* if starting point is a +h bot, must be in 2nd cycle */
@@ -1059,7 +1061,7 @@ void autolink_cycle(char *start)
           int bot_idx;
 
           bot_idx = nextbot(u->handle);
-          if ((bot_idx >= 0) && !strcasecmp(dcc[bot_idx].nick, u->handle)) {
+          if ((bot_idx >= 0) && !op_strcasecmp(dcc[bot_idx].nick, u->handle)) {
             char *p = MISC_REJECTED;
 
             /* we're directly connected to the offending bot?! (shudder!) */
@@ -1068,7 +1070,7 @@ void autolink_cycle(char *start)
             dprintf(bot_idx, "bye %s\n", BOT_REJECTING);
             killsock(dcc[bot_idx].sock);
             lostdcc(bot_idx);
-          } else if ((bot_idx < 0) && strcasecmp(botnetnick, u->handle)) {
+          } else if ((bot_idx < 0) && op_strcasecmp(botnetnick, u->handle)) {
             /* The bot is not connected, but listed in our tandem list! */
             putlog(LOG_BOTS, "*", "(!) BUG: rejecting not connected bot %s!",
                    u->handle);

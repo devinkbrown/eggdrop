@@ -41,7 +41,7 @@
 #include "src/perf.h"
 #include "src/egg_perf_types.h"
 
-extern module_entry *module_list;
+extern op_vec_t module_vec;
 
 constexpr char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr char WS_KEY[]  = "Sec-WebSocket-Key:";
@@ -59,11 +59,19 @@ struct log_entry {
   char msg[LOGLINELEN];
 };
 
-static struct log_entry log_ring[LOG_RING_SIZE];
-static int log_ring_head;
-static int log_ring_count;
+static op_bh    *log_entry_bh = nullptr;
+static op_vec_t  log_vec;
 
 static Function *global = nullptr;
+static Function *channels_funcs = nullptr;
+static Function *server_funcs = nullptr;
+
+#include "src/mod/channels.mod/channels.h"
+#include "src/mod/server.mod/server.h"
+#include "src/tclegg.h"
+
+extern op_vec_t timer, utimer;
+extern char configfile[121];
 
 static const uint8_t alert[] = {0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x0a};
 
@@ -102,9 +110,7 @@ static void json_escape(op_strbuf_t *b, const char *s)
       case '\t': op_strbuf_append_cstr(b, "\\t"); break;
       default:
         if ((unsigned char)*s < 0x20) {
-          char esc[8];
-          snprintf(esc, sizeof esc, "\\u%04x", (unsigned char)*s);
-          op_strbuf_append_cstr(b, esc);
+          op_strbuf_appendf(b, "\\u%04x", (unsigned char)*s);
         } else {
           op_strbuf_appendc(b, *s);
         }
@@ -264,8 +270,9 @@ static const char *get_body(const char *buf)
 /* Simple JSON string field extractor — finds "key":"value" and copies value */
 static int json_get_str(const char *json, const char *key, char *out, size_t outsz)
 {
-  char pat[64];
-  snprintf(pat, sizeof pat, "\"%s\"", key);
+  char pat[66] = "\"";
+  op_strlcat(pat, key, sizeof pat - 1);
+  op_strlcat(pat, "\"", sizeof pat);
   const char *p = strstr(json, pat);
   if (!p) return -1;
   p += strlen(pat);
@@ -284,8 +291,9 @@ static int json_get_str(const char *json, const char *key, char *out, size_t out
 /* Simple JSON integer field extractor */
 static int json_get_int(const char *json, const char *key, int *out)
 {
-  char pat[64];
-  snprintf(pat, sizeof pat, "\"%s\"", key);
+  char pat[66] = "\"";
+  op_strlcat(pat, key, sizeof pat - 1);
+  op_strlcat(pat, "\"", sizeof pat);
   const char *p = strstr(json, pat);
   if (!p) return -1;
   p += strlen(pat);
@@ -366,12 +374,17 @@ static void api_channels(int idx)
     if (c->channel.mode & CHANKEY)   *mp++ = 'k';
     *mp = '\0';
 
+    int nbans = 0;
+    for (masklist *ban = c->channel.ban; ban; ban = ban->next)
+      if (ban->mask && ban->mask[0]) nbans++;
+
     op_strbuf_append_cstr(&b, "{\"name\":");
     json_escape(&b, c->dname);
     op_strbuf_appendf(&b, ",\"members\":%d,\"topic\":", nmembers);
     json_escape(&b, c->channel.topic);
     op_strbuf_append_cstr(&b, ",\"modes\":");
     json_escape(&b, modes);
+    op_strbuf_appendf(&b, ",\"bans\":%d", nbans);
     op_strbuf_appendc(&b, '}');
   }
 
@@ -445,13 +458,14 @@ static void api_user_detail(int idx, const char *handle)
 
   /* Hosts */
   op_strbuf_append_cstr(&b, ",\"hosts\":[");
-  struct list_type *hosts = get_user(&USERENTRY_HOSTS, u);
+  op_vec_t *_hosts = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
   int first = 1;
-  for (struct list_type *h = hosts; h; h = h->next) {
-    if (!first) op_strbuf_appendc(&b, ',');
-    first = 0;
-    json_escape(&b, h->extra);
-  }
+  if (_hosts)
+    for (size_t _i = 0; _i < _hosts->size; _i++) {
+      if (!first) op_strbuf_appendc(&b, ',');
+      first = 0;
+      json_escape(&b, (char *)op_vec_get(_hosts, _i));
+    }
   op_strbuf_appendc(&b, ']');
 
   /* Channel records */
@@ -537,18 +551,11 @@ static void api_logs(int idx)
   op_strbuf_init(&b);
   op_strbuf_appendc(&b, '[');
 
-  int count = log_ring_count < LOG_RING_SIZE ? log_ring_count : LOG_RING_SIZE;
-  int start = (log_ring_head - count + LOG_RING_SIZE) % LOG_RING_SIZE;
   int first = 1;
-
-  for (int i = 0; i < count; i++) {
-    int slot = (start + i) % LOG_RING_SIZE;
-    struct log_entry *e = &log_ring[slot];
-    if (!e->msg[0]) continue;
-
+  for (size_t i = 0; i < log_vec.size; i++) {
+    struct log_entry *e = (struct log_entry *)op_vec_get(&log_vec, i);
     if (!first) op_strbuf_appendc(&b, ',');
     first = 0;
-
     op_strbuf_append_cstr(&b, "{\"time\":");
     json_escape(&b, e->time);
     op_strbuf_append_cstr(&b, ",\"flags\":");
@@ -670,7 +677,8 @@ static void api_modules(int idx)
   op_strbuf_appendc(&b, '[');
 
   int first = 1;
-  for (module_entry *m = module_list; m; m = m->next) {
+  for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+    module_entry *m = (module_entry *)op_vec_get(&module_vec, _mi);
     if (!first) op_strbuf_appendc(&b, ',');
     first = 0;
 
@@ -864,16 +872,994 @@ static void api_ignores_delete(int idx, const char *body)
   lostdcc(idx);
 }
 
+/* ---- Additional API endpoint handlers ---- */
+
+static void api_raw_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char command[512] = "";
+  json_get_str(body, "command", command, sizeof command);
+  if (!command[0]) {
+    send_400(idx, "command required");
+    return;
+  }
+  dprintf(DP_SERVER, "%s\r\n", command);
+  putlog(LOG_MISC, "*", "WebUI: RAW %s", command);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_save_post(int idx)
+{
+  write_userfile(0);
+  putlog(LOG_MISC, "*", "WebUI: Saved userfile");
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_rehash_post(int idx)
+{
+  putlog(LOG_MISC, "*", "WebUI: Rehash requested");
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+  do_restart = -2;
+}
+
+static void api_die_post(int idx, const char *body)
+{
+  char reason[256] = "WebUI shutdown";
+  if (body)
+    json_get_str(body, "reason", reason, sizeof reason);
+  putlog(LOG_MISC, "*", "WebUI: Die requested (%s)", reason);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+  kill_bot(reason, reason);
+}
+
+static void api_nick_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char nick[NICKLEN] = "";
+  json_get_str(body, "nick", nick, sizeof nick);
+  if (!nick[0]) {
+    send_400(idx, "nick required");
+    return;
+  }
+  dprintf(DP_SERVER, "NICK %s\r\n", nick);
+  putlog(LOG_MISC, "*", "WebUI: NICK %s", nick);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_topic_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char topic[512] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "topic", topic, sizeof topic);
+  if (!channel[0]) {
+    send_400(idx, "channel required");
+    return;
+  }
+  dprintf(DP_SERVER, "TOPIC %s :%s\r\n", channel, topic);
+  putlog(LOG_MISC, "*", "WebUI: TOPIC %s :%s", channel, topic);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_join_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char key[128] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "key", key, sizeof key);
+  if (!channel[0]) {
+    send_400(idx, "channel required");
+    return;
+  }
+  /* Add to eggdrop's internal chanset if not already there */
+  struct chanset_t *chan = findchan_by_dname(channel);
+  if (!chan) {
+    if (tcl_channel_add(nullptr, channel, (char *)"") != TCL_OK) {
+      send_400(idx, "channel add failed");
+      return;
+    }
+  }
+  if (key[0])
+    dprintf(DP_SERVER, "JOIN %s %s\r\n", channel, key);
+  else
+    dprintf(DP_SERVER, "JOIN %s\r\n", channel);
+  putlog(LOG_MISC, "*", "WebUI: JOIN %s", channel);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_part_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char reason[256] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "reason", reason, sizeof reason);
+  if (!channel[0]) {
+    send_400(idx, "channel required");
+    return;
+  }
+  struct chanset_t *chan = findchan_by_dname(channel);
+  if (!chan) {
+    send_400(idx, "channel not found");
+    return;
+  }
+  if (reason[0])
+    dprintf(DP_SERVER, "PART %s :%s\r\n", channel, reason);
+  else
+    dprintf(DP_SERVER, "PART %s\r\n", channel);
+  remove_channel(chan);
+  putlog(LOG_MISC, "*", "WebUI: PART %s", channel);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_mode_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char mode[256] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "mode", mode, sizeof mode);
+  if (!channel[0] || !mode[0]) {
+    send_400(idx, "channel and mode required");
+    return;
+  }
+  dprintf(DP_SERVER, "MODE %s %s\r\n", channel, mode);
+  putlog(LOG_MISC, "*", "WebUI: MODE %s %s", channel, mode);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_ban_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char mask[256] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "mask", mask, sizeof mask);
+  if (!channel[0] || !mask[0]) {
+    send_400(idx, "channel and mask required");
+    return;
+  }
+  dprintf(DP_SERVER, "MODE %s +b %s\r\n", channel, mask);
+  putlog(LOG_MISC, "*", "WebUI: BAN %s %s", channel, mask);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_unban_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char mask[256] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "mask", mask, sizeof mask);
+  if (!channel[0] || !mask[0]) {
+    send_400(idx, "channel and mask required");
+    return;
+  }
+  dprintf(DP_SERVER, "MODE %s -b %s\r\n", channel, mask);
+  putlog(LOG_MISC, "*", "WebUI: UNBAN %s %s", channel, mask);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_user_flags_post(int idx, const char *body, const char *handle)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  struct userrec *u = get_user_by_handle(userlist, (char *)handle);
+  if (!u) {
+    send_400(idx, "user not found");
+    return;
+  }
+  char flags[64] = "";
+  char channel[128] = "";
+  json_get_str(body, "flags", flags, sizeof flags);
+  json_get_str(body, "channel", channel, sizeof channel);
+  if (!flags[0]) {
+    send_400(idx, "flags required");
+    return;
+  }
+  struct flag_record fr = {FR_GLOBAL | FR_CHAN, 0, 0, 0, 0, 0};
+  break_down_flags(flags, &fr, nullptr);
+  set_user_flagrec(u, &fr, channel[0] ? channel : nullptr);
+  putlog(LOG_MISC, "*", "WebUI: Set flags %s on %s%s%s", flags, handle,
+         channel[0] ? " in " : "", channel);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_user_hosts_post(int idx, const char *body, const char *handle)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char host[UHOSTLEN] = "";
+  json_get_str(body, "host", host, sizeof host);
+  if (!host[0]) {
+    send_400(idx, "host required");
+    return;
+  }
+  struct userrec *u = get_user_by_handle(userlist, (char *)handle);
+  if (!u) {
+    send_400(idx, "user not found");
+    return;
+  }
+  addhost_by_handle((char *)handle, host);
+  putlog(LOG_MISC, "*", "WebUI: Added host %s to %s", host, handle);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_user_hosts_delete(int idx, const char *body, const char *handle)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char host[UHOSTLEN] = "";
+  json_get_str(body, "host", host, sizeof host);
+  if (!host[0]) {
+    send_400(idx, "host required");
+    return;
+  }
+  if (delhost_by_handle((char *)handle, host)) {
+    putlog(LOG_MISC, "*", "WebUI: Removed host %s from %s", host, handle);
+    send_200_ok(idx);
+  } else {
+    send_400(idx, "host not found");
+    return;
+  }
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_dcc(int idx)
+{
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_appendc(&b, '[');
+
+  int first = 1;
+  for (int i = 0; i < dcc_total; i++) {
+    if (!dcc[i].type) continue;
+    if (!first) op_strbuf_appendc(&b, ',');
+    first = 0;
+
+    op_strbuf_append_cstr(&b, "{\"idx\":");
+    op_strbuf_appendf(&b, "%d", i);
+    op_strbuf_append_cstr(&b, ",\"nick\":");
+    json_escape(&b, dcc[i].nick);
+    op_strbuf_append_cstr(&b, ",\"host\":");
+    json_escape(&b, dcc[i].host);
+    op_strbuf_append_cstr(&b, ",\"type\":");
+    json_escape(&b, dcc[i].type->name);
+    op_strbuf_appendf(&b, ",\"sock\":%ld", dcc[i].sock);
+    op_strbuf_appendc(&b, '}');
+  }
+
+  op_strbuf_appendc(&b, ']');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+static void api_channel_detail(int idx, const char *channame)
+{
+  struct chanset_t *chan = findchan_by_dname(channame);
+  if (!chan) {
+    send_400(idx, "channel not found");
+    return;
+  }
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_append_cstr(&b, "{\"name\":");
+  json_escape(&b, chan->dname);
+
+  int nmembers = 0;
+  for (memberlist *m = chan->channel.member; m; m = m->next)
+    nmembers++;
+
+  op_strbuf_appendf(&b, ",\"members\":%d", nmembers);
+  op_strbuf_append_cstr(&b, ",\"topic\":");
+  json_escape(&b, chan->channel.topic);
+
+  char modes[32];
+  char *mp = modes;
+  *mp++ = '+';
+  if (chan->channel.mode & CHANINV)   *mp++ = 'i';
+  if (chan->channel.mode & CHANPRIV)  *mp++ = 'p';
+  if (chan->channel.mode & CHANSEC)   *mp++ = 's';
+  if (chan->channel.mode & CHANMODER) *mp++ = 'm';
+  if (chan->channel.mode & CHANTOPIC) *mp++ = 't';
+  if (chan->channel.mode & CHANNOMSG) *mp++ = 'n';
+  if (chan->channel.mode & CHANLIMIT) *mp++ = 'l';
+  if (chan->channel.mode & CHANKEY)   *mp++ = 'k';
+  *mp = '\0';
+
+  op_strbuf_append_cstr(&b, ",\"modes\":");
+  json_escape(&b, modes);
+
+  /* Ban count */
+  int nbans = 0;
+  for (masklist *ban = chan->channel.ban; ban; ban = ban->next)
+    if (ban->mask && ban->mask[0]) nbans++;
+  op_strbuf_appendf(&b, ",\"bans\":%d", nbans);
+
+  /* Exempt count */
+  int nexempts = 0;
+  for (masklist *e = chan->channel.exempt; e; e = e->next)
+    if (e->mask && e->mask[0]) nexempts++;
+  op_strbuf_appendf(&b, ",\"exempts\":%d", nexempts);
+
+  op_strbuf_appendc(&b, '}');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+static void api_channel_exempts(int idx, const char *channame)
+{
+  struct chanset_t *chan = findchan_by_dname(channame);
+  if (!chan) { send_400(idx, "channel not found"); return; }
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_appendc(&b, '[');
+
+  int first = 1;
+  for (masklist *e = chan->channel.exempt; e; e = e->next) {
+    if (!e->mask || !e->mask[0]) continue;
+    if (!first) op_strbuf_appendc(&b, ',');
+    first = 0;
+    op_strbuf_append_cstr(&b, "{\"mask\":");
+    json_escape(&b, e->mask);
+    op_strbuf_append_cstr(&b, ",\"who\":");
+    json_escape(&b, e->who);
+    op_strbuf_appendf(&b, ",\"added\":%lld}", (long long)e->timer);
+  }
+
+  op_strbuf_appendc(&b, ']');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+static void api_channel_invites(int idx, const char *channame)
+{
+  struct chanset_t *chan = findchan_by_dname(channame);
+  if (!chan) { send_400(idx, "channel not found"); return; }
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_appendc(&b, '[');
+
+  int first = 1;
+  for (masklist *inv = chan->channel.invite; inv; inv = inv->next) {
+    if (!inv->mask || !inv->mask[0]) continue;
+    if (!first) op_strbuf_appendc(&b, ',');
+    first = 0;
+    op_strbuf_append_cstr(&b, "{\"mask\":");
+    json_escape(&b, inv->mask);
+    op_strbuf_append_cstr(&b, ",\"who\":");
+    json_escape(&b, inv->who);
+    op_strbuf_appendf(&b, ",\"added\":%lld}", (long long)inv->timer);
+  }
+
+  op_strbuf_appendc(&b, ']');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+static void api_chanset(int idx, const char *channame)
+{
+  struct chanset_t *chan = findchan_by_dname(channame);
+  if (!chan) { send_400(idx, "channel not found"); return; }
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_append_cstr(&b, "{\"name\":");
+  json_escape(&b, chan->dname);
+
+  /* Flood settings */
+  op_strbuf_appendf(&b,
+    ",\"flood_pub\":[%d,%d],\"flood_join\":[%d,%d]"
+    ",\"flood_deop\":[%d,%d],\"flood_kick\":[%d,%d]"
+    ",\"flood_ctcp\":[%d,%d],\"flood_nick\":[%d,%d]",
+    chan->flood_pub_thr, chan->flood_pub_time,
+    chan->flood_join_thr, chan->flood_join_time,
+    chan->flood_deop_thr, chan->flood_deop_time,
+    chan->flood_kick_thr, chan->flood_kick_time,
+    chan->flood_ctcp_thr, chan->flood_ctcp_time,
+    chan->flood_nick_thr, chan->flood_nick_time);
+
+  op_strbuf_appendf(&b, ",\"idle_kick\":%d", chan->idle_kick);
+  op_strbuf_appendf(&b, ",\"ban_time\":%d", chan->ban_time);
+  op_strbuf_appendf(&b, ",\"exempt_time\":%d", chan->exempt_time);
+  op_strbuf_appendf(&b, ",\"invite_time\":%d", chan->invite_time);
+
+  /* Boolean channel flags */
+  op_strbuf_append_cstr(&b, ",\"flags\":{");
+  op_strbuf_appendf(&b, "\"enforcebans\":%s", (chan->status & CHAN_ENFORCEBANS) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"dynamicbans\":%s", (chan->status & CHAN_DYNAMICBANS) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"autoop\":%s", (chan->status & CHAN_OPONJOIN) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"bitch\":%s", (chan->status & CHAN_BITCH) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"greet\":%s", (chan->status & CHAN_GREET) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"protectops\":%s", (chan->status & CHAN_PROTECTOPS) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"revenge\":%s", (chan->status & CHAN_REVENGE) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"revengebot\":%s", (chan->status & CHAN_REVENGEBOT) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"autovoice\":%s", (chan->status & CHAN_AUTOVOICE) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"autohalfop\":%s", (chan->status & CHAN_AUTOHALFOP) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"cycle\":%s", (chan->status & CHAN_CYCLE) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"dontkickops\":%s", (chan->status & CHAN_DONTKICKOPS) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"inactive\":%s", (chan->status & CHAN_INACTIVE) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"protectfriends\":%s", (chan->status & CHAN_PROTECTFRIENDS) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"protecthalfops\":%s", (chan->status & CHAN_PROTECTHALFOPS) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"shared\":%s", (chan->status & CHAN_SHARED) ? "true" : "false");
+  op_strbuf_appendf(&b, ",\"nodesynch\":%s", (chan->status & CHAN_NODESYNCH) ? "true" : "false");
+  op_strbuf_append_cstr(&b, "}}");
+
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+static void api_chanset_post(int idx, const char *body, const char *channame)
+{
+  struct chanset_t *chan = findchan_by_dname(channame);
+  if (!chan) { send_400(idx, "channel not found"); return; }
+  if (!body) { send_400(idx, "missing body"); return; }
+
+  char settings[512] = "";
+  json_get_str(body, "settings", settings, sizeof settings);
+  if (!settings[0]) {
+    send_400(idx, "settings required");
+    return;
+  }
+
+  /* Parse settings string into argc/argv for tcl_channel_modify */
+  char *item[32];
+  int items = 0;
+  char *p = settings;
+  while (*p && items < 32) {
+    while (*p == ' ') p++;
+    if (!*p) break;
+    item[items++] = p;
+    while (*p && *p != ' ') p++;
+    if (*p) *p++ = '\0';
+  }
+
+  if (items > 0) {
+    if (tcl_channel_modify(nullptr, chan, items, item) != TCL_OK) {
+      send_400(idx, "chanset failed");
+      return;
+    }
+  }
+  putlog(LOG_MISC, "*", "WebUI: chanset %s %s", channame, settings);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_op_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char nick[NICKLEN] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "nick", nick, sizeof nick);
+  if (!channel[0] || !nick[0]) { send_400(idx, "channel and nick required"); return; }
+  dprintf(DP_SERVER, "MODE %s +o %s\r\n", channel, nick);
+  putlog(LOG_MISC, "*", "WebUI: OP %s %s", channel, nick);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_deop_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char nick[NICKLEN] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "nick", nick, sizeof nick);
+  if (!channel[0] || !nick[0]) { send_400(idx, "channel and nick required"); return; }
+  dprintf(DP_SERVER, "MODE %s -o %s\r\n", channel, nick);
+  putlog(LOG_MISC, "*", "WebUI: DEOP %s %s", channel, nick);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_voice_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char nick[NICKLEN] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "nick", nick, sizeof nick);
+  if (!channel[0] || !nick[0]) { send_400(idx, "channel and nick required"); return; }
+  dprintf(DP_SERVER, "MODE %s +v %s\r\n", channel, nick);
+  putlog(LOG_MISC, "*", "WebUI: VOICE %s %s", channel, nick);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_devoice_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char nick[NICKLEN] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "nick", nick, sizeof nick);
+  if (!channel[0] || !nick[0]) { send_400(idx, "channel and nick required"); return; }
+  dprintf(DP_SERVER, "MODE %s -v %s\r\n", channel, nick);
+  putlog(LOG_MISC, "*", "WebUI: DEVOICE %s %s", channel, nick);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_kickban_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char nick[NICKLEN] = "";
+  char reason[256] = "Requested";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "nick", nick, sizeof nick);
+  json_get_str(body, "reason", reason, sizeof reason);
+  if (!channel[0] || !nick[0]) { send_400(idx, "channel and nick required"); return; }
+  dprintf(DP_SERVER, "MODE %s +b %s!*@*\r\n", channel, nick);
+  dprintf(DP_SERVER, "KICK %s %s :%s\r\n", channel, nick, reason);
+  putlog(LOG_MISC, "*", "WebUI: KICKBAN %s %s (%s)", channel, nick, reason);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_invite_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char channel[128] = "";
+  char nick[NICKLEN] = "";
+  json_get_str(body, "channel", channel, sizeof channel);
+  json_get_str(body, "nick", nick, sizeof nick);
+  if (!channel[0] || !nick[0]) { send_400(idx, "channel and nick required"); return; }
+  dprintf(DP_SERVER, "INVITE %s %s\r\n", nick, channel);
+  putlog(LOG_MISC, "*", "WebUI: INVITE %s to %s", nick, channel);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_chpass_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char handle[HANDLEN + 1] = "";
+  char password[64] = "";
+  json_get_str(body, "handle", handle, sizeof handle);
+  json_get_str(body, "password", password, sizeof password);
+  if (!handle[0]) { send_400(idx, "handle required"); return; }
+
+  struct userrec *u = get_user_by_handle(userlist, handle);
+  if (!u) { send_400(idx, "user not found"); return; }
+
+  if (!password[0]) {
+    set_user(&USERENTRY_PASS, u, nullptr);
+    putlog(LOG_MISC, "*", "WebUI: Cleared password for %s", handle);
+  } else {
+    char *err = check_validpass(u, password);
+    if (err) { send_400(idx, err); return; }
+    putlog(LOG_MISC, "*", "WebUI: Changed password for %s", handle);
+  }
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_jump_post(int idx, const char *body)
+{
+  char server[256] = "";
+  int port = 0;
+  char pass[128] = "";
+  if (body) {
+    json_get_str(body, "server", server, sizeof server);
+    json_get_int(body, "port", &port);
+    json_get_str(body, "password", pass, sizeof pass);
+  }
+  if (server[0]) {
+    op_strlcpy(newserver, server, 120);
+    newserverport = port ? port : default_port;
+    op_strlcpy(newserverpass, pass, 120);
+  }
+  putlog(LOG_MISC, "*", "WebUI: Jump%s%s", server[0] ? " to " : "", server);
+  cycle_time = 0;
+  nuke_server("Changing servers");
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_loadmod_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char modname[64] = "";
+  json_get_str(body, "module", modname, sizeof modname);
+  if (!modname[0]) { send_400(idx, "module required"); return; }
+  char *err = module_load(modname);
+  if (err) {
+    send_400(idx, err);
+    return;
+  }
+  putlog(LOG_MISC, "*", "WebUI: Loaded module %s", modname);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_unloadmod_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char modname[64] = "";
+  json_get_str(body, "module", modname, sizeof modname);
+  if (!modname[0]) { send_400(idx, "module required"); return; }
+  char *err = module_unload(modname, botnetnick);
+  if (err) {
+    send_400(idx, err);
+    return;
+  }
+  putlog(LOG_MISC, "*", "WebUI: Unloaded module %s", modname);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+
+/* ---- Timers ---- */
+
+static void api_timers(int idx)
+{
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_append_cstr(&b, "[");
+  bool first = true;
+
+  /* Walk both timer (per-minute) and utimer (per-second) vecs */
+  for (int pass = 0; pass < 2; pass++) {
+    op_vec_t *v = pass == 0 ? &timer : &utimer;
+    const char *type = pass == 0 ? "timer" : "utimer";
+
+    for (size_t _i = 0; _i < v->size; _i++) {
+      tcl_timer_t *t = (tcl_timer_t *)op_vec_get(v, _i);
+
+      if (!first) op_strbuf_append_cstr(&b, ",");
+      first = false;
+      op_strbuf_appendf(&b, "{\"id\":%lu,\"type\":", t->id);
+      json_escape(&b, type);
+      op_strbuf_append_cstr(&b, ",\"cmd\":");
+      json_escape(&b, t->cmd ? t->cmd : "");
+      op_strbuf_append_cstr(&b, ",\"name\":");
+      json_escape(&b, t->name ? t->name : "");
+      op_strbuf_appendf(&b, ",\"interval\":%u,\"count\":%u}", t->interval, t->count);
+    }
+  }
+
+  op_strbuf_append_cstr(&b, "]");
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+static void api_timers_delete(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char id_str[32] = "";
+  json_get_str(body, "id", id_str, sizeof id_str);
+  if (!id_str[0]) { send_400(idx, "id required"); return; }
+
+  unsigned long target_id = strtoul(id_str, nullptr, 10);
+
+  /* Find the timer by numeric id, get its name, delegate removal to core */
+  char name_buf[128] = "";
+  for (size_t _i = 0; _i < timer.size && !name_buf[0]; _i++) {
+    tcl_timer_t *t = (tcl_timer_t *)op_vec_get(&timer, _i);
+    if (t->id == target_id && t->name) op_strlcpy(name_buf, t->name, sizeof name_buf);
+  }
+  for (size_t _i = 0; _i < utimer.size && !name_buf[0]; _i++) {
+    tcl_timer_t *t = (tcl_timer_t *)op_vec_get(&utimer, _i);
+    if (t->id == target_id && t->name) op_strlcpy(name_buf, t->name, sizeof name_buf);
+  }
+
+  if (!name_buf[0]) { send_400(idx, "timer not found or unnamed"); return; }
+
+  bool removed = (remove_timer(&timer, name_buf) > 0) ||
+                 (remove_timer(&utimer, name_buf) > 0);
+  if (!removed) { send_400(idx, "timer not found"); return; }
+  putlog(LOG_MISC, "*", "WebUI: Removed timer id=%lu name=%s", target_id, name_buf);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- TCL eval ---- */
+
+static void api_tcl_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char script[4096] = "";
+  json_get_str(body, "script", script, sizeof script);
+  if (!script[0]) { send_400(idx, "script required"); return; }
+
+  op_strbuf_t result_buf = {};
+  op_strbuf_init(&result_buf);
+
+  /* do_tcl writes result into interp result string; capture via a temp buf */
+  do_tcl("webui-eval", script);
+
+  /* Build response — we can't easily capture interp result without Tcl headers,
+     so just report success and let the user read logs for output */
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_append_cstr(&b, "{\"ok\":true}");
+  putlog(LOG_CMDS, "*", "WebUI: TCL eval: %.200s", script);
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+  op_strbuf_free(&result_buf);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- Config file write ---- */
+
+static void api_config_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+
+  /* Extract the content field — may be large, parse manually via json_get_str with a heap buffer */
+  const char *key = "\"content\":";
+  const char *p = strstr(body, key);
+  if (!p) { send_400(idx, "content required"); return; }
+  p += strlen(key);
+  while (*p == ' ') p++;
+  if (*p != '"') { send_400(idx, "content must be a string"); return; }
+
+  /* Unescape the JSON string into a buffer */
+  op_strbuf_t content = {};
+  op_strbuf_init(&content);
+  p++; /* skip opening quote */
+  while (*p && *p != '"') {
+    if (*p == '\\' && *(p + 1)) {
+      p++;
+      switch (*p) {
+        case '"':  op_strbuf_appendc(&content, '"');  break;
+        case '\\': op_strbuf_appendc(&content, '\\'); break;
+        case '/':  op_strbuf_appendc(&content, '/');  break;
+        case 'n':  op_strbuf_appendc(&content, '\n'); break;
+        case 'r':  op_strbuf_appendc(&content, '\r'); break;
+        case 't':  op_strbuf_appendc(&content, '\t'); break;
+        default:   op_strbuf_appendc(&content, *p);   break;
+      }
+    } else {
+      op_strbuf_appendc(&content, *p);
+    }
+    p++;
+  }
+
+  int fd = open(configfile, O_WRONLY | O_TRUNC);
+  if (fd < 0) {
+    op_strbuf_free(&content);
+    send_400(idx, "cannot open config file for writing");
+    return;
+  }
+  const char *s = op_strbuf_str(&content);
+  size_t len = op_strbuf_len(&content);
+  ssize_t written = write(fd, s, len);
+  close(fd);
+  op_strbuf_free(&content);
+
+  if (written < 0 || (size_t)written != len) {
+    send_400(idx, "write failed");
+    return;
+  }
+  putlog(LOG_MISC, "*", "WebUI: Config file saved (%zu bytes)", len);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- Userfile download ---- */
+
+static void api_userfile_get(int idx)
+{
+  int fd = open(userfile, O_RDONLY);
+  if (fd < 0) { send_400(idx, "cannot open userfile"); return; }
+
+  op_strbuf_t content = {};
+  op_strbuf_init(&content);
+  char chunk[4096];
+  ssize_t n;
+  while ((n = read(fd, chunk, sizeof chunk)) > 0)
+    op_strbuf_append(&content, chunk, (size_t)n);
+  close(fd);
+
+  /* Send as plain text download */
+  op_strbuf_t hdr = {};
+  op_strbuf_init(&hdr);
+  op_strbuf_appendf(&hdr,
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Disposition: attachment; filename=\"eggdrop.user\"\r\n"
+    "Content-Length: %zu\r\n"
+    "Connection: close\r\n"
+    "\r\n", op_strbuf_len(&content));
+  size_t hlen = op_strbuf_len(&hdr);
+  size_t blen = op_strbuf_len(&content);
+  char *resp = op_malloc(hlen + blen);
+  memcpy(resp, op_strbuf_str(&hdr), hlen);
+  memcpy(resp + hlen, op_strbuf_str(&content), blen);
+  op_strbuf_free(&hdr);
+  op_strbuf_free(&content);
+  tputs(dcc[idx].sock, resp, (unsigned int)(hlen + blen));
+  op_free(resp);
+}
+
+/* ---- CTCP ---- */
+
+static void api_ctcp_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char target[NICKLEN + 1] = "";
+  char type[32] = "";
+  json_get_str(body, "target", target, sizeof target);
+  json_get_str(body, "type", type, sizeof type);
+  if (!target[0]) { send_400(idx, "target required"); return; }
+  if (!type[0]) op_strlcpy(type, "VERSION", sizeof type);
+  dprintf(DP_SERVER, "PRIVMSG %s :\001%s\001\r\n", target, type);
+  putlog(LOG_MISC, "*", "WebUI: CTCP %s to %s", type, target);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- Notice ---- */
+
+static void api_notice_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char target[NICKLEN + CHANNELLEN + 2] = "";
+  char message[512] = "";
+  json_get_str(body, "target", target, sizeof target);
+  json_get_str(body, "message", message, sizeof message);
+  if (!target[0] || !message[0]) { send_400(idx, "target and message required"); return; }
+  dprintf(DP_SERVER, "NOTICE %s :%s\r\n", target, message);
+  putlog(LOG_MSGS, "*", "WebUI: NOTICE %s: %s", target, message);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- Private message / action ---- */
+
+static void api_msg_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char target[NICKLEN + CHANNELLEN + 2] = "";
+  char message[512] = "";
+  json_get_str(body, "target", target, sizeof target);
+  json_get_str(body, "message", message, sizeof message);
+  if (!target[0] || !message[0]) { send_400(idx, "target and message required"); return; }
+  dprintf(DP_SERVER, "PRIVMSG %s :%s\r\n", target, message);
+  putlog(LOG_MSGS, "*", "WebUI: MSG %s: %s", target, message);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+static void api_act_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char target[NICKLEN + CHANNELLEN + 2] = "";
+  char action[512] = "";
+  json_get_str(body, "target", target, sizeof target);
+  json_get_str(body, "action", action, sizeof action);
+  if (!target[0] || !action[0]) { send_400(idx, "target and action required"); return; }
+  dprintf(DP_SERVER, "PRIVMSG %s :\001ACTION %s\001\r\n", target, action);
+  putlog(LOG_MSGS, "*", "WebUI: ACT %s: %s", target, action);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- Config file read ---- */
+
+static void api_config(int idx)
+{
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+
+  int fd = open(configfile, O_RDONLY);
+  if (fd < 0) {
+    send_400(idx, "cannot open config file");
+    return;
+  }
+
+  struct stat st;
+  if (fstat(fd, &st) < 0 || st.st_size == 0) {
+    close(fd);
+    op_strbuf_append_cstr(&b, "{\"filename\":");
+    json_escape(&b, configfile);
+    op_strbuf_append_cstr(&b, ",\"content\":\"\"}");
+    send_json_response(idx, &b);
+    op_strbuf_free(&b);
+    return;
+  }
+
+  /* Read entire file in chunks */
+  op_strbuf_t content = {};
+  op_strbuf_init(&content);
+  char chunk[4096];
+  ssize_t n;
+  while ((n = read(fd, chunk, sizeof chunk)) > 0)
+    op_strbuf_append(&content, chunk, (size_t)n);
+  close(fd);
+
+  op_strbuf_append_cstr(&b, "{\"filename\":");
+  json_escape(&b, configfile);
+  op_strbuf_append_cstr(&b, ",\"content\":");
+  json_escape(&b, op_strbuf_str(&content));
+  op_strbuf_append_cstr(&b, "}");
+  op_strbuf_free(&content);
+
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+/* ---- Load TCL script file ---- */
+
+static void api_loadscript_post(int idx, const char *body)
+{
+  if (!body) { send_400(idx, "missing body"); return; }
+  char path[512] = "";
+  json_get_str(body, "path", path, sizeof path);
+  if (!path[0]) { send_400(idx, "path required"); return; }
+
+  int result = readtclprog(path);
+  if (result != 0) {
+    send_400(idx, "script load failed");
+    return;
+  }
+  putlog(LOG_MISC, "*", "WebUI: Loaded TCL script %s", path);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
 /* ---- Log capture via HOOK_LOG ---- */
 
 static void ws_push_broadcast(const char *json, size_t len);
 
 static void webui_log_hook(int type, const char *chan, const char *msg)
 {
-  struct log_entry *e = &log_ring[log_ring_head];
-  log_ring_head = (log_ring_head + 1) % LOG_RING_SIZE;
-  if (log_ring_count < LOG_RING_SIZE)
-    log_ring_count++;
+  if ((int)log_vec.size >= LOG_RING_SIZE) {
+    op_bh_free(log_entry_bh, op_vec_remove(&log_vec, 0));
+  }
+  struct log_entry *e = (struct log_entry *)op_bh_alloc(log_entry_bh);
+  op_vec_push(&log_vec, e);
 
   time_t t = now;
   struct tm tm;
@@ -887,9 +1873,9 @@ static void webui_log_hook(int type, const char *chan, const char *msg)
   else if (type & LOG_JOIN)  flag = "j";
   else if (type & LOG_SERV)  flag = "s";
   else if (type & LOG_BOTS)  flag = "b";
-  strlcpy(e->flags, flag, sizeof e->flags);
+  op_strlcpy(e->flags, flag, sizeof e->flags);
 
-  strlcpy(e->msg, msg, sizeof e->msg);
+  op_strlcpy(e->msg, msg, sizeof e->msg);
   size_t len = strlen(e->msg);
   if (len > 0 && e->msg[len - 1] == '\n')
     e->msg[len - 1] = '\0';
@@ -1210,7 +2196,7 @@ static void webui_http_activity(int idx, char *buf, int len)
       lostdcc(idx);
     } else if (!strncmp(path, "/api/users/", 11) && path[11]) {
       char handle[HANDLEN + 1];
-      strlcpy(handle, path + 11, sizeof handle);
+      op_strlcpy(handle, path + 11, sizeof handle);
       url_decode(handle);
       api_user_detail(idx, handle);
       killsock(dcc[idx].sock);
@@ -1239,8 +2225,23 @@ static void webui_http_activity(int idx, char *buf, int len)
       api_botnet(idx);
       killsock(dcc[idx].sock);
       lostdcc(idx);
+    } else if (!strcmp(path, "/api/dcc")) {
+      api_dcc(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strcmp(path, "/api/timers")) {
+      api_timers(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strcmp(path, "/api/config")) {
+      api_config(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strcmp(path, "/api/userfile")) {
+      api_userfile_get(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
     } else if (!strncmp(path, "/api/channels/", 14)) {
-      /* Parse /api/channels/<name>/members or /api/channels/<name>/bans */
       char channame[CHANNELLEN + 1];
       const char *rest = path + 14;
       const char *slash = strchr(rest, '/');
@@ -1258,11 +2259,28 @@ static void webui_http_activity(int idx, char *buf, int len)
           api_channel_bans(idx, channame);
           killsock(dcc[idx].sock);
           lostdcc(idx);
+        } else if (!strcmp(slash + 1, "exempts")) {
+          api_channel_exempts(idx, channame);
+          killsock(dcc[idx].sock);
+          lostdcc(idx);
+        } else if (!strcmp(slash + 1, "invites")) {
+          api_channel_invites(idx, channame);
+          killsock(dcc[idx].sock);
+          lostdcc(idx);
+        } else if (!strcmp(slash + 1, "settings")) {
+          api_chanset(idx, channame);
+          killsock(dcc[idx].sock);
+          lostdcc(idx);
         } else {
           put_404(idx);
         }
       } else {
-        put_404(idx);
+        /* /api/channels/<name> — detail for a specific channel */
+        op_strlcpy(channame, rest, sizeof channame);
+        url_decode(channame);
+        api_channel_detail(idx, channame);
+        killsock(dcc[idx].sock);
+        lostdcc(idx);
       }
     } else if (!strcmp(path, "/")) {
       put_file(idx, 2);
@@ -1415,6 +2433,102 @@ static void webui_http_activity(int idx, char *buf, int len)
       api_users_post(idx, body);
     } else if (!strcmp(path, "/api/ignores")) {
       api_ignores_post(idx, body);
+    } else if (!strcmp(path, "/api/raw")) {
+      api_raw_post(idx, body);
+    } else if (!strcmp(path, "/api/save")) {
+      api_save_post(idx);
+    } else if (!strcmp(path, "/api/rehash")) {
+      api_rehash_post(idx);
+    } else if (!strcmp(path, "/api/die")) {
+      api_die_post(idx, body);
+    } else if (!strcmp(path, "/api/nick")) {
+      api_nick_post(idx, body);
+    } else if (!strcmp(path, "/api/topic")) {
+      api_topic_post(idx, body);
+    } else if (!strcmp(path, "/api/join")) {
+      api_join_post(idx, body);
+    } else if (!strcmp(path, "/api/part")) {
+      api_part_post(idx, body);
+    } else if (!strcmp(path, "/api/mode")) {
+      api_mode_post(idx, body);
+    } else if (!strcmp(path, "/api/ban")) {
+      api_ban_post(idx, body);
+    } else if (!strcmp(path, "/api/unban")) {
+      api_unban_post(idx, body);
+    } else if (!strcmp(path, "/api/op")) {
+      api_op_post(idx, body);
+    } else if (!strcmp(path, "/api/deop")) {
+      api_deop_post(idx, body);
+    } else if (!strcmp(path, "/api/voice")) {
+      api_voice_post(idx, body);
+    } else if (!strcmp(path, "/api/devoice")) {
+      api_devoice_post(idx, body);
+    } else if (!strcmp(path, "/api/kickban")) {
+      api_kickban_post(idx, body);
+    } else if (!strcmp(path, "/api/invite")) {
+      api_invite_post(idx, body);
+    } else if (!strcmp(path, "/api/chpass")) {
+      api_chpass_post(idx, body);
+    } else if (!strcmp(path, "/api/jump")) {
+      api_jump_post(idx, body);
+    } else if (!strcmp(path, "/api/loadmod")) {
+      api_loadmod_post(idx, body);
+    } else if (!strcmp(path, "/api/unloadmod")) {
+      api_unloadmod_post(idx, body);
+    } else if (!strcmp(path, "/api/tcl")) {
+      api_tcl_post(idx, body);
+    } else if (!strcmp(path, "/api/loadscript")) {
+      api_loadscript_post(idx, body);
+    } else if (!strcmp(path, "/api/msg")) {
+      api_msg_post(idx, body);
+    } else if (!strcmp(path, "/api/act")) {
+      api_act_post(idx, body);
+    } else if (!strcmp(path, "/api/notice")) {
+      api_notice_post(idx, body);
+    } else if (!strcmp(path, "/api/ctcp")) {
+      api_ctcp_post(idx, body);
+    } else if (!strcmp(path, "/api/config")) {
+      api_config_post(idx, body);
+    } else if (!strncmp(path, "/api/channels/", 14)) {
+      /* POST /api/channels/<name>/settings */
+      char channame[CHANNELLEN + 1];
+      const char *rest = path + 14;
+      const char *slash = strchr(rest, '/');
+      if (slash) {
+        size_t nlen = (size_t)(slash - rest);
+        if (nlen >= sizeof channame) nlen = sizeof channame - 1;
+        memcpy(channame, rest, nlen);
+        channame[nlen] = '\0';
+        url_decode(channame);
+        if (!strcmp(slash + 1, "settings")) {
+          api_chanset_post(idx, body, channame);
+        } else {
+          put_404(idx);
+        }
+      } else {
+        put_404(idx);
+      }
+    } else if (!strncmp(path, "/api/users/", 11)) {
+      /* POST /api/users/<handle>/flags or /api/users/<handle>/hosts */
+      char handle[HANDLEN + 1];
+      const char *rest = path + 11;
+      const char *slash = strchr(rest, '/');
+      if (slash) {
+        size_t nlen = (size_t)(slash - rest);
+        if (nlen >= sizeof handle) nlen = sizeof handle - 1;
+        memcpy(handle, rest, nlen);
+        handle[nlen] = '\0';
+        url_decode(handle);
+        if (!strcmp(slash + 1, "flags")) {
+          api_user_flags_post(idx, body, handle);
+        } else if (!strcmp(slash + 1, "hosts")) {
+          api_user_hosts_post(idx, body, handle);
+        } else {
+          put_404(idx);
+        }
+      } else {
+        put_404(idx);
+      }
     } else {
       put_404(idx);
     }
@@ -1425,11 +2539,29 @@ static void webui_http_activity(int idx, char *buf, int len)
     const char *body = get_body(buf);
     if (!strncmp(path, "/api/users/", 11) && path[11]) {
       char handle[HANDLEN + 1];
-      strlcpy(handle, path + 11, sizeof handle);
-      url_decode(handle);
-      api_user_delete(idx, handle);
+      const char *rest = path + 11;
+      const char *slash = strchr(rest, '/');
+      if (slash) {
+        /* DELETE /api/users/<handle>/hosts */
+        size_t nlen = (size_t)(slash - rest);
+        if (nlen >= sizeof handle) nlen = sizeof handle - 1;
+        memcpy(handle, rest, nlen);
+        handle[nlen] = '\0';
+        url_decode(handle);
+        if (!strcmp(slash + 1, "hosts")) {
+          api_user_hosts_delete(idx, body, handle);
+        } else {
+          put_404(idx);
+        }
+      } else {
+        op_strlcpy(handle, rest, sizeof handle);
+        url_decode(handle);
+        api_user_delete(idx, handle);
+      }
     } else if (!strcmp(path, "/api/ignores")) {
       api_ignores_delete(idx, body);
+    } else if (!strcmp(path, "/api/timers")) {
+      api_timers_delete(idx, body);
     } else {
       put_404(idx);
     }
@@ -1635,7 +2767,7 @@ static void webui_unframe(int sock, char *buf, int *len)
 
 static tcl_strings webui_tcl_strings[] = {
   {"webui-token", webui_token, 64, 0},
-  {NULL, NULL, 0, 0}
+  {nullptr, nullptr, 0, 0}
 };
 
 /* ---- 1-second hook for push WS status updates ---- */
@@ -1666,6 +2798,11 @@ static char *webui_close(void)
     }
   }
   ws_push_count = 0;
+  {
+    op_vec_clear(&log_vec, nullptr, nullptr);
+    op_bh_destroy(log_entry_bh);
+    log_entry_bh = nullptr;
+  }
   for (idx = 0; idx < (int)(sizeof file_cache / sizeof file_cache[0]); idx++) {
     if (file_cache[idx].data) {
       op_free(file_cache[idx].data);
@@ -1696,6 +2833,14 @@ char *webui_start(Function *global_funcs)
     module_undepend(MODULE_NAME);
     return "This module requires Eggdrop 1.10.0 or later.";
   }
+  if (!(channels_funcs = module_depend(MODULE_NAME, "channels", 1, 1))) {
+    module_undepend(MODULE_NAME);
+    return "This module requires channels module.";
+  }
+  if (!(server_funcs = module_depend(MODULE_NAME, "server", 1, 5))) {
+    module_undepend(MODULE_NAME);
+    return "This module requires server module.";
+  }
   add_hook(HOOK_DCC_TELNET_HOSTRESOLVED, (Function) webui_dcc_telnet_hostresolved);
   add_hook(HOOK_WEBUI_FRAME, (Function) webui_frame);
   add_hook(HOOK_WEBUI_UNFRAME, (Function) webui_unframe);
@@ -1703,10 +2848,9 @@ char *webui_start(Function *global_funcs)
   add_hook(HOOK_SECONDLY, (Function) webui_secondly);
   add_tcl_strings(webui_tcl_strings);
 
-  memset(log_ring, 0, sizeof log_ring);
-  log_ring_head = 0;
-  log_ring_count = 0;
-  ws_push_count = 0;
+  log_entry_bh = op_bh_create(sizeof(struct log_entry), LOG_RING_SIZE, "log_entry");
+  op_vec_init(&log_vec, LOG_RING_SIZE);
+  ws_push_count  = 0;
   ws_push_last_status = 0;
 
   return nullptr;

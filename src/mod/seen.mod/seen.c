@@ -179,7 +179,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
       !oix[2]) || (!oix[1] && (oix[-1] == 's' || oix[-1] == 'z' ||
       oix[-1] == 'x' || oix[-1] == 'S' || oix[-1] == 'Z' ||
       oix[-1] == 'X')))) {
-    strlcpy(object, word1, sizeof object);
+    op_strlcpy(object, word1, sizeof object);
     object[oix - word1] = 0;
     wordshift(word1, text);
     if (!word1[0]) {
@@ -195,10 +195,10 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
         if (m) {
           onchan = 1;
           urec = get_user_from_member(m);
-          if (!urec || !strcasecmp(object, urec->handle))
+          if (!urec || !op_strcasecmp(object, urec->handle))
             break;
           op_strbuf_appendf(&whoredirect, "%s is %s, and ", object, urec->handle);
-          strlcpy(object, urec->handle, sizeof object);
+          op_strlcpy(object, urec->handle, sizeof object);
           break;
         }
         chan = chan->next;
@@ -209,8 +209,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
         goto done;
       }
     }
-    if (!strcasecmp(word1, "bf") || !strcasecmp(word1, "boyfriend")) {
-      strlcpy(whotarget, getxtra(object, "BF"), sizeof whotarget);
+    if (!op_strcasecmp(word1, "bf") || !op_strcasecmp(word1, "boyfriend")) {
+      op_strlcpy(whotarget, getxtra(object, "BF"), sizeof whotarget);
       if (whotarget[0]) {
         op_strbuf_clear(&whoredirect);
         op_strbuf_appendf(&whoredirect, "%s boyfriend is %s, and ", fixnick(object), whotarget);
@@ -221,8 +221,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
               prefix, fixnick(object), nick);
       goto done;
     }
-    if (!strcasecmp(word1, "gf") || !strcasecmp(word1, "girlfriend")) {
-      strlcpy(whotarget, getxtra(object, "GF"), sizeof whotarget);
+    if (!op_strcasecmp(word1, "gf") || !op_strcasecmp(word1, "girlfriend")) {
+      op_strlcpy(whotarget, getxtra(object, "GF"), sizeof whotarget);
       if (whotarget[0]) {
         op_strbuf_clear(&whoredirect);
         op_strbuf_appendf(&whoredirect, "%s girlfriend is %s, and ", fixnick(object), whotarget);
@@ -239,7 +239,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
     goto done;
   }
   /* Keyword "my" */
-  if (!strcasecmp(word1, "my")) {
+  if (!op_strcasecmp(word1, "my")) {
     wordshift(word1, text);
     if (!word1[0]) {
       dprintf(idx, "%sYour what, %s?\n", prefix, nick);
@@ -253,8 +253,8 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
       goto done;
     }
     /* "my boyfriend" */
-    if (!strcasecmp(word1, "boyfriend") || !strcasecmp(word1, "bf")) {
-      strlcpy(whotarget, getxtra(hand, "BF"), sizeof whotarget);
+    if (!op_strcasecmp(word1, "boyfriend") || !op_strcasecmp(word1, "bf")) {
+      op_strlcpy(whotarget, getxtra(hand, "BF"), sizeof whotarget);
       if (whotarget[0]) {
         op_strbuf_clear(&whoredirect);
         op_strbuf_appendf(&whoredirect, "%s, your boyfriend is %s, and ", nick, whotarget);
@@ -264,9 +264,9 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
       }
     }
     /* "my girlfriend" */
-    else if (!strcasecmp(word1, "girlfriend") ||
-             !strcasecmp(word1, "gf")) {
-      strlcpy(whotarget, getxtra(hand, "GF"), sizeof whotarget);
+    else if (!op_strcasecmp(word1, "girlfriend") ||
+             !op_strcasecmp(word1, "gf")) {
+      op_strlcpy(whotarget, getxtra(hand, "GF"), sizeof whotarget);
       if (whotarget[0]) {
         op_strbuf_clear(&whoredirect);
         op_strbuf_appendf(&whoredirect, "%s, your girlfriend is %s, and ", nick, whotarget);
@@ -282,16 +282,16 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
     }
   }
   /* "your" keyword */
-  else if (!strcasecmp(word1, "your")) {
+  else if (!op_strcasecmp(word1, "your")) {
     wordshift(word1, text);
     /* "your admin" */
-    if (!strcasecmp(word1, "owner") || !strcasecmp(word1, "admin")) {
+    if (!op_strcasecmp(word1, "owner") || !op_strcasecmp(word1, "admin")) {
       if (admin[0]) {
-        strlcpy(word2, admin, sizeof word2);
+        op_strlcpy(word2, admin, sizeof word2);
         wordshift(whotarget, word2);
         op_strbuf_appendf(&whoredirect, "My owner is %s, and ", whotarget);
-        if (!strcasecmp(whotarget, hand)) {
-          if (!strcasecmp(hand, nick))
+        if (!op_strcasecmp(whotarget, hand)) {
+          if (!op_strcasecmp(hand, nick))
             op_strbuf_append_cstr(&whoredirect, "that's YOU!!!");
           else
             op_strbuf_appendf(&whoredirect, "that's YOU, %s!", nick);
@@ -320,7 +320,7 @@ static void do_seen(int idx, const char *prefix, char *nick, char *hand,
   }
   /* Otherwise, make the target to the first word and continue */
   else
-    strlcpy(whotarget, word1, sizeof whotarget);
+    op_strlcpy(whotarget, word1, sizeof whotarget);
 
 targetcont:
   /* Looking for ones own nick? */
@@ -336,7 +336,7 @@ targetcont:
     if (m) {
       onchan = 1;
       urec = get_user_from_member(m);
-      if (!urec || !strcasecmp(whotarget, urec->handle))
+      if (!urec || !op_strcasecmp(whotarget, urec->handle))
         break;
       op_strbuf_appendf(&whoredirect, "%s is %s, and ", whotarget, urec->handle);
       break;
@@ -350,9 +350,9 @@ targetcont:
       m = chan->channel.member;
       while (m && m->nick[0]) {
         urec = get_user_from_member(m);
-        if (urec && !strcasecmp(urec->handle, whotarget)) {
+        if (urec && !op_strcasecmp(urec->handle, whotarget)) {
           op_strbuf_appendf(&whoredirect, "%s is %s, and ", whotarget, m->nick);
-          strlcpy(whotarget, m->nick, sizeof whotarget);
+          op_strlcpy(whotarget, m->nick, sizeof whotarget);
           break;
         }
         m = m->next;
@@ -407,7 +407,7 @@ targetcont:
   /* Is the target currently DCC CHAT to me on the botnet? */
   for (i = 0; i < dcc_total; i++) {
     if (dcc[i].type->flags & DCT_CHAT) {
-      if (!strcasecmp(whotarget, dcc[i].nick)) {
+      if (!op_strcasecmp(whotarget, dcc[i].nick)) {
         if (!rfc_casecmp(channel, dcc[i].u.chat->con_chan) &&
             dcc[i].u.chat->con_flags & LOG_PUBLIC) {
           op_strbuf_appendf(&whoredirect, "%s is 'observing' this channel right now from my party line!", whotarget);
@@ -423,7 +423,7 @@ targetcont:
   }
   /* Target known, but nowhere to be seen. Give last IRC and botnet time */
   wordshift(word1, text);
-  if (!strcasecmp(word1, "anywhere"))
+  if (!op_strcasecmp(word1, "anywhere"))
     cr = nullptr;
   else
     for (cr = urec->chanrec; cr; cr = cr->next) {
@@ -480,7 +480,7 @@ targetcont:
       else if (lastonplace[0] != 0)
         op_strbuf_appendf(&_w, "on my %s", lastonplace);
       else
-        op_strbuf_appendf(&_w, "seen");
+        op_strbuf_append_cstr(&_w, "seen");
       dprintf(idx, "%s%s%s was last %s %s\n",
               prefix, op_strbuf_str(&whoredirect), whotarget, op_strbuf_str(&_w), op_strbuf_str(&dur));
       op_strbuf_free(&_w);
@@ -514,7 +514,7 @@ static char *match_trigger(char *word)
   trig_data *t = trigdata;
 
   while (t->key) {
-    if (!strcasecmp(word, t->key))
+    if (!op_strcasecmp(word, t->key))
       return t->text;
     t++;
   }
@@ -531,9 +531,11 @@ static char *getxtra(char *hand, char *field)
   urec = get_user_by_handle(userlist, hand);
   if (urec) {
     ue = find_user_entry(&USERENTRY_XTRA, urec);
-    if (ue)
-      for (xk = ue->u.extra; xk; xk = xk->next)
-        if (xk->key && !strcasecmp(xk->key, field)) {
+    if (ue) {
+      op_vec_t *_xv = (op_vec_t *)ue->u.extra;
+      for (size_t _i = 0; _xv && _i < _xv->size; _i++) {
+        xk = (struct xtra_key *)op_vec_get(_xv, _i);
+        if (xk->key && !op_strcasecmp(xk->key, field)) {
           if (xk->data[0] == '{' && xk->data[strlen(xk->data) - 1] == '}' &&
               strlen(xk->data) > 2) {
             op_strbuf_clear(&_fixit);
@@ -544,6 +546,8 @@ static char *getxtra(char *hand, char *field)
             return xk->data;
           }
         }
+      }
+    }
   }
   return "";
 }
@@ -554,9 +558,9 @@ static void wordshift(char *first, char *rest)
 
   do {
     p = newsplit(&q);
-    strlcpy(first, p, 512);
+    op_strlcpy(first, p, 512);
     memmove(rest, q, strlen(q) + 1);
-  } while (!strcasecmp(first, "and") || !strcasecmp(first, "or"));
+  } while (!op_strcasecmp(first, "and") || !op_strcasecmp(first, "or"));
 }
 
 /* Report on current seen info for .modulestat. */

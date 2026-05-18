@@ -23,7 +23,7 @@ extern char botnetnick[];
 void egg_store_init(void)
 {
   /* Pick backend. */
-  if (!strcasecmp(store_backend, "flat")) {
+  if (!op_strcasecmp(store_backend, "flat")) {
     egg_store = &egg_store_flat;
   } else {
     /* Default to LMDB. */

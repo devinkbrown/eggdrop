@@ -18,13 +18,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+static op_bh *filesys_stats_bh = nullptr;
+
 static int fstat_unpack(struct userrec *u, struct user_entry *e)
 {
   char *par, *arg;
   struct filesys_stats *fs;
 
-  fs = user_malloc(sizeof(struct filesys_stats));
-  egg_bzero(fs, sizeof(struct filesys_stats));
+  if (!filesys_stats_bh)
+    filesys_stats_bh = op_bh_create(sizeof(struct filesys_stats), 32, "filesys_stats");
+  fs = op_bh_alloc(filesys_stats_bh);
   par = e->u.list->extra;
 
   arg = newsplit(&par);
@@ -61,12 +64,12 @@ static int fstat_pack(struct userrec *u, struct user_entry *e)
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%09u %09u %09u %09u", fs->uploads, fs->upload_ks,
                      fs->dnloads, fs->dnload_ks);
-    strlcpy(l->extra, op_strbuf_str(&_b), 41);
+    op_strlcpy(l->extra, op_strbuf_str(&_b), 41);
     op_strbuf_free(&_b);
   }
   l->next = nullptr;
   e->u.list = l;
-  op_free(fs);
+  op_bh_free(filesys_stats_bh, fs);
 
   return 1;
 }
@@ -90,7 +93,7 @@ static int fstat_set(struct userrec *u, struct user_entry *e, void *buf)
 
   if (e->u.extra != fs) {
     if (e->u.extra)
-      op_free(e->u.extra);
+      op_bh_free(filesys_stats_bh, e->u.extra);
     e->u.extra = fs;
   } else if (!fs) /* e->u.extra == nullptr && fs == nullptr */
     return 1;
@@ -139,7 +142,7 @@ static int fstat_tcl_format(char *d, size_t max, struct filesys_stats *fs, char 
         op_strbuf_init(&_b);
         break;
       }
-    strlcpy(d, op_strbuf_str(&_b), max);
+    op_strlcpy(d, op_strbuf_str(&_b), max);
     op_strbuf_free(&_b);
   }
 
@@ -180,7 +183,7 @@ static int fstat_tcl_append(Tcl_Interp *irp, struct userrec *u, struct user_entr
 static int fstat_kill(struct user_entry *e)
 {
   if (e->u.extra)
-    op_free(e->u.extra);
+    op_bh_free(filesys_stats_bh, e->u.extra);
   free_user_entry(e);
 
   return 1;
@@ -202,7 +205,6 @@ static void fstat_display(int idx, struct user_entry *e)
 }
 
 static struct user_entry_type USERENTRY_FSTAT = {
-  nullptr,
   fstat_gotshare,
   fstat_dupuser,
   fstat_unpack,
@@ -235,8 +237,9 @@ static int fstat_gotshare(struct userrec *u, struct user_entry *e,
     break;
   default:
     if (!(fs = e->u.extra)) {
-      fs = user_malloc(sizeof(struct filesys_stats));
-      egg_bzero(fs, sizeof(struct filesys_stats));
+      if (!filesys_stats_bh)
+        filesys_stats_bh = op_bh_create(sizeof(struct filesys_stats), 32, "filesys_stats");
+      fs = op_bh_alloc(filesys_stats_bh);
     }
 
     p = newsplit(&par);
@@ -269,7 +272,9 @@ static int fstat_dupuser(struct userrec *u, struct userrec *o,
   struct filesys_stats *fs;
 
   if (e->u.extra) {
-    fs = user_malloc(sizeof(struct filesys_stats));
+    if (!filesys_stats_bh)
+      filesys_stats_bh = op_bh_create(sizeof(struct filesys_stats), 32, "filesys_stats");
+    fs = op_bh_alloc(filesys_stats_bh);
     memcpy(fs, e->u.extra, sizeof(struct filesys_stats));
     return set_user(&USERENTRY_FSTAT, u, fs);
   }
@@ -284,8 +289,9 @@ static void stats_add_dnload(struct userrec *u, uint64_t bytes)
 
   if (u) {
     if (!(ue = find_user_entry(&USERENTRY_FSTAT, u)) || !(fs = ue->u.extra)) {
-      fs = user_malloc(sizeof(struct filesys_stats));
-      egg_bzero(fs, sizeof(struct filesys_stats));
+      if (!filesys_stats_bh)
+        filesys_stats_bh = op_bh_create(sizeof(struct filesys_stats), 32, "filesys_stats");
+      fs = op_bh_alloc(filesys_stats_bh);
     }
     fs->dnloads++;
     fs->dnload_ks += ((bytes + 512) / 1024);
@@ -301,8 +307,9 @@ static void stats_add_upload(struct userrec *u, uint64_t bytes)
 
   if (u) {
     if (!(ue = find_user_entry(&USERENTRY_FSTAT, u)) || !(fs = ue->u.extra)) {
-      fs = user_malloc(sizeof(struct filesys_stats));
-      egg_bzero(fs, sizeof(struct filesys_stats));
+      if (!filesys_stats_bh)
+        filesys_stats_bh = op_bh_create(sizeof(struct filesys_stats), 32, "filesys_stats");
+      fs = op_bh_alloc(filesys_stats_bh);
     }
     fs->uploads++;
     fs->upload_ks += ((bytes + 512) / 1024);
@@ -328,8 +335,9 @@ static int fstat_tcl_set(Tcl_Interp *irp, struct userrec *u,
   case 'u':
   case 'd':
     if (!(fs = e->u.extra)) {
-      fs = user_malloc(sizeof(struct filesys_stats));
-      egg_bzero(fs, sizeof(struct filesys_stats));
+      if (!filesys_stats_bh)
+        filesys_stats_bh = op_bh_create(sizeof(struct filesys_stats), 32, "filesys_stats");
+      fs = op_bh_alloc(filesys_stats_bh);
     }
     switch (argv[3][0]) {
     case 'u':

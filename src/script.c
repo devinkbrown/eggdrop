@@ -50,15 +50,15 @@ void egg_setvar(const char *name, const char *value)
   /* Update existing slot first */
   for (int i = 0; i < EGG_MAXVARS; i++) {
     if (egg_vars[i].used && !strcmp(egg_vars[i].name, name)) {
-      strlcpy(egg_vars[i].value, value ? value : "", EGG_VARVAL_MAX);
+      op_strlcpy(egg_vars[i].value, value ? value : "", EGG_VARVAL_MAX);
       return;
     }
   }
   /* Allocate a new slot */
   for (int i = 0; i < EGG_MAXVARS; i++) {
     if (!egg_vars[i].used) {
-      strlcpy(egg_vars[i].name,  name,            EGG_VARNAME_MAX);
-      strlcpy(egg_vars[i].value, value ? value : "", EGG_VARVAL_MAX);
+      op_strlcpy(egg_vars[i].name,  name,            EGG_VARNAME_MAX);
+      op_strlcpy(egg_vars[i].value, value ? value : "", EGG_VARVAL_MAX);
       egg_vars[i].used = 1;
       return;
     }

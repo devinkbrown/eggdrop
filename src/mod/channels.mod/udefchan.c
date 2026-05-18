@@ -23,135 +23,117 @@
 static op_bh *udef_struct_bh = nullptr;
 static op_bh *udef_chans_bh  = nullptr;
 
-static int expmem_udef(struct udef_struct *ul)
+static int expmem_udef(const op_vec_t *vec)
 {
   int i = 0;
 
-  for (; ul; ul = ul->next) {
+  for (size_t vi = 0; vi < vec->size; vi++) {
+    const struct udef_struct *ul = (const struct udef_struct *)op_vec_get(vec, vi);
     i += sizeof(struct udef_struct);
     i += strlen(ul->name) + 1;
-    i += expmem_udef_chans(ul->type, ul->values);
+    i += expmem_udef_chans(ul->type, &ul->values);
   }
   return i;
 }
 
-static int expmem_udef_chans(int type, struct udef_chans *ul)
+static int expmem_udef_chans(int type, const op_vec_t *values)
 {
   int i = 0;
 
-  for (; ul; ul = ul->next) {
+  for (size_t vi = 0; vi < values->size; vi++) {
+    const struct udef_chans *ul = (const struct udef_chans *)op_vec_get(values, vi);
     i += sizeof(struct udef_chans);
     i += strlen(ul->chan) + 1;
     if (type == UDEF_STR && ul->value)
-      i += strlen((char *) ul->value) + 1;
+      i += strlen((const char *) ul->value) + 1;
   }
   return i;
 }
 
-static intptr_t getudef(struct udef_chans *ul, char *name)
+static intptr_t getudef(const op_vec_t *values, char *name)
 {
-  intptr_t val = 0;
-
-  for (; ul; ul = ul->next)
-    if (!strcasecmp(ul->chan, name)) {
-      val = ul->value;
-      break;
-    }
-  return val;
+  for (size_t i = 0; i < values->size; i++) {
+    const struct udef_chans *ul = (const struct udef_chans *)op_vec_get(values, i);
+    if (!op_strcasecmp(ul->chan, name))
+      return ul->value;
+  }
+  return 0;
 }
 
 static intptr_t ngetudef(char *name, char *chan)
 {
-  struct udef_struct *l;
-  struct udef_chans *ll;
-
-  for (l = udef; l; l = l->next)
-    if (!strcasecmp(l->name, name)) {
-      for (ll = l->values; ll; ll = ll->next)
-        if (!strcasecmp(ll->chan, chan))
-          return ll->value;
-      break;
-    }
+  for (size_t i = 0; i < udef_vec.size; i++) {
+    const struct udef_struct *l = (const struct udef_struct *)op_vec_get(&udef_vec, i);
+    if (!op_strcasecmp(l->name, name))
+      return getudef(&l->values, chan);
+  }
   return 0;
 }
 
 static void setudef(struct udef_struct *us, char *name, intptr_t value)
 {
-  struct udef_chans *ul, *ul_last = nullptr;
-
-  for (ul = us->values; ul; ul_last = ul, ul = ul->next)
-    if (!strcasecmp(ul->chan, name)) {
+  for (size_t i = 0; i < us->values.size; i++) {
+    struct udef_chans *ul = (struct udef_chans *)op_vec_get(&us->values, i);
+    if (!op_strcasecmp(ul->chan, name)) {
       ul->value = value;
       return;
     }
+  }
 
   if (!udef_chans_bh)
     udef_chans_bh = op_bh_create(sizeof(struct udef_chans), 32, "udef_chans");
-  ul = op_bh_alloc(udef_chans_bh);
+  struct udef_chans *ul = (struct udef_chans *)op_bh_alloc(udef_chans_bh);
   ul->chan = op_strdup(name);
   ul->value = value;
-  ul->next = nullptr;
-  if (ul_last)
-    ul_last->next = ul;
-  else
-    us->values = ul;
+  op_vec_push(&us->values, ul);
 }
 
 static void initudef(int type, char *name, int defined)
 {
-  struct udef_struct *ul, *ul_last = nullptr;
-
   if (strlen(name) < 1)
     return;
 
-  for (ul = udef; ul; ul_last = ul, ul = ul->next)
-    if (ul->name && !strcasecmp(ul->name, name)) {
+  for (size_t i = 0; i < udef_vec.size; i++) {
+    struct udef_struct *ul = (struct udef_struct *)op_vec_get(&udef_vec, i);
+    if (ul->name && !op_strcasecmp(ul->name, name)) {
       if (defined) {
         debug1("UDEF: %s defined", ul->name);
         ul->defined = 1;
       }
       return;
     }
+  }
 
   debug2("Creating %s (type %d)", name, type);
   if (!udef_struct_bh)
     udef_struct_bh = op_bh_create(sizeof(struct udef_struct), 16, "udef_struct");
-  ul = op_bh_alloc(udef_struct_bh);
+  struct udef_struct *ul = (struct udef_struct *)op_bh_alloc(udef_struct_bh);
   ul->name = op_strdup(name);
-  if (defined)
-    ul->defined = 1;
-  else
-    ul->defined = 0;
+  ul->defined = defined ? 1 : 0;
   ul->type = type;
-  ul->values = nullptr;
-  ul->next = nullptr;
-  if (ul_last)
-    ul_last->next = ul;
-  else
-    udef = ul;
+  /* ul->values is zero-initialised by op_bh_alloc — valid for op_vec_t */
+  op_vec_push(&udef_vec, ul);
 }
 
-static void free_udef(struct udef_struct *ul)
+static void free_udef_chans(op_vec_t *values, int type)
 {
-  struct udef_struct *ull;
-
-  for (; ul; ul = ull) {
-    ull = ul->next;
-    free_udef_chans(ul->values, ul->type);
-    op_free(ul->name);
-    op_bh_free(udef_struct_bh, ul);
-  }
-}
-
-static void free_udef_chans(struct udef_chans *ul, int type)
-{
-  struct udef_chans *ull;
-
-  for (; ul; ul = ull) {
-    ull = ul->next;
+  for (size_t i = 0; i < values->size; i++) {
+    struct udef_chans *ul = (struct udef_chans *)op_vec_get(values, i);
     if (type == UDEF_STR && ul->value)
       op_free((void *) ul->value);
     op_free(ul->chan);
     op_bh_free(udef_chans_bh, ul);
   }
+  op_vec_fini(values, nullptr, nullptr);
+}
+
+static void free_udef(op_vec_t *vec)
+{
+  for (size_t i = 0; i < vec->size; i++) {
+    struct udef_struct *ul = (struct udef_struct *)op_vec_get(vec, i);
+    free_udef_chans(&ul->values, ul->type);
+    op_free(ul->name);
+    op_bh_free(udef_struct_bh, ul);
+  }
+  op_vec_clear(vec, nullptr, nullptr);
 }

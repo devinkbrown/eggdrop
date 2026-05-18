@@ -102,7 +102,7 @@ static void setaccount(char *nick, char *account)
           }
           check_tcl_account(m->nick, m->userhost, get_user_from_member(m), chan->dname, account);
         }
-        strlcpy(m->account, account, sizeof m->account);
+        op_strlcpy(m->account, account, sizeof m->account);
       }
     }
   }
@@ -118,7 +118,7 @@ static const char *getchanmode(struct chanset_t *chan)
   int atr;
 
   op_strbuf_clear(&s);
-  op_strbuf_appendf(&s, "+");
+  op_strbuf_append_cstr(&s, "+");
   atr = chan->channel.mode;
   if (atr & CHANINV)
     op_strbuf_appendc(&s, 'i');

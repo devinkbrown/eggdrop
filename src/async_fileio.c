@@ -35,6 +35,9 @@ typedef struct {
   int   result;
 } acopy_ctx_t;
 
+static op_bh *acopy_bh   = nullptr;
+static op_bh *awrite_bh  = nullptr;
+
 static void acopy_work(void *arg)
 {
   acopy_ctx_t *c = arg;
@@ -49,7 +52,7 @@ static void acopy_done(void *arg)
            c->dst, c->result);
   op_free(c->src);
   op_free(c->dst);
-  op_free(c);
+  op_bh_free(acopy_bh, c);
 }
 
 void async_copyfile(const char *src, const char *dst)
@@ -59,7 +62,8 @@ void async_copyfile(const char *src, const char *dst)
     return;
   }
 
-  acopy_ctx_t *c = op_malloc(sizeof(*c));
+  if (!acopy_bh) acopy_bh = op_bh_create(sizeof(acopy_ctx_t), 8, "acopy_ctx");
+  acopy_ctx_t *c = (acopy_ctx_t *)op_bh_alloc(acopy_bh);
   c->src = op_strdup(src);
   c->dst = op_strdup(dst);
   c->result = 0;
@@ -124,7 +128,7 @@ static void awrite_done(void *arg)
   op_free(c->finalpath);
   op_free(c->tmppath);
   op_free(c->buf);
-  op_free(c);
+  op_bh_free(awrite_bh, c);
 }
 
 static void awrite_sync(const char *finalpath, const char *tmppath,
@@ -173,7 +177,8 @@ void async_writebuf(const char *finalpath, char *buf, size_t len, int perm)
     return;
   }
 
-  awrite_ctx_t *c = op_malloc(sizeof(*c));
+  if (!awrite_bh) awrite_bh = op_bh_create(sizeof(awrite_ctx_t), 8, "awrite_ctx");
+  awrite_ctx_t *c = (awrite_ctx_t *)op_bh_alloc(awrite_bh);
   c->finalpath = op_strdup(finalpath);
   c->tmppath = op_strbuf_steal(&tmp);
   c->buf = buf;

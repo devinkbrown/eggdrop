@@ -27,7 +27,6 @@
 constexpr uint8_t TC_DELETED  = 0x0001; /* This command/trigger was deleted. */
 
 typedef struct tcl_cmd_b {
-  struct tcl_cmd_b *next;
   struct flag_record flags;
   char *func_name;              /* Proc name (Tcl cmd or script key). */
   uint8_t attributes;           /* Flags for this entry. TC_* */
@@ -51,10 +50,9 @@ struct threaddata {
 constexpr uint8_t TBM_DELETED = 0x0001; /* This mask was deleted. */
 
 typedef struct tcl_bind_mask_b {
-  struct tcl_bind_mask_b *next;
   char *mask;
   uint8_t flags;                /* Flags for this entry. TBM_* */
-  tcl_cmd_t *first;             /* List of commands registered for this bind. */
+  op_vec_t cmds;                /* Commands registered for this bind. */
 } tcl_bind_mask_t;
 
 
@@ -62,12 +60,11 @@ constexpr uint8_t HT_STACKABLE = 0x0001; /* Triggers in this bind list may be st
 constexpr uint8_t HT_DELETED   = 0x0002; /* This bind list was deleted; do not use it anymore. */
 
 typedef struct tcl_bind_list_b {
-  struct tcl_bind_list_b *next;
   char name[16];                /* Name of the bind. */
   uint8_t flags;                /* Flags for this element. HT_* */
   IntFunc func;                 /* Function used as the Tcl calling interface
                                  * for procs actually representing C functions. */
-  tcl_bind_mask_t *first;       /* Pointer to registered binds for this list. */
+  op_vec_t masks;               /* Registered binds for this list. */
   op_htab *mask_ht;             /* O(1) exact-match lookup by mask string. */
 } tcl_bind_list_t, *p_tcl_bind_list;
 

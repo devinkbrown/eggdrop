@@ -46,7 +46,6 @@ int egg_list_contains(struct list_type *, struct list_type *);
 struct userrec;
 struct user_entry;
 struct user_entry_type {
-  struct user_entry_type *next;
   int (*got_share) (struct userrec *, struct user_entry *, char *, int);
   int (*dup_user) (struct userrec *, struct userrec *, struct user_entry *);
   int (*unpack) (struct userrec *, struct user_entry *);
@@ -105,7 +104,6 @@ struct user_entry {
 };
 
 struct xtra_key {
-  struct xtra_key *next;
   char *key;
   char *data;
 };

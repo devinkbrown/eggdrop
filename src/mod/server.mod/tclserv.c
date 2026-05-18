@@ -41,7 +41,7 @@ static int tcl_putnow STDVAR
 
   BADARGS(2, 3, " text ?options?");
 
-  if ((argc == 3) && strcasecmp(argv[2], "-oneline")) {
+  if ((argc == 3) && op_strcasecmp(argv[2], "-oneline")) {
     Tcl_AppendResult(irp, "unknown putnow option: should be ",
                      "-oneline", nullptr);
     return TCL_ERROR;
@@ -62,9 +62,9 @@ static int tcl_putnow STDVAR
     if ((p - r) > (sizeof(buf) - 2 - (q - buf)))
       break; /* That's all folks, no space left */
     len = p - r + 1; /* leave space for '\0' */
-    strlcpy(q, r, len);
+    op_strlcpy(q, r, len);
     if (check_tcl_out(0, q, 0)) {
-      if (!*p || ((argc == 3) && !strcasecmp(argv[2], "-oneline")))
+      if (!*p || ((argc == 3) && !op_strcasecmp(argv[2], "-oneline")))
         break;
       r = p + 1;
       continue;
@@ -77,7 +77,7 @@ static int tcl_putnow STDVAR
     q += len - 1; /* the '\0' must be overwritten */
     *q++ = '\r';
     *q++ = '\n'; /* comply with the RFC */
-    if (!*p || ((argc == 3) && !strcasecmp(argv[2], "-oneline")))
+    if (!*p || ((argc == 3) && !op_strcasecmp(argv[2], "-oneline")))
       break; /* cut on newline requested or message ended */
     r = p + 1;
   }
@@ -91,13 +91,13 @@ static int tcl_putquick STDVAR
 
   BADARGS(2, 3, " text ?options?");
 
-  if ((argc == 3) && strcasecmp(argv[2], "-next") &&
-      strcasecmp(argv[2], "-normal")) {
+  if ((argc == 3) && op_strcasecmp(argv[2], "-next") &&
+      op_strcasecmp(argv[2], "-normal")) {
     Tcl_AppendResult(irp, "unknown putquick option: should be one of: ",
                      "-normal -next", nullptr);
     return TCL_ERROR;
   }
-  strlcpy(s, argv[1], sizeof s);
+  op_strlcpy(s, argv[1], sizeof s);
 
   p = strchr(s, '\n');
   if (p != nullptr)
@@ -105,7 +105,7 @@ static int tcl_putquick STDVAR
   p = strchr(s, '\r');
   if (p != nullptr)
     *p = 0;
-  if (argc == 3 && !strcasecmp(argv[2], "-next"))
+  if (argc == 3 && !op_strcasecmp(argv[2], "-next"))
     dprintf(DP_MODE_NEXT, "%s\n", s);
   else
     dprintf(DP_MODE, "%s\n", s);
@@ -118,13 +118,13 @@ static int tcl_putserv STDVAR
 
   BADARGS(2, 3, " text ?options?");
 
-  if ((argc == 3) && strcasecmp(argv[2], "-next") &&
-      strcasecmp(argv[2], "-normal")) {
+  if ((argc == 3) && op_strcasecmp(argv[2], "-next") &&
+      op_strcasecmp(argv[2], "-normal")) {
     Tcl_AppendResult(irp, "unknown putserv option: should be one of: ",
                      "-normal -next", nullptr);
     return TCL_ERROR;
   }
-  strlcpy(s, argv[1], sizeof s);
+  op_strlcpy(s, argv[1], sizeof s);
 
   p = strchr(s, '\n');
   if (p != nullptr)
@@ -132,7 +132,7 @@ static int tcl_putserv STDVAR
   p = strchr(s, '\r');
   if (p != nullptr)
     *p = 0;
-  if (argc == 3 && !strcasecmp(argv[2], "-next"))
+  if (argc == 3 && !op_strcasecmp(argv[2], "-next"))
     dprintf(DP_SERVER_NEXT, "%s\n", s);
   else
     dprintf(DP_SERVER, "%s\n", s);
@@ -145,13 +145,13 @@ static int tcl_puthelp STDVAR
 
   BADARGS(2, 3, " text ?options?");
 
-  if ((argc == 3) && strcasecmp(argv[2], "-next") &&
-      strcasecmp(argv[2], "-normal")) {
+  if ((argc == 3) && op_strcasecmp(argv[2], "-next") &&
+      op_strcasecmp(argv[2], "-normal")) {
     Tcl_AppendResult(irp, "unknown puthelp option: should be one of: ",
                      "-normal -next", nullptr);
     return TCL_ERROR;
   }
-  strlcpy(s, argv[1], sizeof s);
+  op_strlcpy(s, argv[1], sizeof s);
 
   p = strchr(s, '\n');
   if (p != nullptr)
@@ -159,7 +159,7 @@ static int tcl_puthelp STDVAR
   p = strchr(s, '\r');
   if (p != nullptr)
     *p = 0;
-  if (argc == 3 && !strcasecmp(argv[2], "-next"))
+  if (argc == 3 && !op_strcasecmp(argv[2], "-next"))
     dprintf(DP_HELP_NEXT, "%s\n", s);
   else
     dprintf(DP_HELP, "%s\n", s);
@@ -241,8 +241,8 @@ static int tcl_tagmsg STDVAR {
     return TCL_ERROR;
   }
   char *saveptr = nullptr;
-  strlcpy(tagdict, argv[1], sizeof tagdict);
-  strlcpy(target, argv[2], sizeof target);
+  op_strlcpy(tagdict, argv[1], sizeof tagdict);
+  op_strlcpy(target, argv[2], sizeof target);
   op_strbuf_init(&tag);
   p = strtok_r(tagdict, " ", &saveptr);
   while (p != nullptr) {
@@ -276,58 +276,49 @@ static int tcl_tagmsg STDVAR {
 static int tcl_cap STDVAR {
   int found = 0;
   struct capability *current;
-  struct cap_values *currentvalue;
   [[maybe_unused]] Tcl_Obj *capes, *values;
   BADARGS(2, 3, " sub-cmd ?arg?");
 
   capes = Tcl_NewListObj(0, nullptr);
-  current = cap;
   /* List capabilities available on server */
-  if (!strcasecmp(argv[1], "ls")) {
-    while (current != nullptr) {
+  if (!op_strcasecmp(argv[1], "ls")) {
+    for (size_t ci = 0; ci < cap_vec.size; ci++) {
+      current = (struct capability *)op_vec_get(&cap_vec, ci);
       Tcl_ListObjAppendElement(irp, capes, Tcl_NewStringObj(current->name, -1));
-      current = current->next;
     }
     Tcl_SetObjResult(irp, capes);
   /* List capabilities Eggdrop is internally tracking as enabled with server */
-  } else if (!strcasecmp(argv[1], "enabled")) {
-    while (current != nullptr) {
-      if (current->enabled) {
+  } else if (!op_strcasecmp(argv[1], "enabled")) {
+    for (size_t ci = 0; ci < cap_vec.size; ci++) {
+      current = (struct capability *)op_vec_get(&cap_vec, ci);
+      if (current->enabled)
         Tcl_ListObjAppendElement(irp, capes, Tcl_NewStringObj(current->name, -1));
-      }
-      current = current->next;
     }
     Tcl_SetObjResult(irp, capes);
-  } else if (!strcasecmp(argv[1], "values")) {
+  } else if (!op_strcasecmp(argv[1], "values")) {
     capes = Tcl_NewListObj(0, nullptr);
     values = Tcl_NewListObj(0, nullptr);
-    current = cap;
-    while (current != nullptr) {
-      if ((argc == 3) &&(!strcasecmp(argv[2], current->name))) {
+    for (size_t ci = 0; ci < cap_vec.size; ci++) {
+      current = (struct capability *)op_vec_get(&cap_vec, ci);
+      if ((argc == 3) && (!op_strcasecmp(argv[2], current->name)))
         found = 1;
-      }
-      currentvalue = current->value;
-      while (currentvalue != nullptr) {
+      for (size_t vi = 0; vi < current->values.size; vi++) {
+        const cap_values_t *cv = (const cap_values_t *)op_vec_get(&current->values, vi);
         if (argc == 3) {
-          if (!strcasecmp(argv[2], current->name)) {
+          if (!op_strcasecmp(argv[2], current->name)) {
             /* Don't get confused, we use the capes var but its really values */
-            Tcl_ListObjAppendElement(irp, capes,
-                    Tcl_NewStringObj(currentvalue->name, -1));
+            Tcl_ListObjAppendElement(irp, capes, Tcl_NewStringObj(cv->name, -1));
           }
         } else {
-          Tcl_ListObjAppendElement(irp, values,
-                    Tcl_NewStringObj(currentvalue->name, -1));
+          Tcl_ListObjAppendElement(irp, values, Tcl_NewStringObj(cv->name, -1));
         }
-        currentvalue = currentvalue->next;
       }
       if (argc != 3) {
-        Tcl_ListObjAppendElement(irp, capes,
-                Tcl_NewStringObj(current->name, -1));
+        Tcl_ListObjAppendElement(irp, capes, Tcl_NewStringObj(current->name, -1));
         Tcl_ListObjAppendElement(irp, capes, values);
+        /* Reset for the next capability */
+        values = Tcl_NewListObj(0, nullptr);
       }
-      /* Clear out the list so it isn't repeatedly added */
-      values = Tcl_NewListObj(0, nullptr);
-      current = current->next;
     }
     if ((argc == 3) && (!found)) {
       op_strbuf_t errmsg = {};
@@ -339,7 +330,7 @@ static int tcl_cap STDVAR {
     }
     Tcl_SetObjResult(irp, capes);
   /* Send a request to negotiate a capability with server */
-  } else if (!strcasecmp(argv[1], "req")) {
+  } else if (!op_strcasecmp(argv[1], "req")) {
     if (argc != 3) {
       Tcl_AppendResult(irp, "No CAP request provided", nullptr);
       return TCL_ERROR;
@@ -351,7 +342,7 @@ static int tcl_cap STDVAR {
       op_strbuf_free(&cap_req);
     }
   /* Send a raw CAP command to the server */
-  } else if (!strcasecmp(argv[1], "raw")) {
+  } else if (!op_strcasecmp(argv[1], "raw")) {
     if (argc == 3) {
       op_strbuf_t cap_raw = {};
       op_strbuf_init(&cap_raw);
@@ -435,7 +426,7 @@ static int tcl_monitor STDVAR
       Tcl_AppendResult(irp, "nickname not found", nullptr);
       return TCL_ERROR;
     }
-  } else if (!strcasecmp(argv[1], "clear")) {
+  } else if (!op_strcasecmp(argv[1], "clear")) {
     monitor_clear();
     Tcl_AppendResult(irp, "MONITOR list cleared.", nullptr);
     return TCL_OK;
@@ -450,7 +441,7 @@ static int tcl_jump STDVAR
   BADARGS(1, 4, " ?server? ?port? ?pass?");
 
   if (argc >= 2) {
-    strlcpy(newserver, argv[1], sizeof newserver);
+    op_strlcpy(newserver, argv[1], sizeof newserver);
     if (argc >= 3)
 #ifdef TLS
     {
@@ -466,7 +457,7 @@ static int tcl_jump STDVAR
     else
       newserverport = default_port;
     if (argc == 4)
-      strlcpy(newserverpass, argv[3], sizeof newserverpass);
+      op_strlcpy(newserverpass, argv[3], sizeof newserverpass);
   }
   cycle_time = 0;
 
@@ -583,7 +574,6 @@ static int tcl_queuesize STDVAR
 
 static int tcl_server STDVAR {
   int ret;
-  struct server_list *z;
   [[maybe_unused]] Tcl_Obj *server;
 
   BADARGS(2, 5, " subcommand ?host ?port? ?password?");
@@ -616,8 +606,8 @@ static int tcl_server STDVAR {
     ret = del_server(argv[2], argc >= 4 && argv[3] ? argv[3] : "");
   } else if (!strcmp(argv[1], "list")) {
     [[maybe_unused]] Tcl_Obj *servers = Tcl_NewListObj(0, nullptr);
-    z = serverlist;
-    while(z != nullptr) {
+    for (size_t zi = 0; zi < serverlist_vec.size; zi++) {
+      struct server_list *z = (struct server_list *)op_vec_get(&serverlist_vec, zi);
       server = Tcl_NewListObj(0, nullptr);
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->name, -1));
 #ifdef TLS
@@ -631,10 +621,8 @@ static int tcl_server STDVAR {
 #else
       Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(int_to_base10(z->port), -1));
 #endif
-      Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->pass, -1));
-      Tcl_SetObjResult(irp, server);
+      Tcl_ListObjAppendElement(irp, server, Tcl_NewStringObj(z->pass ? z->pass : "", -1));
       Tcl_ListObjAppendElement(irp, servers, server);
-      z = z->next;
     }
     Tcl_SetObjResult(irp, servers);
     return TCL_OK;
@@ -719,15 +707,15 @@ static int tcl_ircxaccess STDVAR
     Tcl_AppendResult(irp, "IRCX not enabled on this server", nullptr);
     return TCL_ERROR;
   }
-  if (!strcasecmp(argv[2], "list")) {
+  if (!op_strcasecmp(argv[2], "list")) {
     ircx_access_list_send(argv[1]);
-  } else if (!strcasecmp(argv[2], "add")) {
+  } else if (!op_strcasecmp(argv[2], "add")) {
     if (argc < 5) {
       Tcl_AppendResult(irp, "wrong # args: ircxaccess channel add level mask", nullptr);
       return TCL_ERROR;
     }
     ircx_access_add(argv[1], argv[4], argv[3]);
-  } else if (!strcasecmp(argv[2], "del")) {
+  } else if (!op_strcasecmp(argv[2], "del")) {
     if (argc < 4) {
       Tcl_AppendResult(irp, "wrong # args: ircxaccess channel del mask", nullptr);
       return TCL_ERROR;
@@ -759,14 +747,17 @@ static int tcl_ircxcreate STDVAR
 
 static int tcl_ircxautoowner STDVAR
 {
-  ircx_autoowner_t *ao, *prev = nullptr, *existing = nullptr;
+  ircx_autoowner_t *existing = nullptr;
+  size_t existing_idx = SIZE_MAX;
 
   BADARGS(2, 5, " channel ?ownerkey? ?create 0|1? ?modes?");
 
   /* Find existing entry */
-  for (ao = ircx_autoowner_list; ao; prev = ao, ao = ao->next) {
+  for (size_t i = 0; i < ircx_autoowner_vec.size; i++) {
+    ircx_autoowner_t *ao = (ircx_autoowner_t *)op_vec_get(&ircx_autoowner_vec, i);
     if (!rfc_casecmp(ao->channel, argv[1])) {
       existing = ao;
+      existing_idx = i;
       break;
     }
   }
@@ -774,11 +765,8 @@ static int tcl_ircxautoowner STDVAR
   if (argc == 2) {
     /* No args beyond channel: remove the entry if it exists */
     if (existing) {
-      if (prev)
-        prev->next = existing->next;
-      else
-        ircx_autoowner_list = existing->next;
-      op_free(existing);
+      op_vec_remove_fast(&ircx_autoowner_vec, existing_idx);
+      op_bh_free(ircx_autoowner_bh, existing);
       Tcl_AppendResult(irp, "removed", nullptr);
     } else {
       Tcl_AppendResult(irp, "not found", nullptr);
@@ -787,24 +775,24 @@ static int tcl_ircxautoowner STDVAR
   }
 
   if (!existing) {
-    existing = (ircx_autoowner_t *) op_malloc(sizeof(ircx_autoowner_t));
-    existing->next = ircx_autoowner_list;
-    ircx_autoowner_list = existing;
+    if (!ircx_autoowner_bh) ircx_autoowner_bh = op_bh_create(sizeof(ircx_autoowner_t), 16, "ircx_autoowner");
+    existing = (ircx_autoowner_t *)op_bh_alloc(ircx_autoowner_bh);
+    op_vec_push(&ircx_autoowner_vec, existing);
   }
-  strlcpy(existing->channel, argv[1], sizeof(existing->channel));
+  op_strlcpy(existing->channel, argv[1], sizeof(existing->channel));
   if (argc >= 3)
-    strlcpy(existing->ownerkey, argv[2], sizeof(existing->ownerkey));
+    op_strlcpy(existing->ownerkey, argv[2], sizeof(existing->ownerkey));
   if (argc >= 4)
     existing->create_if_missing = egg_atoi(argv[3]);
   if (argc >= 5)
-    strlcpy(existing->create_modes, argv[4], sizeof(existing->create_modes));
+    op_strlcpy(existing->create_modes, argv[4], sizeof(existing->create_modes));
   /* Mirror settings into chanset so they are saved in the channel file */
   {
     struct chanset_t *ch = findchan_by_dname(existing->channel);
     if (ch) {
-      strlcpy(ch->ircx_ownerkey, existing->ownerkey, sizeof(ch->ircx_ownerkey));
+      op_strlcpy(ch->ircx_ownerkey, existing->ownerkey, sizeof(ch->ircx_ownerkey));
       ch->ircx_create = existing->create_if_missing;
-      strlcpy(ch->ircx_create_modes, existing->create_modes, sizeof(ch->ircx_create_modes));
+      op_strlcpy(ch->ircx_create_modes, existing->create_modes, sizeof(ch->ircx_create_modes));
     }
   }
 

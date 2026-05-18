@@ -47,9 +47,9 @@ static int eval_idx = -1;
 
 static PyObject *EggdropError;      //create static Python Exception object
 
-extern tcl_timer_t *timer, *utimer;
+extern op_vec_t timer, utimer;
 extern char listen_ip[];
-extern module_entry *module_list;
+extern op_vec_t module_vec;
 extern void do_boot(int, char *, char *);
 extern int botlink(char *, int, char *);
 extern int botunlink(int, char *, char *, char *);
@@ -59,7 +59,7 @@ extern char *lastbot(char *);
 extern void set_away(int, char *);
 extern void not_away(int);
 extern int findidx(int);
-extern p_tcl_bind_list bind_table_list;
+extern op_vec_t bind_table_vec;
 #include "../../egg_perf_types.h"
 
 #ifndef HAVE_TCL
@@ -425,7 +425,7 @@ static PyObject *py_bind(PyObject *self, PyObject *args) {
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "*python:%s:%" PRIx64, bindtype, (int64_t)hash);
-    strlcpy(bind->tclcmdname, op_strbuf_str(&_b), sizeof bind->tclcmdname);
+    op_strlcpy(bind->tclcmdname, op_strbuf_str(&_b), sizeof bind->tclcmdname);
     op_strbuf_free(&_b);
   }
 
@@ -587,7 +587,7 @@ static PyObject *py_findtclfunc(PyObject *self, PyObject *args) {
     return nullptr;
   }
   result = PyObject_New(TclFunc, &TclFuncType);
-  strlcpy(result->tclcmdname, cmdname, sizeof result->tclcmdname);
+  op_strlcpy(result->tclcmdname, cmdname, sizeof result->tclcmdname);
   return (PyObject *)result;
 }
 #endif /* HAVE_TCL */
@@ -640,7 +640,7 @@ static PyObject *py_putserv(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &text))
     return nullptr;
-  strlcpy(s, text, sizeof s);
+  op_strlcpy(s, text, sizeof s);
   if ((p = strchr(s, '\n'))) *p = 0;
   if ((p = strchr(s, '\r'))) *p = 0;
   dprintf(DP_SERVER, "%s\n", s);
@@ -654,7 +654,7 @@ static PyObject *py_putquick(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &text))
     return nullptr;
-  strlcpy(s, text, sizeof s);
+  op_strlcpy(s, text, sizeof s);
   if ((p = strchr(s, '\n'))) *p = 0;
   if ((p = strchr(s, '\r'))) *p = 0;
   dprintf(DP_MODE, "%s\n", s);
@@ -668,7 +668,7 @@ static PyObject *py_putnow(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &text))
     return nullptr;
-  strlcpy(s, text, sizeof s);
+  op_strlcpy(s, text, sizeof s);
   if ((p = strchr(s, '\n'))) *p = 0;
   if ((p = strchr(s, '\r'))) *p = 0;
   /* For putnow, use DP_MODE_NEXT which bypasses the normal queue */
@@ -966,7 +966,7 @@ static PyObject *py_hand2nick(PyObject *self, PyObject *args)
       u = get_user_by_host(op_strbuf_str(&_b));
       op_strbuf_free(&_b);
     }
-    if (u && !strcasecmp(u->handle, handle))
+    if (u && !op_strcasecmp(u->handle, handle))
       return PyUnicode_FromString(m->nick);
   }
   Py_RETURN_NONE;
@@ -979,7 +979,7 @@ static PyObject *py_isbotnick(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &nick))
     return nullptr;
-  if (!strcasecmp(nick, botname))
+  if (!op_strcasecmp(nick, botname))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
 }
@@ -1151,15 +1151,15 @@ static PyObject *py_ircxaccess(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "ss|ss", &channel, &action, &level, &mask))
     return nullptr;
-  if (!strcasecmp(action, "list")) {
+  if (!op_strcasecmp(action, "list")) {
     dprintf(DP_SERVER, "ACCESS %s LIST\n", channel);
-  } else if (!strcasecmp(action, "add")) {
+  } else if (!op_strcasecmp(action, "add")) {
     if (!level || !mask) {
       PyErr_SetString(PyExc_TypeError, "ircxaccess 'add' requires level and mask");
       return nullptr;
     }
     dprintf(DP_SERVER, "ACCESS %s ADD %s %s\n", channel, level, mask);
-  } else if (!strcasecmp(action, "del")) {
+  } else if (!op_strcasecmp(action, "del")) {
     if (!mask) {
       PyErr_SetString(PyExc_TypeError, "ircxaccess 'del' requires mask");
       return nullptr;
@@ -1206,9 +1206,9 @@ static PyObject *py_die(PyObject *self, PyObject *args)
     return nullptr;
   if (reason && reason[0]) {
     op_strbuf_appendf(&s, "BOT SHUTDOWN (%s)", reason);
-    strlcpy(quit_msg, reason, 1024);
+    op_strlcpy(quit_msg, reason, 1024);
   } else {
-    op_strbuf_appendf(&s, "BOT SHUTDOWN (No reason)");
+    op_strbuf_append_cstr(&s, "BOT SHUTDOWN (No reason)");
     quit_msg[0] = 0;
   }
   kill_bot(op_strbuf_str(&s), quit_msg[0] ? quit_msg : "EXIT");
@@ -1319,7 +1319,6 @@ static PyObject *py_gethosts(PyObject *self, PyObject *args)
   char *handle;
   struct userrec *u;
   struct user_entry *e;
-  struct list_type *x;
   PyObject *list, *s;
 
   if (!PyArg_ParseTuple(args, "s", &handle))
@@ -1331,10 +1330,15 @@ static PyObject *py_gethosts(PyObject *self, PyObject *args)
   e = find_user_entry(&USERENTRY_HOSTS, u);
   if (!e)
     return list;
-  for (x = e->u.list; x; x = x->next) {
-    s = PyUnicode_FromString(x->extra);
-    PyList_Append(list, s);
-    Py_DECREF(s);
+  {
+    op_vec_t *v = (op_vec_t *)e->u.extra;
+
+    if (v)
+      for (size_t _i = 0; _i < v->size; _i++) {
+        s = PyUnicode_FromString((char *)op_vec_get(v, _i));
+        PyList_Append(list, s);
+        Py_DECREF(s);
+      }
   }
   return list;
 }
@@ -1537,7 +1541,7 @@ static PyObject *py_adduser(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s|s", &handle, &host))
     return nullptr;
-  strlcpy(hbuf, handle, sizeof hbuf);
+  op_strlcpy(hbuf, handle, sizeof hbuf);
   for (p = (unsigned char *)hbuf; *p; p++)
     if (*p <= 32 || *p == '@')
       *p = '?';
@@ -1690,7 +1694,7 @@ static PyObject *py_chhandle(PyObject *self, PyObject *args)
   u = get_user_by_handle(userlist, oldh);
   if (!u)
     Py_RETURN_FALSE;
-  strlcpy(newbuf, newh, sizeof newbuf);
+  op_strlcpy(newbuf, newh, sizeof newbuf);
   for (int i = 0; newbuf[i]; i++)
     if (((unsigned char)newbuf[i] <= 32) || (newbuf[i] == '@'))
       newbuf[i] = '?';
@@ -1780,7 +1784,7 @@ static PyObject *py_hand2idx(PyObject *self, PyObject *args)
     return nullptr;
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type->flags & (DCT_SIMUL | DCT_BOT)) &&
-        !strcasecmp(handle, dcc[i].nick))
+        !op_strcasecmp(handle, dcc[i].nick))
       return PyLong_FromLong(dcc[i].sock);
   return PyLong_FromLong(-1L);
 }
@@ -1832,7 +1836,7 @@ static PyObject *py_dcclist(PyObject *self, PyObject *args)
   for (int i = 0; i < dcc_total; i++) {
     if (!dcc[i].type)
       continue;
-    if (typefilter && strcasecmp(dcc[i].type->name, typefilter))
+    if (typefilter && op_strcasecmp(dcc[i].type->name, typefilter))
       continue;
     d = PyDict_New();
     PyDict_SetItemString(d, "idx",    PyLong_FromLong(dcc[i].sock));
@@ -2112,7 +2116,7 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
   while (ch && (!thechan || thechan == ch)) {
     for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
       u = get_user_from_member(m);
-      if (u && !strcasecmp(u->handle, handle)) {
+      if (u && !op_strcasecmp(u->handle, handle)) {
         found = 0;
         Py_ssize_t n = PyList_Size(list);
         for (Py_ssize_t i = 0; i < n; i++) {
@@ -2137,8 +2141,6 @@ static PyObject *py_hand2nicks(PyObject *self, PyObject *args)
 static PyObject *py_putbot(PyObject *self, PyObject *args)
 {
   char *botnick, *msg;
-  op_strbuf_t _b = {};
-  op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "ss", &botnick, &msg))
     return nullptr;
@@ -2147,9 +2149,7 @@ static PyObject *py_putbot(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "bot is not on the botnet");
     return nullptr;
   }
-  op_strbuf_appendf(&_b, "%s", msg);
-  botnet_send_zapf(i, botnetnick, botnick, op_strbuf_str(&_b));
-  op_strbuf_free(&_b);
+  botnet_send_zapf(i, botnetnick, botnick, msg);
   Py_RETURN_NONE;
 }
 
@@ -2157,14 +2157,10 @@ static PyObject *py_putbot(PyObject *self, PyObject *args)
 static PyObject *py_putallbots(PyObject *self, PyObject *args)
 {
   char *msg;
-  op_strbuf_t _b = {};
-  op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "s", &msg))
     return nullptr;
-  op_strbuf_appendf(&_b, "%s", msg);
-  botnet_send_zapf_broad(-1, botnetnick, nullptr, op_strbuf_str(&_b));
-  op_strbuf_free(&_b);
+  botnet_send_zapf_broad(-1, botnetnick, nullptr, msg);
   Py_RETURN_NONE;
 }
 
@@ -2381,11 +2377,11 @@ static PyObject *py_cap(PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple(args, "ss", &action, &arg))
     return nullptr;
 
-  if (!strcasecmp(action, "req")) {
+  if (!op_strcasecmp(action, "req")) {
     dprintf(DP_SERVER, "CAP REQ :%s\n", arg);
     Py_RETURN_NONE;
   }
-  if (!strcasecmp(action, "raw")) {
+  if (!op_strcasecmp(action, "raw")) {
     dprintf(DP_SERVER, "CAP %s\n", arg);
     Py_RETURN_NONE;
   }
@@ -2438,7 +2434,7 @@ static PyObject *py_handonchan(PyObject *self, PyObject *args)
   while (ch && (thech == nullptr || thech == ch)) {
     for (m = ch->channel.member; m && m->nick[0]; m = m->next) {
       u = get_user_from_member(m);
-      if (u && !strcasecmp(u->handle, handle))
+      if (u && !op_strcasecmp(u->handle, handle))
         Py_RETURN_TRUE;
     }
     ch = ch->next;
@@ -2652,7 +2648,7 @@ static PyObject *py_putkick(PyObject *self, PyObject *args)
   /* Send individual kicks for each comma-separated nick */
   {
     char buf[512];
-    strlcpy(buf, nicks, sizeof buf);
+    op_strlcpy(buf, nicks, sizeof buf);
     char *p = buf;
     while (p) {
       char *nick = p;
@@ -2894,7 +2890,7 @@ static PyObject *py_newban(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "sss|ls", &ban, &creator, &comment, &lifetime, &opts))
     return nullptr;
-  if (opts && !strcasecmp(opts, "sticky"))
+  if (opts && !op_strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
     expire_time = global_ban_time ? now + 60 * global_ban_time : 0;
@@ -2957,7 +2953,7 @@ static PyObject *py_newexempt(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "sss|ls", &exempt, &creator, &comment, &lifetime, &opts))
     return nullptr;
-  if (opts && !strcasecmp(opts, "sticky"))
+  if (opts && !op_strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
     expire_time = global_exempt_time ? now + 60 * global_exempt_time : 0;
@@ -2995,7 +2991,7 @@ static PyObject *py_newinvite(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "sss|ls", &invite, &creator, &comment, &lifetime, &opts))
     return nullptr;
-  if (opts && !strcasecmp(opts, "sticky"))
+  if (opts && !op_strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
     expire_time = global_invite_time ? now + 60 * global_invite_time : 0;
@@ -3195,7 +3191,7 @@ static PyObject *py_setchaninfo(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "invalid channel");
     return nullptr;
   }
-  if (!strcasecmp(info, "none"))
+  if (!op_strcasecmp(info, "none"))
     set_handle_chaninfo(userlist, handle, chan, nullptr);
   else
     set_handle_chaninfo(userlist, handle, chan, info);
@@ -3408,13 +3404,13 @@ static PyObject *py_jump(PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple(args, "|sis", &server, &port, &pass))
     return nullptr;
   if (server)
-    strlcpy(newserver, server, NEWSERVERMAX);
+    op_strlcpy(newserver, server, NEWSERVERMAX);
   if (port > 0)
     newserverport = port;
   else if (server)
     newserverport = default_port;
   if (pass)
-    strlcpy(newserverpass, pass, NEWSERVERPASSMAX);
+    op_strlcpy(newserverpass, pass, NEWSERVERPASSMAX);
   cycle_time = 0;
   nuke_server(IRC_CHANGINGSERV);
   Py_RETURN_NONE;
@@ -3433,9 +3429,10 @@ static PyObject *py_utimer(PyObject *self, PyObject *args)
     return nullptr;
   result = add_timer(&utimer, 1, seconds, (char *)cmd, (char *)cmd, 0);
   if (result) {
-    tcl_timer_t *t;
-    for (t = utimer; t; t = t->next)
+    for (size_t _i = 0; _i < utimer.size; _i++) {
+      tcl_timer_t *t = (tcl_timer_t *)op_vec_get(&utimer, _i);
       if (!strcmp(t->name, result)) { t->count = count; break; }
+    }
   }
   return result ? PyUnicode_FromString(result) : Py_NewRef(Py_None);
 }
@@ -3451,9 +3448,10 @@ static PyObject *py_timer(PyObject *self, PyObject *args)
     return nullptr;
   result = add_timer(&timer, 60, minutes, (char *)cmd, (char *)cmd, 0);
   if (result) {
-    tcl_timer_t *t;
-    for (t = timer; t; t = t->next)
+    for (size_t _i = 0; _i < timer.size; _i++) {
+      tcl_timer_t *t = (tcl_timer_t *)op_vec_get(&timer, _i);
       if (!strcmp(t->name, result)) { t->count = count; break; }
+    }
   }
   return result ? PyUnicode_FromString(result) : Py_NewRef(Py_None);
 }
@@ -3486,10 +3484,10 @@ static PyObject *py_killutimer(PyObject *self, PyObject *args)
 static PyObject *py_timers(PyObject *self, PyObject *args)
 {
   PyObject *list = PyList_New(0);
-  tcl_timer_t *t;
   time_t now_t = time(nullptr);
 
-  for (t = timer; t; t = t->next) {
+  for (size_t _i = 0; _i < timer.size; _i++) {
+    tcl_timer_t *t = (tcl_timer_t *)op_vec_get(&timer, _i);
     unsigned int remaining = (t->fire_at > now_t)
       ? (unsigned int)((t->fire_at - now_t) / t->secs_per_tick) : 0;
     PyObject *d = Py_BuildValue("{s:s, s:s, s:I, s:I}",
@@ -3505,10 +3503,10 @@ static PyObject *py_timers(PyObject *self, PyObject *args)
 static PyObject *py_utimers(PyObject *self, PyObject *args)
 {
   PyObject *list = PyList_New(0);
-  tcl_timer_t *t;
   time_t now_t = time(nullptr);
 
-  for (t = utimer; t; t = t->next) {
+  for (size_t _i = 0; _i < utimer.size; _i++) {
+    tcl_timer_t *t = (tcl_timer_t *)op_vec_get(&utimer, _i);
     unsigned int remaining = (t->fire_at > now_t)
       ? (unsigned int)((t->fire_at - now_t) / t->secs_per_tick) : 0;
     PyObject *d = Py_BuildValue("{s:s, s:s, s:I, s:I}",
@@ -3527,7 +3525,7 @@ static PyObject *py_timerexists(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &name))
     return nullptr;
-  if (find_timer(timer, (char *)name))
+  if (find_timer(&timer, (char *)name))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
 }
@@ -3539,7 +3537,7 @@ static PyObject *py_utimerexists(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &name))
     return nullptr;
-  if (find_timer(utimer, (char *)name))
+  if (find_timer(&utimer, (char *)name))
     Py_RETURN_TRUE;
   Py_RETURN_FALSE;
 }
@@ -3559,32 +3557,36 @@ static PyObject *py_getuser(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "no such user");
     return nullptr;
   }
-  if (!strcasecmp(etype, "HOSTS")) {
+  if (!op_strcasecmp(etype, "HOSTS")) {
     struct user_entry *e;
-    struct list_type *x;
     PyObject *list, *s;
 
     list = PyList_New(0);
     e = find_user_entry(&USERENTRY_HOSTS, u);
     if (!e)
       return list;
-    for (x = e->u.list; x; x = x->next) {
-      s = PyUnicode_FromString(x->extra);
-      PyList_Append(list, s);
-      Py_DECREF(s);
+    {
+      op_vec_t *v = (op_vec_t *)e->u.extra;
+
+      if (v)
+        for (size_t _i = 0; _i < v->size; _i++) {
+          s = PyUnicode_FromString((char *)op_vec_get(v, _i));
+          PyList_Append(list, s);
+          Py_DECREF(s);
+        }
     }
     return list;
-  } else if (!strcasecmp(etype, "INFO")) {
+  } else if (!op_strcasecmp(etype, "INFO")) {
     char *info = (char *)get_user(&USERENTRY_INFO, u);
     if (!info || !info[0])
       Py_RETURN_NONE;
     return PyUnicode_FromString(info);
-  } else if (!strcasecmp(etype, "COMMENT")) {
+  } else if (!op_strcasecmp(etype, "COMMENT")) {
     char *comment = (char *)get_user(&USERENTRY_COMMENT, u);
     if (!comment || !comment[0])
       Py_RETURN_NONE;
     return PyUnicode_FromString(comment);
-  } else if (!strcasecmp(etype, "LASTON")) {
+  } else if (!op_strcasecmp(etype, "LASTON")) {
     struct laston_info *li = (struct laston_info *)get_user(&USERENTRY_LASTON, u);
     PyObject *d;
     if (!li)
@@ -3594,12 +3596,12 @@ static PyObject *py_getuser(PyObject *self, PyObject *args)
     PyDict_SetItemString(d, "channel",
       PyUnicode_FromString(li->lastonplace ? li->lastonplace : ""));
     return d;
-  } else if (!strcasecmp(etype, "PASS")) {
+  } else if (!op_strcasecmp(etype, "PASS")) {
     char *pass = (char *)get_user(&USERENTRY_PASS, u);
     if (pass && pass[0])
       Py_RETURN_TRUE;
     Py_RETURN_FALSE;
-  } else if (!strcasecmp(etype, "BOTFL")) {
+  } else if (!op_strcasecmp(etype, "BOTFL")) {
     long fl = (long)get_user(&USERENTRY_BOTFL, u);
     struct flag_record fr = {FR_BOT};
     char work[100];
@@ -3623,13 +3625,13 @@ static PyObject *py_setuser(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "no such user");
     return nullptr;
   }
-  if (!strcasecmp(etype, "INFO")) {
+  if (!op_strcasecmp(etype, "INFO")) {
     set_user(&USERENTRY_INFO, u, value[0] ? value : nullptr);
-  } else if (!strcasecmp(etype, "COMMENT")) {
+  } else if (!op_strcasecmp(etype, "COMMENT")) {
     set_user(&USERENTRY_COMMENT, u, value[0] ? value : nullptr);
-  } else if (!strcasecmp(etype, "HOSTS")) {
+  } else if (!op_strcasecmp(etype, "HOSTS")) {
     addhost_by_handle(handle, value);
-  } else if (!strcasecmp(etype, "PASS")) {
+  } else if (!op_strcasecmp(etype, "PASS")) {
     set_user(&USERENTRY_PASS, u, value[0] ? value : nullptr);
   } else {
     PyErr_SetString(EggdropError, "unknown entry type");
@@ -3695,7 +3697,7 @@ static PyObject *py_addbot(PyObject *self, PyObject *args)
   u = get_user_by_handle(userlist, (char *)handle);
   if (u && address[0]) {
     struct bot_addr *bi = user_malloc(sizeof(struct bot_addr));
-    egg_bzero(bi, sizeof(struct bot_addr));
+    op_memzero(bi, sizeof(struct bot_addr));
     bi->address = op_strdup(address);
     bi->telnet_port = 3333;
     bi->relay_port = 3333;
@@ -3771,7 +3773,8 @@ static PyObject *py_modules(PyObject *self, PyObject *args)
   PyObject *list, *d;
 
   list = PyList_New(0);
-  for (me = module_list; me; me = me->next) {
+  for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+    me = (module_entry *)op_vec_get(&module_vec, _mi);
     if (!me->name)
       continue;
     d = PyDict_New();
@@ -3862,7 +3865,7 @@ static PyObject *py_boot(PyObject *self, PyObject *args)
     return nullptr;
   for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type->flags & DCT_CANBOOT) &&
-        !strcasecmp(dcc[i].nick, handle)) {
+        !op_strcasecmp(dcc[i].nick, handle)) {
       do_boot(i, botnetnick, reason ? reason : "");
       Py_RETURN_TRUE;
     }
@@ -4092,54 +4095,29 @@ static PyObject *py_link(PyObject *self, PyObject *args)
     return nullptr;
   if (via) {
     /* link(via, bot) — two-arg form: send link request through via-bot */
-    op_strbuf_t _via = {}, _bot = {};
-    op_strbuf_appendf(&_via, "%s", bot);
-    op_strbuf_appendf(&_bot, "%s", via);
-    int i = nextbot((char *)op_strbuf_str(&_via));
-    if (i < 0) {
-      op_strbuf_free(&_via);
-      op_strbuf_free(&_bot);
+    int i = nextbot(bot);
+    if (i < 0)
       return PyLong_FromLong(0L);
-    }
-    botnet_send_link(i, botnetnick, (char *)op_strbuf_str(&_via), (char *)op_strbuf_str(&_bot));
-    op_strbuf_free(&_via);
-    op_strbuf_free(&_bot);
+    botnet_send_link(i, botnetnick, bot, via);
     return PyLong_FromLong(1L);
   }
-  op_strbuf_t _bot = {};
-  op_strbuf_init(&_bot);
-  op_strbuf_appendf(&_bot, "%s", bot);
-  PyObject *_ret = PyLong_FromLong((long)botlink("", -2, (char *)op_strbuf_str(&_bot)));
-  op_strbuf_free(&_bot);
-  return _ret;
+  return PyLong_FromLong((long)botlink("", -2, bot));
 }
 
 /* unlink(bot[, comment]) — unlink a bot from the botnet */
 static PyObject *py_unlink(PyObject *self, PyObject *args)
 {
   char *bot, *comment = "";
-  op_strbuf_t _b = {};
-  op_strbuf_init(&_b);
 
   if (!PyArg_ParseTuple(args, "s|s", &bot, &comment))
     return nullptr;
-  op_strbuf_appendf(&_b, "%s", bot);
-  int i = nextbot((char *)op_strbuf_str(&_b));
-  if (i < 0) {
-    op_strbuf_free(&_b);
+  int i = nextbot(bot);
+  if (i < 0)
     return PyLong_FromLong(0L);
-  }
-  PyObject *_ret;
-  if (!strcasecmp(op_strbuf_str(&_b), dcc[i].nick))
-    _ret = PyLong_FromLong((long)botunlink(-2, (char *)op_strbuf_str(&_b), (char *)comment,
-                                           botnetnick));
-  else {
-    botnet_send_unlink(i, botnetnick, lastbot((char *)op_strbuf_str(&_b)),
-                       (char *)op_strbuf_str(&_b), (char *)comment);
-    _ret = PyLong_FromLong(1L);
-  }
-  op_strbuf_free(&_b);
-  return _ret;
+  if (!op_strcasecmp(bot, dcc[i].nick))
+    return PyLong_FromLong((long)botunlink(-2, bot, comment, botnetnick));
+  botnet_send_unlink(i, botnetnick, lastbot(bot), bot, comment);
+  return PyLong_FromLong(1L);
 }
 
 /* valididx(idx) — True if idx is a valid, active DCC index */
@@ -4314,14 +4292,17 @@ static PyObject *py_binds(PyObject *self, PyObject *args)
       matching = 1;
   }
   list = PyList_New(0);
-  for (tl = tl_kind ? tl_kind : bind_table_list; tl;
-       tl = tl_kind ? nullptr : tl->next) {
+  size_t num_tl = tl_kind ? 1 : bind_table_vec.size;
+  for (size_t ti = 0; ti < num_tl; ti++) {
+    tl = tl_kind ? tl_kind : (tcl_bind_list_t *)op_vec_get(&bind_table_vec, ti);
     if (tl->flags & HT_DELETED)
       continue;
-    for (tm = tl->first; tm; tm = tm->next) {
+    for (size_t mi = 0; mi < tl->masks.size; mi++) {
+      tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, mi);
       if (tm->flags & TBM_DELETED)
         continue;
-      for (tc = tm->first; tc; tc = tc->next) {
+      for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+        tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
         if (tc->attributes & TC_DELETED)
           continue;
         if (matching &&
@@ -4417,7 +4398,7 @@ static PyObject *py_newchanban(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "invalid channel");
     return nullptr;
   }
-  if (opts && !strcasecmp(opts, "sticky"))
+  if (opts && !op_strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
     expire_time = ch->ban_time ? now + 60 * ch->ban_time : 0;
@@ -4450,7 +4431,7 @@ static PyObject *py_newchanexempt(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "invalid channel");
     return nullptr;
   }
-  if (opts && !strcasecmp(opts, "sticky"))
+  if (opts && !op_strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
     expire_time = ch->exempt_time ? now + 60 * ch->exempt_time : 0;
@@ -4480,7 +4461,7 @@ static PyObject *py_newchaninvite(PyObject *self, PyObject *args)
     PyErr_SetString(EggdropError, "invalid channel");
     return nullptr;
   }
-  if (opts && !strcasecmp(opts, "sticky"))
+  if (opts && !op_strcasecmp(opts, "sticky"))
     sticky = 1;
   if (lifetime < 0)
     expire_time = ch->invite_time ? now + 60 * ch->invite_time : 0;
@@ -4710,7 +4691,7 @@ static PyObject *py_socklist(PyObject *self, PyObject *args)
   for (int i = 0; i < dcc_total; i++) {
     if (dcc[i].type == &DCC_LOST)
       continue;
-    if (typefilter && strcasecmp(dcc[i].type->name, typefilter))
+    if (typefilter && op_strcasecmp(dcc[i].type->name, typefilter))
       continue;
     PyObject *d = Py_BuildValue("{s:i, s:s, s:s, s:s, s:i}",
       "idx", dcc[i].sock, "nick", dcc[i].nick,
@@ -4769,8 +4750,8 @@ static PyObject *py_connect(PyObject *self, PyObject *args)
                     sock == -3 ? "no free socket" : strerror(errno));
     return nullptr;
   }
-  strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
-  strlcpy(dcc[i].host, host, UHOSTMAX);
+  op_strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
+  op_strlcpy(dcc[i].host, host, UHOSTMAX);
   return PyLong_FromLong((long)sock);
 }
 
@@ -4943,7 +4924,7 @@ static PyObject *py_chnick(PyObject *self, PyObject *args)
     return PyLong_FromLong(0L);  /* target already exists */
   if (strlen(newh) > HANDLEN)
     return PyLong_FromLong(0L);
-  strlcpy(u->handle, newh, sizeof u->handle);
+  op_strlcpy(u->handle, newh, sizeof u->handle);
   return PyLong_FromLong(1L);
 }
 
@@ -4988,7 +4969,7 @@ static PyObject *py_monitor(PyObject *self, PyObject *args)
 
   if (!PyArg_ParseTuple(args, "s", &action))
     return nullptr;
-  if (!strcasecmp(action, "list") || !strcasecmp(action, "status")) {
+  if (!op_strcasecmp(action, "list") || !op_strcasecmp(action, "status")) {
     /* These would require server.mod state — return empty list */
     return PyList_New(0);
   }

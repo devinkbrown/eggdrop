@@ -55,7 +55,7 @@ static int wait_dcc_xfer = 300; /* Timeout time on DCC xfers */
 static int dcc_limit = 3;       /* Max simultaneous downloads allowed */
 static int dcc_block = 0;       /* Size of one dcc block */
 static int shunlink = 1;        /* Unlink bots when userfile sharing fails */
-static fileq_t *fileq = nullptr;
+static op_vec_t fileq_vec;
 
 static struct dcc_table DCC_SEND, DCC_GET, DCC_GET_PENDING;
 
@@ -129,7 +129,7 @@ static int at_limit(char *nick)
 
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_GET || dcc[i].type == &DCC_GET_PENDING) &&
-        !strcasecmp(dcc[i].nick, nick))
+        !op_strcasecmp(dcc[i].nick, nick))
       x++;
 
   return (x >= dcc_limit);
@@ -250,7 +250,7 @@ static uint64_t pump_file_to_sock(FILE *file, long sock,
       ssize_t sent = sendfile((int)sock, in_fd, &off, want);
 #else
       off_t sbytes = 0;
-      int rc = sendfile(in_fd, (int)sock, off, (off_t)want, NULL, &sbytes, 0);
+      int rc = sendfile(in_fd, (int)sock, off, (off_t)want, nullptr, &sbytes, 0);
       ssize_t sent = (rc == 0 || sbytes > 0) ? (ssize_t)sbytes : -1;
 #endif
 
@@ -296,7 +296,7 @@ static void eof_dcc_fork_send(int idx)
     int x, y = 0;
 
     for (x = 0; x < dcc_total; x++)
-      if ((!strcasecmp(dcc[x].nick, dcc[idx].host)) &&
+      if ((!op_strcasecmp(dcc[x].nick, dcc[idx].host)) &&
           (dcc[x].type->flags & DCT_BOT)) {
         y = x;
         break;
@@ -388,7 +388,7 @@ static void eof_dcc_send(int idx)
 
       for (j = 0; j < dcc_total; j++)
         if (!ok && (dcc[j].type->flags & (DCT_GETNOTES | DCT_FILES)) &&
-            !strcasecmp(dcc[j].nick, hand)) {
+            !op_strcasecmp(dcc[j].nick, hand)) {
           ok = 1;
           dprintf(j, "%s", TRANSFER_THANKS);
         }
@@ -407,7 +407,7 @@ static void eof_dcc_send(int idx)
     int x, y = 0;
 
     for (x = 0; x < dcc_total; x++)
-      if ((!strcasecmp(dcc[x].nick, dcc[idx].host)) &&
+      if ((!op_strcasecmp(dcc[x].nick, dcc[idx].host)) &&
           (dcc[x].type->flags & DCT_BOT))
         y = x;
     unlink(dcc[idx].u.xfer->filename);
@@ -578,7 +578,7 @@ static void dcc_get(int idx, char *buf, int len)
       int x, y = 0;
 
       for (x = 0; x < dcc_total; x++)
-        if (!strcasecmp(dcc[x].nick, dcc[idx].host) &&
+        if (!op_strcasecmp(dcc[x].nick, dcc[idx].host) &&
             (dcc[x].type->flags & DCT_BOT))
           y = x;
       if (y != 0)
@@ -602,7 +602,7 @@ static void dcc_get(int idx, char *buf, int len)
       stats_add_dnload(u, dcc[idx].u.xfer->length);
       putlog(LOG_FILES, "*", TRANSFER_FINISHED_DCCSEND,
              dcc[idx].u.xfer->origname, dcc[idx].nick);
-      strlcpy(xnick, dcc[idx].nick, sizeof(xnick));
+      op_strlcpy(xnick, dcc[idx].nick, sizeof(xnick));
     }
     lostdcc(idx);
     /* Any to dequeue? */
@@ -630,7 +630,7 @@ static void eof_dcc_get(int idx)
     int x, y = 0;
 
     for (x = 0; x < dcc_total; x++)
-      if (!strcasecmp(dcc[x].nick, dcc[idx].host) &&
+      if (!op_strcasecmp(dcc[x].nick, dcc[idx].host) &&
           (dcc[x].type->flags & DCT_BOT))
         y = x;
     /* Note: no need to unlink the xfer file, as it's already unlinked. */
@@ -672,7 +672,7 @@ static void eof_dcc_get(int idx)
 
     putlog(LOG_FILES, "*", TRANSFER_LOST_DCCGET,
            dcc[idx].u.xfer->origname, dcc[idx].nick, dcc[idx].host);
-    strlcpy(xnick, dcc[idx].nick, sizeof(xnick));
+    op_strlcpy(xnick, dcc[idx].nick, sizeof(xnick));
   }
   killsock(dcc[idx].sock);
   lostdcc(idx);
@@ -709,7 +709,7 @@ static void transfer_get_timeout(int i)
     int x, y = 0;
 
     for (x = 0; x < dcc_total; x++)
-      if ((!strcasecmp(dcc[x].nick, dcc[i].host)) &&
+      if ((!op_strcasecmp(dcc[x].nick, dcc[i].host)) &&
           (dcc[x].type->flags & DCT_BOT))
         y = x;
     unlink(dcc[i].u.xfer->filename);
@@ -756,7 +756,7 @@ static void transfer_get_timeout(int i)
     putlog(LOG_FILES, "*", TRANSFER_DCC_GET_TIMEOUT,
            p ? p + 1 : dcc[i].u.xfer->origname, dcc[i].nick, dcc[i].status,
            dcc[i].u.xfer->length);
-    strlcpy(xx, dcc[i].nick, sizeof(xx));
+    op_strlcpy(xx, dcc[i].nick, sizeof(xx));
   }
   killsock(dcc[i].sock);
   lostdcc(i);
@@ -773,7 +773,7 @@ static void tout_dcc_send(int idx)
     int x, y = 0;
 
     for (x = 0; x < dcc_total; x++)
-      if (!strcasecmp(dcc[x].nick, dcc[idx].host) &&
+      if (!op_strcasecmp(dcc[x].nick, dcc[idx].host) &&
           (dcc[x].type->flags & DCT_BOT))
         y = x;
 
@@ -1090,18 +1090,18 @@ static int raw_dcc_resend_send(char *filename, char *nick, char *from,
               &dcc[i].sockname.addrlen);
   dcc[i].sockname.family = dcc[i].sockname.addr.sa.sa_family;
   dcc[i].port = port;
-  strlcpy(dcc[i].nick, nick, sizeof(dcc[i].nick));
-  strlcpy(dcc[i].host, "irc", sizeof(dcc[i].host));
+  op_strlcpy(dcc[i].nick, nick, sizeof(dcc[i].nick));
+  op_strlcpy(dcc[i].host, "irc", sizeof(dcc[i].host));
   size_t _len1 = strlen(filename) + 1;
   dcc[i].u.xfer->filename = get_data_ptr(_len1);
-  strlcpy(dcc[i].u.xfer->filename, filename, _len1);
+  op_strlcpy(dcc[i].u.xfer->filename, filename, _len1);
   if (strchr(nfn, ' '))
     nfn = buf = replace_spaces(nfn);
   size_t _len2 = strlen(nfn) + 1;
   dcc[i].u.xfer->origname = get_data_ptr(_len2);
-  strlcpy(dcc[i].u.xfer->origname, nfn, _len2);
-  strlcpy(dcc[i].u.xfer->from, from, NICKLEN);
-  strlcpy(dcc[i].u.xfer->dir, filename, DIRLEN);
+  op_strlcpy(dcc[i].u.xfer->origname, nfn, _len2);
+  op_strlcpy(dcc[i].u.xfer->from, from, NICKLEN);
+  op_strlcpy(dcc[i].u.xfer->dir, filename, DIRLEN);
   dcc[i].u.xfer->length = dccfilesize;
   dcc[i].timeval = now;
   dcc[i].u.xfer->f = f;
@@ -1143,10 +1143,10 @@ static int ctcp_DCC_RESUME(char *nick, char *from, char *handle,
   int port;
   unsigned long offset;
 
-  strlcpy(buf, text, sizeof buf);
+  op_strlcpy(buf, text, sizeof buf);
   action = newsplit(&msg);
 
-  if (strcasecmp(action, "RESUME"))
+  if (op_strcasecmp(action, "RESUME"))
     return 0;
 
   fn = newsplit(&msg);
@@ -1220,8 +1220,8 @@ static char *transfer_close(void)
     else if (dcc[i].type == &DCC_FORK_SEND)
       eof_dcc_fork_send(i);
   }
-  while (fileq)
-    deq_this(fileq);
+  while (fileq_vec.size)
+    deq_idx(0);
   if (fileq_bh) {
     op_bh_destroy(fileq_bh);
     fileq_bh = nullptr;
@@ -1297,7 +1297,7 @@ char *transfer_start(Function *global_funcs)
 {
   global = global_funcs;
 
-  fileq = nullptr;
+  /* fileq_vec is zero-initialised as a static — no explicit init needed */
   module_register(MODULE_NAME, transfer_table, 2, 4);
   if (!module_depend(MODULE_NAME, "eggdrop", 108, 0)) {
     module_undepend(MODULE_NAME);

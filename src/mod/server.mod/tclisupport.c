@@ -76,9 +76,15 @@ static int tcl_isupport_get STDOBJVAR
   if (objc == 2) {
     tclres = Tcl_NewListObj(0, nullptr);
 
-   for (struct isupport *data = isupport_list; data; data = data->next) {
-      Tcl_ListObjAppendElement(irp, tclres, Tcl_NewStringObj(data->key, -1));
-      Tcl_ListObjAppendElement(irp, tclres, Tcl_NewStringObj(isupport_get_from_record(data), -1));
+    if (isupport_ht) {
+      op_htab_iter_t _it;
+      op_htab_iter_init(isupport_ht, &_it);
+      void *_k, *_v;
+      while (op_htab_iter_next(isupport_ht, &_it, &_k, &_v)) {
+        struct isupport *data = (struct isupport *)_v;
+        Tcl_ListObjAppendElement(irp, tclres, Tcl_NewStringObj(data->key, -1));
+        Tcl_ListObjAppendElement(irp, tclres, Tcl_NewStringObj(isupport_get_from_record(data), -1));
+      }
     }
     Tcl_SetObjResult(irp, tclres);
     return TCL_OK;
@@ -116,13 +122,19 @@ char *traced_isupport(ClientData cdata, Tcl_Interp *irp,
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
 
-    for (struct isupport *data = isupport_list; data; data = data->next) {
-      if (data->defaultvalue) {
-        value = isupport_encode(data->defaultvalue);
-        Tcl_DStringAppend(&ds, data->key, strlen(data->key));
-        Tcl_DStringAppend(&ds, "=", 1);
-        Tcl_DStringAppend(&ds, value, strlen(value));
-        Tcl_DStringAppend(&ds, " ", 1);
+    if (isupport_ht) {
+      op_htab_iter_t _it2;
+      op_htab_iter_init(isupport_ht, &_it2);
+      void *_k2, *_v2;
+      while (op_htab_iter_next(isupport_ht, &_it2, &_k2, &_v2)) {
+        struct isupport *data = (struct isupport *)_v2;
+        if (data->defaultvalue) {
+          value = isupport_encode(data->defaultvalue);
+          Tcl_DStringAppend(&ds, data->key, strlen(data->key));
+          Tcl_DStringAppend(&ds, "=", 1);
+          Tcl_DStringAppend(&ds, value, strlen(value));
+          Tcl_DStringAppend(&ds, " ", 1);
+        }
       }
     }
     /* remove trailing space */

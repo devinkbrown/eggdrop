@@ -110,20 +110,20 @@ char moddir[121] = "modules/";
 #endif
 
 #ifdef STATIC
-struct static_list {
-  struct static_list *next;
+typedef struct {
   char *name;
   char *(*func) ();
-} *static_modules = nullptr;
+} static_mod_t;
+
+static op_vec_t static_modules = {};
 
 void check_static(char *name, char *(*func) ())
 {
-  struct static_list *p = op_malloc(sizeof(struct static_list));
+  static_mod_t *p = (static_mod_t *)op_malloc(sizeof(static_mod_t));
 
   p->name = op_strdup(name);
   p->func = func;
-  p->next = static_modules;
-  static_modules = p;
+  op_vec_push(&static_modules, p);
 }
 #endif /* STATIC */
 
@@ -181,8 +181,8 @@ size_t (*webui_frame) (const char **, const char *, size_t) = 0;
 void (*webui_unframe) (int, char *, int *) = 0;
 void (*hook_log) (int, const char *, const char *) = 0;
 
-module_entry *module_list;
-dependancy *dependancy_list = nullptr;
+op_vec_t module_vec;
+op_vec_t dep_vec;
 
 /* Forward declaration so global_table can reference it. */
 static eggdrop_api_t eggdrop_api;
@@ -308,7 +308,7 @@ Function global_table[] = {
   (Function) open_telnet,
   /* 88 - 91 */
   (Function) check_tcl_event,
-  (Function) memcpy,              /* was egg_memcpy -- use memcpy() instead */
+  (Function) memcpy,              /* was memcpy -- use memcpy() instead */
   (Function) my_atoul,
   (Function) my_strcpy,
   /* 92 - 95 */
@@ -531,10 +531,10 @@ Function global_table[] = {
   /* 252 - 255 */
   (Function) snprintf,
   (Function) vsnprintf,
-  (Function) memset,              /* was egg_memset -- use memset() or egg_bzero() instead */
-  (Function) strcasecmp,          /* was egg_strcasecmp -- use strcasecmp() instead */
+  (Function) memset,              /* was memset -- use memset() or egg_bzero() instead */
+  (Function) op_strcasecmp,          /* was egg_strcasecmp -- use op_strcasecmp() instead */
   /* 256 - 259 */
-  (Function) strncasecmp,         /* was egg_strncasecmp -- use strncasecmp() instead */
+  (Function) op_strncasecmp,         /* was egg_strncasecmp -- use op_strncasecmp() instead */
   (Function) is_file,
   (Function) & must_be_owner,     /* int                                 */
   (Function) & tandbot,           /* tand_t *                            */
@@ -597,12 +597,12 @@ Function global_table[] = {
   (Function) tcl_resultstring,
   (Function) getdccfamilyaddr,
 #ifndef HAVE_STRLCPY
-  (Function) strlcpy,
+  (Function) op_strlcpy,
 #else
   (Function) 0,
 #endif
   /* 304 - 307 */
-  (Function) strlcpy,             /* was strncpyz() -- use strlcpy() instead */
+  (Function) op_strlcpy,             /* was strncpyz() -- use op_strlcpy() instead */
   (Function) b64_ntop,
   (Function) b64_pton,
   (Function) check_validpass,
@@ -665,33 +665,31 @@ void init_modules(void)
 {
   module_entry_bh = op_bh_create(sizeof(module_entry), 16, "module_entry");
   dependancy_bh   = op_bh_create(sizeof(dependancy),   16, "module_dep");
-  module_list = op_bh_alloc(module_entry_bh);
-  module_list->name = op_malloc(8);
-  strlcpy(module_list->name, "eggdrop", strlen("eggdrop") + 1);
-  module_list->major = (egg_numver) / 10000;
-  module_list->minor = (egg_numver / 100) % 100;
+  module_entry *e = (module_entry *)op_bh_alloc(module_entry_bh);
+  e->name = op_malloc(8);
+  op_strlcpy(e->name, "eggdrop", strlen("eggdrop") + 1);
+  e->major = (egg_numver) / 10000;
+  e->minor = (egg_numver / 100) % 100;
 #ifndef STATIC
-  module_list->hand = nullptr;
+  e->hand = nullptr;
 #endif
-  module_list->next = nullptr;
-  module_list->funcs = nullptr;
+  e->funcs = nullptr;
+  op_vec_push(&module_vec, e);
   for (int i = 0; i < REAL_HOOKS; i++)
     op_vec_init(&hook_list[i], 2);
 }
 
 int module_register(char *name, Function *funcs, int major, int minor)
 {
-  module_entry *p;
-
-  for (p = module_list; p && p->name; p = p->next) {
-    if (!strcasecmp(name, p->name)) {
+  for (size_t i = 0; i < module_vec.size; i++) {
+    module_entry *p = (module_entry *)op_vec_get(&module_vec, i);
+    if (p->name && !op_strcasecmp(name, p->name)) {
       p->major = major;
       p->minor = minor;
       p->funcs = funcs;
       return 1;
     }
   }
-
   return 0;
 }
 
@@ -701,7 +699,7 @@ const char *module_load(char *name)
   char *e;
   Function f;
 #ifdef STATIC
-  struct static_list *sl;
+  static_mod_t *sl;
 #endif
 
 #ifndef STATIC
@@ -873,13 +871,17 @@ const char *module_load(char *name)
 #endif /* !STATIC */
 
 #ifdef STATIC
-  for (sl = static_modules; sl && strcasecmp(sl->name, name); sl = sl->next);
+  sl = nullptr;
+  for (size_t _i = 0; _i < static_modules.size; _i++) {
+    static_mod_t *_m = (static_mod_t *)op_vec_get(&static_modules, _i);
+    if (!op_strcasecmp(_m->name, name)) { sl = _m; break; }
+  }
   if (!sl)
     return "Unknown module.";
   f = (Function) sl->func;
 #endif /* STATIC */
 
-  p = op_bh_alloc(module_entry_bh);
+  p = (module_entry *)op_bh_alloc(module_entry_bh);
   p->name = op_strdup(name);
   p->major = 0;
   p->minor = 0;
@@ -887,11 +889,10 @@ const char *module_load(char *name)
   p->hand = hand;
 #endif
   p->funcs = 0;
-  p->next = module_list;
-  module_list = p;
+  op_vec_push(&module_vec, p);
   e = ((char *(*)(Function *)) f)(global_table);
   if (e) {
-    module_list = module_list->next;
+    op_vec_remove_fast(&module_vec, module_vec.size - 1);
     op_free(p->name);
     op_bh_free(module_entry_bh, p);
     return e;
@@ -908,18 +909,17 @@ const char *module_load(char *name)
 
 char *module_unload(char *name, char *user)
 {
-  module_entry *p = module_list, *o = nullptr;
   char *e;
   Function *f;
 
-  while (p) {
-    if ((p->name != nullptr) && !strcmp(name, p->name)) {
-      dependancy *d;
-
-      for (d = dependancy_list; d; d = d->next)
+  for (size_t i = 0; i < module_vec.size; i++) {
+    module_entry *p = (module_entry *)op_vec_get(&module_vec, i);
+    if (p->name && !strcmp(name, p->name)) {
+      for (size_t j = 0; j < dep_vec.size; j++) {
+        dependancy *d = (dependancy *)op_vec_get(&dep_vec, j);
         if (d->needed == p)
           return MOD_NEEDED;
-
+      }
       f = p->funcs;
       if (f && !f[MODCALL_CLOSE])
         return MOD_NOCLOSEDEF;
@@ -944,16 +944,11 @@ char *module_unload(char *name, char *user)
 #endif /* !STATIC */
       }
       op_free(p->name);
-      if (o == nullptr)
-        module_list = p->next;
-      else
-        o->next = p->next;
+      op_vec_remove(&module_vec, i);
       op_bh_free(module_entry_bh, p);
       putlog(LOG_MISC, "*", "%s %s", MOD_UNLOADED, name);
       return nullptr;
     }
-    o = p;
-    p = p->next;
   }
 
   return MOD_NOSUCH;
@@ -961,27 +956,25 @@ char *module_unload(char *name, char *user)
 
 module_entry *module_find(char *name, int major, int minor)
 {
-  module_entry *p;
-
-  for (p = module_list; p && p->name; p = p->next) {
-    if ( (((major < p->major) || !major) || ((major == p->major) &&
-        (minor <= p->minor))) && !strcasecmp(name, p->name) )
+  for (size_t i = 0; i < module_vec.size; i++) {
+    module_entry *p = (module_entry *)op_vec_get(&module_vec, i);
+    if (p->name && (((major < p->major) || !major) || ((major == p->major) &&
+        (minor <= p->minor))) && !op_strcasecmp(name, p->name))
       return p;
   }
   return nullptr;
-
 }
 
 static int module_rename(char *name, char *newname)
 {
-  module_entry *p;
-
-  for (p = module_list; p; p = p->next)
-    if (!strcasecmp(newname, p->name))
+  for (size_t i = 0; i < module_vec.size; i++) {
+    module_entry *p = (module_entry *)op_vec_get(&module_vec, i);
+    if (!op_strcasecmp(newname, p->name))
       return 0;
-
-  for (p = module_list; p && p->name; p = p->next) {
-    if (!strcasecmp(name, p->name)) {
+  }
+  for (size_t i = 0; i < module_vec.size; i++) {
+    module_entry *p = (module_entry *)op_vec_get(&module_vec, i);
+    if (p->name && !op_strcasecmp(name, p->name)) {
       op_free(p->name);
       p->name = op_strdup(newname);
       return 1;
@@ -1003,14 +996,12 @@ Function *module_depend(char *name1, char *name2, int major, int minor)
   }
   if (!p || !o)
     return 0;
-  d = op_bh_alloc(dependancy_bh);
-
+  d = (dependancy *)op_bh_alloc(dependancy_bh);
   d->needed = p;
   d->needing = o;
-  d->next = dependancy_list;
   d->major = major;
   d->minor = minor;
-  dependancy_list = d;
+  op_vec_push(&dep_vec, d);
   return p->funcs ? p->funcs : (Function *) 1;
 }
 
@@ -1018,26 +1009,15 @@ int module_undepend(char *name1)
 {
   int ok = 0;
   module_entry *p = module_find(name1, 0, 0);
-  dependancy *d = dependancy_list, *o = nullptr;
 
   if (p == nullptr)
     return 0;
-  while (d != nullptr) {
+  for (size_t i = dep_vec.size; i-- > 0; ) {
+    dependancy *d = (dependancy *)op_vec_get(&dep_vec, i);
     if (d->needing == p) {
-      if (o == nullptr) {
-        dependancy_list = d->next;
-      } else {
-        o->next = d->next;
-      }
       op_bh_free(dependancy_bh, d);
-      if (o == nullptr)
-        d = dependancy_list;
-      else
-        d = o->next;
+      op_vec_remove(&dep_vec, i);
       ok++;
-    } else {
-      o = d;
-      d = d->next;
     }
   }
   return ok;
@@ -1112,9 +1092,9 @@ void add_hook(int hook_num, Function func)
       /* special hook <drummer> */
     case HOOK_RFC_CASECMP:
       if (func == nullptr) {
-        rfc_casecmp = egg_strcasecmp;
+        rfc_casecmp = op_strcasecmp;
         rfc_ncasecmp =
-          (int (*)(const char *, const char *, int)) egg_strncasecmp;
+          (int (*)(const char *, const char *, int)) op_strncasecmp;
         rfc_tolower = tolower;
         rfc_toupper = toupper;
       } else {
@@ -1234,26 +1214,24 @@ void del_hook(int hook_num, Function func)
 
 void do_module_report(int idx, int details, char *which)
 {
-  module_entry *p = module_list;
-
-  if (p && !which)
+  if (module_vec.size && !which)
     dprintf(idx, "Loaded module information:\n");
-  for (; p; p = p->next) {
-    if (!which || !strcasecmp(which, p->name)) {
-      dependancy *d;
-
+  for (size_t i = 0; i < module_vec.size; i++) {
+    module_entry *p = (module_entry *)op_vec_get(&module_vec, i);
+    if (!which || !op_strcasecmp(which, p->name)) {
       if (details)
         dprintf(idx, "  Module: %s, v %d.%d\n", p->name ? p->name : "CORE",
                 p->major, p->minor);
       if (details > 1) {
-        for (d = dependancy_list; d; d = d->next)
+        for (size_t j = 0; j < dep_vec.size; j++) {
+          dependancy *d = (dependancy *)op_vec_get(&dep_vec, j);
           if (d->needing == p)
             dprintf(idx, "    requires: %s, v %d.%d\n", d->needed->name,
                     d->major, d->minor);
+        }
       }
       if (p->funcs) {
         Function f = p->funcs[MODCALL_REPORT];
-
         if (f != nullptr)
           ((void (*)(int, int)) f)(idx, details);
       }

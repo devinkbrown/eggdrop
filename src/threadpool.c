@@ -65,9 +65,9 @@ static void queue_init(work_queue_t *q)
   q->tail = 0;
   q->count = 0;
   q->shutdown = 0;
-  pthread_mutex_init(&q->lock, NULL);
-  pthread_cond_init(&q->not_empty, NULL);
-  pthread_cond_init(&q->not_full, NULL);
+  pthread_mutex_init(&q->lock, nullptr);
+  pthread_cond_init(&q->not_empty, nullptr);
+  pthread_cond_init(&q->not_full, nullptr);
 }
 
 static void queue_destroy(work_queue_t *q)
@@ -123,7 +123,7 @@ static void *worker_fn(void *arg)
   while (queue_pop(&pool_queue, &item) == 0)
     item.fn(item.idx, item.buf, item.len);
 
-  return NULL;
+  return nullptr;
 }
 
 /* ---- Public API --------------------------------------------------------- */
@@ -147,7 +147,7 @@ int threadpool_init(int nthreads)
   pool_nthreads = nthreads;
 
   for (int i = 0; i < nthreads; i++) {
-    int rc = pthread_create(&pool_threads[i], NULL, worker_fn, NULL);
+    int rc = pthread_create(&pool_threads[i], nullptr, worker_fn, nullptr);
     if (rc != 0) {
       fprintf(stderr, "threadpool: pthread_create[%d]: %s\n", i, strerror(rc));
       pool_nthreads = i;
@@ -174,7 +174,7 @@ int threadpool_submit(pool_work_fn fn, int idx, const char *buf, int len)
   item.idx = idx;
   item.len = len;
 
-  if (len > 0 && buf != NULL) {
+  if (len > 0 && buf != nullptr) {
     int copy_len = len < MAX_WORK_BUF ? len : MAX_WORK_BUF - 1;
     memcpy(item.buf, buf, (size_t)copy_len);
     item.buf[copy_len] = '\0';
@@ -215,7 +215,7 @@ void threadpool_shutdown(void)
 
   /* Join all threads */
   for (int i = 0; i < pool_nthreads; i++)
-    pthread_join(pool_threads[i], NULL);
+    pthread_join(pool_threads[i], nullptr);
 
   queue_destroy(&pool_queue);
   pool_nthreads = 0;

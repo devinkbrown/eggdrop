@@ -60,17 +60,19 @@ int raw_log = 0;                /* Display output to server to LOG_SERVEROUT */
 int conmask = LOG_MODES | LOG_CMDS | LOG_MISC; /* Console mask */
 int show_uname = 1;
 
-struct help_list_t {
-  struct help_list_t *next;
+typedef struct {
   char *name;
   int type;
-};
+} help_item_t;
 
-static struct help_ref {
+typedef struct {
   char *name;
-  struct help_list_t *first;
-  struct help_ref *next;
-} *help_list = nullptr;
+  op_vec_t items;
+} help_ref_t;
+
+static op_vec_t    help_refs;
+static op_bh      *help_ref_bh  = nullptr;
+static op_bh      *help_item_bh = nullptr;
 
 /* Help system state */
 static struct {
@@ -221,7 +223,7 @@ void splitcn(char *first, char *rest, char divider, size_t max)
   }
   *p = 0;
   if (first != nullptr)
-    strlcpy(first, rest, max);
+    op_strlcpy(first, rest, max);
   if (first != rest)
     memmove(rest, p + 1, strlen(p + 1) + 1);
 }
@@ -339,7 +341,7 @@ void maskaddr(const char *s, char *nw, int type)
   *nw++ = '@';
 
   if (type >= 30) {
-    strlcpy(nw, "*", UHOSTLEN);
+    op_strlcpy(nw, "*", UHOSTLEN);
     return;
   }
 
@@ -389,7 +391,7 @@ void maskaddr(const char *s, char *nw, int type)
     }
     for (u = h, d = 0; (u = strchr(++u, '.')); d++);
     if (d < 2) { /* types < 2 don't mask the host */
-      strlcpy(nw, h, UHOSTLEN);
+      op_strlcpy(nw, h, UHOSTLEN);
       return;
     }
     u = strchr(h, '.');
@@ -399,14 +401,14 @@ void maskaddr(const char *s, char *nw, int type)
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "*%s", u);
-      strlcpy(nw, op_strbuf_str(&_b), UHOSTLEN);
+      op_strlcpy(nw, op_strbuf_str(&_b), UHOSTLEN);
       op_strbuf_free(&_b);
     }
   } else if (!*h)
       /* take care if the mask is empty or contains only '@' */
-      strlcpy(nw, "*", UHOSTLEN);
+      op_strlcpy(nw, "*", UHOSTLEN);
     else
-      strlcpy(nw, h, UHOSTLEN);
+      op_strlcpy(nw, h, UHOSTLEN);
 }
 
 /* Dump a potentially super-long string of text.
@@ -467,7 +469,7 @@ const char *daysago(time_t now, time_t then)
     char tmp[6];
     strftime(tmp, sizeof tmp, "%H:%M", localtime(&then));
     op_strbuf_clear(&_b);
-    op_strbuf_appendf(&_b, "%s", tmp);
+    op_strbuf_append_cstr(&_b, tmp);
   }
   return op_strbuf_str(&_b);
 }
@@ -488,7 +490,7 @@ const char *days(time_t now, time_t then)
     char tmp[9];
     strftime(tmp, sizeof tmp, "at %H:%M", localtime(&now));
     op_strbuf_clear(&_b);
-    op_strbuf_appendf(&_b, "%s", tmp);
+    op_strbuf_append_cstr(&_b, tmp);
   }
   return op_strbuf_str(&_b);
 }
@@ -590,7 +592,7 @@ void putlog (int type, char *chname, const char *format, ...)
     memcpy(s, stamp, tsl);
     out = s;
   }
-  strlcat(out, "\n", LOGLINELEN - (size_t)(out - s));
+  op_strlcat(out, "\n", LOGLINELEN - (size_t)(out - s));
   if (!use_stderr) {
     for (int i = 0; i < max_logs; i++) {
       if ((logs[i].filename != nullptr) && (logs[i].mask & type) &&
@@ -613,7 +615,7 @@ void putlog (int type, char *chname, const char *format, ...)
           /* Check if this is the same as the last line added to
            * the log. <cybah>
            */
-          if (!strcasecmp(out + tsl, logs[i].szlast))
+          if (!op_strcasecmp(out + tsl, logs[i].szlast))
             /* It is a repeat, so increment repeats */
             logs[i].repeats++;
           else {
@@ -633,7 +635,7 @@ void putlog (int type, char *chname, const char *format, ...)
                */
             }
             fputs(out, logs[i].f);
-            strlcpy(logs[i].szlast, out + tsl, LOGLINEMAX);
+            op_strlcpy(logs[i].szlast, out + tsl, LOGLINEMAX);
           }
         }
       }
@@ -670,7 +672,7 @@ void logsuffix_change(char *s)
     return;
 
   debug0("Logfile suffix changed. Closing all open logs.");
-  strlcpy(logfile_suffix, s, sizeof logfile_suffix);
+  op_strlcpy(logfile_suffix, s, sizeof logfile_suffix);
   while (s2[0]) {
     if (s2[0] == ' ')
       s2[0] = '_';
@@ -764,7 +766,7 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
     {
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
-      op_strbuf_appendf(&_b, "     ");
+      op_strbuf_append_cstr(&_b, "     ");
       for (size_t j = 0; j < n; j++) {
         col = op_vec_get(&col_state.colstrings, j);
         op_strbuf_append_cstr(&_b, col);
@@ -774,7 +776,7 @@ static void subst_addcol(char *s, size_t sz, char *newcol)
         }
         op_free(col);
       }
-      strlcpy(s, op_strbuf_str(&_b), sz);
+      op_strlcpy(s, op_strbuf_str(&_b), sz);
       op_strbuf_free(&_b);
     }
     op_vec_clear(&col_state.colstrings, nullptr, nullptr);
@@ -844,7 +846,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
     help_state.flags = isdcc;
     return;
   }
-  strlcpy(xx, s, sizeof xx);
+  op_strlcpy(xx, s, sizeof xx);
   readidx = xx;
   writeidx = s;
   current = strchr(readidx, '%');
@@ -974,7 +976,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
         q += 2;
         /* Now q is the string and p is where the rest of the fcn expects */
         if (!strncmp(q, "help=", 5)) {
-          if (topic && strcasecmp(q + 5, topic))
+          if (topic && op_strcasecmp(q + 5, topic))
             col_state.blind |= 2;
           else
             col_state.blind &= ~2;
@@ -993,7 +995,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
               col_state.blind &= ~1;
           } else if (q[0] == '-')
             col_state.blind &= ~1;
-          else if (!strcasecmp(q, "end")) {
+          else if (!op_strcasecmp(q, "end")) {
             col_state.blind &= ~1;
             col_state.subwidth = 70;
             if (col_state.cols) {
@@ -1002,7 +1004,7 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
               col_state.cols = 0;
               towrite = sub;
             }
-          } else if (!strcasecmp(q, "center"))
+          } else if (!op_strcasecmp(q, "center"))
             center = 1;
           else if (!strncmp(q, "cols=", 5)) {
             char *r;
@@ -1050,31 +1052,30 @@ void help_subst(char *s, char *nick, struct flag_record *flags,
       s[HELP_BUF_LEN] = 0;
       return;
     }
-    strlcpy(writeidx, readidx, (s + HELP_BUF_LEN + 1) - writeidx);
+    op_strlcpy(writeidx, readidx, (s + HELP_BUF_LEN + 1) - writeidx);
   } else
     *writeidx = 0;
   if (center) {
-    strlcpy(xx, s, sizeof(xx));
+    op_strlcpy(xx, s, sizeof(xx));
     int i = 35 - (int)(strlen(xx) / 2);
     if (i > 0) {
       s[0] = 0;
       for (int j = 0; j < i; j++)
         s[j] = ' ';
-      strlcpy(s + i, xx, HELP_BUF_LEN + 1 - i);
+      op_strlcpy(s + i, xx, HELP_BUF_LEN + 1 - i);
     }
   }
   if (col_state.cols) {
-    strlcpy(xx, s, sizeof xx);
+    op_strlcpy(xx, s, sizeof xx);
     s[0] = 0;
     subst_addcol(s, sizeof s, xx);
   }
 }
 
-static void scan_help_file(struct help_ref *current, const char *filename, int type)
+static void scan_help_file(help_ref_t *current, const char *filename, int type)
 {
   FILE *f;
   char s[HELP_BUF_LEN + 1], *p, *q;
-  struct help_list_t *list;
 
   if (is_file(filename) && (f = fopen(filename, "r"))) {
     while (fgets(s, HELP_BUF_LEN, f) != nullptr) {
@@ -1083,39 +1084,38 @@ static void scan_help_file(struct help_ref *current, const char *filename, int t
         q += 7;
         if ((p = strchr(q, '}'))) {
           *p = 0;
-          list = op_malloc(sizeof *list);
-
-          list->name = op_malloc(p - q + 1);
-          strlcpy(list->name, q, (size_t)(p - q + 1));
-          list->next = current->first;
-          list->type = type;
-          current->first = list;
+          help_item_t *item = (help_item_t *)op_bh_alloc(help_item_bh);
+          item->name = op_malloc((size_t)(p - q + 1));
+          op_strlcpy(item->name, q, (size_t)(p - q + 1));
+          item->type = type;
+          op_vec_push(&current->items, item);
           p++;
         } else
           p = "";
       }
     }
-    /* fgets == nullptr means error or empty file, so check for error */
-    if (ferror(f)) {
+    if (ferror(f))
       putlog(LOG_MISC, "*", "Error reading help file");
-    }
     fclose(f);
   }
 }
 
 void add_help_reference(char *file)
 {
-  struct help_ref *current;
-
-  for (current = help_list; current; current = current->next)
-    if (!strcmp(current->name, file))
-      return;                   /* Already exists, can't re-add :P */
-  current = op_malloc(sizeof *current);
-
+  if (!help_ref_bh) {
+    help_ref_bh  = op_bh_create(sizeof(help_ref_t),  16, "help_ref");
+    help_item_bh = op_bh_create(sizeof(help_item_t), 64, "help_item");
+    op_vec_init(&help_refs, 16);
+  }
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    if (!strcmp(ref->name, file))
+      return;
+  }
+  help_ref_t *current = (help_ref_t *)op_bh_alloc(help_ref_bh);
   current->name = op_strdup(file);
-  current->next = help_list;
-  current->first = nullptr;
-  help_list = current;
+  op_vec_init(&current->items, 16);
+  op_vec_push(&help_refs, current);
   {
     op_strbuf_t s = {};
     op_strbuf_init(&s);
@@ -1133,56 +1133,63 @@ void add_help_reference(char *file)
 
 void rem_help_reference(char *file)
 {
-  struct help_ref *current, *last = nullptr;
-  struct help_list_t *item;
-
-  for (current = help_list; current; last = current, current = current->next)
-    if (!strcmp(current->name, file)) {
-      while ((item = current->first)) {
-        current->first = item->next;
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    if (!strcmp(ref->name, file)) {
+      for (size_t j = 0; j < ref->items.size; j++) {
+        help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
         op_free(item->name);
-        op_free(item);
+        op_bh_free(help_item_bh, item);
       }
-      op_free(current->name);
-      if (last)
-        last->next = current->next;
-      else
-        help_list = current->next;
-      op_free(current);
+      op_vec_fini(&ref->items, nullptr, nullptr);
+      op_free(ref->name);
+      op_vec_remove_fast(&help_refs, i);
+      op_bh_free(help_ref_bh, ref);
       return;
     }
+  }
 }
 
 void reload_help_data(void)
 {
-  struct help_ref *current = help_list, *next;
-  struct help_list_t *item;
-
-  help_list = nullptr;
-  while (current) {
-    while ((item = current->first)) {
-      current->first = item->next;
-      op_free(item->name);
-      op_free(item);
-    }
-    add_help_reference(current->name);
-    op_free(current->name);
-    next = current->next;
-    op_free(current);
-    current = next;
+  /* Collect names before clearing */
+  op_vec_t names;
+  op_vec_init(&names, help_refs.size);
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    op_vec_push(&names, op_strdup(ref->name));
   }
+  /* Clear all refs */
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    for (size_t j = 0; j < ref->items.size; j++) {
+      help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
+      op_free(item->name);
+      op_bh_free(help_item_bh, item);
+    }
+    op_vec_fini(&ref->items, nullptr, nullptr);
+    op_free(ref->name);
+    op_bh_free(help_ref_bh, ref);
+  }
+  op_vec_clear(&help_refs, nullptr, nullptr);
+  /* Re-add */
+  for (size_t i = 0; i < names.size; i++) {
+    char *name = (char *)op_vec_get(&names, i);
+    add_help_reference(name);
+    op_free(name);
+  }
+  op_vec_fini(&names, nullptr, nullptr);
 }
 
 void debug_help(int idx)
 {
-  struct help_ref *current;
-  struct help_list_t *item;
-
-  for (current = help_list; current; current = current->next) {
-    dprintf(idx, "HELP FILE(S): %s\n", current->name);
-    for (item = current->first; item; item = item->next) {
-      dprintf(idx, "   %s (%s)\n", item->name, (item->type == 0) ? "msg/" :
-              (item->type == 1) ? "" : "set/");
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    dprintf(idx, "HELP FILE(S): %s\n", ref->name);
+    for (size_t j = 0; j < ref->items.size; j++) {
+      help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
+      dprintf(idx, "   %s (%s)\n", item->name,
+              (item->type == 0) ? "msg/" : (item->type == 1) ? "" : "set/");
     }
   }
 }
@@ -1190,18 +1197,18 @@ void debug_help(int idx)
 static FILE *resolve_help(int dcc, char *file)
 {
   FILE *f;
-  struct help_ref *current;
-  struct help_list_t *item;
 
   /* Somewhere here goes the eventual substitution */
   if (!(dcc & HELP_TEXT)) {
-    for (current = help_list; current; current = current->next)
-      for (item = current->first; item; item = item->next)
+    for (size_t i = 0; i < help_refs.size; i++) {
+      help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+      for (size_t j = 0; j < ref->items.size; j++) {
+        help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
         if (!strcmp(item->name, file)) {
           if (!item->type && !dcc) {
             op_strbuf_t s = {};
             op_strbuf_init(&s);
-            op_strbuf_appendf(&s, "%smsg/%s", helpdir, current->name);
+            op_strbuf_appendf(&s, "%smsg/%s", helpdir, ref->name);
             f = fopen(op_strbuf_str(&s), "r");
             op_strbuf_free(&s);
             if (f)
@@ -1210,16 +1217,17 @@ static FILE *resolve_help(int dcc, char *file)
             op_strbuf_t s = {};
             op_strbuf_init(&s);
             if (item->type == 1)
-              op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
+              op_strbuf_appendf(&s, "%s%s", helpdir, ref->name);
             else
-              op_strbuf_appendf(&s, "%sset/%s", helpdir, current->name);
+              op_strbuf_appendf(&s, "%sset/%s", helpdir, ref->name);
             f = fopen(op_strbuf_str(&s), "r");
             op_strbuf_free(&s);
             if (f)
               return f;
           }
         }
-    /* No match was found, so we better return nullptr */
+      }
+    }
     return nullptr;
   }
   /* Since we're not dealing with help files, we should just prepend the filename with textdir */
@@ -1249,7 +1257,7 @@ void showhelp(char *who, char *file, struct flag_record *flags, int fl)
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
-        strlcpy(s, " ", sizeof(s));
+        op_strlcpy(s, " ", sizeof(s));
       help_subst(s, who, flags, 0, file);
       if ((s[0]) && (strlen(s) > 1)) {
         dprintf(DP_HELP, "NOTICE %s :%s\n", who, s);
@@ -1279,7 +1287,7 @@ static int display_tellhelp(int idx, char *file, FILE *f,
       if (s[strlen(s) - 1] == '\n')
         s[strlen(s) - 1] = 0;
       if (!s[0])
-        strlcpy(s, " ", sizeof(s));
+        op_strlcpy(s, " ", sizeof(s));
       help_subst(s, dcc[idx].nick, flags, 1, file);
       if (s[0]) {
         dprintf(idx, "%s\n", s);
@@ -1310,20 +1318,20 @@ void tellhelp(int idx, char *file, struct flag_record *flags, int fl)
  */
 void tellwildhelp(int idx, char *match, struct flag_record *flags)
 {
-  struct help_ref *current;
-  struct help_list_t *item;
   FILE *f;
   bool found = false;
 
-  for (current = help_list; current; current = current->next)
-    for (item = current->first; item; item = item->next)
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    for (size_t j = 0; j < ref->items.size; j++) {
+      help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
       if (wild_match(match, item->name) && item->type) {
         op_strbuf_t s = {};
         op_strbuf_init(&s);
         if (item->type == 1)
-          op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%s%s", helpdir, ref->name);
         else
-          op_strbuf_appendf(&s, "%sset/%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%sset/%s", helpdir, ref->name);
         f = fopen(op_strbuf_str(&s), "r");
         op_strbuf_free(&s);
         if (f) {
@@ -1331,6 +1339,8 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
           found = true;
         }
       }
+    }
+  }
   if (!found)
     dprintf(idx, "%s\n", IRC_NOHELP2);
 }
@@ -1339,20 +1349,20 @@ void tellwildhelp(int idx, char *match, struct flag_record *flags)
  */
 void tellallhelp(int idx, char *match, struct flag_record *flags)
 {
-  struct help_ref *current;
-  struct help_list_t *item;
   FILE *f;
   bool found = false;
 
-  for (current = help_list; current; current = current->next)
-    for (item = current->first; item; item = item->next)
+  for (size_t i = 0; i < help_refs.size; i++) {
+    help_ref_t *ref = (help_ref_t *)op_vec_get(&help_refs, i);
+    for (size_t j = 0; j < ref->items.size; j++) {
+      help_item_t *item = (help_item_t *)op_vec_get(&ref->items, j);
       if (!strcmp(match, item->name) && item->type) {
         op_strbuf_t s = {};
         op_strbuf_init(&s);
         if (item->type == 1)
-          op_strbuf_appendf(&s, "%s%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%s%s", helpdir, ref->name);
         else
-          op_strbuf_appendf(&s, "%sset/%s", helpdir, current->name);
+          op_strbuf_appendf(&s, "%sset/%s", helpdir, ref->name);
         f = fopen(op_strbuf_str(&s), "r");
         op_strbuf_free(&s);
         if (f) {
@@ -1360,6 +1370,8 @@ void tellallhelp(int idx, char *match, struct flag_record *flags)
           found = true;
         }
       }
+    }
+  }
   if (!found)
     dprintf(idx, "%s\n", IRC_NOHELP2);
 }
@@ -1374,11 +1386,11 @@ void sub_lang(int idx, char *text)
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   help_subst(nullptr, nullptr, 0,
              (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, nullptr);
-  strlcpy(s, text, sizeof s);
+  op_strlcpy(s, text, sizeof s);
   if (s[strlen(s) - 1] == '\n')
     s[strlen(s) - 1] = 0;
   if (!s[0])
-    strlcpy(s, " ", sizeof(s));
+    op_strlcpy(s, " ", sizeof(s));
   help_subst(s, dcc[idx].nick, &fr, 1, botnetnick);
   if (s[0])
     dprintf(idx, "%s\n", s);
@@ -1419,7 +1431,7 @@ void show_motd(int idx)
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
-      strlcpy(s, " ", sizeof(s));
+      op_strlcpy(s, " ", sizeof(s));
     help_subst(s, dcc[idx].nick, &fr, 1, botnetnick);
     if (s[0])
       dprintf(idx, "%s\n", s);
@@ -1454,7 +1466,7 @@ void show_banner(int idx)
     if (s[strlen(s) - 1] == '\n')
       s[strlen(s) - 1] = 0;
     if (!s[0])
-      strlcpy(s, " ", sizeof(s));
+      op_strlcpy(s, " ", sizeof(s));
     help_subst(s, dcc[idx].nick, &fr, 0, botnetnick);
     if (s[0])
       dprintf(idx, "%s\n", s);
@@ -1586,7 +1598,7 @@ int str_isdigit(const char *str)
     return 0;
 
   for (; *str; ++str) {
-    if (!egg_isdigit(*str))
+    if (!isdigit((unsigned char)(*str)))
       return 0;
   }
   return 1;
@@ -1784,7 +1796,7 @@ void egg_format_duration(uint64_t sec, char *out, size_t outlen)
   uint64_t tmp;
 
   if (sec == 0) {
-    strlcpy(out, "0 seconds", outlen);
+    op_strlcpy(out, "0 seconds", outlen);
     return;
   }
   op_strbuf_init(&s);
@@ -1813,7 +1825,7 @@ void egg_format_duration(uint64_t sec, char *out, size_t outlen)
   size_t slen = op_strbuf_len(&s);
   if (slen > 0 && op_strbuf_str(&s)[slen - 1] == ' ')
     op_strbuf_truncate(&s, slen - 1);
-  strlcpy(out, op_strbuf_str(&s), outlen);
+  op_strlcpy(out, op_strbuf_str(&s), outlen);
   op_strbuf_free(&s);
 }
 
@@ -1831,6 +1843,6 @@ void egg_format_uptime(time_t seconds, char *out, size_t outlen)
   seconds -= hr * 3600;
   int min = (int)(seconds / 60);
   op_strbuf_appendf(&s, "%02d:%02d", hr, min);
-  strlcpy(out, op_strbuf_str(&s), outlen);
+  op_strlcpy(out, op_strbuf_str(&s), outlen);
   op_strbuf_free(&s);
 }

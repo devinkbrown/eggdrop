@@ -367,7 +367,7 @@ static int tcl_handonchan STDVAR
   while (chan && (thechan == nullptr || thechan == chan)) {
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       u = get_user_from_member(m);
-      if (u && !strcasecmp(u->handle, argv[1])) {
+      if (u && !op_strcasecmp(u->handle, argv[1])) {
         Tcl_AppendResult(irp, "1", nullptr);
         return TCL_OK;
       }
@@ -1056,7 +1056,7 @@ static int tcl_hand2nicks STDVAR
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       found = 0;
       u = get_user_from_member(m);
-      if (u && !strcasecmp(u->handle, argv[1])) {
+      if (u && !op_strcasecmp(u->handle, argv[1])) {
         /* Is the nick of the user already in the list? */
         Tcl_ListObjGetElements(irp, nicks, &nicksc, &nicksv);
         for (i = 0; i < nicksc; i++) {
@@ -1097,7 +1097,7 @@ static int tcl_hand2nick STDVAR
   while (chan && (thechan == nullptr || thechan == chan)) {
     for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
       u = get_user_from_member(m);
-      if (u && !strcasecmp(u->handle, argv[1])) {
+      if (u && !op_strcasecmp(u->handle, argv[1])) {
         Tcl_AppendResult(irp, m->nick, nullptr);
         return TCL_OK;
       }

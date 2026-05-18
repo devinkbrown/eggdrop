@@ -30,6 +30,8 @@
   --red-dim:oklch(68% 0.19 25 / 0.12);
   --blue:oklch(72% 0.14 245);
   --blue-dim:oklch(72% 0.14 245 / 0.12);
+  --purple:oklch(70% 0.15 310);
+  --purple-dim:oklch(70% 0.15 310 / 0.12);
   --radius:8px;
   --radius-sm:5px;
   --mono:'JetBrains Mono',monospace;
@@ -39,132 +41,150 @@
 html,body{height:100%;font-family:var(--sans);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-decoration:none}
 button{font-family:var(--sans);cursor:pointer;border:none;outline:none}
-input{font-family:var(--sans);outline:none}
+input,select,textarea{font-family:var(--sans);outline:none}
 
 /* Shell Layout */
-.shell{display:grid;grid-template-columns:240px 1fr;grid-template-rows:52px 1fr;height:100vh}
-.header{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:14px;z-index:10}
-.header .brand{font-size:14px;font-weight:700;letter-spacing:-0.5px;color:var(--text)}
+.shell{display:grid;grid-template-columns:220px 1fr;grid-template-rows:48px 1fr;height:100vh}
+.header{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;z-index:10}
+.header .brand{font-size:13px;font-weight:700;letter-spacing:-0.5px;color:var(--text)}
 .header .brand span{color:var(--accent);margin-left:1px}
-.header .live-status{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);font-weight:500}
-.header .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2.5s infinite ease-in-out}
-.header .dot.disconnected{background:var(--red);box-shadow:0 0 6px var(--red)}
+.header .live-status{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-dim);font-weight:500}
+.header .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green);animation:pulse 2.5s infinite ease-in-out}
+.header .dot.disconnected{background:var(--red);box-shadow:0 0 5px var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
 
 /* Sidebar */
-.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:12px 0;display:flex;flex-direction:column;overflow-y:auto}
-.sidebar .nav-section{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);padding:18px 20px 6px}
-.sidebar a{display:flex;align-items:center;gap:10px;padding:9px 20px;font-size:13px;font-weight:500;color:var(--text-dim);transition:all 0.12s ease;border-left:3px solid transparent}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:10px 0;display:flex;flex-direction:column;overflow-y:auto}
+.sidebar .nav-section{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);padding:16px 16px 4px}
+.sidebar a{display:flex;align-items:center;gap:9px;padding:7px 16px;font-size:12px;font-weight:500;color:var(--text-dim);transition:all 0.12s ease;border-left:2px solid transparent}
 .sidebar a:hover{background:var(--surface2);color:var(--text)}
 .sidebar a.active{color:var(--accent);background:var(--accent-dim);border-left-color:var(--accent)}
-.sidebar a svg{width:16px;height:16px;opacity:0.7;flex-shrink:0}
+.sidebar a svg{width:14px;height:14px;opacity:0.7;flex-shrink:0}
 .sidebar a.active svg{opacity:1}
 .sidebar .spacer{flex:1}
 
 /* Main */
-.main{overflow-y:auto;padding:28px 32px;scroll-behavior:smooth}
+.main{overflow-y:auto;padding:24px 28px;scroll-behavior:smooth}
+
+/* Page header */
+.page-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.page-hdr h2{font-size:16px;font-weight:700;letter-spacing:-0.3px}
 
 /* Cards */
-.grid{display:grid;gap:16px}
-.grid-4{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
-.grid-2{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}
-.card{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:20px;transition:border-color 0.15s}
+.grid{display:grid;gap:14px}
+.grid-4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.grid-3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.grid-2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:18px;transition:border-color 0.15s}
 .card:hover{border-color:var(--border)}
-.card h3{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:10px}
-.card .value{font-size:26px;font-weight:700;font-family:var(--mono);letter-spacing:-1.2px;color:var(--text)}
-.card .sub{font-size:11px;color:var(--text-dim);margin-top:4px;font-weight:500}
+.card h3{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px}
+.card .value{font-size:24px;font-weight:700;font-family:var(--mono);letter-spacing:-1.2px;color:var(--text)}
+.card .sub{font-size:11px;color:var(--text-dim);margin-top:3px;font-weight:500}
 
 /* Tables */
 .table-wrap{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);padding:10px 14px;border-bottom:1px solid var(--border)}
-td{padding:11px 14px;border-bottom:1px solid var(--border-subtle)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);padding:8px 12px;border-bottom:1px solid var(--border)}
+td{padding:9px 12px;border-bottom:1px solid var(--border-subtle)}
 tr{transition:background 0.1s}
 tr:hover td{background:var(--surface2)}
 tr.expandable{cursor:pointer}
-.badge{display:inline-block;padding:2px 8px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;font-family:var(--mono)}
+.badge{display:inline-block;padding:2px 7px;border-radius:var(--radius-sm);font-size:10px;font-weight:600;font-family:var(--mono)}
 .badge-green{background:var(--green-dim);color:var(--green)}
 .badge-yellow{background:var(--yellow-dim);color:var(--yellow)}
 .badge-red{background:var(--red-dim);color:var(--red)}
 .badge-blue{background:var(--blue-dim);color:var(--blue)}
+.badge-purple{background:var(--purple-dim);color:var(--purple)}
 .badge-accent{background:var(--accent-dim);color:var(--accent)}
 
 /* Buttons */
-.btn{padding:8px 16px;border-radius:var(--radius-sm);font-size:12px;font-weight:600;transition:all 0.12s}
+.btn{padding:7px 14px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;transition:all 0.12s}
 .btn-primary{background:var(--accent);color:oklch(15% 0.01 260)}
 .btn-primary:hover{background:var(--accent-strong)}
 .btn-danger{background:var(--red-dim);color:var(--red);border:1px solid oklch(68% 0.19 25 / 0.25)}
 .btn-danger:hover{background:oklch(68% 0.19 25 / 0.2)}
 .btn-ghost{background:var(--surface2);color:var(--text-dim);border:1px solid var(--border)}
 .btn-ghost:hover{color:var(--text);border-color:var(--text-dim)}
-.btn-sm{padding:5px 10px;font-size:11px}
+.btn-sm{padding:4px 9px;font-size:10px}
+
+/* Tabs */
+.tabs{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid var(--border-subtle);padding-bottom:0}
+.tab{padding:8px 14px;font-size:11px;font-weight:600;color:var(--text-dim);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.12s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 
 /* Filter pills */
-.filters{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
-.pill{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text-dim);cursor:pointer;border:1px solid var(--border-subtle);transition:all 0.12s}
+.filters{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap}
+.pill{padding:4px 10px;border-radius:20px;font-size:10px;font-weight:600;background:var(--surface2);color:var(--text-dim);cursor:pointer;border:1px solid var(--border-subtle);transition:all 0.12s}
 .pill:hover{color:var(--text);border-color:var(--border)}
 .pill.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent)}
 
 /* Terminal */
-.terminal{background:oklch(11% 0.008 260);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 52px - 56px)}
-.terminal-output{flex:1;overflow-y:auto;padding:14px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:var(--text-dim)}
-.terminal-input{border-top:1px solid var(--border);display:flex;align-items:center;padding:0 18px}
-.terminal-input span{color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:500;margin-right:10px}
-.terminal-input input{flex:1;background:none;border:none;color:var(--text);font-family:var(--mono);font-size:13px;padding:14px 0}
+.terminal{background:oklch(11% 0.008 260);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 48px - 48px)}
+.terminal-output{flex:1;overflow-y:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:var(--text-dim)}
+.terminal-input{border-top:1px solid var(--border);display:flex;align-items:center;padding:0 16px}
+.terminal-input span{color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:500;margin-right:8px}
+.terminal-input input{flex:1;background:none;border:none;color:var(--text);font-family:var(--mono);font-size:12px;padding:12px 0}
 
 /* Chart */
-.chart-container{position:relative;height:100px;margin-top:14px}
+.chart-container{position:relative;height:80px;margin-top:10px}
 canvas{width:100%!important;height:100%!important;display:block}
 
 /* Log viewer */
-.log-viewer{max-height:calc(100vh - 180px);overflow-y:auto;scroll-behavior:smooth}
-.log-entry{font-family:var(--mono);font-size:12px;line-height:1.9;padding:1px 0;display:flex;gap:8px}
+.log-viewer{flex:1;overflow-y:auto;scroll-behavior:smooth}
+.log-entry{font-family:var(--mono);font-size:11px;line-height:1.9;padding:1px 0;display:flex;gap:8px}
 .log-time{color:var(--text-muted);flex-shrink:0}
-.log-flag{color:var(--yellow);flex-shrink:0;min-width:20px}
+.log-flag{color:var(--yellow);flex-shrink:0;min-width:16px}
 .log-msg{color:var(--text-dim);word-break:break-all}
 
 /* Activity feed */
-.activity-item{padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px;display:flex;gap:10px;align-items:baseline}
+.activity-item{padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:11px;display:flex;gap:8px;align-items:baseline}
 .activity-item:last-child{border-bottom:none}
-.activity-time{font-family:var(--mono);color:var(--text-muted);font-size:11px;flex-shrink:0}
+.activity-time{font-family:var(--mono);color:var(--text-muted);font-size:10px;flex-shrink:0}
 .activity-msg{color:var(--text-dim)}
 
 /* Members expand row */
 .members-row td{padding:0;background:var(--surface2)}
-.members-inner{padding:14px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
-.member-item{font-size:12px;font-family:var(--mono);padding:4px 8px;border-radius:var(--radius-sm);background:var(--surface);display:flex;align-items:center;gap:6px}
-.member-badge{font-size:10px;font-weight:700;width:16px;height:16px;border-radius:3px;display:flex;align-items:center;justify-content:center}
+.members-inner{padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:5px}
+.member-item{font-size:11px;font-family:var(--mono);padding:3px 7px;border-radius:var(--radius-sm);background:var(--surface);display:flex;align-items:center;gap:5px}
+.member-badge{font-size:10px;font-weight:700;width:14px;height:14px;border-radius:3px;display:flex;align-items:center;justify-content:center}
 
 /* Modal */
 .modal-backdrop{position:fixed;inset:0;background:oklch(0% 0 0 / 0.6);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s}
 .modal-backdrop.show{opacity:1;pointer-events:all}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;width:90%;max-width:420px;box-shadow:var(--shadow)}
-.modal h2{font-size:16px;font-weight:700;margin-bottom:16px;letter-spacing:-0.3px}
-.modal label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:5px;margin-top:14px}
-.modal input,.modal select{width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px}
-.modal input:focus,.modal select:focus{border-color:var(--accent)}
-.modal .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:90%;max-width:420px;box-shadow:var(--shadow)}
+.modal h2{font-size:15px;font-weight:700;margin-bottom:14px;letter-spacing:-0.3px}
+.modal label{display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:4px;margin-top:12px}
+.modal input,.modal select,.modal textarea{width:100%;padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px}
+.modal input:focus,.modal select:focus,.modal textarea:focus{border-color:var(--accent)}
+.modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 
 /* Toast */
-.toast-container{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px}
-.toast{padding:10px 16px;border-radius:var(--radius-sm);font-size:12px;font-weight:500;background:var(--surface2);border:1px solid var(--border);color:var(--text);box-shadow:var(--shadow);animation:slideIn 0.2s ease}
+.toast-container{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:6px}
+.toast{padding:9px 14px;border-radius:var(--radius-sm);font-size:11px;font-weight:500;background:var(--surface2);border:1px solid var(--border);color:var(--text);box-shadow:var(--shadow);animation:slideIn 0.2s ease}
 .toast.success{border-color:oklch(72% 0.17 155 / 0.4);color:var(--green)}
 .toast.error{border-color:oklch(68% 0.19 25 / 0.4);color:var(--red)}
 @keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
 
-/* User detail panel */
-.detail-panel{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:16px}
-.detail-panel h4{font-size:13px;font-weight:600;margin-bottom:12px}
-.detail-hosts{font-family:var(--mono);font-size:12px;color:var(--text-dim);line-height:1.8}
+/* Detail panel */
+.detail-panel{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:14px}
+.detail-panel h4{font-size:12px;font-weight:600;margin-bottom:10px}
+.detail-hosts{font-family:var(--mono);font-size:11px;color:var(--text-dim);line-height:1.8}
+
+/* Inline form row */
+.form-row{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
+.form-row .field{flex:1}
+.form-row .field label{display:block;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px}
+.form-row .field input,.form-row .field select{width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px}
 
 /* Responsive */
 @media(max-width:768px){
-  .shell{grid-template-columns:1fr;grid-template-rows:52px 1fr 56px}
-  .sidebar{order:1;flex-direction:row;overflow-x:auto;border-right:none;border-top:1px solid var(--border);padding:0 8px}
+  .shell{grid-template-columns:1fr;grid-template-rows:48px 1fr 52px}
+  .sidebar{order:1;flex-direction:row;overflow-x:auto;border-right:none;border-top:1px solid var(--border);padding:0 6px}
   .sidebar .nav-section,.sidebar .spacer{display:none}
-  .sidebar a{padding:12px 14px;white-space:nowrap;border-left:none!important;flex-direction:column;gap:3px;font-size:10px}
-  .sidebar a svg{width:18px;height:18px}
-  .main{padding:16px}
+  .sidebar a{padding:10px 12px;white-space:nowrap;border-left:none!important;flex-direction:column;gap:2px;font-size:9px}
+  .sidebar a svg{width:16px;height:16px}
+  .main{padding:14px}
   .grid-4{grid-template-columns:repeat(2,1fr)}
 }
 </style>
@@ -182,24 +202,23 @@ canvas{width:100%!important;height:100%!important;display:block}
     <a href="#" data-view="users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Users</a>
     <a href="#" data-view="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Logs</a>
     <a href="#" data-view="terminal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Terminal</a>
+    <div class="nav-section">Manage</div>
     <a href="#" data-view="network"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="5" cy="19" r="2"/><line x1="12" y1="7" x2="12" y2="10"/><line x1="13.5" y1="13.5" x2="17.5" y2="17.5"/><line x1="10.5" y1="13.5" x2="6.5" y2="17.5"/></svg>Network</a>
+    <a href="#" data-view="irc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>IRC Control</a>
+    <a href="#" data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>Config</a>
     <div class="spacer"></div>
     <div class="nav-section">System</div>
-    <a href="#" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15 1.65 1.65 0 003.17 14H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68 1.65 1.65 0 0010 3.17V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Settings</a>
+    <a href="#" data-view="system"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15 1.65 1.65 0 003.17 14H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68 1.65 1.65 0 0010 3.17V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>System</a>
   </nav>
   <main class="main" id="main"></main>
 </div>
 
-<!-- Modal container -->
 <div class="modal-backdrop" id="modal-backdrop"><div class="modal" id="modal-content"></div></div>
-
-<!-- Toast container -->
 <div class="toast-container" id="toasts"></div>
 
 <script>
 "use strict";
 
-/* ─── Utility ─── */
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
@@ -210,20 +229,19 @@ function formatBytes(b) {
   if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
   return (b / 1073741824).toFixed(2) + ' GB';
 }
-
 function formatUptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
   if (d > 0) return d + 'd ' + h + 'h';
   if (h > 0) return h + 'h ' + m + 'm';
   return m + 'm';
 }
-
 function formatTime(ts) {
+  if (!ts) return '--';
   const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/* ─── State ─── */
+/* State */
 let currentView = 'dashboard';
 let ws = null, termWs = null;
 let wsRetryDelay = 1000;
@@ -234,35 +252,27 @@ let termEcho = true, termSendCount = 0;
 let logFilter = 'all';
 let pinnedToBottom = true;
 
-/* ─── Auth ─── */
+/* Auth */
 function getToken() { return localStorage.getItem('webui_token') || ''; }
 function setToken(t) { localStorage.setItem('webui_token', t); }
-
 function authHeaders() {
   const t = getToken();
   return t ? { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
 }
 
 async function api(path, opts) {
-  const url = '/api/' + path;
   const cfg = { headers: authHeaders(), ...opts };
   try {
-    const r = await fetch(url, cfg);
+    const r = await fetch('/api/' + path, cfg);
     if (r.status === 401) { showLoginModal(); return null; }
-    if (!r.ok) return null;
+    if (!r.ok) { const j = await r.json().catch(() => null); return j; }
     return await r.json();
   } catch { return null; }
 }
+async function apiPost(path, body) { return api(path, { method: 'POST', body: JSON.stringify(body) }); }
+async function apiDelete(path, body) { return api(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined }); }
 
-async function apiPost(path, body) {
-  return api(path, { method: 'POST', body: JSON.stringify(body) });
-}
-
-async function apiDelete(path, body) {
-  return api(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined });
-}
-
-/* ─── Toast ─── */
+/* Toast */
 function toast(msg, type = '') {
   const el = document.createElement('div');
   el.className = 'toast ' + type;
@@ -271,24 +281,21 @@ function toast(msg, type = '') {
   setTimeout(() => el.remove(), 3500);
 }
 
-/* ─── Modal ─── */
-function showModal(html) {
-  $('#modal-content').innerHTML = html;
-  $('#modal-backdrop').classList.add('show');
-}
+/* Modal */
+function showModal(html) { $('#modal-content').innerHTML = html; $('#modal-backdrop').classList.add('show'); }
 function hideModal() { $('#modal-backdrop').classList.remove('show'); }
 $('#modal-backdrop').addEventListener('click', e => { if (e.target === e.currentTarget) hideModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideModal(); });
 
 function showLoginModal() {
   showModal(`
-    <h2>Authentication Required</h2>
+    <h2>Authentication</h2>
     <label>Token</label>
     <input type="password" id="login-token" placeholder="Enter token...">
     <div class="actions"><button class="btn btn-primary" id="login-btn">Authenticate</button></div>
   `);
   setTimeout(() => {
-    const inp = $('#login-token');
-    const btn = $('#login-btn');
+    const inp = $('#login-token'), btn = $('#login-btn');
     inp.focus();
     const doLogin = async () => {
       const r = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: inp.value }) });
@@ -300,7 +307,7 @@ function showLoginModal() {
   }, 50);
 }
 
-/* ─── Navigation ─── */
+/* Navigation */
 $$('#sidebar a').forEach(a => {
   a.addEventListener('click', e => {
     e.preventDefault();
@@ -311,36 +318,38 @@ $$('#sidebar a').forEach(a => {
 });
 
 function switchView(view) {
+  stopAutoRefresh();
   currentView = view;
-  const main = $('#main');
-  const renderers = { dashboard: renderDashboard, channels: renderChannels, users: renderUsers, logs: renderLogs, terminal: renderTerminal, network: renderNetwork, settings: renderSettings };
-  (renderers[view] || renderers.dashboard)();
+  const r = { dashboard: renderDashboard, channels: renderChannels, users: renderUsers, logs: renderLogs, terminal: renderTerminal, network: renderNetwork, irc: renderIRC, config: renderConfig, system: renderSystem };
+  (r[view] || r.dashboard)();
 }
 
-/* ─── Dashboard ─── */
+/* ================================================================
+   DASHBOARD
+   ================================================================ */
 function renderDashboard() {
   $('#main').innerHTML = `
-    <div class="grid grid-4" style="margin-bottom:20px">
+    <div class="grid grid-4" style="margin-bottom:16px">
       <div class="card"><h3>Uptime</h3><div class="value" id="d-uptime">--</div><div class="sub" id="d-since"></div></div>
-      <div class="card"><h3>Server</h3><div class="value" id="d-server" style="font-size:15px;word-break:break-all">--</div><div class="sub" id="d-nick"></div></div>
+      <div class="card"><h3>Server</h3><div class="value" id="d-server" style="font-size:14px;word-break:break-all">--</div><div class="sub" id="d-nick"></div></div>
       <div class="card"><h3>Channels</h3><div class="value" id="d-chans">0</div><div class="sub" id="d-members">0 members</div></div>
       <div class="card"><h3>Users</h3><div class="value" id="d-users">0</div><div class="sub">registered</div></div>
     </div>
-    <div class="grid grid-2" style="margin-bottom:20px">
+    <div class="grid grid-2" style="margin-bottom:16px">
       <div class="card">
-        <h3>Traffic (today)</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px">
-          <div><div style="font-size:10px;color:var(--text-muted)">IN</div><div class="value" style="font-size:18px" id="d-tin">0</div></div>
-          <div><div style="font-size:10px;color:var(--text-muted)">OUT</div><div class="value" style="font-size:18px" id="d-tout">0</div></div>
+        <h3>Traffic</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px">
+          <div><div style="font-size:9px;color:var(--text-muted)">IN</div><div class="value" style="font-size:16px" id="d-tin">0</div></div>
+          <div><div style="font-size:9px;color:var(--text-muted)">OUT</div><div class="value" style="font-size:16px" id="d-tout">0</div></div>
         </div>
         <div class="chart-container"><canvas id="c-traffic"></canvas></div>
       </div>
       <div class="card">
         <h3>Performance</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:6px">
-          <div><div style="font-size:10px;color:var(--text-muted)">AVG TICK</div><div class="value" style="font-size:18px" id="d-tick">--</div></div>
-          <div><div style="font-size:10px;color:var(--text-muted)">IDLE</div><div class="value" style="font-size:18px" id="d-idle">--</div></div>
-          <div><div style="font-size:10px;color:var(--text-muted)">BINDS</div><div class="value" style="font-size:18px" id="d-binds">0</div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px">
+          <div><div style="font-size:9px;color:var(--text-muted)">AVG TICK</div><div class="value" style="font-size:16px" id="d-tick">--</div></div>
+          <div><div style="font-size:9px;color:var(--text-muted)">IDLE</div><div class="value" style="font-size:16px" id="d-idle">--</div></div>
+          <div><div style="font-size:9px;color:var(--text-muted)">BINDS</div><div class="value" style="font-size:16px" id="d-binds">0</div></div>
         </div>
         <div class="chart-container"><canvas id="c-perf"></canvas></div>
       </div>
@@ -390,13 +399,12 @@ async function refreshDashboard() {
 function renderActivityFeed() {
   const el = document.getElementById('d-activity');
   if (!el) return;
-  const recent = logBuffer.slice(-5).reverse();
+  const recent = logBuffer.slice(-6).reverse();
   el.innerHTML = recent.length ? recent.map(l =>
     `<div class="activity-item"><span class="activity-time">${esc(l.time || '')}</span><span class="activity-msg">${esc(l.msg || '')}</span></div>`
-  ).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:8px 0">No recent activity</div>';
+  ).join('') : '<div style="font-size:11px;color:var(--text-muted);padding:6px 0">No recent activity</div>';
 }
 
-/* ─── Sparkline Chart ─── */
 function drawSparkline(id, data, keys, colors) {
   const canvas = document.getElementById(id);
   if (!canvas || data.length < 2) return;
@@ -408,7 +416,6 @@ function drawSparkline(id, data, keys, colors) {
   ctx.scale(dpr, dpr);
   const w = rect.width, h = rect.height;
   ctx.clearRect(0, 0, w, h);
-
   keys.forEach((key, ki) => {
     const vals = data.map(d => d[key] || 0);
     const max = Math.max(...vals, 1);
@@ -422,9 +429,8 @@ function drawSparkline(id, data, keys, colors) {
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
-    // Fill gradient
     const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, colors[ki].replace(')', ' / 0.15)').replace('oklch(', 'oklch('));
+    grad.addColorStop(0, colors[ki].replace(')', ' / 0.12)').replace('oklch(', 'oklch('));
     grad.addColorStop(1, 'transparent');
     ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
     ctx.fillStyle = grad;
@@ -432,26 +438,80 @@ function drawSparkline(id, data, keys, colors) {
   });
 }
 
-/* ─── Channels ─── */
+/* ================================================================
+   CHANNELS
+   ================================================================ */
+let channelsCache = [];
+
 function renderChannels() {
-  $('#main').innerHTML = `<div class="card"><h3>Active Channels</h3><div class="table-wrap"><table><thead><tr><th>Channel</th><th>Members</th><th>Topic</th><th>Modes</th></tr></thead><tbody id="chan-tbody"></tbody></table></div></div>`;
+  $('#main').innerHTML = `
+    <div class="page-hdr"><h2>Channels</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="chan-search" placeholder="Filter channels..." style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px;width:180px">
+        <button class="btn btn-ghost btn-sm" id="chan-autorefresh">Auto-refresh: Off</button>
+        <button class="btn btn-primary btn-sm" id="join-btn">Join Channel</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-wrap"><table><thead><tr><th>Channel</th><th>Members</th><th>Topic</th><th>Modes</th><th>Bans</th><th></th></tr></thead><tbody id="chan-tbody"></tbody></table></div>
+    </div>`;
+  $('#join-btn').addEventListener('click', showJoinModal);
+  $('#chan-search').addEventListener('input', filterChannels);
+  let chanAR = false;
+  $('#chan-autorefresh').addEventListener('click', function() {
+    chanAR = !chanAR;
+    this.textContent = 'Auto-refresh: ' + (chanAR ? 'On' : 'Off');
+    this.className = 'btn btn-sm ' + (chanAR ? 'btn-primary' : 'btn-ghost');
+    if (chanAR) startAutoRefresh(refreshChannels); else stopAutoRefresh();
+  });
   refreshChannels();
+}
+
+function filterChannels() {
+  const q = ($('#chan-search') ? $('#chan-search').value : '').toLowerCase();
+  const filtered = channelsCache.filter(c => !q || c.name.toLowerCase().includes(q));
+  renderChannelRows(filtered);
 }
 
 async function refreshChannels() {
   const data = await api('channels');
   if (!data) return;
+  channelsCache = data;
+  filterChannels();
+}
+
+function renderChannelRows(data) {
   const tbody = $('#chan-tbody');
+  if (!tbody) return;
   tbody.innerHTML = data.map(c => `
     <tr class="expandable" data-chan="${esc(c.name)}">
       <td><strong>${esc(c.name)}</strong></td>
       <td>${c.members}</td>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${esc(c.topic || '')}</td>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${esc(c.topic || '')}</td>
       <td><span class="badge badge-blue">${esc(c.modes || '')}</span></td>
+      <td>${c.bans || 0}</td>
+      <td style="text-align:right">
+        <button class="btn btn-ghost btn-sm chan-settings" data-chan="${esc(c.name)}">Settings</button>
+        <button class="btn btn-ghost btn-sm chan-topic" data-chan="${esc(c.name)}">Topic</button>
+        <button class="btn btn-ghost btn-sm chan-bans" data-chan="${esc(c.name)}">Bans</button>
+        <button class="btn btn-danger btn-sm chan-part" data-chan="${esc(c.name)}">Part</button>
+      </td>
     </tr>`).join('');
+
   tbody.querySelectorAll('tr.expandable').forEach(row => {
-    row.addEventListener('click', () => toggleMembers(row, row.dataset.chan));
+    row.addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      toggleMembers(row, row.dataset.chan);
+    });
   });
+  tbody.querySelectorAll('.chan-settings').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); showChanSettings(btn.dataset.chan); }));
+  tbody.querySelectorAll('.chan-topic').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); showTopicModal(btn.dataset.chan); }));
+  tbody.querySelectorAll('.chan-bans').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); showBansModal(btn.dataset.chan); }));
+  tbody.querySelectorAll('.chan-part').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (confirm('Part ' + btn.dataset.chan + '?'))
+      apiPost('part', { channel: btn.dataset.chan }).then(r => { if (r && r.ok) { toast('Parted ' + btn.dataset.chan, 'success'); refreshChannels(); } else toast('Part failed', 'error'); });
+  }));
 }
 
 async function toggleMembers(row, chan) {
@@ -461,44 +521,257 @@ async function toggleMembers(row, chan) {
   if (!data) return;
   const tr = document.createElement('tr');
   tr.className = 'members-row';
-  tr.innerHTML = `<td colspan="4"><div class="members-inner">${data.map(m => {
+  tr.innerHTML = `<td colspan="6"><div class="members-inner">${data.map(m => {
     let badge = '', color = '';
     if (m.op) { badge = '@'; color = 'var(--accent)'; }
     else if (m.halfop) { badge = '%'; color = 'var(--yellow)'; }
     else if (m.voice) { badge = '+'; color = 'var(--blue)'; }
-    return `<div class="member-item">${badge ? `<span class="member-badge" style="color:${color}">${badge}</span>` : ''}<span>${esc(m.nick)}</span><span style="color:var(--text-muted);font-size:10px;margin-left:auto">${esc(m.userhost || '')}</span></div>`;
+    return `<div class="member-item">
+      ${badge ? `<span class="member-badge" style="color:${color}">${badge}</span>` : ''}
+      <span>${esc(m.nick)}</span>
+      <span style="margin-left:auto;display:flex;gap:3px">
+        <button class="btn btn-sm btn-ghost mem-action" data-action="${m.op ? 'deop' : 'op'}" data-nick="${esc(m.nick)}" data-chan="${esc(chan)}" style="padding:2px 5px;font-size:9px">${m.op ? '-o' : '+o'}</button>
+        <button class="btn btn-sm btn-ghost mem-action" data-action="${m.voice ? 'devoice' : 'voice'}" data-nick="${esc(m.nick)}" data-chan="${esc(chan)}" style="padding:2px 5px;font-size:9px">${m.voice ? '-v' : '+v'}</button>
+        <button class="btn btn-sm btn-danger mem-action" data-action="kick" data-nick="${esc(m.nick)}" data-chan="${esc(chan)}" style="padding:2px 5px;font-size:9px">kick</button>
+      </span>
+    </div>`;
   }).join('')}</div></td>`;
   row.after(tr);
+  tr.querySelectorAll('.mem-action').forEach(btn => btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    const act = btn.dataset.action, nick = btn.dataset.nick, ch = btn.dataset.chan;
+    let r;
+    if (act === 'kick') r = await apiPost('kick', { channel: ch, nick, reason: 'WebUI' });
+    else r = await apiPost(act, { channel: ch, nick });
+    if (r && r.ok) { toast(act + ' ' + nick, 'success'); toggleMembers(row, chan); toggleMembers(row, chan); }
+    else toast('Failed', 'error');
+  }));
 }
 
-/* ─── Users ─── */
+function showJoinModal() {
+  showModal(`
+    <h2>Join Channel</h2>
+    <label>Channel</label><input id="join-chan" placeholder="#channel">
+    <label>Key (optional)</label><input id="join-key" placeholder="">
+    <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Cancel</button><button class="btn btn-primary" id="join-submit">Join</button></div>
+  `);
+  setTimeout(() => {
+    $('#join-chan').focus();
+    $('#join-submit').addEventListener('click', async () => {
+      const ch = $('#join-chan').value.trim(), key = $('#join-key').value.trim();
+      if (!ch) return;
+      const r = await apiPost('join', { channel: ch, key: key || undefined });
+      if (r && r.ok) { hideModal(); toast('Joining ' + ch, 'success'); setTimeout(refreshChannels, 1000); }
+      else toast('Join failed', 'error');
+    });
+  }, 50);
+}
+
+function showTopicModal(chan) {
+  showModal(`
+    <h2>Set Topic: ${esc(chan)}</h2>
+    <label>Topic</label><input id="topic-val" placeholder="New topic...">
+    <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Cancel</button><button class="btn btn-primary" id="topic-submit">Set</button></div>
+  `);
+  setTimeout(() => {
+    $('#topic-val').focus();
+    $('#topic-submit').addEventListener('click', async () => {
+      const topic = $('#topic-val').value;
+      const r = await apiPost('topic', { channel: chan, topic });
+      if (r && r.ok) { hideModal(); toast('Topic set', 'success'); refreshChannels(); }
+      else toast('Failed', 'error');
+    });
+  }, 50);
+}
+
+async function showChannelListsModal(chan, activeTab = 'bans') {
+  const [bans, exempts, invites] = await Promise.all([
+    api('channels/' + encodeURIComponent(chan) + '/bans'),
+    api('channels/' + encodeURIComponent(chan) + '/exempts'),
+    api('channels/' + encodeURIComponent(chan) + '/invites')
+  ]);
+
+  function listHtml(items, removeAction, addLabel, addPlaceholder, addAction) {
+    const rows = (items && items.length)
+      ? '<div style="max-height:160px;overflow-y:auto;margin-bottom:10px">' +
+        items.map(b => `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border-subtle)">
+          <span style="font-family:var(--mono);font-size:11px">${esc(b.mask)}</span>
+          <button class="btn btn-danger btn-sm list-remove" data-mask="${esc(b.mask)}" data-action="${removeAction}">Remove</button>
+        </div>`).join('') + '</div>'
+      : '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">None</div>';
+    return rows + `<div style="display:flex;gap:6px"><input class="list-add-mask" placeholder="${addPlaceholder}" style="flex:1;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px"><button class="btn btn-primary list-add-btn" data-action="${addAction}">${addLabel}</button></div>`;
+  }
+
+  showModal(`
+    <h2>Channel Lists: ${esc(chan)}</h2>
+    <div class="tabs" style="margin-bottom:12px">
+      <span class="tab ${activeTab === 'bans' ? 'active' : ''}" data-tab="bans">Bans</span>
+      <span class="tab ${activeTab === 'exempts' ? 'active' : ''}" data-tab="exempts">Exempts</span>
+      <span class="tab ${activeTab === 'invites' ? 'active' : ''}" data-tab="invites">Invites</span>
+    </div>
+    <div id="lists-bans" style="display:${activeTab === 'bans' ? 'block' : 'none'}">${listHtml(bans, 'unban', 'Ban', '*!*@host', 'ban')}</div>
+    <div id="lists-exempts" style="display:${activeTab === 'exempts' ? 'block' : 'none'}">${listHtml(exempts, 'unexempt', 'Exempt', '*!*@host', 'exempt')}</div>
+    <div id="lists-invites" style="display:${activeTab === 'invites' ? 'block' : 'none'}">${listHtml(invites, 'uninvite', 'Invite', '*!*@host', 'invite')}</div>
+    <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Close</button></div>
+  `);
+
+  setTimeout(() => {
+    /* Tab switching */
+    $$('.tab[data-tab]').forEach(t => t.addEventListener('click', () => {
+      $$('.tab[data-tab]').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      ['bans', 'exempts', 'invites'].forEach(tab => {
+        const el = document.getElementById('lists-' + tab);
+        if (el) el.style.display = tab === t.dataset.tab ? 'block' : 'none';
+      });
+    }));
+
+    /* Remove buttons */
+    $$('.list-remove').forEach(btn => btn.addEventListener('click', async () => {
+      const mask = btn.dataset.mask, action = btn.dataset.action;
+      let r;
+      if (action === 'unban') r = await apiPost('unban', { channel: chan, mask });
+      else r = await apiPost('mode', { channel: chan, mode: (action === 'unexempt' ? '-e ' : '-I ') + mask });
+      if (r && r.ok) { toast('Removed', 'success'); showChannelListsModal(chan, $$('.tab.active[data-tab]')[0]?.dataset.tab || 'bans'); }
+      else toast('Failed', 'error');
+    }));
+
+    /* Add buttons */
+    $$('.list-add-btn').forEach(btn => btn.addEventListener('click', async () => {
+      const mask = btn.previousElementSibling.value.trim(), action = btn.dataset.action;
+      if (!mask) return;
+      let r;
+      if (action === 'ban') r = await apiPost('ban', { channel: chan, mask });
+      else r = await apiPost('mode', { channel: chan, mode: (action === 'exempt' ? '+e ' : '+I ') + mask });
+      if (r && r.ok) { toast('Added', 'success'); showChannelListsModal(chan, $$('.tab.active[data-tab]')[0]?.dataset.tab || 'bans'); }
+      else toast('Failed', 'error');
+    }));
+  }, 50);
+}
+
+function showBansModal(chan) { showChannelListsModal(chan, 'bans'); }
+
+async function showChanSettings(chan) {
+  const data = await api('channels/' + encodeURIComponent(chan) + '/settings');
+  if (!data) { toast('Failed to load settings', 'error'); return; }
+  const flags = data.flags || {};
+  const flagNames = Object.keys(flags);
+  showModal(`
+    <h2>Settings: ${esc(chan)}</h2>
+    <div style="max-height:320px;overflow-y:auto">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
+        ${flagNames.map(f => `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;margin:0;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-dim)"><input type="checkbox" class="cs-flag" data-flag="${f}" ${flags[f] ? 'checked' : ''}> ${f}</label>`).join('')}
+      </div>
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+          <div><span style="color:var(--text-muted)">Idle kick:</span> ${data.idle_kick}m</div>
+          <div><span style="color:var(--text-muted)">Ban time:</span> ${data.ban_time}m</div>
+          <div><span style="color:var(--text-muted)">Flood pub:</span> ${data.flood_pub[0]}:${data.flood_pub[1]}</div>
+          <div><span style="color:var(--text-muted)">Flood join:</span> ${data.flood_join[0]}:${data.flood_join[1]}</div>
+          <div><span style="color:var(--text-muted)">Flood kick:</span> ${data.flood_kick[0]}:${data.flood_kick[1]}</div>
+          <div><span style="color:var(--text-muted)">Flood ctcp:</span> ${data.flood_ctcp[0]}:${data.flood_ctcp[1]}</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Custom chanset string</label>
+        <input id="cs-raw" placeholder="+enforcebans -cycle idle-kick 0" style="margin-top:4px">
+      </div>
+    </div>
+    <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Cancel</button><button class="btn btn-primary" id="cs-save">Save</button></div>
+  `);
+  setTimeout(() => {
+    $('#cs-save').addEventListener('click', async () => {
+      let raw = $('#cs-raw').value.trim();
+      if (!raw) {
+        /* Build from checkboxes */
+        const parts = [];
+        $$('.cs-flag').forEach(cb => {
+          const was = flags[cb.dataset.flag];
+          if (cb.checked && !was) parts.push('+' + cb.dataset.flag);
+          if (!cb.checked && was) parts.push('-' + cb.dataset.flag);
+        });
+        raw = parts.join(' ');
+      }
+      if (!raw) { hideModal(); return; }
+      const r = await apiPost('channels/' + encodeURIComponent(chan) + '/settings', { settings: raw });
+      if (r && r.ok) { hideModal(); toast('Settings saved', 'success'); }
+      else toast('Failed to save', 'error');
+    });
+  }, 50);
+}
+
+/* ================================================================
+   USERS
+   ================================================================ */
+let usersCache = [];
+
 function renderUsers() {
   $('#main').innerHTML = `
+    <div class="page-hdr"><h2>Users</h2><button class="btn btn-primary btn-sm" id="add-user-btn">Add User</button></div>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <h3 style="margin:0">Registered Users</h3>
-        <button class="btn btn-primary btn-sm" id="add-user-btn">Add User</button>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input id="user-search" placeholder="Search handle..." style="flex:1;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px">
+        <select id="user-flag-filter" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px">
+          <option value="">All flags</option>
+          <option value="n">n — owner</option>
+          <option value="m">m — master</option>
+          <option value="o">o — op</option>
+          <option value="v">v — voice</option>
+          <option value="f">f — friend</option>
+          <option value="b">b — bot</option>
+          <option value="x">x — xfer</option>
+        </select>
       </div>
-      <div class="table-wrap"><table><thead><tr><th>Handle</th><th>Flags</th><th>Channels</th></tr></thead><tbody id="user-tbody"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Handle</th><th>Flags</th><th>Channels</th><th></th></tr></thead><tbody id="user-tbody"></tbody></table></div>
       <div id="user-detail"></div>
     </div>`;
   $('#add-user-btn').addEventListener('click', showAddUserModal);
+  $('#user-search').addEventListener('input', filterUsers);
+  $('#user-flag-filter').addEventListener('change', filterUsers);
   refreshUsers();
+}
+
+function filterUsers() {
+  const q = ($('#user-search') ? $('#user-search').value : '').toLowerCase();
+  const flag = $('#user-flag-filter') ? $('#user-flag-filter').value : '';
+  const filtered = usersCache.filter(u =>
+    (!q || u.handle.toLowerCase().includes(q)) &&
+    (!flag || (u.flags || '').includes(flag))
+  );
+  renderUserRows(filtered);
+}
+
+function renderUserRows(data) {
+  const tbody = $('#user-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = data.map(u => `
+    <tr class="expandable" data-handle="${esc(u.handle)}">
+      <td><strong>${esc(u.handle)}</strong></td>
+      <td><span class="badge badge-green">${esc(u.flags || '')}</span></td>
+      <td style="color:var(--text-dim);font-size:11px">${esc(u.channels || '--')}</td>
+      <td style="text-align:right">
+        <button class="btn btn-ghost btn-sm user-edit" data-handle="${esc(u.handle)}">Edit</button>
+        <button class="btn btn-danger btn-sm user-del" data-handle="${esc(u.handle)}">Delete</button>
+      </td>
+    </tr>`).join('');
+  tbody.querySelectorAll('tr.expandable').forEach(row => {
+    row.addEventListener('click', e => { if (e.target.closest('button')) return; showUserDetail(row.dataset.handle); });
+  });
+  tbody.querySelectorAll('.user-edit').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); showEditUserModal(btn.dataset.handle); }));
+  tbody.querySelectorAll('.user-del').forEach(btn => btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!confirm('Delete user "' + btn.dataset.handle + '"?')) return;
+    const r = await apiDelete('users/' + encodeURIComponent(btn.dataset.handle));
+    if (r && r.ok) { toast('Deleted', 'success'); refreshUsers(); const ud = $('#user-detail'); if (ud) ud.innerHTML = ''; }
+    else toast('Delete failed', 'error');
+  }));
 }
 
 async function refreshUsers() {
   const data = await api('users');
   if (!data) return;
-  const tbody = $('#user-tbody');
-  tbody.innerHTML = data.map(u => `
-    <tr class="expandable" data-handle="${esc(u.handle)}">
-      <td><strong>${esc(u.handle)}</strong></td>
-      <td><span class="badge badge-green">${esc(u.flags || '')}</span></td>
-      <td style="color:var(--text-dim);font-size:12px">${esc(u.channels || '--')}</td>
-    </tr>`).join('');
-  tbody.querySelectorAll('tr.expandable').forEach(row => {
-    row.addEventListener('click', () => showUserDetail(row.dataset.handle));
-  });
+  usersCache = data;
+  filterUsers();
 }
 
 async function showUserDetail(handle) {
@@ -508,24 +781,55 @@ async function showUserDetail(handle) {
   el.innerHTML = `
     <div class="detail-panel">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <h4>${esc(data.handle)} <span class="badge badge-green" style="margin-left:8px">${esc(data.flags || '')}</span></h4>
-        <button class="btn btn-danger btn-sm" id="del-user-btn">Delete</button>
+        <h4>${esc(data.handle)} <span class="badge badge-green" style="margin-left:6px">${esc(data.flags || '')}</span></h4>
       </div>
-      <div style="margin-top:12px">
-        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Hosts</div>
-        <div class="detail-hosts">${(data.hosts || []).map(h => esc(h)).join('<br>') || 'none'}</div>
+      <div style="margin-top:10px">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Hosts</div>
+        <div class="detail-hosts">${(data.hosts || []).map(h => `<div style="display:flex;align-items:center;gap:6px">${esc(h)} <button class="btn btn-danger btn-sm del-host" data-host="${esc(h)}" style="padding:2px 6px;font-size:9px">x</button></div>`).join('') || 'none'}</div>
+        <div class="form-row" style="margin-top:8px">
+          <div class="field"><input id="new-host" placeholder="*!*@host"></div>
+          <button class="btn btn-ghost btn-sm" id="add-host-btn">Add Host</button>
+        </div>
       </div>
       ${data.channels && data.channels.length ? `
-      <div style="margin-top:14px">
-        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Channel Flags</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">${data.channels.map(c => `<span class="badge badge-accent">${esc(c.name)} ${esc(c.flags || '')}</span>`).join('')}</div>
+      <div style="margin-top:12px">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Channel Flags</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${data.channels.map(c => `<span class="badge badge-accent">${esc(c.name)} ${esc(c.flags || '')}</span>`).join('')}</div>
       </div>` : ''}
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Password</div>
+        <div class="form-row" style="margin-top:4px">
+          <div class="field"><input id="chpass-val" type="password" placeholder="New password (blank to clear)"></div>
+          <button class="btn btn-ghost btn-sm" id="chpass-btn">Set</button>
+          <button class="btn btn-danger btn-sm" id="chpass-clear">Clear</button>
+        </div>
+      </div>
     </div>`;
-  $('#del-user-btn').addEventListener('click', async () => {
-    if (!confirm('Delete user "' + handle + '"?')) return;
-    const r = await apiDelete('users/' + encodeURIComponent(handle));
-    if (r && r.ok) { toast('User deleted', 'success'); refreshUsers(); el.innerHTML = ''; }
-    else toast('Delete failed', 'error');
+  el.querySelector('#chpass-btn').addEventListener('click', async () => {
+    const pw = el.querySelector('#chpass-val').value;
+    if (!pw) { toast('Enter a password or use Clear', 'error'); return; }
+    const r = await apiPost('chpass', { handle, password: pw });
+    if (r && r.ok) { toast('Password set', 'success'); el.querySelector('#chpass-val').value = ''; }
+    else toast('Failed', 'error');
+  });
+  el.querySelector('#chpass-clear').addEventListener('click', async () => {
+    if (!confirm('Clear password for ' + handle + '?')) return;
+    const r = await apiPost('chpass', { handle, password: '' });
+    if (r && r.ok) toast('Password cleared', 'success');
+    else toast('Failed', 'error');
+  });
+  el.querySelectorAll('.del-host').forEach(btn => btn.addEventListener('click', async () => {
+    const r = await apiDelete('users/' + encodeURIComponent(handle) + '/hosts', { host: btn.dataset.host });
+    if (r && r.ok) { toast('Host removed', 'success'); showUserDetail(handle); }
+    else toast('Failed', 'error');
+  }));
+  const addBtn = el.querySelector('#add-host-btn');
+  if (addBtn) addBtn.addEventListener('click', async () => {
+    const host = el.querySelector('#new-host').value.trim();
+    if (!host) return;
+    const r = await apiPost('users/' + encodeURIComponent(handle) + '/hosts', { host });
+    if (r && r.ok) { toast('Host added', 'success'); showUserDetail(handle); }
+    else toast('Failed', 'error');
   });
 }
 
@@ -542,18 +846,39 @@ function showAddUserModal() {
     $('#nu-submit').addEventListener('click', async () => {
       const h = $('#nu-handle').value.trim(), host = $('#nu-host').value.trim(), flags = $('#nu-flags').value.trim();
       if (!h) return;
-      const r = await apiPost('users', { handle: h, hostmask: host, flags: flags });
-      if (r && r.ok) { hideModal(); toast('User added: ' + h, 'success'); refreshUsers(); }
+      const r = await apiPost('users', { handle: h, hostmask: host, flags });
+      if (r && r.ok) { hideModal(); toast('User added', 'success'); refreshUsers(); }
       else toast('Failed to add user', 'error');
     });
   }, 50);
 }
 
-/* ─── Logs ─── */
+function showEditUserModal(handle) {
+  showModal(`
+    <h2>Edit Flags: ${esc(handle)}</h2>
+    <label>Global Flags</label><input id="ef-flags" placeholder="+o or -v+o">
+    <label>Channel (optional)</label><input id="ef-chan" placeholder="#channel (blank = global)">
+    <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Cancel</button><button class="btn btn-primary" id="ef-submit">Save</button></div>
+  `);
+  setTimeout(() => {
+    $('#ef-flags').focus();
+    $('#ef-submit').addEventListener('click', async () => {
+      const flags = $('#ef-flags').value.trim(), channel = $('#ef-chan').value.trim();
+      if (!flags) return;
+      const r = await apiPost('users/' + encodeURIComponent(handle) + '/flags', { flags, channel: channel || undefined });
+      if (r && r.ok) { hideModal(); toast('Flags updated', 'success'); refreshUsers(); }
+      else toast('Failed', 'error');
+    });
+  }, 50);
+}
+
+/* ================================================================
+   LOGS
+   ================================================================ */
 function renderLogs() {
   $('#main').innerHTML = `
-    <div class="card" style="display:flex;flex-direction:column;max-height:calc(100vh - 108px)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 96px)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <h3 style="margin:0">Live Logs</h3>
         <button class="btn btn-ghost btn-sm" id="log-pin">${pinnedToBottom ? 'Pinned' : 'Unpinned'}</button>
       </div>
@@ -563,14 +888,12 @@ function renderLogs() {
         <span class="pill" data-f="p">Public</span>
         <span class="pill" data-f="m">Msgs</span>
         <span class="pill" data-f="j">Joins</span>
-        <span class="pill" data-f="c">Cmds</span>
+        <span class="pill" data-f="o">Cmds</span>
+        <span class="pill" data-f="b">Bots</span>
       </div>
       <div class="log-viewer" id="log-viewer"></div>
     </div>`;
-  $('#log-pin').addEventListener('click', function() {
-    pinnedToBottom = !pinnedToBottom;
-    this.textContent = pinnedToBottom ? 'Pinned' : 'Unpinned';
-  });
+  $('#log-pin').addEventListener('click', function() { pinnedToBottom = !pinnedToBottom; this.textContent = pinnedToBottom ? 'Pinned' : 'Unpinned'; });
   $('#log-filters').querySelectorAll('.pill').forEach(p => {
     p.addEventListener('click', () => {
       $('#log-filters').querySelectorAll('.pill').forEach(x => x.classList.remove('active'));
@@ -597,7 +920,9 @@ function renderLogEntries() {
   if (pinnedToBottom) el.scrollTop = el.scrollHeight;
 }
 
-/* ─── Terminal ─── */
+/* ================================================================
+   TERMINAL
+   ================================================================ */
 function renderTerminal() {
   $('#main').innerHTML = `
     <div class="terminal">
@@ -642,31 +967,64 @@ function initTerminal() {
   inp.focus();
 }
 
-/* ─── Network ─── */
+/* ================================================================
+   NETWORK (botnet, ignores, modules, DCC)
+   ================================================================ */
 function renderNetwork() {
   $('#main').innerHTML = `
-    <div class="grid" style="gap:20px">
-      <div class="card"><h3>Botnet Peers</h3><div class="table-wrap"><table><thead><tr><th>Handle</th><th>Address</th><th>Flags</th><th>Version</th></tr></thead><tbody id="botnet-tbody"></tbody></table></div></div>
+    <div class="page-hdr"><h2>Network</h2><button class="btn btn-ghost btn-sm" id="net-autorefresh">Auto-refresh: Off</button></div>
+    <div class="grid" style="gap:16px">
+      <div class="card"><h3>Botnet Peers</h3><div class="table-wrap"><table><thead><tr><th>Handle</th><th>Address</th><th>Version</th></tr></thead><tbody id="botnet-tbody"></tbody></table></div></div>
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <h3 style="margin:0">Ignore List</h3>
           <button class="btn btn-primary btn-sm" id="add-ignore-btn">Add Ignore</button>
         </div>
         <div class="table-wrap"><table><thead><tr><th>Mask</th><th>By</th><th>Reason</th><th>Expires</th><th></th></tr></thead><tbody id="ignore-tbody"></tbody></table></div>
       </div>
-      <div class="card"><h3>Loaded Modules</h3><div class="table-wrap"><table><thead><tr><th>Module</th><th>Version</th></tr></thead><tbody id="modules-tbody"></tbody></table></div></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <h3 style="margin:0">Loaded Modules</h3>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Module</th><th>Version</th><th></th></tr></thead><tbody id="modules-tbody"></tbody></table></div>
+          <div class="form-row" style="margin-top:10px">
+            <div class="field"><input id="loadmod-name" placeholder="module name"></div>
+            <button class="btn btn-primary btn-sm" id="loadmod-btn">Load</button>
+          </div>
+        </div>
+        <div class="card"><h3>Active Connections</h3><div class="table-wrap"><table><thead><tr><th>Idx</th><th>Nick</th><th>Host</th><th>Type</th></tr></thead><tbody id="dcc-tbody"></tbody></table></div></div>
+      </div>
+      <div class="card">
+        <h3>Timers</h3>
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Command</th><th>Interval</th><th>Repeats</th><th></th></tr></thead><tbody id="timers-tbody"></tbody></table></div>
+      </div>
     </div>`;
   $('#add-ignore-btn').addEventListener('click', showAddIgnoreModal);
+  let netAR = false;
+  $('#net-autorefresh').addEventListener('click', function() {
+    netAR = !netAR;
+    this.textContent = 'Auto-refresh: ' + (netAR ? 'On' : 'Off');
+    this.className = 'btn btn-sm ' + (netAR ? 'btn-primary' : 'btn-ghost');
+    if (netAR) startAutoRefresh(refreshNetwork); else stopAutoRefresh();
+  });
+  $('#loadmod-btn').addEventListener('click', async () => {
+    const name = $('#loadmod-name').value.trim();
+    if (!name) return;
+    const r = await apiPost('loadmod', { module: name });
+    if (r && r.ok) { toast('Loaded ' + name, 'success'); $('#loadmod-name').value = ''; refreshNetwork(); }
+    else toast(r && r.error ? r.error : 'Failed', 'error');
+  });
   refreshNetwork();
 }
 
 async function refreshNetwork() {
-  const [botnet, ignores, modules] = await Promise.all([api('botnet'), api('ignores'), api('modules')]);
+  const [botnet, ignores, modules, dcc, timers] = await Promise.all([api('botnet'), api('ignores'), api('modules'), api('dcc'), api('timers')]);
   if (botnet) {
-    $('#botnet-tbody').innerHTML = botnet.length ? botnet.map(b => `<tr><td>${esc(b.handle)}</td><td style="font-family:var(--mono);font-size:12px">${esc(b.address || '')}</td><td><span class="badge badge-green">${esc(b.flags || '')}</span></td><td style="color:var(--text-dim)">${esc(b.version || '')}</td></tr>`).join('') : '<tr><td colspan="4" style="color:var(--text-muted)">No peers connected</td></tr>';
+    $('#botnet-tbody').innerHTML = botnet.length ? botnet.map(b => `<tr><td>${esc(b.handle)}</td><td style="font-family:var(--mono);font-size:11px">${esc(b.address || '')}</td><td style="color:var(--text-dim)">${esc(b.version || '')}</td></tr>`).join('') : '<tr><td colspan="3" style="color:var(--text-muted)">No peers connected</td></tr>';
   }
   if (ignores) {
-    $('#ignore-tbody').innerHTML = ignores.length ? ignores.map(ig => `<tr><td style="font-family:var(--mono);font-size:12px">${esc(ig.mask)}</td><td>${esc(ig.by || '')}</td><td style="color:var(--text-dim)">${esc(ig.reason || '')}</td><td style="color:var(--text-dim)">${ig.expires ? formatTime(ig.expires) : 'perm'}</td><td><button class="btn btn-danger btn-sm del-ignore" data-mask="${esc(ig.mask)}">Remove</button></td></tr>`).join('') : '<tr><td colspan="5" style="color:var(--text-muted)">No ignores</td></tr>';
+    $('#ignore-tbody').innerHTML = ignores.length ? ignores.map(ig => `<tr><td style="font-family:var(--mono);font-size:11px">${esc(ig.mask)}</td><td>${esc(ig.by || '')}</td><td style="color:var(--text-dim)">${esc(ig.reason || '')}</td><td style="color:var(--text-dim)">${ig.expires ? formatTime(ig.expires) : 'perm'}</td><td><button class="btn btn-danger btn-sm del-ignore" data-mask="${esc(ig.mask)}">Remove</button></td></tr>`).join('') : '<tr><td colspan="5" style="color:var(--text-muted)">No ignores</td></tr>';
     $$('.del-ignore').forEach(btn => btn.addEventListener('click', async () => {
       const r = await apiDelete('ignores', { mask: btn.dataset.mask });
       if (r && r.ok) { toast('Ignore removed', 'success'); refreshNetwork(); }
@@ -674,7 +1032,36 @@ async function refreshNetwork() {
     }));
   }
   if (modules) {
-    $('#modules-tbody').innerHTML = modules.map(m => `<tr><td>${esc(m.name)}</td><td style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">${esc(m.version || '')}</td></tr>`).join('');
+    $('#modules-tbody').innerHTML = modules.map(m => `<tr><td>${esc(m.name)}</td><td style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">${esc(m.version || '')}</td><td style="text-align:right"><button class="btn btn-danger btn-sm unload-mod" data-mod="${esc(m.name)}">Unload</button></td></tr>`).join('');
+    $$('.unload-mod').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('Unload module "' + btn.dataset.mod + '"?')) return;
+      const r = await apiPost('unloadmod', { module: btn.dataset.mod });
+      if (r && r.ok) { toast('Unloaded ' + btn.dataset.mod, 'success'); refreshNetwork(); }
+      else toast(r && r.error ? r.error : 'Failed', 'error');
+    }));
+  }
+  if (dcc) {
+    $('#dcc-tbody').innerHTML = dcc.length ? dcc.map(d => `<tr><td style="font-family:var(--mono)">${d.idx}</td><td>${esc(d.nick)}</td><td style="font-family:var(--mono);font-size:11px">${esc(d.host || '')}</td><td><span class="badge badge-purple">${esc(d.type)}</span></td></tr>`).join('') : '<tr><td colspan="4" style="color:var(--text-muted)">No connections</td></tr>';
+  }
+  if (timers) {
+    const tbody = $('#timers-tbody');
+    if (tbody) {
+      tbody.innerHTML = timers.length ? timers.map(t => `
+        <tr>
+          <td style="font-family:var(--mono);font-size:11px">${esc(t.id)}</td>
+          <td><span class="badge badge-${t.type === 'timer' ? 'accent' : 'blue'}">${esc(t.type)}</span></td>
+          <td style="font-family:var(--mono);font-size:11px">${esc(t.name || '')}</td>
+          <td style="font-family:var(--mono);font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.cmd || '')}</td>
+          <td style="color:var(--text-dim)">${t.type === 'timer' ? t.interval + 'm' : t.interval + 's'}</td>
+          <td style="color:var(--text-dim)">${t.count === 0 ? '∞' : t.count}</td>
+          <td style="text-align:right"><button class="btn btn-danger btn-sm del-timer" data-id="${esc(t.id)}">Remove</button></td>
+        </tr>`).join('') : '<tr><td colspan="7" style="color:var(--text-muted)">No timers</td></tr>';
+      tbody.querySelectorAll('.del-timer').forEach(btn => btn.addEventListener('click', async () => {
+        const r = await apiDelete('timers', { id: btn.dataset.id });
+        if (r && r.ok) { toast('Timer removed', 'success'); refreshNetwork(); }
+        else toast(r && r.error ? r.error : 'Failed', 'error');
+      }));
+    }
   }
 }
 
@@ -698,58 +1085,414 @@ function showAddIgnoreModal() {
   }, 50);
 }
 
-/* ─── Settings ─── */
-function renderSettings() {
+/* ================================================================
+   IRC CONTROL (say, kick, mode, nick, op, voice, invite, ban, raw)
+   ================================================================ */
+function renderIRC() {
   $('#main').innerHTML = `
-    <div class="grid" style="gap:20px;max-width:560px">
+    <div class="page-hdr"><h2>IRC Control</h2></div>
+    <div class="grid grid-2" style="gap:16px">
       <div class="card">
         <h3>Send Message</h3>
-        <div style="margin-top:12px">
-          <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:5px">Channel</label>
-          <select id="say-chan" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;margin-bottom:12px"></select>
-          <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:5px">Message</label>
-          <input id="say-msg" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px" placeholder="Type message...">
-          <button class="btn btn-primary" style="margin-top:12px" id="say-btn">Send</button>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="say-chan"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Message</label><input id="say-msg" placeholder="Type message..."></div>
+          <button class="btn btn-primary" id="say-btn">Send</button>
+        </div>
+        <div class="form-row" style="margin-top:6px">
+          <div class="field"><label>Action (/me)</label><input id="act-msg" placeholder="waves hello"></div>
+          <button class="btn btn-ghost" id="act-btn">Act</button>
         </div>
       </div>
       <div class="card">
-        <h3>Kick User</h3>
-        <div style="margin-top:12px">
-          <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:5px">Channel</label>
-          <select id="kick-chan" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;margin-bottom:12px"></select>
-          <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:5px">Nick</label>
-          <input id="kick-nick" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;margin-bottom:12px" placeholder="nick">
-          <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:5px">Reason</label>
-          <input id="kick-reason" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px" placeholder="optional reason">
-          <button class="btn btn-primary" style="margin-top:12px" id="kick-btn">Kick</button>
+        <h3>Private Message / Notice</h3>
+        <div class="form-row">
+          <div class="field"><label>Target (nick or channel)</label><input id="msg-target" placeholder="nick or #channel"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Message</label><input id="msg-text" placeholder="Type message..."></div>
+          <button class="btn btn-primary" id="msg-btn">Send</button>
+        </div>
+        <div class="form-row" style="margin-top:6px">
+          <div class="field"><label>Notice</label><input id="notice-text" placeholder="Notice text..."></div>
+          <button class="btn btn-ghost" id="notice-btn">Notice</button>
+        </div>
+        <div class="form-row" style="margin-top:6px">
+          <div class="field"><label>Action (/me)</label><input id="msgact-text" placeholder="waves hello"></div>
+          <button class="btn btn-ghost" id="msgact-btn">Act</button>
         </div>
       </div>
       <div class="card">
-        <h3>Bot Control</h3>
-        <p style="font-size:12px;color:var(--text-dim);margin:10px 0">Restart the bot process. The bot will disconnect and reconnect.</p>
-        <button class="btn btn-danger" id="restart-btn">Restart Bot</button>
+        <h3>Kick / Kickban</h3>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="kick-chan"></select></div>
+          <div class="field"><label>Nick</label><input id="kick-nick" placeholder="nick"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Reason</label><input id="kick-reason" placeholder="optional"></div>
+          <button class="btn btn-primary" id="kick-btn">Kick</button>
+          <button class="btn btn-danger" id="kickban-btn">Kick+Ban</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Op / Deop</h3>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="op-chan"></select></div>
+          <div class="field"><label>Nick</label><input id="op-nick" placeholder="nick"></div>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="op-btn">+o</button>
+          <button class="btn btn-ghost" id="deop-btn">-o</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Voice / Devoice</h3>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="voice-chan"></select></div>
+          <div class="field"><label>Nick</label><input id="voice-nick" placeholder="nick"></div>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="voice-btn">+v</button>
+          <button class="btn btn-ghost" id="devoice-btn">-v</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Invite User</h3>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="invite-chan"></select></div>
+          <div class="field"><label>Nick</label><input id="invite-nick" placeholder="nick"></div>
+          <button class="btn btn-primary" id="invite-btn">Invite</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Set Mode</h3>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="mode-chan"></select></div>
+          <div class="field"><label>Mode</label><input id="mode-str" placeholder="+o nick"></div>
+          <button class="btn btn-primary" id="mode-btn">Set</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Change Nick</h3>
+        <div class="form-row">
+          <div class="field"><label>New Nick</label><input id="nick-val" placeholder="newnick"></div>
+          <button class="btn btn-primary" id="nick-btn">Change</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Ban / Unban</h3>
+        <div class="form-row">
+          <div class="field"><label>Channel</label><select id="ban-chan"></select></div>
+          <div class="field"><label>Mask</label><input id="ban-mask2" placeholder="*!*@host"></div>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="ban-btn2">Ban</button>
+          <button class="btn btn-ghost" id="unban-btn2">Unban</button>
+        </div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>Raw IRC Command</h3>
+        <div class="form-row">
+          <div class="field"><label>Command</label><input id="raw-cmd" placeholder="PRIVMSG #channel :hello" style="font-family:var(--mono)"></div>
+          <button class="btn btn-primary" id="raw-btn">Send</button>
+        </div>
       </div>
     </div>`;
-  loadSettingsChannels();
+  loadIRCChannels();
   $('#say-btn').addEventListener('click', async () => {
     const ch = $('#say-chan').value, msg = $('#say-msg').value.trim();
     if (!ch || !msg) return;
     const r = await apiPost('say', { channel: ch, message: msg });
-    if (r && r.ok) { toast('Message sent', 'success'); $('#say-msg').value = ''; }
-    else toast('Failed to send', 'error');
+    if (r && r.ok) { toast('Sent', 'success'); $('#say-msg').value = ''; }
+    else toast('Send failed', 'error');
   });
   $('#say-msg').addEventListener('keydown', e => { if (e.key === 'Enter') $('#say-btn').click(); });
+  $('#act-btn').addEventListener('click', async () => {
+    const target = $('#say-chan').value, action = $('#act-msg').value.trim();
+    if (!target || !action) return;
+    const r = await apiPost('act', { target, action });
+    if (r && r.ok) { toast('Action sent', 'success'); $('#act-msg').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#msg-btn').addEventListener('click', async () => {
+    const target = $('#msg-target').value.trim(), message = $('#msg-text').value.trim();
+    if (!target || !message) return;
+    const r = await apiPost('msg', { target, message });
+    if (r && r.ok) { toast('Message sent', 'success'); $('#msg-text').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#msg-text').addEventListener('keydown', e => { if (e.key === 'Enter') $('#msg-btn').click(); });
+  $('#notice-btn').addEventListener('click', async () => {
+    const target = $('#msg-target').value.trim(), message = $('#notice-text').value.trim();
+    if (!target || !message) return;
+    const r = await apiPost('notice', { target, message });
+    if (r && r.ok) { toast('Notice sent', 'success'); $('#notice-text').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#msgact-btn').addEventListener('click', async () => {
+    const target = $('#msg-target').value.trim(), action = $('#msgact-text').value.trim();
+    if (!target || !action) return;
+    const r = await apiPost('act', { target, action });
+    if (r && r.ok) { toast('Action sent', 'success'); $('#msgact-text').value = ''; }
+    else toast('Failed', 'error');
+  });
   $('#kick-btn').addEventListener('click', async () => {
     const ch = $('#kick-chan').value, nick = $('#kick-nick').value.trim(), reason = $('#kick-reason').value.trim();
     if (!ch || !nick) return;
     const r = await apiPost('kick', { channel: ch, nick, reason: reason || 'Kicked' });
-    if (r && r.ok) { toast('Kicked ' + nick, 'success'); $('#kick-nick').value = ''; $('#kick-reason').value = ''; }
+    if (r && r.ok) { toast('Kicked ' + nick, 'success'); $('#kick-nick').value = ''; }
     else toast('Kick failed', 'error');
+  });
+  $('#kickban-btn').addEventListener('click', async () => {
+    const ch = $('#kick-chan').value, nick = $('#kick-nick').value.trim(), reason = $('#kick-reason').value.trim();
+    if (!ch || !nick) return;
+    const r = await apiPost('kickban', { channel: ch, nick, reason: reason || 'Banned' });
+    if (r && r.ok) { toast('Kick+banned ' + nick, 'success'); $('#kick-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#op-btn').addEventListener('click', async () => {
+    const ch = $('#op-chan').value, nick = $('#op-nick').value.trim();
+    if (!ch || !nick) return;
+    const r = await apiPost('op', { channel: ch, nick });
+    if (r && r.ok) { toast('Opped ' + nick, 'success'); $('#op-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#deop-btn').addEventListener('click', async () => {
+    const ch = $('#op-chan').value, nick = $('#op-nick').value.trim();
+    if (!ch || !nick) return;
+    const r = await apiPost('deop', { channel: ch, nick });
+    if (r && r.ok) { toast('Deopped ' + nick, 'success'); $('#op-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#voice-btn').addEventListener('click', async () => {
+    const ch = $('#voice-chan').value, nick = $('#voice-nick').value.trim();
+    if (!ch || !nick) return;
+    const r = await apiPost('voice', { channel: ch, nick });
+    if (r && r.ok) { toast('Voiced ' + nick, 'success'); $('#voice-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#devoice-btn').addEventListener('click', async () => {
+    const ch = $('#voice-chan').value, nick = $('#voice-nick').value.trim();
+    if (!ch || !nick) return;
+    const r = await apiPost('devoice', { channel: ch, nick });
+    if (r && r.ok) { toast('Devoiced ' + nick, 'success'); $('#voice-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#invite-btn').addEventListener('click', async () => {
+    const ch = $('#invite-chan').value, nick = $('#invite-nick').value.trim();
+    if (!ch || !nick) return;
+    const r = await apiPost('invite', { channel: ch, nick });
+    if (r && r.ok) { toast('Invited ' + nick, 'success'); $('#invite-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#mode-btn').addEventListener('click', async () => {
+    const ch = $('#mode-chan').value, mode = $('#mode-str').value.trim();
+    if (!ch || !mode) return;
+    const r = await apiPost('mode', { channel: ch, mode });
+    if (r && r.ok) { toast('Mode set', 'success'); $('#mode-str').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#nick-btn').addEventListener('click', async () => {
+    const nick = $('#nick-val').value.trim();
+    if (!nick) return;
+    const r = await apiPost('nick', { nick });
+    if (r && r.ok) { toast('Nick change sent', 'success'); $('#nick-val').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#ban-btn2').addEventListener('click', async () => {
+    const ch = $('#ban-chan').value, mask = $('#ban-mask2').value.trim();
+    if (!ch || !mask) return;
+    const r = await apiPost('ban', { channel: ch, mask });
+    if (r && r.ok) { toast('Banned ' + mask, 'success'); $('#ban-mask2').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#unban-btn2').addEventListener('click', async () => {
+    const ch = $('#ban-chan').value, mask = $('#ban-mask2').value.trim();
+    if (!ch || !mask) return;
+    const r = await apiPost('unban', { channel: ch, mask });
+    if (r && r.ok) { toast('Unbanned ' + mask, 'success'); $('#ban-mask2').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#raw-btn').addEventListener('click', async () => {
+    const cmd = $('#raw-cmd').value.trim();
+    if (!cmd) return;
+    const r = await apiPost('raw', { command: cmd });
+    if (r && r.ok) { toast('Sent', 'success'); $('#raw-cmd').value = ''; }
+    else toast('Failed', 'error');
+  });
+  $('#raw-cmd').addEventListener('keydown', e => { if (e.key === 'Enter') $('#raw-btn').click(); });
+}
+
+async function loadIRCChannels() {
+  const data = await api('channels');
+  if (!data) return;
+  const opts = data.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  ['say-chan', 'kick-chan', 'mode-chan', 'op-chan', 'voice-chan', 'invite-chan', 'ban-chan'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = opts; });
+}
+
+/* ================================================================
+   CONFIG (config file viewer + script loader)
+   ================================================================ */
+function renderConfig() {
+  $('#main').innerHTML = `
+    <div class="page-hdr"><h2>Configuration</h2></div>
+    <div class="grid" style="gap:16px">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h3 style="margin:0">Config File</h3>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" id="cfg-reload">Reload</button>
+            <button class="btn btn-primary btn-sm" id="cfg-save">Save</button>
+          </div>
+        </div>
+        <div id="cfg-filename" style="font-size:10px;font-family:var(--mono);color:var(--text-muted);margin-bottom:6px"></div>
+        <textarea id="cfg-content" rows="24" style="width:100%;padding:10px 12px;background:oklch(11% 0.008 260);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-dim);font-family:var(--mono);font-size:11px;line-height:1.6;resize:vertical"></textarea>
+        <p style="font-size:10px;color:var(--text-muted);margin-top:6px">Changes take effect after Rehash (System page).</p>
+      </div>
+      <div class="card">
+        <h3>Load TCL Script</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:6px 0 10px">Load a TCL script file from the bot's filesystem.</p>
+        <div class="form-row">
+          <div class="field"><label>Script Path</label><input id="script-path" placeholder="/path/to/script.tcl" style="font-family:var(--mono)"></div>
+          <button class="btn btn-primary" id="script-load">Load</button>
+        </div>
+      </div>
+    </div>`;
+  $('#cfg-reload').addEventListener('click', refreshConfig);
+  $('#cfg-save').addEventListener('click', async () => {
+    const content = $('#cfg-content').value;
+    const r = await apiPost('config', { content });
+    if (r && r.ok) toast('Config saved — rehash to apply', 'success');
+    else toast('Save failed', 'error');
+  });
+  $('#script-load').addEventListener('click', async () => {
+    const path = $('#script-path').value.trim();
+    if (!path) return;
+    const r = await apiPost('loadscript', { path });
+    if (r && r.ok) { toast('Script loaded', 'success'); $('#script-path').value = ''; }
+    else toast('Load failed', 'error');
+  });
+  refreshConfig();
+}
+
+async function refreshConfig() {
+  const data = await api('config');
+  if (data) {
+    const fn = document.getElementById('cfg-filename');
+    const ct = document.getElementById('cfg-content');
+    if (fn) fn.textContent = data.filename || '';
+    if (ct) ct.value = data.content || '';
+  }
+}
+
+/* ================================================================
+   SYSTEM (save, rehash, restart, die)
+   ================================================================ */
+function renderSystem() {
+  $('#main').innerHTML = `
+    <div class="page-hdr"><h2>System</h2></div>
+    <div class="grid grid-2" style="gap:16px;max-width:640px">
+      <div class="card">
+        <h3>Save Userfile</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Write the current userfile to disk.</p>
+        <button class="btn btn-primary" id="save-btn">Save</button>
+      </div>
+      <div class="card">
+        <h3>Rehash</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Reload configuration file.</p>
+        <button class="btn btn-primary" id="rehash-btn">Rehash</button>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>Jump Server</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Disconnect and connect to a different IRC server.</p>
+        <div class="form-row">
+          <div class="field"><label>Server</label><input id="jump-server" placeholder="irc.libera.chat"></div>
+          <div class="field"><label>Port</label><input id="jump-port" type="number" placeholder="6697"></div>
+          <div class="field"><label>Password</label><input id="jump-pass" type="password" placeholder="optional"></div>
+          <button class="btn btn-primary" id="jump-btn">Jump</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Restart</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Restart the bot process. Connections will be temporarily dropped.</p>
+        <button class="btn btn-danger" id="restart-btn">Restart</button>
+      </div>
+      <div class="card">
+        <h3>Shutdown</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Permanently stop the bot.</p>
+        <button class="btn btn-danger" id="die-btn">Shutdown</button>
+      </div>
+      <div class="card">
+        <h3>CTCP Query</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:6px 0 10px">Send a CTCP request to a nick. Response appears in Logs.</p>
+        <div class="form-row">
+          <div class="field"><label>Nick</label><input id="ctcp-nick" placeholder="nick"></div>
+          <div class="field"><label>Type</label><select id="ctcp-type" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px">
+            <option>VERSION</option><option>PING</option><option>TIME</option><option>USERINFO</option><option>CLIENTINFO</option>
+          </select></div>
+          <button class="btn btn-primary" id="ctcp-btn">Send</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Backup Userfile</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Download the current userfile as a text backup.</p>
+        <a id="userfile-dl" href="/api/userfile" class="btn btn-ghost" style="display:inline-block" download="eggdrop.user">Download Userfile</a>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>TCL Eval</h3>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0">Execute a TCL expression directly. Output appears in the Logs view.</p>
+        <textarea id="tcl-script" rows="4" style="width:100%;padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:12px;resize:vertical;margin-top:4px" placeholder="putlog &quot;hello world&quot;"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button class="btn btn-primary" id="tcl-run">Run</button>
+          <button class="btn btn-ghost" id="tcl-clear">Clear</button>
+        </div>
+      </div>
+    </div>`;
+  $('#ctcp-btn').addEventListener('click', async () => {
+    const target = $('#ctcp-nick').value.trim(), type = $('#ctcp-type').value;
+    if (!target) { toast('Enter a nick', 'error'); return; }
+    const r = await apiPost('ctcp', { target, type });
+    if (r && r.ok) { toast('CTCP ' + type + ' sent to ' + target, 'success'); $('#ctcp-nick').value = ''; }
+    else toast('Failed', 'error');
+  });
+  /* Append token to download link so the server can auth it */
+  const dlLink = $('#userfile-dl');
+  if (dlLink && getToken()) dlLink.href = '/api/userfile?token=' + encodeURIComponent(getToken());
+  $('#tcl-run').addEventListener('click', async () => {
+    const script = $('#tcl-script').value.trim();
+    if (!script) return;
+    const r = await apiPost('tcl', { script });
+    if (r && r.ok) { toast('TCL executed — check Logs', 'success'); }
+    else toast('TCL failed', 'error');
+  });
+  $('#tcl-clear').addEventListener('click', () => { $('#tcl-script').value = ''; });
+  $('#save-btn').addEventListener('click', async () => {
+    const r = await apiPost('save', {});
+    if (r && r.ok) toast('Userfile saved', 'success');
+    else toast('Save failed', 'error');
+  });
+  $('#jump-btn').addEventListener('click', async () => {
+    const server = $('#jump-server').value.trim(), port = parseInt($('#jump-port').value) || 0, pass = $('#jump-pass').value.trim();
+    if (!server) { toast('Enter a server address', 'error'); return; }
+    const body = { server };
+    if (port) body.port = port;
+    if (pass) body.password = pass;
+    const r = await apiPost('jump', body);
+    if (r && r.ok) { toast('Jumping to ' + server, 'success'); $('#jump-server').value = ''; $('#jump-port').value = ''; $('#jump-pass').value = ''; }
+    else toast('Jump failed', 'error');
+  });
+  $('#rehash-btn').addEventListener('click', async () => {
+    if (!confirm('Rehash configuration?')) return;
+    const r = await apiPost('rehash', {});
+    if (r && r.ok) toast('Rehashing...', 'success');
+    else toast('Rehash failed', 'error');
   });
   $('#restart-btn').addEventListener('click', () => {
     showModal(`
       <h2>Confirm Restart</h2>
-      <p style="font-size:13px;color:var(--text-dim);margin:12px 0">Are you sure you want to restart the bot? All connections will be temporarily dropped.</p>
+      <p style="font-size:12px;color:var(--text-dim);margin:10px 0">All connections will be temporarily dropped.</p>
       <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Cancel</button><button class="btn btn-danger" id="confirm-restart">Restart</button></div>
     `);
     setTimeout(() => {
@@ -757,22 +1500,32 @@ function renderSettings() {
         const r = await apiPost('restart', {});
         hideModal();
         if (r && r.ok) toast('Restarting...', 'success');
-        else toast('Restart failed', 'error');
+        else toast('Failed', 'error');
+      });
+    }, 50);
+  });
+  $('#die-btn').addEventListener('click', () => {
+    showModal(`
+      <h2>Confirm Shutdown</h2>
+      <p style="font-size:12px;color:var(--text-dim);margin:10px 0">This will permanently stop the bot. You will need shell access to restart it.</p>
+      <label>Quit Reason</label><input id="die-reason" value="Shutdown from WebUI">
+      <div class="actions"><button class="btn btn-ghost" onclick="hideModal()">Cancel</button><button class="btn btn-danger" id="confirm-die">Shutdown</button></div>
+    `);
+    setTimeout(() => {
+      $('#confirm-die').addEventListener('click', async () => {
+        const reason = $('#die-reason').value.trim() || 'WebUI shutdown';
+        const r = await apiPost('die', { reason });
+        hideModal();
+        if (r && r.ok) toast('Shutting down...', 'success');
+        else toast('Failed', 'error');
       });
     }, 50);
   });
 }
 
-async function loadSettingsChannels() {
-  const data = await api('channels');
-  if (!data) return;
-  const opts = data.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
-  const sc = $('#say-chan'), kc = $('#kick-chan');
-  if (sc) sc.innerHTML = opts;
-  if (kc) kc.innerHTML = opts;
-}
-
-/* ─── WebSocket (live data) ─── */
+/* ================================================================
+   WEBSOCKET (live push)
+   ================================================================ */
 function connectWS() {
   if (ws && ws.readyState <= 1) ws.close();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -794,7 +1547,7 @@ function connectWS() {
         if (currentView === 'dashboard') renderActivityFeed();
       } else if (frame.type === 'status' && frame.data) {
         const s = frame.data;
-        $('#hdr-status').textContent = (s.nick || '') + ' @ ' + (s.server || 'disconnected');
+        $('#hdr-status').textContent = (s.nick || '') + (s.server ? ' @ ' + s.server : '');
         if (currentView === 'dashboard') {
           const el = id => document.getElementById(id);
           if (el('d-uptime') && s.uptime != null) el('d-uptime').textContent = formatUptime(s.uptime);
@@ -806,10 +1559,18 @@ function connectWS() {
   });
 }
 
-/* ─── Auto-refresh ─── */
+/* Auto-refresh */
+let autoRefreshInterval = null;
+function startAutoRefresh(fn, ms = 10000) {
+  stopAutoRefresh();
+  autoRefreshInterval = setInterval(fn, ms);
+}
+function stopAutoRefresh() {
+  if (autoRefreshInterval) { clearInterval(autoRefreshInterval); autoRefreshInterval = null; }
+}
 setInterval(() => { if (currentView === 'dashboard') refreshDashboard(); }, 8000);
 
-/* ─── Boot ─── */
+/* Boot */
 switchView('dashboard');
 connectWS();
 </script>

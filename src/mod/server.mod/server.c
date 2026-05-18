@@ -75,8 +75,7 @@ static time_t server_cycle_wait;        /* seconds to wait before
                                          * re-beginning the server list */
 static char botrealname[81];    /* realname of bot */
 static int server_timeout;      /* server timeout for connecting */
-static struct server_list *serverlist;  /* old-style queue, still used by
-                                         * server list */
+static op_vec_t serverlist_vec;         /* server list */
 static int cycle_time;          /* cycle time till next server connect */
 static int default_port;        /* default IRC port */
 static char oldnick[NICKLEN];   /* previous nickname *before* rehash */
@@ -117,7 +116,7 @@ static char sslserver = 0;
 static int monitor005 = 0;      /* Monitor */
 static int max_monitor = 0;     /* Maximum # of monitored nicks, from server */
 static int monitor732 = 0;      /* Monitor */
-static struct monitor_list *monitor = nullptr;
+static op_vec_t monitor_vec;
 
 /* =========================================================================
  * IRCX / Ophion network state (https://github.com/devinkbrown/ophion)
@@ -130,11 +129,13 @@ static int ircx_prop_support = 0;      /* Server supports PROP command        */
 static char ircx_network[64] = "";     /* Reported IRCX network name          */
 static char ircx_default_ownerkey[128] = ""; /* Global default OWNERKEY       */
 
-/* IRCX access list (per-channel HOST/OWNER/VOICE/GRANT/DENY entries) */
+/* IRCX access list (per-channel HOST/OWNER/VOICE/GRANT/DENY entries) — unpopulated placeholder */
 static ircx_access_t *ircx_access_list = nullptr;
 
 /* IRCX auto-owner channel list */
-static ircx_autoowner_t *ircx_autoowner_list = nullptr;
+static op_vec_t ircx_autoowner_vec;
+static op_bh   *ircx_autoowner_bh   = nullptr;
+static op_bh   *server_list_bh      = nullptr;
 
 
 static p_tcl_bind_list H_wall, H_raw, H_notc, H_msgm, H_msg, H_flud, H_ctcr,
@@ -158,6 +159,7 @@ static int add_server(const char *, const char *, const char *);
 static void old_add_server(const char *);
 static int del_server(const char *, const char *);
 static void free_server(struct server_list *);
+static void clearq(void);
 
 /* Forward declarations for IRCX/Ophion helper functions (defined after
  * tclserv.c is included, so we must declare them here first). */
@@ -336,7 +338,7 @@ static int calc_penalty(char *msg)
     return 0;
   }
   penalty = (1 + i / 100);
-  if (!strcasecmp(cmd, "KICK")) {
+  if (!op_strcasecmp(cmd, "KICK")) {
     par1 = newsplit(&msg);      /* channel */
     par2 = newsplit(&msg);      /* victim(s) */
     par3 = splitnicks(&par2);
@@ -351,7 +353,7 @@ static int calc_penalty(char *msg)
       par3 = splitnicks(&par1);
       penalty += ii;
     }
-  } else if (!strcasecmp(cmd, "MODE")) {
+  } else if (!op_strcasecmp(cmd, "MODE")) {
     i = 0;
     par1 = newsplit(&msg);      /* channel */
     par2 = newsplit(&msg);      /* mode(s) */
@@ -374,7 +376,7 @@ static int calc_penalty(char *msg)
       ii++;
     }
     penalty += (ii * i);
-  } else if (!strcasecmp(cmd, "TOPIC")) {
+  } else if (!op_strcasecmp(cmd, "TOPIC")) {
     penalty++;
     par1 = newsplit(&msg);      /* channel */
     par2 = newsplit(&msg);      /* topic */
@@ -386,15 +388,15 @@ static int calc_penalty(char *msg)
         penalty += 2;
       }
     }
-  } else if (!strcasecmp(cmd, "PRIVMSG") ||
-             !strcasecmp(cmd, "NOTICE")) {
+  } else if (!op_strcasecmp(cmd, "PRIVMSG") ||
+             !op_strcasecmp(cmd, "NOTICE")) {
     par1 = newsplit(&msg);      /* channel(s)/nick(s) */
     /* Add one sec penalty for each recipient */
     while (strlen(par1) > 0) {
       splitnicks(&par1);
       penalty++;
     }
-  } else if (!strcasecmp(cmd, "WHO")) {
+  } else if (!op_strcasecmp(cmd, "WHO")) {
     par1 = newsplit(&msg);      /* masks */
     par2 = par1;
     while (strlen(par1) > 0) {
@@ -404,33 +406,33 @@ static int calc_penalty(char *msg)
       else
         penalty += 5;
     }
-  } else if (!strcasecmp(cmd, "AWAY")) {
+  } else if (!op_strcasecmp(cmd, "AWAY")) {
     if (strlen(msg) > 0)
       penalty += 2;
     else
       penalty += 1;
-  } else if (!strcasecmp(cmd, "INVITE")) {
+  } else if (!op_strcasecmp(cmd, "INVITE")) {
     /* Successful invite receives 2 or 3 penalty points. Let's go
      * with the maximum.
      */
     penalty += 3;
-  } else if (!strcasecmp(cmd, "JOIN")) {
+  } else if (!op_strcasecmp(cmd, "JOIN")) {
     penalty += 2;
-  } else if (!strcasecmp(cmd, "PART")) {
+  } else if (!op_strcasecmp(cmd, "PART")) {
     penalty += 4;
-  } else if (!strcasecmp(cmd, "VERSION")) {
+  } else if (!op_strcasecmp(cmd, "VERSION")) {
     penalty += 2;
-  } else if (!strcasecmp(cmd, "TIME")) {
+  } else if (!op_strcasecmp(cmd, "TIME")) {
     penalty += 2;
-  } else if (!strcasecmp(cmd, "TRACE")) {
+  } else if (!op_strcasecmp(cmd, "TRACE")) {
     penalty += 2;
-  } else if (!strcasecmp(cmd, "NICK")) {
+  } else if (!op_strcasecmp(cmd, "NICK")) {
     penalty += 3;
-  } else if (!strcasecmp(cmd, "ISON")) {
+  } else if (!op_strcasecmp(cmd, "ISON")) {
     penalty += 1;
-  } else if (!strcasecmp(cmd, "WHOIS")) {
+  } else if (!op_strcasecmp(cmd, "WHOIS")) {
     penalty += 2;
-  } else if (!strcasecmp(cmd, "DNS")) {
+  } else if (!op_strcasecmp(cmd, "DNS")) {
     penalty += 2;
   } else
     penalty++;                  /* just add standard-penalty */
@@ -491,24 +493,14 @@ static int fast_deq(int which)
   }
 
   m = h->head;
-  {
-    op_strbuf_t _sb = {};
-    op_strbuf_init(&_sb);
-    op_strbuf_appendf(&_sb, "%s", m->msg);
-    msgstr = op_strbuf_steal(&_sb);
-  }
+  msgstr = op_strdup(m->msg);
   msg = msgstr;
   cmd = newsplit(&msg);
   if (use_fastdeq > 1) {
-    {
-      op_strbuf_t _sb = {};
-      op_strbuf_init(&_sb);
-      op_strbuf_appendf(&_sb, "%s", stackablecmds);
-      stackable = op_strbuf_steal(&_sb);
-    }
+    stackable = op_strdup(stackablecmds);
     stckbl = stackable;
     while (strlen(stckbl) > 0) {
-      if (!strcasecmp(newsplit(&stckbl), cmd)) {
+      if (!op_strcasecmp(newsplit(&stckbl), cmd)) {
         found = 1;
         break;
       }
@@ -530,32 +522,22 @@ static int fast_deq(int which)
 
     /* we check for the stacking method (default=1) */
     op_free(stackable);
-    {
-      op_strbuf_t _sb = {};
-      op_strbuf_init(&_sb);
-      op_strbuf_appendf(&_sb, "%s", stackable2cmds);
-      stackable = op_strbuf_steal(&_sb);
-    }
+    stackable = op_strdup(stackable2cmds);
     stckbl = stackable;
     while (strlen(stckbl) > 0)
-      if (!strcasecmp(newsplit(&stckbl), cmd)) {
+      if (!op_strcasecmp(newsplit(&stckbl), cmd)) {
         stack_method = 2;
         break;
       }
     op_free(stackable);
   }
   to = newsplit(&msg);
-  op_strbuf_appendf(&victims, "%s", to);
+  op_strbuf_append_cstr(&victims, to);
   while (m) {
     nm = m->next;
     if (!nm)
       break;
-    {
-      op_strbuf_t _sb = {};
-      op_strbuf_init(&_sb);
-      op_strbuf_appendf(&_sb, "%s", nm->msg);
-      nextmsgstr = op_strbuf_steal(&_sb);
-    }
+    nextmsgstr = op_strdup(nm->msg);
     nextmsg = nextmsgstr;
     nextcmd = newsplit(&nextmsg);
     nextto = newsplit(&nextmsg);
@@ -639,21 +621,16 @@ static void parse_q(struct msgq_head *q, char *oldnick, char *newnick)
   op_strbuf_init(&newnicks);
   for (m = q->head; m;) {
     changed = 0;
-    if (optimize_kicks == 2 && !strncasecmp(m->msg, "KICK ", 5)) {
+    if (optimize_kicks == 2 && !op_strncasecmp(m->msg, "KICK ", 5)) {
       op_strbuf_clear(&newnicks);
-      {
-        op_strbuf_t _sb = {};
-        op_strbuf_init(&_sb);
-        op_strbuf_appendf(&_sb, "%s", m->msg);
-        buf = op_strbuf_steal(&_sb);
-      }
+      buf = op_strdup(m->msg);
       msg = buf;
       newsplit(&msg);
       chan = newsplit(&msg);
       nicks = newsplit(&msg);
       while (strlen(nicks) > 0) {
         nick = splitnicks(&nicks);
-        if (!strcasecmp(nick, oldnick) &&
+        if (!op_strcasecmp(nick, oldnick) &&
             ((9 + strlen(chan) + op_strbuf_len(&newnicks) + strlen(newnick) +
               strlen(nicks) + strlen(msg)) < SENDLINEMAX-1)) {
           if (newnick)
@@ -708,15 +685,10 @@ static void purge_kicks(struct msgq_head *q)
 
   op_strbuf_init(&newnicks);
   for (m = q->head; m;) {
-    if (!strncasecmp(m->msg, "KICK", 4)) {
+    if (!op_strncasecmp(m->msg, "KICK", 4)) {
       op_strbuf_clear(&newnicks);
       changed = 0;
-      {
-        op_strbuf_t _sb = {};
-        op_strbuf_init(&_sb);
-        op_strbuf_appendf(&_sb, "%s", m->msg);
-        buf = op_strbuf_steal(&_sb);
-      }
+      buf = op_strdup(m->msg);
       reason = buf;
       newsplit(&reason);
       chan = newsplit(&reason);
@@ -724,12 +696,7 @@ static void purge_kicks(struct msgq_head *q)
       while (strlen(nicks) > 0) {
         found = 0;
         nick = splitnicks(&nicks);
-        {
-          op_strbuf_t _sb = {};
-          op_strbuf_init(&_sb);
-          op_strbuf_appendf(&_sb, "%s", chan);
-          chans = op_strbuf_steal(&_sb);
-        }
+        chans = op_strdup(chan);
         chns = chans;
         while (strlen(chns) > 0) {
           ch = newsplit(&chns);
@@ -808,7 +775,7 @@ static int deq_kick(int which)
     return 0;
   }
 
-  if (strncasecmp(h->head->msg, "KICK", 4))
+  if (op_strncasecmp(h->head->msg, "KICK", 4))
     return 0;
 
   if (optimize_kicks == 2) {
@@ -817,16 +784,11 @@ static int deq_kick(int which)
       return 1;
   }
 
-  if (strncasecmp(h->head->msg, "KICK", 4))
+  if (op_strncasecmp(h->head->msg, "KICK", 4))
     return 0;
 
   msg = h->head;
-  {
-    op_strbuf_t _sb = {};
-    op_strbuf_init(&_sb);
-    op_strbuf_appendf(&_sb, "%s", msg->msg);
-    buf = op_strbuf_steal(&_sb);
-  }
+  buf = op_strdup(msg->msg);
   reason = buf;
   newsplit(&reason);
   chan = newsplit(&reason);
@@ -838,20 +800,15 @@ static int deq_kick(int which)
   }
   buf2 = nullptr;
   for (m = msg->next, lm = nullptr; m && (nr < kick_method);) {
-    if (!strncasecmp(m->msg, "KICK", 4)) {
+    if (!op_strncasecmp(m->msg, "KICK", 4)) {
       changed = 0;
       op_strbuf_clear(&newnicks2);
-      {
-        op_strbuf_t _sb = {};
-        op_strbuf_init(&_sb);
-        op_strbuf_appendf(&_sb, "%s", m->msg);
-        buf2 = op_strbuf_steal(&_sb);
-      }
+      buf2 = op_strdup(m->msg);
       reason2 = buf2;
       newsplit(&reason2);
       chan2 = newsplit(&reason2);
       nicks = newsplit(&reason2);
-      if (!strcasecmp(chan, chan2) && !strcasecmp(reason, reason2)) {
+      if (!op_strcasecmp(chan, chan2) && !op_strcasecmp(reason, reason2)) {
         while (strlen(nicks) > 0) {
           nick = splitnicks(&nicks);
           if ((nr < kick_method) && ((9 + strlen(chan) + op_strbuf_len(&newnicks) +
@@ -957,12 +914,7 @@ static void queue_server(int which, const char *msg, int len)
   /* Remove \r\n. We will add these back when we send the text to the server.
    * - Wcc [01/09/2004]
    */
-  {
-    op_strbuf_t _sb = {};
-    op_strbuf_init(&_sb);
-    op_strbuf_appendf(&_sb, "%s", msg);
-    buf = op_strbuf_steal(&_sb);
-  }
+  buf = op_strdup(msg);
   {
     char *p = buf;
     remove_crlf(&p);
@@ -973,9 +925,9 @@ static void queue_server(int which, const char *msg, int len)
   #define PING "PING"
   #define PONG "PONG"
   #define AUTHENTICATE "AUTHENTICATE"
-  if (!strncasecmp(buf, PING, sizeof PING - 1) ||
-      !strncasecmp(buf, PONG, sizeof PONG - 1) ||
-      !strncasecmp(buf, AUTHENTICATE, sizeof AUTHENTICATE - 1)) {
+  if (!op_strncasecmp(buf, PING, sizeof PING - 1) ||
+      !op_strncasecmp(buf, PONG, sizeof PONG - 1) ||
+      !op_strncasecmp(buf, AUTHENTICATE, sizeof AUTHENTICATE - 1)) {
     if (buf[1] == 'I' || buf[1] == 'i')
       lastpingtime = now;
     check_tcl_out(which, buf, 1);
@@ -1031,7 +983,7 @@ static void queue_server(int which, const char *msg, int len)
     if (!doublemsg) {
       for (tq = tempq.head; tq; tq = tqq) {
         tqq = tq->next;
-        if (!strcasecmp(tq->msg, buf)) {
+        if (!op_strcasecmp(tq->msg, buf)) {
           if (!double_warned) {
             debug1("Message already queued; skipping: %s", buf);
             double_warned = 1;
@@ -1135,10 +1087,7 @@ static void queue_server(int which, const char *msg, int len)
  */
 static int add_server(const char *name, const char *port, const char *pass)
 {
-  struct server_list *x, *z;
   const char *ret;
-
-  for (z = serverlist; z && z->next; z = z->next);
 
   if ((ret = strchr(name, ':'))) {
     if (!strchr(ret+1, ':')) {
@@ -1153,25 +1102,17 @@ static int add_server(const char *name, const char *port, const char *pass)
   }
 #endif
 
-  x = op_malloc(sizeof(struct server_list));
-  x->next = 0;
-  x->realname = 0;
+  if (!server_list_bh) server_list_bh = op_bh_create(sizeof(struct server_list), 16, "server_list");
+  struct server_list *x = (struct server_list *)op_bh_alloc(server_list_bh);
   x->port = default_port;
-  if (z)
-    z->next = x;
-  else
-    serverlist = x;
-
   x->name = op_strdup(name);
-  if (pass[0]) {
-    x->pass = op_strdup(pass);
-  } else
-    x->pass = nullptr;
+  x->pass = pass[0] ? op_strdup(pass) : nullptr;
   if (port[0])
     x->port = egg_atoi(port);
 #ifdef TLS
   x->ssl = (port[0] == '+') ? 1 : 0;
 #endif
+  op_vec_push(&serverlist_vec, x);
   return 0;
 }
 
@@ -1195,62 +1136,30 @@ static void old_add_server(const char *ss) {
  */
 static int del_server(const char *name, const char *port)
 {
-  struct server_list *z, *curr, *prev;
   const char *ret;
   int found = 0;
 
-  if (!serverlist) {
+  if (!serverlist_vec.size)
     return 2;
-  }
   if ((ret = strchr(name, ':'))) {
-    if (!strchr(ret+1, ':')) {
+    if (!strchr(ret+1, ':'))
       return 1;
-    }
   }
-/* Check if server to be deleted is first node in list */
-  if (!strcasecmp(name, serverlist->name)) {
-    z = serverlist;
-    if (strlen(port)) {
-      if ((egg_atoi(port) != serverlist->port)
-#ifdef TLS
-          || ((port[0] != '+') && serverlist->ssl )) {
-#else
-          ) {
-#endif
-        serverlist = serverlist->next;
-        free_server(z);
-      }
-    } else {
-      serverlist = serverlist->next;
-      free_server(z);
-    }
-    found = 1;
-  }
-  curr = serverlist->next;
-  prev = serverlist;
-/* Check the remaining nodes in list */
-  while (curr != nullptr && prev != nullptr) {
-    if (!strcasecmp(name, curr->name)) {
+  for (size_t i = serverlist_vec.size; i-- > 0; ) {
+    struct server_list *z = (struct server_list *)op_vec_get(&serverlist_vec, i);
+    if (!op_strcasecmp(name, z->name)) {
       if (port[0] != '\0') {
-        if ((egg_atoi(port) != curr->port)
+        if ((egg_atoi(port) != z->port)
 #ifdef TLS
-            || ((port[0] != '+') && curr->ssl )) {
+            || ((port[0] != '+') && z->ssl))
 #else
-            ) {
+            )
 #endif
-          prev = curr;
-          curr = curr->next;
           continue;
-        }
       }
-      z = curr;
-      prev->next = curr->next;
-      curr = curr->next;
+      op_vec_remove_fast(&serverlist_vec, i);
       free_server(z);
       found = 1;
-    } else {
-      prev = curr;
-      curr = curr->next;
     }
   }
   return found ? 0 : 3;
@@ -1264,28 +1173,17 @@ static void free_server(struct server_list *z) {
     op_free(z->pass);
   if (z->realname)
     op_free(z->realname);
-  op_free(z);
-  return;
+  op_bh_free(server_list_bh, z);
 }
 
 
-/* Clear out the given server_list.
+/* Clear out the server list.
  */
-static void clearq(struct server_list *xx)
+static void clearq(void)
 {
-  struct server_list *x;
-
-  while (xx) {
-    x = xx->next;
-    if (xx->name)
-      op_free(xx->name);
-    if (xx->pass)
-      op_free(xx->pass);
-    if (xx->realname)
-      op_free(xx->realname);
-    op_free(xx);
-    xx = x;
-  }
+  for (size_t i = 0; i < serverlist_vec.size; i++)
+    free_server((struct server_list *)op_vec_get(&serverlist_vec, i));
+  op_vec_clear(&serverlist_vec, nullptr, nullptr);
 }
 
 /* Set botserver to the next available server.
@@ -1294,72 +1192,54 @@ static void clearq(struct server_list *xx)
  */
 static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port, char *pass, size_t passlen)
 {
-  struct server_list *x = serverlist;
-  int i = 0;
-
   /* -1  -->  Go to specified server */
   if (*ptr == -1) {
-    for (; x; x = x->next) {
-      if (x->port == *port) {
-        if (!strcasecmp(x->name, serv)) {
-          *ptr = i;
+    for (size_t i = 0; i < serverlist_vec.size; i++) {
+      struct server_list *x = (struct server_list *)op_vec_get(&serverlist_vec, i);
+      if (x->port == (int)*port) {
+        if (!op_strcasecmp(x->name, serv)) {
+          *ptr = (int)i;
 #ifdef TLS
           x->ssl = use_ssl;
 #endif
           return;
-        } else if (x->realname && !strcasecmp(x->realname, serv)) {
-          *ptr = i;
-          strlcpy(serv, x->realname, servlen);
+        } else if (x->realname && !op_strcasecmp(x->realname, serv)) {
+          *ptr = (int)i;
+          op_strlcpy(serv, x->realname, servlen);
 #ifdef TLS
           use_ssl = x->ssl;
 #endif
           return;
         }
       }
-      i++;
     }
     /* Gotta add it: */
-    x = op_malloc(sizeof(struct server_list));
-
-    x->next = 0;
-    x->realname = 0;
+    if (!server_list_bh) server_list_bh = op_bh_create(sizeof(struct server_list), 16, "server_list");
+    struct server_list *x = (struct server_list *)op_bh_alloc(server_list_bh);
     x->name = op_strdup(serv);
-    x->port = *port ? *port : default_port;
-    if (pass && pass[0]) {
-      x->pass = op_strdup(pass);
-    } else
-      x->pass = nullptr;
+    x->port = *port ? (int)*port : default_port;
+    x->pass = (pass && pass[0]) ? op_strdup(pass) : nullptr;
 #ifdef TLS
     x->ssl = use_ssl;
 #endif
-    egg_list_append((struct list_type **) (&serverlist),
-                    (struct list_type *) x);
-    *ptr = i;
+    *ptr = (int)serverlist_vec.size;
+    op_vec_push(&serverlist_vec, x);
     return;
   }
-  /* Find where i am and boogie */
-  if (x == nullptr)
+  /* Find where i am and advance */
+  if (!serverlist_vec.size)
     return;
-  i = (*ptr);
-  while (i > 0 && x != nullptr) {
-    x = x->next;
-    i--;
-  }
-  if (x != nullptr) {
-    x = x->next;
-    (*ptr)++;
-  }                             /* Go to next server */
-  if (x == nullptr) {
-    x = serverlist;
+  (*ptr)++;
+  if (*ptr < 0 || (size_t)*ptr >= serverlist_vec.size)
     *ptr = 0;
-  }                             /* Start over at the beginning */
+  struct server_list *x = (struct server_list *)op_vec_get(&serverlist_vec, (size_t)*ptr);
 #ifdef TLS
   use_ssl = x->ssl;
 #endif
-  strlcpy(serv, x->name, servlen);
-  *port = x->port ? x->port : default_port;
+  op_strlcpy(serv, x->name, servlen);
+  *port = x->port ? (unsigned int)x->port : (unsigned int)default_port;
   if (x->pass)
-    strlcpy(pass, x->pass, passlen);
+    op_strlcpy(pass, x->pass, passlen);
   else
     pass[0] = 0;
 }
@@ -1370,56 +1250,33 @@ static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port
  * Returns 2 if maximum number of nicks to be monitored reached
  */
 static int monitor_add(char * nick, int send) {
-  struct monitor_list *entry;
-  struct monitor_list *current = monitor;
-  int count = 0;
-
-  /* Check for duplicates before adding */
-  while (current != nullptr) {
-    count++;
-    if (!rfc_casecmp(current->nick, nick)) {
+  for (size_t i = 0; i < monitor_vec.size; i++) {
+    monitor_list_t *e = (monitor_list_t *)op_vec_get(&monitor_vec, i);
+    if (!rfc_casecmp(e->nick, nick))
       return 1;
-    }
-    current=current->next;
   }
-  if (count >= max_monitor) {
+  if ((int)monitor_vec.size >= max_monitor)
     return 2;
-  }
-  entry = op_bh_alloc(monitor_heap); /* zero-filled by slab allocator */
-  strlcpy(entry->nick, nick, NICKLEN);
-  entry->next = monitor;
-  monitor = entry;
-  if (send) {
+  monitor_list_t *entry = (monitor_list_t *)op_bh_alloc(monitor_heap);
+  op_strlcpy(entry->nick, nick, NICKLEN);
+  op_vec_push(&monitor_vec, entry);
+  if (send)
     dprintf(DP_SERVER, "MONITOR + %s\n", nick);
-  }
-
   return 0;
 }
 
 /* Remove nickname from monitor list */
 static int monitor_del (char *nick) {
-  struct monitor_list *current = monitor;
-  struct monitor_list *previous = nullptr;
-
-  if (monitor == nullptr) {
-    return 1;
-  }
-  while (rfc_casecmp(current->nick, nick)) {
-    if (current->next == nullptr) {
-      return 1;
-    } else {
-      previous = current;
-      current = current->next;
+  for (size_t i = 0; i < monitor_vec.size; i++) {
+    monitor_list_t *e = (monitor_list_t *)op_vec_get(&monitor_vec, i);
+    if (!rfc_casecmp(e->nick, nick)) {
+      op_vec_remove_fast(&monitor_vec, i);
+      op_bh_free(monitor_heap, e);
+      dprintf(DP_SERVER, "MONITOR - %s\n", nick);
+      return 0;
     }
   }
-  if (current == monitor) {
-    monitor = monitor->next;
-  } else {
-    previous->next = current->next;
-  }
-  op_bh_free(monitor_heap, current);
-  dprintf(DP_SERVER, "MONITOR - %s\n", nick);
-  return 0;
+  return 1;
 }
 
 /* Show nicknames being monitored with MONITOR.
@@ -1427,55 +1284,36 @@ static int monitor_del (char *nick) {
  * 3 (check status of nick)
  */
 static int monitor_show(Tcl_Obj *mlist, int mode, char *nick) {
-  struct monitor_list *current = monitor;
   int found = 0;
 
-  if (current == nullptr) {
-    return 0;
-  }
-
-  while (current != nullptr) {
+  for (size_t i = 0; i < monitor_vec.size; i++) {
+    monitor_list_t *current = (monitor_list_t *)op_vec_get(&monitor_vec, i);
     if (!mode) {
       Tcl_ListObjAppendElement(interp, mlist, Tcl_NewStringObj(current->nick, -1));
     } else if (mode == 1) {
-      if (current->online) {
+      if (current->online)
         Tcl_ListObjAppendElement(interp, mlist, Tcl_NewStringObj(current->nick, -1));
-      }
     } else if (mode == 2) {
-      if (!current->online) {
+      if (!current->online)
         Tcl_ListObjAppendElement(interp, mlist, Tcl_NewStringObj(current->nick, -1));
-      }
     } else if (mode == 3) {
-      if(!rfc_casecmp(current->nick, nick)) {
+      if (!rfc_casecmp(current->nick, nick)) {
         found = 1;
-        if (current->online) {
-          Tcl_ListObjAppendElement(interp, mlist, Tcl_NewStringObj("1", 1));
-        } else {
-          Tcl_ListObjAppendElement(interp, mlist, Tcl_NewStringObj("0", 1));
-        }
+        Tcl_ListObjAppendElement(interp, mlist,
+          Tcl_NewStringObj(current->online ? "1" : "0", 1));
       }
     }
-    current = current->next;
   }
-  if ((!found) && (mode == 3)) {
-    return 1;
-  }
-  return 0;
+  return ((!found) && (mode == 3)) ? 1 : 0;
 }
 
 
 static void monitor_clear(void)
 {
-  struct monitor_list *current = monitor;
-  struct monitor_list *next = nullptr;
-
-  monitor = nullptr;
   dprintf(DP_SERVER, "MONITOR C");
-  while (current != nullptr) {
-    next = current->next;
-    op_bh_free(monitor_heap, current);
-    current = next;
-  }
+  for (size_t i = 0; i < monitor_vec.size; i++)
+    op_bh_free(monitor_heap, (monitor_list_t *)op_vec_get(&monitor_vec, i));
+  op_vec_clear(&monitor_vec, nullptr, nullptr);
 }
 
 static int server_6char STDVAR
@@ -1607,7 +1445,7 @@ static int monitor_2char STDVAR
         putlog(LOG_MISC, "*", "* IRC NICK CHANGE: %s -> %s", origbotname, new);
         nick_juped = 0;
       }
-      strlcpy(origbotname, new, NICKLEN);
+      op_strlcpy(origbotname, new, NICKLEN);
       if (server_online)
         dprintf(DP_SERVER, "NICK %s\n", origbotname);
     }
@@ -1634,7 +1472,7 @@ static char *get_altbotnick(void)
   /* A random-number nick? */
   if (strchr(altnick, '?')) {
     if (!raltnick[0] && !wild_match(altnick, botname)) {
-      strlcpy(raltnick, altnick, NICKLEN);
+      op_strlcpy(raltnick, altnick, NICKLEN);
       rand_nick(raltnick);
     }
     return raltnick;
@@ -1737,26 +1575,26 @@ static void do_nettype(void)
     use_penalties = 1;
     use_fastdeq = 3;
     nick_len = 15;
-    strlcpy(stackablecmds, "INVITE AWAY VERSION NICK", sizeof stackablecmds);
+    op_strlcpy(stackablecmds, "INVITE AWAY VERSION NICK", sizeof stackablecmds);
     kick_method = 4;
     break;
   case NETT_UNDERNET:
     check_mode_r = 0;
     use_fastdeq = 2;
     nick_len = 12;
-    strlcpy(stackablecmds,
+    op_strlcpy(stackablecmds,
             "PRIVMSG NOTICE TOPIC PART WHOIS USERHOST USERIP ISON",
             sizeof stackablecmds);
-    strlcpy(stackable2cmds, "USERHOST USERIP ISON", sizeof stackable2cmds);
+    op_strlcpy(stackable2cmds, "USERHOST USERIP ISON", sizeof stackable2cmds);
     break;
   case NETT_DALNET:
     check_mode_r = 0;
     use_fastdeq = 2;
     nick_len = 30;
-    strlcpy(stackablecmds,
+    op_strlcpy(stackablecmds,
             "PRIVMSG NOTICE PART WHOIS WHOWAS USERHOST ISON WATCH DCCALLOW",
             sizeof stackablecmds);
-    strlcpy(stackable2cmds, "USERHOST ISON WATCH", sizeof stackable2cmds);
+    op_strlcpy(stackable2cmds, "USERHOST ISON WATCH", sizeof stackable2cmds);
     stack_limit = 20;
     kick_method = 4;
     break;
@@ -1772,10 +1610,10 @@ static void do_nettype(void)
     check_mode_r = 0;
     use_fastdeq = 2;
     nick_len = 15;
-    strlcpy(stackablecmds,
+    op_strlcpy(stackablecmds,
             "PRIVMSG NOTICE TOPIC PART WHOIS USERHOST USERIP ISON",
             sizeof stackablecmds);
-    strlcpy(stackable2cmds, "USERHOST USERIP ISON", sizeof stackable2cmds);
+    op_strlcpy(stackable2cmds, "USERHOST USERIP ISON", sizeof stackable2cmds);
     break;
   case NETT_RIZON:
     check_mode_r = 0;
@@ -1790,8 +1628,8 @@ static void do_nettype(void)
     check_mode_r = 0;
     nick_len = 32;
     use_fastdeq = 2;
-    strlcpy(stackablecmds, "PRIVMSG NOTICE TOPIC PART WHOIS", sizeof stackablecmds);
-    strlcpy(stackable2cmds, "WHOIS", sizeof stackable2cmds);
+    op_strlcpy(stackablecmds, "PRIVMSG NOTICE TOPIC PART WHOIS", sizeof stackablecmds);
+    op_strlcpy(stackable2cmds, "WHOIS", sizeof stackable2cmds);
     ircx_owner_support = 1;   /* Ophion supports +q (owner) mode     */
     ircx_prop_support = 1;    /* Ophion supports PROP command        */
     if (ircx_auto_negotiate)
@@ -1883,7 +1721,8 @@ static void ircx_do_autoowner(void)
   ircx_autoowner_t *ao;
 
   if (!ircx_enabled) return;
-  for (ao = ircx_autoowner_list; ao; ao = ao->next) {
+  for (size_t aoi = 0; aoi < ircx_autoowner_vec.size; aoi++) {
+    ao = (ircx_autoowner_t *)op_vec_get(&ircx_autoowner_vec, aoi);
     if (ao->ownerkey[0]) {
       /* Send OWNERKEY as part of JOIN so server grants +q */
       dprintf(DP_SERVER, "JOIN %s %s\n", ao->channel, ao->ownerkey);
@@ -1905,26 +1744,19 @@ static void ircx_do_autoowner(void)
   }
 }
 
-/* Free the IRCX access list. */
+/* Free the IRCX access list (currently unused placeholder). */
 static void ircx_free_access_list(void)
 {
-  ircx_access_t *a, *next;
-  for (a = ircx_access_list; a; a = next) {
-    next = a->next;
-    op_free(a);
-  }
+  op_free(ircx_access_list);
   ircx_access_list = nullptr;
 }
 
 /* Free the IRCX autoowner list. */
 static void ircx_free_autoowner_list(void)
 {
-  ircx_autoowner_t *ao, *next;
-  for (ao = ircx_autoowner_list; ao; ao = next) {
-    next = ao->next;
-    op_free(ao);
-  }
-  ircx_autoowner_list = nullptr;
+  for (size_t i = 0; i < ircx_autoowner_vec.size; i++)
+    op_bh_free(ircx_autoowner_bh, op_vec_get(&ircx_autoowner_vec, i));
+  op_vec_clear(&ircx_autoowner_vec, nullptr, nullptr);
 }
 
 [[maybe_unused]] static char *traced_nettype(ClientData cdata,
@@ -1934,49 +1766,49 @@ static void ircx_free_autoowner_list(void)
 {
   int warn = 0;
 
-  if (!strcasecmp(net_type, "DALnet"))
+  if (!op_strcasecmp(net_type, "DALnet"))
     net_type_int = NETT_DALNET;
-  else if (!strcasecmp(net_type, "EFnet"))
+  else if (!op_strcasecmp(net_type, "EFnet"))
     net_type_int = NETT_EFNET;
-  else if (!strcasecmp(net_type, "freenode"))
+  else if (!op_strcasecmp(net_type, "freenode"))
     net_type_int = NETT_FREENODE;
-  else if (!strcasecmp(net_type, "IRCnet"))
+  else if (!op_strcasecmp(net_type, "IRCnet"))
     net_type_int = NETT_IRCNET;
-  else if (!strcasecmp(net_type, "Libera"))
+  else if (!op_strcasecmp(net_type, "Libera"))
     net_type_int = NETT_LIBERA;
-  else if (!strcasecmp(net_type, "QuakeNet"))
+  else if (!op_strcasecmp(net_type, "QuakeNet"))
     net_type_int = NETT_QUAKENET;
-  else if (!strcasecmp(net_type, "Rizon"))
+  else if (!op_strcasecmp(net_type, "Rizon"))
     net_type_int = NETT_RIZON;
-  else if (!strcasecmp(net_type, "Undernet"))
+  else if (!op_strcasecmp(net_type, "Undernet"))
     net_type_int = NETT_UNDERNET;
-  else if (!strcasecmp(net_type, "Twitch"))
+  else if (!op_strcasecmp(net_type, "Twitch"))
     net_type_int = NETT_TWITCH;
-  else if (!strcasecmp(net_type, "Ophion") || !strcasecmp(net_type, "IRCX"))
+  else if (!op_strcasecmp(net_type, "Ophion") || !op_strcasecmp(net_type, "IRCX"))
     net_type_int = NETT_OPHION;
-  else if (!strcasecmp(net_type, "Other"))
+  else if (!op_strcasecmp(net_type, "Other"))
     net_type_int = NETT_OTHER;
-  else if (!strcasecmp(net_type, "0")) { /* For backwards compatibility */
+  else if (!op_strcasecmp(net_type, "0")) { /* For backwards compatibility */
     net_type_int = NETT_EFNET;
     warn = 1;
   }
-  else if (!strcasecmp(net_type, "1")) { /* For backwards compatibility */
+  else if (!op_strcasecmp(net_type, "1")) { /* For backwards compatibility */
     net_type_int = NETT_IRCNET;
     warn = 1;
   }
-  else if (!strcasecmp(net_type, "2")) { /* For backwards compatibility */
+  else if (!op_strcasecmp(net_type, "2")) { /* For backwards compatibility */
     net_type_int = NETT_UNDERNET;
     warn = 1;
   }
-  else if (!strcasecmp(net_type, "3")) { /* For backwards compatibility */
+  else if (!op_strcasecmp(net_type, "3")) { /* For backwards compatibility */
     net_type_int = NETT_DALNET;
     warn = 1;
   }
-  else if (!strcasecmp(net_type, "4")) { /* For backwards compatibility */
+  else if (!op_strcasecmp(net_type, "4")) { /* For backwards compatibility */
     net_type_int = NETT_HYBRID_EFNET;
     warn = 1;
   }
-  else if (!strcasecmp(net_type, "5")) { /* For backwards compatibility */
+  else if (!op_strcasecmp(net_type, "5")) { /* For backwards compatibility */
     net_type_int = NETT_OTHER;
     warn = 1;
   } else {
@@ -2093,13 +1925,13 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
   Tcl_Size lc, i;
   int code;
   EGG_CONST char **list, *slist;
-  struct server_list *q;
   Tcl_DString ds;
 
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     /* Create server list */
     Tcl_DStringInit(&ds);
-    for (q = serverlist; q; q = q->next) {
+    for (size_t qi = 0; qi < serverlist_vec.size; qi++) {
+      struct server_list *q = (struct server_list *)op_vec_get(&serverlist_vec, qi);
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
 #ifdef TLS
@@ -2124,10 +1956,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
     Tcl_SetVar2(interp, name1, name2, slist, TCL_GLOBAL_ONLY);
     Tcl_DStringFree(&ds);
   } else {                        /* TCL_TRACE_WRITES */
-    if (serverlist) {
-      clearq(serverlist);
-      serverlist = nullptr;
-    }
+    clearq();
     slist = Tcl_GetVar2(interp, name1, name2, TCL_GLOBAL_ONLY);
     if (slist != nullptr) {
       code = Tcl_SplitList(interp, slist, &lc, &list);
@@ -2143,7 +1972,7 @@ static char *tcl_eggserver(ClientData cdata, Tcl_Interp *irp,
         int servidx = findanyidx(serv);
 
         curserv = -1;
-        if (serverlist)
+        if (serverlist_vec.size)
           next_server(&curserv, dcc[servidx].host, UHOSTLEN, &dcc[servidx].port, "", 1);
       }
       Tcl_Free((char *) list);
@@ -2180,21 +2009,16 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
   struct userrec *u = get_user_by_handle(userlist, handle);
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
-  {
-    op_strbuf_t _sb = {};
-    op_strbuf_init(&_sb);
-    op_strbuf_appendf(&_sb, "%s", text);
-    buf = op_strbuf_steal(&_sb);
-  }
+  buf = op_strdup(text);
   msg = buf;
   action = newsplit(&msg);
   param = newsplit(&msg);
   ip = newsplit(&msg);
   prt = newsplit(&msg);
-  if (strcasecmp(action, "CHAT"))
+  if (op_strcasecmp(action, "CHAT"))
   {
 #ifdef TLS
-    if (!strcasecmp(action, "SCHAT"))
+    if (!op_strcasecmp(action, "SCHAT"))
       ssl = 1;
     else
 #endif
@@ -2203,7 +2027,7 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
       return 0;
     }
   }
-  if (strcasecmp(object, botname) || !u) {
+  if (op_strcasecmp(object, botname) || !u) {
     op_free(buf);
     return 0;
   }
@@ -2247,8 +2071,8 @@ static int ctcp_DCC_CHAT(char *nick, char *from, char *handle,
     dcc[i].port = egg_atoi(prt);
     (void) setsockname(&dcc[i].sockname, ip, dcc[i].port, 0);
     dcc[i].sock = -1;
-    strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
-    strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
+    op_strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
+    op_strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
     dcc[i].timeval = now;
     dcc[i].user = u;
     dcc[i].u.dns->dns_type = RES_HOSTBYIP;
@@ -2277,16 +2101,16 @@ static void dcc_chat_hostresolved(int i)
 {
   op_strbuf_t buf = {};
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
+  char prt[12];
 
   op_strbuf_init(&buf);
-  op_strbuf_appendf(&buf, "%s", int_to_base10(dcc[i].port));
+  op_strlcpy(prt, int_to_base10(dcc[i].port), sizeof prt);
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].host, &dcc[i].sockname,
-      dcc[i].u.dns->host, (char *)op_strbuf_str(&buf))) {
+      dcc[i].u.dns->host, prt)) {
     op_strbuf_free(&buf);
     lostdcc(i);
     return;
   }
-  op_strbuf_clear(&buf);
   dcc[i].sock = getsock(dcc[i].sockname.family, 0);
   if (dcc[i].sock < 0 || open_telnet_raw(dcc[i].sock, &dcc[i].sockname) < 0)
     op_strbuf_append_cstr(&buf, strerror(errno));
@@ -2310,7 +2134,7 @@ static void dcc_chat_hostresolved(int i)
     get_user_flagrec(dcc[i].user, &fr, 0);
     if (glob_party(fr))
       dcc[i].status |= STAT_PARTY;
-    strlcpy(dcc[i].u.chat->con_chan, (chanset) ? chanset->dname : "*", sizeof(dcc[i].u.chat->con_chan));
+    op_strlcpy(dcc[i].u.chat->con_chan, (chanset) ? chanset->dname : "*", sizeof(dcc[i].u.chat->con_chan));
     dcc[i].timeval = now;
     /* Ok, we're satisfied with them now: attempt the connect */
     putlog(LOG_MISC, "*", "DCC connection: CHAT (%s!%s)", dcc[i].nick,
@@ -2364,37 +2188,30 @@ static void server_5minutely(void)
 
 static void server_prerehash(void)
 {
-  struct server_list *x;
-
-  strlcpy(oldnick, botname, sizeof oldnick);
-/* Clear out servers, any addservers in config file are about to be re-run */
-  while (serverlist != nullptr) {
-      x = serverlist;
-      serverlist = serverlist->next;
-      free_server(x);
-  }
+  op_strlcpy(oldnick, botname, sizeof oldnick);
+  clearq();
 }
 
 static void server_postrehash(void)
 {
-  strlcpy(botname, origbotname, NICKLEN);
+  op_strlcpy(botname, origbotname, NICKLEN);
   if (!botname[0])
     fatal("NO BOT NAME.", 0);
 #ifndef TLS
-  if ((serverlist == nullptr) && sslserver)
+  if (!serverlist_vec.size && sslserver)
     fatal("NO NON-SSL SERVERS ADDED (TLS IS DISABLED).", 0);
 #endif
-  if (serverlist == nullptr)
+  if (!serverlist_vec.size)
     fatal("NO SERVERS ADDED.", 0);
   if (oldnick[0] && !rfc_casecmp(oldnick, botname) &&
       !rfc_casecmp(oldnick, get_altbotnick())) {
     /* Change botname back, don't be premature. */
-    strlcpy(botname, oldnick, sizeof(botname));
+    op_strlcpy(botname, oldnick, sizeof(botname));
     dprintf(DP_SERVER, "NICK %s\n", origbotname);
   }
   /* Change botname back in case we were using altnick previous to rehash. */
   else if (oldnick[0])
-    strlcpy(botname, oldnick, sizeof(botname));
+    op_strlcpy(botname, oldnick, sizeof(botname));
 }
 
 static void server_die(void)
@@ -2442,9 +2259,9 @@ static int msgq_expmem(struct msgq_head *qh)
 static int server_expmem(void)
 {
   int tot = 0;
-  struct server_list *s = serverlist;
 
-  for (; s; s = s->next) {
+  for (size_t i = 0; i < serverlist_vec.size; i++) {
+    struct server_list *s = (struct server_list *)op_vec_get(&serverlist_vec, i);
     if (s->name)
       tot += strlen(s->name) + 1;
     if (s->pass)
@@ -2514,7 +2331,8 @@ static void server_report(int idx, int details)
   {
     op_strbuf_t _cb = {};
     op_strbuf_init(&_cb);
-    for (current = cap; current; current = current->next) {
+    for (size_t ci = 0; ci < cap_vec.size; ci++) {
+      current = (struct capability *)op_vec_get(&cap_vec, ci);
       if (current->enabled)
         op_strbuf_appendf(&_cb, "%s ", current->name);
     }
@@ -2569,7 +2387,7 @@ static char *server_close(void)
 {
   cycle_time = 100;
   nuke_server("Connection reset by peer");
-  clearq(serverlist);
+  clearq();
   rem_builtins(H_dcc, C_dcc_serv);
   rem_builtins(H_raw, my_raw_binds);
   rem_builtins(H_rawt, my_rawt_binds);
@@ -2577,6 +2395,9 @@ static char *server_close(void)
   rem_builtins(H_isupport, my_isupport_binds);
   isupport_fini();
   if (monitor_heap) {
+    for (size_t i = 0; i < monitor_vec.size; i++)
+      op_bh_free(monitor_heap, (monitor_list_t *)op_vec_get(&monitor_vec, i));
+    op_vec_fini(&monitor_vec, nullptr, nullptr);
     op_bh_destroy(monitor_heap);
     monitor_heap = nullptr;
   }
@@ -2706,7 +2527,7 @@ static Function server_table[] = {
   (Function) & H_out,           /* p_tcl_bind_list                      */
   (Function) & net_type_int,    /* int                                  */
   (Function) nullptr,              /* was H_account, now irc.mod           */
-  (Function) & cap,             /* capability_t                         */
+  (Function) & cap_vec,         /* op_vec_t                             */
   /* 44 - 47 */
   (Function) & extended_join,   /* int                                  */
   (Function) & account_notify,  /* int                                  */
@@ -2753,9 +2574,8 @@ char *server_start(Function *global_funcs)
   lastpingcheck = 0;
   server_online = 0;
   server_cycle_wait = 60;
-  strlcpy(botrealname, "A deranged product of evil coders", sizeof(botrealname));
+  op_strlcpy(botrealname, "A deranged product of evil coders", sizeof(botrealname));
   server_timeout = 60;
-  serverlist = nullptr;
   cycle_time = 0;
   default_port = 6667;
   oldnick[0] = 0;
@@ -2766,14 +2586,14 @@ char *server_start(Function *global_funcs)
   check_mode_r = 0;
   maxqmsg = 300;
   burst = 0;
-  strlcpy(net_type, "EFnet", sizeof net_type);
+  op_strlcpy(net_type, "EFnet", sizeof net_type);
   double_mode = 0;
   double_server = 0;
   double_help = 0;
   use_penalties = 0;
   use_fastdeq = 0;
   stackablecmds[0] = 0;
-  strlcpy(stackable2cmds, "USERHOST ISON", sizeof(stackable2cmds));
+  op_strlcpy(stackable2cmds, "USERHOST ISON", sizeof(stackable2cmds));
   resolvserv = 0;
   lastpingtime = 0;
   last_time = 0;
@@ -2801,7 +2621,7 @@ char *server_start(Function *global_funcs)
     tcl_traceserver("servers", nullptr);
     s = Tcl_GetVar(interp, "nick", TCL_GLOBAL_ONLY);
     if (s)
-      strlcpy(origbotname, s, NICKLEN);
+      op_strlcpy(origbotname, s, NICKLEN);
   }
   Tcl_TraceVar(interp, "nick",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -2855,6 +2675,7 @@ char *server_start(Function *global_funcs)
   add_hook(HOOK_REHASH, (Function) server_postrehash);
   add_hook(HOOK_DIE, (Function) server_die);
   monitor_heap   = op_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
+  op_vec_init(&monitor_vec, 32);
   msgq_node_bh   = op_bh_create(sizeof(struct msgq),    64, "server_msgq");
   mq.head = hq.head = modeq.head = nullptr;
   mq.last = hq.last = modeq.last = nullptr;

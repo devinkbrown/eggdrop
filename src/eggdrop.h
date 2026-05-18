@@ -250,23 +250,8 @@ typedef uint32_t IP;
 #define debug4(x,a1,a2,a3,a4)    putlog(LOG_DEBUG,"*",x,a1,a2,a3,a4)
 #define debug5(x,a1,a2,a3,a4,a5) putlog(LOG_DEBUG,"*",x,a1,a2,a3,a4,a5)
 
-/* These apparently are unsafe without recasting. */
-#define egg_isdigit(x)  isdigit((int)  (unsigned char) (x))
-#define egg_isxdigit(x) isxdigit((int) (unsigned char) (x))
-#define egg_isascii(x)  isascii((int)  (unsigned char) (x))
-#define egg_isspace(x)  isspace((int)  (unsigned char) (x))
-#define egg_islower(x)  islower((int)  (unsigned char) (x))
-
-/* The following functions are for backward compatibility only */
+/* egg_atoi: kept for third-party module ABI compatibility */
 static inline int egg_atoi(const char *s) { return (int)strtol(s, nullptr, 10); }
-
-#define egg_bzero(dest, len) memset(dest, 0, len)
-#define egg_memcpy memcpy
-#define egg_memset memset
-#define egg_strcasecmp strcasecmp
-#define egg_strftime strftime
-#define egg_strncasecmp strncasecmp
-#define my_memcpy memcpy
 
 /***********************************************************************/
 
@@ -306,7 +291,6 @@ typedef struct {
 struct portmap {
   int realport;
   int mappedto;
-  struct portmap *next;
 };
 
 /* Public structure of all the dcc connections */

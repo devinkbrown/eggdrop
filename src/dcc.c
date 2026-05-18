@@ -214,7 +214,7 @@ static void bot_version(int idx, char *par)
     lostdcc(idx);
     return;
   }
-  strlcpy(dcc[idx].u.bot->version, par, sizeof dcc[idx].u.bot->version);
+  op_strlcpy(dcc[idx].u.bot->version, par, sizeof dcc[idx].u.bot->version);
   putlog(LOG_BOTS, "*", DCC_LINKED, dcc[idx].nick);
   botnet_send_nlinked(idx, dcc[idx].nick, botnetnick, '!',
                       dcc[idx].u.bot->numver);
@@ -242,14 +242,14 @@ void failed_link(int idx)
     op_strbuf_t msg = {};
     op_strbuf_init(&msg);
     op_strbuf_appendf(&msg, "Couldn't link to %s.", dcc[idx].nick);
-    strlcpy(s1, dcc[idx].u.bot->linker, sizeof(s1));
+    op_strlcpy(s1, dcc[idx].u.bot->linker, sizeof(s1));
     add_note(s1, botnetnick, op_strbuf_str(&msg), -2, 0);
     op_strbuf_free(&msg);
   }
   if (dcc[idx].u.bot->numver >= -1)
     putlog(LOG_BOTS, "*", DCC_LINKFAIL, dcc[idx].nick);
   killsock(dcc[idx].sock);
-  strlcpy(nick, dcc[idx].nick, sizeof nick);
+  op_strlcpy(nick, dcc[idx].nick, sizeof nick);
   lostdcc(idx);
   autolink_cycle(nick);       /* Check for more auto-connections */
 }
@@ -362,14 +362,14 @@ static void dcc_bot_new(int idx, char *buf, int x)
   }
 
   code = newsplit(&buf);
-  if (!strcasecmp(code, "*hello!"))
+  if (!op_strcasecmp(code, "*hello!"))
     greet_new_bot(idx);
-  else if (!strcasecmp(code, "version") || !strcasecmp(code, "v"))
+  else if (!op_strcasecmp(code, "version") || !op_strcasecmp(code, "v"))
     bot_version(idx, buf);
-  else if (!strcasecmp(code, "badpass"))
+  else if (!op_strcasecmp(code, "badpass"))
     /* We entered the wrong password */
     putlog(LOG_BOTS, "*", DCC_BADPASS, dcc[idx].nick);
-  else if (!strcasecmp(code, "passreq")) {
+  else if (!op_strcasecmp(code, "passreq")) {
     pass = get_bot_pass(u);
     if (!pass || !strcmp(pass, "-")) {
       putlog(LOG_BOTS, "*", DCC_PASSREQ, dcc[idx].nick);
@@ -383,7 +383,7 @@ static void dcc_bot_new(int idx, char *buf, int x)
       else
         dprintf(idx, "%s\n", pass);
     }
-  } else if (!strcasecmp(code, "error"))
+  } else if (!op_strcasecmp(code, "error"))
     putlog(LOG_BOTS, "*", DCC_LINKERROR, dcc[idx].nick, buf);
   /* Ignore otherwise */
 }
@@ -641,7 +641,7 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
     }
   }
   /* Check for MD5 digest from remote _bot_. <cybah> */
-  if ((atr & USER_BOT) && !strncasecmp(buf, "digest ", 7)) {
+  if ((atr & USER_BOT) && !op_strncasecmp(buf, "digest ", 7)) {
     if (dcc_bot_check_digest(idx, buf + 7)) {
       op_free(dcc[idx].u.chat);
       dcc[idx].type = &DCC_BOT_NEW;
@@ -715,7 +715,7 @@ static void dcc_chat_pass(int idx, char *buf, int atr)
       if (dcc[idx].status & STAT_TELNET)
         tputs(dcc[idx].sock, TLN_IAC_C TLN_WONT_C TLN_ECHO_C "\n", 4);
       dcc[idx].user = get_user_by_handle(userlist, dcc[idx].u.chat->away);
-      strlcpy(dcc[idx].nick, dcc[idx].u.chat->away, sizeof dcc[idx].nick);
+      op_strlcpy(dcc[idx].nick, dcc[idx].u.chat->away, sizeof dcc[idx].nick);
       op_free(dcc[idx].u.chat->away);
       op_free(dcc[idx].u.chat->su_nick);
       dcc[idx].u.chat->away = nullptr;
@@ -813,14 +813,14 @@ void strip_mirc_codes(int flags, char *text)
     switch (*text) {
     case 3:                    /* mIRC colors? */
       if (flags & STRIP_COLOR) {
-        if (egg_isdigit(text[1])) { /* Is the first char a number? */
+        if (isdigit((unsigned char)(text[1]))) { /* Is the first char a number? */
           text += 2;            /* Skip over the ^C and the first digit */
-          if (egg_isdigit(*text))
+          if (isdigit((unsigned char)(*text)))
             text++;             /* Is this a double digit number? */
           if (*text == ',') {   /* Do we have a background color next? */
-            if (egg_isdigit(text[1]))
+            if (isdigit((unsigned char)(text[1])))
               text += 2;        /* Skip over the first background digit */
-            if (egg_isdigit(*text))
+            if (isdigit((unsigned char)(*text)))
               text++;           /* Is it a double digit? */
           }
         } else
@@ -851,7 +851,7 @@ void strip_mirc_codes(int flags, char *text)
         text++;
         if (*text == '[') {
           text++;
-          while ((*text == ';') || egg_isdigit(*text))
+          while ((*text == ';') || isdigit((unsigned char)(*text)))
             text++;
           if (*text)
             text++;             /* also kill the following char */
@@ -917,7 +917,7 @@ static void append_line(int idx, char *line)
     p->len = l;
     p->msg = get_data_ptr(l + 1);
     p->next = nullptr;
-    strlcpy(p->msg, line, l + 1);
+    op_strlcpy(p->msg, line, l + 1);
     if (q == nullptr)
       c->buffer = p;
     else
@@ -1012,7 +1012,7 @@ static void dcc_chat(int idx, char *buf, int i)
   if (buf[0]) {
     const char *filt = check_tcl_filt(idx, buf);
     if (filt != buf) {
-      strlcpy(filtbuf, filt, sizeof(filtbuf));
+      op_strlcpy(filtbuf, filt, sizeof(filtbuf));
       buf = filtbuf;
     }
   }
@@ -1051,7 +1051,7 @@ static void dcc_chat(int idx, char *buf, int i)
         *d++ = *v++;
       }
     if (fixed)
-      strlcpy(d, "\033[0m", 5);
+      op_strlcpy(d, "\033[0m", 5);
     else
       *d = 0;
     if (buf[0]) {               /* Nothing to say - maybe paging... */
@@ -1078,7 +1078,7 @@ static void dcc_chat(int idx, char *buf, int i)
           if (dcc[idx].u.chat->su_nick) {
             dcc[idx].user = get_user_by_handle(userlist,
                                                dcc[idx].u.chat->su_nick);
-            strlcpy(dcc[idx].nick, dcc[idx].u.chat->su_nick, sizeof dcc[idx].nick);
+            op_strlcpy(dcc[idx].nick, dcc[idx].u.chat->su_nick, sizeof dcc[idx].nick);
             dcc[idx].type = &DCC_CHAT;
             dprintf(idx, "Returning to real nick %s!\n",
                     dcc[idx].u.chat->su_nick);
@@ -1192,8 +1192,8 @@ static int detect_telnet_flood(const char *floodhost)
   get_user_flagrec(get_user_by_host(floodhost), &fr, nullptr);
   if (!flood_telnet_thr || (glob_friend(fr) && !par_telnet_flood))
     return 0;                   /* No flood protection */
-  if (strcasecmp(lasttelnethost, floodhost)) {      /* New... */
-    strlcpy(lasttelnethost, floodhost, sizeof lasttelnethost);
+  if (op_strcasecmp(lasttelnethost, floodhost)) {      /* New... */
+    op_strlcpy(lasttelnethost, floodhost, sizeof lasttelnethost);
     lasttelnettime = now;
     lasttelnets = 0;
     return 0;
@@ -1278,7 +1278,7 @@ static void dcc_telnet(int idx, char *buf, int i)
   }
 #endif
   dcc[i].timeval = now;
-  strlcpy(dcc[i].nick, "*", HANDLEN + 1);
+  op_strlcpy(dcc[i].nick, "*", HANDLEN + 1);
   dcc[i].u.dns->dns_success = dcc_telnet_hostresolved;
   dcc[i].u.dns->dns_failure = dcc_telnet_hostresolved;
   dcc[i].u.dns->dns_type = RES_HOSTBYIP;
@@ -1290,7 +1290,7 @@ static void dcc_telnet(int idx, char *buf, int i)
     const char *ip = iptostr(&dcc[i].sockname.addr.sa);
     size_t len = strlen(ip) + 1;
     dcc[i].u.dns->host = get_data_ptr(len);
-    strlcpy(dcc[i].u.dns->host, ip, len);
+    op_strlcpy(dcc[i].u.dns->host, ip, len);
     dcc_telnet_hostresolved(i);
     return;
   }
@@ -1348,8 +1348,8 @@ void dcc_telnet_hostresolved2(int i, int idx) {
   dcc[j].sock = sock;
   dcc[j].port = 113;
   dcc[j].addr = dcc[i].addr;
-  strlcpy(dcc[j].host, dcc[i].host, UHOSTLEN);
-  strlcpy(dcc[j].nick, "*", HANDLEN + 1);
+  op_strlcpy(dcc[j].host, dcc[i].host, UHOSTLEN);
+  op_strlcpy(dcc[j].nick, "*", HANDLEN + 1);
   dcc[j].u.ident_sock = dcc[i].sock;
   dcc[j].timeval = now;
   dprintf(j, "%d, %d\n", dcc[i].port, dcc[idx].port);
@@ -1362,7 +1362,7 @@ static void dcc_telnet_hostresolved(int i)
   const char *userhost;
 
   debug0("dcc_telnet_hostresolved()");
-  strlcpy(dcc[i].host, dcc[i].u.dns->host, UHOSTLEN);
+  op_strlcpy(dcc[i].host, dcc[i].u.dns->host, UHOSTLEN);
 
   for (idx = 0; idx < dcc_total; idx++)
     if ((dcc[idx].type == &DCC_TELNET) &&
@@ -1418,8 +1418,8 @@ static void dcc_telnet_hostresolved(int i)
   if ((dcc[idx].status & LSTN_PUBLIC) && !strcmp(dcc[idx].nick, "(script)")) {
     changeover_dcc(i, &DCC_SOCKET, 0);
     dcc[i].u.other = nullptr;
-    strlcpy(dcc[i].nick, "*", HANDLEN + 1);
-    strlcpy(dcc[i].host, userhost, UHOSTLEN);
+    op_strlcpy(dcc[i].nick, "*", HANDLEN + 1);
+    op_strlcpy(dcc[i].host, userhost, UHOSTLEN);
     op_strbuf_free(&s);
     check_tcl_listen(dcc[idx].host, dcc[i].sock);
     return;
@@ -1434,7 +1434,7 @@ static void dcc_telnet_hostresolved(int i)
   }
 #endif /* TLS */
 
-  strlcpy(dcc[i].host, userhost, UHOSTLEN);
+  op_strlcpy(dcc[i].host, userhost, UHOSTLEN);
   op_strbuf_free(&s);
   dcc_telnet_hostresolved2(i, idx);
 }
@@ -1556,7 +1556,7 @@ void dupwait_notify(char *who)
   Assert(who);
   for (idx = 0; idx < dcc_total; idx++)
     if ((dcc[idx].type == &DCC_DUPWAIT) &&
-        !strcasecmp(dcc[idx].nick, who)) {
+        !op_strcasecmp(dcc[idx].nick, who)) {
       dcc_telnet_pass(idx, dcc[idx].u.dupwait->atr);
       break;
     }
@@ -1597,7 +1597,7 @@ static void dcc_telnet_id(int idx, char *buf, int atr)
   if (dcc[idx].ssl && (tls_auth == 2)) {
     const char *uid = ssl_getuid(dcc[idx].sock);
 
-    if (!uid || strcasecmp(uid, buf)) {
+    if (!uid || op_strcasecmp(uid, buf)) {
       if (glob_bot(fr)) {
         /* change here temp to use bot output */
         dcc[idx].type = &DCC_BOT_NEW;
@@ -1638,7 +1638,7 @@ static void dcc_telnet_id(int idx, char *buf, int atr)
     return;
   }
   dcc[idx].status &= ~(STAT_BOTONLY | STAT_USRONLY);
-  if (!strcasecmp(buf, "NEW") && (allow_new_telnets || make_userfile)) {
+  if (!op_strcasecmp(buf, "NEW") && (allow_new_telnets || make_userfile)) {
     dcc[idx].type = &DCC_TELNET_NEW;
     dcc[idx].timeval = now;
     dprintf(idx, "\n");
@@ -1663,9 +1663,9 @@ static void dcc_telnet_id(int idx, char *buf, int atr)
     return;
   }
   correct_handle(buf);
-  strlcpy(dcc[idx].nick, buf, sizeof dcc[idx].nick);
+  op_strlcpy(dcc[idx].nick, buf, sizeof dcc[idx].nick);
   if (glob_bot(fr)) {
-    if (!strcasecmp(botnetnick, dcc[idx].nick)) {
+    if (!op_strcasecmp(botnetnick, dcc[idx].nick)) {
       /* change here temp to use bot output */
       dcc[idx].type = &DCC_BOT_NEW;
       dprintf(idx, "error You cannot link using my botnetnick.\n");
@@ -1701,7 +1701,7 @@ int dcc_fingerprint(int idx)
     cf = ssl_getfp(dcc[idx].sock);
     /* Get the fingerprint of the user, if set */
     uf = get_user(&USERENTRY_FPRINT, dcc[idx].user);
-    if (cf && uf && !strcasecmp(cf, uf)) {
+    if (cf && uf && !op_strcasecmp(cf, uf)) {
       if (!glob_bot(fr))
         dprintf(idx, "Used your fingerprint for automatic authentication.\n");
       dcc[idx].status |= STAT_FPRINT;
@@ -1741,7 +1741,7 @@ static void dcc_telnet_pass(int idx, int atr)
     cf = ssl_getfp(dcc[idx].sock);
     /* Get the fingerprint of the user, if set */
     uf = get_user(&USERENTRY_FPRINT, dcc[idx].user);
-    if (cf && uf && !strcasecmp(cf, uf)) {
+    if (cf && uf && !op_strcasecmp(cf, uf)) {
       char fakepass[2] = "+";
 
       if (!glob_bot(fr))
@@ -1904,10 +1904,10 @@ static void dcc_telnet_new(int idx, char *buf, int x)
     dprintf(idx, "\nSorry, that handle is taken already.\n");
     dprintf(idx, "Try another one please:\n");
     return;
-  } else if (!strcasecmp(buf, botnetnick))
+  } else if (!op_strcasecmp(buf, botnetnick))
     dprintf(idx, "Sorry, can't use my name for a nick.\n");
   else {
-    strlcpy(dcc[idx].nick, buf, HANDLEN + 1);
+    op_strlcpy(dcc[idx].nick, buf, HANDLEN + 1);
     if (make_userfile)
       userlist = adduser(userlist,
                  buf, "-telnet!*@*", "-", sanity_check(default_flags |
@@ -1968,7 +1968,7 @@ static void dcc_telnet_pw(int idx, char *new, int x)
     op_strbuf_init(&notebuf);
 
     op_strbuf_appendf(&notebuf, "Introduced to %s, %s", dcc[idx].nick, dcc[idx].host);
-    strlcpy(notify_list, notify_new, sizeof(notify_list));
+    op_strlcpy(notify_list, notify_new, sizeof(notify_list));
     splitc(recipient, notify_list, ',');
     while (recipient[0]) {
       rmspace(recipient);
@@ -2284,7 +2284,7 @@ void dcc_ident(int idx, char *buf, int len)
   rmspace(response);
   rmspace(uid);
   uid[sizeof uid - 1] = '\0';
-  if (strncasecmp(response, "USERID", 6) || strchr(uid, '@')) {
+  if (op_strncasecmp(response, "USERID", 6) || strchr(uid, '@')) {
     debug0("dcc: invalid ident string received, ignoring...");
     dcc[idx].timeval = now;
     return;
@@ -2364,7 +2364,7 @@ static void dcc_telnet_got_ident(int i, const char *host)
     lostdcc(i);
     return;
   }
-  strlcpy(dcc[i].host, host, UHOSTLEN);
+  op_strlcpy(dcc[i].host, host, UHOSTLEN);
   op_strbuf_t x = {};
   op_strbuf_init(&x);
   op_strbuf_appendf(&x, "-telnet!%s", dcc[i].host);
@@ -2400,7 +2400,7 @@ static void dcc_telnet_got_ident(int i, const char *host)
   if (!strcmp(dcc[idx].nick, "(script)")) {
     dcc[i].type = &DCC_SOCKET;
     dcc[i].u.other = nullptr;
-    strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
+    op_strlcpy(dcc[i].nick, "*", sizeof(dcc[i].nick));
     check_tcl_listen(dcc[idx].host, dcc[i].sock);
     return;
   }
@@ -2409,7 +2409,7 @@ static void dcc_telnet_got_ident(int i, const char *host)
   sockoptions(dcc[i].sock, EGG_OPTION_UNSET, SOCK_BUFFER);
   dcc[i].type = &DCC_TELNET_ID;
   dcc[i].u.chat = get_data_ptr(sizeof(struct chat_info));
-  egg_bzero(dcc[i].u.chat, sizeof(struct chat_info));
+  op_memzero(dcc[i].u.chat, sizeof(struct chat_info));
 
   /* Note: we don't really care about telnet status here. We use the
    * STATUS option as a hopefully harmless way to detect if the other
@@ -2427,10 +2427,10 @@ static void dcc_telnet_got_ident(int i, const char *host)
   else if (!strcmp(dcc[idx].nick, "(webui)"))
     dcc[i].status |= STAT_WS;
   /* Copy acceptable-nick/host mask */
-  strlcpy(dcc[i].nick, dcc[idx].host, sizeof dcc[i].nick);
+  op_strlcpy(dcc[i].nick, dcc[idx].host, sizeof dcc[i].nick);
 
   dcc[i].timeval = now;
-  strlcpy(dcc[i].u.chat->con_chan, chanset ? chanset->dname : "*", sizeof(dcc[i].u.chat->con_chan));
+  op_strlcpy(dcc[i].u.chat->con_chan, chanset ? chanset->dname : "*", sizeof(dcc[i].u.chat->con_chan));
   /* Displays a customizable banner. */
   if (use_telnet_banner)
     show_banner(i);

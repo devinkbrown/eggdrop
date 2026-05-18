@@ -326,7 +326,7 @@ static char *encrypt_string_ecb(char *key, char *str)
   /* Pad fake string with 8 bytes to make sure there's enough */
   size_t _len = strlen(str) + 9;
   s = op_malloc(_len);
-  strlcpy(s, str, _len);
+  op_strlcpy(s, str, _len);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s;
@@ -381,7 +381,7 @@ static char *encrypt_string_cbc(char *key, char *str)
 #else
   arc4random_buf(s, 8);
 #endif
-  strlcpy(s + 8, str, slen + 9 - 8);
+  op_strlcpy(s + 8, str, slen + 9 - 8);
   if ((!key) || (!key[0]))
     return s;
   p = (unsigned char *) s + slen;
@@ -462,16 +462,16 @@ static char *encrypt_string_cbc(char *key, char *str)
  */
 static char *encrypt_string(char *key, char *str)
 {
-  if (!strncasecmp(key, "ecb:", 4)) {
+  if (!op_strncasecmp(key, "ecb:", 4)) {
     return encrypt_string_ecb(key + 4, str);
 
-  } else if (!strncasecmp(key, "cbc:", 4)) {
+  } else if (!op_strncasecmp(key, "cbc:", 4)) {
     return encrypt_string_cbc(key + 4, str);
 
-  } else if (!strncasecmp(bf_mode, "ecb", sizeof bf_mode)) {
+  } else if (!op_strncasecmp(bf_mode, "ecb", sizeof bf_mode)) {
     return encrypt_string_ecb(key, str);
 
-  } else if (!strncasecmp(bf_mode, "cbc", sizeof bf_mode)) {
+  } else if (!op_strncasecmp(bf_mode, "cbc", sizeof bf_mode)) {
     return encrypt_string_cbc(key, str);
 
   }
@@ -490,7 +490,7 @@ static char *decrypt_string_ecb(char *key, char *str)
   /* Pad encoded string with 0 bits in case it's bogus */
   size_t _len = strlen(str) + 12;
   s = op_malloc(_len);
-  strlcpy(s, str, _len);
+  op_strlcpy(s, str, _len);
   if ((!key) || (!key[0]))
     return s;
   p = s;
@@ -531,7 +531,7 @@ static char *decrypt_string_cbc(char *key, char *str)
 
   slen = strlen(str);
   s = op_malloc(slen + 1);
-  strlcpy(s, str, slen + 1);
+  op_strlcpy(s, str, slen + 1);
   s[slen] = 0;
   if ((!key) || (!key[0]) || (slen % 4))
     return s;
@@ -611,7 +611,7 @@ static char *decrypt_string_cbc(char *key, char *str)
  */
 static char *decrypt_string(char *key, char *str)
 {
-  if (!strncasecmp(key, "ecb:", 4)) {
+  if (!op_strncasecmp(key, "ecb:", 4)) {
     if (str[0] == '*') {
       /* ecb strings shouldn't start with * */
       return decrypt_string_cbc(key + 4, str + 1);
@@ -619,7 +619,7 @@ static char *decrypt_string(char *key, char *str)
     /* else */
     return decrypt_string_ecb(key + 4, str);
 
-  } else if (!strncasecmp(key, "cbc:", 4)) {
+  } else if (!op_strncasecmp(key, "cbc:", 4)) {
     if (str[0] != '*') {
       /* cbc strings should start with * */
       return decrypt_string_ecb(key + 4, str);
@@ -733,7 +733,7 @@ char *blowfish_start(Function *global_funcs)
   }
 
   /* ECB by default for now, change at v1.9.0! */
-  strlcpy(bf_mode, "ecb", sizeof bf_mode);
+  op_strlcpy(bf_mode, "ecb", sizeof bf_mode);
   add_tcl_commands(mytcls);
   add_tcl_strings(my_tcl_strings);
   add_help_reference("blowfish.help");

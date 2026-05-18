@@ -268,12 +268,12 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
     return TCL_OK;
   }
 
-  if (!strcasecmp(argv[1], "off")) {
+  if (!op_strcasecmp(argv[1], "off")) {
     res_disable_dot();
     return TCL_OK;
   }
 
-  if (!strcasecmp(argv[1], "on")) {
+  if (!op_strcasecmp(argv[1], "on")) {
     struct sockaddr_storage sa = {};
     const char *addr;
     uint16_t    port    = 853;
@@ -287,7 +287,7 @@ static int tcl_dnsdot([[maybe_unused]] ClientData cd, Tcl_Interp *irp, int argc,
     addr = argv[2];
 
     for (int i = 3; i < argc; i++) {
-      if (!strcasecmp(argv[i], "-noverify"))
+      if (!op_strcasecmp(argv[i], "-noverify"))
         verify = 0;
       else
         port = (uint16_t)egg_atoi(argv[i]);
@@ -344,6 +344,7 @@ static char *dns_close(void)
   }
 
   dns_free_cache();
+  dns_req_cleanup();
   module_undepend(MODULE_NAME);
   return nullptr;
 }
@@ -382,7 +383,7 @@ char *dns_start(Function *global_funcs)
   }
   dcc[idx].sock = resfd;
   dcc[idx].timeval = now;
-  strlcpy(dcc[idx].nick, "(dns)", sizeof(dcc[idx].nick));
+  op_strlcpy(dcc[idx].nick, "(dns)", sizeof(dcc[idx].nick));
   /* myres only holds IPv4 servers; guard against IPv6-only configs where
    * myres.nscount may be 0 even though dns_nscount > 0. */
   if (myres.nscount > 0) {

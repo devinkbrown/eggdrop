@@ -183,9 +183,9 @@ static void run_tcl_cmd(const char *cmd)
         name[nlen] = '\0';
         p = space + 1;
         while (*p == ' ') p++;
-        strlcpy(opts, p, sizeof opts);
+        op_strlcpy(opts, p, sizeof opts);
       } else {
-        strlcpy(name, p, sizeof name);
+        op_strlcpy(name, p, sizeof name);
         opts[0] = '\0';
       }
       if (chan_add)
@@ -296,12 +296,12 @@ static void run_tcl_cmd(const char *cmd)
             port[plen] = '\0';
             p = sp + 1;
             while (*p == ' ') p++;
-            strlcpy(pass, p, sizeof pass);
+            op_strlcpy(pass, p, sizeof pass);
           } else {
-            strlcpy(port, p, sizeof port);
+            op_strlcpy(port, p, sizeof port);
           }
         } else {
-          strlcpy(host, p, sizeof host);
+          op_strlcpy(host, p, sizeof host);
         }
       }
       {
@@ -312,7 +312,7 @@ static void run_tcl_cmd(const char *cmd)
         else if (port[0])
           op_strbuf_appendf(&es, "%s:%s", host, port);
         else
-          op_strbuf_appendf(&es, "%s", host);
+          op_strbuf_append_cstr(&es, host);
         if (srv_add)
           srv_add(op_strbuf_str(&es));
         op_strbuf_free(&es);
@@ -362,7 +362,7 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
 {
   char host[256] = {}, portpart[68] = {}, pass[128] = {};
 
-  strlcpy(host, entry, sizeof host);
+  op_strlcpy(host, entry, sizeof host);
 
   char *colon = strchr(host, ':');
   if (colon) {
@@ -376,9 +376,9 @@ static void cb_server_add(const char *entry, [[maybe_unused]] void *ud)
       if (plen >= sizeof portpart) plen = sizeof portpart - 1;
       memcpy(portpart, rest, plen);
       portpart[plen] = '\0';
-      strlcpy(pass, colon2 + 1, sizeof pass);
+      op_strlcpy(pass, colon2 + 1, sizeof pass);
     } else {
-      strlcpy(portpart, rest, sizeof portpart);
+      op_strlcpy(portpart, rest, sizeof portpart);
     }
   }
 
@@ -423,7 +423,7 @@ static void cb_source(const char *path, [[maybe_unused]] void *ud)
 {
   /* Route .py files to the script engine (Python) regardless of Tcl. */
   const char *ext = strrchr(path, '.');
-  if (ext && !strcasecmp(ext, ".py")) {
+  if (ext && !op_strcasecmp(ext, ".py")) {
     script_load(path);
     return;
   }
@@ -492,7 +492,7 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
        * notcl table (it's managed by a Tcl trace in server.mod at runtime),
        * so we must write origbotname directly here. */
       if (strcmp(key, "nick") == 0) {
-        strlcpy(origbotname, value, NICKLEN);
+        op_strlcpy(origbotname, value, NICKLEN);
         set_tcl_var(key, value);
         return;
       }
@@ -519,7 +519,7 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
     case SEC_CHANSET:
       /* channel = "#name" — identifies which channel this block configures. */
       if (strcmp(key, "channel") == 0) {
-        strlcpy(chanset_state.channel, value, sizeof chanset_state.channel);
+        op_strlcpy(chanset_state.channel, value, sizeof chanset_state.channel);
         return;
       }
       if (!chanset_state.channel[0])
@@ -527,7 +527,7 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
 
       /* IRCX / Ophion settings — accumulated and emitted as ircxautoowner. */
       if (strcmp(key, "ownerkey") == 0 || strcmp(key, "ircx_ownerkey") == 0) {
-        strlcpy(chanset_state.ownerkey, value, sizeof chanset_state.ownerkey);
+        op_strlcpy(chanset_state.ownerkey, value, sizeof chanset_state.ownerkey);
         chanset_state.has_ircx = 1;
         return;
       }
@@ -537,7 +537,7 @@ static void process_kv(TomlSection sec, const char *key, const char *value)
         return;
       }
       if (strcmp(key, "ircx_create_modes") == 0) {
-        strlcpy(chanset_state.ircx_modes, value, sizeof chanset_state.ircx_modes);
+        op_strlcpy(chanset_state.ircx_modes, value, sizeof chanset_state.ircx_modes);
         chanset_state.has_ircx = 1;
         return;
       }
@@ -595,7 +595,7 @@ void prescan_paths(const char *fname)
     if (op_toml_str(paths, "lang_dir", &val) == 1)
       set_lang_dir(val);
     if (op_toml_str(paths, "mod_path", &val) == 1 && *val) {
-      strlcpy(moddir, val, sizeof moddir);
+      op_strlcpy(moddir, val, sizeof moddir);
       size_t n = strlen(moddir);
       if (n && moddir[n - 1] != '/' && n + 1 < sizeof moddir) {
         moddir[n]     = '/';
@@ -675,9 +675,9 @@ static void walk_key_cb(const char *key, void *ud)
 
   /* Buffer [paths] entries for replay after modules load. */
   if (ctx->paths_buf && *ctx->paths_buf_n < PATHS_BUF_MAX) {
-    strlcpy(ctx->paths_buf[*ctx->paths_buf_n].key, key,
+    op_strlcpy(ctx->paths_buf[*ctx->paths_buf_n].key, key,
             sizeof ctx->paths_buf[*ctx->paths_buf_n].key);
-    strlcpy(ctx->paths_buf[*ctx->paths_buf_n].val, val,
+    op_strlcpy(ctx->paths_buf[*ctx->paths_buf_n].val, val,
             sizeof ctx->paths_buf[*ctx->paths_buf_n].val);
     (*ctx->paths_buf_n)++;
   }
@@ -840,7 +840,7 @@ static void prompt(const char *question, const char *def,
 
   if (!fgets(buf, (int)buflen, stdin)) {
     /* EOF / error – use default */
-    strlcpy(buf, def ? def : "", buflen);
+    op_strlcpy(buf, def ? def : "", buflen);
     printf("\n");
     return;
   }
@@ -850,7 +850,7 @@ static void prompt(const char *question, const char *def,
 
   /* Fall back to default on empty input. */
   if (!*buf && def)
-    strlcpy(buf, def, buflen);
+    op_strlcpy(buf, def, buflen);
 }
 
 /*
@@ -1021,7 +1021,7 @@ int run_setup_wizard(const char *outfile)
   }
 
   /* Lowercase nick as default IRC username */
-  strlcpy(tmp, nick, sizeof tmp);
+  op_strlcpy(tmp, nick, sizeof tmp);
   for (i = 0; tmp[i]; i++)
     tmp[i] = (char)tolower((unsigned char)tmp[i]);
   prompt("IRC username (ident)", tmp, username, sizeof username);
@@ -1039,20 +1039,14 @@ int run_setup_wizard(const char *outfile)
 
   /* Use short network name for [bot] network = ... */
   if (net_idx < 8)
-    strlcpy(network, net_labels[net_idx], sizeof network);
+    op_strlcpy(network, net_labels[net_idx], sizeof network);
   else
     prompt("Network name (display only)", "MyNetwork", network, sizeof network);
 
   prompt("IRC server hostname", net_defaults[net_idx], server, sizeof server);
   use_ssl = prompt_yn("Use SSL/TLS?", 1);
 
-  {
-    op_strbuf_t _b = {};
-    op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "%s", int_to_base10(use_ssl ? 6697 : 6667));
-    prompt("Port", op_strbuf_str(&_b), port_buf, sizeof port_buf);
-    op_strbuf_free(&_b);
-  }
+  prompt("Port", int_to_base10(use_ssl ? 6697 : 6667), port_buf, sizeof port_buf);
   port = egg_atoi(port_buf);
   if (port <= 0 || port > 65535)
     port = use_ssl ? 6697 : 6667;
@@ -1139,7 +1133,7 @@ int run_setup_wizard(const char *outfile)
       break;
     }
 
-    strlcpy(channels[nchan], cbuf, sizeof channels[0]);
+    op_strlcpy(channels[nchan], cbuf, sizeof channels[0]);
     if (++nchan >= 8)
       break;
   }

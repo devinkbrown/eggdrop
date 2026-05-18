@@ -20,17 +20,17 @@
 /* Map digest name string to opssl_hmac_algo_t.  Returns -1 if unknown. */
 static int pbkdf2_get_algo(const char *name, opssl_hmac_algo_t *algo, int *dlen)
 {
-  if (!strcasecmp(name, "SHA256") || !strcasecmp(name, "SHA-256")) {
+  if (!op_strcasecmp(name, "SHA256") || !op_strcasecmp(name, "SHA-256")) {
     *algo = OPSSL_HMAC_SHA256;
     *dlen = OPSSL_SHA256_DIGEST_LEN;
     return 0;
   }
-  if (!strcasecmp(name, "SHA384") || !strcasecmp(name, "SHA-384")) {
+  if (!op_strcasecmp(name, "SHA384") || !op_strcasecmp(name, "SHA-384")) {
     *algo = OPSSL_HMAC_SHA384;
     *dlen = OPSSL_SHA384_DIGEST_LEN;
     return 0;
   }
-  if (!strcasecmp(name, "SHA512") || !strcasecmp(name, "SHA-512")) {
+  if (!op_strcasecmp(name, "SHA512") || !op_strcasecmp(name, "SHA-512")) {
     *algo = OPSSL_HMAC_SHA512;
     *dlen = OPSSL_SHA512_DIGEST_LEN;
     return 0;
@@ -116,7 +116,7 @@ static char *pbkdf2_hash(const char *pass, const char *digest_name,
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "$pbkdf2-%s$rounds=%u$", digest_name, rounds);
-    strlcpy((char *) out2, op_strbuf_str(&_b), restlen);
+    op_strlcpy((char *) out2, op_strbuf_str(&_b), restlen);
     bufcount(&out2, &restlen, op_strbuf_len(&_b));
     op_strbuf_free(&_b);
   }

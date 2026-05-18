@@ -26,10 +26,9 @@
 
 typedef struct isupport {
   const char *key, *value, *defaultvalue;
-  struct isupport *prev, *next;
 } isupport_t;
 
-static isupport_t *isupport_list;
+static op_htab *isupport_ht = nullptr;
 static p_tcl_bind_list H_isupport;
 static op_bh *isupport_bh = nullptr;
 static const char isupport_default[4096] = "CASEMAPPING=rfc1459 CHANNELLEN=200 NICKLEN=9 CHANTYPES=#& PREFIX=(ov)@+ CHANMODES=b,k,l,imnpst MODES=3 MAXCHANNELS=10 TOPICLEN=250 KICKLEN=250 STATUSMSG=@+";
@@ -80,17 +79,6 @@ static char *strrangedup_toupper(const char *value, size_t len) {
   return str;
 }
 
-static int keycmp(const char *key1, const char *key2, size_t key2len) {
-  size_t key1len = strlen(key1);
-
-  if (key1len > key2len) {
-    return 1;
-  } else if (key1len < key2len) {
-    return -1;
-  } else {
-    return strncasecmp(key1, key2, key2len);
-  }
-}
 
 /* Parse a 005 value that is expected to be an int.
    Args are:
@@ -145,42 +133,29 @@ static void isupport_free(struct isupport *data) {
 }
 
 static struct isupport *add_record(const char *key, size_t keylen) {
-  if (!isupport_bh)
+  if (!isupport_bh) {
     isupport_bh = op_bh_create(sizeof(isupport_t), 32, "isupport");
-  struct isupport *data = op_bh_alloc(isupport_bh);
-
-  data->key = strrangedup_toupper(key, keylen);
-  data->defaultvalue = data->value = nullptr;
-  data->prev = nullptr;
-  data->next = isupport_list;
-
-  if (isupport_list) {
-    isupport_list->prev = data;
+    isupport_ht = op_htab_create_str("isupport", 32);
   }
-  isupport_list = data;
+  struct isupport *data = op_bh_alloc(isupport_bh);
+  data->key = strrangedup_toupper(key, keylen);
+  op_htab_set(isupport_ht, (void *)data->key, data, nullptr);
   return data;
 }
 
 static void del_record(struct isupport *data) {
-  if (data->prev) {
-    data->prev->next = data->next;
-  } else {
-    isupport_list = data->next;
-  }
-  if (data->next) {
-    data->next->prev = data->prev;
-  }
+  op_htab_del(isupport_ht, (void *)data->key);
   isupport_free(data);
 }
 
-/* find record in list for key, case insensitive, return nullptr if it does not exist */
+/* find record — O(1) via hash table */
 static struct isupport *find_record(const char *key, size_t keylen) {
-  for (isupport_t *data = isupport_list; data; data = data->next) {
-    if (!keycmp(data->key, key, keylen)) {
-      return data;
-    }
-  }
-  return nullptr;
+  char upper[256];
+  size_t n = keylen < sizeof upper - 1 ? keylen : sizeof upper - 1;
+  for (size_t i = 0; i < n; i++)
+    upper[i] = (char)toupper((unsigned char)key[i]);
+  upper[n] = '\0';
+  return (struct isupport *)op_htab_get(isupport_ht, upper);
 }
 
 /* find record in list for key, case insensitive, create record if it does not exist */
@@ -380,21 +355,30 @@ static void isupport_parse(const char *str,
 
 
 void isupport_clear(void) {
-  struct isupport *data = isupport_list, *next;
-
-  isupport_list = nullptr;
-
-  while (data) {
-    next = data->next;
-    isupport_free(data);
-    data = next;
+  if (!isupport_ht)
+    return;
+  op_htab_iter_t it;
+  op_htab_iter_init(isupport_ht, &it);
+  void *k, *v;
+  while (op_htab_iter_next(isupport_ht, &it, &k, &v)) {
+    struct isupport *data = (struct isupport *)v;
+    op_free((void *)data->key);
+    if (data->value)        op_free((void *)data->value);
+    if (data->defaultvalue) op_free((void *)data->defaultvalue);
+    op_bh_free(isupport_bh, data);
   }
+  op_htab_destroy(isupport_ht, nullptr, nullptr);
+  isupport_ht = nullptr;
 }
 
 void isupport_clear_values(int cleardefaultvalues) {
-  struct isupport *next;
-
-  for (struct isupport *data = isupport_list; (next = data ? data->next : nullptr, data); data = next) {
+  if (!isupport_ht)
+    return;
+  op_htab_iter_t it;
+  op_htab_iter_init(isupport_ht, &it);
+  void *k, *v;
+  while (op_htab_iter_next(isupport_ht, &it, &k, &v)) {
+    struct isupport *data = (struct isupport *)v;
     if ((cleardefaultvalues && data->defaultvalue) || (!cleardefaultvalues && data->value)) {
       if (cleardefaultvalues && data->value) {
         /* no bind trigger, value > defaultvalue, this does not change the effective value */
@@ -408,8 +392,9 @@ void isupport_clear_values(int cleardefaultvalues) {
         }
       } else {
         if (!check_tcl_isupport(data, data->key, nullptr)) {
-          /* entry will be empty, delete it */
-          del_record(data);
+          /* entry will be empty, delete it — use iter_del to stay safe */
+          op_htab_iter_del(isupport_ht, &it);
+          isupport_free(data);
         }
       }
     }
@@ -446,7 +431,7 @@ void isupport_fini(void) {
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_isupport, nullptr);
   rem_tcl_commands(my_tcl_objcmds);
-  isupport_clear();
+  isupport_clear(); /* destroys isupport_ht */
   if (isupport_bh) {
     op_bh_destroy(isupport_bh);
     isupport_bh = nullptr;
@@ -455,15 +440,17 @@ void isupport_fini(void) {
 
 size_t isupport_expmem(void) {
   size_t bytes = 0;
-
-  for (struct isupport *data = isupport_list; data; data = data->next) {
+  if (!isupport_ht)
+    return 0;
+  op_htab_iter_t it;
+  op_htab_iter_init(isupport_ht, &it);
+  void *k, *v;
+  while (op_htab_iter_next(isupport_ht, &it, &k, &v)) {
+    struct isupport *data = (struct isupport *)v;
     bytes += sizeof *data;
-    if (data->value)
-      bytes += strlen(data->value) + 1;
-    if (data->defaultvalue)
-      bytes += strlen(data->defaultvalue) + 1;
-    if (data->key)
-      bytes += strlen(data->key) + 1;
+    if (data->value)        bytes += strlen(data->value) + 1;
+    if (data->defaultvalue) bytes += strlen(data->defaultvalue) + 1;
+    if (data->key)          bytes += strlen(data->key) + 1;
   }
   return bytes;
 }
@@ -485,11 +472,11 @@ static void isupport_stringify(int idx, char *buf, size_t bufsize, size_t *len,
       return;
     }
   }
-  strlcat(buf + *len, " ", bufsize - *len);
-  strlcat(buf + *len, key, bufsize - *len);
+  op_strlcat(buf + *len, " ", bufsize - *len);
+  op_strlcat(buf + *len, key, bufsize - *len);
   if (value && value[0]) {
-    strlcat(buf + *len, "=", bufsize - *len);
-    strlcat(buf + *len, value, bufsize - *len);
+    op_strlcat(buf + *len, "=", bufsize - *len);
+    op_strlcat(buf + *len, value, bufsize - *len);
   }
   *len = strlen(buf);
 }
@@ -506,12 +493,18 @@ void isupport_report(int idx, const char *prefix, int details)
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%sisupport:", prefix);
-    strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
+    op_strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
     op_strbuf_free(&_b);
   }
   len = prefixlen = strlen(buf);
-  for (struct isupport *data = isupport_list; data; data = data->next) {
-    isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, isupport_get_from_record(data));
+  if (isupport_ht) {
+    op_htab_iter_t it;
+    op_htab_iter_init(isupport_ht, &it);
+    void *k, *v;
+    while (op_htab_iter_next(isupport_ht, &it, &k, &v)) {
+      struct isupport *data = (struct isupport *)v;
+      isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, isupport_get_from_record(data));
+    }
   }
   if (len > prefixlen)
     dprintf(idx, "%s\n", buf);
@@ -521,13 +514,18 @@ void isupport_report(int idx, const char *prefix, int details)
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%sisupport (default):", prefix);
-      strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
+      op_strlcpy(buf, op_strbuf_str(&_b), sizeof buf);
       op_strbuf_free(&_b);
     }
     len = prefixlen = strlen(buf);
-    for (struct isupport *data = isupport_list; data; data = data->next) {
-      if (data->defaultvalue) {
-        isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, data->defaultvalue);
+    if (isupport_ht) {
+      op_htab_iter_t it2;
+      op_htab_iter_init(isupport_ht, &it2);
+      void *k2, *v2;
+      while (op_htab_iter_next(isupport_ht, &it2, &k2, &v2)) {
+        struct isupport *data = (struct isupport *)v2;
+        if (data->defaultvalue)
+          isupport_stringify(idx, buf, sizeof buf, &len, prefixlen, data->key, data->defaultvalue);
       }
     }
     if (len > prefixlen)

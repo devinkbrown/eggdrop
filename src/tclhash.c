@@ -35,7 +35,7 @@ extern int dcc_total;
 extern time_t now;
 extern cmd_t C_dcc[];
 
-p_tcl_bind_list bind_table_list;
+op_vec_t bind_table_vec;
 static op_htab *bind_table_ht    = nullptr;
 
 /* op_bh slab allocators for the three fixed-size tclhash node types.
@@ -68,9 +68,7 @@ p_tcl_bind_list H_tls = nullptr;
 /* Allocate a tcl_cmd_t from the slab, zeroed. */
 static tcl_cmd_t *tcl_cmd_alloc(void)
 {
-  tcl_cmd_t *tc = op_bh_alloc(tcl_cmd_heap);
-  memset(tc, 0, sizeof *tc);
-  return tc;
+  return op_bh_alloc(tcl_cmd_heap);
 }
 
 /* Delete trigger/command — return struct to slab, string to op_malloc pool. */
@@ -83,12 +81,9 @@ static void tcl_cmd_delete(tcl_cmd_t *tc)
 /* Delete bind and its elements. */
 static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
 {
-  tcl_cmd_t *tc, *tc_next;
-
-  for (tc = tm->first; tc; tc = tc_next) {
-    tc_next = tc->next;
-    tcl_cmd_delete(tc);
-  }
+  for (size_t i = 0; i < tm->cmds.size; i++)
+    tcl_cmd_delete((tcl_cmd_t *)op_vec_get(&tm->cmds, i));
+  op_vec_fini(&tm->cmds, nullptr, nullptr);
   op_free(tm->mask);
   op_bh_free(tcl_bind_mask_heap, tm);
 }
@@ -96,12 +91,9 @@ static void tcl_bind_mask_delete(tcl_bind_mask_t *tm)
 /* Delete bind list and its elements. */
 static void tcl_bind_list_delete(tcl_bind_list_t *tl)
 {
-  tcl_bind_mask_t *tm, *tm_next;
-
-  for (tm = tl->first; tm; tm = tm_next) {
-    tm_next = tm->next;
-    tcl_bind_mask_delete(tm);
-  }
+  for (size_t i = 0; i < tl->masks.size; i++)
+    tcl_bind_mask_delete((tcl_bind_mask_t *)op_vec_get(&tl->masks, i));
+  op_vec_fini(&tl->masks, nullptr, nullptr);
   if (tl->mask_ht)
     op_htab_destroy(tl->mask_ht, nullptr, nullptr);
   op_bh_free(tcl_bind_list_heap, tl);
@@ -109,55 +101,38 @@ static void tcl_bind_list_delete(tcl_bind_list_t *tl)
 
 void garbage_collect_tclhash(void)
 {
-  tcl_bind_list_t *tl, *tl_next, *tl_prev;
-  tcl_bind_mask_t *tm, *tm_next, *tm_prev;
-  tcl_cmd_t *tc, *tc_next, *tc_prev;
-
   if (!tclhash_dirty)
-    return;                     /* Nothing changed since last GC: skip */
+    return;
   tclhash_dirty = 0;
 
-  for (tl = bind_table_list, tl_prev = nullptr; tl; tl = tl_next) {
-    tl_next = tl->next;
+  for (size_t ti = bind_table_vec.size; ti-- > 0; ) {
+    tcl_bind_list_t *tl = (tcl_bind_list_t *)op_vec_get(&bind_table_vec, ti);
 
     if (tl->flags & HT_DELETED) {
-      if (tl_prev)
-        tl_prev->next = tl->next;
-      else
-        bind_table_list = tl->next;
       tcl_bind_list_delete(tl);
-    } else {
-      for (tm = tl->first, tm_prev = nullptr; tm; tm = tm_next) {
-        tm_next = tm->next;
+      op_vec_remove_fast(&bind_table_vec, ti);
+      continue;
+    }
 
-        if (!(tm->flags & TBM_DELETED)) {
-          for (tc = tm->first, tc_prev = nullptr; tc; tc = tc_next) {
-            tc_next = tc->next;
+    for (size_t mi = tl->masks.size; mi-- > 0; ) {
+      tcl_bind_mask_t *tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, mi);
 
-            if (tc->attributes & TC_DELETED) {
-              if (tc_prev)
-                tc_prev->next = tc->next;
-              else
-                tm->first = tc->next;
-              tcl_cmd_delete(tc);
-            } else
-              tc_prev = tc;
+      if (!(tm->flags & TBM_DELETED)) {
+        for (size_t ci = tm->cmds.size; ci-- > 0; ) {
+          tcl_cmd_t *tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
+          if (tc->attributes & TC_DELETED) {
+            tcl_cmd_delete(tc);
+            op_vec_remove_fast(&tm->cmds, ci);
           }
         }
-
-        /* Delete the bind when it's marked as deleted or when it's empty. */
-        if ((tm->flags & TBM_DELETED) || tm->first == nullptr) {
-          if (tl->mask_ht)
-            op_htab_del(tl->mask_ht, tm->mask);
-          if (tm_prev)
-            tm_prev->next = tm->next;
-          else
-            tl->first = tm_next;
-          tcl_bind_mask_delete(tm);
-        } else
-          tm_prev = tm;
       }
-      tl_prev = tl;
+
+      if ((tm->flags & TBM_DELETED) || !tm->cmds.size) {
+        if (tl->mask_ht)
+          op_htab_del(tl->mask_ht, tm->mask);
+        tcl_bind_mask_delete(tm);
+        op_vec_remove_fast(&tl->masks, mi);
+      }
     }
   }
 }
@@ -167,14 +142,23 @@ static tcl_bind_mask_t *find_or_add_mask(tcl_bind_list_t *tl, const char *mask)
 {
   tcl_bind_mask_t *tm;
 
-  for (tm = tl->first; tm; tm = tm->next)
-    if (!(tm->flags & TBM_DELETED) && !strcmp(tm->mask, mask))
+  if (tl->mask_ht) {
+    tm = (tcl_bind_mask_t *)op_htab_get(tl->mask_ht, mask);
+    if (tm && !(tm->flags & TBM_DELETED))
       return tm;
-  tm = op_bh_alloc(tcl_bind_mask_heap);
-  memset(tm, 0, sizeof *tm);
-  tm->mask  = op_strdup(mask);
-  tm->next  = tl->first;
-  tl->first = tm;
+    if (tm)
+      tm = nullptr; /* deleted, fall through to create */
+  } else {
+    for (size_t i = 0; i < tl->masks.size; i++) {
+      tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, i);
+      if (!(tm->flags & TBM_DELETED) && !strcmp(tm->mask, mask))
+        return tm;
+    }
+    tm = nullptr;
+  }
+  tm = (tcl_bind_mask_t *)op_bh_alloc(tcl_bind_mask_heap);
+  tm->mask = op_strdup(mask);
+  op_vec_push(&tl->masks, tm);
   if (tl->mask_ht)
     op_htab_set(tl->mask_ht, tm->mask, tm, nullptr);
   return tm;
@@ -182,40 +166,23 @@ static tcl_bind_mask_t *find_or_add_mask(tcl_bind_list_t *tl, const char *mask)
 
 tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
 {
-  tcl_bind_list_t *tl, *tl_prev;
-  int v;
+  tcl_bind_list_t *tl;
 
-  /* Do not allow coders to use bind table names longer than
-   * 15 characters. */
   Assert(strlen(nme) <= 15);
 
-  for (tl = bind_table_list, tl_prev = nullptr; tl; tl_prev = tl, tl = tl->next) {
-    if (tl->flags & HT_DELETED)
-      continue;
-    v = strcasecmp(tl->name, nme);
-    if (!v) {
-      if (func && !tl->func)
-        tl->func = func;
-      return tl;
-    }
-    if (v > 0)
-      break;                    /* New. Insert at start of list.        */
+  tl = find_bind_table(nme);
+  if (tl) {
+    if (func && !tl->func)
+      tl->func = func;
+    return tl;
   }
 
-  tl = op_bh_alloc(tcl_bind_list_heap);
-  memset(tl, 0, sizeof *tl);
-  strlcpy(tl->name, nme, sizeof(tl->name));
-  tl->flags = flg;
+  tl = (tcl_bind_list_t *)op_bh_alloc(tcl_bind_list_heap);
+  op_strlcpy(tl->name, nme, sizeof(tl->name));
+  tl->flags = (uint8_t)flg;
   tl->func = func;
   tl->mask_ht = op_htab_create_istr("bind_masks", 16);
-
-  if (tl_prev) {
-    tl->next = tl_prev->next;
-    tl_prev->next = tl;
-  } else {
-    tl->next = bind_table_list;
-    bind_table_list = tl;
-  }
+  op_vec_push(&bind_table_vec, tl);
 
   if (bind_table_ht)
     op_htab_set(bind_table_ht, tl->name, tl, nullptr);
@@ -225,21 +192,13 @@ tcl_bind_list_t *add_bind_table(const char *nme, int flg, IntFunc func)
 
 void del_bind_table(tcl_bind_list_t *tl_which)
 {
-  tcl_bind_list_t *tl;
-
-  for (tl = bind_table_list; tl; tl = tl->next) {
-    if (tl->flags & HT_DELETED)
-      continue;
-    if (tl == tl_which) {
-      tl->flags |= HT_DELETED;
-      if (bind_table_ht)
-        op_htab_del(bind_table_ht, tl->name);
-      tclhash_dirty = 1;
-      putlog(LOG_DEBUG, "*", "De-Allocated bind table %s", tl->name);
-      return;
-    }
-  }
-  putlog(LOG_DEBUG, "*", "??? Tried to delete not listed bind table ???");
+  if (!tl_which || (tl_which->flags & HT_DELETED))
+    return;
+  tl_which->flags |= HT_DELETED;
+  if (bind_table_ht)
+    op_htab_del(bind_table_ht, tl_which->name);
+  tclhash_dirty = 1;
+  putlog(LOG_DEBUG, "*", "De-Allocated bind table %s", tl_which->name);
 }
 
 tcl_bind_list_t *find_bind_table(const char *nme)
@@ -247,14 +206,15 @@ tcl_bind_list_t *find_bind_table(const char *nme)
   tcl_bind_list_t *tl;
 
   if (bind_table_ht) {
-    tl = op_htab_get(bind_table_ht, nme);
+    tl = (tcl_bind_list_t *)op_htab_get(bind_table_ht, nme);
     if (tl && !(tl->flags & HT_DELETED))
       return tl;
     return nullptr;
   }
   /* Fallback: linear scan (htab not yet initialised). */
-  for (tl = bind_table_list; tl; tl = tl->next) {
-    if (!(tl->flags & HT_DELETED) && !strcasecmp(tl->name, nme))
+  for (size_t i = 0; i < bind_table_vec.size; i++) {
+    tl = (tcl_bind_list_t *)op_vec_get(&bind_table_vec, i);
+    if (!(tl->flags & HT_DELETED) && !op_strcasecmp(tl->name, nme))
       return tl;
   }
   return nullptr;
@@ -273,7 +233,8 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   tm = find_or_add_mask(tl, cmd);
 
   /* Proc already defined? If so, replace flags. */
-  for (tc = tm->first; tc; tc = tc->next) {
+  for (size_t i = 0; i < tm->cmds.size; i++) {
+    tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, i);
     if (tc->attributes & TC_DELETED)
       continue;
     if (!strcmp(tc->func_name, proc)) {
@@ -283,13 +244,12 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
     }
   }
 
-  /* If this bind list is not stackable, remove the
-   * old entry from this bind. */
+  /* If this bind list is not stackable, remove the old entry. */
   if (!(tl->flags & HT_STACKABLE)) {
-    for (tc = tm->first; tc; tc = tc->next) {
+    for (size_t i = 0; i < tm->cmds.size; i++) {
+      tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, i);
       if (tc->attributes & TC_DELETED)
         continue;
-      /* NOTE: We assume there's only one not-yet-deleted entry. */
       tc->attributes |= TC_DELETED;
       tclhash_dirty = 1;
       break;
@@ -300,10 +260,7 @@ int bind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   tc->flags.match = FR_GLOBAL | FR_CHAN;
   break_down_flags(flags, &(tc->flags), nullptr);
   tc->func_name = op_strdup(proc);
-
-  /* Link into linked list of the bind's command list. */
-  tc->next = tm->first;
-  tm->first = tc;
+  op_vec_push(&tm->cmds, tc);
   tclhash_dirty = 1;
 
   return 1;
@@ -317,30 +274,35 @@ int unbind_bind_entry(tcl_bind_list_t *tl, const char *flags,
   if (!tl || !cmd || !proc)
     return 0;
 
-  /* Search for matching bind in bind list. */
-  for (tm = tl->first; tm; tm = tm->next) {
-    if (tm->flags & TBM_DELETED)
-      continue;
-    if (!strcmp(cmd, tm->mask))
-      break;                    /* Found it! fall out! */
-  }
-
-  if (tm) {
-    tcl_cmd_t *tc;
-
-    /* Search for matching proc in bind. */
-    for (tc = tm->first; tc; tc = tc->next) {
-      if (tc->attributes & TC_DELETED)
-        continue;
-      if (!strcasecmp(tc->func_name, proc)) {
-        /* Erase proc regardless of flags. */
-        tc->attributes |= TC_DELETED;
-        tclhash_dirty = 1;
-        return 1;               /* Match.       */
+  /* Search for matching bind mask. */
+  tm = nullptr;
+  if (tl->mask_ht) {
+    tm = (tcl_bind_mask_t *)op_htab_get(tl->mask_ht, cmd);
+    if (tm && (tm->flags & TBM_DELETED))
+      tm = nullptr;
+  } else {
+    for (size_t i = 0; i < tl->masks.size; i++) {
+      tcl_bind_mask_t *m = (tcl_bind_mask_t *)op_vec_get(&tl->masks, i);
+      if (!(m->flags & TBM_DELETED) && !strcmp(cmd, m->mask)) {
+        tm = m;
+        break;
       }
     }
   }
-  return 0;                     /* No match.    */
+
+  if (tm) {
+    for (size_t i = 0; i < tm->cmds.size; i++) {
+      tcl_cmd_t *tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, i);
+      if (tc->attributes & TC_DELETED)
+        continue;
+      if (!op_strcasecmp(tc->func_name, proc)) {
+        tc->attributes |= TC_DELETED;
+        tclhash_dirty = 1;
+        return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 /* Find out whether this bind matches the mask or provides the
@@ -350,10 +312,10 @@ static int check_bind_match(const char *match, char *mask, int match_type)
 {
   switch (match_type & 0x07) {
   case MATCH_PARTIAL:
-    return (!strncasecmp(match, mask, strlen(match)));
+    return (!op_strncasecmp(match, mask, strlen(match)));
     break;
   case MATCH_EXACT:
-    return (!strcasecmp(match, mask));
+    return (!op_strcasecmp(match, mask));
     break;
   case MATCH_CASE:
     return (!strcmp(match, mask));
@@ -398,7 +360,7 @@ static int build_argv(const char *param, const char **argv, int maxargc)
 
   if (!param || !*param)
     return 0;
-  strlcpy(pbuf, param, sizeof pbuf);
+  op_strlcpy(pbuf, param, sizeof pbuf);
   tok = strtok_r(pbuf, " ", &brkt);
   while (tok && argc < maxargc) {
     if (tok[0] == '$' && tok[1] == '_')
@@ -654,7 +616,7 @@ static int trigger_bind(const char *proc, const char *param, char *mask)
 
   if(proc && proc[0] != '*') { /* proc[0] != '*' excludes internal binds */
 #ifdef DEBUG_CONTEXT
-    strlcpy(last_bind_called, proc, sizeof last_bind_called);
+    op_strlcpy(last_bind_called, proc, sizeof last_bind_called);
 #endif
     debug1("triggering bind %s", proc);
     egg_timer_start(&rt);
@@ -680,31 +642,29 @@ static int trigger_bind(const char *proc, const char *param, char *mask)
 
 static void dump_bind_tables(Tcl_Interp *irp)
 {
-  tcl_bind_list_t *tl;
-  uint8_t i;
+  uint8_t first = 1;
 
-  for (tl = bind_table_list, i = 0; tl; tl = tl->next) {
+  for (size_t i = 0; i < bind_table_vec.size; i++) {
+    tcl_bind_list_t *tl = (tcl_bind_list_t *)op_vec_get(&bind_table_vec, i);
     if (tl->flags & HT_DELETED)
       continue;
-    if (i)
+    if (!first)
       Tcl_AppendResult(irp, ", ", nullptr);
     else
-      i = 1;
+      first = 0;
     Tcl_AppendResult(irp, tl->name, nullptr);
   }
 }
 
 static int tcl_getbinds(tcl_bind_list_t *tl_kind, const char *name)
 {
-  tcl_bind_mask_t *tm;
-
-  for (tm = tl_kind->first; tm; tm = tm->next) {
+  for (size_t mi = 0; mi < tl_kind->masks.size; mi++) {
+    tcl_bind_mask_t *tm = (tcl_bind_mask_t *)op_vec_get(&tl_kind->masks, mi);
     if (tm->flags & TBM_DELETED)
       continue;
-    if (!strcasecmp(tm->mask, name)) {
-      tcl_cmd_t *tc;
-
-      for (tc = tm->first; tc; tc = tc->next) {
+    if (!op_strcasecmp(tm->mask, name)) {
+      for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+        tcl_cmd_t *tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
         if (tc->attributes & TC_DELETED)
           continue;
         Tcl_AppendElement(interp, tc->func_name);
@@ -883,26 +843,27 @@ void add_builtins(tcl_bind_list_t *tl, cmd_t *cc)
                  cc[i].funcname ? cc[i].funcname : cc[i].name);
     const char *key = op_strbuf_str(&key_buf);
 
-    egg_bzero(&fr, sizeof fr);
+    op_memzero(&fr, sizeof fr);
     fr.match = FR_GLOBAL | FR_CHAN;
     break_down_flags(cc[i].flags ? cc[i].flags : "", &fr, nullptr);
 
     tm = find_or_add_mask(tl, cc[i].name);
 
     /* Skip if already registered */
-    for (tc = tm->first; tc; tc = tc->next)
+    for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+      tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
       if (!(tc->attributes & TC_DELETED) && !strcmp(tc->func_name, key)) {
         op_strbuf_free(&key_buf);
         goto next_cmd;
       }
+    }
 
     tc = tcl_cmd_alloc();
     tc->flags     = fr;
     tc->func_name = op_strdup(key);
-    tc->native_fn = tl->func;         /* type-specific trampoline */
-    tc->native_cd = (void *) cc[i].func;  /* actual C handler       */
-    tc->next      = tm->first;
-    tm->first     = tc;
+    tc->native_fn = tl->func;
+    tc->native_cd = (void *) cc[i].func;
+    op_vec_push(&tm->cmds, tc);
     tclhash_dirty = 1;
     op_strbuf_free(&key_buf);
 
@@ -942,7 +903,7 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
 {
   int x, result = 0, cnt = 0, finish = 0;
   [[maybe_unused]] char *mask = nullptr;
-  tcl_bind_mask_t *tm, *tm_last = nullptr, *tm_p = nullptr;
+  tcl_bind_mask_t *tm;
   tcl_cmd_t *tc, *htc = nullptr;
   char *str, *varName, *brkt;
   const char *argv[16];
@@ -958,11 +919,12 @@ int check_tcl_bind(tcl_bind_list_t *tl, const char *match,
 
   /* Fast path: O(1) lookup for MATCH_EXACT via mask_ht. */
   if ((match_type & 0x07) == MATCH_EXACT && tl->mask_ht) {
-    tm = op_htab_get(tl->mask_ht, match);
+    tm = (tcl_bind_mask_t *)op_htab_get(tl->mask_ht, match);
     if (!tm || (tm->flags & TBM_DELETED))
       goto exact_miss;
 
-    for (tc = tm->first; tc; tc = tc->next) {
+    for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+      tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
       if (tc->attributes & TC_DELETED)
         continue;
       if (!check_bind_flags(&tc->flags, atr, match_type))
@@ -1001,50 +963,35 @@ exact_miss:
     goto finally;
   }
 
-  for (tm = tl->first; tm && !finish; tm_last = tm, tm = tm->next) {
+  size_t found_mask_idx = SIZE_MAX;
+  for (size_t mi = 0; mi < tl->masks.size && !finish; mi++) {
+    tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, mi);
 
     if (tm->flags & TBM_DELETED)
-      continue;                 /* This bind mask was deleted */
+      continue;
 
     if (!check_bind_match(match, tm->mask, match_type))
-      continue;                 /* This bind does not match. */
+      continue;
 
-    for (tc = tm->first; tc; tc = tc->next) {
+    for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+      tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
 
-      /* Search for valid entry. */
       if (!(tc->attributes & TC_DELETED)) {
-
-        /* Check if the provided flags suffice for this command. */
         if (check_bind_flags(&tc->flags, atr, match_type)) {
           cnt++;
-          tm_p = tm_last;
+          found_mask_idx = mi;
 
-          /* Not stackable */
           if (!(match_type & BIND_STACKABLE)) {
-
-            /* Remember information about this bind. */
             mask = tm->mask;
             htc = tc;
 
-            /* Either this is a non-partial match, which means we
-             * only want to execute _one_ bind ...
-             */
             if ((match_type & 0x07) != MATCH_PARTIAL ||
-              /* ... or this happens to be an exact match. */
-              !strcasecmp(match, tm->mask)) {
+                !op_strcasecmp(match, tm->mask)) {
               cnt = 1;
               finish = 1;
             }
-
-            /* We found a match so break out of the inner loop. */
             break;
           }
-
-          /*
-           * Stackable; could be multiple commands/triggers.
-           * Note: This code assumes BIND_ALTER_ARGS, BIND_WANTRET, and
-           *       BIND_STACKRET will only be used for stackable binds.
-           */
 
           tc->hits++;
           x = DISPATCH(tc, param, tm->mask, argv, argc);
@@ -1093,11 +1040,11 @@ exact_miss:
   /* Now that we have found exactly one bind, we can update the
    * preferred entries information.
    */
-  if (tm_p && tm_p->next) {
-    tm = tm_p->next;            /* Move mask to front of bind's mask list. */
-    tm_p->next = tm->next;      /* Unlink mask from list. */
-    tm->next = tl->first;       /* Re-add mask to front of list. */
-    tl->first = tm;
+  /* Move matched mask to front of list for LRU-style optimisation. */
+  if (found_mask_idx != SIZE_MAX && found_mask_idx > 0) {
+    void *ptr = op_vec_get(&tl->masks, found_mask_idx);
+    op_vec_remove(&tl->masks, found_mask_idx);
+    op_vec_insert(&tl->masks, 0, ptr);
   }
 
   x = DISPATCH(htc, param, mask, argv, argc);
@@ -1487,47 +1434,45 @@ void tell_binds(int idx, char *par)
   else
     tl_kind = nullptr;
 
-  if ((name && name[0] && !strcasecmp(name, "all")) ||
-      (s && s[0] && !strcasecmp(s, "all")))
+  if ((name && name[0] && !op_strcasecmp(name, "all")) ||
+      (s && s[0] && !op_strcasecmp(s, "all")))
     showall = 1;
-  if ((name && name[0] && !strcasecmp(name, "tcl")) ||
-      (s && s[0] && !strcasecmp(s, "all")))
+  if ((name && name[0] && !op_strcasecmp(name, "tcl")) ||
+      (s && s[0] && !op_strcasecmp(s, "all")))
     showtcl = 1;
-  if ((name && name[0] && !strcasecmp(name, "python")) ||
-      (s && s[0] && !strcasecmp(s, "all")))
+  if ((name && name[0] && !op_strcasecmp(name, "python")) ||
+      (s && s[0] && !op_strcasecmp(s, "all")))
     showpy = 1;
-  if (tl_kind == nullptr && !showpy && !showtcl && name && name[0] && strcasecmp(name, "all"))
+  if (tl_kind == nullptr && !showpy && !showtcl && name && name[0] && op_strcasecmp(name, "all"))
     patmatc = 1;
 
-  for (tl = tl_kind ? tl_kind : bind_table_list; tl;
-       tl = tl_kind ? 0 : tl->next) {
-    if (tl->flags & HT_DELETED)
-      continue;
-    for (tm = tl->first; tm; tm = tm->next) {
-      if (tm->flags & TBM_DELETED)
-        continue;
-      for (tc = tm->first; tc; tc = tc->next) {
-        if (tc->attributes & TC_DELETED)
-          continue;
-        if (strlen(tl->name) > maxname) {
+  size_t num_tl = tl_kind ? 1 : bind_table_vec.size;
+  for (size_t ti = 0; ti < num_tl; ti++) {
+    tl = tl_kind ? tl_kind : (tcl_bind_list_t *)op_vec_get(&bind_table_vec, ti);
+    if (tl->flags & HT_DELETED) continue;
+    for (size_t mi = 0; mi < tl->masks.size; mi++) {
+      tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, mi);
+      if (tm->flags & TBM_DELETED) continue;
+      for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+        tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
+        if (tc->attributes & TC_DELETED) continue;
+        if (strlen(tl->name) > maxname)
           maxname = strlen(tl->name);
-        }
       }
     }
   }
   dprintf(idx, "%s", MISC_CMDBINDS);
   dprintf(idx, "  %*s FLAGS    COMMAND              HITS BINDING (TCL)\n",
         maxname, "TYPE");
-  for (tl = tl_kind ? tl_kind : bind_table_list; tl;
-       tl = tl_kind ? 0 : tl->next) {
-    if (tl->flags & HT_DELETED)
-      continue;
-    for (tm = tl->first; tm; tm = tm->next) {
-      if (tm->flags & TBM_DELETED)
-        continue;
-      for (tc = tm->first; tc; tc = tc->next) {
-        if (tc->attributes & TC_DELETED)
-          continue;
+  for (size_t ti = 0; ti < num_tl; ti++) {
+    tl = tl_kind ? tl_kind : (tcl_bind_list_t *)op_vec_get(&bind_table_vec, ti);
+    if (tl->flags & HT_DELETED) continue;
+    for (size_t mi = 0; mi < tl->masks.size; mi++) {
+      tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, mi);
+      if (tm->flags & TBM_DELETED) continue;
+      for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+        tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
+        if (tc->attributes & TC_DELETED) continue;
         proc = tc->func_name;
         build_flags(flg, &(tc->flags), nullptr);
         ok = 0;
@@ -1537,17 +1482,14 @@ void tell_binds(int idx, char *par)
           if ((patmatc == 1) && (proc[0] != '*')) {
             if (wild_match_per(name, tl->name) ||
                 wild_match_per(name, tm->mask) ||
-                wild_match_per(name, tc->func_name)) {
+                wild_match_per(name, tc->func_name))
               ok = 1;
-            }
-          } else if (showpy && !(strncasecmp(tc->func_name, "*python:", strlen("*python:")))) {
+          } else if (showpy && !(op_strncasecmp(tc->func_name, "*python:", strlen("*python:"))))
             ok = 1;
-          } else if (showtcl && (strncasecmp(tc->func_name, "*", strlen("*")))) {
+          else if (showtcl && (op_strncasecmp(tc->func_name, "*", strlen("*"))))
             ok = 1;
-          }
-        } else if (proc[0] != '*') {
+        } else if (proc[0] != '*')
           ok = 1;
-        }
         if (ok) {
           dprintf(idx, "  %*s %-8s %-20s %4d %s\n", maxname, tl->name, flg,
                   tm->mask, tc->hits, tc->func_name);
@@ -1579,7 +1521,6 @@ void init_bind(void)
   tcl_bind_mask_heap = op_bh_create(sizeof(tcl_bind_mask_t),  64, "tcl_bind_mask");
   tcl_bind_list_heap = op_bh_create(sizeof(tcl_bind_list_t),  32, "tcl_bind_list");
 
-  bind_table_list = nullptr;
   bind_table_ht   = op_htab_create_istr("bind_tables", 32);
 
   /* Core bind tables — created once, Tcl builds attach validators after. */
@@ -1691,24 +1632,16 @@ void init_bind(void)
 
 void kill_bind(void)
 {
-  tcl_bind_list_t *tl, *tl_next;
-
   rem_builtins(H_dcc, C_dcc);
-  for (tl = bind_table_list; tl; tl = tl_next) {
-    tl_next = tl->next;
-
-    if (!(tl->flags |= HT_DELETED))
-      putlog(LOG_DEBUG, "*", "De-Allocated bind table %s", tl->name);
-    tcl_bind_list_delete(tl);
-  }
+  for (size_t i = 0; i < bind_table_vec.size; i++)
+    tcl_bind_list_delete((tcl_bind_list_t *)op_vec_get(&bind_table_vec, i));
+  op_vec_fini(&bind_table_vec, nullptr, nullptr);
   H_log = nullptr;
-  bind_table_list = nullptr;
   if (bind_table_ht) {
     op_htab_destroy(bind_table_ht, nullptr, nullptr);
     bind_table_ht = nullptr;
   }
 
-  /* Destroy slab heaps (all nodes already freed above). */
   op_bh_destroy(tcl_cmd_heap);       tcl_cmd_heap       = nullptr;
   op_bh_destroy(tcl_bind_mask_heap); tcl_bind_mask_heap = nullptr;
   op_bh_destroy(tcl_bind_list_heap); tcl_bind_list_heap = nullptr;

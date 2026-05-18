@@ -40,7 +40,7 @@ extern struct dcc_t *dcc;
 extern struct userrec *userlist;
 extern log_t *logs;
 extern Tcl_Interp *interp;
-extern module_entry *module_list;
+extern op_vec_t module_vec;
 extern char ver[], botnetnick[], firewall[], motdfile[], userfile[], helpdir[],
             moddir[], notify_new[], configfile[];
 extern time_t now, online_since;
@@ -51,8 +51,8 @@ extern int backgrd, term_z, con_chan, cache_hit, cache_miss, firewallport,
 extern opssl_ctx_t *ssl_ctx;
 #endif
 
-tcl_timer_t *timer = nullptr;         /* Minutely timer               */
-tcl_timer_t *utimer = nullptr;        /* Secondly timer               */
+op_vec_t timer = {};                  /* Minutely timer               */
+op_vec_t utimer = {};                 /* Secondly timer               */
 
 /* Slab allocator for tcl_timer_t nodes — lazy-initialised on first timer. */
 static op_bh *timer_bh = nullptr;
@@ -67,7 +67,6 @@ char admin[121] = "";              /* Admin info                   */
 char origbotname[NICKLEN];
 char botname[NICKLEN];             /* Primary botname              */
 char owner[121] = "";              /* Permanent botowner(s)        */
-void remove_timer_from_list(tcl_timer_t ** stack);
 
 
 /* Remove leading and trailing whitespaces.
@@ -80,11 +79,11 @@ void rmspace(char *s)
     return;
 
   /* Remove trailing whitespaces. */
-  for (q = s + strlen(s) - 1; q >= s && egg_isspace(*q); q--);
+  for (q = s + strlen(s) - 1; q >= s && isspace((unsigned char)(*q)); q--);
   *(q + 1) = 0;
 
   /* Remove leading whitespaces. */
-  for (p = s; egg_isspace(*p); p++);
+  for (p = s; isspace((unsigned char)(*p)); p++);
 
   if (p != s)
     memmove(s, p, q - p + 2);
@@ -297,10 +296,7 @@ void tell_verbose_status(int idx)
   if (module_find("python", 0, 0)) dprintf(idx, " Python");
   dprintf(idx, "\n");
   {
-    int modcount = 0;
-    module_entry *p;
-    for (p = module_list; p; p = p->next) modcount++;
-    dprintf(idx, "Loaded modules: %d\n", modcount);
+    dprintf(idx, "Loaded modules: %zu\n", module_vec.size);
   }
   dprintf(idx, "Memory (RSS): %ld KB\n", egg_get_rss_kb());
 #ifdef TLS
@@ -365,7 +361,7 @@ void reaffirm_owners(void)
     q = owner;
     p = strchr(q, ',');
     while (p) {
-      strlcpy(s, q, (p - q) + 1);
+      op_strlcpy(s, q, (p - q) + 1);
       rmspace(s);
       u = get_user_by_handle(userlist, s);
       if (u)
@@ -373,7 +369,7 @@ void reaffirm_owners(void)
       q = p + 1;
       p = strchr(q, ',');
     }
-    strlcpy(s, q, sizeof(s));
+    op_strlcpy(s, q, sizeof(s));
     rmspace(s);
     u = get_user_by_handle(userlist, s);
     if (u)
@@ -471,7 +467,7 @@ void chanprog(void)
         q = owner;
         p = strchr(q, ',');
         while (p) {
-          strlcpy(s, q, (size_t)(p - q) + 1);
+          op_strlcpy(s, q, (size_t)(p - q) + 1);
           rmspace(s);
           if (s[0] && !get_user_by_handle(userlist, s)) {
             userlist = adduser(userlist, s, "-", "-",
@@ -481,7 +477,7 @@ void chanprog(void)
           q = p + 1;
           p = strchr(q, ',');
         }
-        strlcpy(s, q, sizeof s);
+        op_strlcpy(s, q, sizeof s);
         rmspace(s);
         if (s[0] && !get_user_by_handle(userlist, s)) {
           userlist = adduser(userlist, s, "-", "-",
@@ -511,7 +507,7 @@ void chanprog(void)
 
   if (helpdir[0])
     if (helpdir[strlen(helpdir) - 1] != '/')
-      strlcat(helpdir, "/", 121);
+      op_strlcat(helpdir, "/", 121);
 
   reaffirm_owners();
   check_tcl_event("userfile-loaded");
@@ -567,12 +563,10 @@ static void egg_timer_fire(void *arg)
   }
 
   if (t->count == 1) {
-    /* Last firing — unlink from its list and free. */
-    tcl_timer_t **head = (t->secs_per_tick == 1) ? &utimer : &timer;
-    tcl_timer_t **pp = head;
-    while (*pp) {
-      if (*pp == t) { *pp = t->next; break; }
-      pp = &(*pp)->next;
+    /* Last firing — remove from its vec and free. */
+    op_vec_t *head = (t->secs_per_tick == 1) ? &utimer : &timer;
+    for (size_t _i = head->size; _i-- > 0; ) {
+      if (op_vec_get(head, _i) == t) { op_vec_remove(head, _i); break; }
     }
     op_free(t->cmd);
     if (t->name) op_free(t->name);
@@ -586,117 +580,103 @@ static void egg_timer_fire(void *arg)
 }
 
 /* Add a timer scheduled via op_event. */
-char * add_timer(tcl_timer_t ** stack, int elapse, int count,
-                        char *cmd, char *name, unsigned long prev_id)
+char *add_timer(op_vec_t *stack, int elapse, int count,
+                char *cmd, char *name, unsigned long prev_id)
 {
-  tcl_timer_t *old = (*stack);
+  tcl_timer_t *t;
 
   if (!timer_bh)
     timer_bh = op_bh_create(sizeof(tcl_timer_t), 16, "tcl_timer");
-  *stack = op_bh_alloc(timer_bh);
-  (*stack)->next = old;
-  (*stack)->interval = elapse;
-  (*stack)->count = count;
-  (*stack)->secs_per_tick = (stack == &utimer) ? 1 : 60;
+  t = (tcl_timer_t *)op_bh_alloc(timer_bh);
+  t->interval = elapse;
+  t->count = count;
+  t->secs_per_tick = (stack == &utimer) ? 1 : 60;
   {
     size_t cmdlen = strlen(cmd) + 1;
-    (*stack)->cmd = op_malloc(cmdlen);
-    strlcpy((*stack)->cmd, cmd, cmdlen);
+    t->cmd = op_malloc(cmdlen);
+    op_strlcpy(t->cmd, cmd, cmdlen);
   }
   if (prev_id > 0)
-    (*stack)->id = prev_id;
+    t->id = prev_id;
   else
-    (*stack)->id = timer_id++;
+    t->id = timer_id++;
   if (name) {
-    {
-      size_t namelen = strlen(name) + 1;
-      (*stack)->name = op_malloc(namelen);
-      strlcpy((*stack)->name, name, namelen);
-    }
+    size_t namelen = strlen(name) + 1;
+    t->name = op_malloc(namelen);
+    op_strlcpy(t->name, name, namelen);
   } else {
     op_strbuf_t name_buf = {};
     op_strbuf_init(&name_buf);
-    op_strbuf_appendf(&name_buf, "timer%" PRIu64, (*stack)->id);
-    (*stack)->name = op_strdup(op_strbuf_str(&name_buf));
+    op_strbuf_appendf(&name_buf, "timer%" PRIu64, t->id);
+    t->name = op_strdup(op_strbuf_str(&name_buf));
     op_strbuf_free(&name_buf);
   }
-  /* Schedule via op_event. */
   {
-    time_t when_secs = (time_t)elapse * (*stack)->secs_per_tick;
-    (*stack)->fire_at = time(nullptr) + when_secs;
-    (*stack)->ev = op_event_addonce((*stack)->name, egg_timer_fire, *stack,
-                                    when_secs);
+    time_t when_secs = (time_t)elapse * t->secs_per_tick;
+    t->fire_at = time(nullptr) + when_secs;
+    t->ev = op_event_addonce(t->name, egg_timer_fire, t, when_secs);
   }
-  return (*stack)->name;
+  op_vec_push(stack, t);
+  return t->name;
 }
 
-/* Remove timer from linked list and cancel its event. */
-void remove_timer_from_list(tcl_timer_t ** stack)
-{
-  tcl_timer_t *old;
-
-  old = *stack;
-  *stack = ((*stack)->next);
-  if (old->ev)
-    op_event_delete(old->ev);
-  op_free(old->cmd);
-  if (old->name)
-    op_free(old->name);
-  op_bh_free(timer_bh, old);
-}
-
-/* Remove a timer (via name, not ID). */
-int remove_timer(tcl_timer_t **stack, char *name)
+/* Remove a timer by name, cancelling its event. */
+int remove_timer(op_vec_t *stack, char *name)
 {
   int ok = 0;
 
-  while (*stack) {
-    if ((*stack)->name && !strcasecmp((*stack)->name, name)) {
+  for (size_t _i = stack->size; _i-- > 0; ) {
+    tcl_timer_t *t = (tcl_timer_t *)op_vec_get(stack, _i);
+
+    if (t->name && !op_strcasecmp(t->name, name)) {
       ok++;
-      remove_timer_from_list(stack);
-    } else {
-      stack = &((*stack)->next);
+      op_vec_remove(stack, _i);
+      if (t->ev)
+        op_event_delete(t->ev);
+      op_free(t->cmd);
+      if (t->name)
+        op_free(t->name);
+      op_bh_free(timer_bh, t);
     }
   }
   return ok;
 }
 
 /* Fire any expired timers via op_event. */
-void do_check_timers([[maybe_unused]] tcl_timer_t ** stack)
+void do_check_timers([[maybe_unused]] op_vec_t *stack)
 {
   op_event_run();
 }
 
 /* Wipe all timers. */
-void wipe_timers(Tcl_Interp *irp, tcl_timer_t **stack)
+void wipe_timers([[maybe_unused]] Tcl_Interp *irp, op_vec_t *stack)
 {
-  tcl_timer_t *mark = *stack, *old;
+  for (size_t _i = 0; _i < stack->size; _i++) {
+    tcl_timer_t *t = (tcl_timer_t *)op_vec_get(stack, _i);
 
-  while (mark) {
-    old = mark;
-    mark = mark->next;
-    if (old->ev)
-      op_event_delete(old->ev);
-    op_free(old->cmd);
-    if (old->name)
-      op_free(old->name);
-    op_bh_free(timer_bh, old);
+    if (t->ev)
+      op_event_delete(t->ev);
+    op_free(t->cmd);
+    if (t->name)
+      op_free(t->name);
+    op_bh_free(timer_bh, t);
   }
-  *stack = nullptr;
+  op_vec_fini(stack, nullptr, nullptr);
 }
 
 /* Return list of timers (only meaningful when Tcl is present). */
-void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
+void list_timers(Tcl_Interp *irp, op_vec_t *stack)
 {
-  char *x;
-  EGG_CONST char *argv[4];
-  tcl_timer_t *mark;
   time_t now_t = time(nullptr);
 
-  for (mark = stack; mark; mark = mark->next) {
+  for (size_t _i = 0; _i < stack->size; _i++) {
+    char *x;
+    EGG_CONST char *argv[4];
+    tcl_timer_t *mark = (tcl_timer_t *)op_vec_get(stack, _i);
     unsigned int remaining = (mark->fire_at > now_t)
       ? (unsigned int)((mark->fire_at - now_t) / mark->secs_per_tick) : 0;
     op_strbuf_t ticks = {}, count = {};
+
     op_strbuf_appendf(&ticks, "%u", remaining);
     op_strbuf_appendf(&count, "%u", mark->count);
     argv[0] = op_strbuf_str(&ticks);
@@ -712,16 +692,13 @@ void list_timers(Tcl_Interp *irp, tcl_timer_t *stack)
 }
 
 /* Find a timer by name. Returns 1 if found, 0 if not. */
-int find_timer(tcl_timer_t *stack, char *name)
+int find_timer(op_vec_t *stack, char *name)
 {
-  tcl_timer_t *mark;
+  for (size_t _i = 0; _i < stack->size; _i++) {
+    tcl_timer_t *mark = (tcl_timer_t *)op_vec_get(stack, _i);
 
-  for (mark = stack; mark; mark = mark->next) {
-    if (mark->name) {
-      if (!strcasecmp(mark->name, name)) {
-        return 1;
-      }
-    }
+    if (mark->name && !op_strcasecmp(mark->name, name))
+      return 1;
   }
   return 0;
 }
@@ -732,9 +709,9 @@ int isowner(char *name) {
   char *word;
 
   char *saveptr = nullptr;
-  strlcpy(s, owner, sizeof(s));
+  op_strlcpy(s, owner, sizeof(s));
   for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(nullptr, sep, &saveptr)) {
-    if (!strcasecmp(name, word)) {
+    if (!op_strcasecmp(name, word)) {
       return 1;
     }
   }
@@ -760,7 +737,7 @@ void add_hq_user(void)
                               USER_VOICE | USER_XFER | USER_HIGHLITE;
     /* Add to permowner list if there's place */
     if (strlen(owner) + sizeof EGG_BG_HANDLE < sizeof owner)
-      strlcat(owner, " " EGG_BG_HANDLE, sizeof owner);
+      op_strlcat(owner, " " EGG_BG_HANDLE, sizeof owner);
 
     /* Update laston info, gets cleared at rehash/reload */
     touch_laston(dcc[term_z].user, "partyline", now);

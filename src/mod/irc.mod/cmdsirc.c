@@ -72,7 +72,7 @@ static char *getnick(char *handle, struct chanset_t *chan)
   memberlist *m;
 
   for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
-    if ((u = get_user_from_member(m)) && !strcasecmp(u->handle, handle))
+    if ((u = get_user_from_member(m)) && !op_strcasecmp(u->handle, handle))
       return m->nick;
   }
   return nullptr;
@@ -209,7 +209,7 @@ static void cmd_kickban(struct userrec *u, int idx, char *par)
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s!%s", m->nick, m->userhost);
-    strlcpy(s, op_strbuf_str(&_b), sizeof s);
+    op_strlcpy(s, op_strbuf_str(&_b), sizeof s);
     op_strbuf_free(&_b);
   }
   u = get_user_from_member(m);
@@ -387,7 +387,7 @@ static void cmd_halfop(struct userrec *u, int idx, char *par)
   if (m && !chan_op(user) && (!glob_op(user) || chan_deop(user))) {
     u2 = get_user_from_member(m);
 
-    if (!u2 || strcasecmp(u2->handle, dcc[idx].nick) || (!chan_halfop(user) &&
+    if (!u2 || op_strcasecmp(u2->handle, dcc[idx].nick) || (!chan_halfop(user) &&
         (!glob_halfop(user) || chan_dehalfop(user)))) {
       dprintf(idx, "You are not a channel op on %s.\n", chan->dname);
       return;
@@ -449,7 +449,7 @@ static void cmd_dehalfop(struct userrec *u, int idx, char *par)
   m = ismember(chan, nick);
   if (m && !chan_op(user) && (!glob_op(user) || chan_deop(user))) {
     u2 = get_user_from_member(m);
-    if (!u2 || strcasecmp(u2->handle, dcc[idx].nick) || (!chan_halfop(user) &&
+    if (!u2 || op_strcasecmp(u2->handle, dcc[idx].nick) || (!chan_halfop(user) &&
         (!glob_halfop(user) || chan_dehalfop(user)))) {
       dprintf(idx, "You are not a channel op on %s.\n", chan->dname);
       return;
@@ -527,7 +527,7 @@ static void cmd_voice(struct userrec *u, int idx, char *par)
       !chan_deop(user)) || (glob_halfop(user) && !chan_dehalfop(user)))) {
     u2 = get_user_from_member(m);
 
-    if (!u2 || strcasecmp(u2->handle, dcc[idx].nick) || (!chan_voice(user) &&
+    if (!u2 || op_strcasecmp(u2->handle, dcc[idx].nick) || (!chan_voice(user) &&
         (!glob_voice(user) || chan_quiet(user)))) {
       dprintf(idx, "You are not a channel op or halfop on %s.\n", chan->dname);
       return;
@@ -578,7 +578,7 @@ static void cmd_devoice(struct userrec *u, int idx, char *par)
       !chan_deop(user)) || (glob_halfop(user) && !chan_dehalfop(user)))) {
     u2 = get_user_from_member(m);
 
-    if (!u2 || strcasecmp(u2->handle, dcc[idx].nick) || (!chan_voice(user) &&
+    if (!u2 || op_strcasecmp(u2->handle, dcc[idx].nick) || (!chan_voice(user) &&
         (!glob_voice(user) || chan_quiet(user)))) {
       dprintf(idx, "You are not a channel op or halfop on %s.\n", chan->dname);
       return;
@@ -758,12 +758,12 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
         else
           strftime(s, 6, "%H:%M", localtime(&(m->joined)));
       } else
-        strlcpy(s, " --- ", sizeof s);
+        op_strlcpy(s, " --- ", sizeof s);
       u = get_user_from_member(m);
       if (u == nullptr)
-        strlcpy(handle, "*", sizeof handle);
+        op_strlcpy(handle, "*", sizeof handle);
       else
-        strlcpy(handle, u->handle, sizeof handle);
+        op_strlcpy(handle, u->handle, sizeof handle);
       get_user_flagrec(u, &user, chan->dname);
       /* Determine status char to use */
       if (glob_bot(user) && (glob_op(user) || chan_op(user)))
@@ -860,7 +860,7 @@ static void cmd_channel(struct userrec *u, int idx, char *par)
           else if (now - (m->last) > 180)
             op_strbuf_appendf(&idle, "%2" PRId64 "m", ((int64_t) (now - m->last)) / 60);
           else
-            op_strbuf_appendf(&idle, "   ");
+            op_strbuf_append_cstr(&idle, "   ");
           op_strbuf_append_cstr(&idle, chan_ircaway(m) ? " (away)" : "       ");
           dprintf(idx, "%c%-*s %-*s %-*s %-6s %c %s  %s\n", chanflag, maxnicklen,
                 m->nick, maxhandlen, handle, maxnicklen, m->account, s, atrflag,
@@ -1021,7 +1021,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
   }
   u = get_user_by_handle(userlist, hand);
   if (u && (u->flags & (USER_OWNER | USER_MASTER)) &&
-      !(atr & USER_OWNER) && strcasecmp(dcc[idx].nick, hand)) {
+      !(atr & USER_OWNER) && op_strcasecmp(dcc[idx].nick, hand)) {
     dprintf(idx, "You can't add hostmasks to the bot owner/master.\n");
     op_strbuf_free(&_bs);
     return;
@@ -1030,7 +1030,7 @@ static void cmd_adduser(struct userrec *u, int idx, char *par)
     maskhost(op_strbuf_str(&_bs), s1);
     op_strbuf_free(&_bs);
   } else {
-    strlcpy(s1, op_strbuf_str(&_bs), sizeof s1);
+    op_strlcpy(s1, op_strbuf_str(&_bs), sizeof s1);
     op_strbuf_free(&_bs);
     p1 = strchr(s1, '!');
     if (strchr("~^+=-", p1[1])) {
@@ -1088,7 +1088,7 @@ static void cmd_deluser(struct userrec *u, int idx, char *par)
    * so deluser on a channel they're not on should work
    */
   /* Shouldn't allow people to remove permanent owners (guppy 9Jan1999) */
-  if ((glob_owner(victim) && strcasecmp(dcc[idx].nick, nick)) ||
+  if ((glob_owner(victim) && op_strcasecmp(dcc[idx].nick, nick)) ||
       isowner(u->handle)) {
     dprintf(idx, "You can't remove a bot owner!\n");
   } else if (glob_botmast(victim) && !glob_owner(user)) {

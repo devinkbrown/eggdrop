@@ -38,13 +38,14 @@
  * (lush.h stubs all Tcl API calls; add_tcl_commands is a no-op).
  */
 
-extern p_tcl_bind_list bind_table_list;
-extern tcl_timer_t *timer, *utimer;
+extern op_vec_t bind_table_vec;
+extern op_vec_t timer, utimer;
 extern struct dcc_t *dcc;
 extern char botnetnick[], quit_msg[];
 extern struct userrec *userlist;
 extern time_t now;
-extern module_entry *module_list;
+extern op_vec_t module_vec;
+extern op_vec_t dep_vec;
 extern int max_logs, cache_hit, cache_miss;
 extern log_t *logs;
 extern Tcl_Interp *interp;
@@ -134,13 +135,7 @@ static int tcl_putlog STDVAR
 {
   BADARGS(2, 2, " text");
 
-  {
-    op_strbuf_t _logtext = {};
-    op_strbuf_init(&_logtext);
-    op_strbuf_appendf(&_logtext, "%s", argv[1]);
-    putlog(LOG_MISC, "*", "%s", op_strbuf_str(&_logtext));
-    op_strbuf_free(&_logtext);
-  }
+  putlog(LOG_MISC, "*", "%s", argv[1]);
   return TCL_OK;
 }
 
@@ -148,13 +143,7 @@ static int tcl_putcmdlog STDVAR
 {
   BADARGS(2, 2, " text");
 
-  {
-    op_strbuf_t _logtext = {};
-    op_strbuf_init(&_logtext);
-    op_strbuf_appendf(&_logtext, "%s", argv[1]);
-    putlog(LOG_CMDS, "*", "%s", op_strbuf_str(&_logtext));
-    op_strbuf_free(&_logtext);
-  }
+  putlog(LOG_CMDS, "*", "%s", argv[1]);
   return TCL_OK;
 }
 
@@ -162,13 +151,7 @@ static int tcl_putxferlog STDVAR
 {
   BADARGS(2, 2, " text");
 
-  {
-    op_strbuf_t _logtext = {};
-    op_strbuf_init(&_logtext);
-    op_strbuf_appendf(&_logtext, "%s", argv[1]);
-    putlog(LOG_FILES, "*", "%s", op_strbuf_str(&_logtext));
-    op_strbuf_free(&_logtext);
-  }
+  putlog(LOG_FILES, "*", "%s", argv[1]);
   return TCL_OK;
 }
 
@@ -183,13 +166,7 @@ static int tcl_putloglev STDVAR
     Tcl_AppendResult(irp, "No valid log flag given", nullptr);
     return TCL_ERROR;
   }
-  {
-    op_strbuf_t _logtext = {};
-    op_strbuf_init(&_logtext);
-    op_strbuf_appendf(&_logtext, "%s", argv[3]);
-    putlog(lev, argv[2], "%s", op_strbuf_str(&_logtext));
-    op_strbuf_free(&_logtext);
-  }
+  putlog(lev, argv[2], "%s", argv[3]);
   return TCL_OK;
 }
 
@@ -210,14 +187,17 @@ static int tcl_binds STDVAR
     tl_kind = nullptr;
   if (!tl_kind && argv[1])
     matching = 1;
-  for (tl = tl_kind ? tl_kind : bind_table_list; tl;
-       tl = tl_kind ? 0 : tl->next) {
+  size_t num_tl = tl_kind ? 1 : bind_table_vec.size;
+  for (size_t ti = 0; ti < num_tl; ti++) {
+    tl = tl_kind ? tl_kind : (tcl_bind_list_t *)op_vec_get(&bind_table_vec, ti);
     if (tl->flags & HT_DELETED)
       continue;
-    for (tm = tl->first; tm; tm = tm->next) {
+    for (size_t mi = 0; mi < tl->masks.size; mi++) {
+      tm = (tcl_bind_mask_t *)op_vec_get(&tl->masks, mi);
       if (tm->flags & TBM_DELETED)
         continue;
-      for (tc = tm->first; tc; tc = tc->next) {
+      for (size_t ci = 0; ci < tm->cmds.size; ci++) {
+        tc = (tcl_cmd_t *)op_vec_get(&tm->cmds, ci);
         if (tc->attributes & TC_DELETED)
           continue;
         if (matching &&
@@ -226,18 +206,12 @@ static int tcl_binds STDVAR
             !wild_match_per(argv[1], tc->func_name))
           continue;
         build_flags(flg, &(tc->flags), nullptr);
-        {
-          op_strbuf_t _hits = {};
-          op_strbuf_init(&_hits);
-          op_strbuf_appendf(&_hits, "%s", int_to_base10((int) tc->hits));
-          list[0] = tl->name;
-          list[1] = flg;
-          list[2] = tm->mask;
-          list[3] = op_strbuf_str(&_hits);
-          list[4] = tc->func_name;
-          g = Tcl_Merge(5, list);
-          op_strbuf_free(&_hits);
-        }
+        list[0] = tl->name;
+        list[1] = flg;
+        list[2] = tm->mask;
+        list[3] = int_to_base10((int) tc->hits);
+        list[4] = tc->func_name;
+        g = Tcl_Merge(5, list);
         Tcl_AppendElement(irp, g);
         Tcl_Free((char *) g);
       }
@@ -246,7 +220,7 @@ static int tcl_binds STDVAR
   return TCL_OK;
 }
 
-int check_timer_syntax(Tcl_Interp *irp, int argc, char *argv[], tcl_timer_t *stack) {
+int check_timer_syntax(Tcl_Interp *irp, int argc, char *argv[], op_vec_t *stack) {
   char *endptr;
   long val;
 
@@ -284,7 +258,7 @@ static int tcl_timer STDVAR
 
   BADARGS(3, 5, " minutes command ?count ?name??");
 
-  if (check_timer_syntax(irp, argc, argv, timer)) {
+  if (check_timer_syntax(irp, argc, argv, &timer)) {
     return TCL_ERROR;
   }
   x = add_timer(&timer, egg_atoi(argv[1]), (argc >= 4 ? egg_atoi(argv[3]) : 1),
@@ -303,7 +277,7 @@ static int tcl_utimer STDVAR
 
   BADARGS(3, 5, " seconds command ?count ?name??");
 
-  if (check_timer_syntax(irp, argc, argv, utimer)) {
+  if (check_timer_syntax(irp, argc, argv, &utimer)) {
     return TCL_ERROR;
   }
   x = add_timer(&utimer, egg_atoi(argv[1]), (argc >= 4 ? egg_atoi(argv[3]) : 1),
@@ -341,7 +315,7 @@ static int tcl_timers STDVAR
 {
   BADARGS(1, 1, "");
 
-  list_timers(irp, timer);
+  list_timers(irp, &timer);
   return TCL_OK;
 }
 
@@ -349,7 +323,7 @@ static int tcl_utimers STDVAR
 {
   BADARGS(1, 1, "");
 
-  list_timers(irp, utimer);
+  list_timers(irp, &utimer);
   return TCL_OK;
 }
 
@@ -452,18 +426,7 @@ static int tcl_sendnote STDVAR
 {
   BADARGS(4, 4, " from to message");
 
-  {
-    op_strbuf_t _from = {}, _to = {}, _msg = {};
-    op_strbuf_appendf(&_from, "%s", argv[1]);
-    op_strbuf_appendf(&_to, "%s", argv[2]);
-    op_strbuf_appendf(&_msg, "%s", argv[3]);
-    Tcl_SetObjResult(irp, Tcl_NewIntObj(add_note(
-        (char *)op_strbuf_str(&_to), (char *)op_strbuf_str(&_from),
-        (char *)op_strbuf_str(&_msg), -1, 0)));
-    op_strbuf_free(&_from);
-    op_strbuf_free(&_to);
-    op_strbuf_free(&_msg);
-  }
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(add_note(argv[2], argv[1], argv[3], -1, 0)));
   return TCL_OK;
 }
 
@@ -473,13 +436,7 @@ static int tcl_dumpfile STDVAR
 
   BADARGS(3, 3, " nickname filename");
 
-  {
-    op_strbuf_t _nick = {};
-    op_strbuf_init(&_nick);
-    op_strbuf_appendf(&_nick, "%s", argv[1]);
-    get_user_flagrec(get_user_by_nick((char *)op_strbuf_str(&_nick)), &fr, nullptr);
-    op_strbuf_free(&_nick);
-  }
+  get_user_flagrec(get_user_by_nick(argv[1]), &fr, nullptr);
   showhelp(argv[1], argv[2], &fr, HELP_TEXT);
   return TCL_OK;
 }
@@ -520,9 +477,9 @@ static int tcl_die STDVAR
 
   if (argc == 2) {
     op_strbuf_appendf(&s, "BOT SHUTDOWN (%s)", argv[1]);
-    strlcpy(quit_msg, argv[1], 1024);
+    op_strlcpy(quit_msg, argv[1], 1024);
   } else {
-    op_strbuf_appendf(&s, "BOT SHUTDOWN (No reason)");
+    op_strbuf_append_cstr(&s, "BOT SHUTDOWN (No reason)");
     quit_msg[0] = 0;
   }
   kill_bot(op_strbuf_str(&s), quit_msg[0] ? quit_msg : "EXIT");
@@ -567,14 +524,16 @@ static int tcl_modules STDVAR
 
   BADARGS(1, 1, "");
 
-  for (current = module_list; current; current = current->next) {
+  for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+    current = (module_entry *)op_vec_get(&module_vec, _mi);
     list[0] = current->name;
     op_strbuf_t ver = {};
     op_strbuf_init(&ver);
     op_strbuf_appendf(&ver, "%d.%d", current->major, current->minor);
     list[1] = op_strbuf_str(&ver);
     i = 2;
-    for (dep = dependancy_list; dep && (i < 100); dep = dep->next) {
+    for (size_t _di = 0; _di < dep_vec.size && i < 100; _di++) {
+      dep = (dependancy *)op_vec_get(&dep_vec, _di);
       if (dep->needing == current) {
         list2[0] = dep->needed->name;
         op_strbuf_t depver = {};
@@ -676,7 +635,7 @@ static int tcl_stripcodes STDVAR
     }
 
   p = Tcl_Alloc(strlen(argv[2]) + 1);
-  strlcpy(p, argv[2], sizeof(p));
+  op_strlcpy(p, argv[2], sizeof(p));
   strip_mirc_codes(flags, p);
   Tcl_SetResult(irp, p, TCL_DYNAMIC);
   return TCL_OK;

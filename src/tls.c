@@ -64,6 +64,7 @@ char tls_ciphers[2049] = "";  /* A list of ciphers for SSL to use             */
 
 /* Storage for ssl_appdata indexed by socket fd */
 static ssl_appdata *ssl_appdata_table[FD_SETSIZE];
+static op_bh *ssl_appdata_bh = nullptr;
 
 /* Forward declarations */
 static void ssl_handshake_completed(int sock);
@@ -205,7 +206,7 @@ int ssl_init(void)
     char *word;
     bool has_tls12 = false, has_tls13 = false;
     char *saveptr = nullptr;
-    strlcpy(s, tls_protocols, sizeof(s));
+    op_strlcpy(s, tls_protocols, sizeof(s));
     for (word = strtok_r(s, sep, &saveptr); word; word = strtok_r(nullptr, sep, &saveptr)) {
       if (!strcmp(word, "TLSv1.2"))
         has_tls12 = true;
@@ -259,7 +260,7 @@ void ssl_cleanup(void)
   /* Clear the ssl_appdata table */
   for (int i = 0; i < FD_SETSIZE; i++) {
     if (ssl_appdata_table[i]) {
-      op_free(ssl_appdata_table[i]);
+      op_bh_free(ssl_appdata_bh, ssl_appdata_table[i]);
       ssl_appdata_table[i] = nullptr;
     }
   }
@@ -279,7 +280,7 @@ char *ssl_fpconv(char *in, char *out)
   size_t len = strlen(in);
   char *result = user_realloc(out, len + 1);
   if (result)
-    strlcpy(result, in, len + 1);
+    op_strlcpy(result, in, len + 1);
   return result;
 }
 
@@ -418,7 +419,8 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
   }
 
   /* Prepare ssl appdata struct */
-  data = op_malloc(sizeof(ssl_appdata));
+  if (!ssl_appdata_bh) ssl_appdata_bh = op_bh_create(sizeof(ssl_appdata), 32, "ssl_appdata");
+  data = (ssl_appdata *)op_bh_alloc(ssl_appdata_bh);
   data->flags = flags & (TLS_LISTEN | TLS_CONNECT);
   data->verify = verify;
   /* Invert these flags as their corresponding configuration values express
@@ -429,12 +431,12 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
                        TLS_VERIFYTO | TLS_VERIFYREV);
   data->loglevel = loglevel;
   data->cb = cb;
-  strlcpy(data->host, host ? host : "", sizeof(data->host));
+  op_strlcpy(data->host, host ? host : "", sizeof(data->host));
 
   /* Store ssl_appdata in our table indexed by fd */
   if (sock >= 0 && sock < FD_SETSIZE) {
     if (ssl_appdata_table[sock])
-      op_free(ssl_appdata_table[sock]);
+      op_bh_free(ssl_appdata_bh, ssl_appdata_table[sock]);
     ssl_appdata_table[sock] = data;
   }
 
@@ -494,7 +496,7 @@ int ssl_handshake(int sock, int flags, int verify, int loglevel, char *host,
     }
   }
   if (sock >= 0 && sock < FD_SETSIZE && ssl_appdata_table[sock]) {
-    op_free(ssl_appdata_table[sock]);
+    op_bh_free(ssl_appdata_bh, ssl_appdata_table[sock]);
     ssl_appdata_table[sock] = nullptr;
   }
   return -4;

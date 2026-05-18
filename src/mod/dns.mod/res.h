@@ -62,6 +62,7 @@ extern int irc_nscount;
 
 void init_resolver(void);
 void restart_resolver(void);
+void dns_req_cleanup(void);
 
 /* DNS over TLS (RFC 7858) — stubbed unless EGG_TLS is defined.
  * sa must have the address family set; port is applied separately.

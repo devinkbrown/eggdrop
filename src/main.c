@@ -68,7 +68,7 @@ extern struct userrec *userlist;
 extern struct chanset_t *chanset;
 extern log_t *logs;
 extern Tcl_Interp *interp;
-extern tcl_timer_t *timer, *utimer;
+extern op_vec_t timer, utimer;
 extern sigjmp_buf alarmret;
 time_t now;
 static int argc;
@@ -368,7 +368,7 @@ void eggAssert(const char *file, int line, const char *module)
 static void show_ver(void) {
   char x[512], *z = x;
 
-  strlcpy(x, egg_version, sizeof x);
+  op_strlcpy(x, egg_version, sizeof x);
   (void)newsplit(&z);
   (void)newsplit(&z);
   printf("%s\n", version);
@@ -505,7 +505,7 @@ static void do_arg(void)
     printf("         Using %s as config file\n", argv[optind]);
   }
   if (argc > optind) {
-    strlcpy(configfile, argv[optind], sizeof configfile);
+    op_strlcpy(configfile, argv[optind], sizeof configfile);
   }
 }
 
@@ -648,7 +648,8 @@ static void event_loaded(void)
 }
 
 void kill_tcl(void);
-extern module_entry *module_list;
+extern op_vec_t module_vec;
+extern op_vec_t dep_vec;
 void restart_chons(void);
 
 #ifdef STATIC
@@ -817,17 +818,17 @@ static void mainloop(int toplevel)
 
       while (f) {
         f = 0;
-        for (p = module_list; p != nullptr; p = p->next) {
-          dependancy *d = dependancy_list;
+        for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+          p = (module_entry *)op_vec_get(&module_vec, _mi);
           int ok = 1;
 
-          while (ok && d) {
+          for (size_t _di = 0; ok && _di < dep_vec.size; _di++) {
+            dependancy *d = (dependancy *)op_vec_get(&dep_vec, _di);
             if (d->needed == p)
               ok = 0;
-            d = d->next;
           }
           if (ok) {
-            strlcpy(name, p->name, sizeof name);
+            op_strlcpy(name, p->name, sizeof name);
             if (module_unload(name, botnetnick) == nullptr) {
               f = 1;
               break;
@@ -839,7 +840,9 @@ static void mainloop(int toplevel)
       /* Make sure we don't have any modules left hanging around other than
        * "eggdrop" and the 3 that are supposed to be.
        */
-      for (f = 0, p = module_list; p; p = p->next) {
+      f = 0;
+      for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+        p = (module_entry *)op_vec_get(&module_vec, _mi);
         if (strcmp(p->name, "eggdrop") && strcmp(p->name, "encryption") &&
             strcmp(p->name, "encryption2") && strcmp(p->name, "uptime")) {
           f++;
@@ -855,7 +858,8 @@ static void mainloop(int toplevel)
       init_language(0);
 
       /* this resets our modules which we didn't unload (encryption and uptime) */
-      for (p = module_list; p; p = p->next) {
+      for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+        p = (module_entry *)op_vec_get(&module_vec, _mi);
         if (p->funcs) {
           startfunc = p->funcs[MODCALL_START];
           if (startfunc)
@@ -921,14 +925,14 @@ int main(int arg_c, char **arg_v)
     op_strbuf_init(&egg_version_buf);
 #ifdef EGG_PATCH
     op_strbuf_appendf(&egg_version_buf, "%s+%s %u", EGG_STRINGVER, EGG_PATCH, egg_numver);
-    strlcpy(ver, "eggdrop v" EGG_STRINGVER "+" EGG_PATCH, sizeof ver);
-    strlcpy(version,
+    op_strlcpy(ver, "eggdrop v" EGG_STRINGVER "+" EGG_PATCH, sizeof ver);
+    op_strlcpy(version,
             "Eggdrop v" EGG_STRINGVER "+" EGG_PATCH " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
             sizeof version);
 #else
     op_strbuf_appendf(&egg_version_buf, "%s %u", EGG_STRINGVER, egg_numver);
-    strlcpy(ver, "eggdrop v" EGG_STRINGVER, sizeof ver);
-    strlcpy(version,
+    op_strlcpy(ver, "eggdrop v" EGG_STRINGVER, sizeof ver);
+    op_strlcpy(version,
             "Eggdrop v" EGG_STRINGVER " (C) 1997 Robey Pointer (C) 1999-2025 Eggheads Development Team",
             sizeof version);
 #endif
@@ -1140,8 +1144,8 @@ int main(int arg_c, char **arg_v)
       debug0("stdout is no tty");
       dcc[term_z].u.chat->strip_flags = STRIP_ALL;
     }
-    strlcpy(dcc[term_z].nick, EGG_BG_HANDLE, sizeof(dcc[term_z].nick));
-    strlcpy(dcc[term_z].host, "llama@console", sizeof(dcc[term_z].host));
+    op_strlcpy(dcc[term_z].nick, EGG_BG_HANDLE, sizeof(dcc[term_z].nick));
+    op_strlcpy(dcc[term_z].host, "llama@console", sizeof(dcc[term_z].host));
     add_hq_user();
     setsock(STDOUT, 0);          /* Entry in net table */
     dprintf(term_z, "\n### ENTERING DCC CHAT SIMULATION ###\n");
@@ -1183,7 +1187,7 @@ int main(int arg_c, char **arg_v)
    * stdio — printf/putlog, rpath/wpath/cpath — userfile/chanfile I/O,
    * inet — network sockets, dns — hostname resolution, proc — fork (bg),
    * unix — AF_UNIX for local DCC if ever needed. */
-  if (pledge("stdio rpath wpath cpath inet dns proc unix", NULL) == -1)
+  if (pledge("stdio rpath wpath cpath inet dns proc unix", nullptr) == -1)
     fatal("pledge", 0);
 #endif
 

@@ -182,12 +182,12 @@ static char *init_python() {
     char eggdir[PATH_MAX];
     char *lastslash;
     PyObject *syspath, *dirobj;
-    strlcpy(eggdir, argv0, sizeof eggdir);
+    op_strlcpy(eggdir, argv0, sizeof eggdir);
     lastslash = strrchr(eggdir, '/');
     if (lastslash && lastslash != eggdir)
       *lastslash = '\0';
     else
-      strlcpy(eggdir, ".", sizeof eggdir);
+      op_strlcpy(eggdir, ".", sizeof eggdir);
     syspath = PySys_GetObject("path"); /* borrowed reference */
     dirobj = PyUnicode_DecodeFSDefault(eggdir);
     if (syspath && dirobj)

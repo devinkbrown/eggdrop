@@ -26,7 +26,6 @@
 
 #define COMPILING_MEM   /* suppress malloc→dont_use_old_malloc in eggdrop.h */
 #include <sys/stat.h>
-#include <ctype.h>
 #include <op_lib.h>
 #include <op_async.h>
 #include "src/mod/module.h"
@@ -39,7 +38,7 @@ static char *lastdeletedmask;
 
 static p_tcl_bind_list H_chanset;
 
-static struct udef_struct *udef;
+static op_vec_t udef_vec;
 
 static int use_info, chan_hack, quiet_save, global_revenge_mode,
            global_stopnethack_mode, global_idle_kick, global_aop_min,
@@ -129,16 +128,16 @@ static void channel_free_mask(void *ptr)
 static void *channel_malloc(int size, char *file, int line)
 {
   char *p = op_malloc(size);
-  egg_bzero(p, size);
+  op_memzero(p, size);
   return p;
 }
 
 /* Unity-build includes: these files can call the functions defined above. */
+#include "udefchan.c"
 #include "chancfg.c"
 #include "cmdschan.c"
 #include "tclchan.c"
 #include "userchan.c"
-#include "udefchan.c"
 
 static void set_mode_protect(struct chanset_t *chan, char *set)
 {
@@ -224,7 +223,7 @@ static void set_mode_protect(struct chanset_t *chan, char *set)
       if (pos) {
         s1 = newsplit(&set);
         if (s1[0])
-          strlcpy(chan->key_prot, s1, sizeof chan->key_prot);
+          op_strlcpy(chan->key_prot, s1, sizeof chan->key_prot);
       }
       break;
     }
@@ -310,8 +309,8 @@ static void get_mode_protect(struct chanset_t *chan, char *s, size_t sz)
   *p = 0;
   if (!op_strbuf_empty(&s1)) {
     op_strbuf_truncate(&s1, op_strbuf_len(&s1) - 1);
-    strlcat(s, " ", sz);
-    strlcat(s, op_strbuf_str(&s1), sz);
+    op_strlcat(s, " ", sz);
+    op_strlcat(s, op_strbuf_str(&s1), sz);
   }
   op_strbuf_free(&s1);
 }
@@ -468,9 +467,9 @@ static int channels_chon(char *handle, int idx)
       if (!chan)
         chan = chanset;
       if (chan)
-        strlcpy(dcc[idx].u.chat->con_chan, chan->dname, sizeof(dcc[idx].u.chat->con_chan));
+        op_strlcpy(dcc[idx].u.chat->con_chan, chan->dname, sizeof(dcc[idx].u.chat->con_chan));
       else
-        strlcpy(dcc[idx].u.chat->con_chan, "*", sizeof(dcc[idx].u.chat->con_chan));
+        op_strlcpy(dcc[idx].u.chat->con_chan, "*", sizeof(dcc[idx].u.chat->con_chan));
     }
   }
   return 0;
@@ -576,16 +575,17 @@ static void write_channels(void)
             PLSMNS(!channel_nouserinvites(chan)),
             PLSMNS(channel_nodesynch(chan)),
             PLSMNS(channel_static(chan)));
-    for (ul = udef; ul; ul = ul->next) {
+    for (size_t ui = 0; ui < udef_vec.size; ui++) {
+      ul = (struct udef_struct *)op_vec_get(&udef_vec, ui);
       if (ul->defined && ul->name) {
         if (ul->type == UDEF_FLAG)
-          fprintf(f, "channel set %s %c%s%s\n", name, getudef(ul->values,
+          fprintf(f, "channel set %s %c%s%s\n", name, getudef(&ul->values,
                   chan->dname) ? '+' : '-', "udef-flag-", ul->name);
         else if (ul->type == UDEF_INT)
           fprintf(f, "channel set %s %s%s %d\n", name, "udef-int-", ul->name,
-                  (int) getudef(ul->values, chan->dname));
+                  (int) getudef(&ul->values, chan->dname));
         else if (ul->type == UDEF_STR) {
-          char *p = (char *) getudef(ul->values, chan->dname);
+          char *p = (char *) getudef(&ul->values, chan->dname);
 
           if (!p)
             p = "{}";
@@ -843,7 +843,7 @@ static int channels_expmem(void)
     if (chan->rmkey)
       tot += strlen(chan->rmkey) + 1;
   }
-  tot += expmem_udef(udef);
+  tot += expmem_udef(&udef_vec);
   if (lastdeletedmask)
     tot += strlen(lastdeletedmask) + 1;
   return tot;
@@ -958,7 +958,7 @@ static char *channels_close(void)
   if (global_bans_ht)    { op_htab_destroy(global_bans_ht, nullptr, nullptr);    global_bans_ht = nullptr; }
   if (global_exempts_ht) { op_htab_destroy(global_exempts_ht, nullptr, nullptr); global_exempts_ht = nullptr; }
   if (global_invites_ht) { op_htab_destroy(global_invites_ht, nullptr, nullptr); global_invites_ht = nullptr; }
-  free_udef(udef);
+  free_udef(&udef_vec);
   if (udef_struct_bh) { op_bh_destroy(udef_struct_bh); udef_struct_bh = nullptr; }
   if (udef_chans_bh)  { op_bh_destroy(udef_chans_bh);  udef_chans_bh  = nullptr; }
   if (lastdeletedmask)
@@ -1092,18 +1092,18 @@ char *channels_start(Function *global_funcs)
   allow_ps = 0;
   lastdeletedmask = 0;
   use_info = 1;
-  strlcpy(chanfile, "chanfile", sizeof(chanfile));
+  op_strlcpy(chanfile, "chanfile", sizeof(chanfile));
   chan_hack = 0;
   quiet_save = 0;
-  strlcpy(glob_chanmode, "nt", sizeof(glob_chanmode));
-  udef = nullptr;
+  op_strlcpy(glob_chanmode, "nt", sizeof(glob_chanmode));
+  /* udef_vec zero-initialized; free_udef already cleared it */
   global_stopnethack_mode = 0;
   global_revenge_mode = 0;
   global_ban_type = 3;
   global_ban_time = 120;
   global_exempt_time = 60;
   global_invite_time = 60;
-  strlcpy(glob_chanset, "-enforcebans "
+  op_strlcpy(glob_chanset, "-enforcebans "
          "+dynamicbans "
          "+userbans "
          "-autoop "

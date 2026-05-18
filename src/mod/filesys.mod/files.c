@@ -89,7 +89,7 @@ static int welcome_to_files(int idx)
   sub_lang(idx, FILES_WELCOME);
   sub_lang(idx, FILES_WELCOME1);
   if (p)
-    strlcpy(dcc[idx].u.file->dir, p, sizeof dcc[idx].u.file->dir);
+    op_strlcpy(dcc[idx].u.file->dir, p, sizeof dcc[idx].u.file->dir);
   else
     dcc[idx].u.file->dir[0] = 0;
   /* Does this dir even exist any more? */
@@ -159,14 +159,14 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
     return 1;                   /* No change? */
   size_t new_sz = strlen(change) + 2;  /* +2: space for appended '/' and NUL */
   new = op_malloc(new_sz);
-  strlcpy(new, change, new_sz);
+  op_strlcpy(new, change, new_sz);
   if (new[0] == '/') {
     /* EVERYONE has access here */
     (*real)[0] = 0;
     memmove(new, new + 1, strlen(new));
   }
   /* Cycle thru the elements */
-  strlcat(new, "/", new_sz);
+  op_strlcat(new, "/", new_sz);
   p = strchr(new, '/');
   while (p) {
     *p = 0;
@@ -245,7 +245,7 @@ static int resolve_dir(char *current, char *change, char **real, int idx)
       if (s[0] && s[strlen(s) - 1] != '/') {
           size_t s_sz = strlen(s) + 2;
           s = op_realloc(s, s_sz);
-          strlcat(s, "/", s_sz);
+          op_strlcat(s, "/", s_sz);
       }
       {
         op_strbuf_t _b = {};
@@ -364,7 +364,7 @@ static void cmd_chdir(int idx, char *msg)
     my_free(s);
     return;
   }
-  strlcpy(dcc[idx].u.file->dir, s, sizeof dcc[idx].u.file->dir);
+  op_strlcpy(dcc[idx].u.file->dir, s, sizeof dcc[idx].u.file->dir);
   my_free(s);
   set_user(&USERENTRY_DCCDIR, dcc[idx].user, dcc[idx].u.file->dir);
   putlog(LOG_FILES, "*", "files: #%s# cd /%s", dcc[idx].nick,
@@ -497,7 +497,7 @@ static void cmd_reget_get(int idx, char *par, int resend)
         /* This is a link to a file on another bot... */
         bot = op_malloc(strlen(fdbe->sharelink) + 1);
         splitc(bot, fdbe->sharelink, ':');
-        if (!strcasecmp(bot, botnetnick))
+        if (!op_strcasecmp(bot, botnetnick))
           dprintf(idx, "Can't get that file, it's linked to this bot!\n");
         else if (!in_chain(bot))
           dprintf(idx, FILES_NOTAVAIL, fdbe->filename);
@@ -890,7 +890,7 @@ static void cmd_desc(int idx, char *par)
     if (!(fdbe->stat & FILE_HIDDEN)) {
       ok = 1;
       if ((!(dcc[idx].user->flags & USER_JANITOR)) &&
-          (strcasecmp(fdbe->uploader, dcc[idx].nick)))
+          (op_strcasecmp(fdbe->uploader, dcc[idx].nick)))
         dprintf(idx, FILES_NOTOWNER, fdbe->filename);
       else {
         if (desc[0]) {
@@ -1487,7 +1487,7 @@ static int files_reget(int idx, char *fn, char *nick, int resend)
     /* This is a link to a file on another bot... */
     bot = op_malloc(strlen(fdbe->sharelink) + 1);
     splitc(bot, fdbe->sharelink, ':');
-    if (!strcasecmp(bot, botnetnick)) {
+    if (!op_strcasecmp(bot, botnetnick)) {
       /* Linked to myself *duh* */
       filedb_close(fdb);
       my_free(what);
@@ -1553,7 +1553,7 @@ static void files_setpwd(int idx, char *where)
 
   if (!resolve_dir(dcc[idx].u.file->dir, where, &s, idx))
     return;
-  strlcpy(dcc[idx].u.file->dir, s, sizeof dcc[idx].u.file->dir);
+  op_strlcpy(dcc[idx].u.file->dir, s, sizeof dcc[idx].u.file->dir);
   set_user(&USERENTRY_DCCDIR, get_user_by_handle(userlist, dcc[idx].nick),
            dcc[idx].u.file->dir);
   my_free(s);

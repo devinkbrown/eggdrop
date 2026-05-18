@@ -32,7 +32,6 @@ typedef struct userstate {
 } userstate_t;
 
 typedef struct twitchchan {
-  struct twitchchan *next;
   char dname[CHANNELLEN + 1]; /* display name (!foo) - THIS IS ALWAYS SET */
   char name[CHANNELLEN + 1];  /* actual name (!BARfoo) - THIS IS SET WHEN THE BOT
                                * ACTUALLY JOINS THE CHANNEL */

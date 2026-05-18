@@ -222,7 +222,7 @@ static int tcl_isban STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -255,7 +255,7 @@ static int tcl_isexempt STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -288,7 +288,7 @@ static int tcl_isinvite STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -322,7 +322,7 @@ static int tcl_isbansticky STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -355,7 +355,7 @@ static int tcl_isexemptsticky STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -388,7 +388,7 @@ static int tcl_isinvitesticky STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -421,7 +421,7 @@ static int tcl_ispermban STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -454,7 +454,7 @@ static int tcl_ispermexempt STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -487,7 +487,7 @@ static int tcl_isperminvite STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -520,7 +520,7 @@ static int tcl_matchban STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -553,7 +553,7 @@ static int tcl_matchexempt STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -586,7 +586,7 @@ static int tcl_matchinvite STDVAR
       ok = 1;
   }
   if (argc == 4) {
-    if (!strcasecmp(argv[3], "-channel")) {
+    if (!op_strcasecmp(argv[3], "-channel")) {
       chanarg = 0;
     } else {
       Tcl_AppendResult(irp, "invalid flag", nullptr);
@@ -606,7 +606,6 @@ static int tcl_newchanban STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  op_strbuf_t ban_b = {}, from_b = {}, cmt_b = {};
   int sticky = 0;
   module_entry *me;
 
@@ -618,8 +617,8 @@ static int tcl_newchanban STDVAR
     return TCL_ERROR;
   }
   if (argc == 7) {
-    if (!strcasecmp(argv[6], "none"));
-    else if (!strcasecmp(argv[6], "sticky"))
+    if (!op_strcasecmp(argv[6], "none"));
+    else if (!op_strcasecmp(argv[6], "sticky"))
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[6], " (must be one of: ",
@@ -627,28 +626,15 @@ static int tcl_newchanban STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_appendf(&ban_b, "%s", argv[2]);
-  op_strbuf_appendf(&from_b, "%s", argv[3]);
-  op_strbuf_appendf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
-    if (chan->ban_time == 0)
-      expire_time = 0;
-    else
-      expire_time = now + 60 * chan->ban_time;
+    expire_time = chan->ban_time ? now + 60 * chan->ban_time : 0;
   } else if ((expire_time = get_expire_time(irp, argv[5])) == -1) {
-    op_strbuf_free(&ban_b);
-    op_strbuf_free(&from_b);
-    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  if (u_addban(chan, op_strbuf_str(&ban_b), (char *)op_strbuf_str(&from_b),
-               op_strbuf_str(&cmt_b), expire_time, sticky))
+  if (u_addban(chan, argv[2], argv[3], argv[4], expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
       ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan,
-          (char *)op_strbuf_str(&ban_b), sticky);
-  op_strbuf_free(&ban_b);
-  op_strbuf_free(&from_b);
-  op_strbuf_free(&cmt_b);
+          argv[2], sticky);
   return TCL_OK;
 }
 
@@ -656,15 +642,14 @@ static int tcl_newban STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  op_strbuf_t ban_b = {}, from_b = {}, cmt_b = {};
   int sticky = 0;
   module_entry *me;
 
   BADARGS(4, 6, " ban creator comment ?lifetime? ?options?");
 
   if (argc == 6) {
-    if (!strcasecmp(argv[5], "none"));
-    else if (!strcasecmp(argv[5], "sticky"))
+    if (!op_strcasecmp(argv[5], "none"));
+    else if (!op_strcasecmp(argv[5], "sticky"))
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[5], " (must be one of: ",
@@ -672,29 +657,16 @@ static int tcl_newban STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_appendf(&ban_b, "%s", argv[1]);
-  op_strbuf_appendf(&from_b, "%s", argv[2]);
-  op_strbuf_appendf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
-    if (global_ban_time == 0)
-      expire_time = 0;
-    else
-      expire_time = now + 60 * global_ban_time;
+    expire_time = global_ban_time ? now + 60 * global_ban_time : 0;
   } else if ((expire_time = get_expire_time(irp, argv[4])) == -1) {
-    op_strbuf_free(&ban_b);
-    op_strbuf_free(&from_b);
-    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  if (u_addban(nullptr, op_strbuf_str(&ban_b), (char *)op_strbuf_str(&from_b),
-               op_strbuf_str(&cmt_b), expire_time, sticky))
+  if (u_addban(nullptr, argv[1], argv[2], argv[3], expire_time, sticky))
     if ((me = module_find("irc", 0, 0)))
       for (chan = chanset; chan != nullptr; chan = chan->next)
         ((void (*)(struct chanset_t *, char *, int)) me->funcs[IRC_CHECK_THIS_BAN])(chan,
-            (char *)op_strbuf_str(&ban_b), sticky);
-  op_strbuf_free(&ban_b);
-  op_strbuf_free(&from_b);
-  op_strbuf_free(&cmt_b);
+            argv[1], sticky);
   return TCL_OK;
 }
 
@@ -702,7 +674,6 @@ static int tcl_newchanexempt STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  op_strbuf_t exempt_b = {}, from_b = {}, cmt_b = {};
   int sticky = 0;
 
   BADARGS(5, 7, " channel exempt creator comment ?lifetime? ?options?");
@@ -713,8 +684,8 @@ static int tcl_newchanexempt STDVAR
     return TCL_ERROR;
   }
   if (argc == 7) {
-    if (!strcasecmp(argv[6], "none"));
-    else if (!strcasecmp(argv[6], "sticky"))
+    if (!op_strcasecmp(argv[6], "none"));
+    else if (!op_strcasecmp(argv[6], "sticky"))
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[6], " (must be one of: ",
@@ -722,27 +693,13 @@ static int tcl_newchanexempt STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_appendf(&exempt_b, "%s", argv[2]);
-  op_strbuf_appendf(&from_b, "%s", argv[3]);
-  op_strbuf_appendf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
-    if (chan->exempt_time == 0)
-      expire_time = 0;
-    else
-      expire_time = now + 60 * chan->exempt_time;
+    expire_time = chan->exempt_time ? now + 60 * chan->exempt_time : 0;
   } else if ((expire_time = get_expire_time(irp, argv[5])) == -1) {
-    op_strbuf_free(&exempt_b);
-    op_strbuf_free(&from_b);
-    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  if (u_addexempt(chan, (char *)op_strbuf_str(&exempt_b),
-                  (char *)op_strbuf_str(&from_b),
-                  (char *)op_strbuf_str(&cmt_b), expire_time, sticky))
-    add_mode(chan, '+', 'e', op_strbuf_str(&exempt_b));
-  op_strbuf_free(&exempt_b);
-  op_strbuf_free(&from_b);
-  op_strbuf_free(&cmt_b);
+  if (u_addexempt(chan, argv[2], argv[3], argv[4], expire_time, sticky))
+    add_mode(chan, '+', 'e', argv[2]);
   return TCL_OK;
 }
 
@@ -750,14 +707,13 @@ static int tcl_newexempt STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  op_strbuf_t exempt_b = {}, from_b = {}, cmt_b = {};
   int sticky = 0;
 
   BADARGS(4, 6, " exempt creator comment ?lifetime? ?options?");
 
   if (argc == 6) {
-    if (!strcasecmp(argv[5], "none"));
-    else if (!strcasecmp(argv[5], "sticky"))
+    if (!op_strcasecmp(argv[5], "none"));
+    else if (!op_strcasecmp(argv[5], "sticky"))
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[5], " (must be one of: ",
@@ -765,28 +721,14 @@ static int tcl_newexempt STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_appendf(&exempt_b, "%s", argv[1]);
-  op_strbuf_appendf(&from_b, "%s", argv[2]);
-  op_strbuf_appendf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
-    if (global_exempt_time == 0)
-      expire_time = 0;
-    else
-      expire_time = now + 60 * global_exempt_time;
+    expire_time = global_exempt_time ? now + 60 * global_exempt_time : 0;
   } else if ((expire_time = get_expire_time(irp, argv[4])) == -1) {
-    op_strbuf_free(&exempt_b);
-    op_strbuf_free(&from_b);
-    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  u_addexempt(nullptr, (char *)op_strbuf_str(&exempt_b),
-              (char *)op_strbuf_str(&from_b),
-              (char *)op_strbuf_str(&cmt_b), expire_time, sticky);
+  u_addexempt(nullptr, argv[1], argv[2], argv[3], expire_time, sticky);
   for (chan = chanset; chan; chan = chan->next)
-    add_mode(chan, '+', 'e', op_strbuf_str(&exempt_b));
-  op_strbuf_free(&exempt_b);
-  op_strbuf_free(&from_b);
-  op_strbuf_free(&cmt_b);
+    add_mode(chan, '+', 'e', argv[1]);
   return TCL_OK;
 }
 
@@ -794,7 +736,6 @@ static int tcl_newchaninvite STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  op_strbuf_t invite_b = {}, from_b = {}, cmt_b = {};
   int sticky = 0;
 
   BADARGS(5, 7, " channel invite creator comment ?lifetime? ?options?");
@@ -805,8 +746,8 @@ static int tcl_newchaninvite STDVAR
     return TCL_ERROR;
   }
   if (argc == 7) {
-    if (!strcasecmp(argv[6], "none"));
-    else if (!strcasecmp(argv[6], "sticky"))
+    if (!op_strcasecmp(argv[6], "none"));
+    else if (!op_strcasecmp(argv[6], "sticky"))
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[6], " (must be one of: ",
@@ -814,27 +755,13 @@ static int tcl_newchaninvite STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_appendf(&invite_b, "%s", argv[2]);
-  op_strbuf_appendf(&from_b, "%s", argv[3]);
-  op_strbuf_appendf(&cmt_b, "%s", argv[4]);
   if (argc == 5) {
-    if (chan->invite_time == 0)
-      expire_time = 0;
-    else
-      expire_time = now + 60 * chan->invite_time;
+    expire_time = chan->invite_time ? now + 60 * chan->invite_time : 0;
   } else if ((expire_time = get_expire_time(irp, argv[5])) == -1) {
-    op_strbuf_free(&invite_b);
-    op_strbuf_free(&from_b);
-    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  if (u_addinvite(chan, (char *)op_strbuf_str(&invite_b),
-                  (char *)op_strbuf_str(&from_b),
-                  (char *)op_strbuf_str(&cmt_b), expire_time, sticky))
-    add_mode(chan, '+', 'I', op_strbuf_str(&invite_b));
-  op_strbuf_free(&invite_b);
-  op_strbuf_free(&from_b);
-  op_strbuf_free(&cmt_b);
+  if (u_addinvite(chan, argv[2], argv[3], argv[4], expire_time, sticky))
+    add_mode(chan, '+', 'I', argv[2]);
   return TCL_OK;
 }
 
@@ -842,14 +769,13 @@ static int tcl_newinvite STDVAR
 {
   time_t expire_time;
   struct chanset_t *chan;
-  op_strbuf_t invite_b = {}, from_b = {}, cmt_b = {};
   int sticky = 0;
 
   BADARGS(4, 6, " invite creator comment ?lifetime? ?options?");
 
   if (argc == 6) {
-    if (!strcasecmp(argv[5], "none"));
-    else if (!strcasecmp(argv[5], "sticky"))
+    if (!op_strcasecmp(argv[5], "none"));
+    else if (!op_strcasecmp(argv[5], "sticky"))
       sticky = 1;
     else {
       Tcl_AppendResult(irp, "invalid option ", argv[5], " (must be one of: ",
@@ -857,28 +783,14 @@ static int tcl_newinvite STDVAR
       return TCL_ERROR;
     }
   }
-  op_strbuf_appendf(&invite_b, "%s", argv[1]);
-  op_strbuf_appendf(&from_b, "%s", argv[2]);
-  op_strbuf_appendf(&cmt_b, "%s", argv[3]);
   if (argc == 4) {
-    if (global_invite_time == 0)
-      expire_time = 0;
-    else
-      expire_time = now + 60 * global_invite_time;
+    expire_time = global_invite_time ? now + 60 * global_invite_time : 0;
   } else if ((expire_time = get_expire_time(irp, argv[4])) == -1) {
-    op_strbuf_free(&invite_b);
-    op_strbuf_free(&from_b);
-    op_strbuf_free(&cmt_b);
     return TCL_ERROR;
   }
-  u_addinvite(nullptr, (char *)op_strbuf_str(&invite_b),
-              (char *)op_strbuf_str(&from_b),
-              (char *)op_strbuf_str(&cmt_b), expire_time, sticky);
+  u_addinvite(nullptr, argv[1], argv[2], argv[3], expire_time, sticky);
   for (chan = chanset; chan; chan = chan->next)
-    add_mode(chan, '+', 'I', op_strbuf_str(&invite_b));
-  op_strbuf_free(&invite_b);
-  op_strbuf_free(&from_b);
-  op_strbuf_free(&cmt_b);
+    add_mode(chan, '+', 'I', argv[1]);
   return TCL_OK;
 }
 
@@ -1013,23 +925,24 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
     Tcl_AppendElement(irp, "+static");
   else
     Tcl_AppendElement(irp, "-static");
-  for (ul = udef; ul; ul = ul->next) {
+  for (size_t udi = 0; udi < udef_vec.size; udi++) {
+    ul = (struct udef_struct *)op_vec_get(&udef_vec, udi);
     /* If it's undefined, skip it. */
-    if (!ul->defined || !ul->name)
+    if (!ul->defined)
       continue;
 
     if (ul->type == UDEF_FLAG) {
       op_strbuf_t t;
       op_strbuf_init(&t);
       op_strbuf_appendf(&t, "%c%s",
-               getudef(ul->values, chan->dname) ? '+' : '-', ul->name);
+               getudef(&ul->values, chan->dname) ? '+' : '-', ul->name);
       Tcl_AppendElement(irp, op_strbuf_str(&t));
       op_strbuf_free(&t);
     } else if (ul->type == UDEF_INT) {
       char *x;
       op_strbuf_t b_buf;
       op_strbuf_init(&b_buf);
-      op_strbuf_appendf(&b_buf, "%" PRIdPTR, getudef(ul->values, chan->dname));
+      op_strbuf_appendf(&b_buf, "%" PRIdPTR, getudef(&ul->values, chan->dname));
       args[0] = ul->name;
       args[1] = op_strbuf_str(&b_buf);
       x = Tcl_Merge(2, args);
@@ -1037,7 +950,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
       Tcl_Free((char *) x);
       op_strbuf_free(&b_buf);
     } else if (ul->type == UDEF_STR) {
-      char *p = (char *) getudef(ul->values, chan->dname);
+      char *p = (char *) getudef(&ul->values, chan->dname);
       op_strbuf_t buf;
       op_strbuf_init(&buf);
 
@@ -1145,9 +1058,10 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
                channel_nouserinvites(chan) ?  "1" : "0");
 
   /* User defined settings */
-  for (ul = udef; ul && ul->name; ul = ul->next) {
+  for (size_t udi = 0; udi < udef_vec.size; udi++) {
+    ul = (struct udef_struct *)op_vec_get(&udef_vec, udi);
     if (ul->type == UDEF_STR) {
-      str = (char *) getudef(ul->values, chan->dname);
+      str = (char *) getudef(&ul->values, chan->dname);
       if (!str)
         str = "{}";
       Tcl_SplitList(irp, str, &argc, &argv);
@@ -1157,7 +1071,7 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
     } else {
       op_strbuf_t t;
       op_strbuf_init(&t);
-      op_strbuf_appendf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
+      op_strbuf_appendf(&t, "%" PRIdPTR, getudef(&ul->values, chan->dname));
       APPEND_KEYVAL(ul->name, op_strbuf_str(&t));
       op_strbuf_free(&t);
     }
@@ -1300,18 +1214,19 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
                       chan->ircnet_status)
   else {
     /* Hopefully it's a user-defined flag. */
-    for (ul = udef; ul && ul->name; ul = ul->next) {
-      if (!strcmp(setting, ul->name))
-        break;
+    ul = nullptr;
+    for (size_t udi = 0; udi < udef_vec.size; udi++) {
+      struct udef_struct *tmp = (struct udef_struct *)op_vec_get(&udef_vec, udi);
+      if (!strcmp(setting, tmp->name)) { ul = tmp; break; }
     }
-    if (!ul || !ul->name) {
+    if (!ul) {
       /* Error if it wasn't found. */
       Tcl_AppendResult(irp, "Unknown channel setting.", nullptr);
       return TCL_ERROR;
     }
 
     if (ul->type == UDEF_STR) {
-      str = (char *) getudef(ul->values, chan->dname);
+      str = (char *) getudef(&ul->values, chan->dname);
       if (!str)
         str = "{}";
       Tcl_SplitList(irp, str, &argc, &argv);
@@ -1322,7 +1237,7 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
       /* Flag or int, all the same. */
       op_strbuf_t t;
       op_strbuf_init(&t);
-      op_strbuf_appendf(&t, "%" PRIdPTR, getudef(ul->values, chan->dname));
+      op_strbuf_appendf(&t, "%" PRIdPTR, getudef(&ul->values, chan->dname));
       Tcl_AppendResult(irp, op_strbuf_str(&t), nullptr);
       op_strbuf_free(&t);
     }
@@ -1573,7 +1488,7 @@ static int tcl_setchaninfo STDVAR
     Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
     return TCL_ERROR;
   }
-  if (!strcasecmp(argv[3], "none")) {
+  if (!op_strcasecmp(argv[3], "none")) {
     set_handle_chaninfo(userlist, argv[1], argv[2], nullptr);
     return TCL_OK;
   }
@@ -1685,11 +1600,11 @@ static int tcl_setudef STDVAR
 
   BADARGS(3, 3, " type name");
 
-  if (!strcasecmp(argv[1], "flag"))
+  if (!op_strcasecmp(argv[1], "flag"))
     type = UDEF_FLAG;
-  else if (!strcasecmp(argv[1], "int"))
+  else if (!op_strcasecmp(argv[1], "int"))
     type = UDEF_INT;
-  else if (!strcasecmp(argv[1], "str"))
+  else if (!op_strcasecmp(argv[1], "str"))
     type = UDEF_STR;
   else {
     Tcl_AppendResult(irp, "invalid type. Must be one of: flag, int, str",
@@ -1707,19 +1622,20 @@ static int tcl_renudef STDVAR
 
   BADARGS(4, 4, " type oldname newname");
 
-  if (!strcasecmp(argv[1], "flag"))
+  if (!op_strcasecmp(argv[1], "flag"))
     type = UDEF_FLAG;
-  else if (!strcasecmp(argv[1], "int"))
+  else if (!op_strcasecmp(argv[1], "int"))
     type = UDEF_INT;
-  else if (!strcasecmp(argv[1], "str"))
+  else if (!op_strcasecmp(argv[1], "str"))
     type = UDEF_STR;
   else {
     Tcl_AppendResult(irp, "invalid type. Must be one of: flag, int, str",
                      nullptr);
     return TCL_ERROR;
   }
-  for (ul = udef; ul; ul = ul->next) {
-    if (ul->type == type && !strcasecmp(ul->name, argv[2])) {
+  for (size_t udi = 0; udi < udef_vec.size; udi++) {
+    ul = (struct udef_struct *)op_vec_get(&udef_vec, udi);
+    if (ul->type == type && !op_strcasecmp(ul->name, argv[2])) {
       op_free(ul->name);
       ul->name = op_strdup(argv[3]);
       found = 1;
@@ -1734,42 +1650,31 @@ static int tcl_renudef STDVAR
 
 static int tcl_deludef STDVAR
 {
-  struct udef_struct *ul, *ull;
+  struct udef_struct *ul;
   int type, found = 0;
 
   BADARGS(3, 3, " type name");
 
-  if (!strcasecmp(argv[1], "flag"))
+  if (!op_strcasecmp(argv[1], "flag"))
     type = UDEF_FLAG;
-  else if (!strcasecmp(argv[1], "int"))
+  else if (!op_strcasecmp(argv[1], "int"))
     type = UDEF_INT;
-  else if (!strcasecmp(argv[1], "str"))
+  else if (!op_strcasecmp(argv[1], "str"))
     type = UDEF_STR;
   else {
     Tcl_AppendResult(irp, "invalid type. Must be one of: flag, int, str",
                      nullptr);
     return TCL_ERROR;
   }
-  for (ul = udef; ul; ul = ul->next) {
-    ull = ul->next;
-    if (!ull)
+  for (size_t udi = 0; udi < udef_vec.size; udi++) {
+    ul = (struct udef_struct *)op_vec_get(&udef_vec, udi);
+    if (ul->type == type && !op_strcasecmp(ul->name, argv[2])) {
+      op_vec_remove_fast(&udef_vec, udi);
+      op_free(ul->name);
+      free_udef_chans(&ul->values, ul->type);
+      op_bh_free(udef_struct_bh, ul);
+      found = 1;
       break;
-    if (ull->type == type && !strcasecmp(ull->name, argv[2])) {
-      ul->next = ull->next;
-      op_free(ull->name);
-      free_udef_chans(ull->values, ull->type);
-      op_free(ull);
-      found = 1;
-    }
-  }
-  if (udef) {
-    if (udef->type == type && !strcasecmp(udef->name, argv[2])) {
-      ul = udef->next;
-      op_free(udef->name);
-      free_udef_chans(udef->values, udef->type);
-      op_free(udef);
-      udef = ul;
-      found = 1;
     }
   }
   if (!found) {
@@ -1787,11 +1692,11 @@ static int tcl_getudefs STDVAR
   BADARGS(1, 2, " ?type?");
 
   if (argc > 1) {
-    if (!strcasecmp(argv[1], "flag"))
+    if (!op_strcasecmp(argv[1], "flag"))
       type = UDEF_FLAG;
-    else if (!strcasecmp(argv[1], "int"))
+    else if (!op_strcasecmp(argv[1], "int"))
       type = UDEF_INT;
-    else if (!strcasecmp(argv[1], "str"))
+    else if (!op_strcasecmp(argv[1], "str"))
       type = UDEF_STR;
     else {
       Tcl_AppendResult(irp, "invalid type. Valid types are: flag, int, str",
@@ -1799,10 +1704,11 @@ static int tcl_getudefs STDVAR
       return TCL_ERROR;
     }
   }
-  for (ul = udef; ul; ul = ul->next)
-    if (!type || (ul->type == type)) {
+  for (size_t udi = 0; udi < udef_vec.size; udi++) {
+    ul = (struct udef_struct *)op_vec_get(&udef_vec, udi);
+    if (!type || (ul->type == type))
       Tcl_AppendElement(irp, ul->name);
-    }
+  }
 
   return TCL_OK;
 }
@@ -1869,11 +1775,12 @@ static int tcl_chansettype STDVAR
     Tcl_AppendResult(irp, "flag", nullptr);
   } else {
     /* Must be a UDEF. */
-    for (ul = udef; ul && ul->name; ul = ul->next) {
-      if (!strcmp(argv[1], ul->name))
-        break;
+    ul = nullptr;
+    for (size_t udi = 0; udi < udef_vec.size; udi++) {
+      struct udef_struct *tmp = (struct udef_struct *)op_vec_get(&udef_vec, udi);
+      if (!strcmp(argv[1], tmp->name)) { ul = tmp; break; }
     }
-    if (!ul || !ul->name) {
+    if (!ul) {
       Tcl_AppendResult(irp, "unknown channel setting.", nullptr);
       return TCL_ERROR;
     }

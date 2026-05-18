@@ -90,7 +90,6 @@ constexpr int BIND_QUIT      = 5; /* CMD_LEAVE 'quit' from partyline or filesys 
  * of command: msg, dcc, etc).
  */
 typedef struct timer_str {
-  struct timer_str *next;
   time_t fire_at;               /* Absolute wall-clock fire time        */
   unsigned int count;           /* Number of repeats (0 = infinite)     */
   unsigned int interval;        /* Original elapse in ticks             */
@@ -139,16 +138,16 @@ typedef struct timer_str {
 
 #endif /* HAVE_TCL */
 
-char * add_timer(tcl_timer_t **, int, int, char *, char *, unsigned long);
-int find_timer(tcl_timer_t *, char *);
-int remove_timer(tcl_timer_t **, char *);
-void do_check_timers(tcl_timer_t **);
+char *add_timer(op_vec_t *, int, int, char *, char *, unsigned long);
+int find_timer(op_vec_t *, char *);
+int remove_timer(op_vec_t *, char *);
+void do_check_timers(op_vec_t *);
 /* list_timers and wipe_timers take a Tcl_Interp * but compile in both
  * configurations because lush.h provides 'typedef void Tcl_Interp' when
  * Tcl is absent, making the parameter a plain void *.
  */
-void list_timers(Tcl_Interp *, tcl_timer_t *);
-void wipe_timers(Tcl_Interp *, tcl_timer_t **);
+void list_timers(Tcl_Interp *, op_vec_t *);
+void wipe_timers(Tcl_Interp *, op_vec_t *);
 
 typedef struct _tcl_strings {
   char *name;

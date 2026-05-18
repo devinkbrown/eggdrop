@@ -266,7 +266,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
   }
 #ifdef IPV6
   /* Clean start */
-  egg_bzero(addr, sizeof(sockname_t));
+  op_memzero(addr, sizeof(sockname_t));
   pref = pref_af ? AF_INET6 : AF_INET;
   if (pref == AF_INET) {
     if (inet_pton(AF_INET, src2, &addr->addr.s4.sin_addr) == 1)
@@ -325,7 +325,7 @@ int setsockname(sockname_t *addr, char *src, int port, int allowres)
     addr->addr.s4.sin_family = AF_INET;
   }
 #else
-  egg_bzero(addr, sizeof(sockname_t));
+  op_memzero(addr, sizeof(sockname_t));
 
 /* If it's not an IPv4 address, check if its IPv6 (so it can fail/error
  * appropriately). If it's not, and allowres is 1, use gethostbyname()
@@ -659,10 +659,10 @@ static int proxy_connect(int sock, sockname_t *addr)
 #endif
   if (firewall[0] == '!') {
     proxy = PROXY_SUN;
-    strlcpy(host, &firewall[1], sizeof host);
+    op_strlcpy(host, &firewall[1], sizeof host);
   } else {
     proxy = PROXY_SOCKS;
-    strlcpy(host, firewall, sizeof(host));
+    op_strlcpy(host, firewall, sizeof(host));
   }
   port = ntohs(addr->addr.s4.sin_port);
   setsockname(&name, host, firewallport, 1);
@@ -676,7 +676,7 @@ static int proxy_connect(int sock, sockname_t *addr)
     s[0] = '\004'; s[1] = '\001';
     s[2] = (port >> 8) & 0xFF; s[3] = port & 0xFF;
     s[4] = host[0]; s[5] = host[1]; s[6] = host[2]; s[7] = host[3];
-    strlcpy(s + 8, botuser, sizeof s - 8);
+    op_strlcpy(s + 8, botuser, sizeof s - 8);
     tputs(sock, s, strlen(botuser) + 9);
   } else if (proxy == PROXY_SUN) {
     op_strbuf_t sb = {};
@@ -988,7 +988,7 @@ int getdccfamilyaddr(sockname_t *addr, char *s, size_t l, int restrict_af)
     if (IN6_IS_ADDR_V4MAPPED(&r->addr.s6.sin6_addr) ||
         IN6_IS_ADDR_UNSPECIFIED(&r->addr.s6.sin6_addr)) {
       if (*nat_ip_string)
-        strlcpy(s, nat_ip_string, l);
+        op_strlcpy(s, nat_ip_string, l);
       else {
         memcpy(&ip, r->addr.s6.sin6_addr.s6_addr + 12, sizeof ip);
         snprintf(s, l, "%" PRIu32, ntohl(ip));
@@ -999,7 +999,7 @@ int getdccfamilyaddr(sockname_t *addr, char *s, size_t l, int restrict_af)
 #endif
   {
     if (*nat_ip_string)
-      strlcpy(s, nat_ip_string, l);
+      op_strlcpy(s, nat_ip_string, l);
     else
       snprintf(s, l, "%" PRIu32, ntohl(r->addr.s4.sin_addr.s_addr));
   }
@@ -1739,27 +1739,19 @@ int hostsanitycheck_dcc(char *nick, char *from, sockname_t *ip, char *dnsname,
   /* According to the latest RFC, the clients SHOULD be able to handle
    * DNS names that are up to 255 characters long.  This is not broken.
    */
-  op_strbuf_t _badaddress = {}, _hostn = {};
-  op_strbuf_appendf(&_badaddress, "%s", iptostr(&ip->addr.sa));
-  op_strbuf_appendf(&_hostn, "%s", extracthostname(from));
-  if (!strcasecmp(op_strbuf_str(&_hostn), dnsname)) {
-    op_strbuf_free(&_hostn);
-    op_strbuf_free(&_badaddress);
+  const char *badaddress = iptostr(&ip->addr.sa);
+  const char *hostn = extracthostname(from);
+  if (!op_strcasecmp(hostn, dnsname)) {
     putlog(LOG_DEBUG, "*", "DNS information for submitted IP checks out.");
     return 1;
   }
-  if (!strcmp(op_strbuf_str(&_badaddress), dnsname))
+  if (!strcmp(badaddress, dnsname))
     putlog(LOG_MISC, "*", "ALERT: (%s!%s) sent a DCC request with bogus IP "
            "information of %s port %s. %s does not resolve to %s!", nick, from,
-           op_strbuf_str(&_badaddress), prt, from, op_strbuf_str(&_badaddress));
-  else {
-    op_strbuf_free(&_hostn);
-    op_strbuf_free(&_badaddress);
+           badaddress, prt, from, badaddress);
+  else
     return 1;                   /* <- usually happens when we have
                                  * a user with an unresolved hostmask! */
-  }
-  op_strbuf_free(&_hostn);
-  op_strbuf_free(&_badaddress);
   return 0;
 }
 
@@ -1872,8 +1864,8 @@ char *traced_myiphostname(ClientData cd, Tcl_Interp *irp, EGG_CONST char *name1,
   }
 
   value = Tcl_GetVar2(irp, name1, name2, TCL_GLOBAL_ONLY);
-  strlcpy(vhost, value, sizeof vhost);
-  strlcpy(listen_ip, value, sizeof listen_ip);
+  op_strlcpy(vhost, value, sizeof vhost);
+  op_strlcpy(listen_ip, value, sizeof listen_ip);
   putlog(LOG_MISC, "*", "WARNING: You are using the DEPRECATED variable '%s' in your config file.\n", name1);
   putlog(LOG_MISC, "*", "    To prevent future incompatibility, please use the vhost4/listen-addr variables instead.\n");
   putlog(LOG_MISC, "*", "    More information on this subject can be found in the eggdrop/doc/IPV6 file, or\n");

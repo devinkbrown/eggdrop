@@ -174,9 +174,9 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
     }
     /* ... or creating new user and setting that to deop */
     else {
-      strlcpy(s1, whobad, sizeof s1);
+      op_strlcpy(s1, whobad, sizeof s1);
       maskaddr(s1, mask, chan->ban_type);
-      strlcpy(s1, badnick, sizeof s1);
+      op_strlcpy(s1, badnick, sizeof s1);
       /* If that handle exists use "badX" (where X is an increasing number)
        * instead.
        */
@@ -185,9 +185,9 @@ static void punish_badguy(struct chanset_t *chan, char *whobad,
           int i;
 
           i = egg_atoi(s1 + 3);
-          strlcpy(s1 + 3, int_to_base10(i + 1), sizeof s1 - 3);
+          op_strlcpy(s1 + 3, int_to_base10(i + 1), sizeof s1 - 3);
         } else
-          strlcpy(s1, "bad1", sizeof s1);   /* Start with '1' */
+          op_strlcpy(s1, "bad1", sizeof s1);   /* Start with '1' */
       }
       userlist = adduser(userlist, s1, mask, "-", 0);
       fr.match = FR_CHAN;
@@ -252,16 +252,16 @@ static void maybe_revenge(struct chanset_t *chan, const char *whobad,
     return;
 
   /* Get info about offender */
-  strlcpy(bad, whobad, sizeof bad);
-  strlcpy(buf, whobad, sizeof buf);
+  op_strlcpy(bad, whobad, sizeof bad);
+  op_strlcpy(buf, whobad, sizeof buf);
   bp = bad;
   badnick = splitnick(&bp);
   m = ismember(chan, badnick);
   u = lookup_user_record(m, m ? m->account : nullptr, buf);
 
   /* Get info about victim */
-  strlcpy(vic, whovictim, sizeof vic);
-  strlcpy(buf, whovictim, sizeof buf);
+  op_strlcpy(vic, whovictim, sizeof vic);
+  op_strlcpy(buf, whovictim, sizeof buf);
   vp = vic;
   victim = splitnick(&vp);
   m = ismember(chan, victim);
@@ -980,7 +980,7 @@ static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
   struct userrec *u = nullptr;
   memberlist *m;
 
-  strlcpy(buf, msg, sizeof buf);
+  op_strlcpy(buf, msg, sizeof buf);
   cmd = newsplit(&args);
   chan = findchan(chname);
   m = ismember(chan, nick);
@@ -1149,17 +1149,12 @@ static void tell_account_tracking_status(int idx, int details)
    * capabilities to be enabled.
    */
   /* Check if CAPs are enabled */
-  current = cap;
-  while (current != nullptr) {
-    if (!strcasecmp("extended-join", current->name) && current->enabled) {
-      extjoin = 1;
-    } else if (!strcasecmp("account-notify", current->name) && current->enabled) {
-      notify = 1;
-    } else if (!strcasecmp("account-tag", current->name) && current->enabled) {
-      tag = 1;
-    }
-    current = current->next;
-  }
+  current = find_capability("extended-join");
+  if (current && current->enabled) extjoin = 1;
+  current = find_capability("account-notify");
+  if (current && current->enabled) notify = 1;
+  current = find_capability("account-tag");
+  if (current && current->enabled) tag = 1;
 
   if (whox && notify && extjoin) {
     dprintf(idx, "%s", "    Account tracking: Enabled\n");
@@ -1202,7 +1197,7 @@ static void irc_report(int idx, int details)
   struct chanset_t *chan;
   op_strbuf_t _bch = {};
 
-  strlcpy(q, "Channels: ", sizeof(q));
+  op_strlcpy(q, "Channels: ", sizeof(q));
   k = 10;
   op_strbuf_init(&_bch);
   for (chan = chanset; chan; chan = chan->next) {
@@ -1226,7 +1221,7 @@ static void irc_report(int idx, int details)
       l = (int) op_strbuf_len(&_bch);
       if ((k + l) > 70) {
         dprintf(idx, "    %s\n", q);
-        strlcpy(q, "          ", sizeof(q));
+        op_strlcpy(q, "          ", sizeof(q));
         k = 10;
       }
       k = (int)(stpcpy(q + k, op_strbuf_str(&_bch)) - q);
@@ -1535,7 +1530,7 @@ char *irc_start(Function *global_funcs)
   Tcl_TraceVar(interp, "rfc-compliant",
                TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                traced_rfccompliant, nullptr);
-  strlcpy(opchars, "@", sizeof(opchars));
+  op_strlcpy(opchars, "@", sizeof(opchars));
   add_tcl_strings(mystrings);
   add_tcl_ints(myints);
   add_builtins(H_dcc, irc_dcc);

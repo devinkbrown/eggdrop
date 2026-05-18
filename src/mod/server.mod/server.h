@@ -89,7 +89,7 @@ constexpr int NEWSERVERPASSMAX = 128;
 #define H_out (*(p_tcl_bind_list *)(server_funcs[40]))
 #define net_type_int (*(int *)(server_funcs[41]))
 /* #define H_account unused */
-#define cap (*(capability_t **)(server_funcs[43]))
+#define cap_vec (*(op_vec_t *)(server_funcs[43]))
 /* 44 - 47 */
 #define extended_join (*(int *)(server_funcs[44]))
 #define account_notify (*(int *)(server_funcs[45]))
@@ -110,8 +110,6 @@ constexpr int NEWSERVERPASSMAX = 128;
 #endif /* MAKING_SERVER */
 
 struct server_list {
-  struct server_list *next;
-
   char *name;
   int port;
 #ifdef TLS
@@ -125,22 +123,19 @@ struct server_list {
  * "EXTERNAL" for SASL
  */
 typedef struct cap_values {
-  struct cap_values *next;
   char name[CAPMAX];
 } cap_values_t;
 
 typedef struct capability {
-  struct capability *next;
   char name[CAPMAX+1];  /* Name of capability, +1 bc CAPMAX is for REQ not LS */
-  struct cap_values *value; /* List of values associated with the capability  */
+  op_vec_t values;      /* Values associated with this capability (op_vec_t of cap_values_t*) */
   int enabled;      /* Is the capability currently negotiated with the server */
   int requested;    /* Does Eggdrop  want this capability, if available?      */
 } capability_t;
 
 typedef struct monitor_list {
-  char nick[NICKLEN];         /* List of nicks to monitor,                */
-  int online;                 /* Flag if nickname is currently online     */
-  struct monitor_list *next;  /* Linked list y'all                        */
+  char nick[NICKLEN];
+  int online;
 } monitor_list_t;
 
 /* Available net types. */
@@ -209,7 +204,6 @@ enum {
 /* IRCX access list entry - stored per channel.
  * Uses fixed-size arrays to remain includable from all modules. */
 typedef struct ircx_access_entry {
-  struct ircx_access_entry *next;
   char channel[201];                /* Channel this entry applies to (CHANNELLEN+1) */
   char mask[512];                   /* Nick!user@host mask or account name  */
   char level[16];                   /* OWNER / HOST / VOICE / GRANT / DENY  */
@@ -219,7 +213,6 @@ typedef struct ircx_access_entry {
 
 /* IRCX auto-owner entry - channels where bot requests owner on join */
 typedef struct ircx_autoowner_entry {
-  struct ircx_autoowner_entry *next;
   char channel[201];                /* Channel name (with prefix, CHANNELLEN+1) */
   char ownerkey[128];               /* OWNERKEY value sent on join          */
   int  create_if_missing;           /* Use IRCX CREATE if channel is empty  */

@@ -18,7 +18,7 @@ int str_isdigit(const char *str)
   if (!*str)
     return 0;
   for (; *str; ++str)
-    if (!egg_isdigit(*str))
+    if (!isdigit((unsigned char)(*str)))
       return 0;
   return 1;
 }

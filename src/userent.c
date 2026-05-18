@@ -34,12 +34,13 @@ extern char whois_fields[];
 
 int share_greet = 0; /* Share greeting info                      */
 int remove_pass = 0; /* create and keep encryption mod passwords */
-struct user_entry_type *entry_type_list;
+op_vec_t entry_type_vec;
+
+static op_bh *xtra_vec_bh = nullptr;
 
 
 void init_userent(void)
 {
-  entry_type_list = 0;
   add_entry_type(&USERENTRY_COMMENT);
   add_entry_type(&USERENTRY_XTRA);
   add_entry_type(&USERENTRY_INFO);
@@ -133,7 +134,7 @@ int def_set(struct userrec *u, struct user_entry *e, void *buf)
 
     e->u.string = user_realloc(e->u.string, l + 1);
 
-    strlcpy(e->u.string, string, l + 1);
+    op_strlcpy(e->u.string, string, l + 1);
 
     for (i = e->u.string; *i; i++)
       /* Allow bold, inverse, underline, color text here...
@@ -205,7 +206,6 @@ static void comment_display(int idx, struct user_entry *e)
 }
 
 struct user_entry_type USERENTRY_COMMENT = {
-  0,                            /* always 0 ;) */
   def_gotshare,
   def_dupuser,
   def_unpack,
@@ -223,7 +223,6 @@ struct user_entry_type USERENTRY_COMMENT = {
 };
 
 struct user_entry_type USERENTRY_INFO = {
-  0,                            /* always 0 ;) */
   def_gotshare,
   def_dupuser,
   def_unpack,
@@ -262,7 +261,6 @@ static int def_tcl_null(Tcl_Interp * irp, struct userrec *u,
 }
 
 struct user_entry_type USERENTRY_PASS2 = {
-  0,
   0,
   0,
   def_unpack,
@@ -315,13 +313,13 @@ int pass_set(struct userrec *u, struct user_entry *e, void *buf)
      */
     if (u->flags & USER_BOT) {
       /* set PASS and PASS2 cleartext password */
-      strlcpy(new, pass, sizeof new);
+      op_strlcpy(new, pass, sizeof new);
       if (encrypt_pass2)
         new2 = new;
     }
     else if (pass[0] == '+') {
       /* '+' means pass is already encrypted, set PASS = pass */
-      strlcpy(new, pass, sizeof new);
+      op_strlcpy(new, pass, sizeof new);
       /* due to module api encrypted pass2 cannot be available here
        * caller must do set_user(&USERENTRY_PASS2, u, password);
        * probably only share.c:dup_userlist()
@@ -382,7 +380,6 @@ static int pass_tcl_set(Tcl_Interp * irp, struct userrec *u,
 }
 
 struct user_entry_type USERENTRY_PASS = {
-  0,
   def_gotshare,
   0,
   def_unpack,
@@ -564,7 +561,6 @@ static int laston_dupuser(struct userrec *new, struct userrec *old,
 }
 
 struct user_entry_type USERENTRY_LASTON = {
-  0,                            /* always 0 ;) */
   0,
   laston_dupuser,
   laston_unpack,
@@ -586,7 +582,7 @@ static int botaddr_unpack(struct userrec *u, struct user_entry *e)
   char *p, *q;
   struct bot_addr *bi = user_malloc(sizeof(struct bot_addr));
 
-  egg_bzero(bi, sizeof(struct bot_addr));
+  op_memzero(bi, sizeof(struct bot_addr));
 
   if (!(q = strchr((p = e->u.list->extra), ':'))) {
     bi->address = op_strdup(p);
@@ -764,7 +760,7 @@ static int botaddr_tcl_set(Tcl_Interp * irp, struct userrec *u,
     /* Silently ignore for users */
     if (!bi) {
       bi = user_malloc(sizeof(struct bot_addr));
-      egg_bzero(bi, sizeof(struct bot_addr));
+      op_memzero(bi, sizeof(struct bot_addr));
     } else
       op_free(bi->address);
     bi->address = op_strdup(argv[3]);
@@ -833,7 +829,7 @@ static int botaddr_gotshare(struct userrec *u, struct user_entry *e,
   struct bot_addr *bi = user_malloc(sizeof(struct bot_addr));
   char *arg;
 
-  egg_bzero(bi, sizeof(struct bot_addr));
+  op_memzero(bi, sizeof(struct bot_addr));
   arg = newsplit(&buf);
   bi->address = op_strdup(arg);
   arg = newsplit(&buf);
@@ -876,7 +872,6 @@ static int botaddr_dupuser(struct userrec *new, struct userrec *old,
 }
 
 struct user_entry_type USERENTRY_BOTADDR = {
-  0,                            /* always 0 ;) */
   botaddr_gotshare,
   botaddr_dupuser,
   botaddr_unpack,
@@ -895,12 +890,19 @@ struct user_entry_type USERENTRY_BOTADDR = {
 
 int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
 {
-  struct xtra_key *curr, *old = nullptr, *new = buf;
+  struct xtra_key *new = (struct xtra_key *)buf;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
+  struct xtra_key *old = nullptr;
+  size_t old_idx = (size_t)-1;
 
-  for (curr = e->u.extra; curr; curr = curr->next) {
-    if (curr->key && !strcasecmp(curr->key, new->key)) {
-      old = curr;
-      break;
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++) {
+      struct xtra_key *curr = (struct xtra_key *)op_vec_get(v, _i);
+      if (curr->key && !op_strcasecmp(curr->key, new->key)) {
+        old = curr;
+        old_idx = _i;
+        break;
+      }
     }
   }
   if (!old && (!new->data || !new->data[0])) {
@@ -911,27 +913,27 @@ int xtra_set(struct userrec *u, struct user_entry *e, void *buf)
     free_xtra_key(new);
     return TCL_OK;
   }
-
-  /* We will possibly free new below, so let's send the information
-   * to the botnet now
-   */
+  /* We will possibly free new below, so send the information now */
   if (!noshare && !(u->flags & (USER_BOT | USER_UNSHARED)))
     shareout(nullptr, "c XTRA %s %s %s\n", u->handle, new->key,
              new->data ? new->data : "");
   if ((old && old != new) || !new->data || !new->data[0]) {
-    egg_list_delete(&e->u.list, (struct list_type *) old);
+    op_vec_remove(v, old_idx);
     op_free(old->key);
     op_free(old->data);
-    if (old == e->u.extra)
-      e->u.extra = nullptr;
     free_xtra_key(old);
     old = nullptr;
   }
   /* don't do anything when old == new */
   if (old != new) {
-    if (new->data && new->data[0])
-      list_insert((&e->u.extra), new)  /* do not add a ';' here */
-    else {
+    if (new->data && new->data[0]) {
+      if (!v) {
+        if (!xtra_vec_bh) xtra_vec_bh = op_bh_create(sizeof(op_vec_t), 32, "xtra_vec");
+        v = (op_vec_t *)op_bh_alloc(xtra_vec_bh);
+        e->u.extra = v;
+      }
+      op_vec_push(v, new);
+    } else {
       if (new->data)
         op_free(new->data);
       op_free(new->key);
@@ -954,7 +956,7 @@ static int xtra_tcl_set(Tcl_Interp * irp, struct userrec *u,
   if (l > 500)
     l = 500;
   xk->key = user_malloc(l + 1);
-  strlcpy(xk->key, argv[3], l + 1);
+  op_strlcpy(xk->key, argv[3], l + 1);
 
   if (argc == 5) {
     int k = strlen(argv[4]);
@@ -962,7 +964,7 @@ static int xtra_tcl_set(Tcl_Interp * irp, struct userrec *u,
     if (k > 500 - l)
       k = 500 - l;
     xk->data = user_malloc(k + 1);
-    strlcpy(xk->data, argv[4], k + 1);
+    op_strlcpy(xk->data, argv[4], k + 1);
   }
   xtra_set(u, e, xk);
   return TCL_OK;
@@ -973,33 +975,40 @@ int xtra_unpack(struct userrec *u, struct user_entry *e)
   struct list_type *curr, *head;
   struct xtra_key *t;
   char *key, *data;
+  op_vec_t *v = nullptr;
 
   head = curr = e->u.list;
   e->u.extra = nullptr;
   while (curr) {
-    t = alloc_xtra_key();
-
     data = curr->extra;
     key = newsplit(&data);
     if (data[0]) {
+      t = alloc_xtra_key();
       t->key = op_strdup(key);
       t->data = op_strdup(data);
-      list_insert((&e->u.extra), t);
+      if (!v) {
+        if (!xtra_vec_bh) xtra_vec_bh = op_bh_create(sizeof(op_vec_t), 32, "xtra_vec");
+        v = (op_vec_t *)op_bh_alloc(xtra_vec_bh);
+      }
+      op_vec_push(v, t);
     }
     curr = curr->next;
   }
+  e->u.extra = v;
   list_type_kill(head);
   return 1;
 }
 
 static int xtra_pack(struct userrec *u, struct user_entry *e)
 {
+  op_vec_t *v = (op_vec_t *)e->u.extra;
   struct list_type *t;
-  struct xtra_key *curr, *next;
 
-  curr = e->u.extra;
   e->u.list = nullptr;
-  while (curr) {
+  if (!v)
+    return 1;
+  for (size_t _i = 0; _i < v->size; _i++) {
+    struct xtra_key *curr = (struct xtra_key *)op_vec_get(v, _i);
     t = alloc_list_type();
     {
       op_strbuf_t _b = {};
@@ -1008,12 +1017,13 @@ static int xtra_pack(struct userrec *u, struct user_entry *e)
       t->extra = op_strbuf_steal(&_b);
     }
     list_insert((&e->u.list), t);
-    next = curr->next;
     op_free(curr->key);
     op_free(curr->data);
     free_xtra_key(curr);
-    curr = next;
   }
+  op_vec_fini(v, nullptr, nullptr);
+  op_bh_free(xtra_vec_bh, v);
+  e->u.extra = nullptr;
   return 1;
 }
 
@@ -1022,17 +1032,18 @@ static void xtra_display(int idx, struct user_entry *e)
   int code;
   Tcl_Size lc, j;
   EGG_CONST char **list;
-  struct xtra_key *xk;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
   code = Tcl_SplitList(interp, whois_fields, &lc, &list);
   if (code == TCL_ERROR)
     return;
-  /* Scan thru xtra field, searching for matches */
-  for (xk = e->u.extra; xk; xk = xk->next) {
-    /* Ok, it's a valid xtra field entry */
-    for (j = 0; j < lc; j++) {
-      if (!strcasecmp(list[j], xk->key))
-        dprintf(idx, "  %s: %s\n", xk->key, xk->data);
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++) {
+      struct xtra_key *xk = (struct xtra_key *)op_vec_get(v, _i);
+      for (j = 0; j < lc; j++) {
+        if (!op_strcasecmp(list[j], xk->key))
+          dprintf(idx, "  %s: %s\n", xk->key, xk->data);
+      }
     }
   }
   Tcl_Free((char *) list);
@@ -1054,7 +1065,7 @@ static int xtra_gotshare(struct userrec *u, struct user_entry *e,
   if (l > 500)
     l = 500;
   xk->key = user_malloc(l + 1);
-  strlcpy(xk->key, arg, l + 1);
+  op_strlcpy(xk->key, arg, l + 1);
 
   if (buf[0]) {
     int k = strlen(buf);
@@ -1062,7 +1073,7 @@ static int xtra_gotshare(struct userrec *u, struct user_entry *e,
     if (k > 500 - l)
       k = 500 - l;
     xk->data = user_malloc(k + 1);
-    strlcpy(xk->data, buf, k + 1);
+    op_strlcpy(xk->data, buf, k + 1);
   }
   xtra_set(u, e, xk);
   return 1;
@@ -1071,11 +1082,13 @@ static int xtra_gotshare(struct userrec *u, struct user_entry *e,
 static int xtra_dupuser(struct userrec *new, struct userrec *old,
                         struct user_entry *e)
 {
-  struct xtra_key *x1, *x2;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (x1 = e->u.extra; x1; x1 = x1->next) {
-    x2 = alloc_xtra_key();
-
+  if (!v)
+    return 1;
+  for (size_t _i = 0; _i < v->size; _i++) {
+    struct xtra_key *x1 = (struct xtra_key *)op_vec_get(v, _i);
+    struct xtra_key *x2 = alloc_xtra_key();
     x2->key = op_strdup(x1->key);
     x2->data = op_strdup(x1->data);
     set_user(&USERENTRY_XTRA, new, x2);
@@ -1086,23 +1099,31 @@ static int xtra_dupuser(struct userrec *new, struct userrec *old,
 static int xtra_write_userfile(FILE *f, struct userrec *u,
                                struct user_entry *e)
 {
-  struct xtra_key *x;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (x = e->u.extra; x; x = x->next)
+  if (!v)
+    return 1;
+  for (size_t _i = 0; _i < v->size; _i++) {
+    struct xtra_key *x = (struct xtra_key *)op_vec_get(v, _i);
     if (fprintf(f, "--XTRA %s %s\n", x->key, x->data) == EOF)
       return 0;
+  }
   return 1;
 }
 
 int xtra_kill(struct user_entry *e)
 {
-  struct xtra_key *x, *y;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (x = e->u.extra; x; x = y) {
-    y = x->next;
-    op_free(x->key);
-    op_free(x->data);
-    free_xtra_key(x);
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++) {
+      struct xtra_key *x = (struct xtra_key *)op_vec_get(v, _i);
+      op_free(x->key);
+      op_free(x->data);
+      free_xtra_key(x);
+    }
+    op_vec_fini(v, nullptr, nullptr);
+    op_bh_free(xtra_vec_bh, v);
   }
   free_user_entry(e);
   return 1;
@@ -1110,9 +1131,12 @@ int xtra_kill(struct user_entry *e)
 
 static int xtra_tcl_dstring(Tcl_DString *ds, int sublist, struct user_entry *e)
 {
-  struct xtra_key *x;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (x = e->u.extra; x; x = x->next) {
+  if (!v)
+    return TCL_OK;
+  for (size_t _i = 0; _i < v->size; _i++) {
+    struct xtra_key *x = (struct xtra_key *)op_vec_get(v, _i);
     if (sublist)
       Tcl_DStringStartSublist(ds);
     Tcl_DStringAppendElement(ds, x->key);
@@ -1126,7 +1150,7 @@ static int xtra_tcl_dstring(Tcl_DString *ds, int sublist, struct user_entry *e)
 static int xtra_tcl_get(Tcl_Interp * irp, struct userrec *u,
                         struct user_entry *e, int argc, char **argv)
 {
-  struct xtra_key *x;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
   BADARGS(3, 4, " handle XTRA ?key?");
 
@@ -1138,11 +1162,15 @@ static int xtra_tcl_get(Tcl_Interp * irp, struct userrec *u,
     Tcl_DStringFree(&ds);
     return TCL_OK;
   }
-  for (x = e->u.extra; x; x = x->next)
-    if (!strcasecmp(argv[3], x->key)) {
-      Tcl_AppendResult(irp, x->data, nullptr);
-      return TCL_OK;
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++) {
+      struct xtra_key *x = (struct xtra_key *)op_vec_get(v, _i);
+      if (!op_strcasecmp(argv[3], x->key)) {
+        Tcl_AppendResult(irp, x->data, nullptr);
+        return TCL_OK;
+      }
     }
+  }
   return TCL_OK;
 }
 
@@ -1159,20 +1187,20 @@ static int xtra_tcl_append(Tcl_Interp *irp, struct userrec *u,
 
 static int xtra_expmem(struct user_entry *e)
 {
-  struct xtra_key *x;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
   int tot = 0;
 
-  for (x = e->u.extra; x; x = x->next) {
-    tot += sizeof(struct xtra_key);
-
-    tot += strlen(x->key) + 1;
-    tot += strlen(x->data) + 1;
+  if (!v)
+    return 0;
+  tot += (int)(sizeof(op_vec_t) + v->cap * sizeof(void *));
+  for (size_t _i = 0; _i < v->size; _i++) {
+    struct xtra_key *x = (struct xtra_key *)op_vec_get(v, _i);
+    tot += (int)(sizeof(struct xtra_key) + strlen(x->key) + 1 + strlen(x->data) + 1);
   }
   return tot;
 }
 
 struct user_entry_type USERENTRY_XTRA = {
-  0,
   xtra_gotshare,
   xtra_dupuser,
   xtra_unpack,
@@ -1189,13 +1217,36 @@ struct user_entry_type USERENTRY_XTRA = {
   xtra_tcl_append
 };
 
+static int hosts_unpack(struct userrec *u, struct user_entry *e)
+{
+  struct list_type *lt = e->u.list;
+  op_vec_t *v = nullptr;
+
+  while (lt) {
+    struct list_type *next = lt->next;
+    if (lt->extra) {
+      if (!v) {
+        if (!xtra_vec_bh) xtra_vec_bh = op_bh_create(sizeof(op_vec_t), 32, "xtra_vec");
+        v = (op_vec_t *)op_bh_alloc(xtra_vec_bh);
+      }
+      op_vec_push(v, lt->extra);
+      lt->extra = nullptr;
+    }
+    free_list_type(lt);
+    lt = next;
+  }
+  e->u.extra = v;
+  return 1;
+}
+
 static int hosts_dupuser(struct userrec *new, struct userrec *old,
                          struct user_entry *e)
 {
-  struct list_type *h;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (h = e->u.extra; h; h = h->next)
-    set_user(&USERENTRY_HOSTS, new, h->extra);
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      set_user(&USERENTRY_HOSTS, new, op_vec_get(v, _i));
   return 1;
 }
 
@@ -1207,42 +1258,63 @@ static int hosts_null(struct userrec *u, struct user_entry *e)
 static int hosts_write_userfile(FILE *f, struct userrec *u,
                                 struct user_entry *e)
 {
-  struct list_type *h;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (h = e->u.extra; h; h = h->next)
-    if (fprintf(f, "--HOSTS %s\n", h->extra) == EOF)
-      return 0;
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      if (fprintf(f, "--HOSTS %s\n", (char *)op_vec_get(v, _i)) == EOF)
+        return 0;
   return 1;
 }
 
 static int hosts_kill(struct user_entry *e)
 {
-  list_type_kill(e->u.list);
+  op_vec_t *v = (op_vec_t *)e->u.extra;
+
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++)
+      op_free(op_vec_get(v, _i));
+    op_vec_fini(v, nullptr, nullptr);
+    op_bh_free(xtra_vec_bh, v);
+    e->u.extra = nullptr;
+  }
   free_user_entry(e);
   return 1;
 }
 
 static int hosts_expmem(struct user_entry *e)
 {
-  return list_type_expmem(e->u.list);
+  op_vec_t *v = (op_vec_t *)e->u.extra;
+  int tot = 0;
+
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++)
+      tot += (int)strlen((char *)op_vec_get(v, _i)) + 1;
+    tot += (int)(sizeof(op_vec_t) + v->cap * sizeof(void *));
+  }
+  return tot;
 }
 
 static void hosts_display(int idx, struct user_entry *e)
 {
+  op_vec_t *v = (op_vec_t *)e->u.extra;
   op_strbuf_t sb = {};
-  struct list_type *q;
 
   op_strbuf_init(&sb);
   op_strbuf_append_cstr(&sb, "  HOSTS: ");
-  for (q = e->u.list; q; q = q->next) {
-    if (op_strbuf_len(&sb) <= 9) {
-      op_strbuf_append_cstr(&sb, q->extra);
-    } else if (op_strbuf_len(&sb) + strlen(q->extra) + 2 > 65) {
-      dprintf(idx, "%s\n", op_strbuf_str(&sb));
-      op_strbuf_clear(&sb);
-      op_strbuf_appendf(&sb, "         %s", q->extra);
-    } else {
-      op_strbuf_appendf(&sb, ", %s", q->extra);
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++) {
+      char *q = (char *)op_vec_get(v, _i);
+
+      if (op_strbuf_len(&sb) <= 9) {
+        op_strbuf_append_cstr(&sb, q);
+      } else if (op_strbuf_len(&sb) + strlen(q) + 2 > 65) {
+        dprintf(idx, "%s\n", op_strbuf_str(&sb));
+        op_strbuf_clear(&sb);
+        op_strbuf_appendf(&sb, "         %s", q);
+      } else {
+        op_strbuf_appendf(&sb, ", %s", q);
+      }
     }
   }
   if (!op_strbuf_empty(&sb))
@@ -1252,68 +1324,71 @@ static void hosts_display(int idx, struct user_entry *e)
 
 static int hosts_set(struct userrec *u, struct user_entry *e, void *buf)
 {
-  if (!buf || !strcasecmp(buf, "none")) {
+  if (!buf || !op_strcasecmp(buf, "none")) {
     /* When the bot crashes, it's in this part, not in the 'else' part */
-    list_type_kill(e->u.list);
-    e->u.list = nullptr;
+    op_vec_t *v = (op_vec_t *)e->u.extra;
+
+    if (v) {
+      for (size_t _i = 0; _i < v->size; _i++)
+        op_free(op_vec_get(v, _i));
+      op_vec_fini(v, nullptr, nullptr);
+      op_bh_free(xtra_vec_bh, v);
+      e->u.extra = nullptr;
+    }
   } else {
     char *host = buf, *p = strchr(host, ',');
-    struct list_type **t;
+    op_vec_t *v;
 
     /* Can't have ,'s in hostmasks */
     while (p) {
       *p = '?';
       p = strchr(host, ',');
     }
+    v = (op_vec_t *)e->u.extra;
+    if (!v) {
+      if (!xtra_vec_bh) xtra_vec_bh = op_bh_create(sizeof(op_vec_t), 32, "xtra_vec");
+      v = (op_vec_t *)op_bh_alloc(xtra_vec_bh);
+      e->u.extra = v;
+    }
     /* fred1: check for redundant hostmasks with
      * controversial "superpenis" algorithm ;) */
     /* I'm surprised Raistlin hasn't gotten involved in this controversy */
-    t = &(e->u.list);
-    while (*t) {
-      if (cmp_usermasks(host, (*t)->extra)) {
-        struct list_type *lt;
+    for (size_t _i = v->size; _i-- > 0; ) {
+      char *existing = (char *)op_vec_get(v, _i);
 
-        lt = *t;
-        *t = (*t)->next;
-        if (lt->extra)
-          op_free(lt->extra);
-        free_list_type(lt);
-      } else
-        t = &((*t)->next);
+      if (cmp_usermasks(host, existing)) {
+        op_free(existing);
+        op_vec_remove(v, _i);
+      }
     }
-    *t = alloc_list_type();
-
-    (*t)->next = nullptr;
-    {
-      size_t hostlen = strlen(host) + 1;
-      (*t)->extra = user_malloc(hostlen);
-      strlcpy((*t)->extra, host, hostlen);
-    }
+    op_vec_push(v, op_strdup(host));
   }
   return 1;
 }
 
-static int hosts_tcl_get(Tcl_Interp * irp, struct userrec *u,
+static int hosts_tcl_get(Tcl_Interp *irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-  struct list_type *x;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
   BADARGS(3, 3, " handle HOSTS");
 
-  for (x = e->u.list; x; x = x->next)
-    Tcl_AppendElement(irp, x->extra);
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      Tcl_AppendElement(irp, (char *)op_vec_get(v, _i));
   return TCL_OK;
 }
 
 static int hosts_tcl_append(Tcl_Interp *irp, struct userrec *u,
                             struct user_entry *e)
 {
+  op_vec_t *v = (op_vec_t *)e->u.extra;
   Tcl_DString ds;
-  struct list_type *x;
 
   Tcl_DStringInit(&ds);
-  for (x = e->u.list; x; x = x->next)
-    Tcl_DStringAppendElement(&ds, x->extra);
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      Tcl_DStringAppendElement(&ds, (char *)op_vec_get(v, _i));
   Tcl_AppendElement(irp, Tcl_DStringValue(&ds));
   Tcl_DStringFree(&ds);
   return TCL_OK;
@@ -1339,10 +1414,9 @@ static int hosts_gotshare(struct userrec *u, struct user_entry *e,
 }
 
 struct user_entry_type USERENTRY_HOSTS = {
-  0,
   hosts_gotshare,
   hosts_dupuser,
-  hosts_null,
+  hosts_unpack,
   hosts_null,
   hosts_write_userfile,
   hosts_kill,
@@ -1400,7 +1474,6 @@ static int fprint_tcl_set(Tcl_Interp * irp, struct userrec *u,
 }
 
 struct user_entry_type USERENTRY_FPRINT = {
-  0,
   def_gotshare,
   def_dupuser,
   fprint_unpack,
@@ -1420,20 +1493,24 @@ struct user_entry_type USERENTRY_FPRINT = {
 
 static void account_display(int idx, struct user_entry *e)
 {
+  op_vec_t *v = (op_vec_t *)e->u.extra;
   op_strbuf_t sb = {};
-  struct list_type *q;
 
   op_strbuf_init(&sb);
   op_strbuf_append_cstr(&sb, "  ACCOUNTS: ");
-  for (q = e->u.list; q; q = q->next) {
-    if (op_strbuf_len(&sb) <= 12) {
-      op_strbuf_append_cstr(&sb, q->extra);
-    } else if (op_strbuf_len(&sb) + strlen(q->extra) + 2 > 65) {
-      dprintf(idx, "%s\n", op_strbuf_str(&sb));
-      op_strbuf_clear(&sb);
-      op_strbuf_appendf(&sb, "         %s", q->extra);
-    } else {
-      op_strbuf_appendf(&sb, ", %s", q->extra);
+  if (v) {
+    for (size_t _i = 0; _i < v->size; _i++) {
+      char *q = (char *)op_vec_get(v, _i);
+
+      if (op_strbuf_len(&sb) <= 12) {
+        op_strbuf_append_cstr(&sb, q);
+      } else if (op_strbuf_len(&sb) + strlen(q) + 2 > 65) {
+        dprintf(idx, "%s\n", op_strbuf_str(&sb));
+        op_strbuf_clear(&sb);
+        op_strbuf_appendf(&sb, "         %s", q);
+      } else {
+        op_strbuf_appendf(&sb, ", %s", q);
+      }
     }
   }
   if (!op_strbuf_empty(&sb))
@@ -1448,13 +1525,20 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
    * the addaccount_by_handle / delaccount_by_handle public API and direct
    * set_user(&USERENTRY_ACCOUNT, ...) calls from share.mod and dupuser. */
   user_account_dict_invalidate();
-  if (!buf || !strcasecmp(buf, "none")) {
+  if (!buf || !op_strcasecmp(buf, "none")) {
     /* When the bot crashes, it's in this part, not in the 'else' part */
-    list_type_kill(e->u.list);
-    e->u.list = nullptr;
+    op_vec_t *v = (op_vec_t *)e->u.extra;
+
+    if (v) {
+      for (size_t _i = 0; _i < v->size; _i++)
+        op_free(op_vec_get(v, _i));
+      op_vec_fini(v, nullptr, nullptr);
+      op_bh_free(xtra_vec_bh, v);
+      e->u.extra = nullptr;
+    }
   } else {
     char *acct = buf, *p = strchr(acct, ',');
-    struct list_type **t;
+    op_vec_t *v;
 
     /* Can't have ,'s in accts */
     while (p) {
@@ -1462,27 +1546,21 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
       p = strchr(acct, ',');
     }
     /* check for redundant accts */
-    t = &(e->u.list);
-    while (*t) {
-      if (!strcasecmp(acct, (*t)->extra)) {
-        struct list_type *lt;
-
-        lt = *t;
-        *t = (*t)->next;
-        if (lt->extra)
-          op_free(lt->extra);
-        free_list_type(lt);
-      } else
-        t = &((*t)->next);
+    v = (op_vec_t *)e->u.extra;
+    if (!v) {
+      if (!xtra_vec_bh) xtra_vec_bh = op_bh_create(sizeof(op_vec_t), 32, "xtra_vec");
+      v = (op_vec_t *)op_bh_alloc(xtra_vec_bh);
+      e->u.extra = v;
     }
-    *t = alloc_list_type();
+    for (size_t _i = v->size; _i-- > 0; ) {
+      char *existing = (char *)op_vec_get(v, _i);
 
-    (*t)->next = nullptr;
-    {
-      size_t acctlen = strlen(acct) + 1;
-      (*t)->extra = user_malloc(acctlen);
-      strlcpy((*t)->extra, acct, acctlen);
+      if (!op_strcasecmp(acct, existing)) {
+        op_free(existing);
+        op_vec_remove(v, _i);
+      }
     }
+    op_vec_push(v, op_strdup(acct));
   }
   return 1;
 }
@@ -1490,33 +1568,36 @@ static int account_set(struct userrec *u, struct user_entry *e, void *buf)
 static int account_write_userfile(FILE *f, struct userrec *u,
                                 struct user_entry *e)
 {
-  struct list_type *h;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (h = e->u.extra; h; h = h->next)
-    if (fprintf(f, "--ACCOUNT %s\n", h->extra) == EOF)
-      return 0;
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      if (fprintf(f, "--ACCOUNT %s\n", (char *)op_vec_get(v, _i)) == EOF)
+        return 0;
   return 1;
 }
 
 static int account_dupuser(struct userrec *new, struct userrec *old,
                          struct user_entry *e)
 {
-  struct list_type *h;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
-  for (h = e->u.extra; h; h = h->next)
-    set_user(&USERENTRY_ACCOUNT, new, h->extra);
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      set_user(&USERENTRY_ACCOUNT, new, op_vec_get(v, _i));
   return 1;
 }
 
-static int account_tcl_get(Tcl_Interp * irp, struct userrec *u,
+static int account_tcl_get(Tcl_Interp *irp, struct userrec *u,
                          struct user_entry *e, int argc, char **argv)
 {
-  struct list_type *x;
+  op_vec_t *v = (op_vec_t *)e->u.extra;
 
   BADARGS(3, 3, " handle ACCOUNT");
 
-  for (x = e->u.list; x; x = x->next)
-    Tcl_AppendElement(irp, x->extra);
+  if (v)
+    for (size_t _i = 0; _i < v->size; _i++)
+      Tcl_AppendElement(irp, (char *)op_vec_get(v, _i));
   return TCL_OK;
 }
 
@@ -1538,10 +1619,9 @@ static int account_tcl_set(Tcl_Interp * irp, struct userrec *u,
 }
 
 struct user_entry_type USERENTRY_ACCOUNT = {
-  0,
   def_gotshare,
   account_dupuser,
-  hosts_null,
+  hosts_unpack,
   hosts_null,
   account_write_userfile,
   hosts_kill,
@@ -1586,7 +1666,7 @@ int add_entry_type(struct user_entry_type *type)
 {
   struct userrec *u;
 
-  list_insert(&entry_type_list, type);
+  op_vec_push(&entry_type_vec, type);
   for (u = userlist; u; u = u->next) {
     struct user_entry *e = find_user_entry(type, u);
 
@@ -1614,16 +1694,21 @@ int del_entry_type(struct user_entry_type *type)
       e->type = nullptr;
     }
   }
-  return egg_list_delete((struct list_type **) &entry_type_list,
-                     (struct list_type *) type);
+  for (size_t _i = 0; _i < entry_type_vec.size; _i++) {
+    if (op_vec_get(&entry_type_vec, _i) == type) {
+      op_vec_remove(&entry_type_vec, _i);
+      return 1;
+    }
+  }
+  return 0;
 }
 
 struct user_entry_type *find_entry_type(char *name)
 {
-  struct user_entry_type *p;
-
-  for (p = entry_type_list; p; p = p->next) {
-    if (!strcasecmp(name, p->name))
+  for (size_t _i = 0; _i < entry_type_vec.size; _i++) {
+    struct user_entry_type *p =
+      (struct user_entry_type *)op_vec_get(&entry_type_vec, _i);
+    if (!op_strcasecmp(name, p->name))
       return p;
   }
   return nullptr;
@@ -1635,7 +1720,7 @@ struct user_entry *find_user_entry(struct user_entry_type *et,
   struct user_entry **e, *t;
 
   for (e = &(u->entries); *e; e = &((*e)->next)) {
-    if (((*e)->type == et) || !strcasecmp((*e)->type->name, et->name)) {
+    if (((*e)->type == et) || !op_strcasecmp((*e)->type->name, et->name)) {
       t = *e;
       *e = t->next;
       t->next = u->entries;

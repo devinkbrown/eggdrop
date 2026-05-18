@@ -81,7 +81,6 @@ void userrec_heaps_destroy(void)
 struct userrec *alloc_userrec(void)
 {
   struct userrec *u = op_bh_alloc(userrec_heap);
-  memset(u, 0, sizeof *u);
   return u;
 }
 
@@ -93,7 +92,6 @@ void free_userrec(struct userrec *u)
 struct chanuserrec *alloc_chanuserrec(void)
 {
   struct chanuserrec *cr = op_bh_alloc(chanuserrec_heap);
-  memset(cr, 0, sizeof *cr);
   return cr;
 }
 
@@ -105,7 +103,6 @@ void free_chanuserrec(struct chanuserrec *cr)
 struct user_entry *alloc_user_entry(void)
 {
   struct user_entry *ue = op_bh_alloc(user_entry_heap);
-  memset(ue, 0, sizeof *ue);
   return ue;
 }
 
@@ -117,7 +114,6 @@ void free_user_entry(struct user_entry *ue)
 struct list_type *alloc_list_type(void)
 {
   struct list_type *lt = op_bh_alloc(list_type_heap);
-  memset(lt, 0, sizeof *lt);
   return lt;
 }
 
@@ -129,7 +125,6 @@ void free_list_type(struct list_type *lt)
 struct xtra_key *alloc_xtra_key(void)
 {
   struct xtra_key *xk = op_bh_alloc(xtra_key_heap);
-  memset(xk, 0, sizeof *xk);
   return xk;
 }
 
@@ -141,7 +136,6 @@ void free_xtra_key(struct xtra_key *xk)
 struct laston_info *alloc_laston_info(void)
 {
   struct laston_info *li = op_bh_alloc(laston_info_heap);
-  memset(li, 0, sizeof *li);
   return li;
 }
 
@@ -153,7 +147,6 @@ void free_laston_info(struct laston_info *li)
 struct igrec *alloc_igrec(void)
 {
   struct igrec *ig = op_bh_alloc(igrec_heap);
-  memset(ig, 0, sizeof *ig);
   return ig;
 }
 
@@ -165,7 +158,6 @@ void free_igrec(struct igrec *ig)
 maskrec *alloc_maskrec(void)
 {
   maskrec *m = op_bh_alloc(maskrec_heap);
-  memset(m, 0, sizeof *m);
   return m;
 }
 
@@ -308,7 +300,7 @@ int count_users(struct userrec *bu)
 static struct userrec *check_dcclist_hand(char *handle)
 {
   for (int i = 0; i < dcc_total; i++)
-    if (!strcasecmp(dcc[i].nick, handle))
+    if (!op_strcasecmp(dcc[i].nick, handle))
       return dcc[i].user;
   return nullptr;
 }
@@ -368,7 +360,7 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
     return nullptr;
   if (bu == userlist) {
     /* L1: last-accessed record */
-    if (lastuser && !strcasecmp(lastuser->handle, handle)) {
+    if (lastuser && !op_strcasecmp(lastuser->handle, handle)) {
       cache_hit++;
       return lastuser;
     }
@@ -390,7 +382,7 @@ struct userrec *get_user_by_handle(struct userrec *bu, char *handle)
     }
   }
   for (u = bu; u; u = u->next)
-    if (!strcasecmp(u->handle, handle)) {
+    if (!op_strcasecmp(u->handle, handle)) {
       if (bu == userlist)
         lastuser = u;
       return u;
@@ -480,7 +472,7 @@ void correct_handle(char *handle)
   u = get_user_by_handle(userlist, handle);
   if (u == nullptr || handle == u->handle)
     return;
-  strlcpy(handle, u->handle, sizeof(handle));
+  op_strlcpy(handle, u->handle, sizeof(handle));
 }
 
 /* This will be useful in a lot of places, much more code re-use so we
@@ -557,7 +549,7 @@ struct userrec *get_user_by_host(const char *host)
 
   if (host == nullptr)
     return nullptr;
-  strlcpy(host2, host, sizeof host2);
+  op_strlcpy(host2, host, sizeof host2);
   rmspace(host2);
   if (!host2[0])
     return nullptr;
@@ -766,7 +758,7 @@ static int sort_compare(struct userrec *a, struct userrec *b)
     if (a->flags & ~b->flags & USER_HALFOP)
       return 0;
   }
-  return (strcasecmp(a->handle, b->handle) > 0);
+  return (op_strcasecmp(a->handle, b->handle) > 0);
 }
 
 static void sort_userlist(void)
@@ -826,12 +818,12 @@ void write_userfile(int idx)
   fprintf(f, "#4v: %s -- %s -- written %s", ver, botnetnick, s);
   ok = 1;
   for (u = userlist; u && ok; u = u->next)
-    if (strcasecmp(u->handle, EGG_BG_HANDLE) && !write_user(u, f, idx))
+    if (op_strcasecmp(u->handle, EGG_BG_HANDLE) && !write_user(u, f, idx))
       ok = 0;
   if (!ok || !write_ignores(f, -1) || fflush(f)) {
     putlog(LOG_MISC, "*", "%s", USERF_ERRWRITE);
     fclose(f);
-    free(buf);
+    op_free(buf);
     return;
   }
   fclose(f);
@@ -864,7 +856,7 @@ int change_handle(struct userrec *u, char *newh)
   if (!u)
     return 0;
   /* Don't allow the -t handle to be changed */
-  if (!strcasecmp(u->handle, EGG_BG_HANDLE))
+  if (!op_strcasecmp(u->handle, EGG_BG_HANDLE))
     return 0;
   /* Nothing that will confuse the userfile */
   if (!newh[1] && strchr(BADHANDCHARS, newh[0]))
@@ -873,8 +865,8 @@ int change_handle(struct userrec *u, char *newh)
   /* Yes, even send bot nick changes now: */
   if (!noshare && !(u->flags & USER_UNSHARED))
     shareout(nullptr, "h %s %s\n", u->handle, newh);
-  strlcpy(s, u->handle, sizeof s);
-  strlcpy(u->handle, newh, sizeof u->handle);
+  op_strlcpy(s, u->handle, sizeof s);
+  op_strlcpy(u->handle, newh, sizeof u->handle);
   u->dirty = 1;  /* Mark as dirty when handle changes */
   if (user_handle_dict) {
     op_htab_del(user_handle_dict,s);
@@ -882,8 +874,8 @@ int change_handle(struct userrec *u, char *newh)
   }
   for (int i = 0; i < dcc_total; i++)
     if ((dcc[i].type == &DCC_CHAT || dcc[i].type == &DCC_CHAT_PASS) &&
-        !strcasecmp(dcc[i].nick, s)) {
-      strlcpy(dcc[i].nick, newh, sizeof dcc[i].nick);
+        !op_strcasecmp(dcc[i].nick, s)) {
+      op_strlcpy(dcc[i].nick, newh, sizeof dcc[i].nick);
       if (dcc[i].type == &DCC_CHAT && dcc[i].u.chat->channel >= 0) {
         chanout_but(-1, dcc[i].u.chat->channel,
                     "*** Handle change: %s -> %s\n", s, newh);
@@ -908,7 +900,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
   u = alloc_userrec();
 
   /* u->next=bu; bu=u; */
-  strlcpy(u->handle, handle, sizeof u->handle);
+  op_strlcpy(u->handle, handle, sizeof u->handle);
   u->next = nullptr;
   u->chanrec = nullptr;
   u->entries = nullptr;
@@ -924,7 +916,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
   if (!noxtra) {
     xk = alloc_xtra_key();
     xk->key = op_malloc(8);
-    strlcpy(xk->key, "created", sizeof(xk->key));
+    op_strlcpy(xk->key, "created", sizeof(xk->key));
     {
       op_strbuf_t ts = {};
       op_strbuf_init(&ts);
@@ -938,7 +930,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
   if (host && host[0]) {
     char *p;
 
-    strlcpy(hostcopy, host, sizeof hostcopy);
+    op_strlcpy(hostcopy, host, sizeof hostcopy);
     p = strchr(hostcopy, ',');
     while (p != nullptr) {
       *p = '?';
@@ -1022,7 +1014,7 @@ int deluser(char *handle)
   int fnd = 0;
 
   while ((u != nullptr) && (!fnd)) {
-    if (!strcasecmp(u->handle, handle))
+    if (!op_strcasecmp(u->handle, handle))
       fnd = 1;
     else {
       prev = u;

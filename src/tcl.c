@@ -71,7 +71,7 @@ extern char tls_capath[], tls_cafile[], tls_certfile[], tls_keyfile[],
 #endif
 
 extern struct dcc_t *dcc;
-extern tcl_timer_t *timer, *utimer;
+extern op_vec_t timer, utimer;
 extern char store_backend[], store_path[];
 
 #ifdef HAVE_TCL
@@ -268,7 +268,7 @@ static const LocaleTable localeTable[] = {
 
 static void botnet_change(char *new)
 {
-  if (strcasecmp(botnetnick, new)) {
+  if (op_strcasecmp(botnetnick, new)) {
     /* Trying to change bot's nickname */
     if (tands > 0) {
       putlog(LOG_MISC, "*", "* Tried to change my botnet nick, but I'm still "
@@ -354,7 +354,7 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
   if (flags & (TCL_TRACE_READS | TCL_TRACE_UNSETS)) {
     /* Special cases */
     if ((int *) ii->var == &conmask)
-      strlcpy(s1, masktype(conmask), sizeof s1);
+      op_strlcpy(s1, masktype(conmask), sizeof s1);
     else if ((int *) ii->var == &default_flags) {
       struct flag_record fr = { FR_GLOBAL };
       fr.global = default_flags;
@@ -365,10 +365,10 @@ static char *tcl_eggint(ClientData cdata, Tcl_Interp *irp,
       op_strbuf_t perm_buf = {};
       op_strbuf_init(&perm_buf);
       op_strbuf_appendf(&perm_buf, "0%o", userfile_perm);
-      strlcpy(s1, op_strbuf_str(&perm_buf), sizeof s1);
+      op_strlcpy(s1, op_strbuf_str(&perm_buf), sizeof s1);
       op_strbuf_free(&perm_buf);
     } else
-      strlcpy(s1, int_to_base10(*(int *) ii->var), sizeof s1);
+      op_strlcpy(s1, int_to_base10(*(int *) ii->var), sizeof s1);
     Tcl_SetVar2(interp, name1, name2, s1, TCL_GLOBAL_ONLY);
     if (flags & TCL_TRACE_UNSETS)
       Tcl_TraceVar(interp, name1,
@@ -462,14 +462,14 @@ static char *tcl_eggstr(ClientData cdata, Tcl_Interp *irp,
       else if (st->str == firewall) {
         splitc(firewall, s, ':');
         if (!firewall[0])
-          strlcpy(firewall, s, 121);
+          op_strlcpy(firewall, s, 121);
         else
           firewallport = egg_atoi(s);
       } else
-        strlcpy(st->str, s, abs(st->max) + 1);
+        op_strlcpy(st->str, s, abs(st->max) + 1);
       if ((st->flags) && (s[0])) {
         if (st->str[strlen(st->str) - 1] != '/')
-          strlcat(st->str, "/", (size_t)abs(st->max) + 1);
+          op_strlcat(st->str, "/", (size_t)abs(st->max) + 1);
       }
     }
     return nullptr;
@@ -992,7 +992,7 @@ void init_tcl0(int argc, char **argv)
 {
   Tcl_NotifierProcs notifierprocs;
 
-  egg_bzero(&notifierprocs, sizeof(notifierprocs));
+  op_memzero(&notifierprocs, sizeof(notifierprocs));
   notifierprocs.initNotifierProc = tickle_InitNotifier;
   notifierprocs.createFileHandlerProc = tickle_CreateFileHandler;
   notifierprocs.deleteFileHandlerProc = tickle_DeleteFileHandler;
@@ -1362,7 +1362,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
 {
   const char *v = Tcl_GetVar(interp, name, TCL_GLOBAL_ONLY);
   if (v && buf) {
-    strlcpy(buf, v, bufsz);
+    op_strlcpy(buf, v, bufsz);
     return buf;
   }
   return v;
@@ -1473,7 +1473,7 @@ void notcl_setvar(const char *name, const char *value)
     for (e = notcl_str_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
         if (e->length > 0 && e->buf)
-          strlcpy(e->buf, value, e->length + 1);
+          op_strlcpy(e->buf, value, e->length + 1);
         return;
       }
     }
@@ -1533,7 +1533,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
     for (e = notcl_str_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
         if (e->buf) {
-          strlcpy(buf, e->buf, bufsz);
+          op_strlcpy(buf, e->buf, bufsz);
           return buf;
         }
         return nullptr;
@@ -1546,7 +1546,7 @@ const char *notcl_getvar(const char *name, char *buf, size_t bufsz)
     for (e = notcl_int_lists[i]; e->name; e++) {
       if (!strcmp(e->name, name)) {
         if (e->val) {
-          strlcpy(buf, int_to_base10(*e->val), bufsz);
+          op_strlcpy(buf, int_to_base10(*e->val), bufsz);
           return buf;
         }
         return nullptr;

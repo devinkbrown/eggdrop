@@ -47,7 +47,6 @@ constexpr int CHAN_RESETALL     = 0xFF;
  * structure for each channel where they have a defined value.
  */
 struct udef_chans {
-  struct udef_chans *next;     /* Ptr to next value.                   */
   char *chan;                  /* Dname of channel name.               */
   intptr_t value;              /* Actual value.                        */
 };
@@ -55,14 +54,12 @@ struct udef_chans {
 /* Structure for user defined channel settings.
  */
 struct udef_struct {
-  struct udef_struct *next;    /* Ptr to next setting.                 */
   char *name;                  /* Name of setting.                     */
   int defined;                 /* Boolean that specifies whether this
                                 * flag was defined by, e.g. a Tcl
                                 * script yet.                          */
   int type;                    /* Type of setting: UDEF_FLAG, UDEF_INT */
-  struct udef_chans *values;   /* Ptr to linked list of udef channel
-                                * structures.                          */
+  op_vec_t values;             /* Per-channel values (op_vec_t of udef_chans *) */
 };
 
 static void del_chanrec(struct userrec *u, char *);
@@ -109,11 +106,11 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
                               int items, char **item);
 static int tcl_channel_add(Tcl_Interp *irp, char *, char *);
 static char *convert_element(char *src, char *dst);
-static int expmem_udef(struct udef_struct *);
-static int expmem_udef_chans (int, struct udef_chans *);
-static void free_udef(struct udef_struct *);
-static void free_udef_chans(struct udef_chans *, int);
-static intptr_t getudef(struct udef_chans *, char *);
+static int expmem_udef(const op_vec_t *);
+static int expmem_udef_chans(int, const op_vec_t *);
+static void free_udef(op_vec_t *);
+static void free_udef_chans(op_vec_t *, int);
+static intptr_t getudef(const op_vec_t *, char *);
 static void initudef(int type, char *, int);
 static void setudef(struct udef_struct *, char *, intptr_t);
 static void remove_channel(struct chanset_t *);

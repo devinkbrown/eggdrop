@@ -37,7 +37,6 @@ typedef struct {
 } devent_tclinfo_t;
 
 typedef struct devent_str {
-  struct devent_str *next;      /* Pointer to next dns_event       */
   devent_type *type;
   uint8_t lookup;               /* RES_IPBYHOST or RES_HOSTBYIP    */
   union {

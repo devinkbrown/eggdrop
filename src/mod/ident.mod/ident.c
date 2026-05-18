@@ -73,7 +73,7 @@ static void ident_activity(int idx, char *buf, int len)
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, " : USERID : UNIX : %s\r\n", botname);
-    strlcpy(pos, op_strbuf_str(&_b), (sizeof buf2) - (size_t)(pos - buf2));
+    op_strlcpy(pos, op_strbuf_str(&_b), (sizeof buf2) - (size_t)(pos - buf2));
     op_strbuf_free(&_b);
   }
   count = strlen(buf2) + 1;
@@ -145,7 +145,7 @@ static void ident_oidentd(void)
         /* If it is Eggdrop but not me, check for expiration and remove */
         if (!strstr(line, identstr)) {
           char *saveptr = nullptr;
-          strlcpy(buf, line, sizeof buf);
+          op_strlcpy(buf, line, sizeof buf);
           strtok_r(buf, "!", &saveptr);
           prevtime = egg_atoi(strtok_r(nullptr, "!", &saveptr));
           if ((now - prevtime) > 300) {
@@ -234,7 +234,7 @@ static void ident_builtin_on(void)
   }
   dcc[idx].sock = s;
   dcc[idx].port = ident_port;
-  strlcpy(dcc[idx].nick, "(ident)", sizeof(dcc[idx].nick));
+  op_strlcpy(dcc[idx].nick, "(ident)", sizeof(dcc[idx].nick));
   add_builtins(H_raw, ident_raw);
 }
 

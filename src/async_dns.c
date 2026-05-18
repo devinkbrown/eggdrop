@@ -30,6 +30,8 @@ typedef struct {
   int        ok;
 } dns_hip_ctx_t;
 
+static op_bh *dns_hip_bh = nullptr;
+
 static void dns_hip_work(void *arg)
 {
   dns_hip_ctx_t *c = arg;
@@ -59,7 +61,7 @@ static void dns_hip_work(void *arg)
     }
 #endif
   } else {
-    strlcpy(c->host, "unknown", sizeof c->host);
+    op_strlcpy(c->host, "unknown", sizeof c->host);
   }
 }
 
@@ -67,7 +69,7 @@ static void dns_hip_done(void *arg)
 {
   dns_hip_ctx_t *c = arg;
   call_hostbyip(&c->addr, c->host, c->ok);
-  op_free(c);
+  op_bh_free(dns_hip_bh, c);
 }
 
 void async_dns_hostbyip(sockname_t *addr)
@@ -77,7 +79,8 @@ void async_dns_hostbyip(sockname_t *addr)
     return;
   }
 
-  dns_hip_ctx_t *c = op_malloc(sizeof(*c));
+  if (!dns_hip_bh) dns_hip_bh = op_bh_create(sizeof(dns_hip_ctx_t), 16, "dns_hip_ctx");
+  dns_hip_ctx_t *c = (dns_hip_ctx_t *)op_bh_alloc(dns_hip_bh);
   memcpy(&c->addr, addr, sizeof(sockname_t));
   op_async_submit(dns_hip_work, dns_hip_done, c);
 }
@@ -89,6 +92,8 @@ typedef struct {
   sockname_t name;
   int        ok;
 } dns_ibh_ctx_t;
+
+static op_bh *dns_ibh_bh = nullptr;
 
 static void dns_ibh_work(void *arg)
 {
@@ -121,7 +126,7 @@ static void dns_ibh_done(void *arg)
 {
   dns_ibh_ctx_t *c = arg;
   call_ipbyhost(c->host, &c->name, c->ok);
-  op_free(c);
+  op_bh_free(dns_ibh_bh, c);
 }
 
 void async_dns_ipbyhost(char *host)
@@ -131,7 +136,8 @@ void async_dns_ipbyhost(char *host)
     return;
   }
 
-  dns_ibh_ctx_t *c = op_malloc(sizeof(*c));
-  strlcpy(c->host, host, sizeof c->host);
+  if (!dns_ibh_bh) dns_ibh_bh = op_bh_create(sizeof(dns_ibh_ctx_t), 16, "dns_ibh_ctx");
+  dns_ibh_ctx_t *c = (dns_ibh_ctx_t *)op_bh_alloc(dns_ibh_bh);
+  op_strlcpy(c->host, host, sizeof c->host);
   op_async_submit(dns_ibh_work, dns_ibh_done, c);
 }

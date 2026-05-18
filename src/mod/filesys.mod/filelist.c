@@ -71,7 +71,7 @@ static void filelist_addout(filelist_t *flist, char *desc)
   } else {
     size_t desc_sz = strlen(desc) + 1;
     FILELIST_LE(flist).output = op_malloc(desc_sz);
-    strlcpy(FILELIST_LE(flist).output, desc, desc_sz);
+    op_strlcpy(FILELIST_LE(flist).output, desc, desc_sz);
   }
 }
 

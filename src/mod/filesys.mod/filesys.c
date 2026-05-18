@@ -106,7 +106,6 @@ static struct dcc_table DCC_FILES = {
 };
 
 static struct user_entry_type USERENTRY_DCCDIR = {
-  nullptr,                         /* always nullptr ;) */
   nullptr,
   nullptr,
   nullptr,
@@ -210,7 +209,7 @@ static int got_files_cmd(int idx, char *msg)
   if (!filt[0])
     return 1;
   if (filt != msg)
-    strlcpy(msg, filt, sizeof(msg));
+    op_strlcpy(msg, filt, sizeof(msg));
   if (msg[0] == '.')
     msg++;
   code = newsplit(&msg);
@@ -229,7 +228,7 @@ static void dcc_files(int idx, char *buf, int i)
   if (!filt[0])
     return;
   if (filt != buf)
-    strlcpy(buf, filt, sizeof(buf));
+    op_strlcpy(buf, filt, sizeof(buf));
   touch_laston(dcc[idx].user, "filearea", now);
   if (buf[0] == ',') {
     for (i = 0; i < dcc_total; i++) {
@@ -411,7 +410,7 @@ static int _dcc_send(int idx, char *filename, char *nick, int resend)
       *p = '_';
   }
 
-  if (strcasecmp(nick, dcc[idx].nick))
+  if (op_strcasecmp(nick, dcc[idx].nick))
     dprintf(DP_HELP, "NOTICE %s :Here is %s file from %s %s...\n", nick,
             resend ? "the" : "a", dcc[idx].nick, resend ? "again " : "");
   dprintf(idx, "%sending: %s to %s\n", resend ? "Res" : "S", nfn, nick);
@@ -672,11 +671,11 @@ static void filesys_dcc_send(char *nick, char *from, struct userrec *u,
       dcc[i].ssl = ssl;
 #endif
       dcc[i].user = u;
-      strlcpy(dcc[i].nick, nick, sizeof dcc[i].nick);
-      strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
+      op_strlcpy(dcc[i].nick, nick, sizeof dcc[i].nick);
+      op_strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
       size_t _len = strlen(param) + 1;
       dcc[i].u.dns->cbuf = get_data_ptr(_len);
-      strlcpy(dcc[i].u.dns->cbuf, param, _len);
+      op_strlcpy(dcc[i].u.dns->cbuf, param, _len);
       dcc[i].u.dns->ibuf = egg_atoi(msg);
       dcc[i].u.dns->dns_type = RES_HOSTBYIP;
       dcc[i].u.dns->dns_success = filesys_dcc_send_hostresolved;
@@ -708,7 +707,7 @@ static char *mktempfile(char *filename)
     fn[NAME_MAX - MKTEMPFILE_TOT] = 0;
     l = NAME_MAX - MKTEMPFILE_TOT;
     fn = op_malloc(l + 1);
-    strlcpy(fn, filename, l + 1);
+    op_strlcpy(fn, filename, l + 1);
   }
   {
     op_strbuf_t _b = {};
@@ -726,16 +725,13 @@ static void filesys_dcc_send_hostresolved(int i)
   char *s1, *param, *tempf;
   int len = dcc[i].u.dns->ibuf, j;
 
-  op_strbuf_t _prt = {};
-  op_strbuf_init(&_prt);
-  op_strbuf_appendf(&_prt, "%s", int_to_base10(dcc[i].port));
+  char prt[12];
+  op_strlcpy(prt, int_to_base10(dcc[i].port), sizeof prt);
   if (!hostsanitycheck_dcc(dcc[i].nick, dcc[i].u.dns->host, &dcc[i].sockname,
-                           dcc[i].u.dns->host, (char *)op_strbuf_str(&_prt))) {
+                           dcc[i].u.dns->host, prt)) {
     lostdcc(i);
-    op_strbuf_free(&_prt);
     return;
   }
-  op_strbuf_free(&_prt);
   param = op_strdup(dcc[i].u.dns->cbuf);
 
   changeover_dcc(i, &DCC_FORK_SEND, sizeof(struct xfer_info));
@@ -744,11 +740,11 @@ static void filesys_dcc_send_hostresolved(int i)
   /* Save the original filename */
   size_t _len1 = strlen(param) + 1;
   dcc[i].u.xfer->origname = get_data_ptr(_len1);
-  strlcpy(dcc[i].u.xfer->origname, param, _len1);
+  op_strlcpy(dcc[i].u.xfer->origname, param, _len1);
   tempf = mktempfile(param);
   size_t _len2 = strlen(tempf) + 1;
   dcc[i].u.xfer->filename = get_data_ptr(_len2);
-  strlcpy(dcc[i].u.xfer->filename, tempf, _len2);
+  op_strlcpy(dcc[i].u.xfer->filename, tempf, _len2);
   /* We don't need the temporary buffers anymore */
   my_free(tempf);
   my_free(param);
@@ -760,12 +756,12 @@ static void filesys_dcc_send_hostresolved(int i)
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s%s/", dccdir, p);
-      strlcpy(dcc[i].u.xfer->dir, op_strbuf_str(&_b), sizeof(dcc[i].u.xfer->dir));
+      op_strlcpy(dcc[i].u.xfer->dir, op_strbuf_str(&_b), sizeof(dcc[i].u.xfer->dir));
       op_strbuf_free(&_b);
     } else
-      strlcpy(dcc[i].u.xfer->dir, dccdir, sizeof(dcc[i].u.xfer->dir));
+      op_strlcpy(dcc[i].u.xfer->dir, dccdir, sizeof(dcc[i].u.xfer->dir));
   } else
-    strlcpy(dcc[i].u.xfer->dir, dccin, sizeof(dcc[i].u.xfer->dir));
+    op_strlcpy(dcc[i].u.xfer->dir, dccin, sizeof(dcc[i].u.xfer->dir));
   dcc[i].u.xfer->length = len;
   {
     op_strbuf_t _b = {};
@@ -826,9 +822,9 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
   struct userrec *u = get_user_by_handle(userlist, handle);
   struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
 
-  if (strcasecmp(object, botname))
+  if (op_strcasecmp(object, botname))
     return 0;
-  if (!strncasecmp(text, "SEND ", 5)) {
+  if (!op_strncasecmp(text, "SEND ", 5)) {
 #ifdef TLS
     filesys_dcc_send(nick, from, u, text + 5, 0);
 #else
@@ -837,14 +833,14 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
     return 1;
   }
 #ifdef TLS
-  if (!strncasecmp(text, "SSEND ", 5)) {
+  if (!op_strncasecmp(text, "SSEND ", 5)) {
     filesys_dcc_send(nick, from, u, text + 5, 1);
     return 1;
   }
 #endif
-  if (strncasecmp(text, "CHAT ", 5) || !u)
+  if (op_strncasecmp(text, "CHAT ", 5) || !u)
     return 0;
-  strlcpy(buf, text + 5, sizeof buf);
+  op_strlcpy(buf, text + 5, sizeof buf);
   get_user_flagrec(u, &fr, 0);
   param = newsplit(&msg);
   if (dcc_total == max_dcc && increase_socks_max()) {
@@ -882,12 +878,12 @@ static int filesys_DCC_CHAT(char *nick, char *from, char *handle,
              from);
       putlog(LOG_MISC, "*", "    (%s)", strerror(errno));
     } else {
-      strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
-      strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
+      op_strlcpy(dcc[i].nick, u->handle, sizeof(dcc[i].nick));
+      op_strlcpy(dcc[i].host, from, sizeof(dcc[i].host));
       dcc[i].status = STAT_ECHO;
       dcc[i].timeval = now;
       dcc[i].u.file->chat = get_data_ptr(sizeof(struct chat_info));
-      strlcpy(dcc[i].u.file->chat->con_chan, "*", sizeof(dcc[i].u.file->chat->con_chan));
+      op_strlcpy(dcc[i].u.file->chat->con_chan, "*", sizeof(dcc[i].u.file->chat->con_chan));
       dcc[i].user = u;
       putlog(LOG_MISC, "*", "DCC connection: CHAT(file) (%s!%s)", nick, from);
       dprintf(i, "%s\n", DCC_ENTERPASS);

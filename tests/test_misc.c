@@ -12,8 +12,6 @@
 
 /* --- Extracted from src/chanprog.c --- */
 
-#define egg_isspace(x) isspace((int)(unsigned char)(x))
-
 static void rmspace(char *s)
 {
   char *p = nullptr, *q = nullptr;
@@ -21,10 +19,10 @@ static void rmspace(char *s)
   if (!s || !*s)
     return;
 
-  for (q = s + strlen(s) - 1; q >= s && egg_isspace(*q); q--);
+  for (q = s + strlen(s) - 1; q >= s && isspace((unsigned char)(*q)); q--);
   *(q + 1) = 0;
 
-  for (p = s; egg_isspace(*p); p++);
+  for (p = s; isspace((unsigned char)(*p)); p++);
 
   if (p != s)
     memmove(s, p, (size_t)(q - p + 2));

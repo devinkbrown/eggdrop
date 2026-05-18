@@ -28,10 +28,11 @@ char *encode_msgtags(Tcl_Obj *msgtagdict);
 static const char *encode_msgtag(const char *key, const char *value);
 static int del_capabilities(char *);
 static int del_capability(char *name);
+static void free_capability(struct capability *z);
 static time_t last_ctcp = (time_t) 0L;
 static int multistatus = 0, count_ctcp = 0;
 static char altnick_char = 0;
-struct capability *cap;
+op_vec_t cap_vec;
 struct capability *find_capability(char *capname);
 static op_bh *capability_bh  = nullptr;
 static op_bh *cap_values_bh  = nullptr;
@@ -47,7 +48,7 @@ int account_notify = 1, extended_join = 1, account_tag = 0;
 static char current_msgtag_account[NICKMAX + 1];
 
 extern int sasl;
-extern int sasl_authenticate_initial(const struct cap_values *);
+extern int sasl_authenticate_initial(const op_vec_t *);
 /* UTF-8 helpers from misc.c (core) */
 extern int utf8_sanitize(char *);
 extern size_t utf8_strlen(const char *);
@@ -77,7 +78,7 @@ static int gotfake433(char *from)
 
     if (alt[0] && (rfc_casecmp(alt, botname)))
       /* Alternate nickname defined. Let's try that first. */
-      strlcpy(botname, alt, sizeof(botname));
+      op_strlcpy(botname, alt, sizeof(botname));
     else {
       /* Fall back to appending count char. nick_len is server-reported max
        * length; modern servers that support Unicode nicks count codepoints,
@@ -150,7 +151,7 @@ static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
   if (arg[0])
     op_strbuf_appendf(&args, "%s %s", cmd, arg);
   else
-    op_strbuf_appendf(&args, "%s", cmd);
+    op_strbuf_append_cstr(&args, cmd);
   get_user_flagrec(u, &fr, nullptr);
   Tcl_SetVar(interp, "_msgm1", nick, 0);
   Tcl_SetVar(interp, "_msgm2", uhost, 0);
@@ -369,30 +370,28 @@ static int got001(char *from, char *msg)
 {
   char *key;
   struct chanset_t *chan;
-  struct server_list *x = serverlist;
 
-  /* serverlist can be nullptr during rapid reconnects or if the server list is
-   * cleared while a connection is in progress.  Guard defensively: walk only
-   * when the list is present and bail out below if we cannot find curserv. */
-  if (x) {
-    for (int i = curserv; i > 0 && x; i--)
-      x = x->next;
-    if (!x) {
-      putlog(LOG_MISC, "*", "Invalid server list (curserv=%d)!", curserv);
-    } else {
-      if (x->realname)
-        op_free(x->realname);
-      x->realname = op_strdup(from);
-    }
+  if (!serverlist_vec.size) {
+    putlog(LOG_MISC, "*", "No server list when receiving 001!");
+    return 0;
+  }
+  if (curserv < 0 || (size_t)curserv >= serverlist_vec.size) {
+    putlog(LOG_MISC, "*", "Invalid server list (curserv=%d)!", curserv);
+    return 0;
+  }
+  {
+    struct server_list *x = (struct server_list *)op_vec_get(&serverlist_vec, (size_t)curserv);
+    if (x->realname)
+      op_free(x->realname);
+    x->realname = op_strdup(from);
     if (realservername)
       op_free(realservername);
     realservername = op_strdup(from);
-  } else
-    putlog(LOG_MISC, "*", "No server list when receiving 001!");
+  }
 
   server_online = now;
   fixcolon(msg);
-  strlcpy(botname, msg, NICKLEN);
+  op_strlcpy(botname, msg, NICKLEN);
   altnick_char = 0;
   if (net_type_int != NETT_TWITCH)      /* Twitch doesn't do WHOIS */
     dprintf(DP_SERVER, "WHOIS %s\n", botname); /* get user@host */
@@ -412,9 +411,6 @@ static int got001(char *from, char *msg)
     if (botcap && botcap->enabled)
       dprintf(DP_MODE, "MODE %s +B\n", botname);
   }
-
-  if (!x)
-    return 0;
 
   if (module_find("irc", 0, 0)) {  /* Only join if the IRC module is loaded. */
     for (chan = chanset; chan; chan = chan->next) {
@@ -451,7 +447,7 @@ static int got442(char *from, char *msg)
   char *chname, *key;
   struct chanset_t *chan;
 
-  if (!realservername || strcasecmp(from, realservername))
+  if (!realservername || op_strcasecmp(from, realservername))
     return 0;
   newsplit(&msg);
   chname = newsplit(&msg);
@@ -535,7 +531,7 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
     return 0;
 
   /* My user@host (?) */
-  if (!strcasecmp(floodhost, botuserhost))
+  if (!op_strcasecmp(floodhost, botuserhost))
     return 0;
 
   u = lookup_user_record(nullptr, current_msgtag_account[0] ? current_msgtag_account : nullptr, from);
@@ -563,8 +559,8 @@ static int detect_flood(char *floodnick, char *floodhost, char *from, int which)
   p = strchr(floodhost, '@');
   if (p) {
     p++;
-    if (strcasecmp(lastmsghost[which], p)) {        /* New */
-      strlcpy(lastmsghost[which], p, sizeof lastmsghost[which]);
+    if (op_strcasecmp(lastmsghost[which], p)) {        /* New */
+      op_strlcpy(lastmsghost[which], p, sizeof lastmsghost[which]);
       lastmsgtime[which] = now;
       lastmsgs[which] = 0;
       return 0;
@@ -617,7 +613,7 @@ static int gotmsg(char *from, char *msg)
   ignoring = match_ignore(from);
   to = newsplit(&msg);
   fixcolon(msg);
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   /* Apparently servers can send CTCPs now too, not just nicks */
   if (nick[0] == '\0')
@@ -633,7 +629,7 @@ static int gotmsg(char *from, char *msg)
       p++;
     if (*p == 1) {
       *p = 0;
-      strlcpy(ctcpbuf, p1, sizeof(ctcpbuf));
+      op_strlcpy(ctcpbuf, p1, sizeof(ctcpbuf));
       ctcp = ctcpbuf;
 
       /* remove the ctcp in msg */
@@ -658,7 +654,7 @@ static int gotmsg(char *from, char *msg)
             u = lookup_msg_user(nick, from);
             if (!ignoring || trigger_on_ignore) {
               if (!check_tcl_ctcp(nick, uhost, u, to, code, ctcp) && !ignoring) {
-                if ((lowercase_ctcp && !strcasecmp(code, "DCC")) ||
+                if ((lowercase_ctcp && !op_strcasecmp(code, "DCC")) ||
                     (!lowercase_ctcp && !strcmp(code, "DCC"))) {
                   /* If it gets this far unhandled, it means that
                    * the user is totally unknown.
@@ -752,7 +748,7 @@ static int gotnotice(char *from, char *msg)
   ignoring = match_ignore(from);
   to = newsplit(&msg);
   fixcolon(msg);
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
 
   /* Check for CTCP: */
@@ -769,7 +765,7 @@ static int gotnotice(char *from, char *msg)
                STRINGIFY(CTCP_MAX) " bytes: Bogus server?");
         return 0;
       }
-      strlcpy(ctcpbuf, p1, sizeof ctcpbuf);
+      op_strlcpy(ctcpbuf, p1, sizeof ctcpbuf);
       ctcp = ctcpbuf;
       memmove(p1 - 1, p + 1, strlen(p + 1) + 1);
       if (!ignoring)
@@ -882,7 +878,7 @@ static void minutely_checks(void)
     if (strncmp(botname, origbotname, strlen(botname))) {
       /* See if my nickname is in use and if if my nick is right. */
       alt = get_altbotnick();
-      if (alt[0] && strcasecmp(botname, alt))
+      if (alt[0] && op_strcasecmp(botname, alt))
         dprintf(DP_SERVER, "ISON :%s %s %s\n", botname, origbotname, alt);
       else
         dprintf(DP_SERVER, "ISON :%s %s\n", botname, origbotname);
@@ -950,7 +946,7 @@ static int got432(char *from, char *msg)
   else {
     putlog(LOG_MISC, "*", "%s", IRC_BADBOTNICK);
     if (!strcmp(erroneous, origbotname)) {
-      strlcpy(nick, get_altbotnick(), sizeof nick);
+      op_strlcpy(nick, get_altbotnick(), sizeof nick);
     } else {
       make_rand_str_from_chars(nick, sizeof nick - 1, CHARSET_LOWER_ALPHA);
     }
@@ -1070,7 +1066,7 @@ static int gotnick(char *from, char *msg)
   check_queues(nick, msg);
   if (match_my_nick(nick)) {
     /* Regained nick! */
-    strlcpy(botname, msg, NICKLEN);
+    op_strlcpy(botname, msg, NICKLEN);
     altnick_char = 0;
     if (!strcmp(msg, origbotname)) {
       putlog(LOG_SERV | LOG_MISC, "*", "Regained nickname '%s'.", msg);
@@ -1084,7 +1080,7 @@ static int gotnick(char *from, char *msg)
         putlog(LOG_MISC, "*", IRC_GETORIGNICK, origbotname);
         dprintf(DP_SERVER, "NICK %s\n", origbotname);
       } else if (alt[0] && !rfc_casecmp(nick, alt) &&
-               strcasecmp(botname, origbotname)) {
+               op_strcasecmp(botname, origbotname)) {
         putlog(LOG_MISC, "*", IRC_GETALTNICK, alt);
         dprintf(DP_SERVER, "NICK %s\n", alt);
       }
@@ -1096,7 +1092,7 @@ static int gotnick(char *from, char *msg)
       putlog(LOG_MISC, "*", IRC_GETORIGNICK, origbotname);
       dprintf(DP_SERVER, "NICK %s\n", origbotname);
     } else if (alt[0] && !rfc_casecmp(nick, alt) &&
-             strcasecmp(botname, origbotname)) {
+             op_strcasecmp(botname, origbotname)) {
       putlog(LOG_MISC, "*", IRC_GETALTNICK, altnick);
       dprintf(DP_SERVER, "NICK %s\n", altnick);
     }
@@ -1138,10 +1134,9 @@ static void disconnect_server(int idx)
   if (server_online > 0) {
     check_tcl_event("disconnect-server");
   }
-  while (cap != nullptr) {
-    del_capability(cap->name);  /* also removes from cap_dict */
-  }
-  /* cap_dict is now empty; destroy the tree structure itself */
+  for (size_t i = 0; i < cap_vec.size; i++)
+    free_capability((struct capability *)op_vec_get(&cap_vec, i));
+  op_vec_clear(&cap_vec, nullptr, nullptr);
   if (cap_dict) {
     op_htab_destroy(cap_dict, nullptr, nullptr);
     cap_dict = nullptr;
@@ -1321,7 +1316,7 @@ static void server_activity(int idx, char *tagmsg, int len)
 
   Tcl_IncrRefCount(tagdict);
   if (trying_server) {
-    strlcpy(dcc[idx].nick, "(server)", sizeof(dcc[idx].nick));
+    op_strlcpy(dcc[idx].nick, "(server)", sizeof(dcc[idx].nick));
     putlog(LOG_SERV, "*", "Connected to %s", dcc[idx].host);
     trying_server = 0;
     SERVER_SOCKET.timeout_val = 0;
@@ -1329,7 +1324,7 @@ static void server_activity(int idx, char *tagmsg, int len)
   lastpingcheck = 0;
   /* Parse optional message-tags, regardless of whether they are enabled on our side */
   msgptr = tagmsg;
-  strlcpy(rawmsg, tagmsg, TOTALTAGMAX+1);
+  op_strlcpy(rawmsg, tagmsg, TOTALTAGMAX+1);
   if (*tagmsg == '@') {
     char *key, *value, *lastendptr = tagmsg;
 
@@ -1365,14 +1360,14 @@ static void server_activity(int idx, char *tagmsg, int len)
     Tcl_Obj *acctval = nullptr;
     Tcl_IncrRefCount(acctkey);
     if (Tcl_DictObjGet(interp, tagdict, acctkey, &acctval) == TCL_OK && acctval)
-      strlcpy(current_msgtag_account, Tcl_GetString(acctval), sizeof current_msgtag_account);
+      op_strlcpy(current_msgtag_account, Tcl_GetString(acctval), sizeof current_msgtag_account);
     else
       current_msgtag_account[0] = '\0';
     Tcl_DecrRefCount(acctkey);
   }
   /* Check both raw and rawt, to allow backwards compatibility with older
    * scripts. If rawt returns 1 (blocking), don't process raw binds.*/
-  strlcpy(rawmsg, Tcl_GetString(tagdict), sizeof rawmsg);
+  op_strlcpy(rawmsg, Tcl_GetString(tagdict), sizeof rawmsg);
   ret = check_tcl_rawt(from, code, msgptr, rawmsg);
   if (!ret) {
     check_tcl_raw(from, code, msgptr);
@@ -1409,7 +1404,7 @@ static int gotkick(char *from, char *msg)
 static int whoispenalty(char *from, char *msg)
 {
   if (realservername && use_penalties &&
-      strcasecmp(from, realservername)) {
+      op_strcasecmp(from, realservername)) {
 
     last_time += 1;
 
@@ -1436,7 +1431,7 @@ static int got311(char *from, char *msg)
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s@%s", u, h);
-    strlcpy(botuserhost, op_strbuf_str(&_b), sizeof botuserhost);
+    op_strlcpy(botuserhost, op_strbuf_str(&_b), sizeof botuserhost);
     op_strbuf_free(&_b);
   }
 
@@ -1452,7 +1447,7 @@ static int gotsetname(char *from, char *msg)
    * With the setname CAP enabled the server also sends SETNAME for other
    * channel members; those must not overwrite our realname. */
   if (match_my_nick(nick))
-    strlcpy(botrealname, msg, sizeof botrealname);
+    op_strlcpy(botrealname, msg, sizeof botrealname);
   return 0;
 }
 
@@ -1555,11 +1550,10 @@ struct capability *find_capability(char *capname) {
     return op_htab_get(cap_dict, capname);
 
   /* Fallback: linear scan before dict is initialised */
-  struct capability *current = cap;
-  while (current != nullptr) {
-    if (!strcasecmp(capname, current->name))
+  for (size_t i = 0; i < cap_vec.size; i++) {
+    struct capability *current = (struct capability *)op_vec_get(&cap_vec, i);
+    if (!op_strcasecmp(capname, current->name))
       return current;
-    current = current->next;
   }
   return nullptr;
 }
@@ -1577,36 +1571,22 @@ static void add_req(char *cape) {
   }
 }
 
-/* Helper function to free a removed capability from linked list */
 static void free_capability(struct capability *z) {
-  struct cap_values *v;
-
-  while (z->value) {
-    v = z->value->next;
-    op_bh_free(cap_values_bh, z->value);
-    z->value = v;
-  }
+  for (size_t i = 0; i < z->values.size; i++)
+    op_bh_free(cap_values_bh, op_vec_get(&z->values, i));
+  op_vec_fini(&z->values, nullptr, nullptr);
   op_bh_free(capability_bh, z);
-  return;
 }
 
-/* Remove a single capability from the linked list */
 static int del_capability(char *name) {
-  struct capability *curr, *prev;
-
-  for (prev = nullptr, curr = cap; curr; curr = prev ? prev->next : cap) {
-    if (!strcasecmp(name, curr->name)) {
-      if (prev) {
-        prev->next = curr->next;
-      } else {
-        cap = curr->next;
-      }
+  for (size_t i = 0; i < cap_vec.size; i++) {
+    struct capability *curr = (struct capability *)op_vec_get(&cap_vec, i);
+    if (!op_strcasecmp(name, curr->name)) {
+      op_vec_remove_fast(&cap_vec, i);
       if (cap_dict)
         op_htab_del(cap_dict, name);
       free_capability(curr);
       return 0;
-    } else {
-      prev = curr;
     }
   }
   putlog(LOG_SERV, "*", "CAP: %s not found, can't remove", name);
@@ -1632,25 +1612,15 @@ static int del_capabilities(char *msg) {
 static int add_capabilities(const char *msg) {
   char *msgcopy = op_strdup(msg);
   char *capptr, *valptr, *val, *saveptr1 = nullptr, *saveptr2 = nullptr;
-  struct capability *newcap, **capdstptr, *z;
-  struct cap_values *newvalue, **nextvaldstptr;
-  int found;
+  struct capability *newcap;
+  struct cap_values *newvalue;
 
   for (capptr = strtok_r(msgcopy, " ", &saveptr1); capptr; capptr = strtok_r(nullptr, " ", &saveptr1)) {
     valptr = strchr(capptr, '=');
     if (valptr) {
       *valptr++ = '\0';
     }
-    found = 0;
-    capdstptr = &cap;
-    for (z = cap; z; z = z->next) {
-      if (!strcasecmp(capptr, z->name)) {
-        found = 1;
-        break;
-      }
-      capdstptr = &z->next;
-    }
-    if (found) {
+    if (find_capability(capptr)) {
       putlog(LOG_MISC, "*", "CAP: %s capability record already exists, skipping...", capptr);
       continue;
     }
@@ -1658,25 +1628,21 @@ static int add_capabilities(const char *msg) {
     if (!capability_bh)
       capability_bh = op_bh_create(sizeof(capability_t), 16, "capability");
     newcap = op_bh_alloc(capability_bh);
-    memset(newcap, 0, sizeof *newcap);
-    strlcpy(newcap->name, capptr, sizeof newcap->name);
-    *capdstptr = newcap;
+    op_strlcpy(newcap->name, capptr, sizeof newcap->name);
+    op_vec_push(&cap_vec, newcap);
     /* Keep cap_dict in sync for O(1) find_capability() lookups */
     if (!cap_dict)
       cap_dict = op_htab_create_istr("capabilities", 16);
     op_htab_set(cap_dict, newcap->name, newcap, nullptr);
 
     if (valptr) {
-      nextvaldstptr = &newcap->value;
       for (val = strtok_r(valptr, ",", &saveptr2); val; val = strtok_r(nullptr, ",", &saveptr2)) {
         if (!cap_values_bh)
           cap_values_bh = op_bh_create(sizeof(cap_values_t), 16, "cap_values");
         newvalue = op_bh_alloc(cap_values_bh);
-        memset(newvalue, 0, sizeof *newvalue);
-        strlcpy(newvalue->name, val, sizeof newvalue->name);
+        op_strlcpy(newvalue->name, val, sizeof newvalue->name);
         putlog(LOG_DEBUG, "*", "CAP: Adding value %s to capability %s", val, newcap->name);
-        *nextvaldstptr = newvalue;
-        nextvaldstptr = &newvalue->next;
+        op_vec_push(&newcap->values, newvalue);
       }
     }
   }
@@ -1684,17 +1650,13 @@ static int add_capabilities(const char *msg) {
   return 0;
 }
 
-/* Helper function to see if given value exists for a capability */
-static int is_cap_value(const struct cap_values *cap_value_list, const char *name) {
-  const struct cap_values *current = cap_value_list;
-
-  if (!cap_value_list)
+static int is_cap_value(const op_vec_t *values, const char *name) {
+  if (!values->size)
     return 1;
-  while (current != nullptr) {
-    if (!strcmp(name, current->name)) {
+  for (size_t i = 0; i < values->size; i++) {
+    const cap_values_t *v = (const cap_values_t *)op_vec_get(values, i);
+    if (!strcmp(name, v->name))
       return 1;
-    }
-    current = current->next;
   }
   return 0;
 }
@@ -1723,9 +1685,9 @@ static int gotcap(char *from, char *msg) {
     if (multiline) {
       return 0;
     }
-    current = cap;
     /* CAP is supported, yay! If it is supported, lets load what we want to request */
-    while (current != nullptr) {
+    for (size_t ci = 0; ci < cap_vec.size; ci++) {
+      current = (struct capability *)op_vec_get(&cap_vec, ci); {
       if (!strcmp(current->name, "sasl")) {
         if (sasl && !(current->enabled))
           add_req(current->name);
@@ -1848,19 +1810,17 @@ static int gotcap(char *from, char *msg) {
         }
         op_free(cap_copy);
       }
-      current=current->next;
-    }
-    current = cap;
+      }} /* end for ci / current block */
     /* Request the desired capabilities from server */
     {
       op_strbuf_t cape_req = {};
       op_strbuf_init(&cape_req);
-      while (current != nullptr) {
+      for (size_t ci = 0; ci < cap_vec.size; ci++) {
+        current = (struct capability *)op_vec_get(&cap_vec, ci);
         if (current->requested && (!current->enabled)) {
           putlog(LOG_DEBUG, "*", "CAP: Requesting %s capability from server", current->name);
           op_strbuf_appendf(&cape_req, " %s", current->name);
         }
-        current = current->next;
       }
       if (!op_strbuf_empty(&cape_req))
         dprintf(DP_MODE, "CAP REQ :%s\n", op_strbuf_str(&cape_req));
@@ -1873,12 +1833,12 @@ static int gotcap(char *from, char *msg) {
      * so they know to switch to the TLS port. */
     {
       struct capability *stscap = find_capability("sts");
-      if (stscap && stscap->value) {
-        struct cap_values *v = stscap->value;
-        while (v) {
+      if (stscap && stscap->values.size) {
+        for (size_t vi = 0; vi < stscap->values.size; vi++) {
+          const cap_values_t *v = (const cap_values_t *)op_vec_get(&stscap->values, vi);
           if (!strncmp(v->name, "port=", 5)) {
             const char *port = v->name + 5;
-  
+
 #ifdef TLS
             if (!use_ssl)
 #endif
@@ -1893,7 +1853,6 @@ static int gotcap(char *from, char *msg) {
 #endif
             break;
           }
-          v = v->next;
         }
       }
     }
@@ -1902,11 +1861,8 @@ static int gotcap(char *from, char *msg) {
     /* You're getting the current enabled list, may as well the clear old stuff */
     if (!multistatus) {
       multistatus = 1;
-      current = cap;
-      while (current != nullptr) {
-        current->enabled = 0;
-        current=current->next;
-      }
+      for (size_t ci = 0; ci < cap_vec.size; ci++)
+        ((struct capability *)op_vec_get(&cap_vec, ci))->enabled = 0;
     }
     /* If msg starts with a *, advance to the first capability. If it doesn't,
      * this is either the end a multiline message, or not one at all, so
@@ -1937,24 +1893,20 @@ static int gotcap(char *from, char *msg) {
     char *saveptr = nullptr;
     splitstr = strtok_r(msg, " ", &saveptr);
     while (splitstr != nullptr) {
-      current = cap;
-      while (current != nullptr) {
-        /* Remove a - if it exists and track for later */
-        if (splitstr[0] == '-') {
-          remove = 1;
-          splitstr++;
+      if (splitstr[0] == '-') {
+        remove = 1;
+        splitstr++;
+      }
+      current = find_capability(splitstr);
+      if (current) {
+        if (remove) {
+          current->enabled = 0;
+        } else {
+          current->enabled = 1;
+          if (sasl && !op_strcasecmp(current->name, "sasl") &&
+              sasl_authenticate_initial(&current->values))
+            return 1;
         }
-        if (!strcasecmp(splitstr, current->name)) {
-          if (remove) {
-            current->enabled = 0;
-          } else {
-            current->enabled = 1;
-            if (sasl && !strcasecmp(current->name, "sasl") &&
-                sasl_authenticate_initial(current->value))
-              return 1;
-          }
-        }
-        current = current->next;
       }
       remove = 0;
       splitstr = strtok_r(nullptr, " ", &saveptr);
@@ -1964,14 +1916,13 @@ static int gotcap(char *from, char *msg) {
     if (!current || !current->enabled) {
       dprintf(DP_MODE, "CAP END\n");
     }
-    current = cap;
     {
       op_strbuf_t caplog = {};
       op_strbuf_init(&caplog);
-      while (current != nullptr) {
+      for (size_t ci = 0; ci < cap_vec.size; ci++) {
+        current = (struct capability *)op_vec_get(&cap_vec, ci);
         if (current->enabled)
           op_strbuf_appendf(&caplog, " %s", current->name);
-        current = current->next;
       }
       putlog(LOG_SERV, "*", "CAP: Current negotiations with %s:%s", from,
              op_strbuf_str(&caplog));
@@ -2018,7 +1969,6 @@ static int gotcap(char *from, char *msg) {
 static int got730or1(char *from, char *msg, int code)
 {
   char *nick, *tok;
-  struct monitor_list *current = monitor;
 
   newsplit(&msg);               /* Get rid of nick */
   fixcolon(msg);                /* Get rid of :    */
@@ -2030,7 +1980,8 @@ static int got730or1(char *from, char *msg, int code)
     } else {
       nick = tok;
     }
-    while (current != nullptr) {
+    for (size_t i = 0; i < monitor_vec.size; i++) {
+      monitor_list_t *current = (monitor_list_t *)op_vec_get(&monitor_vec, i);
       if (!rfc_casecmp(current->nick, nick)) {
         if (code == 1) {
           current->online = 1;
@@ -2042,7 +1993,6 @@ static int got730or1(char *from, char *msg, int code)
           putlog(LOG_SERV, "*", "%s is now offline", nick);
         }
       }
-      current = current->next;
     }
   }
   return 0;
@@ -2149,19 +2099,14 @@ static int got731(char *from, char *msg)
 static int got732(char *from, char *msg)
 {
   char *tok, *nick;
-  struct monitor_list *current = monitor;
-  struct monitor_list *next = nullptr;
 
 /* Did we already get a 732? If no, clear the existing list, otherwise leave
  * it for appending
  */
   if (!monitor732) {
-    while (current != nullptr) {
-      next = current->next;
-      op_bh_free(monitor_heap, current);
-      current = next;
-    }
-    monitor = nullptr;
+    for (size_t i = 0; i < monitor_vec.size; i++)
+      op_bh_free(monitor_heap, (monitor_list_t *)op_vec_get(&monitor_vec, i));
+    op_vec_clear(&monitor_vec, nullptr, nullptr);
   }
 
   newsplit(&msg);               /* Get rid of nick */
@@ -2231,12 +2176,12 @@ static int got800(char *from, char *msg)
   newsplit(&msg); /* skip IRCX version token */
   /* Optional: remaining text is the network name on Ophion */
   if (*msg)
-    strlcpy(ircx_network, msg, sizeof(ircx_network));
+    op_strlcpy(ircx_network, msg, sizeof(ircx_network));
   /* Fall back to ISUPPORT NETWORK= if 800 reply didn't carry a name */
   if (!ircx_network[0]) {
     const char *net = isupport_get("NETWORK", strlen("NETWORK"));
     if (net)
-      strlcpy(ircx_network, net, sizeof(ircx_network));
+      op_strlcpy(ircx_network, net, sizeof(ircx_network));
   }
 
   ircx_negotiating = 0;
@@ -2389,8 +2334,8 @@ static int gotrename(char *from, char *msg)
     chan = findchan_by_dname(oldchan);
   if (chan) {
     chan_htab_del(chan);
-    strlcpy(chan->dname, newchan, sizeof chan->dname);
-    strlcpy(chan->name, newchan, sizeof chan->name);
+    op_strlcpy(chan->dname, newchan, sizeof chan->dname);
+    op_strlcpy(chan->name, newchan, sizeof chan->name);
     chan_htab_add(chan);
   }
   return 0;
@@ -2669,9 +2614,9 @@ static void connect_server(void)
   empty_msgq();
   if (newserverport) {          /* Jump to specified server */
     curserv = -1;             /* Reset server list */
-    strlcpy(botserver, newserver, sizeof botserver);
+    op_strlcpy(botserver, newserver, sizeof botserver);
     botserverport = newserverport;
-    strlcpy(pass, newserverpass, sizeof pass);
+    op_strlcpy(pass, newserverpass, sizeof pass);
     newserver[0] = 0;
     newserverport = 0;
     newserverpass[0] = 0;
@@ -2682,9 +2627,8 @@ static void connect_server(void)
   }
   if (!cycle_time) {
     struct chanset_t *chan;
-    struct server_list *x = serverlist;
 
-    if (!x && !botserverport) {
+    if (!serverlist_vec.size && !botserverport) {
       putlog(LOG_SERV, "*", "No servers in server list");
       cycle_time = 300;
       return;
@@ -2721,8 +2665,8 @@ static void connect_server(void)
     putlog(LOG_SERV, "*", "%s", op_strbuf_str(&s));
     op_strbuf_free(&s);
     dcc[servidx].port = botserverport;
-    strlcpy(dcc[servidx].nick, "(server)", sizeof(dcc[servidx].nick));
-    strlcpy(dcc[servidx].host, botserver, UHOSTLEN);
+    op_strlcpy(dcc[servidx].nick, "(server)", sizeof(dcc[servidx].nick));
+    op_strlcpy(dcc[servidx].host, botserver, UHOSTLEN);
 
     botuserhost[0] = 0;
 
@@ -2734,10 +2678,10 @@ static void connect_server(void)
     dcc[servidx].sock = -1;
     size_t _len1 = strlen(dcc[servidx].host) + 1;
     dcc[servidx].u.dns->host = get_data_ptr(_len1);
-    strlcpy(dcc[servidx].u.dns->host, dcc[servidx].host, _len1);
+    op_strlcpy(dcc[servidx].u.dns->host, dcc[servidx].host, _len1);
     size_t _len2 = strlen(pass) + 1;
     dcc[servidx].u.dns->cbuf = get_data_ptr(_len2);
-    strlcpy(dcc[servidx].u.dns->cbuf, pass, _len2);
+    op_strlcpy(dcc[servidx].u.dns->cbuf, pass, _len2);
     dcc[servidx].u.dns->dns_success = server_resolve_success;
     dcc[servidx].u.dns->dns_failure = server_resolve_failure;
     dcc[servidx].u.dns->dns_type = RES_IPBYHOST;
@@ -2776,7 +2720,7 @@ static void server_resolve_success(int servidx)
   op_strbuf_init(&errstr2);
 
   resolvserv = 0;
-  strlcpy(pass, dcc[servidx].u.dns->cbuf, sizeof pass);
+  op_strlcpy(pass, dcc[servidx].u.dns->cbuf, sizeof pass);
   changeover_dcc(servidx, &SERVER_SOCKET, 0);
   dcc[servidx].sock = getsock(dcc[servidx].sockname.family, SOCK_CONNECT);
   setsnport(dcc[servidx].sockname, dcc[servidx].port);
@@ -2820,7 +2764,7 @@ static void server_resolve_success(int servidx)
   dcc[servidx].timeval = now;
   SERVER_SOCKET.timeout_val = &server_timeout;
   /* Another server may have truncated it, so use the original */
-  strlcpy(botname, origbotname, sizeof(botname));
+  op_strlcpy(botname, origbotname, sizeof(botname));
   /* Start alternate nicks from the beginning */
   altnick_char = 0;
   check_tcl_event("preinit-server");
@@ -2832,7 +2776,7 @@ static void server_resolve_success(int servidx)
 
   rmspace(botrealname);
   if (botrealname[0] == 0)
-    strlcpy(botrealname, "/msg LamestBot hello", sizeof(botrealname));
+    op_strlcpy(botrealname, "/msg LamestBot hello", sizeof(botrealname));
   dprintf(DP_MODE, "USER %s . . :%s\n", botuser, botrealname);
   op_strbuf_free(&errstr2);
 

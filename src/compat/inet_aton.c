@@ -11,7 +11,7 @@
 #ifndef HAVE_ISASCII
 #  define inet_isascii(x) 1 /* Let checks succeed if we don't have isascii(). */
 #else
-#  define inet_isascii(x) egg_isascii(x)
+#  define inet_isascii(x) isascii((unsigned char)(x))
 #endif
 
 #ifndef HAVE_INET_ATON

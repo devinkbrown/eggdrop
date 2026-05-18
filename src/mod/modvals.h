@@ -107,7 +107,6 @@ constexpr int CONSOLE_DOSTORE = 4;
 #endif
 
 typedef struct _module_entry {
-  struct _module_entry *next;
   char *name;                   /* Name of the module (without .so)     */
   int major;                    /* Major version number MUST match      */
   int minor;                    /* Minor version number MUST be >=      */

@@ -68,8 +68,9 @@ static int tcl_getfileq STDVAR
 
   BADARGS(2, 2, " handle");
 
-  for (q = fileq; q; q = q->next) {
-    if (!strcasecmp(q->nick, argv[1])) {
+  for (size_t qi = 0; qi < fileq_vec.size; qi++) {
+    q = (fileq_t *)op_vec_get(&fileq_vec, qi);
+    if (!op_strcasecmp(q->nick, argv[1])) {
       {
         op_strbuf_t _b = {};
         op_strbuf_init(&_b);

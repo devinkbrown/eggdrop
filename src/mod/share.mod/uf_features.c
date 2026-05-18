@@ -59,19 +59,13 @@
 
 
 typedef struct uff_list_struct {
-  struct uff_list_struct *next; /* Pointer to next entry                */
-  struct uff_list_struct *prev; /* Pointer to previous entry            */
   uff_table_t *entry;           /* Pointer to entry in table. This is
                                  * not copied or anything, we just refer
                                  * to the original table entry.         */
 } uff_list_t;
 
-typedef struct {
-  uff_list_t *start;
-  uff_list_t *end;
-} uff_head_t;
-
-static uff_head_t uff_list;
+/* op_vec_t of uff_list_t *, sorted ascending by entry->priority */
+static op_vec_t uff_vec;
 static char uff_sbuf[512];
 static op_bh *uff_list_bh = nullptr;
 
@@ -82,90 +76,53 @@ static op_bh *uff_list_bh = nullptr;
 
 static void uff_init(void)
 {
-  egg_bzero(&uff_list, sizeof(uff_head_t));
+  op_vec_clear(&uff_vec, nullptr, nullptr);
 }
 
 /* Calculate memory used for list.
  */
 static int uff_expmem(void)
 {
-  uff_list_t *ul;
-  int tot = 0;
-
-  for (ul = uff_list.start; ul; ul = ul->next)
-    tot += sizeof(uff_list_t);
-  return tot;
+  return (int)(uff_vec.size * sizeof(uff_list_t));
 }
 
-/* Search for a feature in the uff feature list that matches a supplied
- * feature flag. Returns a pointer to the entry in the list or nullptr if
- * no feature uses the flag.
+/* Search for a feature by flag. Returns pointer or nullptr.
  */
 static uff_list_t *uff_findentry_byflag(int flag)
 {
-  uff_list_t *ul;
-
-  for (ul = uff_list.start; ul; ul = ul->next)
+  for (size_t i = 0; i < uff_vec.size; i++) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, i);
     if (ul->entry->flag & flag)
       return ul;
+  }
   return nullptr;
 }
 
-/* Search for a feature in the uff feature list. Returns a pointer to the
- * entry in the list or nullptr if no such feature exists.
+/* Search for a feature by name. Returns pointer or nullptr.
  */
 static uff_list_t *uff_findentry_byname(char *feature)
 {
-  uff_list_t *ul;
-
-  for (ul = uff_list.start; ul; ul = ul->next)
+  for (size_t i = 0; i < uff_vec.size; i++) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, i);
     if (!strcmp(ul->entry->feature, feature))
       return ul;
+  }
   return nullptr;
 }
 
-/* Insert entry into sorted list.
+/* Insert entry into sorted position (ascending priority).
  */
 static void uff_insert_entry(uff_list_t *nul)
 {
-  uff_list_t *ul, *lul = nullptr;
+  size_t idx = 0;
 
-  ul = uff_list.start;
-  while (ul && ul->entry->priority < nul->entry->priority) {
-    lul = ul;
-    ul = ul->next;
+  while (idx < uff_vec.size) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, idx);
+    if (ul->entry->priority >= nul->entry->priority)
+      break;
+    idx++;
   }
-
-  nul->prev = nullptr;
-  nul->next = nullptr;
-  if (lul) {
-    if (lul->next)
-      lul->next->prev = nul;
-    nul->next = lul->next;
-    nul->prev = lul;
-    lul->next = nul;
-  } else if (ul) {
-    uff_list.start->prev = nul;
-    nul->next = uff_list.start;
-    uff_list.start = nul;
-  } else
-    uff_list.start = nul;
-  if (!nul->next)
-    uff_list.end = nul;
-}
-
-/* Remove entry from sorted list.
- */
-static void uff_remove_entry(uff_list_t *ul)
-{
-  if (!ul->next)
-    uff_list.end = ul->prev;
-  else
-    ul->next->prev = ul->prev;
-  if (!ul->prev)
-    uff_list.start = ul->next;
-  else
-    ul->prev->next = ul->next;
+  op_vec_insert(&uff_vec, idx, nul);
 }
 
 /* Add a single feature to the list.
@@ -187,7 +144,7 @@ static void uff_addfeature(uff_table_t *ut)
   }
   if (!uff_list_bh)
     uff_list_bh = op_bh_create(sizeof(uff_list_t), 16, "uff_list");
-  ul = op_bh_alloc(uff_list_bh);
+  ul = (uff_list_t *)op_bh_alloc(uff_list_bh);
   ul->entry = ut;
   uff_insert_entry(ul);
 }
@@ -206,14 +163,14 @@ static void uff_addtable(uff_table_t *ut)
  */
 static int uff_delfeature(uff_table_t *ut)
 {
-  uff_list_t *ul;
-
-  for (ul = uff_list.start; ul; ul = ul->next)
+  for (size_t i = 0; i < uff_vec.size; i++) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, i);
     if (!strcmp(ul->entry->feature, ut->feature)) {
-      uff_remove_entry(ul);
+      op_vec_remove(&uff_vec, i);
       op_bh_free(uff_list_bh, ul);
       return 1;
     }
+  }
   return 0;
 }
 
@@ -244,7 +201,7 @@ static void uf_features_parse(int idx, char *par)
   op_strbuf_init(&_sb);
   size_t par_sz = strlen(par) + 1;
   p = s = buf = op_malloc(par_sz);        /* Allocate temp buffer */
-  strlcpy(buf, par, par_sz);
+  op_strlcpy(buf, par, par_sz);
 
   /* Clear all currently set features. */
   dcc[idx].u.bot->uff_flags = 0;
@@ -275,17 +232,18 @@ static void uf_features_parse(int idx, char *par)
  */
 static char *uf_features_dump(int idx)
 {
-  uff_list_t *ul;
   op_strbuf_t _sb = {};
 
   op_strbuf_init(&_sb);
-  for (ul = uff_list.start; ul; ul = ul->next)
+  for (size_t i = 0; i < uff_vec.size; i++) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, i);
     if (ul->entry->ask_func == nullptr || ul->entry->ask_func(idx)) {
       if (op_strbuf_len(&_sb))
         op_strbuf_append_cstr(&_sb, " ");
       op_strbuf_append_cstr(&_sb, ul->entry->feature); /* Add feature to list  */
     }
-  strlcpy(uff_sbuf, op_strbuf_str(&_sb), sizeof uff_sbuf);
+  }
+  op_strlcpy(uff_sbuf, op_strbuf_str(&_sb), sizeof uff_sbuf);
   op_strbuf_free(&_sb);
   return uff_sbuf;
 }
@@ -297,7 +255,7 @@ static int uf_features_check(int idx, char *par)
 
   size_t par_sz = strlen(par) + 1;
   p = s = buf = op_malloc(par_sz);        /* Allocate temp buffer */
-  strlcpy(buf, par, par_sz);
+  op_strlcpy(buf, par, par_sz);
 
   /* Clear all currently set features. */
   dcc[idx].u.bot->uff_flags = 0;
@@ -331,34 +289,31 @@ static int uf_features_check(int idx, char *par)
   return 1;
 }
 
-/* Call all active feature functions, sorted by their priority. This
- * should be called when we're about to send a user file.
+/* Call all active feature functions in priority order (sending).
  */
 static int uff_call_sending(int idx, char *user_file)
 {
-  uff_list_t *ul;
-
-  for (ul = uff_list.start; ul; ul = ul->next)
+  for (size_t i = 0; i < uff_vec.size; i++) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, i);
     if (ul->entry && ul->entry->snd &&
         (dcc[idx].u.bot->uff_flags & ul->entry->flag))
       if (!(ul->entry->snd(idx, user_file)))
         return 0; /* Failed! */
+  }
   return 1;
 }
 
-/* Call all active feature functions, sorted by their priority. This
- * should be called when we've received a user file and are about to
- * parse it.
+/* Call all active feature functions in reverse priority order (receiving).
  */
 static int uff_call_receiving(int idx, char *user_file)
 {
-  uff_list_t *ul;
-
-  for (ul = uff_list.end; ul; ul = ul->prev)
+  for (size_t i = uff_vec.size; i-- > 0; ) {
+    uff_list_t *ul = (uff_list_t *)op_vec_get(&uff_vec, i);
     if (ul->entry && ul->entry->rcv &&
         (dcc[idx].u.bot->uff_flags & ul->entry->flag))
       if (!(ul->entry->rcv(idx, user_file)))
         return 0; /* Failed! */
+  }
   return 1;
 }
 

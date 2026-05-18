@@ -56,7 +56,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
     return 0;
 
   /* My user@host (?) */
-  if (!strcasecmp(floodhost, botuserhost))
+  if (!op_strcasecmp(floodhost, botuserhost))
     return 0;
 
   m = ismember(chan, floodnick);
@@ -84,32 +84,32 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
   case FLOOD_NOTICE:
     thr = chan->flood_pub_thr;
     lapse = chan->flood_pub_time;
-    strlcpy(ftype, "pub", sizeof(ftype));
+    op_strlcpy(ftype, "pub", sizeof(ftype));
     break;
   case FLOOD_CTCP:
     thr = chan->flood_ctcp_thr;
     lapse = chan->flood_ctcp_time;
-    strlcpy(ftype, "ctcp", sizeof(ftype));
+    op_strlcpy(ftype, "ctcp", sizeof(ftype));
     break;
   case FLOOD_NICK:
     thr = chan->flood_nick_thr;
     lapse = chan->flood_nick_time;
-    strlcpy(ftype, "nick", sizeof(ftype));
+    op_strlcpy(ftype, "nick", sizeof(ftype));
     break;
   case FLOOD_JOIN:
     thr = chan->flood_join_thr;
     lapse = chan->flood_join_time;
-    strlcpy(ftype, "join", sizeof(ftype));
+    op_strlcpy(ftype, "join", sizeof(ftype));
     break;
   case FLOOD_DEOP:
     thr = chan->flood_deop_thr;
     lapse = chan->flood_deop_time;
-    strlcpy(ftype, "deop", sizeof(ftype));
+    op_strlcpy(ftype, "deop", sizeof(ftype));
     break;
   case FLOOD_KICK:
     thr = chan->flood_kick_thr;
     lapse = chan->flood_kick_time;
-    strlcpy(ftype, "kick", sizeof(ftype));
+    op_strlcpy(ftype, "kick", sizeof(ftype));
     break;
   }
   if ((thr == 0) || (lapse == 0))
@@ -126,7 +126,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
       return 0;
   }
   if (rfc_casecmp(chan->floodwho[which], p)) {  /* new */
-    strlcpy(chan->floodwho[which], p, sizeof chan->floodwho[which]);
+    op_strlcpy(chan->floodwho[which], p, sizeof chan->floodwho[which]);
     chan->floodtime[which] = now;
     chan->floodnum[which] = 1;
     return 0;
@@ -142,7 +142,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
     if (!rfc_casecmp(chan->deopd, victim_or_account))
       return 0;
     else
-      strlcpy(chan->deopd, victim_or_account, sizeof chan->deopd);
+      op_strlcpy(chan->deopd, victim_or_account, sizeof chan->deopd);
   }
   chan->floodnum[which]++;
   if (chan->floodnum[which] >= thr) {   /* FLOOD */
@@ -187,7 +187,7 @@ static int detect_chan_flood(char *floodnick, char *floodhost, const char *from,
         putlog(LOG_MISC | LOG_JOIN, chan->dname, IRC_FLOODIGNORE3, p);
       else
         putlog(LOG_MISC | LOG_JOIN, chan->dname, IRC_FLOODIGNORE4, p);
-      strlcpy(ftype + 4, " flood", sizeof(ftype) - 4);
+      op_strlcpy(ftype + 4, " flood", sizeof(ftype) - 4);
       u_addban(chan, op_strbuf_str(&_bh), botnetnick, ftype, now + (60 * chan->ban_time), 0);
       if (!channel_enforcebans(chan) && (me_op(chan) || me_halfop(chan))) {
         op_strbuf_t _bs = {};
@@ -752,7 +752,7 @@ static void check_this_user(char *hand, int delete, char *host)
       op_strbuf_clear(&_s);
       op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
       u = get_user_from_member(m);
-      if ((u && !strcasecmp(u->handle, hand) && delete < 2) ||
+      if ((u && !op_strcasecmp(u->handle, hand) && delete < 2) ||
           (!u && delete == 2 && match_addr(host, op_strbuf_str(&_s)))) {
         u = delete ? nullptr : u;
         get_user_flagrec(u, &fr, chan->dname);

@@ -178,15 +178,15 @@ static int sasl_plain(char *dst, size_t dstsize)
    */
   size_t n, y = 0;
 
-  n = strlcpy(dst, sasl_username, dstsize);
+  n = op_strlcpy(dst, sasl_username, dstsize);
   dst = dst + n + 1;
   dstsize = dstsize - n - 1;
   y = n + 1;
-  n = strlcpy(dst, sasl_username, dstsize);
+  n = op_strlcpy(dst, sasl_username, dstsize);
   dst = dst + n + 1;
   dstsize = dstsize - n - 1;
   y = y + n + 1;
-  n = strlcpy(dst, sasl_password, dstsize);
+  n = op_strlcpy(dst, sasl_password, dstsize);
   return y + n;
 }
 
@@ -198,11 +198,11 @@ static int sasl_ecdsa_nist256p_challenge_step_0(char *dst, size_t dstsize)
    */
   size_t n, y = 0;
 
-  n = strlcpy(dst, sasl_username, dstsize);
+  n = op_strlcpy(dst, sasl_username, dstsize);
   dst = dst + n + 1;
   dstsize = dstsize - n - 1;
   y = n + 1;
-  n = strlcpy(dst, sasl_username, dstsize);
+  n = op_strlcpy(dst, sasl_username, dstsize);
   return y + n;
 }
 
@@ -249,10 +249,10 @@ static int sasl_scram_step_0(char *client_msg_plain, int client_msg_plain_len)
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "n,,n=%s,r=%s", sasl_username, nonce);
-    strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
+    op_strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
   }
-  return strlcpy(client_first_message, client_msg_plain,
+  return op_strlcpy(client_first_message, client_msg_plain,
                  sizeof client_first_message);
 }
 
@@ -476,9 +476,9 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
                   opssl_err_string(opssl_err_get()));
       return -1;
     }
-    strlcpy(last_sasl_password, sasl_password, sizeof last_sasl_password);
-    strlcpy(last_salt_b64, salt_b64, sizeof last_salt_b64);
-    strlcpy(last_i, i, sizeof last_i);
+    op_strlcpy(last_sasl_password, sasl_password, sizeof last_sasl_password);
+    op_strlcpy(last_salt_b64, salt_b64, sizeof last_salt_b64);
+    op_strlcpy(last_i, i, sizeof last_i);
   }
   else
     debug0("SASL: using cached client and server key");
@@ -504,7 +504,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s,%s,%s", client_first_message + 3,
                      op_strbuf_str(&server_first_message), op_strbuf_str(&_cfmwp));
-    strlcpy(auth_message, op_strbuf_str(&_b), sizeof auth_message);
+    op_strlcpy(auth_message, op_strbuf_str(&_b), sizeof auth_message);
     op_strbuf_free(&_b);
   }
   auth_message_len = (int) strlen(auth_message);
@@ -536,7 +536,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s,p=%s", op_strbuf_str(&_cfmwp), client_proof_b64);
-    strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
+    op_strlcpy(client_msg_plain, op_strbuf_str(&_b), client_msg_plain_len);
     op_strbuf_free(&_b);
   }
   op_strbuf_free(&_cfmwp);
@@ -610,7 +610,7 @@ static int gotauthenticate(char *from, char *msg)
     if ((sasl_mechanism != SASL_MECHANISM_EXTERNAL) && (!*sasl_username))  {
       putlog(LOG_SERV, "*", "SASL: sasl-username not set, setting it to "
              "username %s", botname);
-      strlcpy(sasl_username, botuser, sizeof sasl_username);
+      op_strlcpy(sasl_username, botuser, sizeof sasl_username);
     }
 #ifdef TLS
     switch (sasl_mechanism) {
@@ -742,7 +742,7 @@ static void sasl_start(void)
  * later messages. The initial client message specifies the SASL mechanism to
  * be used.
 */
-int sasl_authenticate_initial(const struct cap_values *cap_value_list)
+int sasl_authenticate_initial(const op_vec_t *cap_value_list)
 {
   putlog(LOG_DEBUG, "*", "SASL: Starting authentication process");
 #ifdef TLS
@@ -753,11 +753,11 @@ int sasl_authenticate_initial(const struct cap_values *cap_value_list)
   }
 #endif
   if (!is_cap_value(cap_value_list, SASL_MECHANISMS[sasl_mechanism])) {
-    const struct cap_values *v;
     op_strbuf_t _supported = {};
     op_strbuf_init(&_supported);
     /* Build a space-separated list of what the server actually advertised */
-    for (v = cap_value_list; v; v = v->next) {
+    for (size_t vi = 0; vi < cap_value_list->size; vi++) {
+      const cap_values_t *v = (const cap_values_t *)op_vec_get(cap_value_list, vi);
       if (op_strbuf_len(&_supported))
         op_strbuf_append_cstr(&_supported, " ");
       op_strbuf_append_cstr(&_supported, v->name);

@@ -36,12 +36,11 @@ static Function *global = nullptr;
 typedef struct assoc_t_ {
   char name[21];
   unsigned int channel;
-  struct assoc_t_ *next;
 } assoc_t;
 
 /* Channel name-number associations */
-static assoc_t *assoc;
-static op_bh *assoc_bh = nullptr;
+static op_vec_t assoc_vec;
+static op_bh   *assoc_bh = nullptr;
 
 static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
 {
@@ -60,22 +59,18 @@ static void botnet_send_assoc(int idx, int chan, char *nick, char *buf)
 
 static int assoc_expmem(void)
 {
-  assoc_t *a;
-  int size = 0;
-
-  for (a = assoc; a; a = a->next)
-    size += sizeof(assoc_t);
-  return size;
+  return (int)(assoc_vec.size * sizeof(assoc_t));
 }
 
 static void link_assoc(char *bot, char *via)
 {
-  if (!strcasecmp(via, botnetnick)) {
+  if (!op_strcasecmp(via, botnetnick)) {
     int idx = nextbot(bot);
-    assoc_t *a;
 
     if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
-      for (a = assoc; a && a->name[0]; a = a->next) {
+      for (size_t _i = 0; _i < assoc_vec.size; _i++) {
+        assoc_t *a = (assoc_t *)op_vec_get(&assoc_vec, _i);
+        if (!a->name[0]) continue;
         op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "assoc %s %s %s", int_to_base64((int) a->channel),
@@ -89,111 +84,89 @@ static void link_assoc(char *bot, char *via)
 
 static void kill_assoc(int chan)
 {
-  assoc_t *a = assoc, *last = nullptr;
-
-  while (a) {
-    if (a->channel == chan) {
-      if (last != nullptr)
-        last->next = a->next;
-      else
-        assoc = a->next;
+  for (size_t i = 0; i < assoc_vec.size; i++) {
+    assoc_t *a = (assoc_t *)op_vec_get(&assoc_vec, i);
+    if (a->channel == (unsigned int)chan) {
+      op_vec_remove_fast(&assoc_vec, i);
       op_bh_free(assoc_bh, a);
-      a = nullptr;
-    } else {
-      last = a;
-      a = a->next;
+      return;
     }
   }
 }
 
 static void kill_all_assoc(void)
 {
-  assoc_t *a, *x;
-
-  for (a = assoc; a; a = x) {
-    x = a->next;
-    op_bh_free(assoc_bh, a);
-  }
-  assoc = nullptr;
+  for (size_t i = 0; i < assoc_vec.size; i++)
+    op_bh_free(assoc_bh, (assoc_t *)op_vec_get(&assoc_vec, i));
+  op_vec_clear(&assoc_vec, nullptr, nullptr);
 }
 
 static void add_assoc(char *name, int chan)
 {
-  assoc_t *a, *b, *old = nullptr;
-
-  for (a = assoc; a; a = a->next) {
-    if (name[0] != 0 && !strcasecmp(a->name, name)) {
-      kill_assoc(a->channel);
+  /* Check for existing entries with same name or same channel */
+  for (size_t i = 0; i < assoc_vec.size; i++) {
+    assoc_t *a = (assoc_t *)op_vec_get(&assoc_vec, i);
+    if (name[0] != 0 && !op_strcasecmp(a->name, name)) {
+      kill_assoc((int)a->channel);
       add_assoc(name, chan);
       return;
     }
-    if (a->channel == chan) {
-      strlcpy(a->name, name, sizeof a->name);
+    if (a->channel == (unsigned int)chan) {
+      op_strlcpy(a->name, name, sizeof a->name);
       return;
     }
   }
-  /* Add in numerical order */
-  for (a = assoc; a; old = a, a = a->next) {
-    if (a->channel > chan) {
-      if (!assoc_bh)
-        assoc_bh = op_bh_create(sizeof(assoc_t), 16, "assoc_node");
-      b = op_bh_alloc(assoc_bh);
-      b->next = a;
-      b->channel = chan;
-      strlcpy(b->name, name, sizeof b->name);
-      if (old == nullptr)
-        assoc = b;
-      else
-        old->next = b;
-      return;
-    }
-  }
-  /* Add at the end */
-  if (!assoc_bh)
+  if (!assoc_bh) {
     assoc_bh = op_bh_create(sizeof(assoc_t), 16, "assoc_node");
-  b = op_bh_alloc(assoc_bh);
-  b->next = nullptr;
-  b->channel = chan;
-  strlcpy(b->name, name, sizeof b->name);
-  if (old == nullptr)
-    assoc = b;
-  else
-    old->next = b;
+    op_vec_init(&assoc_vec, 16);
+  }
+  assoc_t *b = (assoc_t *)op_bh_alloc(assoc_bh);
+  b->channel = (unsigned int)chan;
+  op_strlcpy(b->name, name, sizeof b->name);
+  op_vec_push(&assoc_vec, b);
 }
 
 static int get_assoc(char *name)
 {
-  assoc_t *a;
-
-  for (a = assoc; a; a = a->next)
-    if (!strcasecmp(a->name, name))
-      return a->channel;
+  for (size_t i = 0; i < assoc_vec.size; i++) {
+    assoc_t *a = (assoc_t *)op_vec_get(&assoc_vec, i);
+    if (!op_strcasecmp(a->name, name))
+      return (int)a->channel;
+  }
   return -1;
 }
 
 static char *get_assoc_name(int chan)
 {
-  assoc_t *a;
-
-  for (a = assoc; a; a = a->next)
-    if (a->channel == chan)
+  for (size_t i = 0; i < assoc_vec.size; i++) {
+    assoc_t *a = (assoc_t *)op_vec_get(&assoc_vec, i);
+    if (a->channel == (unsigned int)chan)
       return a->name;
+  }
   return nullptr;
+}
+
+static int assoc_cmp_channel(const void *pa, const void *pb)
+{
+  const assoc_t *a = *(const assoc_t **)pa;
+  const assoc_t *b = *(const assoc_t **)pb;
+  return (a->channel > b->channel) - (a->channel < b->channel);
 }
 
 static void dump_assoc(int idx)
 {
-  assoc_t *a = assoc;
-
-  if (a == nullptr) {
+  if (!assoc_vec.size) {
     dprintf(idx, "%s\n", ASSOC_NOCHNAMES);
     return;
   }
+  op_vec_sort(&assoc_vec, assoc_cmp_channel);
   dprintf(idx, " %s  %s\n", ASSOC_CHAN, ASSOC_NAME);
-  for (; a && a->name[0]; a = a->next)
+  for (size_t i = 0; i < assoc_vec.size; i++) {
+    assoc_t *a = (assoc_t *)op_vec_get(&assoc_vec, i);
+    if (!a->name[0]) continue;
     dprintf(idx, "%c%5d %s\n", (a->channel < GLOBAL_CHANS) ? ' ' : '*',
             a->channel % GLOBAL_CHANS, a->name);
-  return;
+  }
 }
 
 static int cmd_assoc(struct userrec *u, int idx, char *par)
@@ -326,7 +299,7 @@ static void zapf_assoc(char *botnick, char *code, char *par)
   int linking = 0, chan;
 
   if ((idx >= 0) && !(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
-    if (!strcasecmp(dcc[idx].nick, botnick))
+    if (!op_strcasecmp(dcc[idx].nick, botnick))
       linking = b_status(idx) & STAT_LINKING;
     s = newsplit(&par);
     chan = base64_to_int(s);
@@ -356,13 +329,8 @@ static void zapf_assoc(char *botnick, char *code, char *par)
 static void assoc_report(int idx, int details)
 {
   if (details) {
-    assoc_t *a;
-    int size = 0, count = 0;
-
-    for (a = assoc; a; a = a->next) {
-      count++;
-      size += sizeof(assoc_t);
-    }
+    int count = (int)assoc_vec.size;
+    int size  = (int)(assoc_vec.size * sizeof(assoc_t));
 
     dprintf(idx, "    %d current association%s\n", count,
             (count != 1) ? "s" : "");
@@ -426,7 +394,7 @@ char *assoc_start(Function *global_funcs)
     module_undepend(MODULE_NAME);
     return "This module requires Eggdrop 1.8.0 or later.";
   }
-  assoc = nullptr;
+  op_vec_init(&assoc_vec, 16);
   add_builtins(H_dcc, mydcc);
   add_builtins(H_bot, mybot);
   add_builtins(H_link, mylink);

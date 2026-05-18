@@ -23,7 +23,6 @@
 
 static void cmd_servers(struct userrec *u, int idx, char *par)
 {
-  struct server_list *x = serverlist;
   time_t t;
   struct tm *currtm;
 #ifdef IPV6
@@ -32,12 +31,12 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
   const char *setpass;
 
   putlog(LOG_CMDS, "*", "#%s# servers", dcc[idx].nick);
-  if (!x) {
+  if (!serverlist_vec.size) {
     dprintf(idx, "There are no servers in the server list.\n");
   } else {
     dprintf(idx, "Server list:\n");
-    int i = 0;
-    for (; x; x = x->next) {
+    for (size_t i = 0; i < serverlist_vec.size; i++) {
+      struct server_list *x = (struct server_list *)op_vec_get(&serverlist_vec, i);
       op_strbuf_t s = {};
       op_strbuf_init(&s);
 #ifdef IPV6
@@ -60,18 +59,17 @@ static void cmd_servers(struct userrec *u, int idx, char *par)
       } else {
         setpass = "";
       }
-      if ((i == curserv) && realservername) {
+      if (((int)i == curserv) && realservername) {
         op_strbuf_appendf(&s, "%s%s (%s) <- I am here",
                           int_to_base10(x->port ? x->port : default_port),
                           setpass, realservername);
       } else {
         op_strbuf_appendf(&s, "%s%s", int_to_base10(x->port ? x->port : default_port), setpass);
-        if (i == curserv)
+        if ((int)i == curserv)
           op_strbuf_append_cstr(&s, " <- I am here");
       }
       dprintf(idx, "%s\n", op_strbuf_str(&s));
       op_strbuf_free(&s);
-      i++;
     }
     dprintf(idx, "End of server list.\n");
   }
@@ -124,9 +122,9 @@ server, but Eggdrop was not compiled with SSL libraries. Skipping...");
     putlog(LOG_CMDS, "*", "#%s# jump %s %d %s", dcc[idx].nick, other,
            port, par);
 #endif
-    strlcpy(newserver, other, sizeof newserver);
+    op_strlcpy(newserver, other, sizeof newserver);
     newserverport = port;
-    strlcpy(newserverpass, par, sizeof newserverpass);
+    op_strlcpy(newserverpass, par, sizeof newserverpass);
   } else
     putlog(LOG_CMDS, "*", "#%s# jump", dcc[idx].nick);
   dprintf(idx, "%s...\n", IRC_JUMP);
@@ -142,7 +140,7 @@ static void cmd_clearqueue(struct userrec *u, int idx, char *par)
     dprintf(idx, "Usage: clearqueue <mode|server|help|all>\n");
     return;
   }
-  if (!strcasecmp(par, "all")) {
+  if (!op_strcasecmp(par, "all")) {
     msgs = modeq.tot + mq.tot + hq.tot;
     msgq_clear(&modeq);
     msgq_clear(&mq);
@@ -150,7 +148,7 @@ static void cmd_clearqueue(struct userrec *u, int idx, char *par)
     double_warned = burst = 0;
     dprintf(idx, "Removed %d message%s from all queues.\n", msgs,
             (msgs != 1) ? "s" : "");
-  } else if (!strcasecmp(par, "mode")) {
+  } else if (!op_strcasecmp(par, "mode")) {
     msgs = modeq.tot;
     msgq_clear(&modeq);
     if (mq.tot == 0)
@@ -158,13 +156,13 @@ static void cmd_clearqueue(struct userrec *u, int idx, char *par)
     double_warned = 0;
     dprintf(idx, "Removed %d message%s from the mode queue.\n", msgs,
             (msgs != 1) ? "s" : "");
-  } else if (!strcasecmp(par, "help")) {
+  } else if (!op_strcasecmp(par, "help")) {
     msgs = hq.tot;
     msgq_clear(&hq);
     double_warned = 0;
     dprintf(idx, "Removed %d message%s from the help queue.\n", msgs,
             (msgs != 1) ? "s" : "");
-  } else if (!strcasecmp(par, "server")) {
+  } else if (!op_strcasecmp(par, "server")) {
     msgs = mq.tot;
     msgq_clear(&mq);
     if (modeq.tot == 0)
@@ -211,7 +209,7 @@ static void cmd_create(struct userrec *u, int idx, char *par)
   if (ownerkey[0]) {
     struct chanset_t *ch = findchan_by_dname(channel);
     if (ch)
-      strlcpy(ch->ircx_ownerkey, ownerkey, sizeof(ch->ircx_ownerkey));
+      op_strlcpy(ch->ircx_ownerkey, ownerkey, sizeof(ch->ircx_ownerkey));
   }
   dprintf(idx, "Sent CREATE %s\n", channel);
 }

@@ -64,10 +64,10 @@ extern op_vec_t hook_list[REAL_HOOKS];
 typedef struct _dependancy {
   struct _module_entry *needed;
   struct _module_entry *needing;
-  struct _dependancy *next;
   int major;
   int minor;
 } dependancy;
-extern dependancy *dependancy_list;
+extern op_vec_t module_vec;
+extern op_vec_t dep_vec;
 
 #endif /* _EGG_MODULE_H */

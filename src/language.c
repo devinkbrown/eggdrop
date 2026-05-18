@@ -66,30 +66,22 @@
 extern struct dcc_t *dcc;
 
 typedef struct lang_st {
-  struct lang_st *next;
   char *lang;
   char *section;
 } lang_sec;
 
-typedef struct lang_pr {
-  struct lang_pr *next;
-  char *lang;
-} lang_pri;
-
 typedef struct lang_t {
   int idx;
   char *text;
-  struct lang_t *next;
 } lang_tab;
 
-static lang_tab *langtab[64];
-static lang_sec *langsection = nullptr;
-static lang_pri *langpriority = nullptr;
+static op_vec_t langtab[64];
+static op_vec_t  langsec_vec;  /* vec of lang_sec* */
+static op_vec_t  langpri_vec;  /* vec of char* (lang names), index 0 = highest priority */
 static char lang_dir_override[512] = "";  /* set via set_lang_dir() */
 
 static op_bh *lang_tab_bh  = nullptr;
 static op_bh *lang_sec_bh  = nullptr;
-static op_bh *lang_pri_bh  = nullptr;
 
 static int del_lang(char *);
 static int add_message(int, char *);
@@ -110,34 +102,17 @@ char language[64];
  */
 static void add_lang(char *lang)
 {
-  lang_pri *lp = langpriority, *lpo = nullptr;
-
-  while (lp) {
-    /* The language already exists, moving to the beginning */
-    if (!strcmp(lang, lp->lang)) {
-      /* Already at the front? */
-      if (!lpo)
-        return;
-      lpo->next = lp->next;
-      lp->next = lpo;
-      langpriority = lp;
+  for (size_t i = 0; i < langpri_vec.size; i++) {
+    char *entry = (char *)op_vec_get(&langpri_vec, i);
+    if (!strcmp(lang, entry)) {
+      if (i == 0)
+        return;  /* already highest priority */
+      op_vec_remove(&langpri_vec, i);
+      op_vec_insert(&langpri_vec, 0, entry);
       return;
     }
-    lpo = lp;
-    lp = lp->next;
   }
-
-  /* No existing entry, create a new one */
-  if (!lang_pri_bh)
-    lang_pri_bh = op_bh_create(sizeof(lang_pri), 8, "lang_pri");
-  lp = op_bh_alloc(lang_pri_bh);
-  lp->lang = op_strdup(lang);
-  lp->next = nullptr;
-
-  /* If we have other entries, point to the beginning of the old list */
-  if (langpriority)
-    lp->next = langpriority;
-  langpriority = lp;
+  op_vec_insert(&langpri_vec, 0, op_strdup(lang));
   debug1("LANG: Language added to list: %s", lang);
 }
 
@@ -145,51 +120,36 @@ static void add_lang(char *lang)
  */
 static int del_lang(char *lang)
 {
-  lang_pri *lp = langpriority, *lpo = nullptr;
-
-  while (lp) {
-    /* Found the language? */
-    if (!strcmp(lang, lp->lang)) {
-      if (lpo)
-        lpo->next = lp->next;
-      else
-        langpriority = lp->next;
-      op_free(lp->lang);
-      op_bh_free(lang_pri_bh, lp);
+  for (size_t i = 0; i < langpri_vec.size; i++) {
+    char *entry = (char *)op_vec_get(&langpri_vec, i);
+    if (!strcmp(lang, entry)) {
+      op_vec_remove(&langpri_vec, i);
+      op_free(entry);
       debug1("LANG: Language unloaded: %s", lang);
       return 1;
     }
-    lpo = lp;
-    lp = lp->next;
   }
-  /* Language not found */
   return 0;
 }
 
 static int add_message(int lidx, char *ltext)
 {
-  lang_tab *l = langtab[lidx & 63];
+  op_vec_t *bucket = &langtab[lidx & 63];
 
-  while (l) {
-    if (l->idx && (l->idx == lidx)) {
+  for (size_t i = 0; i < bucket->size; i++) {
+    lang_tab *l = (lang_tab *)op_vec_get(bucket, i);
+    if (l->idx && l->idx == lidx) {
       op_free(l->text);
       l->text = op_strdup(ltext);
       return 1;
     }
-    if (!l->next)
-      break;
-    l = l->next;
   }
   if (!lang_tab_bh)
     lang_tab_bh = op_bh_create(sizeof(lang_tab), 64, "lang_tab");
-  if (l) {
-    l->next = op_bh_alloc(lang_tab_bh);
-    l = l->next;
-  } else
-    l = langtab[lidx & 63] = op_bh_alloc(lang_tab_bh);
+  lang_tab *l = (lang_tab *)op_bh_alloc(lang_tab_bh);
   l->idx = lidx;
   l->text = op_strdup(ltext);
-  l->next = 0;
+  op_vec_push(bucket, l);
   return 0;
 }
 
@@ -198,12 +158,9 @@ static int add_message(int lidx, char *ltext)
  */
 static void recheck_lang_sections(void)
 {
-  lang_sec *ls;
-  char *langfile;
-
-  for (ls = langsection; ls && ls->section; ls = ls->next) {
-    langfile = get_langfile(ls);
-    /* Found a language with a more preferred language? */
+  for (size_t i = 0; i < langsec_vec.size; i++) {
+    lang_sec *ls = (lang_sec *)op_vec_get(&langsec_vec, i);
+    char *langfile = get_langfile(ls);
     if (langfile) {
       read_lang(langfile);
       op_free(langfile);
@@ -256,7 +213,7 @@ static void read_lang(char *langfile)
         continue;
       }
       if ((ctmp = strchr(lbuf, ',')))
-        strlcpy(ltext, ctmp + 1, ltextsize);
+        op_strlcpy(ltext, ctmp + 1, ltextsize);
       else 
         putlog(LOG_MISC, "*", "LANG: Malformed text line (missing ,) in %s at %d.",
                langfile, lline);
@@ -266,7 +223,7 @@ static void read_lang(char *langfile)
         ltextsize += sizeof lbuf;
         ltext = op_realloc(ltext, ltextsize);
       }
-      strlcpy(ltext + len, lbuf, ltextsize - len);
+      op_strlcpy(ltext + len, lbuf, ltextsize - len);
     }
     if ((ctmp = strchr(ltext, '\n'))) {
       lline++;
@@ -309,11 +266,11 @@ static void read_lang(char *langfile)
  */
 int exist_lang_section(char *section)
 {
-  lang_sec *ls;
-
-  for (ls = langsection; ls; ls = ls->next)
+  for (size_t i = 0; i < langsec_vec.size; i++) {
+    lang_sec *ls = (lang_sec *)op_vec_get(&langsec_vec, i);
     if (!strcmp(section, ls->section))
       return 1;
+  }
   return 0;
 }
 
@@ -322,43 +279,32 @@ int exist_lang_section(char *section)
  */
 void add_lang_section(char *section)
 {
-  char *langfile = nullptr;
-  lang_sec *ls, *ols = nullptr;
+  char *langfile;
   int ok = 0;
 
-  for (ls = langsection; ls; ols = ls, ls = ls->next)
-    /* Already know of that section? */
+  for (size_t i = 0; i < langsec_vec.size; i++) {
+    lang_sec *ls = (lang_sec *)op_vec_get(&langsec_vec, i);
     if (!strcmp(section, ls->section))
       return;
-
-  /* Create new section entry */
+  }
   if (!lang_sec_bh)
     lang_sec_bh = op_bh_create(sizeof(lang_sec), 16, "lang_sec");
-  ls = op_bh_alloc(lang_sec_bh);
+  lang_sec *ls = (lang_sec *)op_bh_alloc(lang_sec_bh);
   ls->section = op_strdup(section);
   ls->lang = nullptr;
-  ls->next = nullptr;
-
-  /* Connect to existing list of sections */
-  if (ols)
-    ols->next = ls;
-  else
-    langsection = ls;
+  op_vec_push(&langsec_vec, ls);
   debug1("LANG: Section loaded: %s", section);
 
-  /* Always load base language */
   langfile = get_specific_langfile(BASELANG, ls);
   if (langfile) {
     read_lang(langfile);
     op_free(langfile);
     ok = 1;
   }
-  /* Now overwrite base language with a more preferred one */
   langfile = get_langfile(ls);
   if (!langfile) {
     if (!ok)
-      putlog(LOG_MISC, "*", "LANG: No lang files found for section %s.",
-             section);
+      putlog(LOG_MISC, "*", "LANG: No lang files found for section %s.", section);
     return;
   }
   read_lang(langfile);
@@ -367,14 +313,10 @@ void add_lang_section(char *section)
 
 int del_lang_section(char *section)
 {
-  lang_sec *ls, *ols;
-
-  for (ls = langsection, ols = nullptr; ls; ols = ls, ls = ls->next)
+  for (size_t i = 0; i < langsec_vec.size; i++) {
+    lang_sec *ls = (lang_sec *)op_vec_get(&langsec_vec, i);
     if (ls->section && !strcmp(ls->section, section)) {
-      if (ols)
-        ols->next = ls->next;
-      else
-        langsection = ls->next;
+      op_vec_remove_fast(&langsec_vec, i);
       op_free(ls->section);
       if (ls->lang)
         op_free(ls->lang);
@@ -382,6 +324,7 @@ int del_lang_section(char *section)
       debug1("LANG: Section unloaded: %s", section);
       return 1;
     }
+  }
   return 0;
 }
 
@@ -390,20 +333,17 @@ int del_lang_section(char *section)
  * default search behaviour. */
 void set_lang_dir(const char *dir)
 {
-  strlcpy(lang_dir_override, dir ? dir : "", sizeof lang_dir_override);
+  op_strlcpy(lang_dir_override, dir ? dir : "", sizeof lang_dir_override);
   /* Retry sections whose lang files were not found under the previous path
    * (those have ls->lang == nullptr after add_lang_section was called). */
-  {
-    lang_sec *ls;
-    char *langfile;
-    for (ls = langsection; ls && ls->section; ls = ls->next) {
-      if (ls->lang)
-        continue;   /* already loaded */
-      langfile = get_specific_langfile(BASELANG, ls);
-      if (langfile) {
-        read_lang(langfile);
-        op_free(langfile);
-      }
+  for (size_t i = 0; i < langsec_vec.size; i++) {
+    lang_sec *ls = (lang_sec *)op_vec_get(&langsec_vec, i);
+    if (ls->lang)
+      continue;
+    char *langfile = get_specific_langfile(BASELANG, ls);
+    if (langfile) {
+      read_lang(langfile);
+      op_free(langfile);
     }
   }
 }
@@ -435,7 +375,7 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
       /* Save language used for this section */
       size_t _len = strlen(language) + 1;
       sec->lang = op_realloc(sec->lang, _len);
-      strlcpy(sec->lang, language, _len);
+      op_strlcpy(sec->lang, language, _len);
       return langfile;
     }
     op_free(langfile);
@@ -448,18 +388,14 @@ static char *get_specific_langfile(char *language, lang_sec *sec)
  */
 static char *get_langfile(lang_sec *sec)
 {
-  char *langfile;
-  lang_pri *lp;
-
-  for (lp = langpriority; lp; lp = lp->next) {
-    /* There is no need to reload the same language */
-    if (sec->lang && !strcmp(sec->lang, lp->lang))
+  for (size_t i = 0; i < langpri_vec.size; i++) {
+    char *lang = (char *)op_vec_get(&langpri_vec, i);
+    if (sec->lang && !strcmp(sec->lang, lang))
       return nullptr;
-    langfile = get_specific_langfile(lp->lang, sec);
+    char *langfile = get_specific_langfile(lang, sec);
     if (langfile)
       return langfile;
   }
-  /* We did not find any files, clear the language field */
   if (sec->lang)
     op_free(sec->lang);
   sec->lang = nullptr;
@@ -591,8 +527,10 @@ static int cmd_languagedump(struct userrec *u, int idx, char *par)
   }
   dprintf(idx, " LANGIDX TEXT\n");
   for (int i = 0; i < 64; i++)
-    for (l = langtab[i]; l; l = l->next)
+    for (size_t j = 0; j < langtab[i].size; j++) {
+      l = (lang_tab *)op_vec_get(&langtab[i], j);
       dprintf(idx, "0x%x   %s\n", l->idx, l->text);
+    }
   return 0;
 }
 
@@ -603,9 +541,14 @@ char *get_language(int idx)
 
   if (!idx)
     return "MSG-0-";
-  for (l = langtab[idx & 63]; l; l = l->next)
-    if (idx == l->idx)
-      return l->text;
+  {
+    op_vec_t *bucket = &langtab[idx & 63];
+    for (size_t i = 0; i < bucket->size; i++) {
+      l = (lang_tab *)op_vec_get(bucket, i);
+      if (idx == l->idx)
+        return l->text;
+    }
+  }
   op_strbuf_clear(&text);
   op_strbuf_appendf(&text, "MSG%03X", idx);
   return (char *) op_strbuf_str(&text);
@@ -617,15 +560,9 @@ static int cmd_languagestatus(struct userrec *u, int idx, char *par)
 {
   int ltexts = 0;
   int maxdepth = 0, used = 0, empty = 0;
-  lang_tab *l;
-  lang_sec *ls = langsection;
-  lang_pri *lp = langpriority;
-
   putlog(LOG_CMDS, "*", "#%s# lstat %s", dcc[idx].nick, par);
   for (int i = 0; i < 64; i++) {
-    int c = 0;
-    for (l = langtab[i]; l; l = l->next)
-      c++;
+    int c = (int)langtab[i].size;
     if (c > maxdepth)
       maxdepth = c;
     if (c)
@@ -638,22 +575,22 @@ static int cmd_languagestatus(struct userrec *u, int idx, char *par)
   dprintf(idx, "   Text messages: %d\n", ltexts);
   dprintf(idx, "   %d used, %d unused, maxdepth %d, avg %f\n",
           used, empty, maxdepth, (float) ltexts / 64.0);
-  if (lp) {
+  if (langpri_vec.size) {
     int comma = 0;
-
     dprintf(idx, "   Supported languages:");
-    for (; lp; lp = lp->next) {
-      dprintf(idx, "%s %s", comma ? "," : "", lp->lang);
+    for (size_t i = 0; i < langpri_vec.size; i++) {
+      dprintf(idx, "%s %s", comma ? "," : "", (char *)op_vec_get(&langpri_vec, i));
       comma = 1;
     }
     dprintf(idx, "\n");
   }
-  if (ls) {
+  if (langsec_vec.size) {
     dprintf(idx, "\n   SECTION              LANG\n");
     dprintf(idx, "   ==============================\n");
-    for (; ls; ls = ls->next)
-      dprintf(idx, "   %-20s %s\n", ls->section,
-              ls->lang ? ls->lang : "<none>");
+    for (size_t i = 0; i < langsec_vec.size; i++) {
+      lang_sec *ls = (lang_sec *)op_vec_get(&langsec_vec, i);
+      dprintf(idx, "   %-20s %s\n", ls->section, ls->lang ? ls->lang : "<none>");
+    }
   }
   return 0;
 }
@@ -702,7 +639,7 @@ static int tcl_plslang STDVAR
 {
   BADARGS(2, 2, " language");
 
-  strlcpy(language, argv[1], sizeof language);
+  op_strlcpy(language, argv[1], sizeof language);
   add_lang(argv[1]);
   recheck_lang_sections();
 

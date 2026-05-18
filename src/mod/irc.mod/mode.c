@@ -56,7 +56,7 @@ static struct chanset_t *modebind_refresh(const char *chname,
     char tmphost[UHOSTLEN];
     char *p;
     memberlist *_mu;
-    strlcpy(tmphost, usrhost, sizeof tmphost);
+    op_strlcpy(tmphost, usrhost, sizeof tmphost);
     p = tmphost;
     _mu = ismember(chan, splitnick(&p));
     u = lookup_user_record(_mu, _mu ? _mu->account : nullptr, usrhost);
@@ -66,7 +66,7 @@ static struct chanset_t *modebind_refresh(const char *chname,
     char tmphost[UHOSTLEN];
     char *p;
     memberlist *_mv;
-    strlcpy(tmphost, vcrhost, sizeof tmphost);
+    op_strlcpy(tmphost, vcrhost, sizeof tmphost);
     p = tmphost;
     _mv = ismember(chan, splitnick(&p));
     u = lookup_user_record(_mv, _mv ? _mv->account : nullptr, vcrhost);
@@ -130,7 +130,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s ", int_to_base10(chan->limit));
       char *_dst = &post[(sizeof(post) - 1) - postsize];
-      strlcpy(_dst, op_strbuf_str(&_b), postsize + 1);
+      op_strlcpy(_dst, op_strbuf_str(&_b), postsize + 1);
       op_strbuf_free(&_b);
       postsize -= (int) strlen(_dst);
     }
@@ -331,7 +331,7 @@ static void real_add_mode(struct chanset_t *chan,
         chan->cmode[i].type = type;
         chan->cmode[i].op = (char *) channel_malloc(l);
         chan->bytes += l;       /* Add 1 for safety */
-        strlcpy(chan->cmode[i].op, op, l);
+        op_strlcpy(chan->cmode[i].op, op, l);
         break;
       }
   }
@@ -353,13 +353,7 @@ static void real_add_mode(struct chanset_t *chan,
     chan->limit = egg_atoi(op);
   else {
     /* Typical mode changes */
-    op_strbuf_t s = {};
-    op_strbuf_init(&s);
-    if (plus == '+')
-      op_strbuf_appendf(&s, "%s", chan->pls);
-    else
-      op_strbuf_appendf(&s, "%s", chan->mns);
-    if (!strchr(op_strbuf_str(&s), mode)) {
+    if (!strchr(plus == '+' ? chan->pls : chan->mns, mode)) {
       if (plus == '+') {
         chan->pls[strlen(chan->pls) + 1] = 0;
         chan->pls[strlen(chan->pls)] = mode;
@@ -368,7 +362,6 @@ static void real_add_mode(struct chanset_t *chan,
         chan->mns[strlen(chan->mns)] = mode;
       }
     }
-    op_strbuf_free(&s);
   }
   modes = modesperline;         /* Check for full buffer. */
   for (int i = 0; i < modesperline; i++)
@@ -431,7 +424,7 @@ static void got_op(struct chanset_t *chan, char *nick, char *from,
   if (!me_op(chan) && match_my_nick(who))
     check_chan = 1;
 
-  strlcpy(ch, chan->name, sizeof(ch));
+  op_strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s = {};
   op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
@@ -532,7 +525,7 @@ static void got_halfop(struct chanset_t *chan, char *nick, char *from,
   if (!me_op(chan) && !me_halfop(chan) && match_my_nick(who))
     check_chan = 1;
 
-  strlcpy(ch, chan->name, sizeof(ch));
+  op_strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s = {};
   op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
@@ -624,7 +617,7 @@ static void got_deop(struct chanset_t *chan, char *nick, char *from,
     return;
   }
 
-  strlcpy(ch, chan->name, sizeof ch);
+  op_strlcpy(ch, chan->name, sizeof ch);
   op_strbuf_t _s = {}, _s1 = {};
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   op_strbuf_appendf(&_s1, "%s!%s", nick, from);
@@ -721,7 +714,7 @@ static void got_dehalfop(struct chanset_t *chan, char *nick, char *from,
     return;
   }
 
-  strlcpy(ch, chan->name, sizeof ch);
+  op_strlcpy(ch, chan->name, sizeof ch);
   op_strbuf_t _s = {}, _s1 = {};
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
   op_strbuf_appendf(&_s1, "%s!%s", nick, from);
@@ -800,7 +793,7 @@ static void got_owner(struct chanset_t *chan, char *nick, char *from,
     return;
   }
 
-  strlcpy(ch, chan->name, sizeof(ch));
+  op_strlcpy(ch, chan->name, sizeof(ch));
   op_strbuf_t _s = {};
   op_strbuf_init(&_s);
   op_strbuf_appendf(&_s, "%s!%s", m->nick, m->userhost);
@@ -849,7 +842,7 @@ static void got_deowner(struct chanset_t *chan, char *nick, char *from,
     return;
   }
 
-  strlcpy(ch, chan->name, sizeof ch);
+  op_strlcpy(ch, chan->name, sizeof ch);
   {
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
@@ -1159,7 +1152,7 @@ static int gotmode(char *from, char *origmsg)
   memberlist *m;
   struct chanset_t *chan;
 
-  strlcpy(buf, origmsg, sizeof buf);
+  op_strlcpy(buf, origmsg, sizeof buf);
   msg = buf;
   /* Usermode changes? */
   if (msg[0] && (strchr(CHANMETA, msg[0]) != nullptr)) {

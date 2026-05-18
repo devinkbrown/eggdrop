@@ -87,7 +87,7 @@ static int convert_old_files(char *path, char *newfiledb)
           } else {
             size_t desc_sz = strlen(s) + 1;
             fdbe->desc = op_malloc(desc_sz);
-            strlcpy(fdbe->desc, s, desc_sz);
+            op_strlcpy(fdbe->desc, s, desc_sz);
           }
         }
       } else {

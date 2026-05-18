@@ -90,29 +90,29 @@ static int ctcp_CLIENTINFO(char *nick, char *uhosr, char *handle,
     return 1;
   else if (!msg[0])
     p = CLIENTINFO;
-  else if (!strcasecmp(msg, "sed"))
+  else if (!op_strcasecmp(msg, "sed"))
     p = CLIENTINFO_SED;
-  else if (!strcasecmp(msg, "version"))
+  else if (!op_strcasecmp(msg, "version"))
     p = CLIENTINFO_VERSION;
-  else if (!strcasecmp(msg, "clientinfo"))
+  else if (!op_strcasecmp(msg, "clientinfo"))
     p = CLIENTINFO_CLIENTINFO;
-  else if (!strcasecmp(msg, "userinfo"))
+  else if (!op_strcasecmp(msg, "userinfo"))
     p = CLIENTINFO_USERINFO;
-  else if (!strcasecmp(msg, "errmsg"))
+  else if (!op_strcasecmp(msg, "errmsg"))
     p = CLIENTINFO_ERRMSG;
-  else if (!strcasecmp(msg, "finger"))
+  else if (!op_strcasecmp(msg, "finger"))
     p = CLIENTINFO_FINGER;
-  else if (!strcasecmp(msg, "time"))
+  else if (!op_strcasecmp(msg, "time"))
     p = CLIENTINFO_TIME;
-  else if (!strcasecmp(msg, "action"))
+  else if (!op_strcasecmp(msg, "action"))
     p = CLIENTINFO_ACTION;
-  else if (!strcasecmp(msg, "dcc"))
+  else if (!op_strcasecmp(msg, "dcc"))
     p = CLIENTINFO_DCC;
-  else if (!strcasecmp(msg, "utc"))
+  else if (!op_strcasecmp(msg, "utc"))
     p = CLIENTINFO_UTC;
-  else if (!strcasecmp(msg, "ping"))
+  else if (!op_strcasecmp(msg, "ping"))
     p = CLIENTINFO_PING;
-  else if (!strcasecmp(msg, "echo"))
+  else if (!op_strcasecmp(msg, "echo"))
     p = CLIENTINFO_ECHO;
   if (p == nullptr)
     op_strbuf_appendf(&ctcp_reply, "\001ERRMSG CLIENTINFO: %s is not a valid function\001", msg);
@@ -155,22 +155,22 @@ static int ctcp_CHAT(char *nick, char *uhost, char *handle, char *object,
 /* Check if SSL, IPv4, or IPv6 were requested */
     if (
 #ifdef IPV6
-    (!strcasecmp(keyword, "CHAT6")) ||
-        (!strcasecmp(keyword, "SCHAT6"))) {
+    (!op_strcasecmp(keyword, "CHAT6")) ||
+        (!op_strcasecmp(keyword, "SCHAT6"))) {
       chatv = AF_INET6;
     } else if (
 #endif
 #ifdef TLS
-    (!strcasecmp(keyword, "SCHAT")) ||
+    (!op_strcasecmp(keyword, "SCHAT")) ||
 #ifdef IPV6
-        (!strcasecmp(keyword, "SCHAT6")) ||
+        (!op_strcasecmp(keyword, "SCHAT6")) ||
 #endif
-        (!strcasecmp(keyword, "SCHAT4"))) {
+        (!op_strcasecmp(keyword, "SCHAT4"))) {
       ssl = 1;
     } else if (
 #endif
-    (!strcasecmp(keyword, "CHAT4")) ||
-        (!strcasecmp(keyword, "SCHAT4"))) {
+    (!op_strcasecmp(keyword, "CHAT4")) ||
+        (!op_strcasecmp(keyword, "SCHAT4"))) {
       chatv = AF_INET;
     }
 
@@ -278,10 +278,10 @@ char *ctcp_start(Function *global_funcs)
   add_builtins(H_ctcp, myctcp);
   add_help_reference("ctcp.help");
   if (!ctcp_version[0])
-    strlcpy(ctcp_version, ver, sizeof ctcp_version);
+    op_strlcpy(ctcp_version, ver, sizeof ctcp_version);
   if (!ctcp_finger[0])
-    strlcpy(ctcp_finger, ver, sizeof ctcp_finger);
+    op_strlcpy(ctcp_finger, ver, sizeof ctcp_finger);
   if (!ctcp_userinfo[0])
-    strlcpy(ctcp_userinfo, ver, sizeof ctcp_userinfo);
+    op_strlcpy(ctcp_userinfo, ver, sizeof ctcp_userinfo);
   return nullptr;
 }

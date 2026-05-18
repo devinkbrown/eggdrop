@@ -38,7 +38,7 @@ extern Tcl_Interp *interp;
 extern int resolve_timeout;
 extern sigjmp_buf alarmret;
 
-devent_t *dns_events = nullptr;
+static op_vec_t dns_events;
 
 /* Slab allocators for DNS event nodes — lazy-initialised on first DNS call. */
 static op_bh *devent_bh  = nullptr;
@@ -157,7 +157,7 @@ static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
         op_free(dcc[idx].u.dns->host);
       size_t _len = strlen(hostn) + 1;
       dcc[idx].u.dns->host = get_data_ptr(_len);
-      strlcpy(dcc[idx].u.dns->host, hostn, _len);
+      op_strlcpy(dcc[idx].u.dns->host, hostn, _len);
       if (ok)
         dcc[idx].u.dns->dns_success(idx);
       else
@@ -176,7 +176,7 @@ static void dns_dccipbyhost(sockname_t *ip, char *hostn, int ok, void *other)
   for (idx = 0; idx < dcc_total; idx++) {
     if ((dcc[idx].type == &DCC_DNSWAIT) &&
         (dcc[idx].u.dns->dns_type == RES_IPBYHOST) &&
-        !strcasecmp(dcc[idx].u.dns->host, hostn)) {
+        !op_strcasecmp(dcc[idx].u.dns->host, hostn)) {
       if (ok) {
         memcpy(&dcc[idx].sockname, ip, sizeof(sockname_t));
         dcc[idx].u.dns->dns_success(idx);
@@ -205,66 +205,41 @@ devent_type DNS_DCCEVENT_IPBYHOST = {
 
 void dcc_dnsipbyhost(char *hostn)
 {
-  devent_t *de;
-
-  for (de = dns_events; de; de = de->next) {
+  for (size_t i = 0; i < dns_events.size; i++) {
+    devent_t *de = (devent_t *)op_vec_get(&dns_events, i);
     if (de->type && (de->type == &DNS_DCCEVENT_IPBYHOST) &&
-        (de->lookup == RES_IPBYHOST)) {
-      if (de->res_data.hostname &&
-          !strcasecmp(de->res_data.hostname, hostn))
-        /* No need to add anymore. */
-        return;
-    }
+        (de->lookup == RES_IPBYHOST) && de->res_data.hostname &&
+        !op_strcasecmp(de->res_data.hostname, hostn))
+      return;
   }
-
   if (!devent_bh)
     devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
-  de = op_bh_alloc(devent_bh);
-  memset(de, 0, sizeof *de);
-
-  /* Link into list. */
-  de->next = dns_events;
-  dns_events = de;
-
+  devent_t *de = (devent_t *)op_bh_alloc(devent_bh);
   de->type = &DNS_DCCEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
   de->res_data.hostname = op_strdup(hostn);
-
-  /* Send request. */
+  op_vec_push(&dns_events, de);
   dns_ipbyhost(hostn);
 }
 
 void dcc_dnshostbyip(sockname_t *ip)
 {
-  devent_t *de;
-
-  for (de = dns_events; de; de = de->next) {
+  for (size_t i = 0; i < dns_events.size; i++) {
+    devent_t *de = (devent_t *)op_vec_get(&dns_events, i);
     if (de->type && (de->type == &DNS_DCCEVENT_HOSTBYIP) &&
-        (de->lookup == RES_HOSTBYIP)) {
-      if (ipaddr_equal(ip, de->res_data.ip_addr)) {
-        /* No need to add anymore. */
-        return;
-      }
-    }
+        (de->lookup == RES_HOSTBYIP) && ipaddr_equal(ip, de->res_data.ip_addr))
+      return;
   }
-
   if (!devent_bh)
     devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
-  de = op_bh_alloc(devent_bh);
-  memset(de, 0, sizeof *de);
-
-  /* Link into list. */
-  de->next = dns_events;
-  dns_events = de;
-
+  devent_t *de = (devent_t *)op_bh_alloc(devent_bh);
   de->type = &DNS_DCCEVENT_HOSTBYIP;
   de->lookup = RES_HOSTBYIP;
   if (!sockname_bh)
     sockname_bh = op_bh_create(sizeof(sockname_t), 16, "dns_sockname");
-  de->res_data.ip_addr = op_bh_alloc(sockname_bh);
+  de->res_data.ip_addr = (sockname_t *)op_bh_alloc(sockname_bh);
   memcpy(de->res_data.ip_addr, ip, sizeof *ip);
-
-  /* Send request. */
+  op_vec_push(&dns_events, de);
   dns_hostbyip(ip);
 }
 
@@ -329,70 +304,41 @@ devent_type DNS_TCLEVENT_IPBYHOST = {
  */
 static void tcl_dnsipbyhost(char *hostn, char *proc, char *paras)
 {
-  devent_t *de;
-  devent_tclinfo_t *tclinfo;
-
   if (!devent_bh)
     devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
-  de = op_bh_alloc(devent_bh);
-  memset(de, 0, sizeof *de);
-
-  /* Link into list. */
-  de->next = dns_events;
-  dns_events = de;
-
+  devent_t *de = (devent_t *)op_bh_alloc(devent_bh);
   de->type = &DNS_TCLEVENT_IPBYHOST;
   de->lookup = RES_IPBYHOST;
   de->res_data.hostname = op_strdup(hostn);
-
-  /* Store additional data. */
   if (!tclinfo_bh)
     tclinfo_bh = op_bh_create(sizeof(devent_tclinfo_t), 8, "dns_tclinfo");
-  tclinfo = op_bh_alloc(tclinfo_bh);
+  devent_tclinfo_t *tclinfo = (devent_tclinfo_t *)op_bh_alloc(tclinfo_bh);
   tclinfo->proc = op_strdup(proc);
-  if (paras) {
-    tclinfo->paras = op_strdup(paras);
-  } else
-    tclinfo->paras = nullptr;
+  tclinfo->paras = paras ? op_strdup(paras) : nullptr;
   de->other = tclinfo;
-
-  /* Send request. */
+  op_vec_push(&dns_events, de);
   dns_ipbyhost(hostn);
 }
 
 static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
 {
-  devent_t *de;
-  devent_tclinfo_t *tclinfo;
-
   if (!devent_bh)
     devent_bh = op_bh_create(sizeof(devent_t), 16, "dns_devent");
-  de = op_bh_alloc(devent_bh);
-  memset(de, 0, sizeof *de);
-
-  /* Link into list. */
-  de->next = dns_events;
-  dns_events = de;
-
+  devent_t *de = (devent_t *)op_bh_alloc(devent_bh);
   de->type = &DNS_TCLEVENT_HOSTBYIP;
   de->lookup = RES_HOSTBYIP;
   if (!sockname_bh)
     sockname_bh = op_bh_create(sizeof(sockname_t), 16, "dns_sockname");
-  de->res_data.ip_addr = op_bh_alloc(sockname_bh);
+  de->res_data.ip_addr = (sockname_t *)op_bh_alloc(sockname_bh);
   memcpy(de->res_data.ip_addr, ip, sizeof *ip);
 
-  /* Store additional data. */
   if (!tclinfo_bh)
     tclinfo_bh = op_bh_create(sizeof(devent_tclinfo_t), 8, "dns_tclinfo");
-  tclinfo = op_bh_alloc(tclinfo_bh);
+  devent_tclinfo_t *tclinfo = (devent_tclinfo_t *)op_bh_alloc(tclinfo_bh);
   tclinfo->proc = op_strdup(proc);
-  if (paras) {
-    tclinfo->paras = op_strdup(paras);
-  } else
-    tclinfo->paras = nullptr;
+  tclinfo->paras = paras ? op_strdup(paras) : nullptr;
   de->other = tclinfo;
-
-  /* Send request. */
+  op_vec_push(&dns_events, de);
   dns_hostbyip(ip);
 }
 
@@ -403,13 +349,12 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
 
 [[maybe_unused]] static int dnsevent_expmem(void)
 {
-  devent_t *de;
   int tot = 0;
-
-  for (de = dns_events; de; de = de->next) {
-    tot += sizeof(devent_t);
+  for (size_t i = 0; i < dns_events.size; i++) {
+    devent_t *de = (devent_t *)op_vec_get(&dns_events, i);
+    tot += (int)sizeof(devent_t);
     if ((de->lookup == RES_IPBYHOST) && de->res_data.hostname)
-      tot += strlen(de->res_data.hostname) + 1;
+      tot += (int)strlen(de->res_data.hostname) + 1;
     if (de->type && de->type->expmem)
       tot += de->type->expmem(de->other);
   }
@@ -418,18 +363,12 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
 
 void call_hostbyip(sockname_t *ip, char *hostn, int ok)
 {
-  devent_t *de = dns_events, *ode = nullptr, *nde = nullptr;
-
-  while (de) {
-    nde = de->next;
+  /* Iterate backward so removal by index is safe; new entries appended by
+   * event handlers land beyond [i] and are not fired in this pass. */
+  for (size_t i = dns_events.size; i-- > 0; ) {
+    devent_t *de = (devent_t *)op_vec_get(&dns_events, i);
     if ((de->lookup == RES_HOSTBYIP) && ipaddr_equal(ip, de->res_data.ip_addr)) {
-      /* Remove the event from the list here, to avoid conflicts if one of
-       * the event handlers re-adds another event. */
-      if (ode)
-        ode->next = de->next;
-      else
-        dns_events = de->next;
-
+      op_vec_remove_fast(&dns_events, i);
       if (de->type && de->type->event)
         de->type->event(ip, hostn, ok, de->other);
       else
@@ -438,41 +377,26 @@ void call_hostbyip(sockname_t *ip, char *hostn, int ok)
       if (de->res_data.ip_addr)
         op_bh_free(sockname_bh, de->res_data.ip_addr);
       op_bh_free(devent_bh, de);
-      de = ode;
     }
-    ode = de;
-    de = nde;
   }
 }
 
 void call_ipbyhost(char *hostn, sockname_t *ip, int ok)
 {
-  devent_t *de = dns_events, *ode = nullptr, *nde = nullptr;
-
-  while (de) {
-    nde = de->next;
+  for (size_t i = dns_events.size; i-- > 0; ) {
+    devent_t *de = (devent_t *)op_vec_get(&dns_events, i);
     if ((de->lookup == RES_IPBYHOST) && (!de->res_data.hostname ||
-        !strcasecmp(de->res_data.hostname, hostn))) {
-      /* Remove the event from the list here, to avoid conflicts if one of
-       * the event handlers re-adds another event. */
-      if (ode)
-        ode->next = de->next;
-      else
-        dns_events = de->next;
-
+        !op_strcasecmp(de->res_data.hostname, hostn))) {
+      op_vec_remove_fast(&dns_events, i);
       if (de->type && de->type->event)
         de->type->event(ip, hostn, ok, de->other);
       else
         putlog(LOG_MISC, "*", "(!) Unknown DNS event type found: %s",
                (de->type && de->type->name) ? de->type->name : "<empty>");
-
       if (de->res_data.hostname)
         op_free(de->res_data.hostname);
       op_bh_free(devent_bh, de);
-      de = ode;
     }
-    ode = de;
-    de = nde;
   }
 }
 

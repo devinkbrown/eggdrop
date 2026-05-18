@@ -17,8 +17,6 @@ struct flag_record;
 #include "../src/flags.h"
 #undef MAKING_MODS
 
-/* --- Provide egg_bzero used by break_down_flags --- */
-#define egg_bzero(dest, len) memset(dest, 0, len)
 
 /* --- Extracted from src/flags.c: sanity_check (line ~243) --- */
 
@@ -74,10 +72,10 @@ static void break_down_flags(const char *string, struct flag_record *plus,
     else
       return;                   /* We don't actually want any..huh? */
   }
-  egg_bzero(plus, sizeof(struct flag_record));
+  memset(plus, 0, sizeof(struct flag_record));
 
   if (minus)
-    egg_bzero(minus, sizeof(struct flag_record));
+    memset(minus, 0, sizeof(struct flag_record));
 
   plus->match = FR_OR;          /* Default binding type OR */
   while (*string) {

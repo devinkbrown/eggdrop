@@ -98,7 +98,7 @@ static void free_fdbe(filedb_entry ** fdbe)
 static filedb_entry *_malloc_fdbe(char *file, int line)
 {
   filedb_entry *fdbe = op_malloc(sizeof(filedb_entry));
-  egg_bzero(fdbe, sizeof(filedb_entry));
+  op_memzero(fdbe, sizeof(filedb_entry));
 
   /* Mark as new, will be overwritten if necessary. */
   fdbe->_type = TYPE_NEW;
@@ -266,7 +266,7 @@ static int _filedb_updatefile(FILE *fdb, long pos, filedb_entry *fdbe,
   int reposition = 0;
   int ndyntot, odyntot, nbuftot, obuftot;
 
-  egg_bzero(&fdh, sizeof(filedb_header));
+  op_memzero(&fdh, sizeof(filedb_header));
   fdh.uploaded = fdbe->uploaded;
   fdh.size = fdbe->size;
   fdh.stat = fdbe->stat;
@@ -950,7 +950,7 @@ static void filedb_ls(FILE *fdb, int idx, char *mask, int showall)
         filelist_addout(flist, s3);
         my_free(s3);
       } else {
-        char t[50], *s3 = nullptr, *s4;
+        char t[50], *s3 = nullptr, *s4 = nullptr;
         op_strbuf_t s2_buf = {};
 
         op_strbuf_init(&s2_buf);

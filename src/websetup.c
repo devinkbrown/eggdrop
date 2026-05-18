@@ -13,7 +13,6 @@
 #ifndef _GNU_SOURCE
 #  define _GNU_SOURCE
 #endif
-#define COMPILING_MEM
 #include "main.h"
 
 #include <ctype.h>
@@ -67,7 +66,7 @@ static int get_form_field(const char *body, const char *key, char *out, size_t o
   size_t klen = strlen(key);
   const char *p = body;
 
-  while ((p = strstr(p, key)) != NULL) {
+  while ((p = strstr(p, key)) != nullptr) {
     if (p != body && *(p - 1) != '&') {
       p += klen;
       continue;
@@ -149,31 +148,31 @@ static int write_toml_config(const char *outfile, const char *body)
 
   get_form_field(body, "username", username, sizeof(username));
   if (!*username) {
-    strlcpy(username, nick, sizeof(username));
+    op_strlcpy(username, nick, sizeof(username));
     for (int i = 0; username[i]; i++)
       username[i] = (char)tolower((unsigned char)username[i]);
   }
 
   get_form_field(body, "admin", admin, sizeof(admin));
-  if (!*admin) strlcpy(admin, "Admin <admin@example.com>", sizeof(admin));
+  if (!*admin) op_strlcpy(admin, "Admin <admin@example.com>", sizeof(admin));
 
   get_form_field(body, "owner", owner, sizeof(owner));
-  if (!*owner) strlcpy(owner, nick, sizeof(owner));
+  if (!*owner) op_strlcpy(owner, nick, sizeof(owner));
 
   net_idx = get_form_int(body, "net_idx", 0);
   if (net_idx < 0 || net_idx > 8) net_idx = 0;
 
   if (net_idx < 8)
-    strlcpy(network, net_labels[net_idx], sizeof(network));
+    op_strlcpy(network, net_labels[net_idx], sizeof(network));
   else
     get_form_field(body, "network", network, sizeof(network));
-  if (!*network) strlcpy(network, "Other", sizeof(network));
+  if (!*network) op_strlcpy(network, "Other", sizeof(network));
 
   want_ircx = (net_idx == 7);
   const char *net_type_str = net_type_map[net_idx];
 
   get_form_field(body, "server", server, sizeof(server));
-  if (!*server) strlcpy(server, "irc.libera.chat", sizeof(server));
+  if (!*server) op_strlcpy(server, "irc.libera.chat", sizeof(server));
 
   use_ssl = get_form_bool(body, "use_ssl");
 
@@ -191,7 +190,7 @@ static int write_toml_config(const char *outfile, const char *body)
   want_dot = get_form_bool(body, "want_dot");
   get_form_field(body, "dot_server", dot_server, sizeof(dot_server));
   if (want_dot && !*dot_server)
-    strlcpy(dot_server, "1.1.1.1", sizeof(dot_server));
+    op_strlcpy(dot_server, "1.1.1.1", sizeof(dot_server));
 
   get_form_field(body, "ircx_ownerkey", ircx_ownerkey, sizeof(ircx_ownerkey));
   ircx_want_autoowner = get_form_bool(body, "ircx_autoowner");
@@ -203,7 +202,7 @@ static int write_toml_config(const char *outfile, const char *body)
     snprintf(key, sizeof(key), "channel%d", i);
     get_form_field(body, key, tmp, sizeof(tmp));
     if (*tmp && tmp[0] == '#') {
-      strlcpy(channels[nchan], tmp, sizeof(channels[0]));
+      op_strlcpy(channels[nchan], tmp, sizeof(channels[0]));
       nchan++;
     }
   }
@@ -755,16 +754,18 @@ static void send_full(int fd, const char *buf, size_t len)
 static void send_response(int fd, int status, const char *content_type,
                           const char *body, size_t body_len)
 {
-  char hdr[512];
   const char *status_text = (status == 200) ? "OK" : "Bad Request";
-  int hlen = snprintf(hdr, sizeof(hdr),
+  op_strbuf_t hdr = {};
+  op_strbuf_init(&hdr);
+  op_strbuf_appendf(&hdr,
     "HTTP/1.1 %d %s\r\n"
     "Content-Type: %s\r\n"
     "Content-Length: %zu\r\n"
     "Connection: close\r\n"
     "\r\n",
     status, status_text, content_type, body_len);
-  send_full(fd, hdr, (size_t)hlen);
+  send_full(fd, op_strbuf_str(&hdr), op_strbuf_len(&hdr));
+  op_strbuf_free(&hdr);
   if (body_len > 0)
     send_full(fd, body, body_len);
 }
@@ -782,7 +783,7 @@ static int read_request(int fd, char *buf, size_t bufsize)
     if (hdr_end) {
       size_t hdr_len = (size_t)(hdr_end - buf) + 4;
       /* Check Content-Length for POST bodies */
-      char *cl = strcasestr(buf, "Content-Length:");
+      char *cl = op_strcasestr(buf, "Content-Length:");
       if (cl) {
         int content_len = atoi(cl + 15);
         if (content_len > 0 && (int)(total - hdr_len) >= content_len)
@@ -852,17 +853,16 @@ int run_web_setup(int port, const char *outfile)
 
   /* Serve until config is written */
   for (;;) {
-    cli_fd = accept(srv_fd, NULL, NULL);
+    cli_fd = accept(srv_fd, nullptr, nullptr);
     if (cli_fd < 0) {
       if (errno == EINTR) continue;
       break;
     }
 
-    char *reqbuf = malloc(MAX_POST_BODY + MAX_HEADER_BUF);
-    if (!reqbuf) { close(cli_fd); continue; }
+    char *reqbuf = op_malloc(MAX_POST_BODY + MAX_HEADER_BUF);
 
     int reqlen = read_request(cli_fd, reqbuf, MAX_POST_BODY + MAX_HEADER_BUF);
-    if (reqlen <= 0) { free(reqbuf); close(cli_fd); continue; }
+    if (reqlen <= 0) { op_free(reqbuf); close(cli_fd); continue; }
 
     if (strncmp(reqbuf, "GET ", 4) == 0) {
       /* Serve the wizard page */
@@ -875,11 +875,13 @@ int run_web_setup(int port, const char *outfile)
         body += 4;
         int rc = write_toml_config(outfile, body);
         if (rc == 0) {
-          char json[256];
-          int jlen = snprintf(json, sizeof(json),
-            "{\"ok\":true,\"file\":\"%s\"}", outfile);
-          send_response(cli_fd, 200, "application/json", json, (size_t)jlen);
-          free(reqbuf);
+          op_strbuf_t json = {};
+          op_strbuf_init(&json);
+          op_strbuf_appendf(&json, "{\"ok\":true,\"file\":\"%s\"}", outfile);
+          send_response(cli_fd, 200, "application/json",
+                        op_strbuf_str(&json), op_strbuf_len(&json));
+          op_strbuf_free(&json);
+          op_free(reqbuf);
           close(cli_fd);
           close(srv_fd);
 
@@ -899,7 +901,7 @@ int run_web_setup(int port, const char *outfile)
       send_response(cli_fd, 400, "text/plain", "Bad Request\n", 12);
     }
 
-    free(reqbuf);
+    op_free(reqbuf);
     close(cli_fd);
   }
 

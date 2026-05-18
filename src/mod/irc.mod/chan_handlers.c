@@ -134,7 +134,7 @@ static int got352or4(struct chanset_t *chan, char *user, const char *host,
     m->flags = 0;               /* No flags for now */
     m->last = now;              /* Last time I saw him */
   }
-  strlcpy(m->nick, nick, sizeof m->nick);        /* Store the nick in list */
+  op_strlcpy(m->nick, nick, sizeof m->nick);        /* Store the nick in list */
   if (chan->channel.member_ht)
     op_htab_set(chan->channel.member_ht, m->nick, m, nullptr);
   /* Store the userhost */
@@ -142,14 +142,14 @@ static int got352or4(struct chanset_t *chan, char *user, const char *host,
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s@%s", user, host);
-    strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
+    op_strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
     op_strbuf_free(&_b);
   }
   /* Combine n!u@h */
   if (match_my_nick(nick)) {    /* Is it me? */
     if (!m->joined)
       m->joined = now;
-    strlcpy(botuserhost, m->userhost, sizeof(botuserhost));   /* Yes, save my own userhost */
+    op_strlcpy(botuserhost, m->userhost, sizeof(botuserhost));   /* Yes, save my own userhost */
   }
   m->flags |= WHO_SYNCED;
   /* IRCX/Ophion: ~ prefix means channel owner (+q).  Must be checked
@@ -255,7 +255,7 @@ static int gottwitch366(char *from, char *msg) {
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s %s :End of /who", nick, chan->dname);
-      strlcpy(fakemsg, op_strbuf_str(&_b), sizeof fakemsg);
+      op_strlcpy(fakemsg, op_strbuf_str(&_b), sizeof fakemsg);
       op_strbuf_free(&_b);
     }
     got315(from, fakemsg);  /* Send end of WHO, to get chan to ACTIVE state */
@@ -305,7 +305,7 @@ static int gotchghost(char *from, char *msg) {
   memberlist *m;
   char *nick, *ident, buf[MSGMAX], *s1=buf, *chname;
 
-  strlcpy(s1, from, sizeof buf);
+  op_strlcpy(s1, from, sizeof buf);
   nick = splitnick(&s1);
   ident = newsplit(&msg);  /* Get the ident */
   /* Update my own internal hostmask */
@@ -314,7 +314,7 @@ static int gotchghost(char *from, char *msg) {
       op_strbuf_t _b = {};
       op_strbuf_init(&_b);
       op_strbuf_appendf(&_b, "%s@%s", ident, msg);
-      strlcpy(botuserhost, op_strbuf_str(&_b), UHOSTMAX);
+      op_strlcpy(botuserhost, op_strbuf_str(&_b), UHOSTMAX);
       op_strbuf_free(&_b);
     }
   }
@@ -328,7 +328,7 @@ static int gotchghost(char *from, char *msg) {
         op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s@%s", ident, msg);
-        strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
+        op_strlcpy(m->userhost, op_strbuf_str(&_b), sizeof m->userhost);
         op_strbuf_free(&_b);
       }
       {
@@ -362,7 +362,7 @@ static int got353(char *from, char *msg)
   struct chanset_t *chan = nullptr;
 
   if ((current = find_capability("userhost-in-names")) && current->enabled) {
-    strlcpy(prefixchars, isupport_get_prefixchars(), sizeof prefixchars);
+    op_strlcpy(prefixchars, isupport_get_prefixchars(), sizeof prefixchars);
     newsplit(&msg);
     newsplit(&msg); /* Get rid of =, @, or * symbol */
     chname = newsplit(&msg);
@@ -417,7 +417,7 @@ static int got396(char *from, char *msg)
   nick = newsplit(&msg);
   if (match_my_nick(nick)) {  /* Double check this really is for me */
     char *saveptr = nullptr;
-    strlcpy(userbuf, botuserhost, sizeof userbuf);
+    op_strlcpy(userbuf, botuserhost, sizeof userbuf);
     ident = strtok_r(userbuf, "@", &saveptr);
     uhost = newsplit(&msg);
     if (ident) {
@@ -425,7 +425,7 @@ static int got396(char *from, char *msg)
         op_strbuf_t _b = {};
         op_strbuf_init(&_b);
         op_strbuf_appendf(&_b, "%s@%s", ident, uhost);
-        strlcpy(botuserhost, op_strbuf_str(&_b), UHOSTMAX);
+        op_strlcpy(botuserhost, op_strbuf_str(&_b), UHOSTMAX);
         op_strbuf_free(&_b);
       }
       check_tcl_event("hidden-host");
@@ -504,7 +504,7 @@ static int gotaway(char *from, char *msg)
   memberlist *m;
   char buf[MSGMAX], *nick, *s1 = buf, *chname;
 
-  strlcpy(s1, from, sizeof buf);
+  op_strlcpy(s1, from, sizeof buf);
   nick = splitnick(&s1);
   /* Run the bind for each channel the user is on */
   for (chan = chanset; chan; chan = chan->next) {
@@ -540,7 +540,7 @@ static int got367(char *from, char *origmsg)
   char *ban, *who, *chname, buf[511], *msg;
   struct chanset_t *chan;
 
-  strlcpy(buf, origmsg, sizeof buf);
+  op_strlcpy(buf, origmsg, sizeof buf);
   msg = buf;
   newsplit(&msg);
   chname = newsplit(&msg);
@@ -588,7 +588,7 @@ static int got348(char *from, char *origmsg)
   if (use_exempts == 0)
     return 0;
 
-  strlcpy(buf, origmsg, sizeof buf);
+  op_strlcpy(buf, origmsg, sizeof buf);
   msg = buf;
   newsplit(&msg);
   chname = newsplit(&msg);
@@ -631,7 +631,7 @@ static int got346(char *from, char *origmsg)
   char *invite, *who, *chname, buf[511], *msg;
   struct chanset_t *chan;
 
-  strlcpy(buf, origmsg, sizeof buf);
+  op_strlcpy(buf, origmsg, sizeof buf);
   msg = buf;
   if (use_invites == 0)
     return 0;
@@ -893,7 +893,7 @@ static int gotinvite(char *from, char *msg)
     if (now - last_invtime < 30)
       return 0; /* Two invites to the same channel in 30 seconds? */
   putlog(LOG_MISC, "*", "%s!%s invited me to %s", nick, from, msg);
-  strlcpy(last_invchan, msg, sizeof last_invchan);
+  op_strlcpy(last_invchan, msg, sizeof last_invchan);
   last_invtime = now;
   chan = findchan(msg);
   if (!chan)
@@ -1009,7 +1009,7 @@ static int gotjoin(char *from, char *channame)
   captmp = find_capability("extended-join");
   extjoin = captmp && captmp->enabled;
 
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   // :nick!user@host JOIN :#chan
   chname = newsplit(&channame);
@@ -1095,7 +1095,7 @@ static int gotjoin(char *from, char *channame)
       m = ismember(chan, nick);
       u = lookup_user_record(m, account ? account : nullptr, from);
       get_user_flagrec(u, &fr, chan->dname);
-      if (m && m->split && !strcasecmp(m->userhost, uhost)) {
+      if (m && m->split && !op_strcasecmp(m->userhost, uhost)) {
         check_tcl_rejn(nick, uhost, u, chan->dname);
         chan = findchan(chname);
         if (!chan) {
@@ -1128,10 +1128,10 @@ static int gotjoin(char *from, char *channame)
         m->flags = 0;
         m->last = now;
         m->delay = 0L;
-        strlcpy(m->nick, nick, sizeof m->nick);
+        op_strlcpy(m->nick, nick, sizeof m->nick);
         if (chan->channel.member_ht)
           op_htab_set(chan->channel.member_ht, m->nick, m, nullptr);
-        strlcpy(m->userhost, uhost, sizeof m->userhost);
+        op_strlcpy(m->userhost, uhost, sizeof m->userhost);
         m->user = u;
         m->flags |= STOPWHO;
 
@@ -1160,7 +1160,7 @@ static int gotjoin(char *from, char *channame)
            * unique name for the channel (as the server see's it). <cybah>
            */
           chan_htab_del(chan);
-          strlcpy(chan->name, chname, sizeof chan->name);
+          op_strlcpy(chan->name, chname, sizeof chan->name);
           chan_htab_add(chan);
           chan->status &= ~CHAN_JUPED;
 
@@ -1330,7 +1330,7 @@ static int gotpart(char *from, char *msg)
     return 0;
   }
   if (chan && !channel_pending(chan)) {
-    strlcpy(uhost, from, sizeof uhost);
+    op_strlcpy(uhost, from, sizeof uhost);
     nick = splitnick(&from);
     m = ismember(chan, nick);
     if (m)
@@ -1394,7 +1394,7 @@ static int gotkick(char *from, char *origmsg)
   struct userrec *u;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
-  strlcpy(buf2, origmsg, sizeof buf2);
+  op_strlcpy(buf2, origmsg, sizeof buf2);
   msg = buf2;
   chname = newsplit(&msg);
   chan = findchan(chname);
@@ -1417,7 +1417,7 @@ static int gotkick(char *from, char *origmsg)
   }
   if (channel_active(chan)) {
     fixcolon(msg);
-    strlcpy(buf, from, sizeof buf);
+    op_strlcpy(buf, from, sizeof buf);
     uhost = buf;
     whodid = splitnick(&uhost);
     detect_chan_flood(whodid, uhost, from, chan, FLOOD_KICK, nick);
@@ -1492,7 +1492,7 @@ static int gotnick(char *from, char *msg)
   struct userrec *u;
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   fixcolon(msg);
   clear_chanlist_member(nick);  /* Cache for nick 'nick' is meaningless now. */
@@ -1522,7 +1522,7 @@ static int gotnick(char *from, char *msg)
        */
       if (chan->channel.member_ht && m->nick[0])
         op_htab_del(chan->channel.member_ht, m->nick);
-      strlcpy(m->nick, msg, sizeof m->nick);
+      op_strlcpy(m->nick, msg, sizeof m->nick);
       if (chan->channel.member_ht)
         op_htab_set(chan->channel.member_ht, m->nick, m, nullptr);
       detect_chan_flood(msg, uhost, from, chan, FLOOD_NICK, nullptr);
@@ -1678,7 +1678,7 @@ static int gotmsg(char *from, char *msg)
     return 0; /* Unknown channel; don't process. */
 
   fixcolon(msg);
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   ignoring = match_ignore(from);
 
@@ -1693,7 +1693,7 @@ static int gotmsg(char *from, char *msg)
     if (*p == 1) {
       *p = 0;
       ctcp = buf2;
-      strlcpy(buf2, p1, sizeof buf2);
+      op_strlcpy(buf2, p1, sizeof buf2);
       memmove(p1 - 1, p + 1, strlen(p + 1) + 1);
       detect_chan_flood(nick, uhost, from, chan, strncmp(ctcp, "ACTION ", 7) ?
                         FLOOD_CTCP : FLOOD_PRIVMSG, nullptr);
@@ -1809,7 +1809,7 @@ static int gotnotice(char *from, char *msg)
   if (!chan)
     return 0;                   /* Notice to an unknown channel?? */
   fixcolon(msg);
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   {
     memberlist *_mn = find_member_from_nick(nick);
@@ -1825,7 +1825,7 @@ static int gotnotice(char *from, char *msg)
     if (*p == 1) {
       *p = 0;
       ctcp = buf2;
-      strlcpy(ctcp, p1, sizeof(buf2));
+      op_strlcpy(ctcp, p1, sizeof(buf2));
       memmove(p1 - 1, p + 1, strlen(p + 1) + 1);
       p = strchr(msg, 1);
       detect_chan_flood(nick, uhost, from, chan,

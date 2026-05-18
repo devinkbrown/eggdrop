@@ -142,15 +142,15 @@ static int init_uptime(void)
   uptimecount = 0;
   uptimeip = -1;
 
-  strlcpy(x, ver, sizeof x);
+  op_strlcpy(x, ver, sizeof x);
   newsplit(&z);
-  strlcpy(uptime_version, z, sizeof uptime_version);
+  op_strlcpy(uptime_version, z, sizeof uptime_version);
 
   if ((uptimesock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
     putlog(LOG_DEBUG, "*", "init_uptime socket returned < 0 %d", uptimesock);
     return ((uptimesock = -1));
   }
-  egg_bzero(&sai, sizeof(sai));
+  op_memzero(&sai, sizeof(sai));
   sai.sin_addr.s_addr = INADDR_ANY;
   sai.sin_family = AF_INET;
   if (bind(uptimesock, (struct sockaddr *) &sai, sizeof(sai)) < 0) {
@@ -213,7 +213,7 @@ static int send_uptime(void)
   len = sizeof(upPack) + strlen(botnetnick) + strlen(servhost) +
         strlen(uptime_version);
   mem = (PackUp *) op_malloc(len);
-  egg_bzero(mem, len); /* mem *should* be completely filled before it's
+  op_memzero(mem, len); /* mem *should* be completely filled before it's
                              * sent to the server.  But belt-and-suspenders
                              * is always good.
                              */
@@ -222,10 +222,10 @@ static int send_uptime(void)
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "%s %s %s", botnetnick, servhost, uptime_version);
-    strlcpy(mem->string, op_strbuf_str(&_b), sizeof(mem->string));
+    op_strlcpy(mem->string, op_strbuf_str(&_b), sizeof(mem->string));
     op_strbuf_free(&_b);
   }
-  egg_bzero(&sai, sizeof(sai));
+  op_memzero(&sai, sizeof(sai));
   sai.sin_family = AF_INET;
   sai.sin_addr.s_addr = uptimeip;
   sai.sin_port = htons(uptime_port);

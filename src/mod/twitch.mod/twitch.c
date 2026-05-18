@@ -49,7 +49,7 @@ static Function *global = nullptr, *server_funcs = nullptr;
 
 static p_tcl_bind_list H_ccht, H_cmsg, H_htgt, H_wspr, H_wspm, H_rmst, H_usst, H_usrntc;
 
-twitchchan_t *twitchchan = nullptr;
+static op_vec_t twitchchan_vec;
 
 /* Check if word appears as a whole word in a space-separated list. */
 static int twitch_word_in_list(const char *list, const char *word)
@@ -97,26 +97,26 @@ static void twitch_free_tchan(twitchchan_t *tchan)
 static int twitch_expmem(void)
 {
   int size = 0;
-  twitchchan_t *tchan;
 
-  for (tchan = twitchchan; tchan; tchan = tchan->next) {
+  for (size_t i = 0; i < twitchchan_vec.size; i++) {
+    const twitchchan_t *tchan = (const twitchchan_t *)op_vec_get(&twitchchan_vec, i);
     size += sizeof(twitchchan_t);
-    if (tchan->mods)             size += strlen(tchan->mods) + 1;
-    if (tchan->vips)             size += strlen(tchan->vips) + 1;
+    if (tchan->mods)                 size += strlen(tchan->mods) + 1;
+    if (tchan->vips)                 size += strlen(tchan->vips) + 1;
     if (tchan->userstate.badges)     size += strlen(tchan->userstate.badges) + 1;
     if (tchan->userstate.emote_sets) size += strlen(tchan->userstate.emote_sets) + 1;
   }
   return size;
 }
 
-/* Find a twitch channel by it's display name */
+/* Find a twitch channel by its display name */
 static twitchchan_t *findtchan_by_dname(char *name)
 {
-  twitchchan_t *chan;
-
-  for (chan = twitchchan; chan; chan = chan->next)
+  for (size_t i = 0; i < twitchchan_vec.size; i++) {
+    twitchchan_t *chan = (twitchchan_t *)op_vec_get(&twitchchan_vec, i);
     if (!rfc_casecmp(chan->dname, name))
       return chan;
+  }
   return nullptr;
 }
 
@@ -264,7 +264,7 @@ static int check_tcl_whisper(char *from, char *cmd, char *msg) {
   struct userrec *u = nullptr;
   int x;
 
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   u = get_user_by_host(from);
   get_user_flagrec(u, &fr, nullptr);
@@ -286,12 +286,12 @@ static int check_tcl_whisperm(char *from, char *cmd, char *msg) {
   op_strbuf_init(&args_buf);
   int x;
 
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
-  if (msg[0]) {                     /* Re-attach the cmd to the msg */
+  if (msg[0])                       /* Re-attach the cmd to the msg */
     op_strbuf_appendf(&args_buf, "%s %s", cmd, msg);
-  } else
-    op_strbuf_appendf(&args_buf, "%s", cmd);
+  else
+    op_strbuf_append_cstr(&args_buf, cmd);
   const char *args = op_strbuf_str(&args_buf);
   u = get_user_by_host(from);
   get_user_flagrec(u, &fr, nullptr);
@@ -356,10 +356,10 @@ static int gotjoin (char *from, char *msg) {
       tchan_bh = op_bh_create(sizeof(twitchchan_t), 16, "twitch_tchan");
     tchan = op_bh_alloc(tchan_bh);             /* doesn't exist, create it */
     explicit_bzero(tchan, sizeof(twitchchan_t));
-    strlcpy(tchan->dname, chname, sizeof tchan->dname);
-    egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
+    op_strlcpy(tchan->dname, chname, sizeof tchan->dname);
+    op_vec_push(&twitchchan_vec, tchan);
   }
-  strlcpy(uhost, from, sizeof buf);
+  op_strlcpy(uhost, from, sizeof buf);
   nick = splitnick(&uhost);
   if (match_my_nick(nick)) {
     /* It was me joining! Let's get a list of mods and vips for the room */
@@ -423,10 +423,10 @@ static int gotclearmsg(char *from, char *msg, Tcl_Obj *tags) {
   fixcolon(msg);
 
   GET_MSGTAG_VALUE_STR(tags, "login", value, "CLEARMSG");
-  strlcpy(nick, value, sizeof nick);
+  op_strlcpy(nick, value, sizeof nick);
 
   GET_MSGTAG_VALUE_STR(tags, "target-msg-id", value, "CLEARMSG");
-  strlcpy(msgid, value, sizeof msgid);
+  op_strlcpy(msgid, value, sizeof msgid);
 
   check_tcl_clearmsg(nick, chan, msgid, msg);
   putlog(LOG_SERV, "*", "* TWITCH: Cleared message %s from %s", msgid, nick);
@@ -480,8 +480,8 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
       tchan_bh = op_bh_create(sizeof(twitchchan_t), 16, "twitch_tchan");
     tchan = op_bh_alloc(tchan_bh);             /* doesn't exist, create it */
     explicit_bzero(tchan, sizeof(twitchchan_t));
-    strlcpy(tchan->dname, chan, sizeof tchan->dname);
-    egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
+    op_strlcpy(tchan->dname, chan, sizeof tchan->dname);
+    op_vec_push(&twitchchan_vec, tchan);
   }
 
   {
@@ -503,10 +503,10 @@ static int gotuserstate(char *from, char *chan, Tcl_Obj *tags) {
         tchan->userstate.badges = op_strdup(v);
       } else if (!strcmp(k, "color") && strcmp(tchan->userstate.color, v)) {
         changed = 1;
-        strlcpy(tchan->userstate.color, v, sizeof tchan->userstate.color);
+        op_strlcpy(tchan->userstate.color, v, sizeof tchan->userstate.color);
       } else if (!strcmp(k, "display-name") && strcmp(tchan->userstate.display_name, v)) {
         changed = 1;
-        strlcpy(tchan->userstate.display_name, v, sizeof tchan->userstate.display_name);
+        op_strlcpy(tchan->userstate.display_name, v, sizeof tchan->userstate.display_name);
       } else if (!strcmp(k, "emote-sets") && strcmp(tchan->userstate.emote_sets ? tchan->userstate.emote_sets : "", v)) {
         changed = 1;
         op_free(tchan->userstate.emote_sets);
@@ -536,8 +536,8 @@ static int gotroomstate(char *from, char *chan, Tcl_Obj *tags) {
       tchan_bh = op_bh_create(sizeof(twitchchan_t), 16, "twitch_tchan");
     tchan = op_bh_alloc(tchan_bh);             /* doesn't exist, create it */
     explicit_bzero(tchan, sizeof(twitchchan_t));
-    strlcpy(tchan->dname, chan, sizeof tchan->dname);
-    egg_list_append((struct list_type **) &twitchchan, (struct list_type *) tchan);
+    op_strlcpy(tchan->dname, chan, sizeof tchan->dname);
+    op_vec_push(&twitchchan_vec, tchan);
   }
 
   {
@@ -586,10 +586,10 @@ static int gotusernotice(char *from, char *msg, Tcl_Obj *tags) {
   fixcolon(msg);
 
   GET_MSGTAG_VALUE_STR(tags, "login", value, "USERNOTICE");
-  strlcpy(login, value, sizeof login);
+  op_strlcpy(login, value, sizeof login);
 
   GET_MSGTAG_VALUE_STR(tags, "msg-id", value, "USERNOTICE");
-  strlcpy(msgid, value, sizeof msgid);
+  op_strlcpy(msgid, value, sizeof msgid);
 
   if (!strcmp(msgid, "sub")) {
     GET_MSGTAG_VALUE_STR(tags, "msg-param-sub-plan", value, "USERNOTICE:SUB");
@@ -685,33 +685,25 @@ static int tcl_twitchvips STDVAR {
  * is unreliable on Twitch
  */
 static int tcl_ismod STDVAR {
-  twitchchan_t *tchan, *thechan=nullptr;
-
   BADARGS(2, 3, " nick ?channel?");
 
   if (argc > 2) {
-    tchan = findtchan_by_dname(argv[2]);
-    thechan = tchan;
-    if (!thechan) {
+    twitchchan_t *tchan = findtchan_by_dname(argv[2]);
+    if (!tchan) {
       Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
+    Tcl_AppendResult(irp, (tchan->mods && twitch_word_in_list(tchan->mods, argv[1])) ? "1" : "0", nullptr);
   } else {
-    tchan = twitchchan;
-  }
-  /* If there's no mods, no reason to even check, eh? */
-  if (!tchan->mods || !tchan->mods[0]) {
-    Tcl_AppendResult(irp, "0", nullptr);
-    return TCL_OK;
-  }
-  while (tchan && (thechan == nullptr || thechan == tchan)) {
-    if (tchan->mods && twitch_word_in_list(tchan->mods, argv[1])) {
-      Tcl_AppendResult(irp, "1", nullptr);
-      return TCL_OK;
+    for (size_t i = 0; i < twitchchan_vec.size; i++) {
+      twitchchan_t *tchan = (twitchchan_t *)op_vec_get(&twitchchan_vec, i);
+      if (tchan->mods && twitch_word_in_list(tchan->mods, argv[1])) {
+        Tcl_AppendResult(irp, "1", nullptr);
+        return TCL_OK;
+      }
     }
-    tchan = tchan->next;
+    Tcl_AppendResult(irp, "0", nullptr);
   }
-  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -721,33 +713,25 @@ static int tcl_ismod STDVAR {
  * is unreliable on Twitch
  */
 static int tcl_isvip STDVAR {
-  twitchchan_t *tchan, *thechan = nullptr;
-
   BADARGS(2, 3, " nick ?channel?");
 
   if (argc > 2) {
-    tchan = findtchan_by_dname(argv[2]);
-    thechan = tchan;
-    if (!thechan) {
+    twitchchan_t *tchan = findtchan_by_dname(argv[2]);
+    if (!tchan) {
       Tcl_AppendResult(irp, "illegal channel: ", argv[2], nullptr);
       return TCL_ERROR;
     }
+    Tcl_AppendResult(irp, (tchan->vips && twitch_word_in_list(tchan->vips, argv[1])) ? "1" : "0", nullptr);
   } else {
-    tchan = twitchchan;
-  }
-  /* If there's no VIPs, no reason to even check, eh? */
-  if (!tchan->vips || !tchan->vips[0]) {
-    Tcl_AppendResult(irp, "0", nullptr);
-    return TCL_OK;
-  }
-  while (tchan && (thechan == nullptr || thechan == tchan)) {
-    if (tchan->vips && twitch_word_in_list(tchan->vips, argv[1])) {
-      Tcl_AppendResult(irp, "1", nullptr);
-      return TCL_OK;
+    for (size_t i = 0; i < twitchchan_vec.size; i++) {
+      twitchchan_t *tchan = (twitchchan_t *)op_vec_get(&twitchchan_vec, i);
+      if (tchan->vips && twitch_word_in_list(tchan->vips, argv[1])) {
+        Tcl_AppendResult(irp, "1", nullptr);
+        return TCL_OK;
+      }
     }
-    tchan = tchan->next;
+    Tcl_AppendResult(irp, "0", nullptr);
   }
-  Tcl_AppendResult(irp, "0", nullptr);
   return TCL_OK;
 }
 
@@ -877,14 +861,9 @@ static cmd_t twitch_rawt[] = {
 
 static char *twitch_close(void)
 {
-  twitchchan_t *tchan = twitchchan, *next;
-
-  while (tchan) {
-    next = tchan->next;
-    twitch_free_tchan(tchan);
-    tchan = next;
-  }
-  twitchchan = nullptr;
+  for (size_t i = 0; i < twitchchan_vec.size; i++)
+    twitch_free_tchan((twitchchan_t *)op_vec_get(&twitchchan_vec, i));
+  op_vec_clear(&twitchchan_vec, nullptr, nullptr);
   if (tchan_bh) {
     op_bh_destroy(tchan_bh);
     tchan_bh = nullptr;
@@ -933,20 +912,16 @@ static char *twitch_getvips(char *chan)
  * If chan is nullptr, searches all channels. */
 static int twitch_ismod(char *nick, char *chan)
 {
-  twitchchan_t *tchan, *thechan = nullptr;
-
   if (chan) {
-    thechan = findtchan_by_dname(chan);
-    if (!thechan)
+    twitchchan_t *tchan = findtchan_by_dname(chan);
+    if (!tchan)
       return -1;
-    tchan = thechan;
-  } else {
-    tchan = twitchchan;
+    return (tchan->mods && twitch_word_in_list(tchan->mods, nick)) ? 1 : 0;
   }
-  while (tchan && (thechan == nullptr || thechan == tchan)) {
+  for (size_t i = 0; i < twitchchan_vec.size; i++) {
+    twitchchan_t *tchan = (twitchchan_t *)op_vec_get(&twitchchan_vec, i);
     if (tchan->mods && twitch_word_in_list(tchan->mods, nick))
       return 1;
-    tchan = tchan->next;
   }
   return 0;
 }
@@ -955,20 +930,16 @@ static int twitch_ismod(char *nick, char *chan)
  * If chan is nullptr, searches all channels. */
 static int twitch_isvip(char *nick, char *chan)
 {
-  twitchchan_t *tchan, *thechan = nullptr;
-
   if (chan) {
-    thechan = findtchan_by_dname(chan);
-    if (!thechan)
+    twitchchan_t *tchan = findtchan_by_dname(chan);
+    if (!tchan)
       return -1;
-    tchan = thechan;
-  } else {
-    tchan = twitchchan;
+    return (tchan->vips && twitch_word_in_list(tchan->vips, nick)) ? 1 : 0;
   }
-  while (tchan && (thechan == nullptr || thechan == tchan)) {
+  for (size_t i = 0; i < twitchchan_vec.size; i++) {
+    twitchchan_t *tchan = (twitchchan_t *)op_vec_get(&twitchchan_vec, i);
     if (tchan->vips && twitch_word_in_list(tchan->vips, nick))
       return 1;
-    tchan = tchan->next;
   }
   return 0;
 }

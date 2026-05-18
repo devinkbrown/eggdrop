@@ -67,15 +67,16 @@ typedef struct tandbuf_t {
   char bot[HANDLEN + 1];
   time_t timer;
   op_deque_t q;           /* deque of share_msgq* — embedded, not a pointer */
-  struct tandbuf_t *next;
 } tandbuf;
 
-tandbuf *tbuf;
+static op_vec_t tbuf_vec;
 
 /* Slab allocator for share_msgq nodes. */
 static op_bh *share_msgq_bh = nullptr;
 /* Slab allocator for delay_mode nodes. */
 static op_bh *delay_mode_bh = nullptr;
+/* Slab allocator for tandbuf (resync buffer) nodes. */
+static op_bh *tandbuf_bh    = nullptr;
 
 /* Prototypes */
 static void start_sending_users(int);
@@ -96,7 +97,6 @@ static int private_globals_bitmask(void);
  */
 
 struct delay_mode {
-  struct delay_mode *next;
   struct chanset_t *chan;
   int plsmns;
   int mode;
@@ -104,92 +104,53 @@ struct delay_mode {
   time_t seconds;
 };
 
-static struct delay_mode *delay_head = nullptr, *delay_tail = nullptr;
+static op_vec_t delay_vec;
 
 static void add_delay(struct chanset_t *chan, int plsmns, int mode, char *mask)
 {
-  struct delay_mode *d = nullptr;
-
   if (!delay_mode_bh)
     delay_mode_bh = op_bh_create(sizeof(struct delay_mode), 16, "share_delay_mode");
-  d = op_bh_alloc(delay_mode_bh);
-
+  struct delay_mode *d = (struct delay_mode *)op_bh_alloc(delay_mode_bh);
   d->chan = chan;
   d->plsmns = plsmns;
   d->mode = mode;
   d->seconds = now + randint(30);
-
   d->mask = op_strdup(mask);
-
-  if (!delay_head)
-    delay_head = d;
-  else
-    delay_tail->next = d;
-
-  d->next = nullptr;
-  delay_tail = d;
+  op_vec_push(&delay_vec, d);
 }
 
 static void check_delay(void)
 {
-  struct delay_mode *d = nullptr, *prev = nullptr, *dnext = nullptr;
-
-  for (d = delay_head; d; d = dnext) {
-    dnext = d->next;
-
+  for (size_t i = delay_vec.size; i-- > 0; ) {
+    struct delay_mode *d = (struct delay_mode *)op_vec_get(&delay_vec, i);
     if (d->seconds <= now) {
-
       add_mode(d->chan, d->plsmns, d->mode, d->mask);
-
-      if (prev)
-        prev->next = d->next;
-      else
-        delay_head = d->next;
-
-      if (delay_tail == d)
-        delay_tail = prev;
-
-      if (d->mask)
-        op_free(d->mask);
-
+      op_free(d->mask);
       op_bh_free(delay_mode_bh, d);
-    }
-    else {
-      prev = d;
+      op_vec_remove(&delay_vec, i);
     }
   }
 }
 
 static void delay_free_mem(void)
 {
-  struct delay_mode *d = nullptr, *dnext = nullptr;
-
-  for (d = delay_head; d; d = dnext) {
-    dnext = d->next;
-
-    if (d->mask)
-      op_free(d->mask);
-
+  for (size_t i = delay_vec.size; i-- > 0; ) {
+    struct delay_mode *d = (struct delay_mode *)op_vec_get(&delay_vec, i);
+    op_free(d->mask);
     op_bh_free(delay_mode_bh, d);
   }
-
-  delay_head = nullptr;
-  delay_tail = nullptr;
+  op_vec_clear(&delay_vec, nullptr, nullptr);
 }
 
 static int delay_expmem(void)
 {
   int size = 0;
-  struct delay_mode *d = nullptr;
-
-  for (d = delay_head; d; d = d->next) {
-
+  for (size_t i = 0; i < delay_vec.size; i++) {
+    struct delay_mode *d = (struct delay_mode *)op_vec_get(&delay_vec, i);
     if (d->mask)
       size += strlen(d->mask) + 1;
-
     size += sizeof(struct delay_mode);
   }
-
   return size;
 }
 
@@ -1282,7 +1243,7 @@ static void share_ufsend(int idx, char *par)
       zapfbot(idx);
       fclose(f);
     } else {
-      strlcpy(dcc[i].nick, "*users", sizeof(dcc[i].nick));
+      op_strlcpy(dcc[i].nick, "*users", sizeof(dcc[i].nick));
       dcc[i].u.xfer->filename = op_strbuf_steal(&_b);
       dcc[i].u.xfer->origname = dcc[i].u.xfer->filename;
       dcc[i].u.xfer->length = egg_atoi(par);
@@ -1292,7 +1253,7 @@ static void share_ufsend(int idx, char *par)
       if (*port == '+')
         dcc[i].ssl = 1;
 #endif
-      strlcpy(dcc[i].host, dcc[idx].nick, sizeof(dcc[i].host));
+      op_strlcpy(dcc[i].host, dcc[idx].nick, sizeof(dcc[i].host));
 
       dcc[idx].status |= STAT_GETTING;
     }
@@ -1451,7 +1412,7 @@ static void sharein_mod(int idx, char *msg)
 
   code = newsplit(&msg);
   for (f = 0, i = 0; C_share[i].name && !f; i++) {
-    int y = strcasecmp(code, C_share[i].name);
+    int y = op_strcasecmp(code, C_share[i].name);
 
     if (!y) {
       /* Found a match */
@@ -1481,7 +1442,7 @@ static void shareout_mod(struct chanset_t *chan, const char *format, ...)
 
     op_strbuf_t _s = {};
     op_strbuf_init(&_s);
-    op_strbuf_appendf(&_s, "s ");
+    op_strbuf_append_cstr(&_s, "s ");
     op_strbuf_vappendf(&_s, format, va);
     if (op_strbuf_len(&_s) > 511)
       op_strbuf_truncate(&_s, 511);
@@ -1515,7 +1476,7 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
 
   op_strbuf_t _s = {};
   op_strbuf_init(&_s);
-  op_strbuf_appendf(&_s, "s ");
+  op_strbuf_append_cstr(&_s, "s ");
   op_strbuf_vappendf(&_s, format, va);
   if (op_strbuf_len(&_s) > 511)
     op_strbuf_truncate(&_s, 511);
@@ -1545,52 +1506,41 @@ static void shareout_but(struct chanset_t *chan, int x, const char *format, ...)
  *    Resync buffers
  */
 
+/* Free a tbuf entry at index i and remove it from tbuf_vec. */
+static void tbuf_free(size_t i)
+{
+  tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
+  while (!op_deque_empty(&t->q)) {
+    struct share_msgq *qe = op_deque_pop_front(&t->q);
+    op_free(qe->msg);
+    op_bh_free(share_msgq_bh, qe);
+  }
+  op_deque_fini(&t->q);
+  op_bh_free(tandbuf_bh, t);
+  op_vec_remove(&tbuf_vec, i);
+}
+
 /* Create a tandem buffer for 'bot'.
  */
 static void new_tbuf(char *bot)
 {
-  tandbuf *new = op_malloc(sizeof(tandbuf));
-
-  strlcpy(new->bot, bot, sizeof new->bot);
-  op_deque_init(&new->q, 8);
-  new->timer = now;
-  new->next = tbuf;
-  tbuf = new;
+  if (!tandbuf_bh) tandbuf_bh = op_bh_create(sizeof(tandbuf), 8, "tandbuf");
+  tandbuf *n = (tandbuf *)op_bh_alloc(tandbuf_bh);
+  op_strlcpy(n->bot, bot, sizeof n->bot);
+  op_deque_init(&n->q, 8);
+  n->timer = now;
+  op_vec_push(&tbuf_vec, n);
   putlog(LOG_BOTS, "*", "Creating resync buffer for %s", bot);
-}
-
-static void del_tbuf(tandbuf *goner)
-{
-  tandbuf *t = nullptr, *old = nullptr;
-
-  for (t = tbuf; t; old = t, t = t->next) {
-    if (t == goner) {
-      if (old)
-        old->next = t->next;
-      else
-        tbuf = t->next;
-      while (!op_deque_empty(&t->q)) {
-        struct share_msgq *qe = op_deque_pop_front(&t->q);
-        op_free(qe->msg);
-        op_bh_free(share_msgq_bh, qe);
-      }
-      op_deque_fini(&t->q);
-      op_free(t);
-      break;
-    }
-  }
 }
 
 /* Flush a certain bot's tbuf.
  */
 static int flush_tbuf(char *bot)
 {
-  tandbuf *t, *tnext = nullptr;
-
-  for (t = tbuf; t; t = tnext) {
-    tnext = t->next;
-    if (!strcasecmp(t->bot, bot)) {
-      del_tbuf(t);
+  for (size_t i = tbuf_vec.size; i-- > 0; ) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
+    if (!op_strcasecmp(t->bot, bot)) {
+      tbuf_free(i);
       return 1;
     }
   }
@@ -1601,13 +1551,11 @@ static int flush_tbuf(char *bot)
  */
 static void check_expired_tbufs(void)
 {
-  tandbuf *t, *tnext = nullptr;
-
-  for (t = tbuf; t; t = tnext) {
-    tnext = t->next;
+  for (size_t i = tbuf_vec.size; i-- > 0; ) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
     if ((now - t->timer) > resync_time) {
       putlog(LOG_BOTS, "*", "Flushing resync buffer for clonebot %s.", t->bot);
-      del_tbuf(t);
+      tbuf_free(i);
     }
   }
   /* Resend userfile requests */
@@ -1647,10 +1595,9 @@ static void q_push_msg(op_deque_t *q, struct chanset_t *chan, const char *s)
  */
 static void q_tbuf(char *bot, const char *s, struct chanset_t *chan)
 {
-  tandbuf *t;
-
-  for (t = tbuf; t && t->bot[0]; t = t->next)
-    if (!strcasecmp(t->bot, bot)) {
+  for (size_t i = 0; i < tbuf_vec.size; i++) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
+    if (!op_strcasecmp(t->bot, bot)) {
       if (chan) {
         fr.match = (FR_CHAN | FR_BOT);
         get_user_flagrec(get_user_by_handle(userlist, bot), &fr, chan->dname);
@@ -1659,15 +1606,15 @@ static void q_tbuf(char *bot, const char *s, struct chanset_t *chan)
         q_push_msg(&t->q, chan, s);
       break;
     }
+  }
 }
 
 /* Add stuff to the resync buffers.
  */
 static void q_resync(const char *s, struct chanset_t *chan)
 {
-  tandbuf *t;
-
-  for (t = tbuf; t && t->bot[0]; t = t->next) {
+  for (size_t i = 0; i < tbuf_vec.size; i++) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
     if (chan) {
       fr.match = (FR_CHAN | FR_BOT);
       get_user_flagrec(get_user_by_handle(userlist, t->bot), &fr, chan->dname);
@@ -1681,11 +1628,11 @@ static void q_resync(const char *s, struct chanset_t *chan)
  */
 static int can_resync(char *bot)
 {
-  tandbuf *t;
-
-  for (t = tbuf; t && t->bot[0]; t = t->next)
-    if (!strcasecmp(bot, t->bot))
+  for (size_t i = 0; i < tbuf_vec.size; i++) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
+    if (!op_strcasecmp(bot, t->bot))
       return 1;
+  }
   return 0;
 }
 
@@ -1693,10 +1640,9 @@ static int can_resync(char *bot)
  */
 static void dump_resync(int idx)
 {
-  tandbuf *t;
-
-  for (t = tbuf; t && t->bot[0]; t = t->next)
-    if (!strcasecmp(dcc[idx].nick, t->bot)) {
+  for (size_t i = 0; i < tbuf_vec.size; i++) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
+    if (!op_strcasecmp(dcc[idx].nick, t->bot)) {
       size_t _n = op_deque_size(&t->q);
       for (size_t _i = 0; _i < _n; _i++) {
         struct share_msgq *qe = op_deque_at(&t->q, _i);
@@ -1705,6 +1651,7 @@ static void dump_resync(int idx)
       flush_tbuf(dcc[idx].nick);
       break;
     }
+  }
 }
 
 /* Give status report on tbufs.
@@ -1713,13 +1660,13 @@ static void status_tbufs(int idx)
 {
   op_strbuf_t s = {};
   op_strbuf_init(&s);
-  tandbuf *t;
   int first = 1;
 
   op_strbuf_init(&s);
-  for (t = tbuf; t && t->bot[0]; t = t->next) {
+  for (size_t i = 0; i < tbuf_vec.size; i++) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
     if (!first)
-      op_strbuf_appendf(&s, ", ");
+      op_strbuf_append_cstr(&s, ", ");
     op_strbuf_appendf(&s, "%s (%zu)", t->bot, op_deque_size(&t->q));
     first = 0;
   }
@@ -1852,7 +1799,7 @@ static void finish_share(int idx)
   int j = -1;
 
   for (int i = 0; i < dcc_total; i++)
-    if (!strcasecmp(dcc[i].nick, dcc[idx].host) &&
+    if (!op_strcasecmp(dcc[i].nick, dcc[idx].host) &&
         (dcc[i].type->flags & DCT_BOT))
       j = i;
   if (j == -1)
@@ -2067,7 +2014,7 @@ static void start_sending_users(int idx)
     updatebot(-1, dcc[idx].nick, '+', 0);
     dcc[idx].status |= STAT_SENDING;
     i = dcc_total - 1;
-    strlcpy(dcc[i].host, dcc[idx].nick, sizeof(dcc[i].host)); /* Store bot's nick */
+    op_strlcpy(dcc[i].host, dcc[idx].nick, sizeof(dcc[i].host)); /* Store bot's nick */
     getdccaddr(&dcc[i].sockname, s, sizeof s);
 #ifdef TLS
     if (dcc[idx].ssl) {
@@ -2087,16 +2034,18 @@ static void start_sending_users(int idx)
       for (u = userlist; u; u = u->next) {
         if ((u->flags & USER_BOT) && !(u->flags & USER_UNSHARED)) {
           struct bot_addr *bi = get_user(&USERENTRY_BOTADDR, u);
-          struct list_type *t;
+          op_vec_t *_hv = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
           op_strbuf_t _s2 = {};
 
           op_strbuf_init(&_s2);
           /* Send hostmasks */
-          for (t = get_user(&USERENTRY_HOSTS, u); t; t = t->next) {
-            op_strbuf_clear(&_s2);
-            op_strbuf_appendf(&_s2, "s +bh %s %s\n", u->handle, t->extra);
-            q_tbuf(dcc[idx].nick, op_strbuf_str(&_s2), nullptr);
-          }
+          if (_hv)
+            for (size_t _i = 0; _i < _hv->size; _i++) {
+              op_strbuf_clear(&_s2);
+              op_strbuf_appendf(&_s2, "s +bh %s %s\n", u->handle,
+                                (char *)op_vec_get(_hv, _i));
+              q_tbuf(dcc[idx].nick, op_strbuf_str(&_s2), nullptr);
+            }
           /* Send address */
           if (bi) {
 #ifdef TLS
@@ -2167,7 +2116,7 @@ static void cancel_user_xfer(int idx, void *x)
     if (dcc[idx].status & STAT_GETTING) {
       j = 0;
       for (int i = 0; i < dcc_total; i++)
-        if (!strcasecmp(dcc[i].host, dcc[idx].nick) &&
+        if (!op_strcasecmp(dcc[i].host, dcc[idx].nick) &&
             ((dcc[i].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
              (DCT_FILETRAN | DCT_FILESEND)))
           j = i;
@@ -2181,7 +2130,7 @@ static void cancel_user_xfer(int idx, void *x)
     if (dcc[idx].status & STAT_SENDING) {
       j = 0;
       for (int i = 0; i < dcc_total; i++)
-        if ((!strcasecmp(dcc[i].host, dcc[idx].nick)) &&
+        if ((!op_strcasecmp(dcc[i].host, dcc[idx].nick)) &&
             ((dcc[i].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
             DCT_FILETRAN))
           j = i;
@@ -2231,8 +2180,6 @@ static cmd_t my_cmds[] = {
 
 static char *share_close(void)
 {
-  tandbuf *t, *tnext = nullptr;
-
   module_undepend(MODULE_NAME);
   putlog(LOG_MISC | LOG_BOTS, "*", "Sending 'share end' to all sharebots...");
   for (int i = 0; i < dcc_total; i++)
@@ -2246,10 +2193,8 @@ static char *share_close(void)
     }
   putlog(LOG_MISC | LOG_BOTS, "*",
          "Unloaded sharing module, flushing tbuf's...");
-  for (t = tbuf; t; t = tnext) {
-    tnext = t->next;
-    del_tbuf(t);
-  }
+  while (tbuf_vec.size)
+    tbuf_free(0);
   if (share_msgq_bh) {
     op_bh_destroy(share_msgq_bh);
     share_msgq_bh = nullptr;
@@ -2277,9 +2222,8 @@ static char *share_close(void)
 static int share_expmem(void)
 {
   int tot = 0;
-  tandbuf *t;
-
-  for (t = tbuf; t && t->bot[0]; t = t->next) {
+  for (size_t i = 0; i < tbuf_vec.size; i++) {
+    tandbuf *t = (tandbuf *)op_vec_get(&tbuf_vec, i);
     tot += sizeof(tandbuf);
     size_t _n = op_deque_size(&t->q);
     for (size_t _i = 0; _i < _n; _i++) {
@@ -2309,7 +2253,7 @@ static void share_report(int idx, int details)
           for (int j = 0; j < dcc_total; j++)
             if (((dcc[j].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
                 (DCT_FILETRAN | DCT_FILESEND)) &&
-                !strcasecmp(dcc[j].host, dcc[i].nick)) {
+                !op_strcasecmp(dcc[j].host, dcc[i].nick)) {
               dprintf(idx, "    Downloading userlist from %s (%d%% done)\n",
                       dcc[i].nick, (int) (100.0 * ((float) dcc[j].status) /
                       ((float) dcc[j].u.xfer->length)));
@@ -2322,7 +2266,7 @@ static void share_report(int idx, int details)
         } else if (dcc[i].status & STAT_SENDING) {
           for (int j = 0; j < dcc_total; j++) {
             if (((dcc[j].type->flags & (DCT_FILETRAN | DCT_FILESEND)) ==
-                DCT_FILETRAN) && !strcasecmp(dcc[j].host, dcc[i].nick)) {
+                DCT_FILETRAN) && !op_strcasecmp(dcc[j].host, dcc[i].nick)) {
               if (dcc[j].type == &DCC_GET)
                 dprintf(idx, "    Sending userlist to %s (%d%% done)\n",
                         dcc[i].nick, (int) (100.0 * ((float) dcc[j].status) /

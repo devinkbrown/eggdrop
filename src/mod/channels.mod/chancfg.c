@@ -262,7 +262,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
           char *sep = strchr(item[i + 1], ' ');
           if (sep) {
             value = op_malloc(sep - item[i + 1] + 1);
-            strlcpy(value, item[i + 1], sep - item[i + 1] + 1);
+            op_strlcpy(value, item[i + 1], sep - item[i + 1] + 1);
             free_value = 1;
           } else {
             value = item[i + 1];
@@ -286,42 +286,42 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
         Tcl_AppendResult(irp, "channel need-op needs argument", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(chan->need_op, item[i], sizeof chan->need_op);
+      op_strlcpy(chan->need_op, item[i], sizeof chan->need_op);
     } else if (!strcmp(item[i], "need-invite")) {
       i++;
       if (i >= items) {
         Tcl_AppendResult(irp, "channel need-invite needs argument", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(chan->need_invite, item[i], sizeof chan->need_invite);
+      op_strlcpy(chan->need_invite, item[i], sizeof chan->need_invite);
     } else if (!strcmp(item[i], "need-key")) {
       i++;
       if (i >= items) {
         Tcl_AppendResult(irp, "channel need-key needs argument", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(chan->need_key, item[i], sizeof chan->need_key);
+      op_strlcpy(chan->need_key, item[i], sizeof chan->need_key);
     } else if (!strcmp(item[i], "need-limit")) {
       i++;
       if (i >= items) {
         Tcl_AppendResult(irp, "channel need-limit needs argument", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(chan->need_limit, item[i], sizeof chan->need_limit);
+      op_strlcpy(chan->need_limit, item[i], sizeof chan->need_limit);
     } else if (!strcmp(item[i], "need-unban")) {
       i++;
       if (i >= items) {
         Tcl_AppendResult(irp, "channel need-unban needs argument", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(chan->need_unban, item[i], sizeof chan->need_unban);
+      op_strlcpy(chan->need_unban, item[i], sizeof chan->need_unban);
     } else if (!strcmp(item[i], "chanmode")) {
       i++;
       if (i >= items) {
         Tcl_AppendResult(irp, "channel chanmode needs argument", nullptr);
         return TCL_ERROR;
       }
-      strlcpy(s, item[i], sizeof s);
+      op_strlcpy(s, item[i], sizeof s);
       set_mode_protect(chan, s);
     } else if (!strcmp(item[i], "idle-kick")) {
       i++;
@@ -566,19 +566,20 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
       else if (!strncmp(item[i], "udef-str-", 9))
         initudef(UDEF_STR, item[i] + 9, 0);
       found = 0;
-      for (ul = udef; ul; ul = ul->next) {
-        if (ul->type == UDEF_FLAG && (!strcasecmp(item[i] + 1, ul->name) ||
+      for (size_t udfi = 0; udfi < udef_vec.size; udfi++) {
+        ul = (struct udef_struct *)op_vec_get(&udef_vec, udfi);
+        if (ul->type == UDEF_FLAG && (!op_strcasecmp(item[i] + 1, ul->name) ||
             (!strncmp(item[i] + 1, "udef-flag-", 10) &&
-            !strcasecmp(item[i] + 11, ul->name)))) {
+            !op_strcasecmp(item[i] + 11, ul->name)))) {
           if (item[i][0] == '+')
             setudef(ul, chan->dname, 1);
           else
             setudef(ul, chan->dname, 0);
           found = 1;
           break;
-        } else if (ul->type == UDEF_INT && (!strcasecmp(item[i], ul->name) ||
+        } else if (ul->type == UDEF_INT && (!op_strcasecmp(item[i], ul->name) ||
                    (!strncmp(item[i], "udef-int-", 9) &&
-                   !strcasecmp(item[i] + 9, ul->name)))) {
+                   !op_strcasecmp(item[i] + 9, ul->name)))) {
           i++;
           if (i >= items) {
             Tcl_AppendResult(irp, "this setting needs an argument", nullptr);
@@ -588,9 +589,9 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
           found = 1;
           break;
         } else if (ul->type == UDEF_STR &&
-                   (!strcasecmp(item[i], ul->name) ||
+                   (!op_strcasecmp(item[i], ul->name) ||
                    (!strncmp(item[i], "udef-str-", 9) &&
-                   !strcasecmp(item[i] + 9, ul->name)))) {
+                   !op_strcasecmp(item[i] + 9, ul->name)))) {
           char *val;
 
           i++;
@@ -598,7 +599,7 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
             Tcl_AppendResult(irp, "this setting needs an argument", nullptr);
             return TCL_ERROR;
           }
-          val = (char *) getudef(ul->values, chan->dname);
+          val = (char *) getudef(&ul->values, chan->dname);
           if (val)
             op_free(val);
           /* Get extra room for new braces, etc */
@@ -718,7 +719,7 @@ static int tcl_channel_add(Tcl_Interp *irp, char *newname, char *options)
     chan->aop_min = global_aop_min;
     chan->aop_max = global_aop_max;
 
-    strlcpy(chan->dname, newname, sizeof chan->dname);
+    op_strlcpy(chan->dname, newname, sizeof chan->dname);
 
     init_channel(chan, 0);
     /* Persistent mask htabs (maskrec lists populated from userfile) */
@@ -828,7 +829,7 @@ static int read_chanfile_native(const char *fname)
         if (end) *end = '\0';
         while (*p == ' ') p++;
       }
-      strlcpy(opts, p, sizeof opts);
+      op_strlcpy(opts, p, sizeof opts);
 
       tcl_channel_add(nullptr, name, opts);
 

@@ -367,7 +367,7 @@ void botnet_send_reject(int idx, char *fromp, char *frombot, char *top,
   if (!(bot_flags(dcc[idx].user) & BOT_ISOLATE)) {
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "r ");
+    op_strbuf_append_cstr(&_b, "r ");
     if (frombot)
       op_strbuf_appendf(&_b, "%s@%s", fromp, frombot);
     else
@@ -445,18 +445,15 @@ void botnet_send_filereq(int idx, char *from, char *bot, char *path)
 void botnet_send_idle(int idx, char *bot, int sock, int idle, char *away)
 {
   if (tands > 0) {
-    op_strbuf_t _b64_sock = {}, _b64_idle = {};
-    op_strbuf_appendf(&_b64_sock, "%s", int_to_base64(sock));
-    op_strbuf_appendf(&_b64_idle, "%s", int_to_base64(idle));
+    char _b64_sock[12], _b64_idle[12];
+    op_strlcpy(_b64_sock, int_to_base64(sock), sizeof _b64_sock);
+    op_strlcpy(_b64_idle, int_to_base64(idle), sizeof _b64_idle);
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
-    op_strbuf_appendf(&_b, "i %s %s %s %s\n", bot,
-                      op_strbuf_str(&_b64_sock), op_strbuf_str(&_b64_idle),
+    op_strbuf_appendf(&_b, "i %s %s %s %s\n", bot, _b64_sock, _b64_idle,
                       away ? away : "");
     send_tand_but(idx, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
     op_strbuf_free(&_b);
-    op_strbuf_free(&_b64_sock);
-    op_strbuf_free(&_b64_idle);
   }
 }
 
@@ -476,40 +473,34 @@ void botnet_send_away(int idx, char *bot, int sock, char *msg, int linking)
 void botnet_send_join_idx(int useridx, int oldchan)
 {
   if (tands > 0) {
-    op_strbuf_t _b64_chan = {}, _b64_sock = {};
-    op_strbuf_appendf(&_b64_chan, "%s", int_to_base64(dcc[useridx].u.chat->channel));
-    op_strbuf_appendf(&_b64_sock, "%s", int_to_base64(dcc[useridx].sock));
+    char _b64_chan[12], _b64_sock[12];
+    op_strlcpy(_b64_chan, int_to_base64(dcc[useridx].u.chat->channel), sizeof _b64_chan);
+    op_strlcpy(_b64_sock, int_to_base64(dcc[useridx].sock), sizeof _b64_sock);
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "j %s %s %s %c%s %s\n",
                       botnetnick, dcc[useridx].nick,
-                      op_strbuf_str(&_b64_chan), geticon(useridx),
-                      op_strbuf_str(&_b64_sock), dcc[useridx].host);
+                      _b64_chan, geticon(useridx), _b64_sock, dcc[useridx].host);
     send_tand_but(-1, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
     op_strbuf_free(&_b);
-    op_strbuf_free(&_b64_chan);
-    op_strbuf_free(&_b64_sock);
   }
 }
 
 void botnet_send_join_party(int idx, int linking, int useridx, int oldchan)
 {
   if (tands > 0) {
-    op_strbuf_t _b64_chan = {}, _b64_sock = {};
-    op_strbuf_appendf(&_b64_chan, "%s", int_to_base64(party[useridx].chan));
-    op_strbuf_appendf(&_b64_sock, "%s", int_to_base64(party[useridx].sock));
+    char _b64_chan[12], _b64_sock[12];
+    op_strlcpy(_b64_chan, int_to_base64(party[useridx].chan), sizeof _b64_chan);
+    op_strlcpy(_b64_sock, int_to_base64(party[useridx].sock), sizeof _b64_sock);
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
     op_strbuf_appendf(&_b, "j %s%s %s %s %c%s %s\n",
                       linking ? "!" : "",
                       party[useridx].bot, party[useridx].nick,
-                      op_strbuf_str(&_b64_chan), party[useridx].flag,
-                      op_strbuf_str(&_b64_sock),
+                      _b64_chan, party[useridx].flag, _b64_sock,
                       party[useridx].from ? party[useridx].from : "");
     send_tand_but(idx, op_strbuf_str(&_b), -(int)op_strbuf_len(&_b));
     op_strbuf_free(&_b);
-    op_strbuf_free(&_b64_chan);
-    op_strbuf_free(&_b64_sock);
   }
 }
 
@@ -580,7 +571,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
    * be less than 512.
    */
   if (strlen(msg) > 450) {
-    strlcpy(msgbuf, msg, sizeof msgbuf);
+    op_strlcpy(msgbuf, msg, sizeof msgbuf);
     msg = msgbuf;
   }
 
@@ -592,26 +583,26 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
     char x[21];
 
     *p = 0;
-    strlcpy(x, to, sizeof x);
+    op_strlcpy(x, to, sizeof x);
     *p = '@';
     p++;
 
-    if (!strcasecmp(p, botnetnick)) /* To me?? */
+    if (!op_strcasecmp(p, botnetnick)) /* To me?? */
       return add_note(x, from, msg, idx, echo); /* Start over, dimwit. */
 
     op_strbuf_t _botf = {};
     op_strbuf_init(&_botf);
-    if (strcasecmp(from, botnetnick)) {
+    if (op_strcasecmp(from, botnetnick)) {
       if (strlen(from) > FROMLEN)
         from[FROMLEN] = 0;
 
       if (strchr(from, '@'))
-        op_strbuf_appendf(&_botf, "%s", from);
+        op_strbuf_append_cstr(&_botf, from);
       else
         op_strbuf_appendf(&_botf, "%s@%s", from, botnetnick);
 
     } else
-      op_strbuf_appendf(&_botf, "%s", botnetnick);
+      op_strbuf_append_cstr(&_botf, botnetnick);
 
     int i = nextbot(p);
     if (i < 0) {
@@ -688,7 +679,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
   for (int i = 0; i < dcc_total; i++) {
     if ((dcc[i].type->flags & DCT_GETNOTES) &&
         (sock == -1 || sock == dcc[i].sock) &&
-        !strcasecmp(dcc[i].nick, to)) {
+        !op_strcasecmp(dcc[i].nick, to)) {
       int aok = 1;
 
       if (dcc[i].type == &DCC_CHAT) {
@@ -721,7 +712,7 @@ int add_note(char *to, char *from, const char *msg, int idx, int echo)
             fr = p + 1;
         }
 
-        if (idx == -2 || !strcasecmp(from, botnetnick))
+        if (idx == -2 || !op_strcasecmp(from, botnetnick))
           dprintf(i, "*** [%s] %s%s\n", fr,
                   op_strbuf_len(&work) ? op_strbuf_str(&work) : "", msg);
         else

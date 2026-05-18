@@ -301,7 +301,7 @@ void dcc_chatter(int idx)
   i = dcc[idx].u.chat->channel;
   dcc[idx].u.chat->channel = 234567;
   j = dcc[idx].sock;
-  strlcpy(dcc[idx].u.chat->con_chan, "***", sizeof(dcc[idx].u.chat->con_chan));
+  op_strlcpy(dcc[idx].u.chat->con_chan, "***", sizeof(dcc[idx].u.chat->con_chan));
 #ifdef TLS
   if (is_owner(dcc[idx].user))
     verify_cert_expiry(idx);
@@ -313,7 +313,7 @@ void dcc_chatter(int idx)
   /* Tcl script may have taken control */
   if (dcc[idx].type == &DCC_CHAT) {
     if (!strcmp(dcc[idx].u.chat->con_chan, "***"))
-      strlcpy(dcc[idx].u.chat->con_chan, "*", sizeof(dcc[idx].u.chat->con_chan));
+      op_strlcpy(dcc[idx].u.chat->con_chan, "*", sizeof(dcc[idx].u.chat->con_chan));
     if (dcc[idx].u.chat->channel == 234567) {
       /* If the chat channel has already been altered it's *highly*
        * probably join/part messages have been broadcast everywhere,
@@ -377,7 +377,7 @@ void lostdcc(int n)
     dcc[n].type->kill(n, dcc[n].u.other);
   else if (dcc[n].u.other)
     op_free(dcc[n].u.other);
-  egg_bzero(&dcc[n], sizeof(struct dcc_t));
+  op_memzero(&dcc[n], sizeof(struct dcc_t));
 
   dcc[n].sock = -1;
   dcc[n].type = &DCC_LOST;
@@ -403,7 +403,7 @@ void removedcc(int n)
     dcc_map_set(dcc[dcc_total].sock, n);
     memcpy(&dcc[n], &dcc[dcc_total], sizeof(struct dcc_t));
   } else
-    egg_bzero(&dcc[n], sizeof(struct dcc_t));   /* drummer */
+    op_memzero(&dcc[n], sizeof(struct dcc_t));   /* drummer */
 }
 
 /* Clean up sockets that were just left for dead.
@@ -523,7 +523,7 @@ void set_away(int idx, char *s)
 void *_get_data_ptr(int size, char *file, int line)
 {
   char *p = op_malloc(size);
-  egg_bzero(p, size);
+  op_memzero(p, size);
   return p;
 }
 
@@ -565,7 +565,7 @@ int new_dcc(struct dcc_table *type, int xtra_size)
   if (dcc_total == max_dcc && increase_socks_max())
     return -1;
   dcc_total++;
-  egg_bzero((char *) &dcc[i], sizeof(struct dcc_t));
+  op_memzero((char *) &dcc[i], sizeof(struct dcc_t));
 
   dcc[i].type = type;
   if (xtra_size) {

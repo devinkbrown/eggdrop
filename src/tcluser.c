@@ -34,7 +34,7 @@ extern int default_flags, dcc_total, ignore_time;
 extern struct dcc_t *dcc;
 extern char botnetnick[];
 extern time_t now;
-extern struct user_entry_type *entry_type_list;
+extern op_vec_t entry_type_vec;
 
 static int tcl_countusers STDVAR
 {
@@ -60,7 +60,7 @@ static int tcl_finduser STDVAR
   BADARGS(2, 3, " ?-account? searchString");
 
   if (argc == 3) {
-    if (!strcasecmp(argv[1], "-account")) {
+    if (!op_strcasecmp(argv[1], "-account")) {
       u = get_user_by_account(argv[2]);
     } else {
       Tcl_AppendResult(irp, "invalid option, must be -account", nullptr);
@@ -316,8 +316,8 @@ static int tcl_addbot STDVAR
   BADARGS(3, 5, " handle address ?telnet-port ?relay-port??");
 
   /* Copy to adjustable char*'s */
-  strlcpy(hand, argv[1], sizeof hand);
-  strlcpy(addr, argv[2], sizeof addr);
+  op_strlcpy(hand, argv[1], sizeof hand);
+  op_strlcpy(addr, argv[2], sizeof addr);
 
   for (p = hand; *p; p++)
     if ((unsigned char) *p <= 32 || *p == '@') {
@@ -423,12 +423,12 @@ static int tcl_addbot STDVAR
 
     if (!q) {
       bi->address = user_malloc(count + 1);
-      strlcpy(bi->address, addr, count + 1);
+      op_strlcpy(bi->address, addr, count + 1);
       bi->telnet_port = 3333;
       bi->relay_port = 3333;
     } else {
       bi->address = user_malloc(count + 1);
-      strlcpy(bi->address, addr, count + 1);
+      op_strlcpy(bi->address, addr, count + 1);
       bi->telnet_port = egg_atoi(q);
 #ifdef TLS
       if (*q == '+')
@@ -532,7 +532,7 @@ static int tcl_chhandle STDVAR
   if (!u)
     x = 0;
   else {
-    strlcpy(newhand, argv[2], sizeof newhand);
+    op_strlcpy(newhand, argv[2], sizeof newhand);
     for (i = 0; i < strlen(newhand); i++)
       if (((unsigned char) newhand[i] <= 32) || (newhand[i] == '@'))
         newhand[i] = '?';
@@ -542,7 +542,7 @@ static int tcl_chhandle STDVAR
       x = 0;
     else if (get_user_by_handle(userlist, newhand))
       x = 0;
-    else if (!strcasecmp(botnetnick, newhand) && (!(u->flags & USER_BOT) ||
+    else if (!op_strcasecmp(botnetnick, newhand) && (!(u->flags & USER_BOT) ||
              nextbot(argv[1]) != -1))
       x = 0;
     else if (newhand[0] == '*')
@@ -584,9 +584,9 @@ static int tcl_newignore STDVAR
 
   BADARGS(4, 5, " hostmask creator comment ?lifetime?");
 
-  strlcpy(ign, argv[1], sizeof ign);
-  strlcpy(from, argv[2], sizeof from);
-  strlcpy(cmt, argv[3], sizeof cmt);
+  op_strlcpy(ign, argv[1], sizeof ign);
+  op_strlcpy(from, argv[2], sizeof from);
+  op_strlcpy(cmt, argv[3], sizeof cmt);
   if (argc == 4)
     expire_time = now + 60 * ignore_time;
   else if ((expire_time = get_expire_time(irp, argv[4])) == -1)
@@ -646,11 +646,11 @@ static int tcl_getuser STDVAR
   }
   if (argc >= 3) {
     if (!(et = find_entry_type(argv[2])) &&
-        strcasecmp(argv[2], "HANDLE")) {
+        op_strcasecmp(argv[2], "HANDLE")) {
       Tcl_AppendResult(irp, "No such info type: ", argv[2], nullptr);
       return TCL_ERROR;
     }
-    if (!strcasecmp(argv[2], "HANDLE"))
+    if (!op_strcasecmp(argv[2], "HANDLE"))
       Tcl_AppendResult(irp, u->handle, nullptr);
     else {
       e = find_user_entry(et, u);
@@ -658,7 +658,8 @@ static int tcl_getuser STDVAR
         return et->tcl_get(irp, u, e, argc, argv);
     }
   } else {
-    for (et = entry_type_list; et; et = et->next) {
+    for (size_t _i = 0; _i < entry_type_vec.size; _i++) {
+      et = (struct user_entry_type *)op_vec_get(&entry_type_vec, _i);
       if (!et->tcl_append)
         continue;
       e = find_user_entry(et, u);
@@ -701,7 +702,7 @@ static int tcl_setuser STDVAR
       return TCL_OK; /* Silently ignore user * */
   }
   me = module_find("irc", 0, 0);
-  if (me && !strcasecmp(argv[2], "hosts") && argc == 3) {
+  if (me && !op_strcasecmp(argv[2], "hosts") && argc == 3) {
     Function *func = me->funcs;
 
     ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 1, nullptr);
@@ -719,7 +720,7 @@ static int tcl_setuser STDVAR
       (struct list_type *) e)))
     free_user_entry(e);
     /* else maybe already freed... (entry_type==HOSTS) <drummer> */
-  if (me && !strcasecmp(argv[2], "hosts") && argc == 4) {
+  if (me && !op_strcasecmp(argv[2], "hosts") && argc == 4) {
     Function *func = me->funcs;
 
     ((void (*)(char *, int, char *)) func[IRC_CHECK_THIS_USER])(argv[1], 0, nullptr);

@@ -41,7 +41,7 @@ extern struct userrec *userlist;
 extern Tcl_Interp *interp;
 extern time_t now, online_since;
 extern party_t *party;
-extern module_entry *module_list;
+extern op_vec_t module_vec;
 
 static const char base64to[256] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -227,7 +227,7 @@ static void bot_priv(int idx, char *par)
   }
   if (!to[0])
     return; /* Silently ignore notes to '@bot' */
-  if (!strcasecmp(tobot, botnetnick)) { /* For me! */
+  if (!op_strcasecmp(tobot, botnetnick)) { /* For me! */
     if (p == from)
       add_note(to, from, par, -2, 0);
     else {
@@ -301,7 +301,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
   putlog(LOG_BOTS, "*", "#%s# who", realnick);
   op_strbuf_t line = {};
   op_strbuf_init(&line);
-  op_strbuf_appendf(&line, "Channels: ");
+  op_strbuf_append_cstr(&line, "Channels: ");
   for (struct chanset_t *c = chanset; c; c = c->next) {
     if (!channel_secret(c) && !channel_inactive(c)) {
       size_t l = strlen(c->dname);
@@ -315,7 +315,7 @@ static void remote_tell_who(int idx, char *nick, int chan)
           /* flush this line; always room for trailing ',' */
           op_strbuf_append_cstr(&line, ",");
           botnet_send_priv(idx, botnetnick, nick, nullptr, "%s", op_strbuf_str(&line));
-          op_strbuf_appendf(&line, "          "); /* 10-space continuation indent */
+          op_strbuf_append_cstr(&line, "          "); /* 10-space continuation indent */
         }
       }
       op_strbuf_append_cstr(&line, c->dname);
@@ -440,7 +440,7 @@ static void bot_who(int idx, char *par)
     from = (char *) op_strbuf_str(&_from_sb);
   }
   char *to = newsplit(&par);
-  if (!strcasecmp(to, botnetnick))
+  if (!op_strcasecmp(to, botnetnick))
     to[0] = 0;
   int chan = base64_to_int(par);
   if (to[0]) {
@@ -512,7 +512,7 @@ static void bot_link(int idx, char *par)
   char *from = newsplit(&par);
   char *bot  = newsplit(&par);
 
-  if (!strcasecmp(bot, botnetnick)) {
+  if (!op_strcasecmp(bot, botnetnick)) {
     char *rfrom = strchr(from, ':');
     rfrom = rfrom ? rfrom + 1 : from;
     putlog(LOG_CMDS, "*", "#%s# link %s", rfrom, par);
@@ -535,7 +535,7 @@ static void bot_unlink(int idx, char *par)
   char *from  = newsplit(&par);
   char *bot   = newsplit(&par);
   char *undes = newsplit(&par);
-  if (!strcasecmp(bot, botnetnick)) {
+  if (!op_strcasecmp(bot, botnetnick)) {
     char *rfrom = strchr(from, ':');
     rfrom = rfrom ? rfrom + 1 : from;
     putlog(LOG_CMDS, "*", "#%s# unlink %s (%s)", rfrom, undes,
@@ -599,7 +599,7 @@ static void bot_nlinked(int idx, char *par)
     op_strbuf_appendf(&s, "%s %s (%s)", MISC_DISCONNECTED, dcc[idx].nick,
              MISC_INVALIDBOT);
       dprintf(idx, "e invalid eggnet protocol for 'nlinked'\n");
-  } else if ((in_chain(newbot)) || (!strcasecmp(newbot, botnetnick))) {
+  } else if ((in_chain(newbot)) || (!op_strcasecmp(newbot, botnetnick))) {
     /* Loop! */
     putlog(LOG_BOTS, "*", "%s %s (mutual: %s)",
            BOT_LOOPDETECT, dcc[idx].nick, newbot);
@@ -698,7 +698,7 @@ static void bot_trace(int idx, char *par)
     botnet_send_traced(idx, from, op_strbuf_str(&_b));
     op_strbuf_free(&_b);
   }
-  if (strcasecmp(dest, botnetnick)) {
+  if (op_strcasecmp(dest, botnetnick)) {
     int i = nextbot(dest);
     if (i > 0)
       botnet_send_trace(i, from, dest, par);
@@ -717,7 +717,7 @@ static void bot_traced(int idx, char *par)
     *p = 0;
     p++;
   }
-  if (!strcasecmp(p, botnetnick)) {
+  if (!op_strcasecmp(p, botnetnick)) {
     char ss[HANDLEN + 1];
     splitc(ss, to, ':');
     int sock = ss[0] ? egg_atoi(ss) : -1;
@@ -731,7 +731,7 @@ static void bot_traced(int idx, char *par)
     }
     for (int i = 0; i < dcc_total; i++)
       if ((dcc[i].type->flags & DCT_CHAT) &&
-          (!strcasecmp(dcc[i].nick, to)) &&
+          (!op_strcasecmp(dcc[i].nick, to)) &&
           ((sock == -1) || (sock == dcc[i].sock))) {
         if (t) {
           int hops = 0;
@@ -775,7 +775,7 @@ static void bot_reject(int idx, char *par)
     if (i < 0) {
       botnet_send_priv(idx, botnetnick, from, nullptr, "%s %s (%s)",
                        BOT_CANTUNLINK, who, BOT_DOESNTEXIST);
-    } else if (!strcasecmp(dcc[i].nick, who)) {
+    } else if (!op_strcasecmp(dcc[i].nick, who)) {
       /* I'm the connection to the rejected bot */
       dprintf(i, "bye %s\n", par[0] ? par : MISC_REJECTED);
       {
@@ -796,7 +796,7 @@ static void bot_reject(int idx, char *par)
     }
   } else {                        /* Rejecting user */
     *destbot++ = 0;
-    if (!strcasecmp(destbot, botnetnick)) {
+    if (!op_strcasecmp(destbot, botnetnick)) {
       /* Kick someone here! */
       int ok = 0;
 
@@ -813,7 +813,7 @@ static void bot_reject(int idx, char *par)
         ok = 1;
       }
       for (int k = 0; (k < dcc_total) && (!ok); k++)
-        if ((!strcasecmp(who, dcc[k].nick)) &&
+        if ((!op_strcasecmp(who, dcc[k].nick)) &&
             (dcc[k].type->flags & DCT_CHAT)) {
           struct userrec *u = get_user_by_handle(userlist, dcc[k].nick);
           if (u && (u->flags & USER_OWNER)) {
@@ -836,7 +836,7 @@ static void bot_reject(int idx, char *par)
 
 static void bot_thisbot(int idx, char *par)
 {
-  if (strcasecmp(par, dcc[idx].nick)) {
+  if (op_strcasecmp(par, dcc[idx].nick)) {
     putlog(LOG_BOTS, "*", NET_WRONGBOT, dcc[idx].nick, par);
     dprintf(idx, "bye %s\n", MISC_IMPOSTER);
     {
@@ -859,7 +859,7 @@ static void bot_thisbot(int idx, char *par)
   noshare = 1;
   change_handle(dcc[idx].user, par);
   noshare = 0;
-  strlcpy(dcc[idx].nick, par, sizeof dcc[idx].nick);
+  op_strlcpy(dcc[idx].nick, par, sizeof dcc[idx].nick);
 }
 
 static void bot_handshake(int idx, char *par)
@@ -884,7 +884,7 @@ static void bot_zapf(int idx, char *par)
     fake_alert(idx, "direction", from);
     return;
   }
-  if (!strcasecmp(to, botnetnick)) {
+  if (!op_strcasecmp(to, botnetnick)) {
     /* For me! */
     char *opcode = newsplit(&par);
     check_tcl_bot(from, opcode, par);
@@ -917,7 +917,7 @@ static void bot_motd(int idx, char *par)
 {
   struct flag_record fr = { FR_BOT, USER_BOT, 0, 0, 0, 0 };
   char *who = newsplit(&par);
-  if (!par[0] || !strcasecmp(par, botnetnick)) {
+  if (!par[0] || !op_strcasecmp(par, botnetnick)) {
     int irc = 0;
     char *p = strchr(who, ':');
     p = p ? p + 1 : who;
@@ -941,7 +941,7 @@ static void bot_motd(int idx, char *par)
         if (s[strlen(s) - 1] == '\n')
           s[strlen(s) - 1] = 0;
         if (!s[0])
-          strlcpy(s, " ", sizeof s);
+          op_strlcpy(s, " ", sizeof s);
         help_subst(s, who, &fr, HELP_DCC, dcc[idx].nick);
         if (s[0])
           botnet_send_priv(idx, botnetnick, who, nullptr, "%s", s);
@@ -972,7 +972,7 @@ static void bot_filereject(int idx, char *par)
   char *to    = newsplit(&par);
   char *tobot = strchr(to, '@');
   tobot = tobot ? tobot + 1 : to;  /* Bot wants a file?! :) */
-  if (strcasecmp(tobot, botnetnick)) {      /* for me! */
+  if (op_strcasecmp(tobot, botnetnick)) {      /* for me! */
     char *p = strchr(to, ':');
     if (p != nullptr) {
       *p = 0;
@@ -1000,7 +1000,7 @@ static void bot_filereq(int idx, char *tobot)
   if ((path = strchr(tobot, ':'))) {
     *path++ = 0;
 
-    if (!strcasecmp(tobot, botnetnick)) {   /* For me! */
+    if (!op_strcasecmp(tobot, botnetnick)) {   /* For me! */
       /* Process this */
       module_entry *fs = module_find("filesys", 0, 0);
 
@@ -1031,7 +1031,7 @@ static void bot_filesend(int idx, char *par)
     tobot++;
   } else
     tobot = to;
-  if (!strcasecmp(tobot, botnetnick)) {     /* For me! */
+  if (!op_strcasecmp(tobot, botnetnick)) {     /* For me! */
     char *nfn = strrchr(botpath, '/');
     if (nfn == nullptr) {
       nfn = strrchr(botpath, ':');
@@ -1283,17 +1283,19 @@ static void bot_versions(int sock, char *par)
     fake_alert(sock, "versions-direction", frombot);
   else {
     char *tobot = newsplit(&par);
-    if (strcasecmp(tobot, botnetnick)) {
+    if (op_strcasecmp(tobot, botnetnick)) {
       int s = nextbot(tobot);
       if (s >= 0)
         dprintf(s, "v %s %s %s\n", frombot, tobot, par);
     } else {
       char *from = newsplit(&par);
       botnet_send_priv(sock, botnetnick, from, frombot, "Modules loaded:\n");
-      for (module_entry *me = module_list; me; me = me->next)
+      for (size_t _mi = 0; _mi < module_vec.size; _mi++) {
+        module_entry *me = (module_entry *)op_vec_get(&module_vec, _mi);
         botnet_send_priv(sock, botnetnick, from, frombot,
                          "  Module: %s (v%d.%d)\n", me->name, me->major,
                          me->minor);
+      }
       botnet_send_priv(sock, botnetnick, from, frombot, "End of module list.\n");
     }
   }
@@ -1312,7 +1314,7 @@ static void bot_starttls(int idx, char *par)
 
   con = newsplit(&par);
   /* check who's going to play the server */
-  if (!strcasecmp(con, "s")) { /* we're server */
+  if (!op_strcasecmp(con, "s")) { /* we're server */
     putlog(LOG_BOTS, "*", "Got STARTTLS from %s. Replying...", dcc[idx].nick);
     dprintf(idx, "starttls c\n");
     ssl_handshake(dcc[idx].sock, TLS_LISTEN, tls_vfybots, LOG_BOTS,

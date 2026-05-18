@@ -164,7 +164,6 @@ typedef struct zarrf {
   char *file;
   char nick[NICKLEN];           /* Who queued this file                 */
   char to[NICKLEN];             /* Who will it be sent to               */
-  struct zarrf *next;
 } fileq_t;
 
 #endif /* MAKING_TRANSFER */

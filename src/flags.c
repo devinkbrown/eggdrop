@@ -998,10 +998,10 @@ void break_down_flags(const char *string, struct flag_record *plus,
     else
       return;                   /* We don't actually want any..huh? */
   }
-  egg_bzero(plus, sizeof(struct flag_record));
+  op_memzero(plus, sizeof(struct flag_record));
 
   if (minus)
-    egg_bzero(minus, sizeof(struct flag_record));
+    op_memzero(minus, sizeof(struct flag_record));
 
   plus->match = FR_OR;          /* Default binding type OR */
   while (*string) {
@@ -1298,7 +1298,7 @@ void set_user_flagrec(struct userrec *u, struct flag_record *fr,
 
       cr->next = u->chanrec;
       u->chanrec = cr;
-      strlcpy(cr->channel, chname, sizeof cr->channel);
+      op_strlcpy(cr->channel, chname, sizeof cr->channel);
     }
     if (cr && ch) {
       cr->flags = fr->chan;
@@ -1385,7 +1385,7 @@ static int botfl_pack(struct userrec *u, struct user_entry *e)
   e->u.list->next = nullptr;
   size_t _len = build_flags(x, &fr, nullptr) + 1;
   e->u.list->extra = user_malloc(_len);
-  strlcpy(e->u.list->extra, x, _len);
+  op_strlcpy(e->u.list->extra, x, _len);
   return 1;
 }
 
@@ -1463,7 +1463,6 @@ static void botfl_display(int idx, struct user_entry *e)
 }
 
 struct user_entry_type USERENTRY_BOTFL = {
-  0,                            /* always 0 ;) */
   0,
   def_dupuser,
   botfl_unpack,

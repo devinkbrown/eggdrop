@@ -28,6 +28,7 @@
 #include "console.h"
 
 static Function *global = nullptr;
+static op_bh *console_info_bh = nullptr;
 static int console_autosave = 0;
 static int force_channel = 0;
 static int info_party = 0;
@@ -46,7 +47,9 @@ static struct user_entry_type USERENTRY_CONSOLE;
 
 static int console_unpack(struct userrec *u, struct user_entry *e)
 {
-  struct console_info *ci = user_malloc(sizeof(struct console_info));
+  if (!console_info_bh)
+    console_info_bh = op_bh_create(sizeof(struct console_info), 32, "console_info");
+  struct console_info *ci = op_bh_alloc(console_info_bh);
   char *par, *arg;
 
   par = e->u.list->extra;
@@ -85,7 +88,7 @@ static int console_pack(struct userrec *u, struct user_entry *e)
   e->u.list->extra = op_strbuf_steal(&_b);
 
   op_free(ci->channel);
-  op_free(ci);
+  op_bh_free(console_info_bh, ci);
   return 1;
 }
 
@@ -94,7 +97,7 @@ static int console_kill(struct user_entry *e)
   struct console_info *i = e->u.extra;
 
   op_free(i->channel);
-  op_free(i);
+  op_bh_free(console_info_bh, i);
   free_user_entry(e);
   return 1;
 }
@@ -122,7 +125,7 @@ static int console_set(struct userrec *u, struct user_entry *e, void *buf)
   if (ci != buf) {
     if (ci) {
       op_free(ci->channel);
-      op_free(ci);
+      op_bh_free(console_info_bh, ci);
     }
     e->u.extra = buf;
   }
@@ -165,8 +168,9 @@ static int console_tcl_set(Tcl_Interp *irp, struct userrec *u,
   BADARGS(4, 9, " handle CONSOLE channel flags strip echo page conchan");
 
   if (!i) {
-    i = user_malloc(sizeof(struct console_info));
-    egg_bzero(i, sizeof(struct console_info));
+    if (!console_info_bh)
+      console_info_bh = op_bh_create(sizeof(struct console_info), 32, "console_info");
+    i = op_bh_alloc(console_info_bh);
   }
   if (i->channel)
     op_free(i->channel);
@@ -174,7 +178,7 @@ static int console_tcl_set(Tcl_Interp *irp, struct userrec *u,
   if (l > 80)
     l = 80;
   i->channel = user_malloc(l + 1);
-  strlcpy(i->channel, argv[3], l + 1);
+  op_strlcpy(i->channel, argv[3], l + 1);
   if (argc > 4) {
     i->conflags = logmodes(argv[4]);
     if (argc > 5) {
@@ -222,7 +226,9 @@ static int console_dupuser(struct userrec *new, struct userrec *old,
 {
   struct console_info *i = e->u.extra, *j;
 
-  j = user_malloc(sizeof(struct console_info));
+  if (!console_info_bh)
+    console_info_bh = op_bh_create(sizeof(struct console_info), 32, "console_info");
+  j = op_bh_alloc(console_info_bh);
   memcpy(j, i, sizeof(struct console_info));
 
   j->channel = op_strdup(i->channel);
@@ -230,7 +236,6 @@ static int console_dupuser(struct userrec *new, struct userrec *old,
 }
 
 static struct user_entry_type USERENTRY_CONSOLE = {
-  nullptr,                         /* always 0 ;) */
   nullptr,
   console_dupuser,
   console_unpack,
@@ -255,7 +260,7 @@ static int console_chon(char *handle, int idx)
   if (dcc[idx].type == &DCC_CHAT) {
     if (i) {
       if (i->channel && i->channel[0])
-        strlcpy(dcc[idx].u.chat->con_chan, i->channel, sizeof dcc[idx].u.chat->con_chan);
+        op_strlcpy(dcc[idx].u.chat->con_chan, i->channel, sizeof dcc[idx].u.chat->con_chan);
       get_user_flagrec(dcc[idx].user, &fr, i->channel);
       dcc[idx].u.chat->con_flags = check_conflags(&fr, i->conflags);
       dcc[idx].u.chat->strip_flags = i->stripflags;
@@ -303,8 +308,9 @@ static int console_store(struct userrec *u, int idx, char *par)
   struct console_info *i = get_user(&USERENTRY_CONSOLE, u);
 
   if (!i) {
-    i = user_malloc(sizeof(struct console_info));
-    egg_bzero(i, sizeof(struct console_info));
+    if (!console_info_bh)
+      console_info_bh = op_bh_create(sizeof(struct console_info), 32, "console_info");
+    i = op_bh_alloc(console_info_bh);
   }
   if (i->channel)
     op_free(i->channel);
