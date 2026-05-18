@@ -27,6 +27,8 @@
 
 #include <sys/stat.h>
 #include <string.h>
+#include <sched.h>
+#include <stdatomic.h>
 #include "main.h"
 #include "tandem.h"
 
@@ -371,6 +373,12 @@ void lostdcc(int n)
   /* Make sure it's a valid dcc index. */
   if (n < 0 || n >= max_dcc)
     return;
+
+  /* Wait for any threadpool workers currently in activity() for this slot.
+   * Prevents use-after-free if a DCT_PARALLEL handler calls lostdcc on
+   * its own slot while another worker holds a reference. */
+  while (atomic_load_explicit(&dcc[n].in_flight, memory_order_acquire) > 0)
+    sched_yield();
 
   dcc_map_clear(dcc[n].sock); /* remove before zeroing */
   if (dcc[n].type && dcc[n].type->kill)

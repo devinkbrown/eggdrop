@@ -48,6 +48,7 @@ core_sources = files(
   'tcluser.c',
   'tls.c',
   'threadpool.c',
+  'comqueue.c',
   'userent.c',
   'userrec.c',
   'users.c',

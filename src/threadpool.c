@@ -1,10 +1,15 @@
 /*
- * threadpool.c -- worker thread pool for parallel I/O dispatch
+ * threadpool.c -- worker thread pool using libop's work-stealing op_tpool.
  *
- * Fixed-size pool with a bounded MPSC queue. Workers dequeue items
- * and execute the callback. The queue uses a mutex + condition variable
- * for simplicity and correctness (no lock-free tricks needed at this
- * throughput level — we're dispatching IRC events, not millions of ops).
+ * Replaces the hand-rolled mutex+condvar queue with op_thread_pool_t:
+ *   - Lock-free MPSC inbox per worker (Treiber stack, single CAS)
+ *   - Chase-Lev work-stealing deque — idle workers steal from peers
+ *   - eventfd/pipe wakeup — no busy-wait, no condvar overhead
+ *   - Per-worker stats available via op_tpool_get_stats()
+ *
+ * Thread safety for dcc slot removal:
+ *   pool_inflight tracks items in flight.  lostdcc() waits until
+ *   in_flight reaches 0 before zeroing the slot, preventing use-after-free.
  *
  * Copyright (C) 2026 Eggheads Development Team
  */
@@ -14,14 +19,14 @@
 #include "main.h"
 #include "threadpool.h"
 
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include "libop/include/op_thread_pool.h"
 
-/* Maximum pending work items before submit() returns -1 (backpressure) */
-#define QUEUE_CAP  4096
+#include <stdatomic.h>
+#include <string.h>
+#include <sched.h>
+
+extern struct dcc_t *dcc;
+extern int dcc_total;
 
 /* Maximum buffer size per work item */
 #define MAX_WORK_BUF  2048
@@ -29,215 +34,105 @@
 /* ---- Work item ---------------------------------------------------------- */
 
 typedef struct {
-  pool_work_fn fn;
-  int          idx;
-  int          len;
-  char         buf[MAX_WORK_BUF];
+  pool_work_fn  fn;
+  int           idx;
+  int           len;
+  char          buf[MAX_WORK_BUF];
 } work_item_t;
-
-/* ---- Bounded ring queue ------------------------------------------------- */
-
-typedef struct {
-  work_item_t   items[QUEUE_CAP];
-  unsigned int  head;    /* next write position */
-  unsigned int  tail;    /* next read position */
-  unsigned int  count;
-  pthread_mutex_t lock;
-  pthread_cond_t  not_empty;
-  pthread_cond_t  not_full;
-  int             shutdown;
-} work_queue_t;
 
 /* ---- Pool state --------------------------------------------------------- */
 
-#define MAX_THREADS 16
+static op_thread_pool_t *pool;
+static _Atomic int       pool_inflight;
 
-static work_queue_t  pool_queue;
-static pthread_t     pool_threads[MAX_THREADS];
-static int           pool_nthreads;
-static int           pool_running;
+/* ---- Worker dispatch ---------------------------------------------------- */
 
-/* ---- Queue operations --------------------------------------------------- */
-
-static void queue_init(work_queue_t *q)
+static void worker_dispatch(void *arg)
 {
-  q->head = 0;
-  q->tail = 0;
-  q->count = 0;
-  q->shutdown = 0;
-  pthread_mutex_init(&q->lock, nullptr);
-  pthread_cond_init(&q->not_empty, nullptr);
-  pthread_cond_init(&q->not_full, nullptr);
-}
-
-static void queue_destroy(work_queue_t *q)
-{
-  pthread_mutex_destroy(&q->lock);
-  pthread_cond_destroy(&q->not_empty);
-  pthread_cond_destroy(&q->not_full);
-}
-
-/* Non-blocking push. Returns 0 on success, -1 if full. */
-static int queue_push(work_queue_t *q, const work_item_t *item)
-{
-  pthread_mutex_lock(&q->lock);
-  if (q->count >= QUEUE_CAP) {
-    pthread_mutex_unlock(&q->lock);
-    return -1;
-  }
-  q->items[q->head & (QUEUE_CAP - 1)] = *item;
-  q->head++;
-  q->count++;
-  pthread_cond_signal(&q->not_empty);
-  pthread_mutex_unlock(&q->lock);
-  return 0;
-}
-
-/* Blocking pop. Returns 0 on success, -1 on shutdown. */
-static int queue_pop(work_queue_t *q, work_item_t *out)
-{
-  pthread_mutex_lock(&q->lock);
-  while (q->count == 0 && !q->shutdown)
-    pthread_cond_wait(&q->not_empty, &q->lock);
-
-  if (q->shutdown && q->count == 0) {
-    pthread_mutex_unlock(&q->lock);
-    return -1;
-  }
-
-  *out = q->items[q->tail & (QUEUE_CAP - 1)];
-  q->tail++;
-  q->count--;
-  pthread_cond_signal(&q->not_full);
-  pthread_mutex_unlock(&q->lock);
-  return 0;
-}
-
-/* ---- Worker thread ------------------------------------------------------ */
-
-static void *worker_fn(void *arg)
-{
-  (void)arg;
-  work_item_t item;
-
-  while (queue_pop(&pool_queue, &item) == 0)
-    item.fn(item.idx, item.buf, item.len);
-
-  return nullptr;
+  work_item_t *w = (work_item_t *)arg;
+  w->fn(w->idx, w->buf, w->len);
+  /* Release per-slot in_flight ref so lostdcc() can safely zero the slot */
+  if (w->idx >= 0 && w->idx < dcc_total)
+    atomic_fetch_sub_explicit(&dcc[w->idx].in_flight, 1, memory_order_release);
+  atomic_fetch_sub_explicit(&pool_inflight, 1, memory_order_release);
+  op_free(w);
 }
 
 /* ---- Public API --------------------------------------------------------- */
 
 int threadpool_init(int nthreads)
 {
-  if (pool_running)
+  if (pool)
     return 0;
 
-  if (nthreads <= 0) {
-    long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
-    if (ncpus < 2) ncpus = 2;
-    nthreads = (int)(ncpus - 1);
-    if (nthreads > 8) nthreads = 8;
-    if (nthreads < 1) nthreads = 1;
-  }
-  if (nthreads > MAX_THREADS)
-    nthreads = MAX_THREADS;
-
-  queue_init(&pool_queue);
-  pool_nthreads = nthreads;
-
-  for (int i = 0; i < nthreads; i++) {
-    int rc = pthread_create(&pool_threads[i], nullptr, worker_fn, nullptr);
-    if (rc != 0) {
-      fprintf(stderr, "threadpool: pthread_create[%d]: %s\n", i, strerror(rc));
-      pool_nthreads = i;
-      break;
-    }
-  }
-
-  if (pool_nthreads == 0) {
-    queue_destroy(&pool_queue);
-    return -1;
-  }
-
-  pool_running = 1;
+  /* op_tpool_create aborts on failure — always succeeds or terminates */
+  pool = op_tpool_create(nthreads);
+  atomic_store_explicit(&pool_inflight, 0, memory_order_relaxed);
   return 0;
 }
 
 int threadpool_submit(pool_work_fn fn, int idx, const char *buf, int len)
 {
-  if (!pool_running)
+  if (!pool)
     return -1;
 
-  work_item_t item;
-  item.fn  = fn;
-  item.idx = idx;
-  item.len = len;
+  work_item_t *w = (work_item_t *)op_malloc(sizeof *w);
+  if (!w)
+    return -1;
 
-  if (len > 0 && buf != nullptr) {
-    int copy_len = len < MAX_WORK_BUF ? len : MAX_WORK_BUF - 1;
-    memcpy(item.buf, buf, (size_t)copy_len);
-    item.buf[copy_len] = '\0';
-    item.len = copy_len;
+  w->fn  = fn;
+  w->idx = idx;
+
+  if (len > 0 && buf) {
+    int n = len < MAX_WORK_BUF ? len : MAX_WORK_BUF - 1;
+    memcpy(w->buf, buf, (size_t)n);
+    w->buf[n] = '\0';
+    w->len = n;
   } else {
-    item.buf[0] = '\0';
-    item.len = 0;
+    w->buf[0] = '\0';
+    w->len = 0;
   }
 
-  return queue_push(&pool_queue, &item);
+  /* Increment per-slot in_flight before submit so lostdcc() can wait */
+  if (idx >= 0 && idx < dcc_total)
+    atomic_fetch_add_explicit(&dcc[idx].in_flight, 1, memory_order_relaxed);
+  atomic_fetch_add_explicit(&pool_inflight, 1, memory_order_relaxed);
+  op_tpool_submit(pool, worker_dispatch, w);
+  return 0;
 }
 
 void threadpool_drain(void)
 {
-  if (!pool_running)
+  if (!pool)
     return;
-
-  /* Spin until queue is empty (workers finish their current items) */
-  pthread_mutex_lock(&pool_queue.lock);
-  while (pool_queue.count > 0) {
-    pthread_mutex_unlock(&pool_queue.lock);
-    usleep(1000);
-    pthread_mutex_lock(&pool_queue.lock);
-  }
-  pthread_mutex_unlock(&pool_queue.lock);
+  /* Spin until all submitted items complete — only called at shutdown/restart */
+  while (atomic_load_explicit(&pool_inflight, memory_order_acquire) > 0)
+    sched_yield();
 }
 
 void threadpool_shutdown(void)
 {
-  if (!pool_running)
+  if (!pool)
     return;
-
-  /* Signal shutdown and wake all workers */
-  pthread_mutex_lock(&pool_queue.lock);
-  pool_queue.shutdown = 1;
-  pthread_cond_broadcast(&pool_queue.not_empty);
-  pthread_mutex_unlock(&pool_queue.lock);
-
-  /* Join all threads */
-  for (int i = 0; i < pool_nthreads; i++)
-    pthread_join(pool_threads[i], nullptr);
-
-  queue_destroy(&pool_queue);
-  pool_nthreads = 0;
-  pool_running = 0;
+  /* op_tpool_shutdown drains pending items and joins all workers */
+  op_tpool_shutdown(pool);
+  pool = nullptr;
+  atomic_store_explicit(&pool_inflight, 0, memory_order_relaxed);
 }
 
 int threadpool_active(void)
 {
-  return pool_running;
+  return pool != nullptr;
 }
 
 int threadpool_pending(void)
 {
-  if (!pool_running)
+  if (!pool)
     return 0;
-  pthread_mutex_lock(&pool_queue.lock);
-  int n = (int)pool_queue.count;
-  pthread_mutex_unlock(&pool_queue.lock);
-  return n;
+  return (int)atomic_load_explicit(&pool_inflight, memory_order_relaxed);
 }
 
 int threadpool_size(void)
 {
-  return pool_nthreads;
+  return pool ? op_tpool_nthreads(pool) : 0;
 }

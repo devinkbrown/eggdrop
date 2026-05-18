@@ -232,6 +232,7 @@ typedef struct opssl_conn opssl_conn_t;
 #  define Assert(expr) do {} while (0)
 #endif
 
+#include <stdatomic.h>
 #ifndef COMPILING_MEM
 #  undef malloc
 #  define malloc(x) dont_use_old_malloc(x)
@@ -325,6 +326,7 @@ struct dcc_t {
   struct dcc_table *type;
   time_t timeval;               /* This is used for timeout checking. */
   uint64_t status;              /* A LOT of dcc types have status things; makes it more available. */
+  _Atomic int in_flight;        /* number of threadpool workers currently in activity() for this slot */
   union {
     struct chat_info *chat;
     struct file_info *file;

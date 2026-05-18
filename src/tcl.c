@@ -92,6 +92,7 @@ int allow_dk_cmds = 1;
 int must_be_owner = 1;
 int quiet_reject = 1;
 int max_socks = 100;
+extern int nthreads;
 int par_telnet_flood = 1;
 int quiet_save = 0;
 int strtot = 0;
@@ -198,6 +199,7 @@ static tcl_ints def_tcl_ints[] = {
   {"log-time",              &shtime,               0},
   {"allow-dk-cmds",         &allow_dk_cmds,        0},
   {"resolve-timeout",       &resolve_timeout,      0},
+  {"nthreads",              &nthreads,             0},
   {"must-be-owner",         &must_be_owner,        1},
   {"paranoid-telnet-flood", &par_telnet_flood,     0},
   {"use-exempts",           &use_exempts,          0},

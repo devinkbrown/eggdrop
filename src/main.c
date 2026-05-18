@@ -50,6 +50,8 @@
 #include "configtoml.h"
 #include "websetup.h"
 #include "threadpool.h"
+#include "comqueue.h"
+#include "libop/include/op_iothread.h"
 #include "script.h"
 #include "async_dns.h"
 #include "perf.h"
@@ -114,6 +116,7 @@ char ver[41];        /* Version info (short form) */
 
 volatile sig_atomic_t do_restart = 0; /* .restart has been called, restart ASAP */
 int resolve_timeout = RES_TIMEOUT;    /* Hostname/address lookup timeout        */
+int nthreads = 0;                     /* Worker thread count; 0 = auto-detect   */
 char quit_msg[1024];                  /* Quit message                           */
 
 /* Moved here for n flag warning, put back in do_arg if removed */
@@ -132,7 +135,9 @@ extern char last_bind_called[];
 void fatal(const char *s, int recoverable)
 {
   putlog(LOG_MISC, "*", "* %s", s);
+  op_stop_pollthread();
   threadpool_shutdown();
+  comqueue_destroy();
   op_async_shutdown();
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].sock >= 0)
@@ -694,11 +699,15 @@ static void mainloop(int toplevel)
     then = now;
   }
 
+  /* Drain worker completions before any slot cleanup. */
+  comqueue_drain();
+
   /* Only do this every so often. */
   if (!cleanup) {
     cleanup = 5;
 
-    /* Remove dead dcc entries. */
+    /* Wait for any in-flight workers, then remove dead slots. */
+    threadpool_drain();
     dcc_remove_lost();
 
     /* Check for server or dcc activity. */
@@ -813,7 +822,9 @@ static void mainloop(int toplevel)
       char name[256];
 
       /* oops, I guess we should call this event before tcl is restarted */
+      op_stop_pollthread();
       threadpool_drain();
+      comqueue_drain();
       check_tcl_event("prerestart");
 
       while (f) {
@@ -1178,9 +1189,18 @@ int main(int arg_c, char **arg_v)
 
   call_hook(HOOK_LOADED);
 
-  /* Start the worker thread pool for parallel I/O dispatch */
-  if (threadpool_init(0) == 0)
+  /* Completion queue for worker→main thread callbacks */
+  comqueue_init(4096);
+
+  /* Worker thread pool — op_tpool with work-stealing */
+  if (threadpool_init(nthreads) == 0)
     putlog(LOG_MISC, "*", "Thread pool: %d workers started", threadpool_size());
+
+  /* Dedicated I/O poll thread: epoll_wait runs concurrently with dispatch */
+  if (op_start_pollthread())
+    putlog(LOG_MISC, "*", "I/O poll thread started");
+  else
+    putlog(LOG_MISC, "*", "I/O poll thread unavailable (epoll backend required)");
 
 #ifdef HAVE_PLEDGE
   /* OpenBSD: drop to minimal privileges before entering the event loop.
