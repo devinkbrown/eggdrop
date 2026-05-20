@@ -213,6 +213,14 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #ifdef TLS
 #  define dcc_fingerprint ((int (*) (int))global[103])
 #endif
+/* DCT_PARALLEL: signal that this DCC slot should be closed once all
+ * in-flight workers have finished.  Safe to call from any context. */
+#define dcc_request_close(idx) do {                                        \
+    int _drc_idx = (idx);                                                  \
+    if (_drc_idx >= 0 && _drc_idx < max_dcc)                              \
+      atomic_store_explicit(&dcc[_drc_idx].close_req, true,               \
+                            memory_order_release);                          \
+  } while (0)
 /* 104 - 107 */
 #define reserved_port_min (*(int *)(global[104]))
 #define reserved_port_max (*(int *)(global[105]))

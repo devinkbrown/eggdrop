@@ -719,6 +719,9 @@ static void mainloop(int toplevel)
    * promptly, not just when the main loop goes idle. */
   comqueue_drain();
   op_async_drain();
+  /* Deliver close requests from DCT_PARALLEL handlers that finished this
+   * tick (in_flight is now 0 after dcc_done() ran inside op_async_drain). */
+  dcc_drain_close_requests();
 
   /* Only do this every so often. */
   if (!cleanup) {

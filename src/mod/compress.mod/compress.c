@@ -29,8 +29,10 @@
 
 #include <string.h>
 #include <errno.h>
+#include <stdatomic.h>
 
 #include "src/mod/module.h"
+#include <op_async.h>
 
 #include <zlib.h> /* after src/mod/module.h because it could collide with
                      crypto.h free_func */
@@ -368,19 +370,71 @@ static int uncompress_file(char *filename)
 
 
 /*
+ *    Async compress/uncompress wrappers
+ *
+ * The UFF API is synchronous, but gzread/gzwrite can block for seconds on
+ * large userfiles.  We submit the work to op_async and pump op_async_drain()
+ * + sockgets() until the worker signals completion via an atomic flag.
+ * The main loop stays responsive (DNS, DCC, botnet) while the file I/O runs.
+ */
+
+typedef struct {
+  char *filename;
+  int   mode;           /* compress level; -1 => uncompress */
+  int   result;
+  _Atomic bool done;
+} comp_work_t;
+
+static void comp_worker(void *arg)
+{
+  comp_work_t *w = (comp_work_t *)arg;
+  if (w->mode >= 0)
+    w->result = compress_file(w->filename, w->mode);
+  else
+    w->result = uncompress_file(w->filename);
+}
+
+static void comp_done(void *arg)
+{
+  comp_work_t *w = (comp_work_t *)arg;
+  atomic_store_explicit(&w->done, true, memory_order_release);
+}
+
+/* Run compress/uncompress on a worker thread; pump the main loop while
+ * waiting so sockets and botnet traffic continue to flow. */
+static int async_file_compress(char *filename, int mode)
+{
+  comp_work_t w = {
+    .filename = filename,
+    .mode     = mode,
+    .result   = COMPF_ERROR,
+    .done     = false,
+  };
+
+  if (!op_async_active())
+    return (mode >= 0) ? compress_file(filename, mode) : uncompress_file(filename);
+
+  op_async_submit(comp_worker, comp_done, &w);
+  while (!atomic_load_explicit(&w.done, memory_order_acquire))
+    op_async_drain();
+  return w.result;
+}
+
+
+/*
  *    Userfile feature related functions
  */
 
 static int uff_comp(int idx, char *filename)
 {
   debug1("Compressing user file for %s.", dcc[idx].nick);
-  return compress_file(filename, compress_level);
+  return async_file_compress(filename, (int)compress_level);
 }
 
 static int uff_uncomp(int idx, char *filename)
 {
   debug1("Uncompressing user file from %s.", dcc[idx].nick);
-  return uncompress_file(filename);
+  return async_file_compress(filename, -1);
 }
 
 static int uff_ask_compress(int idx)

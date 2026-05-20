@@ -420,6 +420,28 @@ void removedcc(int n)
     op_memzero(&dcc[n], sizeof(struct dcc_t));   /* drummer */
 }
 
+/* Signal that a DCT_PARALLEL activity handler wants this slot closed.
+ * Safe to call from any thread.  The main loop will call lostdcc() once
+ * in_flight reaches zero (i.e., after the worker's dcc_done() fires).
+ * Do NOT call lostdcc() directly from a parallel activity handler. */
+void dcc_request_close(int idx)
+{
+  if (idx >= 0 && idx < max_dcc)
+    atomic_store_explicit(&dcc[idx].close_req, true, memory_order_release);
+}
+
+/* Drain pending close requests from DCT_PARALLEL handlers.
+ * Called on the main thread after op_async_drain() so in_flight has
+ * already been decremented for any just-completed workers. */
+void dcc_drain_close_requests(void)
+{
+  for (int i = 0; i < dcc_total; i++) {
+    if (atomic_load_explicit(&dcc[i].close_req, memory_order_acquire) &&
+        atomic_load_explicit(&dcc[i].in_flight, memory_order_acquire) == 0)
+      lostdcc(i);
+  }
+}
+
 /* Clean up sockets that were just left for dead.
  */
 void dcc_remove_lost(void)

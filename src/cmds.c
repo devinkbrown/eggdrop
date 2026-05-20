@@ -26,9 +26,11 @@
 #include "tandem.h"
 #include "modules.h"
 #include "script.h"
+#include "threadpool.h"
 #include <signal.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <op_async.h>
 
 extern struct chanset_t *chanset;
 extern struct dcc_t *dcc;
@@ -588,6 +590,27 @@ static void cmd_status(struct userrec *u, int idx, char *par)
     tell_verbose_status(idx);
     do_module_report(idx, 0, nullptr);
   }
+}
+
+static void cmd_threads(struct userrec *u, int idx, char *par)
+{
+  int in_flight = 0, i;
+
+  putlog(LOG_CMDS, "*", "#%s# threads", dcc[idx].nick);
+
+  /* Per-slot in_flight totals */
+  for (i = 0; i < dcc_total; i++)
+    in_flight += (int)atomic_load_explicit(&dcc[i].in_flight, memory_order_relaxed);
+
+  dprintf(idx, "Async worker pool: %d thread%s\n",
+          threadpool_size(), threadpool_size() == 1 ? "" : "s");
+  if (!threadpool_active()) {
+    dprintf(idx, "  (pool not active)\n");
+    return;
+  }
+  dprintf(idx, "  DCC in-flight:    %d\n", in_flight);
+  dprintf(idx, "  Pool pending:     %d\n", threadpool_pending());
+  dprintf(idx, "  Async pending:    %zu\n", op_async_pending());
 }
 
 static void cmd_dccstat(struct userrec *u, int idx, char *par)
@@ -3413,6 +3436,7 @@ cmd_t C_dcc[] = {
   {"set",       "n",    (IntFunc) cmd_set,        nullptr},
   {"simul",     "n",    (IntFunc) cmd_simul,      nullptr},
   {"status",    "m|m",  (IntFunc) cmd_status,     nullptr},
+  {"threads",   "m",    (IntFunc) cmd_threads,    nullptr},
   {"strip",     "",     (IntFunc) cmd_strip,      nullptr},
   {"su",        "",     (IntFunc) cmd_su,         nullptr},
   {"tcl",       "n",    (IntFunc) cmd_tcl,        nullptr},

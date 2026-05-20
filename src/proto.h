@@ -155,6 +155,8 @@ extern void (*sharein) (int, char *);
 void chanout_but(int x, int chan, const char *format, ...) ATTRIBUTE_FORMAT(printf,3,4);
 void dcc_chatter(int);
 void lostdcc(int);
+void dcc_request_close(int);      /* DCT_PARALLEL: signal close without touching dcc[] */
+void dcc_drain_close_requests(void); /* main loop: call lostdcc for any close_req slots  */
 void killtransfer(int);
 void removedcc(int);
 void makepass(char *);

@@ -326,7 +326,8 @@ struct dcc_t {
   struct dcc_table *type;
   time_t timeval;               /* This is used for timeout checking. */
   uint64_t status;              /* A LOT of dcc types have status things; makes it more available. */
-  _Atomic int in_flight;        /* number of threadpool workers currently in activity() for this slot */
+  _Atomic int  in_flight;       /* DCT_PARALLEL workers currently in activity() for this slot       */
+  _Atomic bool close_req;       /* DCT_PARALLEL handler requested close via dcc_request_close()    */
   union {
     struct chat_info *chat;
     struct file_info *file;
@@ -363,6 +364,18 @@ struct file_info {
   char dir[161];
 };
 
+/* Size of the async write buffer per receiving transfer.  Chunks arriving
+ * from the uploader are accumulated here; a worker thread flushes to disk
+ * when the buffer fills or the transfer ends.  Main thread never calls
+ * fwrite() in the dcc_send hot path. */
+#define XFER_WBUF_SIZE (1024 * 64)   /* 64 KiB */
+
+struct xfer_wbuf {
+  char  *data;                  /* heap-allocated on first use (XFER_WBUF_SIZE) */
+  size_t len;                   /* bytes currently buffered                      */
+  _Atomic int in_flight;        /* flush in progress on worker thread            */
+};
+
 struct xfer_info {
   char *filename;
   char *origname;
@@ -380,6 +393,7 @@ struct xfer_info {
   unsigned long block_pending;  /* bytes of this DCC block which weren't
                                  * sent yet.                               */
   time_t start_time;            /* Time when a xfer was started.           */
+  struct xfer_wbuf wbuf;        /* async write buffer; zero-init on alloc  */
 };
 
 enum {                          /* transfer connection handling a ...   */

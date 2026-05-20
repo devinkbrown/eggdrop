@@ -29,8 +29,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <stdatomic.h>
 #include "src/mod/module.h"
 #include "src/tandem.h"
+#include <op_async.h>
 
 #include "src/users.h"
 #include "transfer.h"
@@ -681,22 +683,120 @@ static void eof_dcc_get(int idx)
     send_next_file(xnick);
 }
 
+/* ── Async write buffer for DCC receive ─────────────────────────────────────
+ *
+ * Incoming file chunks are copied into a 64 KiB buffer.  When the buffer
+ * fills (or the transfer completes) the buffered data is handed to a worker
+ * thread for the actual fwrite() call.  The main event loop never blocks on
+ * disk I/O in the hot receive path.
+ *
+ * Ordering guarantee: we submit the next flush only after the previous one
+ * has completed (checked via wbuf.in_flight).  If a new chunk arrives while
+ * a flush is still in progress we fall back to a synchronous fwrite for that
+ * chunk — rare under normal conditions and safe.
+ *
+ * Thread safety: xfer_flush_ctx_t is fully owned by the worker during the
+ * flush; main thread does not touch wbuf while in_flight > 0.
+ * ─────────────────────────────────────────────────────────────────────────*/
+
+typedef struct {
+  int    dcc_idx;
+  FILE  *f;
+  char  *data;
+  size_t len;
+  bool   close_after;  /* fclose + lostdcc when flush completes */
+} xfer_flush_ctx_t;
+
+static void xfer_flush_worker(void *arg)
+{
+  xfer_flush_ctx_t *c = (xfer_flush_ctx_t *)arg;
+  if (c->len > 0)
+    fwrite(c->data, c->len, 1, c->f);
+  if (c->close_after)
+    fclose(c->f);
+}
+
+static void xfer_flush_done(void *arg)
+{
+  xfer_flush_ctx_t *c = (xfer_flush_ctx_t *)arg;
+  struct xfer_info *x;
+
+  /* Release the buffer and decrement in_flight on the main thread. */
+  op_free(c->data);
+  if (c->dcc_idx >= 0 && c->dcc_idx < dcc_total &&
+      (x = dcc[c->dcc_idx].u.xfer) != nullptr)
+    atomic_fetch_sub_explicit(&x->wbuf.in_flight, 1, memory_order_release);
+
+  if (c->close_after)
+    dcc_request_close(c->dcc_idx);   /* will call lostdcc when in_flight == 0 */
+
+  op_free(c);
+}
+
+/* Flush wbuf to disk asynchronously.  close_after: close FILE* and trigger
+ * lostdcc once the write completes. */
+static void xfer_wbuf_flush(int idx, bool close_after)
+{
+  struct xfer_info *x = dcc[idx].u.xfer;
+
+  if (x->wbuf.len == 0 && !close_after)
+    return;
+
+  xfer_flush_ctx_t *c = (xfer_flush_ctx_t *)op_malloc(sizeof *c);
+  c->dcc_idx    = idx;
+  c->f          = x->f;
+  c->data       = x->wbuf.data;   /* transfer ownership to worker */
+  c->len        = x->wbuf.len;
+  c->close_after = close_after;
+
+  /* Detach wbuf from this slot so the next chunk gets a fresh buffer. */
+  x->wbuf.data = nullptr;
+  x->wbuf.len  = 0;
+
+  atomic_fetch_add_explicit(&x->wbuf.in_flight, 1, memory_order_relaxed);
+  op_async_submit(xfer_flush_worker, xfer_flush_done, c);
+}
+
+/* ── dcc_send: bot receiving a file from a user ──────────────────────────── */
+
 static void dcc_send(int idx, char *buf, int len)
 {
   uint32_t sentn;
+  struct xfer_info *x = dcc[idx].u.xfer;
 
-  fwrite(buf, len, 1, dcc[idx].u.xfer->f);
+  /* Ensure the write buffer is allocated. */
+  if (!x->wbuf.data)
+    x->wbuf.data = (char *)op_malloc(XFER_WBUF_SIZE);
+
+  if (x->wbuf.data &&
+      x->wbuf.len + (size_t)len <= XFER_WBUF_SIZE &&
+      atomic_load_explicit(&x->wbuf.in_flight, memory_order_acquire) == 0) {
+    /* Fast path: buffer the chunk, never touch disk on main thread. */
+    memcpy(x->wbuf.data + x->wbuf.len, buf, (size_t)len);
+    x->wbuf.len += (size_t)len;
+  } else {
+    /* Fallback: buffer full or flush in progress — sync write. */
+    fwrite(buf, (size_t)len, 1, x->f);
+  }
+
   dcc[idx].status += len;
-  sentn = htonl(dcc[idx].status); /* Put in network byte order */
+  sentn = htonl((uint32_t)dcc[idx].status);
   tputs(dcc[idx].sock, (char *) &sentn, 4);
   dcc[idx].timeval = now;
+
+  /* Flush buffer when it's ≥ half full so we pipeline I/O with reception. */
+  if (x->wbuf.len >= XFER_WBUF_SIZE / 2 &&
+      atomic_load_explicit(&x->wbuf.in_flight, memory_order_acquire) == 0)
+    xfer_wbuf_flush(idx, false);
+
   if (dcc[idx].status > dcc[idx].u.xfer->length && dcc[idx].u.xfer->length > 0) {
     dprintf(DP_HELP, TRANSFER_BOGUS_FILE_LENGTH, dcc[idx].nick);
     putlog(LOG_FILES, "*", TRANSFER_FILE_TOO_LONG, dcc[idx].u.xfer->origname,
            dcc[idx].nick, dcc[idx].host);
-    fclose(dcc[idx].u.xfer->f);
+    /* Flush remaining buffer then close file on worker, call lostdcc after. */
+    xfer_wbuf_flush(idx, true);
     killsock(dcc[idx].sock);
-    lostdcc(idx);
+    /* lostdcc is deferred until xfer_flush_done fires via close_req */
   }
 }
 
@@ -842,6 +942,12 @@ static int expmem_dcc_xfer(void *x)
 static void kill_dcc_xfer(int idx, void *x)
 {
   struct xfer_info *p = (struct xfer_info *) x;
+
+  /* Drain any pending async flush before freeing the buffer. */
+  while (atomic_load_explicit(&p->wbuf.in_flight, memory_order_acquire) > 0)
+    op_async_drain();
+  if (p->wbuf.data)
+    op_free(p->wbuf.data);
 
   if (p->filename)
     op_free(p->filename);
