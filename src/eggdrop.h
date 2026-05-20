@@ -328,6 +328,7 @@ struct dcc_t {
   uint64_t status;              /* A LOT of dcc types have status things; makes it more available. */
   _Atomic int  in_flight;       /* DCT_PARALLEL workers currently in activity() for this slot       */
   _Atomic bool close_req;       /* DCT_PARALLEL handler requested close via dcc_request_close()    */
+  _Atomic uint32_t generation;   /* incremented on slot open; guards stale queue items             */
   union {
     struct chat_info *chat;
     struct file_info *file;

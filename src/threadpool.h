@@ -63,4 +63,11 @@ int threadpool_pending(void);
 /* Number of worker threads (same as op_async_nthreads). */
 int threadpool_size(void);
 
+/* Shim lifecycle — called from dccutil.c slot management */
+void dcc_shim_slot_open(int idx);
+void dcc_shim_slot_close(int idx);
+void dcc_shim_slot_move(int from, int to);  /* removedcc moves last slot to idx */
+void dcc_shim_grow(int new_max);            /* called after increase_socks_max */
+int  dcc_shim_queue_depth(int idx);         /* for .threads stats */
+
 #endif /* _EGG_THREADPOOL_H */

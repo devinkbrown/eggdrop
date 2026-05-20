@@ -608,7 +608,11 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
     dprintf(idx, "  (pool not active)\n");
     return;
   }
+  int total_queued = 0;
+  for (i = 0; i < dcc_total; i++)
+    total_queued += dcc_shim_queue_depth(i);
   dprintf(idx, "  DCC in-flight:    %d\n", in_flight);
+  dprintf(idx, "  Queued (backlog): %d\n", total_queued);
   dprintf(idx, "  Pool pending:     %d\n", threadpool_pending());
   dprintf(idx, "  Async pending:    %zu\n", op_async_pending());
 }

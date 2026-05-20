@@ -31,6 +31,7 @@
 #include "main.h"
 #include "tandem.h"
 #include <op_async.h>
+#include "threadpool.h"
 
 extern struct dcc_t *dcc;
 extern int dcc_total, dcc_flood_thr, backgrd, max_socks;
@@ -125,6 +126,7 @@ int increase_socks_max(void)
       dcc = op_realloc(dcc, sizeof(struct dcc_t) * max_dcc);
     else
       dcc = op_malloc(sizeof(struct dcc_t) * max_dcc);
+    dcc_shim_grow(max_dcc);
     socklist = td->socklist;
   }
 
@@ -383,6 +385,7 @@ void lostdcc(int n)
    * Contract for DCT_PARALLEL activity handlers: do NOT call lostdcc() from
    * within the activity handler.  Mark a per-slot error flag instead; the
    * main loop will call lostdcc() on the next tick. */
+  dcc_shim_slot_close(n);
   while (atomic_load_explicit(&dcc[n].in_flight, memory_order_acquire) > 0)
     op_async_drain();
 
@@ -406,6 +409,12 @@ void lostdcc(int n)
  */
 void removedcc(int n)
 {
+  /* Drain the shim queue and wait for any in-flight worker before freeing
+   * the slot's private data — same safety contract as lostdcc(). */
+  dcc_shim_slot_close(n);
+  while (atomic_load_explicit(&dcc[n].in_flight, memory_order_acquire) > 0)
+    op_async_drain();
+
   if (dcc[n].type && dcc[n].type->kill)
     dcc[n].type->kill(n, dcc[n].u.other);
   else if (dcc[n].u.other)
@@ -416,6 +425,7 @@ void removedcc(int n)
     /* dcc[dcc_total] is being moved to slot n — update its map entry */
     dcc_map_set(dcc[dcc_total].sock, n);
     memcpy(&dcc[n], &dcc[dcc_total], sizeof(struct dcc_t));
+    dcc_shim_slot_move(dcc_total, n);
   } else
     op_memzero(&dcc[n], sizeof(struct dcc_t));   /* drummer */
 }
@@ -602,6 +612,8 @@ int new_dcc(struct dcc_table *type, int xtra_size)
     return -1;
   dcc_total++;
   op_memzero((char *) &dcc[i], sizeof(struct dcc_t));
+  atomic_store_explicit(&dcc[i].generation, 1, memory_order_relaxed);
+  dcc_shim_slot_open(i);
 
   dcc[i].type = type;
   if (xtra_size) {
