@@ -1,9 +1,24 @@
 /*
- * threadpool.h -- worker thread pool for parallel I/O dispatch
+ * threadpool.h -- DCC parallel dispatch via the unified op_async worker pool.
  *
- * Provides a fixed-size pool of worker threads that can execute DCC
- * activity handlers in parallel when the DCC type is marked safe for
- * concurrent dispatch (DCT_PARALLEL).
+ * This module routes DCT_PARALLEL DCC activity handlers through op_async_submit()
+ * so that DCC work, file I/O, and DNS all share one worker pool.  No second
+ * thread pool is created.
+ *
+ * Contract for DCT_PARALLEL activity handlers
+ * -------------------------------------------
+ *  - The activity function runs on a worker thread.
+ *  - It MUST NOT call lostdcc(), modify dcc[], or call any event-loop API.
+ *  - To signal that a connection should be closed, set a flag in the slot's
+ *    private data; the main loop will see it and call lostdcc() on the next tick.
+ *
+ * Lifecycle
+ * ---------
+ *  threadpool_init()     called after op_async_init(); registers DCC dispatch.
+ *  threadpool_shutdown() marks DCC dispatch disabled; op_async_shutdown()
+ *                        handles actual thread teardown.
+ *  threadpool_drain()    pumps op_async_drain() until all in-flight DCC items
+ *                        are complete and their done_fn callbacks have run.
  *
  * Copyright (C) 2026 Eggheads Development Team
  */
@@ -16,36 +31,36 @@
 /* Work item callback signature: void fn(int idx, char *buf, int len) */
 typedef void (*pool_work_fn)(int idx, char *buf, int len);
 
-/* Initialize the thread pool with nthreads workers.
- * Call once from main() before entering the event loop.
- * nthreads=0 means auto-detect (ncpus - 1, min 1, max 8).
- * Returns 0 on success, -1 on failure.
+/* Register DCC parallel dispatch against the running op_async pool.
+ * Must be called after op_async_init().  nthreads is ignored (the pool
+ * was already sized by op_async_init).  Returns 0 on success, -1 if the
+ * async pool is not active.
  */
 int threadpool_init(int nthreads);
 
-/* Submit work to the pool. The buffer is copied internally.
- * Returns 0 on success, -1 if the queue is full (caller should
- * execute inline as fallback).
+/* Submit a DCT_PARALLEL DCC activity to the shared worker pool.
+ * The buffer is copied internally.
+ * Returns 0 on success, -1 if the pool is not active (caller runs inline).
  */
 int threadpool_submit(pool_work_fn fn, int idx, const char *buf, int len);
 
-/* Drain all pending work and wait for workers to finish current tasks.
- * Called before bot shutdown or restart.
+/* Drain all in-flight DCC work by pumping op_async_drain() until the
+ * in-flight count reaches zero.  Called before bot restart or shutdown.
  */
 void threadpool_drain(void);
 
-/* Shut down the pool and join all threads.
- * After this call, threadpool_submit() returns -1.
+/* Disable DCC parallel dispatch.  Does not stop worker threads — that
+ * happens in op_async_shutdown().
  */
 void threadpool_shutdown(void);
 
-/* Query whether the pool is active and accepting work. */
+/* Returns non-zero if DCC parallel dispatch is active. */
 int threadpool_active(void);
 
-/* Number of pending items in the queue (approximate). */
+/* Number of DCC items currently in the worker pool (approximate). */
 int threadpool_pending(void);
 
-/* Number of worker threads. */
+/* Number of worker threads (same as op_async_nthreads). */
 int threadpool_size(void);
 
 #endif /* _EGG_THREADPOOL_H */

@@ -27,11 +27,10 @@
 
 #include <sys/stat.h>
 #include <string.h>
-#include <sched.h>
 #include <stdatomic.h>
-#include <time.h>
 #include "main.h"
 #include "tandem.h"
+#include <op_async.h>
 
 extern struct dcc_t *dcc;
 extern int dcc_total, dcc_flood_thr, backgrd, max_socks;
@@ -375,34 +374,17 @@ void lostdcc(int n)
   if (n < 0 || n >= max_dcc)
     return;
 
-  /* Wait for any threadpool workers currently in activity() for this slot.
-   * Prevents use-after-free if a DCT_PARALLEL handler calls lostdcc on
-   * its own slot while another worker holds a reference.
-   * Bounded to 100 ms: if workers take longer, log it and proceed anyway —
-   * the slot will be zeroed and the next access will see DCC_LOST. */
-  if (atomic_load_explicit(&dcc[n].in_flight, memory_order_acquire) > 0) {
-    struct timespec deadline;
-    clock_gettime(CLOCK_MONOTONIC, &deadline);
-    deadline.tv_nsec += 100000000L;  /* 100 ms */
-    if (deadline.tv_nsec >= 1000000000L) {
-      deadline.tv_nsec -= 1000000000L;
-      deadline.tv_sec++;
-    }
-    while (atomic_load_explicit(&dcc[n].in_flight, memory_order_acquire) > 0) {
-      struct timespec now_ts;
-      clock_gettime(CLOCK_MONOTONIC, &now_ts);
-      if (now_ts.tv_sec > deadline.tv_sec ||
-          (now_ts.tv_sec == deadline.tv_sec &&
-           now_ts.tv_nsec >= deadline.tv_nsec)) {
-        putlog(LOG_MISC, "*",
-               "WARNING: lostdcc(%d) timed out waiting for in_flight workers "
-               "(type=%s) — proceeding", n,
-               dcc[n].type ? dcc[n].type->name : "UNKNOWN");
-        break;
-      }
-      sched_yield();
-    }
-  }
+  /* Wait for any worker threads currently executing activity() for this slot.
+   *
+   * DCC work flows through op_async: dcc_done() (which decrements in_flight)
+   * runs on the main thread via op_async_drain().  Pumping the drain here
+   * delivers those completions and exits the loop cleanly without spinning.
+   *
+   * Contract for DCT_PARALLEL activity handlers: do NOT call lostdcc() from
+   * within the activity handler.  Mark a per-slot error flag instead; the
+   * main loop will call lostdcc() on the next tick. */
+  while (atomic_load_explicit(&dcc[n].in_flight, memory_order_acquire) > 0)
+    op_async_drain();
 
   dcc_map_clear(dcc[n].sock); /* remove before zeroing */
   if (dcc[n].type && dcc[n].type->kill)

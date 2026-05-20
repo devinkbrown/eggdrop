@@ -1,15 +1,32 @@
 /*
- * threadpool.c -- worker thread pool using libop's work-stealing op_tpool.
+ * threadpool.c -- DCC parallel dispatch adapter over op_async.
  *
- * Replaces the hand-rolled mutex+condvar queue with op_thread_pool_t:
- *   - Lock-free MPSC inbox per worker (Treiber stack, single CAS)
- *   - Chase-Lev work-stealing deque — idle workers steal from peers
- *   - eventfd/pipe wakeup — no busy-wait, no condvar overhead
- *   - Per-worker stats available via op_tpool_get_stats()
+ * Design: one unified worker pool for all async work in eggdrop.
  *
- * Thread safety for dcc slot removal:
- *   pool_inflight tracks items in flight.  lostdcc() waits until
- *   in_flight reaches 0 before zeroing the slot, preventing use-after-free.
+ * Previously threadpool.c owned its own op_tpool, running in parallel with
+ * the op_async pool used by async_fileio and async_dns — two independent
+ * work-stealing pools burning threads for idle work.
+ *
+ * Now threadpool_submit() routes DCC activity through op_async_submit()
+ * alongside file I/O and DNS work.  Benefits:
+ *
+ *   Single pool   — workers are shared; idle workers pick up any pending work
+ *                   regardless of type.  Fewer threads, less contention.
+ *
+ *   Single drain  — op_async_drain() in the event loop delivers all
+ *                   completions: DCC, fileio, DNS.  No second drain path.
+ *
+ *   Main-thread   — dcc_done() runs on the main thread via op_async_drain(),
+ *   in_flight       so in_flight decrements are serialized with lostdcc().
+ *   safety          No cross-thread dcc[] access from worker threads.
+ *
+ * Lifecycle:
+ *   threadpool_init()     — called after op_async_init(); marks DCC dispatch
+ *                           enabled.  nthreads param is advisory/ignored
+ *                           (op_async_init already chose the count).
+ *   threadpool_shutdown() — disables new submissions; actual thread teardown
+ *                           happens in op_async_shutdown().
+ *   threadpool_drain()    — pumps op_async_drain() until DCC inflight==0.
  *
  * Copyright (C) 2026 Eggheads Development Team
  */
@@ -19,16 +36,14 @@
 #include "main.h"
 #include "threadpool.h"
 
-#include "libop/include/op_thread_pool.h"
+#include <op_async.h>
 
 #include <stdatomic.h>
 #include <string.h>
-#include <sched.h>
 
 extern struct dcc_t *dcc;
 extern int dcc_total;
 
-/* Maximum buffer size per work item */
 #define MAX_WORK_BUF  2048
 
 /* ---- Work item ---------------------------------------------------------- */
@@ -38,20 +53,26 @@ typedef struct {
   int           idx;
   int           len;
   char          buf[MAX_WORK_BUF];
-} work_item_t;
+} dcc_work_t;
 
 /* ---- Pool state --------------------------------------------------------- */
 
-static op_thread_pool_t *pool;
-static _Atomic int       pool_inflight;
+static bool      pool_enabled;          /* true after threadpool_init() */
+static _Atomic int pool_inflight;       /* DCC items in flight          */
 
-/* ---- Worker dispatch ---------------------------------------------------- */
+/* ---- Worker / completion ------------------------------------------------ */
 
-static void worker_dispatch(void *arg)
+/* Runs on a worker thread — may block, must not touch event-loop state. */
+static void dcc_worker(void *arg)
 {
-  work_item_t *w = (work_item_t *)arg;
+  dcc_work_t *w = (dcc_work_t *)arg;
   w->fn(w->idx, w->buf, w->len);
-  /* Release per-slot in_flight ref so lostdcc() can safely zero the slot */
+}
+
+/* Runs on the main thread via op_async_drain() — safe to access dcc[]. */
+static void dcc_done(void *arg)
+{
+  dcc_work_t *w = (dcc_work_t *)arg;
   if (w->idx >= 0 && w->idx < dcc_total)
     atomic_fetch_sub_explicit(&dcc[w->idx].in_flight, 1, memory_order_release);
   atomic_fetch_sub_explicit(&pool_inflight, 1, memory_order_release);
@@ -62,21 +83,20 @@ static void worker_dispatch(void *arg)
 
 int threadpool_init(int nthreads)
 {
-  if (pool)
-    return 0;
-
-  /* op_tpool_create aborts on failure — always succeeds or terminates */
-  pool = op_tpool_create(nthreads);
+  (void)nthreads;   /* op_async_init() already chose worker count */
+  if (!op_async_active())
+    return -1;
+  pool_enabled = true;
   atomic_store_explicit(&pool_inflight, 0, memory_order_relaxed);
   return 0;
 }
 
 int threadpool_submit(pool_work_fn fn, int idx, const char *buf, int len)
 {
-  if (!pool)
+  if (!pool_enabled || !op_async_active())
     return -1;
 
-  work_item_t *w = (work_item_t *)op_malloc(sizeof *w);
+  dcc_work_t *w = (dcc_work_t *)op_malloc(sizeof *w);
   if (!w)
     return -1;
 
@@ -93,46 +113,43 @@ int threadpool_submit(pool_work_fn fn, int idx, const char *buf, int len)
     w->len = 0;
   }
 
-  /* Increment per-slot in_flight before submit so lostdcc() can wait */
+  /* Increment per-slot in_flight before submitting so lostdcc() sees it. */
   if (idx >= 0 && idx < dcc_total)
     atomic_fetch_add_explicit(&dcc[idx].in_flight, 1, memory_order_relaxed);
   atomic_fetch_add_explicit(&pool_inflight, 1, memory_order_relaxed);
-  op_tpool_submit(pool, worker_dispatch, w);
+
+  op_async_submit(dcc_worker, dcc_done, w);
   return 0;
 }
 
 void threadpool_drain(void)
 {
-  if (!pool)
-    return;
-  /* Spin until all submitted items complete — only called at shutdown/restart */
+  /* Pump completions until all DCC work is acknowledged on the main thread.
+   * File I/O and DNS completions are delivered as a side effect — that is
+   * correct: we want a clean state before restart/shutdown anyway. */
   while (atomic_load_explicit(&pool_inflight, memory_order_acquire) > 0)
-    sched_yield();
+    op_async_drain();
 }
 
 void threadpool_shutdown(void)
 {
-  if (!pool)
-    return;
-  /* op_tpool_shutdown drains pending items and joins all workers */
-  op_tpool_shutdown(pool);
-  pool = nullptr;
+  /* Mark disabled so new submissions are rejected.  The actual thread pool
+   * teardown happens in op_async_shutdown(). */
+  pool_enabled = false;
   atomic_store_explicit(&pool_inflight, 0, memory_order_relaxed);
 }
 
 int threadpool_active(void)
 {
-  return pool != nullptr;
+  return pool_enabled && op_async_active();
 }
 
 int threadpool_pending(void)
 {
-  if (!pool)
-    return 0;
   return (int)atomic_load_explicit(&pool_inflight, memory_order_relaxed);
 }
 
 int threadpool_size(void)
 {
-  return pool ? op_tpool_nthreads(pool) : 0;
+  return op_async_nthreads();
 }

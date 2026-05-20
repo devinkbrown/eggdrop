@@ -1208,9 +1208,12 @@ int main(int arg_c, char **arg_v)
   /* Completion queue for worker→main thread callbacks */
   comqueue_init(4096);
 
-  /* Worker thread pool — op_tpool with work-stealing */
+  /* Enable DCC parallel dispatch via the unified op_async worker pool.
+   * threadpool_init() just registers against the already-running pool —
+   * no new threads are started here. */
   if (threadpool_init(nthreads) == 0)
-    putlog(LOG_MISC, "*", "Thread pool: %d workers started", threadpool_size());
+    putlog(LOG_MISC, "*", "Async worker pool: %d threads (DCC + I/O + DNS unified)",
+           threadpool_size());
 
   /* Dedicated I/O poll thread: epoll_wait runs concurrently with dispatch */
   if (op_start_pollthread())
