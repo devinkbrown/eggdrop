@@ -62,8 +62,15 @@ static int           slot_queue_max; /* current allocation size */
 
 /* ---- Pool state --------------------------------------------------------- */
 
-static bool        pool_enabled;
-static _Atomic int pool_inflight;
+static bool             pool_enabled;
+static _Atomic int      pool_inflight;
+
+/* ---- Cumulative stats --------------------------------------------------- */
+
+static _Atomic uint64_t shim_submitted;
+static _Atomic uint64_t shim_completed;
+static _Atomic uint64_t shim_dropped;
+static _Atomic int      shim_hwm;
 
 /* ---- Forward declarations ----------------------------------------------- */
 
@@ -92,13 +99,14 @@ static void enqueue_work(int idx, dcc_work_t *w)
   slot_queue_t *q = &slot_queues[idx];
 
   if (q->depth >= SHIM_QUEUE_MAX) {
-    /* Drop oldest item to make room */
+    /* Drop oldest item to make room; track the silent loss. */
     dcc_work_t *old = q->head;
     q->head = old->next;
     if (!q->head)
       q->tail = nullptr;
     q->depth--;
     op_free(old);
+    atomic_fetch_add_explicit(&shim_dropped, 1, memory_order_relaxed);
   }
 
   if (q->tail)
@@ -107,6 +115,15 @@ static void enqueue_work(int idx, dcc_work_t *w)
     q->head = w;
   q->tail = w;
   q->depth++;
+
+  /* Update queue depth high-water mark (lock-free CAS loop). */
+  int cur = q->depth;
+  int hwm = atomic_load_explicit(&shim_hwm, memory_order_relaxed);
+  while (cur > hwm &&
+         !atomic_compare_exchange_weak_explicit(&shim_hwm, &hwm, cur,
+                                                memory_order_relaxed,
+                                                memory_order_relaxed))
+    ;  /* hwm refreshed by CAS failure */
 }
 
 static dcc_work_t *dequeue_work(int idx)
@@ -168,6 +185,7 @@ static void dcc_done(void *arg)
   if (idx >= 0 && idx < dcc_total)
     atomic_fetch_sub_explicit(&dcc[idx].in_flight, 1, memory_order_release);
   atomic_fetch_sub_explicit(&pool_inflight, 1, memory_order_release);
+  atomic_fetch_add_explicit(&shim_completed, 1, memory_order_relaxed);
 
   /* Check slot still valid before dequeuing */
   if (idx < 0 || idx >= dcc_total || !slot_queues)
@@ -212,15 +230,29 @@ int threadpool_init(int nthreads)
   if (!op_async_active())
     return -1;
   pool_enabled = true;
-  atomic_store_explicit(&pool_inflight, 0, memory_order_relaxed);
+  atomic_store_explicit(&pool_inflight,  0, memory_order_relaxed);
+  atomic_store_explicit(&shim_submitted, 0, memory_order_relaxed);
+  atomic_store_explicit(&shim_completed, 0, memory_order_relaxed);
+  atomic_store_explicit(&shim_dropped,   0, memory_order_relaxed);
+  atomic_store_explicit(&shim_hwm,       0, memory_order_relaxed);
   dcc_shim_grow(max_dcc > 0 ? max_dcc : 1);
   return 0;
+}
+
+void threadpool_get_stats(threadpool_stats_t *out)
+{
+  out->submitted = atomic_load_explicit(&shim_submitted, memory_order_relaxed);
+  out->completed = atomic_load_explicit(&shim_completed, memory_order_relaxed);
+  out->dropped   = atomic_load_explicit(&shim_dropped,   memory_order_relaxed);
+  out->hwm       = atomic_load_explicit(&shim_hwm,       memory_order_relaxed);
 }
 
 int threadpool_submit(pool_work_fn fn, int idx, const char *buf, int len)
 {
   if (!pool_enabled || !op_async_active())
     return -1;
+
+  atomic_fetch_add_explicit(&shim_submitted, 1, memory_order_relaxed);
 
   /* Grow slot_queues if needed */
   if (idx >= slot_queue_max)

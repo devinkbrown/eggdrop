@@ -27,6 +27,7 @@
 #define _EGG_THREADPOOL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 /* Work item callback signature: void fn(int idx, char *buf, int len) */
 typedef void (*pool_work_fn)(int idx, char *buf, int len);
@@ -62,6 +63,16 @@ int threadpool_pending(void);
 
 /* Number of worker threads (same as op_async_nthreads). */
 int threadpool_size(void);
+
+/* Cumulative shim statistics since threadpool_init(). */
+typedef struct {
+  uint64_t submitted;   /* work items ever submitted via threadpool_submit */
+  uint64_t completed;   /* work items ever completed (dcc_done callback run) */
+  uint64_t dropped;     /* items silently dropped due to per-slot queue overflow */
+  int      hwm;         /* all-time max queue depth seen across all slots */
+} threadpool_stats_t;
+
+void threadpool_get_stats(threadpool_stats_t *out);
 
 /* Shim lifecycle — called from dccutil.c slot management */
 void dcc_shim_slot_open(int idx);

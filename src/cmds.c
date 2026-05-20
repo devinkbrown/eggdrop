@@ -629,14 +629,21 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
                                                  memory_order_relaxed);
     }
   }
-  dprintf(idx, "DCC shim:       %d in-flight, %d queued",
-          dcc_inflight, dcc_queued);
+  threadpool_stats_t shim_stats;
+  threadpool_get_stats(&shim_stats);
+  dprintf(idx, "DCC shim:       %d in-flight, %d queued [hwm %d]",
+          dcc_inflight, dcc_queued, shim_stats.hwm);
   if (pump_inflight)
-    dprintf(idx, " (%d send pump%s)", pump_inflight,
+    dprintf(idx, "  %d send pump%s", pump_inflight,
             pump_inflight == 1 ? "" : "s");
   if (wbuf_inflight)
-    dprintf(idx, " (%d recv flush%s)", wbuf_inflight,
+    dprintf(idx, "  %d recv flush%s", wbuf_inflight,
             wbuf_inflight == 1 ? "" : "es");
+  dprintf(idx, "\n");
+  dprintf(idx, "Shim totals:    %" PRIu64 " dispatched  %" PRIu64 " done",
+          shim_stats.submitted, shim_stats.completed);
+  if (shim_stats.dropped)
+    dprintf(idx, "  ** %" PRIu64 " DROPPED **", shim_stats.dropped);
   dprintf(idx, "\n");
   dprintf(idx, "Pool pending:   %d\n", threadpool_pending());
 
