@@ -40,9 +40,15 @@
 
 static op_bh *recv_bh = nullptr;
 
-static _Atomic int      recv_inflight = 0;
-static _Atomic uint64_t recv_total    = 0;
-static _Atomic int      recv_hwm      = 0;
+static _Atomic int      recv_inflight   = 0;
+static _Atomic uint64_t recv_total      = 0;
+static _Atomic int      recv_hwm        = 0;
+static _Atomic uint64_t recv_bytes_total = 0;
+
+/* Sliding-window rate meters (main-thread only — safe without locks). */
+static op_wm_t recv_wm_calls;
+static op_wm_t recv_wm_bytes;
+static bool    recv_wm_inited = false;
 
 /* Sockets eligible for async recv: not any of these flag combinations */
 #define RECV_SKIP_FLAGS (SOCK_UNUSED | SOCK_TCL | SOCK_LISTEN | SOCK_PASS | \
@@ -106,7 +112,11 @@ static void async_recv_done(void *arg)
       /* Clean EOF — mark so sockgets() returns -1 next pass. */
       sl->flags |= SOCK_EOFD;
     } else if (c->nbytes < 0) {
+#if EAGAIN == EWOULDBLOCK
+      if (c->errcode == EAGAIN) {
+#else
       if (c->errcode == EAGAIN || c->errcode == EWOULDBLOCK) {
+#endif
         /* Spurious wakeup — re-arm so sockread() retries synchronously. */
         sl->commio_read_ready = 1;
       } else {
@@ -116,6 +126,12 @@ static void async_recv_done(void *arg)
       /* Push raw bytes into the framing buffer; sockgets() extracts lines. */
       op_linebuf_parse(&sl->handler.sock.recvbuf, c->buf,
                        (ssize_t)c->nbytes, LINEBUF_PARSED);
+      atomic_fetch_add_explicit(&recv_bytes_total, (uint64_t)c->nbytes,
+                                memory_order_relaxed);
+      if (recv_wm_inited) {
+        op_wm_add(&recv_wm_calls, 1);
+        op_wm_add(&recv_wm_bytes, (uint64_t)c->nbytes);
+      }
     }
   }
 
@@ -135,6 +151,12 @@ int async_recv_submit_all(void)
 
   if (op_unlikely(!recv_bh))
     recv_bh = op_bh_create(sizeof(async_recv_ctx_t), 32, "async_recv_ctx");
+
+  if (op_unlikely(!recv_wm_inited)) {
+    op_wm_init(&recv_wm_calls, 10000, 100);  /* 10 s window, 100 ms buckets */
+    op_wm_init(&recv_wm_bytes, 10000, 100);
+    recv_wm_inited = true;
+  }
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
     sock_list *sl = &socklist[i];
@@ -177,12 +199,17 @@ int async_recv_submit_all(void)
   return submitted;
 }
 
-void async_recv_stats(int *inflight_out, uint64_t *total_out, int *hwm_out)
+void async_recv_stats(async_recv_stats_t *out)
 {
-  if (inflight_out)
-    *inflight_out = atomic_load_explicit(&recv_inflight, memory_order_relaxed);
-  if (total_out)
-    *total_out    = atomic_load_explicit(&recv_total,    memory_order_relaxed);
-  if (hwm_out)
-    *hwm_out      = atomic_load_explicit(&recv_hwm,      memory_order_relaxed);
+  out->inflight      = atomic_load_explicit(&recv_inflight,    memory_order_relaxed);
+  out->hwm           = atomic_load_explicit(&recv_hwm,         memory_order_relaxed);
+  out->total_calls   = atomic_load_explicit(&recv_total,       memory_order_relaxed);
+  out->total_bytes   = atomic_load_explicit(&recv_bytes_total, memory_order_relaxed);
+  if (recv_wm_inited) {
+    out->calls_per_sec = op_wm_rate(&recv_wm_calls);
+    out->bytes_per_sec = op_wm_rate(&recv_wm_bytes);
+  } else {
+    out->calls_per_sec = 0.0;
+    out->bytes_per_sec = 0.0;
+  }
 }

@@ -14,12 +14,21 @@
 
 #include <stdint.h>
 
+/* Snapshot of async-recv performance counters. */
+typedef struct {
+    int      inflight;       /* currently in-flight recv() ops */
+    int      hwm;            /* all-time peak concurrent inflight */
+    uint64_t total_calls;    /* total completed recv() calls */
+    uint64_t total_bytes;    /* total bytes delivered to linebufs */
+    double   calls_per_sec;  /* 10 s windowed call rate */
+    double   bytes_per_sec;  /* 10 s windowed byte rate */
+} async_recv_stats_t;
+
 /* Submit non-blocking recv() calls for every ready, eligible socket.
  * Returns the number of recv operations submitted. */
 int async_recv_submit_all(void);
 
-/* Fill *inflight_out, *total_out, *hwm_out with recv stats.
- * Any pointer may be NULL. */
-void async_recv_stats(int *inflight_out, uint64_t *total_out, int *hwm_out);
+/* Fill *out with a snapshot of recv stats. */
+void async_recv_stats(async_recv_stats_t *out);
 
 #endif /* _EGG_ASYNC_RECV_H */

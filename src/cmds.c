@@ -675,12 +675,39 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
 
   /* Async recv read-ahead */
   {
-    int     rv_inflight;
-    uint64_t rv_total;
-    int     rv_hwm;
-    async_recv_stats(&rv_inflight, &rv_total, &rv_hwm);
-    dprintf(idx, "Recv read-ahead: %d in-flight [hwm %d]  %" PRIu64 " total\n",
-            rv_inflight, rv_hwm, rv_total);
+    async_recv_stats_t rv;
+    async_recv_stats(&rv);
+
+    /* Format total bytes as human-readable (B / KB / MB / GB). */
+    char bytes_buf[32];
+    if (rv.total_bytes < 1024)
+      snprintf(bytes_buf, sizeof(bytes_buf), "%" PRIu64 " B", rv.total_bytes);
+    else if (rv.total_bytes < 1024 * 1024)
+      snprintf(bytes_buf, sizeof(bytes_buf), "%.1f KB",
+               rv.total_bytes / 1024.0);
+    else if (rv.total_bytes < (uint64_t)1024 * 1024 * 1024)
+      snprintf(bytes_buf, sizeof(bytes_buf), "%.2f MB",
+               rv.total_bytes / (1024.0 * 1024.0));
+    else
+      snprintf(bytes_buf, sizeof(bytes_buf), "%.2f GB",
+               rv.total_bytes / (1024.0 * 1024.0 * 1024.0));
+
+    /* Rate: show KB/s or MB/s depending on magnitude. */
+    char rate_buf[32];
+    if (rv.bytes_per_sec < 1024.0)
+      snprintf(rate_buf, sizeof(rate_buf), "%.0f B/s", rv.bytes_per_sec);
+    else if (rv.bytes_per_sec < 1024.0 * 1024.0)
+      snprintf(rate_buf, sizeof(rate_buf), "%.1f KB/s",
+               rv.bytes_per_sec / 1024.0);
+    else
+      snprintf(rate_buf, sizeof(rate_buf), "%.2f MB/s",
+               rv.bytes_per_sec / (1024.0 * 1024.0));
+
+    dprintf(idx, "Recv read-ahead: %d in-flight [hwm %d]"
+                 "  %" PRIu64 " calls  %s recv'd"
+                 "  %.1f calls/s  %s\n",
+            rv.inflight, rv.hwm, rv.total_calls,
+            bytes_buf, rv.calls_per_sec, rate_buf);
   }
 
   /* DNS cache */

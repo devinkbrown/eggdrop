@@ -1,0 +1,71 @@
+# eggdrop-libera-perf.toml — async recv performance test on Libera.Chat
+#
+# Joins several of Libera's highest-traffic channels to stress-test the
+# parallel socket read-ahead (async_recv) path.
+#
+# Run:
+#   builddir/src/eggdrop eggdrop-libera-perf.toml
+#
+# Watch live stats via DCC partyline:
+#   .threads        — full async subsystem dump incl. recv read-ahead
+#
+# Key metrics to watch in "Recv read-ahead:" line:
+#   hwm             — peak concurrent in-flight recv() calls
+#   calls/s         — recv() completions per second (10 s window)
+#   KB/s or MB/s    — byte throughput delivered to linebufs (10 s window)
+
+[modules]
+load = [
+  "pbkdf2",
+  "blowfish",
+  "channels",
+  "server",
+  "ctcp",
+  "irc",
+  "console",
+]
+
+[bot]
+nick     = "AsyncBench"
+altnick  = "AsyncBench_"
+realname = "async_recv perf test"
+username = "asyncbench"
+admin    = "kain <kain@eshmaki.me>"
+network  = "Libera.Chat"
+owner    = "kain"
+
+[servers]
+# Plain-text port — avoids TLS overhead so recv() goes through async path.
+# TLS sockets are intentionally skipped by async_recv_submit_all().
+list = [
+  "irc.libera.chat:6667",
+  "irc.eu.libera.chat:6667",
+]
+
+[channels]
+# High-traffic channels on Libera for maximum recv() concurrency stress.
+# These are among the busiest on the network (hundreds to 1000+ active users).
+list = [
+  "#linux",
+  "#python",
+  "#debian",
+  "#archlinux",
+  "#ubuntu",
+]
+
+[paths]
+userfile  = "libera-perf.user"
+chanfile  = "libera-perf.chan"
+help_path = "help/"
+mod_path  = "builddir/src/"
+
+[logging]
+# Log raw server traffic (r) plus joins/channel text (j,p) for all channels.
+# Gives visibility into message volume without hiding IRC activity.
+entries = [
+  "mco * libera-perf.log",
+]
+
+[security]
+# Reject owner commands from the server (standard precaution on public nets).
+stealth = true
