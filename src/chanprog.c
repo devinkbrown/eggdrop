@@ -35,6 +35,7 @@
 #include "configtoml.h"
 #include "egg_store.h"
 #include "script.h"
+#include "async_dns.h"
 
 extern struct dcc_t *dcc;
 extern struct userrec *userlist;
@@ -536,6 +537,7 @@ void reload(void)
 
 void rehash(void)
 {
+  async_dns_cache_flush();  /* stale DNS mappings won't survive a rehash */
   call_hook(HOOK_PRE_REHASH);
   noshare = 1;
   clear_userlist(userlist);

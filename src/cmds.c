@@ -29,6 +29,7 @@
 #include "threadpool.h"
 #include "async_log.h"
 #include "async_fileio.h"
+#include "async_dns.h"
 #include <signal.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -652,6 +653,11 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
   if (fw_pending)
     dprintf(idx, ", %d coalesced-pending", fw_pending);
   dprintf(idx, "\n");
+
+  /* DNS cache */
+  int dns_cached = async_dns_cache_size();
+  dprintf(idx, "DNS cache:      %d entr%s (TTL 300s)\n",
+          dns_cached, dns_cached == 1 ? "y" : "ies");
 }
 
 static void cmd_dccstat(struct userrec *u, int idx, char *par)
