@@ -161,13 +161,20 @@ static void check_expired_dcc(void)
   for (int i = 0; i < dcc_total; i++)
     if (dcc[i].type && dcc[i].type->timeout_val &&
         ((now - dcc[i].timeval) > *(dcc[i].type->timeout_val))) {
+      /* For DCT_PARALLEL: defer the timeout if a worker is still running.
+       * dcc_done() delivers timeout_pending once the queue is empty. */
+      if ((dcc[i].type->flags & DCT_PARALLEL) &&
+          atomic_load_explicit(&dcc[i].in_flight, memory_order_acquire) > 0) {
+        atomic_store_explicit(&dcc[i].timeout_pending, true, memory_order_release);
+        continue;  /* check the rest; don't return — deferred timeouts don't block */
+      }
       if (dcc[i].type->timeout)
         dcc[i].type->timeout(i);
       else if (dcc[i].type->eof)
         dcc[i].type->eof(i);
       else
         continue;
-      /* Only timeout 1 socket per cycle, too risky for more */
+      /* Only timeout 1 non-parallel socket per cycle, too risky for more */
       return;
     }
 }
@@ -788,9 +795,15 @@ static void mainloop(int toplevel)
         fatal("END OF FILE ON TERMINAL", 0);
       idx = findanyidx(i);
       if (idx >= 0) {
-        if (dcc[idx].type && dcc[idx].type->eof)
+        /* For DCT_PARALLEL slots: if a worker is in_flight, the eof handler
+         * must not run concurrently.  Set eof_pending; dcc_done() will
+         * deliver it once the queue drains and in_flight reaches 0. */
+        if ((dcc[idx].type->flags & DCT_PARALLEL) &&
+            atomic_load_explicit(&dcc[idx].in_flight, memory_order_acquire) > 0) {
+          atomic_store_explicit(&dcc[idx].eof_pending, true, memory_order_release);
+        } else if (dcc[idx].type && dcc[idx].type->eof) {
           dcc[idx].type->eof(idx);
-        else {
+        } else {
           putlog(LOG_MISC, "*",
                  "*** ATTENTION: DEAD SOCKET (%d) OF TYPE %s UNTRAPPED",
                  i, dcc[idx].type ? dcc[idx].type->name : "*UNKNOWN*");

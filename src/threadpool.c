@@ -175,19 +175,33 @@ static void dcc_done(void *arg)
 
   /* Dequeue next item */
   dcc_work_t *next = dequeue_work(idx);
-  if (!next)
-    return;
-
-  /* Generation check: discard stale queue if slot was reused */
-  uint32_t cur_gen = atomic_load_explicit(&dcc[idx].generation, memory_order_acquire);
-  if (next->gen != cur_gen) {
-    op_free(next);
-    drain_slot_queue(idx);
-    return;
+  if (next) {
+    /* Generation check: discard stale queue if slot was reused */
+    uint32_t cur_gen = atomic_load_explicit(&dcc[idx].generation, memory_order_acquire);
+    if (next->gen != cur_gen) {
+      op_free(next);
+      drain_slot_queue(idx);
+      /* Fall through to deferred-event delivery below */
+    } else {
+      submit_work(next);
+      return;  /* more work queued — don't deliver deferred events yet */
+    }
   }
 
-  /* Submit next in-order item */
-  submit_work(next);
+  /* Queue is now empty and in_flight just reached 0: deliver deferred events.
+   * Timeout takes priority over EOF (mirrors the existing precedence in main.c).
+   * After calling eof/timeout the slot may be invalidated (lostdcc) — return. */
+  if (atomic_exchange_explicit(&dcc[idx].timeout_pending, false, memory_order_acq_rel)) {
+    if (dcc[idx].type && dcc[idx].type->timeout)
+      dcc[idx].type->timeout(idx);
+    else if (dcc[idx].type && dcc[idx].type->eof)
+      dcc[idx].type->eof(idx);
+    return;
+  }
+  if (atomic_exchange_explicit(&dcc[idx].eof_pending, false, memory_order_acq_rel)) {
+    if (dcc[idx].type && dcc[idx].type->eof)
+      dcc[idx].type->eof(idx);
+  }
 }
 
 /* ---- Public API --------------------------------------------------------- */

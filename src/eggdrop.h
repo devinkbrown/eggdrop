@@ -328,7 +328,9 @@ struct dcc_t {
   uint64_t status;              /* A LOT of dcc types have status things; makes it more available. */
   _Atomic int  in_flight;       /* DCT_PARALLEL workers currently in activity() for this slot       */
   _Atomic bool close_req;       /* DCT_PARALLEL handler requested close via dcc_request_close()    */
-  _Atomic uint32_t generation;   /* incremented on slot open; guards stale queue items             */
+  _Atomic bool eof_pending;     /* EOF arrived while a worker was in_flight; deliver when idle      */
+  _Atomic bool timeout_pending; /* timeout fired while a worker was in_flight; deliver when idle   */
+  _Atomic uint32_t generation;  /* incremented on slot open; guards stale queue items              */
   union {
     struct chat_info *chat;
     struct file_info *file;
@@ -394,7 +396,8 @@ struct xfer_info {
   unsigned long block_pending;  /* bytes of this DCC block which weren't
                                  * sent yet.                               */
   time_t start_time;            /* Time when a xfer was started.           */
-  struct xfer_wbuf wbuf;        /* async write buffer; zero-init on alloc  */
+  struct xfer_wbuf wbuf;        /* async write buffer (receive path)       */
+  _Atomic int pump_in_flight;  /* async file-read pump in progress (send) */
 };
 
 enum {                          /* transfer connection handling a ...   */

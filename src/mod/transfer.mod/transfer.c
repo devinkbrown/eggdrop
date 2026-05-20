@@ -943,8 +943,10 @@ static void kill_dcc_xfer(int idx, void *x)
 {
   struct xfer_info *p = (struct xfer_info *) x;
 
-  /* Drain any pending async flush before freeing the buffer. */
-  while (atomic_load_explicit(&p->wbuf.in_flight, memory_order_acquire) > 0)
+  /* Signal pump_done not to re-submit, then drain both async pipelines. */
+  p->block_pending = 0;
+  while (atomic_load_explicit(&p->wbuf.in_flight, memory_order_acquire) > 0 ||
+         atomic_load_explicit(&p->pump_in_flight, memory_order_acquire) > 0)
     op_async_drain();
   if (p->wbuf.data)
     op_free(p->wbuf.data);
@@ -959,16 +961,99 @@ static void kill_dcc_xfer(int idx, void *x)
   op_free(x);
 }
 
+/* ── Async outgoing file pump ────────────────────────────────────────────────
+ *
+ * When sendfile() is unavailable or the socket outbuf is already full,
+ * we offload the blocking fread() to a worker thread.  tputs() (which only
+ * enqueues into the socket's outbuf) runs on the main thread in the done
+ * callback, keeping socket state single-threaded.
+ *
+ * pump_in_flight is held at 1 across chained re-submissions so that
+ * kill_dcc_xfer's drain loop exits cleanly without a false zero window.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+typedef struct {
+  int      dcc_idx;
+  long     sock;
+  FILE    *f;
+  uint64_t pending;   /* block_pending snapshot at submit time    */
+  size_t   r;         /* bytes actually read (written by worker)  */
+  char     buf[PMAX_SIZE];
+} xfer_pump_ctx_t;
+
+static void xfer_pump_worker(void *arg)
+{
+  xfer_pump_ctx_t *c = (xfer_pump_ctx_t *)arg;
+  size_t want = (size_t)(c->pending > PMAX_SIZE ? PMAX_SIZE : c->pending);
+  c->r = fread(c->buf, 1, want, c->f);
+}
+
+static void xfer_pump_done(void *arg)
+{
+  xfer_pump_ctx_t *c = (xfer_pump_ctx_t *)arg;
+  int idx = c->dcc_idx;
+  struct xfer_info *x;
+
+  if (c->r > 0 && idx >= 0 && idx < dcc_total &&
+      (x = dcc[idx].u.xfer) != nullptr && x->block_pending > 0) {
+    tputs(c->sock, c->buf, c->r);
+    x->block_pending -= c->r;
+
+    /* If more data remains and the socket outbuf has room, re-use this
+     * context for the next read without touching pump_in_flight. */
+    if (x->block_pending > 0 && !sock_has_data(SOCK_DATA_OUTGOING, c->sock)) {
+      c->pending = x->block_pending;
+      c->r       = 0;
+      op_async_submit(xfer_pump_worker, xfer_pump_done, c);
+      return;
+    }
+  }
+
+  /* Release pump_in_flight on the main thread. */
+  if (idx >= 0 && idx < dcc_total && (x = dcc[idx].u.xfer) != nullptr)
+    atomic_fetch_sub_explicit(&x->pump_in_flight, 1, memory_order_release);
+
+  op_free(c);
+}
+
+static void xfer_pump_submit(int idx)
+{
+  struct xfer_info *x = dcc[idx].u.xfer;
+  xfer_pump_ctx_t *c  = (xfer_pump_ctx_t *)op_malloc(sizeof *c);
+
+  c->dcc_idx = idx;
+  c->sock    = dcc[idx].sock;
+  c->f       = x->f;
+  c->pending = x->block_pending;
+  c->r       = 0;
+  atomic_fetch_add_explicit(&x->pump_in_flight, 1, memory_order_relaxed);
+  op_async_submit(xfer_pump_worker, xfer_pump_done, c);
+}
+
 static void out_dcc_xfer(int idx, char *buf, void *x)
 {
 }
 
 static void outdone_dcc_xfer(int idx)
 {
-  if (dcc[idx].u.xfer->block_pending)
-    dcc[idx].u.xfer->block_pending =
-      pump_file_to_sock(dcc[idx].u.xfer->f, dcc[idx].sock,
-                        dcc[idx].u.xfer->block_pending);
+  struct xfer_info *x = dcc[idx].u.xfer;
+
+  if (!x->block_pending)
+    return;
+
+#if defined(EGG_SENDFILE_LINUX) || defined(EGG_SENDFILE_BSD)
+  /* sendfile() is kernel-level zero-copy; no userspace blocking — keep on
+   * the main thread.  Falls through to the async path if outbuf is full. */
+  if (!sock_has_data(SOCK_DATA_OUTGOING, dcc[idx].sock)) {
+    x->block_pending = pump_file_to_sock(x->f, dcc[idx].sock, x->block_pending);
+    return;
+  }
+#endif
+
+  /* fread fallback: dispatch to worker to avoid blocking the event loop.
+   * Skipped if a pump is already in-flight for this slot. */
+  if (atomic_load_explicit(&x->pump_in_flight, memory_order_acquire) == 0)
+    xfer_pump_submit(idx);
 }
 
 /* Send TO the bot - Wcc */
