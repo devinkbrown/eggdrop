@@ -128,4 +128,23 @@ typedef struct {
 int op_tpool_get_stats(const op_thread_pool_t *pool,
                        op_tpool_worker_stats_t *out, int max);
 
+/* -------------------------------------------------------------------------
+ * Pool-level aggregate summary
+ * ---------------------------------------------------------------------- */
+
+typedef struct {
+	int      nthreads;      /* Total worker threads                         */
+	int      busy;          /* Workers currently NOT in IDLE state          */
+	uint64_t dispatched;    /* Sum of per-worker dispatched counts          */
+	uint64_t stolen;        /* Sum of per-worker stolen counts              */
+} op_tpool_summary_t;
+
+/*
+ * op_tpool_summary — fill *out with pool-wide aggregate stats.
+ *
+ * Iterates all workers; individual counters are relaxed reads so the
+ * snapshot is not atomic across workers.  Acceptable for monitoring.
+ */
+void op_tpool_summary(const op_thread_pool_t *pool, op_tpool_summary_t *out);
+
 #endif /* OP_THREAD_POOL_H */

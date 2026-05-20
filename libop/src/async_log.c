@@ -126,6 +126,13 @@ log_wake_destroy(void)
 #endif
 }
 
+/* ---- stats --------------------------------------------------------------- */
+
+static _Atomic uint64_t log_stat_delivered = 0;
+static _Atomic int      log_stat_depth     = 0;
+static _Atomic int      log_stat_hwm       = 0;
+static _Atomic uint64_t log_stat_dropped   = 0;
+
 /* ---- writer thread state ------------------------------------------------- */
 
 static pthread_t      log_tid;
@@ -148,7 +155,11 @@ static log_cb *log_writer_cb = NULL;
 void
 op_async_log_enqueue(const char *msg)
 {
-	log_entry_t *e = op_malloc(sizeof(*e));
+	log_entry_t *e = (log_entry_t *)op_malloc(sizeof(*e));
+	if (!e) {
+		atomic_fetch_add_explicit(&log_stat_dropped, 1, memory_order_relaxed);
+		return;
+	}
 	snprintf(e->msg, LOG_MSG_SIZE, "%s", msg);
 
 	/* Treiber push: CAS loop with release on success so the writer sees
@@ -160,6 +171,15 @@ op_async_log_enqueue(const char *msg)
 	              &log_stack_top, &old, e,
 	              memory_order_release,
 	              memory_order_relaxed));
+
+	/* Track queue depth and HWM. */
+	int depth = atomic_fetch_add_explicit(&log_stat_depth, 1, memory_order_relaxed) + 1;
+	int hwm   = atomic_load_explicit(&log_stat_hwm, memory_order_relaxed);
+	while (depth > hwm &&
+	       !atomic_compare_exchange_weak_explicit(&log_stat_hwm, &hwm, depth,
+	                                              memory_order_relaxed,
+	                                              memory_order_relaxed))
+		;
 
 	/* Signal once per burst: if log_pending was already 1, the writer is
 	 * already awake or will wake itself on the next iteration. */
@@ -195,6 +215,7 @@ drain_stack(void)
 	}
 
 	/* Deliver and free. */
+	int count = 0;
 	while (reversed)
 	{
 		log_entry_t *next = reversed->next;
@@ -202,6 +223,12 @@ drain_stack(void)
 			log_writer_cb(reversed->msg);
 		op_free(reversed);
 		reversed = next;
+		count++;
+	}
+	if (count) {
+		atomic_fetch_add_explicit(&log_stat_delivered, (uint64_t)count,
+		                          memory_order_relaxed);
+		atomic_fetch_sub_explicit(&log_stat_depth, count, memory_order_relaxed);
 	}
 }
 
@@ -300,4 +327,22 @@ bool
 op_async_log_active(void)
 {
 	return atomic_load_explicit(&log_active, memory_order_acquire);
+}
+
+void
+op_async_log_stats(uint64_t *delivered_out, int *depth_out,
+                   int *hwm_out, uint64_t *dropped_out)
+{
+	if (delivered_out)
+		*delivered_out = atomic_load_explicit(&log_stat_delivered,
+		                                      memory_order_relaxed);
+	if (depth_out)
+		*depth_out     = atomic_load_explicit(&log_stat_depth,
+		                                      memory_order_relaxed);
+	if (hwm_out)
+		*hwm_out       = atomic_load_explicit(&log_stat_hwm,
+		                                      memory_order_relaxed);
+	if (dropped_out)
+		*dropped_out   = atomic_load_explicit(&log_stat_dropped,
+		                                      memory_order_relaxed);
 }

@@ -264,7 +264,14 @@ op_start_async_log
 op_stop_async_log
 op_async_log_active
 op_async_log_enqueue
+op_async_log_stats
 op_lib_set_log_hook
+op_tpool_summary
+op_tpool_get_stats
+op_tpool_nthreads
+op_tpool_submit
+op_tpool_shutdown
+op_tpool_create
 op_async_init
 op_async_shutdown
 op_async_submit

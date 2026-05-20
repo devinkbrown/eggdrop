@@ -80,4 +80,19 @@ bool op_async_log_active(void);
  */
 void op_async_log_enqueue(const char *msg);
 
+/*
+ * op_async_log_stats — fill cumulative/current stats.
+ *
+ * delivered_out: total log entries processed by the writer thread.
+ * depth_out:     current number of entries queued (producer-side estimate).
+ * hwm_out:       all-time peak queue depth since op_start_async_log().
+ * dropped_out:   entries silently dropped due to op_malloc() OOM.
+ *
+ * Any pointer may be NULL.  Counters are relaxed reads — not atomic across
+ * fields — and are best-effort for monitoring purposes.
+ * May be called from any thread while the writer is active.
+ */
+void op_async_log_stats(uint64_t *delivered_out, int *depth_out,
+                        int *hwm_out, uint64_t *dropped_out);
+
 #endif /* LIBOP_ASYNC_LOG_H */

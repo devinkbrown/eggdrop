@@ -961,6 +961,24 @@ op_tpool_nthreads(const op_thread_pool_t *pool)
 	return pool->nthreads;
 }
 
+void
+op_tpool_summary(const op_thread_pool_t *pool, op_tpool_summary_t *out)
+{
+	out->nthreads  = pool->nthreads;
+	out->busy      = 0;
+	out->dispatched = 0;
+	out->stolen     = 0;
+	for (int i = 0; i < pool->nthreads; i++) {
+		const worker_ctx_t *w = &pool->workers[i];
+		op_worker_state_t st = (op_worker_state_t)atomic_load_explicit(
+		                           &w->state, memory_order_relaxed);
+		if (st != OP_WORKER_IDLE)
+			out->busy++;
+		out->dispatched += w->stat_dispatched;
+		out->stolen     += w->stat_stolen;
+	}
+}
+
 int
 op_tpool_get_stats(const op_thread_pool_t *pool,
                    op_tpool_worker_stats_t *out, int max)
