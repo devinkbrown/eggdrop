@@ -27,6 +27,8 @@
 #include "modules.h"
 #include "script.h"
 #include "threadpool.h"
+#include "async_log.h"
+#include "async_fileio.h"
 #include <signal.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -594,27 +596,62 @@ static void cmd_status(struct userrec *u, int idx, char *par)
 
 static void cmd_threads(struct userrec *u, int idx, char *par)
 {
-  int in_flight = 0, i;
+  int i;
 
   putlog(LOG_CMDS, "*", "#%s# threads", dcc[idx].nick);
 
-  /* Per-slot in_flight totals */
-  for (i = 0; i < dcc_total; i++)
-    in_flight += (int)atomic_load_explicit(&dcc[i].in_flight, memory_order_relaxed);
+  int nthreads = threadpool_size();
+  dprintf(idx, "--- Async subsystem status ---\n");
+  dprintf(idx, "Worker pool:    %d thread%s  (%s)\n",
+          nthreads, nthreads == 1 ? "" : "s",
+          threadpool_active() ? "active" : "inactive");
 
-  dprintf(idx, "Async worker pool: %d thread%s\n",
-          threadpool_size(), threadpool_size() == 1 ? "" : "s");
   if (!threadpool_active()) {
-    dprintf(idx, "  (pool not active)\n");
+    dprintf(idx, "  (pool not active — async ops disabled)\n");
     return;
   }
-  int total_queued = 0;
-  for (i = 0; i < dcc_total; i++)
-    total_queued += dcc_shim_queue_depth(i);
-  dprintf(idx, "  DCC in-flight:    %d\n", in_flight);
-  dprintf(idx, "  Queued (backlog): %d\n", total_queued);
-  dprintf(idx, "  Pool pending:     %d\n", threadpool_pending());
-  dprintf(idx, "  Async pending:    %zu\n", op_async_pending());
+
+  /* op_async layer */
+  dprintf(idx, "op_async:       %zu item%s pending\n",
+          op_async_pending(), op_async_pending() == 1 ? "" : "s");
+
+  /* DCC dispatch shim */
+  int dcc_inflight = 0, dcc_queued = 0, pump_inflight = 0;
+  for (i = 0; i < dcc_total; i++) {
+    dcc_inflight  += (int)atomic_load_explicit(&dcc[i].in_flight,
+                                               memory_order_relaxed);
+    dcc_queued    += dcc_shim_queue_depth(i);
+    if (dcc[i].u.xfer)
+      pump_inflight += (int)atomic_load_explicit(&dcc[i].u.xfer->pump_in_flight,
+                                                 memory_order_relaxed);
+  }
+  dprintf(idx, "DCC shim:       %d in-flight, %d queued",
+          dcc_inflight, dcc_queued);
+  if (pump_inflight)
+    dprintf(idx, " (%d file pump%s)", pump_inflight,
+            pump_inflight == 1 ? "" : "s");
+  dprintf(idx, "\n");
+  dprintf(idx, "Pool pending:   %d\n", threadpool_pending());
+
+  /* Async log writer */
+  if (async_log_active()) {
+    uint64_t lines, bytes;
+    async_log_stats(&lines, &bytes);
+    dprintf(idx, "Log writer:     active  %" PRIu64 " line%s  %" PRIu64 " byte%s\n",
+            lines, lines == 1 ? "" : "s",
+            bytes, bytes == 1 ? "" : "s");
+  } else {
+    dprintf(idx, "Log writer:     inactive (sync fallback)\n");
+  }
+
+  /* Async file I/O */
+  int fw_inflight = 0, fw_pending = 0;
+  async_fileio_stats(&fw_inflight, &fw_pending);
+  dprintf(idx, "File I/O:       %d write%s in-flight",
+          fw_inflight, fw_inflight == 1 ? "" : "s");
+  if (fw_pending)
+    dprintf(idx, ", %d coalesced-pending", fw_pending);
+  dprintf(idx, "\n");
 }
 
 static void cmd_dccstat(struct userrec *u, int idx, char *par)

@@ -34,4 +34,10 @@ void async_writebuf(const char *finalpath, char *buf, size_t len, int perm);
  * No-op if async is not active, keep_all_logs is set, or max_logsize <= 0. */
 void async_check_logsize(void);
 
+/* Return write-coalescing slot counts.  Either pointer may be NULL.
+ * inflight_out: paths with a write currently queued or running.
+ * pending_out:  paths with a newer buffer waiting behind the inflight write.
+ * Must be called from the main thread. */
+void async_fileio_stats(int *inflight_out, int *pending_out);
+
 #endif /* _EGG_ASYNC_FILEIO_H */

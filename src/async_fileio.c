@@ -386,3 +386,18 @@ void async_check_logsize(void)
     op_async_submit(alogstat_work, alogstat_done, c);
   }
 }
+
+/* ======================================================================
+ * Stats
+ * ==================================================================== */
+
+void async_fileio_stats(int *inflight_out, int *pending_out)
+{
+  int inflight = 0, pending = 0;
+  for (coalesce_slot_t *s = coalesce_head; s; s = s->next) {
+    if (s->in_flight)  inflight++;
+    if (s->pending_buf) pending++;
+  }
+  if (inflight_out) *inflight_out = inflight;
+  if (pending_out)  *pending_out  = pending;
+}
