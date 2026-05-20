@@ -25,6 +25,8 @@
 #include "main.h"
 #include <signal.h>
 #include "bg.h"
+#include "async_log.h"
+#include <op_async.h>
 
 extern char pid_file[];
 
@@ -231,6 +233,12 @@ void bg_do_split(void)
     bg_send_quit(BG_QUIT);
 
   } else {
+    /* Drain and stop async subsystems before fork so the child inherits no
+     * live threads.  Threads do not survive fork(); if they hold any mutex
+     * at the moment of fork the child's copy is permanently locked. */
+    async_log_destroy();
+    op_async_shutdown();
+
     /* Split off a new process. */
     int xx = fork();
 
@@ -238,7 +246,12 @@ void bg_do_split(void)
       fatal("CANNOT FORK PROCESS.", 0);
     if (xx != 0)
       bg_do_detach(xx);
-    else
+    else {
+      /* Child: reinitialise I/O backend and restart async subsystems. */
       op_reinit_after_fork();
+      if (!op_async_init(0))
+        fatal("ERROR: Failed to reinitialise async thread pool after fork.", 0);
+      async_log_restart();
+    }
   }
 }

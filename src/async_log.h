@@ -45,6 +45,12 @@ bool async_log_active(void);
  * to pass an open path with the next write to that slot. */
 bool async_log_slot_open(int slot_idx);
 
+/* Restart the writer thread in a child process after fork().
+ * Closes inherited file handles, reinitialises mutexes, drains any stale
+ * queued commands, and launches a new writer thread.  Must be called after
+ * op_reinit_after_fork() and before op_async_init() in the child. */
+void async_log_restart(void);
+
 /* Fill *lines_out and *bytes_out with cumulative write counters.
  * Either pointer may be NULL.  Counters are updated relaxed from the writer
  * thread and are best-effort (no synchronization guarantee vs in-flight

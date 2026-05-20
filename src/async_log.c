@@ -335,3 +335,40 @@ void async_log_stats(uint64_t *lines_out, uint64_t *bytes_out)
   if (bytes_out)
     *bytes_out = atomic_load_explicit(&alog_bytes_written, memory_order_relaxed);
 }
+
+void async_log_restart(void)
+{
+  /* Called in the child process after fork().  The writer thread from the
+   * parent does not exist here.  Close inherited file handles, reinitialise
+   * all synchronisation primitives to a clean unlocked state, drain any
+   * stale queued commands, and start a fresh writer thread. */
+  for (int i = 0; i < alog_nslots; i++) {
+    if (slot_files[i]) {
+      fclose(slot_files[i]);
+      slot_files[i] = nullptr;
+    }
+  }
+  memset(slot_told_open, 0, sizeof slot_told_open);
+
+  /* Reinitialise mutexes — the inherited copies may be locked. */
+  pthread_mutex_init(&wake_mutex,  nullptr);
+  pthread_mutex_init(&flush_mutex, nullptr);
+  pthread_cond_init(&wake_cond,   nullptr);
+  pthread_cond_init(&flush_cond,  nullptr);
+
+  /* Drain any commands that were queued in the parent but never processed. */
+  alog_cmd_t *cmd = atomic_exchange_explicit(&stack_head, nullptr,
+                                              memory_order_acquire);
+  while (cmd) {
+    alog_cmd_t *nxt = cmd->next;
+    cmd_free(cmd);
+    cmd = nxt;
+  }
+  atomic_store_explicit(&flush_seq,       0,     memory_order_relaxed);
+  atomic_store_explicit(&alog_lines_written, 0,  memory_order_relaxed);
+  atomic_store_explicit(&alog_bytes_written, 0,  memory_order_relaxed);
+  atomic_store_explicit(&writer_running,  false, memory_order_release);
+
+  /* Start a fresh writer thread with the same slot count. */
+  async_log_init(alog_nslots);
+}

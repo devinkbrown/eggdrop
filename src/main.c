@@ -99,7 +99,7 @@ int term_z = -1;    /* Foreground: use the terminal as a partyline?  */
 int use_stderr = 1; /* Send stuff to stderr instead of logfiles?     */
 
 char configfile[121] = "eggdrop.toml";  /* Default config file name */
-char *pid_file = nullptr;               /* Name of the pid file     */
+char pid_file[121] = "";                /* Name of the pid file     */
 char helpdir[121] = "help/";            /* Directory of help files  */
 char textdir[121] = "text/";            /* Directory for text files */
 
@@ -148,7 +148,7 @@ void fatal(const char *s, int recoverable)
 #ifdef TLS
   ssl_cleanup();
 #endif
-  if (pid_file)
+  if (pid_file[0])
     unlink(pid_file);
   if (recoverable != 1) {
     bg_send_quit(BG_ABORT);
@@ -1089,12 +1089,8 @@ int main(int arg_c, char **arg_v)
 #endif
   cache_miss = 0;
   cache_hit = 0;
-  if (!pid_file) {
-    op_strbuf_t buf = {};
-    op_strbuf_init(&buf);
-    op_strbuf_appendf(&buf, "pid.%s", botnetnick);
-    pid_file = op_strbuf_steal(&buf);
-  }
+  if (!pid_file[0])
+    snprintf(pid_file, sizeof pid_file, "pid.%s", botnetnick);
 
   /* Check for pre-existing eggdrop! */
   f = fopen(pid_file, "r");
