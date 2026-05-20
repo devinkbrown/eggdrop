@@ -856,8 +856,10 @@ void write_userfile(int idx)
   s_userfile_stream = nullptr;
   fclose(f);  /* finalises buf/buflen from open_memstream */
 
+  /* Pass buf directly so the backend (LMDB) can store the crash-recovery blob
+   * from in-memory content rather than reading from a not-yet-flushed file. */
   if (egg_store && egg_store != &egg_store_flat)
-    egg_store->save_users(idx);
+    egg_store->save_users(idx, buf, buflen);
 
   /* Hand the serialized buffer to a worker thread for disk I/O.
    * async_writebuf takes ownership of buf. */

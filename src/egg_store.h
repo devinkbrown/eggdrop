@@ -17,6 +17,8 @@
 #ifndef _EGG_STORE_H
 #define _EGG_STORE_H
 
+#include <stddef.h>
+
 struct userrec;
 
 /* Storage backend vtable. */
@@ -35,8 +37,10 @@ typedef struct egg_store_backend {
   int  (*load_users)(const char *path, struct userrec **list);
 
   /* Persist the current in-memory user list to storage.
-   * `idx` is the DCC index requesting the save (for error output), or -1. */
-  void (*save_users)(int idx);
+   * `idx` is the DCC index requesting the save (for error output), or -1.
+   * `flatbuf/flatlen` is the already-serialized flat-file content (owned by
+   * the caller; backend may read but must not free or take a reference). */
+  void (*save_users)(int idx, const char *flatbuf, size_t flatlen);
 
   /* Load channel settings from storage. Returns 1 on success. */
   int  (*load_channels)(void);

@@ -76,27 +76,6 @@ static MDB_val mk_key2(op_strbuf_t *sb, const char *a, const char *b)
   return mk_val(op_strbuf_str(sb), op_strbuf_len(sb));
 }
 
-static char *slurp_file(const char *path, size_t *out_len)
-{
-  FILE *f = fopen(path, "r");
-  if (!f)
-    return nullptr;
-
-  struct stat st;
-  if (fstat(fileno(f), &st) != 0 || st.st_size == 0) {
-    fclose(f);
-    return nullptr;
-  }
-
-  char *buf = op_malloc(st.st_size + 1);
-  size_t n = fread(buf, 1, st.st_size, f);
-  fclose(f);
-  buf[n] = '\0';
-  if (out_len)
-    *out_len = n;
-  return buf;
-}
-
 /* ======================================================================
  * Backend implementation
  * ====================================================================== */
@@ -202,7 +181,7 @@ static void delete_user_entries(MDB_txn *txn, MDB_dbi dbi, const char *handle)
  *  3. For Layer 2: if full_resync or all users dirty, drop and rebuild.
  *     Otherwise, only update records for dirty users.
  */
-static void lmdb_save_users(int idx)
+static void lmdb_save_users(int idx, const char *flatbuf, size_t flatlen)
 {
   MDB_txn *txn;
   int rc;
@@ -218,16 +197,13 @@ static void lmdb_save_users(int idx)
     return;
   }
 
-  /* Layer 1: Store complete flat userfile as a blob for crash recovery. */
-  {
-    size_t blob_len;
-    char *blob = slurp_file(userfile, &blob_len);
-    if (blob) {
-      MDB_val k = mk_str("userfile_blob");
-      MDB_val v = mk_val(blob, blob_len);
-      mdb_put(txn, dbi_meta, &k, &v, 0);
-      op_free(blob);
-    }
+  /* Layer 1: Store the in-memory flat-file buffer as a crash-recovery blob.
+   * Using flatbuf directly avoids reading the file that async_writebuf has
+   * not yet flushed to disk. */
+  if (flatbuf && flatlen > 0) {
+    MDB_val k = mk_str("userfile_blob");
+    MDB_val v = mk_val(flatbuf, flatlen);
+    mdb_put(txn, dbi_meta, &k, &v, 0);
   }
 
   /* Store metadata. */
@@ -501,7 +477,7 @@ static int lmdb_import_flat(const char *path)
 {
   int ret = egg_store_flat.import_flat(path);
   if (ret && env)
-    lmdb_save_users(-1);
+    lmdb_save_users(-1, nullptr, 0);
   return ret;
 }
 

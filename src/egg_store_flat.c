@@ -34,8 +34,9 @@ static int flat_load_users(const char *path, struct userrec **list)
   return readuserfile((char *) path, list);
 }
 
-static void flat_save_users(int idx)
+static void flat_save_users(int idx, const char *flatbuf, size_t flatlen)
 {
+  (void)flatbuf; (void)flatlen;
   write_userfile(idx);
 }
 
