@@ -57,4 +57,8 @@ void async_log_restart(void);
  * writes). */
 void async_log_stats(uint64_t *lines_out, uint64_t *bytes_out);
 
+/* Fill queue diagnostics: current stack depth, all-time peak depth, and
+ * number of lines silently dropped due to cmd_alloc() OOM. */
+void async_log_extra_stats(int *depth_out, int *hwm_out, uint64_t *dropped_out);
+
 #endif /* _EGG_ASYNC_LOG_H */

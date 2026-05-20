@@ -23,4 +23,9 @@ void async_dns_cache_flush(void);
 /* Return current cache entry count (IP→host and host→IP combined). */
 int  async_dns_cache_size(void);
 
+/* Fill hit/miss counters (all main-thread-only, cumulative since startup).
+ * Any pointer may be NULL if that counter is not needed. */
+void async_dns_cache_stats(uint64_t *hip_hits_out,   uint64_t *hip_misses_out,
+                            uint64_t *ibh_hits_out,   uint64_t *ibh_misses_out);
+
 #endif /* _EGG_ASYNC_DNS_H */

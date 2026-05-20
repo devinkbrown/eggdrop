@@ -70,6 +70,12 @@ static int              alog_nslots;  /* set once at init, read-only after */
 static _Atomic uint64_t alog_lines_written;
 static _Atomic uint64_t alog_bytes_written;
 
+/* Queue depth (current Treiber stack length) and peak high-water mark.
+ * Also count cmd_alloc() OOM failures (silent drops). */
+static _Atomic int      alog_queue_depth;
+static _Atomic int      alog_queue_hwm;
+static _Atomic uint64_t alog_dropped;
+
 /* Writer-private file handles */
 static FILE           *slot_files[ALOG_MAX_SLOTS];
 
@@ -109,6 +115,14 @@ static void stack_push(alog_cmd_t *cmd)
   } while (!atomic_compare_exchange_weak_explicit(
       &stack_head, &old, cmd,
       memory_order_release, memory_order_relaxed));
+
+  int depth = atomic_fetch_add_explicit(&alog_queue_depth, 1, memory_order_relaxed) + 1;
+  int hwm   = atomic_load_explicit(&alog_queue_hwm, memory_order_relaxed);
+  while (depth > hwm &&
+         !atomic_compare_exchange_weak_explicit(&alog_queue_hwm, &hwm, depth,
+                                                memory_order_relaxed,
+                                                memory_order_relaxed))
+    ;
 }
 
 /* Atomically drain the entire stack, reverse it to restore submission order,
@@ -117,14 +131,18 @@ static alog_cmd_t *stack_drain(void)
 {
   alog_cmd_t *lifo = atomic_exchange_explicit(&stack_head, nullptr,
                                                memory_order_acquire);
-  /* Reverse: LIFO → FIFO */
+  /* Reverse: LIFO → FIFO; count items to update queue depth. */
   alog_cmd_t *fifo = nullptr;
+  int count = 0;
   while (lifo) {
     alog_cmd_t *nxt = lifo->next;
     lifo->next = fifo;
     fifo = lifo;
     lifo = nxt;
+    count++;
   }
+  if (count)
+    atomic_fetch_sub_explicit(&alog_queue_depth, count, memory_order_relaxed);
   return fifo;
 }
 
@@ -254,7 +272,10 @@ void async_log_write(int slot_idx, const char *path, const char *line)
   }
 
   alog_cmd_t *cmd = cmd_alloc();
-  if (!cmd) return;
+  if (!cmd) {
+    atomic_fetch_add_explicit(&alog_dropped, 1, memory_order_relaxed);
+    return;
+  }
 
   cmd->type  = ALOG_WRITE;
   cmd->slot  = slot_idx;
@@ -336,6 +357,16 @@ void async_log_stats(uint64_t *lines_out, uint64_t *bytes_out)
     *bytes_out = atomic_load_explicit(&alog_bytes_written, memory_order_relaxed);
 }
 
+void async_log_extra_stats(int *depth_out, int *hwm_out, uint64_t *dropped_out)
+{
+  if (depth_out)
+    *depth_out   = atomic_load_explicit(&alog_queue_depth, memory_order_relaxed);
+  if (hwm_out)
+    *hwm_out     = atomic_load_explicit(&alog_queue_hwm,   memory_order_relaxed);
+  if (dropped_out)
+    *dropped_out = atomic_load_explicit(&alog_dropped,     memory_order_relaxed);
+}
+
 void async_log_restart(void)
 {
   /* Called in the child process after fork().  The writer thread from the
@@ -364,10 +395,13 @@ void async_log_restart(void)
     cmd_free(cmd);
     cmd = nxt;
   }
-  atomic_store_explicit(&flush_seq,       0,     memory_order_relaxed);
-  atomic_store_explicit(&alog_lines_written, 0,  memory_order_relaxed);
-  atomic_store_explicit(&alog_bytes_written, 0,  memory_order_relaxed);
-  atomic_store_explicit(&writer_running,  false, memory_order_release);
+  atomic_store_explicit(&flush_seq,          0,     memory_order_relaxed);
+  atomic_store_explicit(&alog_lines_written, 0,     memory_order_relaxed);
+  atomic_store_explicit(&alog_bytes_written, 0,     memory_order_relaxed);
+  atomic_store_explicit(&alog_queue_depth,   0,     memory_order_relaxed);
+  atomic_store_explicit(&alog_queue_hwm,     0,     memory_order_relaxed);
+  atomic_store_explicit(&alog_dropped,       0,     memory_order_relaxed);
+  atomic_store_explicit(&writer_running,     false, memory_order_release);
 
   /* Start a fresh writer thread with the same slot count. */
   async_log_init(alog_nslots);

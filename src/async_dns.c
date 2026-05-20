@@ -46,6 +46,12 @@ typedef struct {
 static op_htab *dns_hip_cache = nullptr;  /* IP  → hostname */
 static op_htab *dns_ibh_cache = nullptr;  /* host → IP      */
 
+/* All cache ops run on the main thread — plain uint64_t is safe. */
+static uint64_t dns_hip_hits   = 0;
+static uint64_t dns_hip_misses = 0;
+static uint64_t dns_ibh_hits   = 0;
+static uint64_t dns_ibh_misses = 0;
+
 extern time_t now;  /* main.c global seconds counter */
 
 static void dns_cache_free_entry(void *key, void *val, void *ud)
@@ -74,16 +80,27 @@ int async_dns_cache_size(void)
   return n;
 }
 
+void async_dns_cache_stats(uint64_t *hip_hits_out,   uint64_t *hip_misses_out,
+                            uint64_t *ibh_hits_out,   uint64_t *ibh_misses_out)
+{
+  if (hip_hits_out)   *hip_hits_out   = dns_hip_hits;
+  if (hip_misses_out) *hip_misses_out = dns_hip_misses;
+  if (ibh_hits_out)   *ibh_hits_out   = dns_ibh_hits;
+  if (ibh_misses_out) *ibh_misses_out = dns_ibh_misses;
+}
+
 static const dns_cache_entry_t *dns_hip_cache_get(const char *ip)
 {
-  if (!dns_hip_cache) return nullptr;
+  if (!dns_hip_cache) { dns_hip_misses++; return nullptr; }
   dns_cache_entry_t *e = (dns_cache_entry_t *)op_htab_get(dns_hip_cache, ip);
-  if (!e) return nullptr;
+  if (!e) { dns_hip_misses++; return nullptr; }
   if (e->expires <= now) {
     op_htab_del(dns_hip_cache, ip);
     op_free(e);
+    dns_hip_misses++;
     return nullptr;
   }
+  dns_hip_hits++;
   return e;
 }
 
@@ -103,14 +120,16 @@ static void dns_hip_cache_set(const char *ip, const char *host, int ok)
 
 static const dns_cache_entry_t *dns_ibh_cache_get(const char *host)
 {
-  if (!dns_ibh_cache) return nullptr;
+  if (!dns_ibh_cache) { dns_ibh_misses++; return nullptr; }
   dns_cache_entry_t *e = (dns_cache_entry_t *)op_htab_get(dns_ibh_cache, host);
-  if (!e) return nullptr;
+  if (!e) { dns_ibh_misses++; return nullptr; }
   if (e->expires <= now) {
     op_htab_del(dns_ibh_cache, host);
     op_free(e);
+    dns_ibh_misses++;
     return nullptr;
   }
+  dns_ibh_hits++;
   return e;
 }
 

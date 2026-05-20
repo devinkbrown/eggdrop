@@ -649,11 +649,16 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
 
   /* Async log writer */
   if (async_log_active()) {
-    uint64_t lines, bytes;
+    uint64_t lines, bytes, log_dropped;
+    int      log_depth, log_hwm;
     async_log_stats(&lines, &bytes);
-    dprintf(idx, "Log writer:     active  %" PRIu64 " line%s  %" PRIu64 " byte%s\n",
-            lines, lines == 1 ? "" : "s",
-            bytes, bytes == 1 ? "" : "s");
+    async_log_extra_stats(&log_depth, &log_hwm, &log_dropped);
+    dprintf(idx, "Log writer:     active  %" PRIu64 " line%s  %" PRIu64 " bytes"
+                 "  queue %d [hwm %d]",
+            lines, lines == 1 ? "" : "s", bytes, log_depth, log_hwm);
+    if (log_dropped)
+      dprintf(idx, "  ** %" PRIu64 " DROPPED **", log_dropped);
+    dprintf(idx, "\n");
   } else {
     dprintf(idx, "Log writer:     inactive (sync fallback)\n");
   }
@@ -668,9 +673,19 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
   dprintf(idx, "\n");
 
   /* DNS cache */
+  uint64_t hip_hits, hip_misses, ibh_hits, ibh_misses;
+  async_dns_cache_stats(&hip_hits, &hip_misses, &ibh_hits, &ibh_misses);
+  uint64_t total_hits   = hip_hits   + ibh_hits;
+  uint64_t total_misses = hip_misses + ibh_misses;
+  uint64_t total_dns    = total_hits + total_misses;
   int dns_cached = async_dns_cache_size();
-  dprintf(idx, "DNS cache:      %d entr%s (TTL 300s)\n",
-          dns_cached, dns_cached == 1 ? "y" : "ies");
+  dprintf(idx, "DNS cache:      %d entr%s (TTL 300s)", dns_cached,
+          dns_cached == 1 ? "y" : "ies");
+  if (total_dns)
+    dprintf(idx, "  %" PRIu64 " hits / %" PRIu64 " misses (%.0f%%)",
+            total_hits, total_misses,
+            100.0 * (double)total_hits / (double)total_dns);
+  dprintf(idx, "\n");
 }
 
 static void cmd_dccstat(struct userrec *u, int idx, char *par)
