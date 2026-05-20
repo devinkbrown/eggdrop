@@ -1571,40 +1571,103 @@ char *extracthostname(char *hostmask)
   return p ? p + 1 : "";
 }
 
+/* ---- text-file cache (MOTD and banner) ---------------------------------- */
+
+typedef struct {
+  char   **lines;
+  int      nlines;
+  time_t   mtime;
+  off_t    sz;
+} text_file_cache_t;
+
+static text_file_cache_t motd_cache   = {nullptr, 0, 0, 0};
+static text_file_cache_t banner_cache = {nullptr, 0, 0, 0};
+
+static void text_cache_free(text_file_cache_t *c)
+{
+  for (int i = 0; i < c->nlines; i++)
+    op_free(c->lines[i]);
+  op_free(c->lines);
+  c->lines  = nullptr;
+  c->nlines = 0;
+  c->mtime  = 0;
+  c->sz     = 0;
+}
+
+/* Load (or refresh) a text-file cache entry.
+ * Returns 1 if the cache is valid after the call, 0 on failure.
+ */
+static int text_cache_load(text_file_cache_t *c, const char *path)
+{
+  struct stat st;
+
+  if (stat(path, &st) != 0) {
+    text_cache_free(c);
+    return 0;
+  }
+  if (c->lines && c->mtime == st.st_mtime && c->sz == st.st_size)
+    return 1;  /* cache is still fresh */
+
+  text_cache_free(c);
+
+  FILE *f = fopen(path, "r");
+  if (!f)
+    return 0;
+
+  char buf[1024];
+  int  cap = 32;
+  c->lines  = (char **)op_malloc(cap * sizeof(char *));
+  c->nlines = 0;
+
+  while (fgets(buf, sizeof buf, f)) {
+    size_t len = strlen(buf);
+    if (len > 0 && buf[len - 1] == '\n')
+      buf[--len] = '\0';
+    if (c->nlines == cap) {
+      cap   *= 2;
+      c->lines = (char **)op_realloc(c->lines, (size_t)cap * sizeof(char *));
+    }
+    c->lines[c->nlines++] = op_strdup(buf);
+  }
+  fclose(f);
+
+  c->mtime = st.st_mtime;
+  c->sz    = st.st_size;
+  return 1;
+}
+
+/* Flush both caches (called on rehash so a newly edited MOTD appears). */
+void text_cache_flush(void)
+{
+  text_cache_free(&motd_cache);
+  text_cache_free(&banner_cache);
+}
+
 /* Show motd to dcc chatter
  */
 void show_motd(int idx)
 {
-  FILE *vv;
   char s[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!is_file(motdfile))
     return;
 
-  vv = fopen(motdfile, "r");
-  if (!vv)
+  if (!text_cache_load(&motd_cache, motdfile))
     return;
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
   dprintf(idx, "\n");
-  /* reset the help_subst variables to their defaults */
   help_subst(nullptr, nullptr, 0,
              (dcc[idx].status & (STAT_TELNET | STAT_WS)) ? 0 : HELP_IRC, nullptr);
-  while (fgets(s, sizeof s, vv) != nullptr) {
-    if (s[strlen(s) - 1] == '\n')
-      s[strlen(s) - 1] = 0;
+  for (int i = 0; i < motd_cache.nlines; i++) {
+    op_strlcpy(s, motd_cache.lines[i], sizeof s);
     if (!s[0])
-      op_strlcpy(s, " ", sizeof(s));
+      op_strlcpy(s, " ", sizeof s);
     help_subst(s, dcc[idx].nick, &fr, 1, botnetnick);
     if (s[0])
       dprintf(idx, "%s\n", s);
   }
-  /* fgets == nullptr means error or empty file, so check for error */
-  if (ferror(vv)) {
-    putlog(LOG_MISC, "*", "Error reading MOTD for DCC");
-  }
-  fclose(vv);
   dprintf(idx, "\n");
 }
 
@@ -1612,34 +1675,25 @@ void show_motd(int idx)
  */
 void show_banner(int idx)
 {
-  FILE *vv;
   char s[1024];
   struct flag_record fr = { FR_GLOBAL | FR_CHAN };
 
   if (!is_file(bannerfile))
     return;
 
-  vv = fopen(bannerfile, "r");
-  if (!vv)
+  if (!text_cache_load(&banner_cache, bannerfile))
     return;
 
   get_user_flagrec(dcc[idx].user, &fr, dcc[idx].u.chat->con_chan);
-  /* reset the help_subst variables to their defaults */
   help_subst(nullptr, nullptr, 0, 0, nullptr);
-  while (fgets(s, sizeof s, vv) != nullptr) {
-    if (s[strlen(s) - 1] == '\n')
-      s[strlen(s) - 1] = 0;
+  for (int i = 0; i < banner_cache.nlines; i++) {
+    op_strlcpy(s, banner_cache.lines[i], sizeof s);
     if (!s[0])
-      op_strlcpy(s, " ", sizeof(s));
+      op_strlcpy(s, " ", sizeof s);
     help_subst(s, dcc[idx].nick, &fr, 0, botnetnick);
     if (s[0])
       dprintf(idx, "%s\n", s);
   }
-  /* fgets == nullptr means error or empty file, so check for error */
-  if (ferror(vv)) {
-      putlog(LOG_MISC, "*", "Error reading banner");
-  }
-  fclose(vv);
 }
 
 void make_rand_str_from_chars(char *s, const int len, char *chars)

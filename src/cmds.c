@@ -617,20 +617,26 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
           op_async_pending(), op_async_pending() == 1 ? "" : "s");
 
   /* DCC dispatch shim */
-  int dcc_inflight = 0, dcc_queued = 0, pump_inflight = 0;
+  int dcc_inflight = 0, dcc_queued = 0, pump_inflight = 0, wbuf_inflight = 0;
   for (i = 0; i < dcc_total; i++) {
     dcc_inflight  += (int)atomic_load_explicit(&dcc[i].in_flight,
                                                memory_order_relaxed);
     dcc_queued    += dcc_shim_queue_depth(i);
-    if (dcc[i].u.xfer)
+    if (dcc[i].u.xfer) {
       pump_inflight += (int)atomic_load_explicit(&dcc[i].u.xfer->pump_in_flight,
                                                  memory_order_relaxed);
+      wbuf_inflight += (int)atomic_load_explicit(&dcc[i].u.xfer->wbuf.in_flight,
+                                                 memory_order_relaxed);
+    }
   }
   dprintf(idx, "DCC shim:       %d in-flight, %d queued",
           dcc_inflight, dcc_queued);
   if (pump_inflight)
-    dprintf(idx, " (%d file pump%s)", pump_inflight,
+    dprintf(idx, " (%d send pump%s)", pump_inflight,
             pump_inflight == 1 ? "" : "s");
+  if (wbuf_inflight)
+    dprintf(idx, " (%d recv flush%s)", wbuf_inflight,
+            wbuf_inflight == 1 ? "" : "es");
   dprintf(idx, "\n");
   dprintf(idx, "Pool pending:   %d\n", threadpool_pending());
 

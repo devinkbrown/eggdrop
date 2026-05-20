@@ -535,9 +535,12 @@ void reload(void)
   call_hook(HOOK_READ_USERFILE);
 }
 
+extern void text_cache_flush(void);
+
 void rehash(void)
 {
   async_dns_cache_flush();  /* stale DNS mappings won't survive a rehash */
+  text_cache_flush();        /* force re-read of MOTD/banner after config reload */
   call_hook(HOOK_PRE_REHASH);
   noshare = 1;
   clear_userlist(userlist);
