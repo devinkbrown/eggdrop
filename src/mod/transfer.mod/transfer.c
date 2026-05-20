@@ -896,14 +896,51 @@ static void tout_dcc_send(int idx)
   lostdcc(idx);
 }
 
+/* Append "  N B/s" or "  N KB/s" or "  N.M MB/s" to buf. */
+static void append_xfer_rate(op_strbuf_t *buf, unsigned long bytes,
+                              time_t start_time)
+{
+  time_t elapsed = now - start_time;
+  if (elapsed <= 0)
+    return;
+  unsigned long rate = bytes / (unsigned long)elapsed;
+  if (rate >= 1024UL * 1024UL)
+    op_strbuf_appendf(buf, "  %lu.%01luMB/s", rate >> 20,
+                      ((rate & 0xFFFFF) * 10) >> 20);
+  else if (rate >= 1024UL)
+    op_strbuf_appendf(buf, "  %luKB/s", rate >> 10);
+  else
+    op_strbuf_appendf(buf, "  %luB/s", rate);
+}
+
+/* Append "  ETA Ns", "  ETA Nm Ns", or "  ETA Nh Nm" to buf. */
+static void append_xfer_eta(op_strbuf_t *buf, unsigned long remaining,
+                             unsigned long bytes, time_t start_time)
+{
+  time_t elapsed = now - start_time;
+  if (elapsed <= 0 || remaining == 0)
+    return;
+  unsigned long rate = bytes / (unsigned long)elapsed;
+  if (rate == 0)
+    return;
+  unsigned long eta = remaining / rate;
+  if (eta < 60)
+    op_strbuf_appendf(buf, "  ETA %lus", eta);
+  else if (eta < 3600)
+    op_strbuf_appendf(buf, "  ETA %lum%02lus", eta / 60, eta % 60);
+  else
+    op_strbuf_appendf(buf, "  ETA %luh%02lum", eta / 3600, (eta % 3600) / 60);
+}
+
 static void display_dcc_get(int idx, op_strbuf_t *buf)
 {
-  if (dcc[idx].status == dcc[idx].u.xfer->length)
-    op_strbuf_appendf(buf, TRANSFER_SEND, dcc[idx].u.xfer->acked,
-            dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
-  else
-    op_strbuf_appendf(buf, TRANSFER_SEND, dcc[idx].status,
-            dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
+  struct xfer_info *x = dcc[idx].u.xfer;
+  unsigned long done = (dcc[idx].status == x->length) ? x->acked : dcc[idx].status;
+
+  op_strbuf_appendf(buf, TRANSFER_SEND, done, x->length, x->origname);
+  append_xfer_rate(buf, done, x->start_time);
+  if (x->length > done)
+    append_xfer_eta(buf, x->length - done, done, x->start_time);
 }
 
 static void display_dcc_get_p(int idx, op_strbuf_t *buf)
@@ -914,8 +951,13 @@ static void display_dcc_get_p(int idx, op_strbuf_t *buf)
 
 static void display_dcc_send(int idx, op_strbuf_t *buf)
 {
-  op_strbuf_appendf(buf, TRANSFER_SEND, dcc[idx].status,
-          dcc[idx].u.xfer->length, dcc[idx].u.xfer->origname);
+  struct xfer_info *x = dcc[idx].u.xfer;
+  unsigned long done = dcc[idx].status;
+
+  op_strbuf_appendf(buf, TRANSFER_SEND, done, x->length, x->origname);
+  append_xfer_rate(buf, done, x->start_time);
+  if (x->length > done)
+    append_xfer_eta(buf, x->length - done, done, x->start_time);
 }
 
 static void display_dcc_fork_send(int idx, op_strbuf_t *buf)
