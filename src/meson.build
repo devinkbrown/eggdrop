@@ -27,6 +27,7 @@ core_sources = files(
   'async_dns.c',
   'async_fileio.c',
   'async_log.c',
+  'async_recv.c',
   'dns.c',
   'egg_store.c',
   'egg_store_flat.c',

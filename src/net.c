@@ -477,6 +477,7 @@ int allocsock(int sock, int options)
       /* Register with commio for I/O multiplexing. */
       td->socklist[i].commio_read_ready = 0;
       td->socklist[i].commio_write_ready = 0;
+      td->socklist[i].recv_in_flight = 0;
       if (sock >= 0 && !(options & (SOCK_NONSOCK | SOCK_VIRTUAL))) {
         op_fde_t *F = op_open(sock, OP_FD_SOCKET, "eggdrop");
         if (F) {
@@ -1229,6 +1230,7 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
   /* --- Dispatch loop --- */
   for (int i = 0; i < slistmax; i++) {
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
+        (!slist[i].recv_in_flight) &&
         ((slist[i].commio_read_ready) ||
 #ifdef TLS
         (slist[i].ssl && opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) ||

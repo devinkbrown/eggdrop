@@ -30,6 +30,7 @@
 #include "async_log.h"
 #include "async_fileio.h"
 #include "async_dns.h"
+#include "async_recv.h"
 #include <signal.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -671,6 +672,16 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
   if (fw_pending)
     dprintf(idx, ", %d coalesced-pending", fw_pending);
   dprintf(idx, "\n");
+
+  /* Async recv read-ahead */
+  {
+    int     rv_inflight;
+    uint64_t rv_total;
+    int     rv_hwm;
+    async_recv_stats(&rv_inflight, &rv_total, &rv_hwm);
+    dprintf(idx, "Recv read-ahead: %d in-flight [hwm %d]  %" PRIu64 " total\n",
+            rv_inflight, rv_hwm, rv_total);
+  }
 
   /* DNS cache */
   uint64_t hip_hits, hip_misses, ibh_hits, ibh_misses;

@@ -56,6 +56,7 @@
 #include "libop/include/op_iothread.h"
 #include "script.h"
 #include "async_dns.h"
+#include "async_recv.h"
 #include "perf.h"
 #include <op_commio.h>
 #include <op_async.h>
@@ -725,6 +726,11 @@ static void mainloop(int toplevel)
   /* Drain both completion queues every tick so DNS/file callbacks land
    * promptly, not just when the main loop goes idle. */
   comqueue_drain();
+  op_async_drain();
+
+  /* Submit recv() for all epoll-ready sockets in parallel, then drain
+   * completions immediately so sockgets() finds pre-filled linebufs. */
+  async_recv_submit_all();
   op_async_drain();
   /* Deliver close requests from DCT_PARALLEL handlers that finished this
    * tick (in_flight is now 0 after dcc_done() ran inside op_async_drain). */

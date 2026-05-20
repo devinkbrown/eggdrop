@@ -696,6 +696,7 @@ typedef struct sock_list {
   short flags;
   uint8_t commio_read_ready;
   uint8_t commio_write_ready;
+  uint8_t recv_in_flight;    /* async recv() submitted for this slot */
   union {
     struct sock_handler sock;
     struct tclsock_handler tclsock;
