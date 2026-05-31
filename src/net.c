@@ -1243,9 +1243,6 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
         (!slist[i].recv_in_flight) &&
         ((slist[i].commio_read_ready) ||
-#ifdef TLS
-        (slist[i].ssl && opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) ||
-#endif
         ((slist[i].sock == STDOUT) && (!backgrd) &&
          (FD_ISSET(STDIN, &fdr)))))) {
       slist[i].commio_read_ready = 0;
@@ -1280,7 +1277,19 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
             opssl_result_t hr = (slist[i].flags & SOCK_CONNECT)
                                 ? opssl_connect(slist[i].ssl)
                                 : opssl_accept(slist[i].ssl);
-            if (hr == OPSSL_WANT_READ || hr == OPSSL_WANT_WRITE) {
+            if (hr == OPSSL_WANT_READ) {
+              /* Re-arm read interest so the I/O thread wakes us when data
+               * arrives — without this the socket goes dark. */
+              op_fde_t *F = op_get_fde(slist[i].sock);
+              if (F)
+                op_setselect(F, OP_SELECT_READ, commio_read_cb,
+                             (void *)&slist[i]);
+              errno = EAGAIN;
+              x = -1;
+            } else if (hr == OPSSL_WANT_WRITE) {
+              /* Signal dequeue_sockets to arm write interest so
+               * the handshake can send its next flight. */
+              slist[i].commio_write_ready = 0;
               errno = EAGAIN;
               x = -1;
             } else if (hr == OPSSL_OK) {

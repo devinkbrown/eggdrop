@@ -130,6 +130,7 @@ struct _fde
 	_Atomic(uint8_t)       uring_dirty;
 	int                    uring_fixed_idx;  /* registered file slot, or -1 */
 	time_t                 uring_last_cqe_time;  /* timestamp of last CQE for staleness detection */
+	int                    shard_id;         /* io_uring shard that owns this fd; 0 = main */
 };
 
 typedef void (*comm_event_cb_t) (void *);

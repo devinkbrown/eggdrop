@@ -32,6 +32,8 @@ typedef struct egg_io_shard {
   bool thread_started;
   _Atomic int state;
   op_event_ctx_t *ctx;
+  pthread_mutex_t shutdown_mu;
+  pthread_cond_t  shutdown_cv;
 } egg_io_shard_t;
 
 static egg_io_shard_t egg_shards[EGG_IO_SHARDS_MAX];
@@ -60,9 +62,16 @@ static void *egg_shard_thread(void *arg)
   }
   atomic_fetch_add_explicit(&egg_shard_running, 1, memory_order_release);
 
+  /* Wait for shutdown signal.  The per-shard io_uring CQ poll thread
+   * (started by op_uring_ctx_init) handles kernel-side waiting; the main
+   * thread dispatches all shard rings via op_select_uring.  This thread
+   * holds the libop TLS context (t_ev_ctx = s->ctx) and sleeps until
+   * egg_shards_shutdown() signals the condvar. */
+  pthread_mutex_lock(&s->shutdown_mu);
   while (atomic_load_explicit(&s->state, memory_order_acquire) ==
          EGG_SHARD_RUNNING)
-    op_lib_loop_tick(100);
+    pthread_cond_wait(&s->shutdown_cv, &s->shutdown_mu);
+  pthread_mutex_unlock(&s->shutdown_mu);
 
   op_event_ctx_set_current(NULL);
   atomic_fetch_sub_explicit(&egg_shard_running, 1, memory_order_release);
@@ -121,14 +130,19 @@ int egg_shards_start(int count)
     memset(s, 0, sizeof *s);
     s->shard_id = i;
     atomic_store_explicit(&s->state, EGG_SHARD_INIT, memory_order_relaxed);
+    pthread_mutex_init(&s->shutdown_mu, NULL);
+    pthread_cond_init(&s->shutdown_cv, NULL);
 
     char name[32];
     snprintf(name, sizeof name, "eggdrop-io-%d", i);
     s->ctx = op_event_ctx_create(name);
     if (!s->ctx) {
-      putlog(LOG_MISC, "*", "I/O shard %d: failed to create event context", i);
-      egg_shards_shutdown();
-      return -1;
+      putlog(LOG_MISC, "*",
+             "I/O shard %d: failed to create event context; capping at %d shard%s",
+             i, i, i == 1 ? "" : "s");
+      count = i;
+      egg_shard_count = count;
+      break;
     }
   }
 
@@ -155,9 +169,13 @@ void egg_shards_shutdown(void)
   for (int i = 1; i < egg_shard_count; i++) {
     egg_io_shard_t *s = &egg_shards[i];
     int state = atomic_load_explicit(&s->state, memory_order_acquire);
-    if (state != EGG_SHARD_STOPPED)
+    if (state != EGG_SHARD_STOPPED) {
+      pthread_mutex_lock(&s->shutdown_mu);
       atomic_store_explicit(&s->state, EGG_SHARD_STOPPING,
                             memory_order_release);
+      pthread_cond_signal(&s->shutdown_cv);
+      pthread_mutex_unlock(&s->shutdown_mu);
+    }
   }
 
   for (int i = 1; i < egg_shard_count; i++) {
@@ -165,6 +183,8 @@ void egg_shards_shutdown(void)
     if (s->thread_started) {
       pthread_join(s->thread_id, NULL);
       s->thread_started = false;
+      pthread_cond_destroy(&s->shutdown_cv);
+      pthread_mutex_destroy(&s->shutdown_mu);
     }
   }
 
