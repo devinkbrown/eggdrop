@@ -821,6 +821,7 @@ static int tcl_channel_info(Tcl_Interp *irp, struct chanset_t *chan)
   Tcl_AppendElement(irp, int_to_base10(chan->ban_time));
   Tcl_AppendElement(irp, int_to_base10(chan->exempt_time));
   Tcl_AppendElement(irp, int_to_base10(chan->invite_time));
+  Tcl_AppendElement(irp, int_to_base10(chan->msg_rate));
   if (chan->status & CHAN_ENFORCEBANS)
     Tcl_AppendElement(irp, "+enforcebans");
   else
@@ -995,6 +996,7 @@ static int tcl_channel_getlist(Tcl_Interp *irp, struct chanset_t *chan)
   APPEND_KEYVAL("ban-time", int_to_base10(chan->ban_time));
   APPEND_KEYVAL("exempt-time", int_to_base10(chan->exempt_time));
   APPEND_KEYVAL("invite-time", int_to_base10(chan->invite_time));
+  APPEND_KEYVAL("msg-rate", int_to_base10(chan->msg_rate));
   { op_strbuf_t t = {}; op_strbuf_appendf(&t, "%d %d", chan->flood_pub_thr, chan->flood_pub_time); APPEND_KEYVAL("flood-chan", op_strbuf_str(&t)); op_strbuf_free(&t); }
   { op_strbuf_t t = {}; op_strbuf_appendf(&t, "%d %d", chan->flood_ctcp_thr, chan->flood_ctcp_time); APPEND_KEYVAL("flood-ctcp", op_strbuf_str(&t)); op_strbuf_free(&t); }
   { op_strbuf_t t = {}; op_strbuf_appendf(&t, "%d %d", chan->flood_join_thr, chan->flood_join_time); APPEND_KEYVAL("flood-join", op_strbuf_str(&t)); op_strbuf_free(&t); }
@@ -1125,6 +1127,9 @@ static int tcl_channel_get(Tcl_Interp *irp, struct chanset_t *chan,
     return TCL_OK;
   } else if (!strcmp(setting, "invite-time")) {
     Tcl_AppendResult(irp, int_to_base10(chan->invite_time), nullptr);
+    return TCL_OK;
+  } else if (!strcmp(setting, "msg-rate")) {
+    Tcl_AppendResult(irp, int_to_base10(chan->msg_rate), nullptr);
     return TCL_OK;
   } else if (!strcmp(setting, "flood-chan")) {
     op_strbuf_t t;
@@ -1743,7 +1748,8 @@ static int tcl_chansettype STDVAR
              !strcmp(argv[1], "ban-type") ||
              !strcmp(argv[1], "ban-time") ||
              !strcmp(argv[1], "exempt-time") ||
-             !strcmp(argv[1], "invite-time")) {
+             !strcmp(argv[1], "invite-time") ||
+             !strcmp(argv[1], "msg-rate")) {
     Tcl_AppendResult(irp, "int", nullptr);
   /* Last, but not least - flags */
   } else if (!strcmp(argv[1], "enforcebans") ||
@@ -1801,6 +1807,197 @@ static int tcl_chansettype STDVAR
 
 }
 
+/* chanstats <channel>
+ * Returns a flat dict-style list with channel memory statistics:
+ *   members <n> bans <n> exempts <n> invites <n> modes <string>
+ *
+ * The mode string is built directly from the channel mode bitfield so that
+ * this command works without any dependency on irc.mod being loaded.
+ */
+static int tcl_chanstats STDVAR
+{
+  struct chanset_t *chan;
+  masklist *b;
+  int bans = 0, exempts = 0, invites = 0;
+  op_strbuf_t buf = {};
+
+  BADARGS(2, 2, " channel");
+
+  chan = findchan_by_dname(argv[1]);
+  if (!chan) {
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
+    return TCL_ERROR;
+  }
+
+  /* Count bans */
+  for (b = chan->channel.ban; b && b->mask[0]; b = b->next)
+    bans++;
+  /* Count exempts */
+  for (b = chan->channel.exempt; b && b->mask[0]; b = b->next)
+    exempts++;
+  /* Count invites */
+  for (b = chan->channel.invite; b && b->mask[0]; b = b->next)
+    invites++;
+
+  op_strbuf_init(&buf);
+
+  /* members */
+  Tcl_AppendElement(irp, "members");
+  op_strbuf_appendf(&buf, "%d", chan->channel.members);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+
+  /* bans */
+  Tcl_AppendElement(irp, "bans");
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "%d", bans);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+
+  /* exempts */
+  Tcl_AppendElement(irp, "exempts");
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "%d", exempts);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+
+  /* invites */
+  Tcl_AppendElement(irp, "invites");
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "%d", invites);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+
+  /* modes — build a simple +xyz string from the channel mode bitfield */
+  Tcl_AppendElement(irp, "modes");
+  {
+    op_strbuf_t mbuf = {};
+    op_strbuf_init(&mbuf);
+    op_strbuf_append_cstr(&mbuf, "+");
+    if (chan->channel.mode & CHANPRIV)   op_strbuf_append_cstr(&mbuf, "p");
+    if (chan->channel.mode & CHANSEC)    op_strbuf_append_cstr(&mbuf, "s");
+    if (chan->channel.mode & CHANMODER)  op_strbuf_append_cstr(&mbuf, "m");
+    if (chan->channel.mode & CHANNOMSG)  op_strbuf_append_cstr(&mbuf, "n");
+    if (chan->channel.mode & CHANTOPIC)  op_strbuf_append_cstr(&mbuf, "t");
+    if (chan->channel.mode & CHANKEY)    op_strbuf_append_cstr(&mbuf, "k");
+    if (chan->channel.mode & CHANINV)    op_strbuf_append_cstr(&mbuf, "i");
+    if (chan->channel.maxmembers > 0)    op_strbuf_append_cstr(&mbuf, "l");
+    if (chan->channel.mode & CHANNOCLR)  op_strbuf_append_cstr(&mbuf, "c");
+    if (chan->channel.mode & CHANNOCTCP) op_strbuf_append_cstr(&mbuf, "C");
+    if (chan->channel.mode & CHANREGON)  op_strbuf_append_cstr(&mbuf, "R");
+    if (chan->channel.mode & CHANMODREG) op_strbuf_append_cstr(&mbuf, "M");
+    if (chan->channel.mode & CHANLONLY)  op_strbuf_append_cstr(&mbuf, "r");
+    if (chan->channel.mode & CHANDELJN)  op_strbuf_append_cstr(&mbuf, "D");
+    Tcl_AppendElement(irp, op_strbuf_str(&mbuf));
+    op_strbuf_free(&mbuf);
+  }
+
+  op_strbuf_free(&buf);
+  return TCL_OK;
+}
+
+/* getchaninfo <channel>
+ *
+ * Returns a flat key-value list (Tcl dict compatible) with live channel
+ * state information:
+ *
+ *   topic      <string>  — current channel topic (empty if none)
+ *   topicnick  <string>  — who set the topic (empty; not stored in chan_t)
+ *   topictime  <int>     — epoch when topic was set (0; not stored in chan_t)
+ *   members    <int>     — current member count
+ *   bans       <int>     — number of active ban masks on the channel
+ *   modes      <string>  — mode string built from channel.mode bitfield
+ *   floodon    <0|1>     — 1 if any flood counter slot is currently active
+ *   key        <string>  — channel key if set, else empty string
+ *
+ * NOTE: topicnick and topictime are not available because chan_t does not
+ * store that information.  They are included with empty/zero values so
+ * scripts can rely on the key always being present.
+ *
+ * NOTE: The name "chaninfo" is used here because the legacy "getchaninfo"
+ * command already exists and takes (handle channel) to return user-info.
+ */
+static int tcl_chaninfo STDVAR
+{
+  struct chanset_t *chan;
+  masklist *b;
+  int bans = 0, floodon = 0;
+  op_strbuf_t buf = {};
+
+  BADARGS(2, 2, " channel");
+
+  chan = findchan_by_dname(argv[1]);
+  if (!chan) {
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
+    return TCL_ERROR;
+  }
+
+  op_strbuf_init(&buf);
+
+  /* topic */
+  Tcl_AppendElement(irp, "topic");
+  Tcl_AppendElement(irp, chan->channel.topic ? chan->channel.topic : "");
+
+  /* topicnick — not stored in chan_t; return empty */
+  Tcl_AppendElement(irp, "topicnick");
+  Tcl_AppendElement(irp, "");
+
+  /* topictime — not stored in chan_t; return 0 */
+  Tcl_AppendElement(irp, "topictime");
+  Tcl_AppendElement(irp, "0");
+
+  /* members */
+  Tcl_AppendElement(irp, "members");
+  op_strbuf_appendf(&buf, "%d", chan->channel.members);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+
+  /* bans — count active ban mask entries */
+  for (b = chan->channel.ban; b && b->mask[0]; b = b->next)
+    bans++;
+  Tcl_AppendElement(irp, "bans");
+  op_strbuf_clear(&buf);
+  op_strbuf_appendf(&buf, "%d", bans);
+  Tcl_AppendElement(irp, op_strbuf_str(&buf));
+
+  /* modes — build +xyz string from the channel mode bitfield */
+  Tcl_AppendElement(irp, "modes");
+  {
+    op_strbuf_t mbuf = {};
+    op_strbuf_init(&mbuf);
+    op_strbuf_append_cstr(&mbuf, "+");
+    if (chan->channel.mode & CHANPRIV)   op_strbuf_append_cstr(&mbuf, "p");
+    if (chan->channel.mode & CHANSEC)    op_strbuf_append_cstr(&mbuf, "s");
+    if (chan->channel.mode & CHANMODER)  op_strbuf_append_cstr(&mbuf, "m");
+    if (chan->channel.mode & CHANNOMSG)  op_strbuf_append_cstr(&mbuf, "n");
+    if (chan->channel.mode & CHANTOPIC)  op_strbuf_append_cstr(&mbuf, "t");
+    if (chan->channel.mode & CHANKEY)    op_strbuf_append_cstr(&mbuf, "k");
+    if (chan->channel.mode & CHANINV)    op_strbuf_append_cstr(&mbuf, "i");
+    if (chan->channel.maxmembers > 0)    op_strbuf_append_cstr(&mbuf, "l");
+    if (chan->channel.mode & CHANNOCLR)  op_strbuf_append_cstr(&mbuf, "c");
+    if (chan->channel.mode & CHANNOCTCP) op_strbuf_append_cstr(&mbuf, "C");
+    if (chan->channel.mode & CHANREGON)  op_strbuf_append_cstr(&mbuf, "R");
+    if (chan->channel.mode & CHANMODREG) op_strbuf_append_cstr(&mbuf, "M");
+    if (chan->channel.mode & CHANLONLY)  op_strbuf_append_cstr(&mbuf, "r");
+    if (chan->channel.mode & CHANDELJN)  op_strbuf_append_cstr(&mbuf, "D");
+    Tcl_AppendElement(irp, op_strbuf_str(&mbuf));
+    op_strbuf_free(&mbuf);
+  }
+
+  /* floodon — 1 if any flood counter slot is currently non-zero */
+  for (int i = 0; i < FLOOD_CHAN_MAX; i++) {
+    if (chan->floodnum[i] > 0) {
+      floodon = 1;
+      break;
+    }
+  }
+  Tcl_AppendElement(irp, "floodon");
+  Tcl_AppendElement(irp, floodon ? "1" : "0");
+
+  /* key — channel key if set */
+  Tcl_AppendElement(irp, "key");
+  Tcl_AppendElement(irp, (chan->channel.key && chan->channel.key[0])
+                         ? chan->channel.key : "");
+
+  op_strbuf_free(&buf);
+  return TCL_OK;
+}
+
 static tcl_cmds channels_cmds[] = {
   {"killban",               tcl_killban},
   {"killchanban",       tcl_killchanban},
@@ -1854,5 +2051,7 @@ static tcl_cmds channels_cmds[] = {
   {"getudefs",             tcl_getudefs},
   {"chansettype",       tcl_chansettype},
   {"haschanrec",         tcl_haschanrec},
+  {"chanstats",           tcl_chanstats},
+  {"chaninfo",             tcl_chaninfo},
   {nullptr,                           nullptr}
 };

@@ -66,7 +66,14 @@ typedef struct _dependancy {
   struct _module_entry *needing;
   int major;
   int minor;
+  int patch;
 } dependancy;
+
+/* Load a module dependency with a full semver version requirement string.
+ * ver_req has the form "name op major.minor.patch" where op is one of
+ * ">=", "==", or ">" (e.g. "server>=1.2.0").  Returns the dependent
+ * module's function table on success, NULL on failure. */
+[[nodiscard]] Function *module_depend_ver(char *name1, char *ver_req);
 extern op_vec_t module_vec;
 extern op_vec_t dep_vec;
 

@@ -911,6 +911,131 @@ static int tcl_ircxregister STDVAR {
   return TCL_OK;
 }
 
+/* getcurrentnick — returns the bot's actual IRC nick in use right now.
+ * This may differ from the configured nick after a nick collision forces the
+ * bot onto an alternate nick.  Returns an empty string if not yet connected. */
+static int tcl_getcurrentnick STDOBJVAR {
+  if (objc != 1) {
+    Tcl_WrongNumArgs(irp, 1, objv, "");
+    return TCL_ERROR;
+  }
+  Tcl_SetResult(irp, botname[0] ? botname : "", TCL_STATIC);
+  return TCL_OK;
+}
+
+/* curserver — returns the hostname of the currently connected IRC server.
+ * Returns an empty string when not connected. */
+static int tcl_curserver STDOBJVAR {
+  if (objc != 1) {
+    Tcl_WrongNumArgs(irp, 1, objv, "");
+    return TCL_ERROR;
+  }
+  Tcl_SetResult(irp, realservername ? realservername : "", TCL_STATIC);
+  return TCL_OK;
+}
+
+/* serverport — returns the port of the currently connected IRC server.
+ * Returns 0 when not connected. */
+static int tcl_serverport STDOBJVAR {
+  if (objc != 1) {
+    Tcl_WrongNumArgs(irp, 1, objv, "");
+    return TCL_ERROR;
+  }
+  if (serv < 0) {
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(0));
+    return TCL_OK;
+  }
+  int servidx = findanyidx(serv);
+  if (servidx < 0) {
+    Tcl_SetObjResult(irp, Tcl_NewIntObj(0));
+    return TCL_OK;
+  }
+  Tcl_SetObjResult(irp, Tcl_NewIntObj((int)dcc[servidx].port));
+  return TCL_OK;
+}
+
+/* serverlag — returns the current estimated server lag in milliseconds.
+ * server_lag is tracked in seconds; returns server_lag * 1000.
+ * Returns 0 when not connected or lag is unknown.
+ * Returns -1000 when the server appears to be completely unresponsive. */
+static int tcl_serverlag STDOBJVAR {
+  if (objc != 1) {
+    Tcl_WrongNumArgs(irp, 1, objv, "");
+    return TCL_ERROR;
+  }
+  Tcl_SetObjResult(irp, Tcl_NewIntObj(server_lag * 1000));
+  return TCL_OK;
+}
+
+/* isupportval <token> — returns the effective value of an ISUPPORT token
+ * as a string, or empty string if the token is not set.
+ * Use "isupport get <token>" for the error-on-missing variant. */
+static int tcl_isupportval STDOBJVAR {
+  if (objc != 2) {
+    Tcl_WrongNumArgs(irp, 1, objv, "token");
+    return TCL_ERROR;
+  }
+  Tcl_Size keylen;
+  const char *key = Tcl_GetStringFromObj(objv[1], &keylen);
+  const char *val = isupport_get(key, (size_t)keylen);
+  Tcl_SetResult(irp, val ? (char *)val : "", TCL_STATIC);
+  return TCL_OK;
+}
+
+/* isupportprefix <mode> — returns the PREFIX character for the given mode
+ * letter (e.g. 'o' → '@', 'v' → '+'), or empty string if not found. */
+static int tcl_isupportprefix STDOBJVAR {
+  if (objc != 2) {
+    Tcl_WrongNumArgs(irp, 1, objv, "mode");
+    return TCL_ERROR;
+  }
+  const char *modestr = Tcl_GetString(objv[1]);
+  if (!modestr || !modestr[0]) {
+    Tcl_SetResult(irp, "", TCL_STATIC);
+    return TCL_OK;
+  }
+  char pch = isupport_get_prefix_char(modestr[0]);
+  if (pch) {
+    char buf[2] = { pch, '\0' };
+    Tcl_SetResult(irp, buf, TCL_VOLATILE);
+  } else {
+    Tcl_SetResult(irp, "", TCL_STATIC);
+  }
+  return TCL_OK;
+}
+
+/* chathistory_latest <target> <count>
+ * Sends CHATHISTORY LATEST <target> * <count> when draft/chathistory or
+ * chathistory capability is active. */
+static int tcl_chathistory_latest STDOBJVAR {
+  if (objc < 3) {
+    Tcl_WrongNumArgs(irp, 1, objv, "target count");
+    return TCL_ERROR;
+  }
+  struct capability *cap = find_capability("draft/chathistory");
+  if (!cap || !cap->enabled)
+    cap = find_capability("chathistory");
+  if (!cap || !cap->enabled) {
+    Tcl_SetResult(irp, "chathistory cap not active", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  const char *target = Tcl_GetString(objv[1]);
+  const char *count  = Tcl_GetString(objv[2]);
+  dprintf(DP_SERVER, "CHATHISTORY LATEST %s * %s\n", target, count);
+  return TCL_OK;
+}
+
+static tcl_cmds server_tcl_objcmds[] = {
+  {"chathistory_latest", tcl_chathistory_latest},
+  {"curserver",          tcl_curserver},
+  {"getcurrentnick",     tcl_getcurrentnick},
+  {"serverport",         tcl_serverport},
+  {"serverlag",          tcl_serverlag},
+  {"isupportval",        tcl_isupportval},
+  {"isupportprefix",     tcl_isupportprefix},
+  {nullptr,              nullptr}
+};
+
 static tcl_cmds my_tcl_cmds[] = {
   {"jump",          tcl_jump},
   {"cap",           tcl_cap},

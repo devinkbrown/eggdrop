@@ -2,10 +2,10 @@
  *  libop: ophion support library.
  *  linebuf.c: IRC line buffer — CRLF-framed message assembly and fan-out.
  *
- *  Each buf_head_t is a doubly-linked list of buf_line_t slabs, ordered
- *  from oldest (head) to newest (tail).  A line is "terminated" when its
- *  CRLF boundary has been seen; unterminated lines grow as more data
- *  arrives from the network.
+ *  Each buf_head_t is an op_vec_t of buf_line_t pointers, consumed FIFO.
+ *  head_idx tracks the first live element; lines are freed as they are
+ *  consumed.  A line is "terminated" when its CRLF boundary has been seen;
+ *  unterminated lines grow as more data arrives from the network.
  *
  *  Reference counting (buf_line_t.refcount):
  *    - buf_head_t ownership:  1 reference (released by op_linebuf_done_line)
@@ -85,7 +85,7 @@ op_linebuf_new_line(buf_head_t *restrict bufhead)
 	buf_line_t *bufline = op_linebuf_allocate();
 	atomic_fetch_add_explicit(&bufline_count, 1, memory_order_relaxed);
 
-	op_dlinkAddTailAlloc(bufline, &bufhead->list);
+	op_vec_push(&bufhead->lines, bufline);
 	bufline->refcount = 1;   /* sole owner: the buf_head_t */
 
 	bufhead->alloclen++;
@@ -100,10 +100,11 @@ op_linebuf_new_line(buf_head_t *restrict bufhead)
  * references outstanding), the line is freed to the slab pool.
  */
 static __attribute__((hot)) void
-op_linebuf_done_line(buf_head_t *restrict bufhead, buf_line_t *restrict bufline,
-                     op_dlink_node *restrict node)
+op_linebuf_done_line(buf_head_t *restrict bufhead, buf_line_t *restrict bufline)
 {
-	op_dlinkDestroy(node, &bufhead->list);
+	slop_assert(bufhead->head_idx < op_vec_size(&bufhead->lines));
+	slop_assert(op_vec_get(&bufhead->lines, bufhead->head_idx) == bufline);
+	bufhead->head_idx++;
 
 	bufhead->alloclen--;
 	bufhead->len     -= bufline->len;
@@ -117,6 +118,13 @@ op_linebuf_done_line(buf_head_t *restrict bufhead, buf_line_t *restrict bufline,
 		atomic_fetch_sub_explicit(&bufline_count, 1, memory_order_relaxed);
 		slop_assert(atomic_load_explicit(&bufline_count, memory_order_relaxed) >= 0);
 		op_linebuf_free(bufline);
+	}
+
+	/* When all lines consumed, reset so the backing buffer can be reused. */
+	if (bufhead->head_idx == op_vec_size(&bufhead->lines))
+	{
+		op_vec_clear(&bufhead->lines, NULL, NULL);
+		bufhead->head_idx = 0;
 	}
 }
 
@@ -256,12 +264,13 @@ __attribute__((hot))
 void
 op_linebuf_donebuf(buf_head_t *restrict bufhead)
 {
-	while (__builtin_expect(bufhead->list.head != NULL, 1))
+	while (bufhead->head_idx < op_vec_size(&bufhead->lines))
 	{
-		op_linebuf_done_line(bufhead,
-		                     (buf_line_t *)bufhead->list.head->data,
-		                     bufhead->list.head);
+		buf_line_t *bufline = op_vec_get(&bufhead->lines, bufhead->head_idx);
+		op_linebuf_done_line(bufhead, bufline);
 	}
+	op_vec_fini(&bufhead->lines, NULL, NULL);
+	bufhead->head_idx = 0;
 }
 
 /*
@@ -286,9 +295,9 @@ op_linebuf_parse(buf_head_t *restrict bufhead, char *restrict data, ssize_t slen
 
 	/* If there is an existing partial line at the tail, try to fill it
 	 * before allocating a new one. */
-	if (bufhead->list.tail != NULL)
+	if (op_vec_size(&bufhead->lines) > bufhead->head_idx)
 	{
-		buf_line_t *bufline = bufhead->list.tail->data;
+		buf_line_t *bufline = op_vec_get(&bufhead->lines, op_vec_size(&bufhead->lines) - 1);
 		size_t cpylen = linebuf_copy(bufhead, bufline, data, len, raw);
 
 		if (cpylen > 0)
@@ -331,10 +340,10 @@ op_linebuf_get(buf_head_t *restrict bufhead, char *restrict buf, size_t buflen,
 {
 	for (;;)
 	{
-		if (__builtin_expect(bufhead->list.head == NULL, 0))
+		if (__builtin_expect(bufhead->head_idx >= op_vec_size(&bufhead->lines), 0))
 			return 0;
 
-		buf_line_t *bufline = bufhead->list.head->data;
+		buf_line_t *bufline = op_vec_get(&bufhead->lines, bufhead->head_idx);
 
 		if (!(partial || bufline->terminated))
 			return 0;
@@ -365,7 +374,7 @@ op_linebuf_get(buf_head_t *restrict bufhead, char *restrict buf, size_t buflen,
 		/* Bare CRLF lines produce cpylen == 0; silently discard. */
 		if (__builtin_expect(cpylen == 0, 0))
 		{
-			op_linebuf_done_line(bufhead, bufline, bufhead->list.head);
+			op_linebuf_done_line(bufhead, bufline);
 			continue;
 		}
 
@@ -373,7 +382,7 @@ op_linebuf_get(buf_head_t *restrict bufhead, char *restrict buf, size_t buflen,
 		if (!raw)
 			buf[cpylen] = '\0';
 
-		op_linebuf_done_line(bufhead, bufline, bufhead->list.head);
+		op_linebuf_done_line(bufhead, bufline);
 		return (int)cpylen;
 	}
 }
@@ -387,11 +396,10 @@ __attribute__((hot))
 void
 op_linebuf_attach(buf_head_t *restrict bufhead, buf_head_t *restrict new)
 {
-	op_dlink_node *ptr;
-	OP_DLINK_FOREACH(ptr, new->list.head)
+	for (size_t _i = new->head_idx; _i < op_vec_size(&new->lines); _i++)
 	{
-		buf_line_t *line = ptr->data;
-		op_dlinkAddTailAlloc(line, &bufhead->list);
+		buf_line_t *line = op_vec_get(&new->lines, _i);
+		op_vec_push(&bufhead->lines, line);
 
 		bufhead->alloclen++;
 		bufhead->len += line->len;
@@ -412,9 +420,9 @@ __attribute__((hot))
 void
 op_linebuf_put(buf_head_t *restrict bufhead, const op_strf_t *restrict strings)
 {
-	if (bufhead->list.tail)
+	if (op_vec_size(&bufhead->lines) > bufhead->head_idx)
 	{
-		buf_line_t *prev = bufhead->list.tail->data;
+		buf_line_t *prev = op_vec_get(&bufhead->lines, op_vec_size(&bufhead->lines) - 1);
 		slop_assert(prev->terminated);
 	}
 
@@ -461,10 +469,10 @@ __attribute__((hot))
 const buf_line_t *
 op_linebuf_peek(buf_head_t *restrict bufhead)
 {
-	if (__builtin_expect(bufhead->list.head == NULL, 0))
+	if (__builtin_expect(bufhead->head_idx >= op_vec_size(&bufhead->lines), 0))
 		return NULL;
 
-	const buf_line_t *line = bufhead->list.head->data;
+	const buf_line_t *line = op_vec_get(&bufhead->lines, bufhead->head_idx);
 	return line->terminated ? line : NULL;
 }
 
@@ -475,12 +483,11 @@ __attribute__((hot))
 void
 op_linebuf_consume(buf_head_t *restrict bufhead)
 {
-	if (__builtin_expect(bufhead->list.head == NULL, 0))
+	if (__builtin_expect(bufhead->head_idx >= op_vec_size(&bufhead->lines), 0))
 		return;
 
 	op_linebuf_done_line(bufhead,
-	                     (buf_line_t *)bufhead->list.head->data,
-	                     bufhead->list.head);
+	                     op_vec_get(&bufhead->lines, bufhead->head_idx));
 }
 
 /*
@@ -500,21 +507,21 @@ op_linebuf_flush(op_fde_t *restrict F, buf_head_t *restrict bufhead)
 #ifdef HAVE_WRITEV
 	if (!op_fd_ssl(F))
 	{
-		op_dlink_node *ptr;
+		size_t vi = bufhead->head_idx;
+		size_t vlim = op_vec_size(&bufhead->lines);
 		int x = 0, y;
 		size_t sxret;
 		struct op_iovec vec[OP_UIO_MAXIOV];
 
 		memset(vec, 0, sizeof(vec));
 
-		if (__builtin_expect(bufhead->list.head == NULL, 0))
+		if (__builtin_expect(vi >= vlim, 0))
 		{
 			errno = EWOULDBLOCK;
 			return -1;
 		}
 
-		ptr     = bufhead->list.head;
-		bufline = ptr->data;
+		bufline = op_vec_get(&bufhead->lines, vi);
 
 		if (!bufline->terminated)
 		{
@@ -525,17 +532,17 @@ op_linebuf_flush(op_fde_t *restrict F, buf_head_t *restrict bufhead)
 		vec[x].iov_base = bufline->buf + bufhead->writeofs;
 		vec[x].iov_len  = bufline->len - bufhead->writeofs;
 		x++;
-		ptr = ptr->next;
+		vi++;
 
 		/* Batch up to OP_UIO_MAXIOV contiguous terminated lines. */
-		while (x < OP_UIO_MAXIOV && ptr != NULL)
+		while (x < OP_UIO_MAXIOV && vi < vlim)
 		{
-			bufline = ptr->data;
+			bufline = op_vec_get(&bufhead->lines, vi);
 			if (!bufline->terminated)
 				break;
 			vec[x].iov_base = bufline->buf;
 			vec[x].iov_len  = bufline->len;
-			ptr = ptr->next;
+			vi++;
 			x++;
 		}
 
@@ -550,17 +557,15 @@ op_linebuf_flush(op_fde_t *restrict F, buf_head_t *restrict bufhead)
 			return retval;
 		sxret = (size_t)retval;
 
-		ptr = bufhead->list.head;
 		for (y = 0; y < x; y++)
 		{
-			bufline = ptr->data;
+			bufline = op_vec_get(&bufhead->lines, bufhead->head_idx);
 			size_t remaining = bufline->len - bufhead->writeofs;
 
 			if (sxret >= remaining)
 			{
 				sxret -= remaining;
-				ptr    = ptr->next;
-				op_linebuf_done_line(bufhead, bufline, bufhead->list.head);
+				op_linebuf_done_line(bufhead, bufline);
 				bufhead->writeofs = 0;
 			}
 			else
@@ -575,13 +580,13 @@ op_linebuf_flush(op_fde_t *restrict F, buf_head_t *restrict bufhead)
 #endif /* HAVE_WRITEV */
 
 	/* Non-writev / SSL path: write one line at a time. */
-	if (__builtin_expect(bufhead->list.head == NULL, 0))
+	if (__builtin_expect(bufhead->head_idx >= op_vec_size(&bufhead->lines), 0))
 	{
 		errno = EWOULDBLOCK;
 		return -1;
 	}
 
-	bufline = bufhead->list.head->data;
+	bufline = op_vec_get(&bufhead->lines, bufhead->head_idx);
 	if (!bufline->terminated)
 	{
 		errno = EWOULDBLOCK;
@@ -597,7 +602,7 @@ op_linebuf_flush(op_fde_t *restrict F, buf_head_t *restrict bufhead)
 	if (bufhead->writeofs == bufline->len)
 	{
 		bufhead->writeofs = 0;
-		op_linebuf_done_line(bufhead, bufline, bufhead->list.head);
+		op_linebuf_done_line(bufhead, bufline);
 	}
 
 	return retval;

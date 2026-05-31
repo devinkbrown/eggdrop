@@ -144,6 +144,16 @@ int op_seccomp_lockdown_shim(void);
  */
 int op_shim_harden(void);
 
+/*
+ * op_shim_get_ircd_fd — return pre-opened fd for fexecve() under Capsicum.
+ *
+ * On FreeBSD, op_seccomp_lockdown_shim() opens an O_EXEC fd on the ircd
+ * binary before entering capability mode.  The shim uses this fd with
+ * fexecve() instead of path-based execv().  Returns -1 if Capsicum lockdown
+ * was not applied (shim should fall back to execv).
+ */
+int op_shim_get_ircd_fd(void);
+
 /* ── Secure memory ────────────────────────────────────────────────────────── */
 
 /*

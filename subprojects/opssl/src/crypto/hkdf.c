@@ -70,7 +70,11 @@ opssl_hkdf_expand(opssl_hmac_algo_t algo,
 
     for (uint8_t i = 1; i <= (uint8_t)n; i++) {
         opssl_hmac_ctx_t ctx;
-        opssl_hmac_init(&ctx, algo, prk, prk_len);
+        if (!opssl_hmac_init(&ctx, algo, prk, prk_len)) {
+            opssl_memzero(okm, okm_len);
+            opssl_memzero(T, sizeof(T));
+            return 0;
+        }
 
         if (T_len > 0)
             opssl_hmac_update(&ctx, T, T_len);
@@ -78,7 +82,12 @@ opssl_hkdf_expand(opssl_hmac_algo_t algo,
             opssl_hmac_update(&ctx, info, info_len);
         opssl_hmac_update(&ctx, &i, 1);
 
-        opssl_hmac_final(&ctx, T, &T_len);
+        if (!opssl_hmac_final(&ctx, T, &T_len)) {
+            opssl_hmac_cleanup(&ctx);
+            opssl_memzero(okm, okm_len);
+            opssl_memzero(T, sizeof(T));
+            return 0;
+        }
         opssl_hmac_cleanup(&ctx);
 
         size_t copy = okm_len - offset;
@@ -105,22 +114,43 @@ opssl_hkdf_expand_label(opssl_hmac_algo_t algo,
      *   opaque label<7..255> = "tls13 " + Label;
      *   opaque context<0..255> = Context;
      */
-    uint8_t info[512];
+    /*
+     * Max info size: 2 (length) + 1 (label-len) + 255 (label) +
+     * 1 (ctx-len) + 255 (ctx) = 514 bytes. Use 520 for headroom.
+     */
+    uint8_t info[520];
     opssl_cbb_t cbb;
-    opssl_cbb_init_fixed(&cbb, info, sizeof(info));
+    if (!opssl_cbb_init_fixed(&cbb, info, sizeof(info))) {
+        opssl_memzero(info, sizeof(info));
+        return 0;
+    }
 
-    opssl_cbb_add_u16(&cbb, (uint16_t)out_len);
-
-    /* Label: "tls13 " + label */
+    /* Label: "tls13 " + label; the wire byte is uint8 so total <= 255. */
     size_t label_len = strlen(label);
-    opssl_cbb_add_u8(&cbb, (uint8_t)(6 + label_len));
-    opssl_cbb_add_bytes(&cbb, (const uint8_t *)"tls13 ", 6);
-    opssl_cbb_add_bytes(&cbb, (const uint8_t *)label, label_len);
+    if (label_len > 249) {
+        /* 6 ("tls13 ") + label_len must fit in a uint8_t. */
+        opssl_memzero(info, sizeof(info));
+        return 0;
+    }
+    if (context_len > 255) {
+        opssl_memzero(info, sizeof(info));
+        return 0;
+    }
 
-    /* Context */
-    opssl_cbb_add_u8(&cbb, (uint8_t)context_len);
-    if (context_len > 0)
-        opssl_cbb_add_bytes(&cbb, context, context_len);
+    if (!opssl_cbb_add_u16(&cbb, (uint16_t)out_len) ||
+        !opssl_cbb_add_u8(&cbb, (uint8_t)(6 + label_len)) ||
+        !opssl_cbb_add_bytes(&cbb, (const uint8_t *)"tls13 ", 6) ||
+        !opssl_cbb_add_bytes(&cbb, (const uint8_t *)label, label_len) ||
+        !opssl_cbb_add_u8(&cbb, (uint8_t)context_len)) {
+        opssl_memzero(info, sizeof(info));
+        return 0;
+    }
+
+    if (context_len > 0 &&
+        !opssl_cbb_add_bytes(&cbb, context, context_len)) {
+        opssl_memzero(info, sizeof(info));
+        return 0;
+    }
 
     size_t info_len = opssl_cbb_len(&cbb);
 

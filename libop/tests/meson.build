@@ -105,6 +105,16 @@ test_async = executable('test_async',
 )
 test('async', test_async)
 
+event_pool_threads_dep = dependency('threads')
+test_event_pool = executable('test_event_pool',
+  'test_event_pool.c',
+  link_with: libop_lib,
+  dependencies: [event_pool_threads_dep],
+  include_directories: [libop_inc],
+  install: false,
+)
+test('event_pool', test_event_pool, timeout: 180)
+
 test_cidr_tbl = executable('test_cidr_tbl',
   'test_cidr_tbl.c',
   link_with: libop_lib,
@@ -195,3 +205,22 @@ test_wm = executable('test_wm',
   install: false,
 )
 test('wm', test_wm)
+
+threads_dep = dependency('threads')
+test_mpmc = executable('test_mpmc',
+  'test_mpmc.c',
+  link_with: libop_lib,
+  dependencies: [threads_dep],
+  include_directories: [libop_inc],
+  install: false,
+)
+test('mpmc', test_mpmc, timeout: 60)
+
+test_futex_park = executable('test_futex_park',
+  'test_futex_park.c',
+  link_with: libop_lib,
+  dependencies: [threads_dep],
+  include_directories: [libop_inc],
+  install: false,
+)
+test('futex_park', test_futex_park, timeout: 60)

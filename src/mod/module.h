@@ -401,7 +401,7 @@ typedef void (*shareoutfunc)(void *, const char *, ...) ATTRIBUTE_FORMAT(printf,
 #  define Assert(expr) do {} while (0)
 #endif
 #define allocsock ((int(*)(int sock, int options))global[234])
-#define call_hostbyip ((void(*)(sockname_t *, char *, int))global[235])
+#define call_hostbyip ((void(*)(sockname_t *, const char *, int))global[235])
 /* 236 - 239 */
 #define call_ipbyhost ((void(*)(char *, sockname_t *, int))global[236])
 #define iptostr ((char *(*)(struct sockaddr *))global[237])

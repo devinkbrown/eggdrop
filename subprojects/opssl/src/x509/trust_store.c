@@ -26,6 +26,20 @@ extern int opssl_pem_decode_multi(const char *pem, size_t pem_len,
                                   uint8_t **ders, size_t *der_lens,
                                   size_t *count, size_t max_count);
 
+/*
+ * System trust bundle locations, probed in priority order.
+ *
+ * Linux (Debian/Ubuntu/Arch):   /etc/ssl/certs/ca-certificates.crt
+ * Linux (Fedora/RHEL):          /etc/pki/tls/certs/ca-bundle.crt
+ * Linux (SUSE):                 /etc/ssl/ca-bundle.pem
+ * Linux (Alpine/OpenWrt):       /etc/ssl/cert.pem
+ * Linux (legacy extracted):     /etc/ca-certificates/extracted/tls-ca-bundle.pem
+ * FreeBSD/NetBSD:               /usr/local/share/certs/ca-root-nss.crt
+ *                               /etc/ssl/cert.pem (NetBSD/OpenBSD)
+ * macOS (Homebrew openssl):     /usr/local/etc/openssl@3/cert.pem
+ *                               /opt/homebrew/etc/openssl@3/cert.pem (Apple Silicon)
+ * macOS (system keychain):      export via security(1); not parsed here.
+ */
 static const char *const system_trust_paths[] = {
     "/etc/ssl/certs/ca-certificates.crt",
     "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
@@ -33,6 +47,17 @@ static const char *const system_trust_paths[] = {
     "/etc/ssl/ca-bundle.pem",
     "/etc/ssl/cert.pem",
     "/usr/local/share/certs/ca-root-nss.crt",
+    "/usr/local/etc/openssl@3/cert.pem",
+    "/opt/homebrew/etc/openssl@3/cert.pem",
+    "/etc/openssl/certs/ca-certificates.crt",
+    NULL
+};
+
+/* Optional per-distro trust hash directories — last resort fallback. */
+static const char *const system_trust_dirs[] = {
+    "/etc/ssl/certs",
+    "/etc/pki/ca-trust/source/anchors",
+    "/usr/local/share/ca-certificates",
     NULL
 };
 
@@ -210,6 +235,27 @@ opssl_trust_store_add_cert(opssl_trust_store_t *store, const uint8_t *der, size_
                         "trust_store_add_cert: invalid arguments");
         return 0;
     }
+
+    /*
+     * Reject expired root certificates. A trust anchor whose notAfter is in
+     * the past is poison: it can sign anything but no peer will trust the
+     * resulting chain. Parsing the cert is cheap relative to the SHA-256 we
+     * are already about to do, and it gives us a clean rejection point.
+     *
+     * If the cert fails to parse at all, we silently skip it: bundle files
+     * sometimes contain stray garbage and we want load_default() to be
+     * resilient rather than aborting on the first malformed entry.
+     */
+    opssl_x509_t *cert = opssl_x509_from_der(der, len);
+    if (!cert) {
+        return 0;
+    }
+    if (opssl_x509_is_expired(cert)) {
+        opssl_x509_free(cert);
+        return 0;
+    }
+    opssl_x509_free(cert);
+
     uint8_t key[32];
     if (!cert_key(der, len, key)) return 0;
     ts_insert_key(store, key);
@@ -279,8 +325,8 @@ opssl_trust_store_load_dir(opssl_trust_store_t *store, const char *path)
     int total = 0;
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
-        if (ent->d_name[0] == 46) continue;  /* skip dot-files: 46 == . */
-        const char *ext = strrchr(ent->d_name, 46);
+        if (ent->d_name[0] == '.') continue;  /* skip hidden entries */
+        const char *ext = strrchr(ent->d_name, '.');
         if (!ext || (strcmp(ext, ".pem") != 0 &&
                      strcmp(ext, ".crt") != 0 &&
                      strcmp(ext, ".cer") != 0))
@@ -311,6 +357,71 @@ opssl_trust_store_load_default(opssl_trust_store_t *store)
             if (n > 0) return n;
         }
     }
+
+    /* No single-bundle file worked; fall back to per-cert hash directories. */
+    for (int i = 0; system_trust_dirs[i] != NULL; i++) {
+        struct stat st;
+        if (stat(system_trust_dirs[i], &st) == 0 && S_ISDIR(st.st_mode)) {
+            int n = opssl_trust_store_load_dir(store, system_trust_dirs[i]);
+            if (n > 0) return n;
+        }
+    }
+
     opssl_set_error(OPSSL_ERR_FILE_READ, "no system trust bundle found");
     return 0;
+}
+
+/*
+ * opssl_trust_store_load_crl - load a CRL file (PEM or DER) and stage it for
+ * later x509_store consumption. The trust store itself does not perform
+ * revocation checking; this entry point exists so callers can load a CRL
+ * path uniformly with cert bundles. URI/HTTP fetch is intentionally out of
+ * scope — pass a local path only.
+ *
+ * Returns 1 on successful parse, 0 on any failure. On success the CRL object
+ * is returned via *crl_out and the caller owns the lifetime.
+ */
+int
+opssl_trust_store_load_crl(const char *path, opssl_crl_t **crl_out)
+{
+    if (!path || !crl_out) {
+        opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT,
+                        "trust_store_load_crl: invalid arguments");
+        return 0;
+    }
+    *crl_out = NULL;
+
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        opssl_set_error(OPSSL_ERR_FILE_READ, "cannot open CRL file");
+        return 0;
+    }
+    if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 0; }
+    long fsize = ftell(fp);
+    if (fsize <= 0 || fsize > 16L * 1024L * 1024L) {
+        fclose(fp);
+        opssl_set_error(OPSSL_ERR_FILE_READ, "CRL file empty or oversize");
+        return 0;
+    }
+    rewind(fp);
+    uint8_t *buf = op_malloc((size_t)fsize + 1);
+    size_t nread = fread(buf, 1, (size_t)fsize, fp);
+    fclose(fp);
+    buf[nread] = 0;
+
+    /* PEM banner sniff: "-----BEGIN" — otherwise treat as raw DER. */
+    opssl_crl_t *crl;
+    if (nread >= 10 && memcmp(buf, "-----BEGIN", 10) == 0) {
+        crl = opssl_crl_from_pem((const char *)buf, nread);
+    } else {
+        crl = opssl_crl_from_der(buf, nread);
+    }
+    op_free(buf);
+
+    if (!crl) {
+        opssl_set_error(OPSSL_ERR_X509, "CRL parse failed");
+        return 0;
+    }
+    *crl_out = crl;
+    return 1;
 }

@@ -33,13 +33,31 @@
  *  USA
  */
 
-#define FD_SETSIZE 65535
+/*
+ * NOTE: glibc hardcodes fd_set at __FD_SETSIZE (1024) bits regardless of
+ * any FD_SETSIZE override before <sys/select.h>.  We therefore do not
+ * redefine FD_SETSIZE here (which would silently lie) and instead rely on
+ * the system value and explicit bounds checks below.  Programs needing
+ * many descriptors should select the poll(2) or epoll backend.
+ */
 #include <libop_config.h>
 #include <op_lib.h>
 #include <commio-int.h>
 #include <pthread.h>
+#include <limits.h>
 
 #if defined(HAVE_SELECT) || defined(_WIN32)
+
+/* The select(2) backend has not been ported to op_event_ctx (shard
+ * phase 1).  Linux builds always carry epoll + io_uring as well, so
+ * select.c still compiles for forward-compat but its code paths are
+ * unreachable at runtime.  On a build with NO modern backend (no
+ * epoll, no io_uring), select is the only option and the unported
+ * per-ctx code below is a real gap — fail the build with a clear
+ * message pointing at the port pattern. */
+#if !defined(HAVE_EPOLL_CTL) && !defined(HAVE_LIBURING)
+# error "select.c not ported to op_event_ctx; build with epoll or io_uring, or follow the pattern in epoll.c (struct select_ctx_data keyed off t_ev_ctx)."
+#endif
 
 #ifdef _WIN32
 #define MY_FD_SET(x, y) FD_SET((SOCKET)x, y)
@@ -160,6 +178,11 @@ op_setselect_select(op_fde_t *F, unsigned int type,
 {
 	slop_assert(IsFDOpen(F));
 
+	/* fd_set is a fixed-size bitmap.  Reject out-of-range descriptors
+	 * before we read or write past its end. */
+	if (__builtin_expect(F->fd < 0 || F->fd >= FD_SETSIZE, 0))
+		return;
+
 	pthread_spin_lock(&F->pflags_lock);
 	pthread_spin_lock(&select_lock);
 
@@ -199,11 +222,15 @@ op_select_select(long delay)
 
 	if (delay >= 0)
 	{
-		to.tv_sec  =  delay / 1000;
-		to.tv_usec = (delay % 1000) * 1000;
+		/* Clamp to INT_MAX ms so that tv_sec cannot overflow a 32-bit
+		 * time_t when the caller passes an unreasonably large delay. */
+		long d = (delay > (long)INT_MAX) ? (long)INT_MAX : delay;
+		to.tv_sec  =  d / 1000;
+		to.tv_usec = (d % 1000) * 1000;
 		top = &to;
 	}
-	/* delay < 0 → top remains NULL → select() blocks indefinitely */
+	/* delay < 0 -> top remains NULL -> select() blocks indefinitely,
+	 * matching the io_uring and epoll backend semantics. */
 
 	/* Snapshot the master fd sets under select_lock so we don't race with
 	 * concurrent op_setselect_select calls from worker threads. */

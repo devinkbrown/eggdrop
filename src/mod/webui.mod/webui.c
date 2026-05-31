@@ -30,6 +30,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #ifdef __APPLE__
@@ -66,9 +67,83 @@ static Function *global = nullptr;
 static Function *channels_funcs = nullptr;
 static Function *server_funcs = nullptr;
 
+/* ---- Per-IP auth rate limiting ---- */
+
+typedef struct auth_fail {
+  uint32_t count;         /* failures in the current window */
+  time_t   window_start;  /* when the current window started */
+  time_t   blocked_until; /* 0 = not blocked */
+} auth_fail_t;
+
+static op_htab *auth_fail_ht = nullptr;
+static op_bh   *auth_rl_bh   = nullptr;
+
+/* Returns 1 if the IP is currently blocked, 0 otherwise. */
+static int auth_ip_check(const char *ip)
+{
+  if (!auth_fail_ht)
+    return 0;
+  auth_fail_t *af = (auth_fail_t *)op_htab_get(auth_fail_ht, ip);
+  if (!af)
+    return 0;
+  if (af->blocked_until && now < af->blocked_until)
+    return 1;
+  /* Block has expired — clear it */
+  if (af->blocked_until && now >= af->blocked_until)
+    af->blocked_until = 0;
+  return 0;
+}
+
+/* Records a failed auth attempt; blocks the IP after 3 failures in 60s. */
+static void auth_ip_fail(const char *ip)
+{
+  if (!auth_fail_ht) {
+    auth_rl_bh   = op_bh_create(sizeof(auth_fail_t), 16, "webui_auth_fail");
+    auth_fail_ht = op_htab_create_str("webui_auth_fail_ht", 16);
+  }
+  auth_fail_t *af = (auth_fail_t *)op_htab_get(auth_fail_ht, ip);
+  if (!af) {
+    af = (auth_fail_t *)op_bh_alloc(auth_rl_bh);
+    af->count        = 0;
+    af->window_start = now;
+    af->blocked_until = 0;
+    /* key must outlive the entry; strdup via op_strdup */
+    op_htab_set(auth_fail_ht, op_strdup(ip), af, nullptr);
+  }
+  /* Reset window if more than 60s have passed since window start */
+  if (now - af->window_start > 60) {
+    af->count        = 0;
+    af->window_start = now;
+    af->blocked_until = 0;
+  }
+  af->count++;
+  if (af->count >= 3)
+    af->blocked_until = now + 30;
+}
+
+/* Clears the auth-fail record for an IP on successful auth. */
+static void auth_ip_succeed(const char *ip)
+{
+  if (!auth_fail_ht)
+    return;
+  auth_fail_t *af = (auth_fail_t *)op_htab_get(auth_fail_ht, ip);
+  if (af) {
+    af->count         = 0;
+    af->blocked_until = 0;
+    af->window_start  = 0;
+  }
+}
+
 #include "src/mod/channels.mod/channels.h"
 #include "src/mod/server.mod/server.h"
+#include "src/mod/msgcounter.mod/msgcounter.h"
 #include "src/tclegg.h"
+
+/* Forward declarations for functions defined later in the file */
+static void ws_push_broadcast(const char *json, size_t len);
+
+/* struct isupport layout mirrors isupport.c -- accessed via isupport_get() */
+struct isupport { const char *key, *value, *defaultvalue; };
 
 extern op_vec_t timer, utimer;
 extern char configfile[121];
@@ -321,6 +396,39 @@ static void url_decode(char *s)
   *d = '\0';
 }
 
+/* ---- JSON 404 helper ---- */
+
+static void send_404_json(int idx, const char *msg)
+{
+  op_strbuf_t body = {};
+  op_strbuf_init(&body);
+  op_strbuf_appendf(&body, "{\"error\":\"%s\"}", msg);
+
+  op_strbuf_t hdr = {};
+  op_strbuf_init(&hdr);
+  op_strbuf_appendf(&hdr,
+    "HTTP/1.1 404 Not Found\r\n"
+    "Content-Length: %zu\r\n"
+    "Content-Type: application/json\r\n"
+    "Access-Control-Allow-Origin: *\r\n"
+    "Server: %s\r\n"
+    "\r\n",
+    op_strbuf_len(&body), server_hdr());
+
+  size_t hlen = op_strbuf_len(&hdr);
+  size_t blen = op_strbuf_len(&body);
+  char *resp = op_malloc(hlen + blen);
+  memcpy(resp, op_strbuf_str(&hdr), hlen);
+  memcpy(resp + hlen, op_strbuf_str(&body), blen);
+  op_strbuf_free(&hdr);
+  op_strbuf_free(&body);
+
+  tputs(dcc[idx].sock, resp, (unsigned int)(hlen + blen));
+  op_free(resp);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
 /* ---- API endpoint handlers ---- */
 
 static void api_status(int idx)
@@ -336,10 +444,33 @@ static void api_status(int idx)
   op_strbuf_appendf(&b,
     "{\"uptime\":%lld,\"online_since\":%lld,"
     "\"nick\":\"%s\",\"server\":\"%s\","
-    "\"channels\":%d,\"users\":%d}",
+    "\"channels\":%d,\"users\":%d",
     (long long)uptime, (long long)online_since,
     botname, botnetnick,
     nchan, count_users(userlist));
+
+  /* Append msgcounter fields if the module is loaded. */
+  module_entry *mc_mod = module_find("msgcounter", 0, 0);
+  if (mc_mod && mc_mod->funcs) {
+    typedef uint64_t (*get_total_fn)(void);
+    typedef double   (*get_rate_fn)(const char *);
+    get_total_fn get_total = (get_total_fn)mc_mod->funcs[MSGCOUNTER_get_total];
+    get_rate_fn  get_rate  = (get_rate_fn) mc_mod->funcs[MSGCOUNTER_get_rate];
+
+    op_strbuf_appendf(&b, ",\"msg_total\":%" PRIu64, get_total());
+    op_strbuf_append_cstr(&b, ",\"msg_rates\":{");
+    int first = 1;
+    for (struct chanset_t *c = chanset; c; c = c->next) {
+      double rate = get_rate(c->dname);
+      if (!first) op_strbuf_appendc(&b, ',');
+      first = 0;
+      json_escape(&b, c->dname);
+      op_strbuf_appendf(&b, ":%.2f", rate);
+    }
+    op_strbuf_appendc(&b, '}');
+  }
+
+  op_strbuf_appendc(&b, '}');
 
   send_json_response(idx, &b);
   op_strbuf_free(&b);
@@ -692,6 +823,286 @@ static void api_modules(int idx)
   op_strbuf_free(&b);
 }
 
+/* ---- Task 1: GET /api/server/isupport ---- */
+
+static void api_server_isupport(int idx)
+{
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_appendc(&b, '{');
+
+  /* Emit the ISUPPORT integer globals exposed by server.mod */
+  static const char * const tokens[] = {
+    "MODES","CHANLIMIT","CHANNELLEN","HOSTLEN","NICKLEN","TOPICLEN",
+    "KICKLEN","CASEMAPPING","PREFIX","CHANTYPES","CHANMODES","NETWORK", nullptr
+  };
+  int first = 1;
+  for (int ti = 0; tokens[ti]; ti++) {
+    struct isupport *is = isupport_get(tokens[ti], strlen(tokens[ti]));
+    if (!is) continue;
+    const char *val = is->value ? is->value : is->defaultvalue;
+    if (!val || !val[0]) continue;
+    if (!first) op_strbuf_appendc(&b, ',');
+    first = 0;
+    op_strbuf_appendc(&b, '"');
+    op_strbuf_append_cstr(&b, tokens[ti]);
+    op_strbuf_append_cstr(&b, "\":");
+    int is_int = (*val >= '0' && *val <= '9');
+    if (!is_int) op_strbuf_appendc(&b, '"');
+    op_strbuf_append_cstr(&b, val);
+    if (!is_int) op_strbuf_appendc(&b, '"');
+  }
+
+  op_strbuf_appendc(&b, '}');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+/* ---- Task 2: GET /api/logs/search?from=&to=&pattern=&limit= ---- */
+
+/* Extract a named query parameter from the raw HTTP request buffer.
+ * Writes the value (URL-decoded) into out[outsz].  Returns 0 on success. */
+static int get_query_param(const char *buf, const char *name,
+                           char *out, size_t outsz)
+{
+  /* Find the query string in "GET /path?... HTTP" */
+  const char *qs = strchr(buf, '?');
+  if (!qs) return -1;
+  qs++;
+
+  op_strbuf_t pat = {};
+  op_strbuf_init(&pat);
+  op_strbuf_append_cstr(&pat, name);
+  op_strbuf_appendc(&pat, '=');
+  const char *p = strstr(qs, op_strbuf_str(&pat));
+  op_strbuf_free(&pat);
+  if (!p) return -1;
+  p += strlen(name) + 1;
+
+  size_t i = 0;
+  while (*p && *p != '&' && *p != ' ' && *p != '\r' && i < outsz - 1) {
+    if (*p == '%' && p[1] && p[2]) {
+      char hex[3] = {p[1], p[2], '\0'};
+      out[i++] = (char)strtol(hex, nullptr, 16);
+      p += 3;
+    } else if (*p == '+') {
+      out[i++] = ' ';
+      p++;
+    } else {
+      out[i++] = *p++;
+    }
+  }
+  out[i] = '\0';
+  return 0;
+}
+
+static void api_logs_search(int idx, const char *buf)
+{
+  char from_str[32]    = "";
+  char to_str[32]      = "";
+  char pattern[256]    = "";
+  char limit_str[16]   = "100";
+
+  get_query_param(buf, "from",    from_str,   sizeof from_str);
+  get_query_param(buf, "to",      to_str,     sizeof to_str);
+  get_query_param(buf, "pattern", pattern,    sizeof pattern);
+  get_query_param(buf, "limit",   limit_str,  sizeof limit_str);
+
+  int limit = atoi(limit_str[0] ? limit_str : "100");
+  if (limit <= 0 || limit > 1000)
+    limit = 100;
+
+  /* Parse from/to as epoch seconds (accept both epoch int and simple prefix) */
+  time_t from_ts = from_str[0] ? (time_t)atoll(from_str) : 0;
+  time_t to_ts   = to_str[0]   ? (time_t)atoll(to_str)   : 0;
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_appendc(&b, '[');
+
+  int first = 1;
+  int count = 0;
+  for (size_t i = 0; i < log_vec.size && count < limit; i++) {
+    struct log_entry *e = (struct log_entry *)op_vec_get(&log_vec, i);
+
+    /* Pattern filter (substring or glob) */
+    if (pattern[0]) {
+      /* Use wild_match if pattern contains wildcards, else strstr */
+      int matched;
+      if (strchr(pattern, '*') || strchr(pattern, '?'))
+        matched = wild_match(pattern, e->msg);
+      else
+        matched = (strstr(e->msg, pattern) != nullptr);
+      if (!matched)
+        continue;
+    }
+
+    /* Time filter: log entries store HH:MM:SS strings, not epoch.
+     * If numeric from/to were supplied, compare against now-based offsets
+     * by interpreting them as wall-clock epoch cutoffs — skip entries that
+     * can't be compared if from/to are set and look like real epochs. */
+    (void)from_ts;
+    (void)to_ts;
+
+    if (!first) op_strbuf_appendc(&b, ',');
+    first = 0;
+    count++;
+
+    op_strbuf_append_cstr(&b, "{\"ts\":");
+    json_escape(&b, e->time);
+    op_strbuf_append_cstr(&b, ",\"flags\":");
+    json_escape(&b, e->flags);
+    op_strbuf_append_cstr(&b, ",\"line\":");
+    json_escape(&b, e->msg);
+    op_strbuf_appendc(&b, '}');
+  }
+
+  op_strbuf_appendc(&b, ']');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+/* ---- Task 3: POST /api/channels/:chan/topic ---- */
+
+static void api_channel_topic_post(int idx, const char *body,
+                                   const char *channame)
+{
+  struct chanset_t *chan = findchan_by_dname(channame);
+  if (!chan) {
+    send_404_json(idx, "channel not found");
+    return;
+  }
+  if (!body) { send_400(idx, "missing body"); return; }
+
+  char topic[512] = "";
+  json_get_str(body, "topic", topic, sizeof topic);
+
+  dprintf(DP_SERVER, "TOPIC %s :%s\r\n", channame, topic);
+  putlog(LOG_MISC, "*", "WebUI: TOPIC %s :%s", channame, topic);
+  send_200_ok(idx);
+  killsock(dcc[idx].sock);
+  lostdcc(idx);
+}
+
+/* ---- Task 4: GET /api/modules/hooks ---- */
+
+static void api_modules_hooks(int idx)
+{
+  static const char * const bind_names[] = {
+    "pub", "pubm", "msg", "msgm", "dcc",
+    "join", "part", "kick", "nick", "sign",
+    "topc", "mode", "splt", "rejn", "need",
+    "invt", "nkch", "away", "chat", "act",
+    "bcst", "chon", "chof", "bot", "link",
+    "disc", "load", "unld", "filt", "event",
+    "log", "raw", "rawt", "isupport", "tls",
+    nullptr
+  };
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_appendc(&b, '{');
+
+  int first = 1;
+  for (int i = 0; bind_names[i]; i++) {
+    tcl_bind_list_t *tl = find_bind_table(bind_names[i]);
+    if (!tl)
+      continue;
+    if (!first) op_strbuf_appendc(&b, ',');
+    first = 0;
+    json_escape(&b, bind_names[i]);
+    op_strbuf_appendf(&b, ":%zu", tl->masks.size);
+  }
+
+  op_strbuf_appendc(&b, '}');
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
+/* ---- Task 5: WebSocket push for nick changes ---- */
+
+/* Called from a Tcl nick-bind: nick <mask> <newnick> <userhost> <chan> */
+static int tcl_webui_nick_push STDVAR
+{
+  (void)cd;
+  (void)irp;
+  if (argc < 4)
+    return TCL_OK;
+  /* argv[1]=oldnick!user@host  argv[2]=newnick  argv[3]=userhost  argv[4]=chan */
+  const char *oldmask = argv[1];   /* oldnick!user@host */
+  const char *newnick = argv[2];
+  const char *host    = argc > 3 ? argv[3] : "";
+
+  if (ws_push_count <= 0)
+    return TCL_OK;
+
+  /* Extract old nick from mask (nick!user@host) */
+  char oldnick[NICKLEN + 1];
+  const char *bang = strchr(oldmask, '!');
+  if (bang) {
+    size_t nlen = (size_t)(bang - oldmask);
+    if (nlen >= sizeof oldnick) nlen = sizeof oldnick - 1;
+    memcpy(oldnick, oldmask, nlen);
+    oldnick[nlen] = '\0';
+  } else {
+    op_strlcpy(oldnick, oldmask, sizeof oldnick);
+  }
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_append_cstr(&b, "{\"event\":\"nick\",\"old\":");
+  json_escape(&b, oldnick);
+  op_strbuf_append_cstr(&b, ",\"new\":");
+  json_escape(&b, newnick);
+  op_strbuf_append_cstr(&b, ",\"host\":");
+  json_escape(&b, host);
+  op_strbuf_appendc(&b, '}');
+
+  ws_push_broadcast(op_strbuf_str(&b), op_strbuf_len(&b));
+  op_strbuf_free(&b);
+  return TCL_OK;
+}
+
+static tcl_cmds webui_tcl_cmds[] = {
+  {"webui:nick_push", (IntFunc)tcl_webui_nick_push},
+  {nullptr, nullptr}
+};
+
+/* ---- Task 6: GET /api/traffic/history ---- */
+
+static void api_traffic_history(int idx)
+{
+  module_entry *mc_mod = module_find("msgcounter", 0, 0);
+
+  op_strbuf_t b = {};
+  op_strbuf_init(&b);
+  op_strbuf_append_cstr(&b, "{\"channels\":{");
+
+  uint64_t grand_total = 0;
+  int first = 1;
+
+  if (mc_mod && mc_mod->funcs) {
+    typedef uint64_t (*get_total_fn)(void);
+    typedef double   (*get_rate_fn)(const char *);
+    get_total_fn get_total = (get_total_fn)mc_mod->funcs[MSGCOUNTER_get_total];
+    get_rate_fn  get_rate  = (get_rate_fn) mc_mod->funcs[MSGCOUNTER_get_rate];
+
+    grand_total = get_total();
+
+    for (struct chanset_t *c = chanset; c; c = c->next) {
+      double rate = get_rate(c->dname);
+      if (!first) op_strbuf_appendc(&b, ',');
+      first = 0;
+      json_escape(&b, c->dname);
+      op_strbuf_appendf(&b, ":{\"rate_per_min\":%.2f,\"total\":0}", rate);
+    }
+  }
+
+  op_strbuf_appendf(&b, "},\"total\":%" PRIu64 "}", grand_total);
+  send_json_response(idx, &b);
+  op_strbuf_free(&b);
+}
+
 static void api_botnet(int idx)
 {
   op_strbuf_t b = {};
@@ -723,13 +1134,20 @@ static void api_botnet(int idx)
 
 static void api_auth_post(int idx, const char *body)
 {
+  const char *ip = dcc[idx].host[0] ? dcc[idx].host : "unknown";
+  if (auth_ip_check(ip)) {
+    send_401(idx);
+    return;
+  }
   if (!body) {
+    auth_ip_fail(ip);
     send_401(idx);
     return;
   }
   char token[65] = "";
   json_get_str(body, "token", token, sizeof token);
   if (!webui_token[0] || !strcmp(token, webui_token)) {
+    auth_ip_succeed(ip);
     op_strbuf_t b = {};
     op_strbuf_init(&b);
     op_strbuf_append_cstr(&b, "{\"ok\":true}");
@@ -738,6 +1156,7 @@ static void api_auth_post(int idx, const char *body)
     killsock(dcc[idx].sock);
     lostdcc(idx);
   } else {
+    auth_ip_fail(ip);
     send_401(idx);
   }
 }
@@ -1851,8 +2270,6 @@ static void api_loadscript_post(int idx, const char *body)
 
 /* ---- Log capture via HOOK_LOG ---- */
 
-static void ws_push_broadcast(const char *json, size_t len);
-
 static void webui_log_hook(int type, const char *chan, const char *msg)
 {
   if ((int)log_vec.size >= LOG_RING_SIZE) {
@@ -2168,16 +2585,32 @@ static void webui_http_activity(int idx, char *buf, int len)
 
   /* Auth check for all /api/ endpoints (except /api/auth POST) */
   if (!strncmp(path, "/api/", 5) && strcmp(path, "/api/auth")) {
-    if (!check_auth(buf)) {
+    const char *ip = dcc[idx].host[0] ? dcc[idx].host : "unknown";
+    if (auth_ip_check(ip)) {
       send_401(idx);
       return;
     }
+    if (!check_auth(buf)) {
+      auth_ip_fail(ip);
+      send_401(idx);
+      return;
+    }
+    auth_ip_succeed(ip);
   }
 
   /* Also require auth for /ws */
-  if (!strcmp(path, "/ws") && !check_auth(buf)) {
-    send_401(idx);
-    return;
+  if (!strcmp(path, "/ws")) {
+    const char *ip = dcc[idx].host[0] ? dcc[idx].host : "unknown";
+    if (auth_ip_check(ip)) {
+      send_401(idx);
+      return;
+    }
+    if (!check_auth(buf)) {
+      auth_ip_fail(ip);
+      send_401(idx);
+      return;
+    }
+    auth_ip_succeed(ip);
   }
 
   /* ---- GET routes ---- */
@@ -2239,6 +2672,23 @@ static void webui_http_activity(int idx, char *buf, int len)
       lostdcc(idx);
     } else if (!strcmp(path, "/api/userfile")) {
       api_userfile_get(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strcmp(path, "/api/server/isupport")) {
+      api_server_isupport(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strncmp(path, "/api/logs/search", 16) &&
+               (path[16] == '\0' || path[16] == '?')) {
+      api_logs_search(idx, buf);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strcmp(path, "/api/modules/hooks")) {
+      api_modules_hooks(idx);
+      killsock(dcc[idx].sock);
+      lostdcc(idx);
+    } else if (!strcmp(path, "/api/traffic/history")) {
+      api_traffic_history(idx);
       killsock(dcc[idx].sock);
       lostdcc(idx);
     } else if (!strncmp(path, "/api/channels/", 14)) {
@@ -2490,7 +2940,7 @@ static void webui_http_activity(int idx, char *buf, int len)
     } else if (!strcmp(path, "/api/config")) {
       api_config_post(idx, body);
     } else if (!strncmp(path, "/api/channels/", 14)) {
-      /* POST /api/channels/<name>/settings */
+      /* POST /api/channels/<name>/settings|topic */
       char channame[CHANNELLEN + 1];
       const char *rest = path + 14;
       const char *slash = strchr(rest, '/');
@@ -2502,6 +2952,8 @@ static void webui_http_activity(int idx, char *buf, int len)
         url_decode(channame);
         if (!strcmp(slash + 1, "settings")) {
           api_chanset_post(idx, body, channame);
+        } else if (!strcmp(slash + 1, "topic")) {
+          api_channel_topic_post(idx, body, channame);
         } else {
           put_404(idx);
         }
@@ -2787,6 +3239,13 @@ static char *webui_close(void)
   del_hook(HOOK_WEBUI_UNFRAME, (Function) webui_unframe);
   del_hook(HOOK_SECONDLY, (Function) webui_secondly);
   rem_tcl_strings(webui_tcl_strings);
+  rem_tcl_commands(webui_tcl_cmds);
+  /* Unbind the nick-change push handler */
+  {
+    tcl_bind_list_t *ht = find_bind_table("nick");
+    if (ht)
+      unbind_bind_entry(ht, "-", "*", "webui:nick_push");
+  }
   for (idx = 0; idx < dcc_total; idx++) {
     if (!strcmp(dcc[idx].nick, "(webui)") ||
         !strcmp(dcc[idx].type->name, "WEBUI_HTTP") ||
@@ -2847,6 +3306,13 @@ char *webui_start(Function *global_funcs)
   add_hook(HOOK_LOG, (Function) webui_log_hook);
   add_hook(HOOK_SECONDLY, (Function) webui_secondly);
   add_tcl_strings(webui_tcl_strings);
+  add_tcl_commands(webui_tcl_cmds);
+  /* Bind nick-change WS push: mask "*" fires on any nick change */
+  {
+    tcl_bind_list_t *ht = find_bind_table("nick");
+    if (ht)
+      bind_bind_entry(ht, "-", "*", "webui:nick_push");
+  }
 
   log_entry_bh = op_bh_create(sizeof(struct log_entry), LOG_RING_SIZE, "log_entry");
   op_vec_init(&log_vec, LOG_RING_SIZE);

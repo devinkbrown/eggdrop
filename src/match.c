@@ -4,35 +4,23 @@
  *   hostmask matching
  *   cidr matching
  *
- * Once this code was working, I added support for % so that I could
- * use the same code both in Eggdrop and in my IrcII client.
- * Pleased with this, I added the option of a fourth wildcard, ~,
- * which matches varying amounts of whitespace (at LEAST one space,
- * though, for sanity reasons).
+ * Wildcard matching (_wild_match, _wild_match_per) uses the op_regex
+ * Thompson NFA engine from libop.  IRC wildcard patterns are translated
+ * to POSIX ERE before compilation:
  *
- * This code would not have been possible without the prior work and
- * suggestions of various sourced.  Special thanks to Robey for
- * all his time/help tracking down bugs and his ever-helpful advice.
+ *   *   →  .*          (0+ any chars including spaces)
+ *   ?   →  .           (exactly 1 char)
+ *   %   →  [^ ]*       (0+ non-space; _wild_match_per only)
+ *   ~   →  [ ]+        (1+ spaces;    _wild_match_per only)
+ *   \X  →  X           (literal; _wild_match_per only)
+ *   other →  escaped if it is a regex metachar
  *
- * 04/09:  Fixed the "*\*" against "*a" bug (caused an endless loop)
- *
- *   Chris Fuller  (aka Fred1@IRC & Fwitz@IRC)
- *     crf@cfox.bchs.uh.edu
- *
- * I hereby release this code into the public domain
- *
+ * All matching is anchored (^...$) and case-insensitive (OP_REGEX_ICASE).
  */
 #include "main.h"
+#include <op_regex.h>
 
-#define QUOTE '\\' /* quoting character (overrides wildcards) */
-#define WILDS '*'  /* matches 0 or more characters (including spaces) */
-#define WILDP '%'  /* matches 0 or more non-space characters */
-#define WILDQ '?'  /* matches exactly one character */
-#define WILDT '~'  /* matches 1 or more spaces */
-
-constexpr int NOMATCH = 0;
-#define MATCH (match+sofar)
-#define PERMATCH (match+saved+sofar)
+#define NOMATCH 0
 
 int cidr_support = 0;
 
@@ -46,178 +34,118 @@ int charcmp(unsigned char a, unsigned char b)
   return (a - b);
 }
 
-/* Wildcard-matches mask m to n. Uses the comparison function cmp1. If chgpoint
- * isn't nullptr, it points at the first character in n where we start using cmp2.
+/* Regex metacharacters that must be backslash-escaped when appearing as
+ * literals in the translated pattern. */
+static const char regex_meta[] = "\\.^$|{}[]()+-?*";
+
+/* Translate an IRC wildcard pattern into a POSIX ERE string.
+ *
+ * per_mode: also translate %, ~, and \ quoting.
+ * Output is always ^...$-anchored and NUL-terminated.
+ * Returns the number of bytes written (excluding NUL), or -1 if truncated.
  */
-int _wild_match_per(unsigned char *m, unsigned char *n,
-                           int (*cmp1)(unsigned char, unsigned char),
-                           int (*cmp2)(unsigned char, unsigned char),
-                           unsigned char *chgpoint)
+static int irc_to_ere(const unsigned char *m, char *out, size_t outsz,
+                      bool per_mode)
 {
-  unsigned char *ma = m, *lsm = 0, *lsn = 0, *lpm = 0, *lpn = 0;
-  int match = 1, saved = 0, space;
-  unsigned int sofar = 0;
+  char *p = out;
+  const char *end = out + outsz - 2; /* leave room for '$' and NUL */
 
-  /* null strings should never match */
-  if ((m == 0) || (n == 0) || (!*n) || (!cmp1))
-    return NOMATCH;
+  if (!m || outsz < 4) return -1;
 
-  if (!cmp2)                    /* Don't change cmpfunc if it's not valid */
-    chgpoint = nullptr;
+  *p++ = '^';
 
-  while (*n) {
-    if (*m == WILDT) {          /* Match >=1 space */
-      space = 0;                /* Don't need any spaces */
-      do {
-        m++;
-        space++;
-      }                         /* Tally 1 more space ... */
-      while ((*m == WILDT) || (*m == ' '));     /*  for each space or ~ */
-      sofar += space;           /* Each counts as exact */
-      while (*n == ' ') {
-        n++;
-        space--;
-      }                         /* Do we have enough? */
-      if (space <= 0)
-        continue;               /* Had enough spaces! */
-    }
-    /* Do the fallback       */
-    else {
-      switch (*m) {
-      case 0:
-        do
-          m--;                  /* Search backwards */
-        while ((m > ma) && (*m == '?'));        /* For first non-? char */
-        if ((m > ma) ? ((*m == '*') && (m[-1] != QUOTE)) : (*m == '*'))
-          return PERMATCH;      /* nonquoted * = match */
-        break;
-      case WILDP:
-        while (*(++m) == WILDP);        /* Zap redundant %s */
-        if (*m != WILDS) {      /* Don't both if next=* */
-          if (*n != ' ') {      /* WILDS can't match ' ' */
-            lpm = m;
-            lpn = n;            /* Save '%' fallback spot */
-            saved += sofar;
-            sofar = 0;          /* And save tally count */
-          }
-          continue;             /* Done with '%' */
-        }
-        [[fallthrough]];
-      case WILDS:
-        do
-          m++;                  /* Zap redundant wilds */
-        while ((*m == WILDS) || (*m == WILDP));
-        lsm = m;
-        lsn = n;
-        lpm = 0;                /* Save '*' fallback spot */
-        match += (saved + sofar);       /* Save tally count */
-        saved = sofar = 0;
-        continue;               /* Done with '*' */
-      case WILDQ:
-        m++;
-        n++;
-        continue;               /* Match one char */
-      case QUOTE:
-        m++;                    /* Handle quoting */
+  while (*m && p < end) {
+    if (per_mode && *m == '\\') {
+      /* quoting: next char is literal */
+      m++;
+      if (!*m) break;
+      if (strchr(regex_meta, (char)*m)) {
+        if (p + 1 >= end) break;
+        *p++ = '\\';
       }
-      if (((!chgpoint || n < chgpoint) && !(*cmp1)(*m, *n)) ||
-          (chgpoint && n >= chgpoint && !(*cmp2)(*m, *n))) { /* If matching */
-        m++;
-        n++;
-        sofar++;
-        continue;               /* Tally the match */
-      }
-#ifdef WILDT
+      *p++ = (char)*m++;
+      continue;
     }
-#endif
-    if (lpm) {                  /* Try to fallback on '%' */
-      n = ++lpn;
-      m = lpm;
-      sofar = 0;                /* Restore position */
-      if ((*n | 32) == 32)
-        lpm = 0;                /* Can't match 0 or ' ' */
-      continue;                 /* Next char, please */
+
+    if (*m == '*') {
+      if (p + 2 > end) break;
+      *p++ = '.'; *p++ = '*';
+      while (*m == '*') m++; /* collapse consecutive */
+      continue;
     }
-    if (lsm) {                  /* Try to fallback on '*' */
-      n = ++lsn;
-      m = lsm;                  /* Restore position */
-      saved = sofar = 0;
-      continue;                 /* Next char, please */
+
+    if (*m == '?') {
+      *p++ = '.';
+      m++;
+      continue;
     }
-    return NOMATCH;             /* No fallbacks=No match */
+
+    if (per_mode && *m == '%') {
+      /* [^ ]* — 0+ non-space chars */
+      if (p + 5 > end) break;
+      *p++ = '['; *p++ = '^'; *p++ = ' '; *p++ = ']'; *p++ = '*';
+      while (*m == '%') m++;
+      continue;
+    }
+
+    if (per_mode && *m == '~') {
+      /* [ ]+ — 1+ space chars */
+      if (p + 4 > end) break;
+      *p++ = '['; *p++ = ' '; *p++ = ']'; *p++ = '+';
+      while (*m == '~' || *m == ' ') m++;
+      continue;
+    }
+
+    /* literal character — escape regex metacharacters */
+    if (strchr(regex_meta, (char)*m)) {
+      if (p + 1 >= end) break;
+      *p++ = '\\';
+    }
+    *p++ = (char)*m++;
   }
-  while ((*m == WILDS) || (*m == WILDP))
-    m++;                        /* Zap leftover %s & *s */
-  return (*m) ? NOMATCH : PERMATCH;     /* End of both = match */
+
+  *p++ = '$';
+  *p = '\0';
+  return (int)(p - out);
 }
 
 /* Generic string matching, use addr_match() for hostmasks! */
 int _wild_match(unsigned char *m, unsigned char *n)
 {
-  unsigned char *ma = m, *na = n, *lsm = 0, *lsn = 0;
-  int match = 1;
-  int sofar = 0;
+  char ere[1024];
 
-  /* null strings should never match */
-  if ((ma == 0) || (na == 0) || (!*ma) || (!*na))
-    return NOMATCH;
-  /* find the end of each string */
-  while (*(++m));
-  m--;
-  while (*(++n));
-  n--;
+  if (!m || !n || !*m || !*n) return 0;
 
-  while (n >= na) {
-    /* If the mask runs out of chars before the string, fall back on
-     * a wildcard or fail. */
-    if (m < ma) {
-      if (lsm) {
-        n = --lsn;
-        m = lsm;
-        if (n < na)
-          lsm = 0;
-        sofar = 0;
-      }
-      else
-        return NOMATCH;
-    }
+  if (irc_to_ere(m, ere, sizeof ere, false) < 0) return 0;
 
-    switch (*m) {
-    case WILDS:                /* Matches anything */
-      do
-        m--;                    /* Zap redundant wilds */
-      while ((m >= ma) && (*m == WILDS));
-      lsm = m;
-      lsn = n;
-      match += sofar;
-      sofar = 0;                /* Update fallback pos */
-      if (m < ma)
-        return MATCH;
-      continue;                 /* Next char, please */
-    case WILDQ:
-      m--;
-      n--;
-      continue;                 /* '?' always matches */
-    }
-    if (toupper(*m) == toupper(*n)) {   /* If matching char */
-      m--;
-      n--;
-      sofar++;                  /* Tally the match */
-      continue;                 /* Next char, please */
-    }
-    if (lsm) {                  /* To to fallback on '*' */
-      n = --lsn;
-      m = lsm;
-      if (n < na)
-        lsm = 0;                /* Rewind to saved pos */
-      sofar = 0;
-      continue;                 /* Next char, please */
-    }
-    return NOMATCH;             /* No fallback=No match */
-  }
-  while ((m >= ma) && (*m == WILDS))
-    m--;                        /* Zap leftover %s & *s */
-  return (m >= ma) ? NOMATCH : MATCH;   /* Start of both = match */
+  op_regex_t *re = op_regex_compile(ere, OP_REGEX_ICASE, nullptr, 0);
+  if (!re) return 0;
+  int result = op_regex_match(re, (const char *)n) ? 1 : 0;
+  op_regex_free(re);
+  return result;
+}
+
+/* Wildcard-matches mask m to n, with extended wildcards (%, ~, \).
+ * cmp1/cmp2 and chgpoint are accepted for API compatibility; the match
+ * is always performed case-insensitively via op_regex (OP_REGEX_ICASE).
+ */
+int _wild_match_per(unsigned char *m, unsigned char *n,
+                    int (*cmp1)(unsigned char, unsigned char),
+                    int (*cmp2)(unsigned char, unsigned char),
+                    unsigned char *chgpoint)
+{
+  char ere[1024];
+  (void)cmp1; (void)cmp2; (void)chgpoint;
+
+  if (!m || !n || !*n || !cmp1) return 0;
+
+  if (irc_to_ere(m, ere, sizeof ere, true) < 0) return 0;
+
+  op_regex_t *re = op_regex_compile(ere, OP_REGEX_ICASE, nullptr, 0);
+  if (!re) return 0;
+  int result = op_regex_match(re, (const char *)n) ? 1 : 0;
+  op_regex_free(re);
+  return result;
 }
 
 /* cidr and RFC1459 compatible host matching
@@ -330,51 +258,97 @@ int mask_match(char *m, char *n)
   return cidr_match(r, s, prefix);
 }
 
+/* Bitwise comparison of two binary IP addresses.
+ * Returns 1 if the first `mask` bits are identical, 0 otherwise.
+ * Handles both IPv4 (4 bytes) and IPv6 (16 bytes) transparently.
+ */
+static int comp_with_mask(const void *addr, const void *dest, unsigned int mask)
+{
+  if (memcmp(addr, dest, mask / 8) != 0)
+    return 0;
+  if (mask % 8 == 0)
+    return 1;
+  unsigned int n = mask / 8;
+  unsigned char m = (unsigned char)(0xFF << (8 - (mask % 8)));
+  return ((((const unsigned char *)addr)[n] & m) ==
+          (((const unsigned char *)dest)[n] & m));
+}
+
 /* Performs bitwise comparison of two IP addresses stored in presentation
  * (string) format. IPs are first internally converted to binary form.
- * Returns: 1 if the first count bits are equal, 0 otherwise.
+ * Returns: count if the first count bits are equal, 0 otherwise.
  */
 int cidr_match(char *m, char *n, int count)
 {
-#ifdef IPV6
-  int c, af = AF_INET, rest;
   uint8_t block[16], addr[16];
+  int af, maxbits;
 
   if (strchr(m, ':') || strchr(n, ':')) {
     af = AF_INET6;
-    if (count > 128)
-      return NOMATCH;
-  } else if (count > 32)
-      return NOMATCH;
-  if (inet_pton(af, m, &block) != 1 ||
-      inet_pton(af, n, &addr) != 1)
+    maxbits = 128;
+  } else {
+    af = AF_INET;
+    maxbits = 32;
+  }
+
+  if (count > maxbits)
+    return NOMATCH;
+  if (op_inet_pton(af, m, block) != 1 ||
+      op_inet_pton(af, n, addr) != 1)
     return NOMATCH;
   if (count < 1)
     return 1;
-  for (c = 0; c < (count / 8); c++)
-    if (block[c] != addr[c])
-      return NOMATCH;
-  if (!(count % 8))
-    return count;
-  rest = 8 - (count % 8);
-  /* Normalize returned score to max. 32 for a /128 ipv6, 32 for ipv4 */
-  return ((block[c] >> rest) == (addr[c] >> rest)) ? (count / (af == AF_INET6 ? 4 : 1)): 0;
+  return comp_with_mask(addr, block, (unsigned int)count) ? count : 0;
+}
 
-#else
-  int rest;
-  IP block, addr;
+/* Collapse consecutive '*' wildcards in a pattern in-place.
+ * Returns pattern.
+ */
+char *collapse(char *pattern)
+{
+  char *p = pattern, *po = pattern;
+  bool star = false;
 
-  if (count > 32)
-    return NOMATCH;
-  block = ntohl(inet_addr(m));
-  addr = ntohl(inet_addr(n));
-  if (block == INADDR_NONE || addr == INADDR_NONE)
-    return NOMATCH;
-  if (count < 1)
-    return 1;
-  rest = 32 - count;
-  return ((block >> rest) == (addr >> rest)) ? count : 0;
-#endif
+  if (!p)
+    return nullptr;
+  for (char c; (c = *p++);) {
+    if (c == '*') {
+      if (!star)
+        *po++ = '*';
+      star = true;
+    } else {
+      *po++ = c;
+      star = false;
+    }
+  }
+  *po = '\0';
+  return pattern;
+}
+
+/* Like collapse(), but respects backslash-quoting. */
+char *collapse_esc(char *pattern)
+{
+  char *p = pattern, *po = pattern;
+  bool star = false, esc = false;
+
+  if (!p)
+    return nullptr;
+  for (char c; (c = *p++);) {
+    if (!esc && c == '*') {
+      if (!star)
+        *po++ = '*';
+      star = true;
+    } else if (!esc && c == '\\') {
+      *po++ = '\\';
+      esc = true;
+    } else {
+      *po++ = c;
+      star = false;
+      esc  = false;
+    }
+  }
+  *po = '\0';
+  return pattern;
 }
 
 /* Inline for cron_match (obviously).

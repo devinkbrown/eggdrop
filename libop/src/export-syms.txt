@@ -7,6 +7,12 @@ op_arena_reset
 op_arena_strdup
 op_arena_strndup
 op_event_arena_g
+op_event_ctx_create
+op_event_ctx_current
+op_event_ctx_destroy
+op_event_ctx_select
+op_event_ctx_set_current
+t_ev_ctx
 op_base64_decode
 op_base64_encode
 op_basename
@@ -46,7 +52,6 @@ op_event_update
 op_fd_ssl
 op_fdlist_init
 op_free_rawbuffer
-op_free_dlink_node
 op_get_fd
 op_get_fde
 op_get_iotype
@@ -77,11 +82,11 @@ op_inet_ntop
 op_inet_ntop_sock
 op_inet_pton
 op_inet_pton_sock
+op_io_set_shard_hint
 op_init_bh
 op_init_netio
 op_init_prng
 op_init_rawbuffers
-op_init_dlink_nodes
 op_ipv4_from_ipv6
 op_kill
 op_lib_die
@@ -108,7 +113,6 @@ op_sendbuf_flush
 op_sendbuf_init
 op_sendbuf_write
 op_sendbuf_write_linebuf
-op_make_dlink_node
 op_new_rawbuffer
 op_note
 op_open
@@ -294,6 +298,10 @@ op_rbt_foreach
 op_rbt_foreach_rev
 op_rbt_iter_init
 op_rbt_iter_lower
+op_regex_compile
+op_regex_match
+op_regex_search
+op_regex_free
 op_rbt_iter_next
 op_rbt_cmp_str
 op_rbt_cmp_istr

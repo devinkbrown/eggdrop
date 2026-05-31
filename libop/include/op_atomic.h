@@ -363,4 +363,324 @@ _op_exchange_64(volatile long long *p, long long val)
 
 #endif /* _MSC_VER && !__clang__ */
 
+/* =========================================================================
+ * Lock-free observability primitives
+ * =========================================================================
+ *
+ * Header-only telemetry helpers built on the atomics above. Designed for
+ * hot-path use in Ophion: per-frame counters, latency histograms, gauges
+ * surfaced to operator dashboards.
+ *
+ * Usage:
+ *
+ *   op_atomic_counter_t frames;
+ *   op_atomic_counter_init(&frames);
+ *   op_atomic_counter_inc(&frames);                 // relaxed, monotonic
+ *   uint64_t total = op_atomic_counter_get(&frames);
+ *
+ *   op_atomic_gauge_t connected_clients;
+ *   op_atomic_gauge_init(&connected_clients);
+ *   op_atomic_gauge_inc(&connected_clients);        // seq_cst snapshot view
+ *   int64_t now = op_atomic_gauge_get(&connected_clients);
+ *
+ *   op_atomic_histogram_t latency_us;
+ *   op_atomic_histogram_init(&latency_us);
+ *   op_atomic_histogram_observe(&latency_us, 137);  // bucketed by power-of-2
+ *   uint64_t b = op_atomic_histogram_bucket(&latency_us, 7);
+ *
+ *   op_atomic_percpu_counter_t pkts;
+ *   op_atomic_percpu_counter_init(&pkts);
+ *   op_atomic_percpu_counter_inc(&pkts);            // local shard, no ping-pong
+ *   uint64_t agg = op_atomic_percpu_counter_get(&pkts); // sum across shards
+ *
+ * Memory ordering:
+ *   - counter:   relaxed (monotonic; consumer tolerates eventual consistency)
+ *   - gauge:     seq_cst (dashboards see a coherent global snapshot)
+ *   - histogram: relaxed per bucket (eventually consistent snapshot)
+ *   - percpu:    relaxed per-shard inc, relaxed aggregation read
+ *
+ * All ops are `static inline` and safe to call from any thread. None
+ * allocate. Initialisation is plain assignment (zero-init also works).
+ * ====================================================================== */
+
+#include <stdint.h>
+#include <stddef.h>
+
+#if defined(__has_include)
+# if __has_include(<threads.h>) && !defined(_MSC_VER)
+#  include <threads.h>
+# endif
+#endif
+
+/* Thread-local keyword that works across compilers. */
+#if defined(_MSC_VER) && !defined(__clang__)
+# define OP_ATOMIC_TLS __declspec(thread)
+#elif defined(thread_local)
+# define OP_ATOMIC_TLS thread_local
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__)
+# define OP_ATOMIC_TLS _Thread_local
+#else
+# define OP_ATOMIC_TLS __thread
+#endif
+
+/* Cache-line size; conservative default avoids false sharing on x86/ARM. */
+#ifndef OP_ATOMIC_CACHELINE
+# define OP_ATOMIC_CACHELINE 64
+#endif
+
+/* -------------------------------------------------------------------------
+ * op_atomic_counter_t — monotonic 64-bit counter (relaxed).
+ * ---------------------------------------------------------------------- */
+
+typedef struct {
+    _Atomic(uint64_t) v;
+} op_atomic_counter_t;
+
+static inline void
+op_atomic_counter_init(op_atomic_counter_t *c)
+{
+    atomic_store_explicit(&c->v, 0, memory_order_relaxed);
+}
+
+static inline void
+op_atomic_counter_inc(op_atomic_counter_t *c)
+{
+    (void)atomic_fetch_add_explicit(&c->v, 1, memory_order_relaxed);
+}
+
+static inline void
+op_atomic_counter_add(op_atomic_counter_t *c, uint64_t n)
+{
+    (void)atomic_fetch_add_explicit(&c->v, n, memory_order_relaxed);
+}
+
+static inline uint64_t
+op_atomic_counter_get(const op_atomic_counter_t *c)
+{
+    return atomic_load_explicit((_Atomic(uint64_t) *)&c->v,
+                                memory_order_relaxed);
+}
+
+static inline void
+op_atomic_counter_reset(op_atomic_counter_t *c)
+{
+    atomic_store_explicit(&c->v, 0, memory_order_relaxed);
+}
+
+/* -------------------------------------------------------------------------
+ * op_atomic_gauge_t — signed gauge (seq_cst for coherent snapshots).
+ * ---------------------------------------------------------------------- */
+
+typedef struct {
+    _Atomic(int64_t) v;
+} op_atomic_gauge_t;
+
+static inline void
+op_atomic_gauge_init(op_atomic_gauge_t *g)
+{
+    atomic_store_explicit(&g->v, 0, memory_order_seq_cst);
+}
+
+static inline void
+op_atomic_gauge_set(op_atomic_gauge_t *g, int64_t value)
+{
+    atomic_store_explicit(&g->v, value, memory_order_seq_cst);
+}
+
+static inline int64_t
+op_atomic_gauge_get(const op_atomic_gauge_t *g)
+{
+    return atomic_load_explicit((_Atomic(int64_t) *)&g->v,
+                                memory_order_seq_cst);
+}
+
+static inline void
+op_atomic_gauge_inc(op_atomic_gauge_t *g)
+{
+    (void)atomic_fetch_add_explicit(&g->v, 1, memory_order_seq_cst);
+}
+
+static inline void
+op_atomic_gauge_dec(op_atomic_gauge_t *g)
+{
+    (void)atomic_fetch_sub_explicit(&g->v, 1, memory_order_seq_cst);
+}
+
+static inline void
+op_atomic_gauge_add(op_atomic_gauge_t *g, int64_t n)
+{
+    (void)atomic_fetch_add_explicit(&g->v, n, memory_order_seq_cst);
+}
+
+/* -------------------------------------------------------------------------
+ * op_atomic_histogram_t — fixed 16-bucket power-of-2 histogram.
+ *
+ * Bucket index for value v (v > 0) is floor(log2(v)) clamped to [0, 15];
+ * value 0 maps to bucket 0. Readers see an eventually-consistent snapshot
+ * via per-bucket relaxed loads. SWMR (single observer, many readers) is
+ * the canonical use, but multiple writers also work because each bucket is
+ * an independent atomic counter.
+ * ---------------------------------------------------------------------- */
+
+#define OP_ATOMIC_HIST_BUCKETS 16
+
+typedef struct {
+    _Atomic(uint64_t) buckets[OP_ATOMIC_HIST_BUCKETS];
+    _Atomic(uint64_t) count;
+    _Atomic(uint64_t) sum;
+} op_atomic_histogram_t;
+
+static inline void
+op_atomic_histogram_init(op_atomic_histogram_t *h)
+{
+    for (int i = 0; i < OP_ATOMIC_HIST_BUCKETS; ++i)
+        atomic_store_explicit(&h->buckets[i], 0, memory_order_relaxed);
+    atomic_store_explicit(&h->count, 0, memory_order_relaxed);
+    atomic_store_explicit(&h->sum,   0, memory_order_relaxed);
+}
+
+/* Resolve bucket index without UB on value 0. */
+static inline unsigned
+op_atomic_histogram_bucket_for(uint64_t value)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    if (value <= 1)
+        return 0;
+    /* floor(log2(value)) = 63 - clz(value) */
+    unsigned idx = (unsigned)(63 - __builtin_clzll(value));
+#else
+    unsigned idx = 0;
+    uint64_t v = value;
+    while (v > 1) { v >>= 1; ++idx; }
+#endif
+    if (idx >= OP_ATOMIC_HIST_BUCKETS)
+        idx = OP_ATOMIC_HIST_BUCKETS - 1;
+    return idx;
+}
+
+static inline void
+op_atomic_histogram_observe(op_atomic_histogram_t *h, uint64_t value)
+{
+    unsigned idx = op_atomic_histogram_bucket_for(value);
+    (void)atomic_fetch_add_explicit(&h->buckets[idx], 1, memory_order_relaxed);
+    (void)atomic_fetch_add_explicit(&h->count, 1, memory_order_relaxed);
+    (void)atomic_fetch_add_explicit(&h->sum, value, memory_order_relaxed);
+}
+
+static inline uint64_t
+op_atomic_histogram_bucket(const op_atomic_histogram_t *h, unsigned idx)
+{
+    if (idx >= OP_ATOMIC_HIST_BUCKETS)
+        return 0;
+    return atomic_load_explicit((_Atomic(uint64_t) *)&h->buckets[idx],
+                                memory_order_relaxed);
+}
+
+static inline uint64_t
+op_atomic_histogram_count(const op_atomic_histogram_t *h)
+{
+    return atomic_load_explicit((_Atomic(uint64_t) *)&h->count,
+                                memory_order_relaxed);
+}
+
+static inline uint64_t
+op_atomic_histogram_sum(const op_atomic_histogram_t *h)
+{
+    return atomic_load_explicit((_Atomic(uint64_t) *)&h->sum,
+                                memory_order_relaxed);
+}
+
+/* -------------------------------------------------------------------------
+ * op_atomic_percpu_counter_t — sharded counter to avoid cache-line ping-pong.
+ *
+ * Strategy:
+ *   libop has no per-CPU primitive, so we fall back to a fixed array of
+ *   cache-line-padded shards. A thread-local hash index assigns each
+ *   thread a sticky shard at first use. Increments hit only that shard,
+ *   keeping the cache line hot in the writer's L1. Reads sum all shards
+ *   under relaxed ordering (eventually consistent, fine for telemetry).
+ *
+ *   Shard count defaults to OP_ATOMIC_PERCPU_SHARDS (16), a sensible
+ *   ceiling for hardware_concurrency on typical Ophion deployments while
+ *   keeping the struct small (~1 KiB padded). Override via -D if needed.
+ * ---------------------------------------------------------------------- */
+
+#ifndef OP_ATOMIC_PERCPU_SHARDS
+# define OP_ATOMIC_PERCPU_SHARDS 16
+#endif
+
+typedef struct {
+    /* Each shard padded to its own cache line. */
+    struct {
+        _Atomic(uint64_t) v;
+        char _pad[OP_ATOMIC_CACHELINE - sizeof(uint64_t)];
+    } shards[OP_ATOMIC_PERCPU_SHARDS];
+} op_atomic_percpu_counter_t;
+
+/* Sticky per-thread shard index. 0xFFFF sentinel = "not yet assigned". */
+extern OP_ATOMIC_TLS unsigned _op_atomic_percpu_tls_idx;
+
+/* Tiny splitmix-ish mix of an address to derive a shard. */
+static inline unsigned
+_op_atomic_percpu_assign(void)
+{
+    /* Use the address of a TLS variable as a per-thread unique seed. */
+    uintptr_t seed = (uintptr_t)&_op_atomic_percpu_tls_idx;
+    seed ^= seed >> 33;
+    seed *= (uintptr_t)0xff51afd7ed558ccdULL;
+    seed ^= seed >> 33;
+    _op_atomic_percpu_tls_idx =
+        (unsigned)(seed % (uintptr_t)OP_ATOMIC_PERCPU_SHARDS);
+    return _op_atomic_percpu_tls_idx;
+}
+
+static inline unsigned
+_op_atomic_percpu_shard(void)
+{
+    unsigned idx = _op_atomic_percpu_tls_idx;
+    if (idx >= OP_ATOMIC_PERCPU_SHARDS)
+        idx = _op_atomic_percpu_assign();
+    return idx;
+}
+
+static inline void
+op_atomic_percpu_counter_init(op_atomic_percpu_counter_t *c)
+{
+    for (unsigned i = 0; i < OP_ATOMIC_PERCPU_SHARDS; ++i)
+        atomic_store_explicit(&c->shards[i].v, 0, memory_order_relaxed);
+}
+
+static inline void
+op_atomic_percpu_counter_inc(op_atomic_percpu_counter_t *c)
+{
+    unsigned idx = _op_atomic_percpu_shard();
+    (void)atomic_fetch_add_explicit(&c->shards[idx].v, 1,
+                                    memory_order_relaxed);
+}
+
+static inline void
+op_atomic_percpu_counter_add(op_atomic_percpu_counter_t *c, uint64_t n)
+{
+    unsigned idx = _op_atomic_percpu_shard();
+    (void)atomic_fetch_add_explicit(&c->shards[idx].v, n,
+                                    memory_order_relaxed);
+}
+
+static inline uint64_t
+op_atomic_percpu_counter_get(const op_atomic_percpu_counter_t *c)
+{
+    uint64_t total = 0;
+    for (unsigned i = 0; i < OP_ATOMIC_PERCPU_SHARDS; ++i)
+        total += atomic_load_explicit(
+            (_Atomic(uint64_t) *)&c->shards[i].v, memory_order_relaxed);
+    return total;
+}
+
+static inline void
+op_atomic_percpu_counter_reset(op_atomic_percpu_counter_t *c)
+{
+    for (unsigned i = 0; i < OP_ATOMIC_PERCPU_SHARDS; ++i)
+        atomic_store_explicit(&c->shards[i].v, 0, memory_order_relaxed);
+}
+
 #endif /* OP_ATOMIC_H */

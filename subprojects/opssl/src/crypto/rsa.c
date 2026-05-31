@@ -496,7 +496,7 @@ static int pkcs1_v15_verify(const uint8_t *em, size_t em_len, const uint8_t *dig
     memcpy(expected + 3 + pad_len + prefix_len, digest, digest_len);
 
     int result = opssl_ct_eq(em, expected, em_len);
-    opssl_memzero(expected, em_len);
+    opssl_memzero(expected, sizeof(expected));
     return result;
 }
 

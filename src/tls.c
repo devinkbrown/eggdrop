@@ -158,7 +158,7 @@ int ssl_init(void)
   if (tls_certfile[0] && tls_keyfile[0]) {
     /* Load our own certificate and private key. Mandatory for acting as
        server, because we don't support anonymous ciphers by default. */
-    if (opssl_ctx_use_certificate_chain_file(ssl_ctx, tls_certfile) != 0) {
+    if (opssl_ctx_use_certificate_chain_file(ssl_ctx, tls_certfile) == 0) {
       putlog(LOG_MISC, "*", "ERROR: TLS: unable to load own certificate from %s: %s",
           tls_certfile, opssl_err_string(opssl_err_get()));
       fatal("Unable to load TLS certificate (ssl-certificate config setting)!", 0);
@@ -179,13 +179,13 @@ int ssl_init(void)
     }
 
     verify_cert_expiry(0);
-    if (opssl_ctx_use_private_key_file(ssl_ctx, tls_keyfile) != 0) {
+    if (opssl_ctx_use_private_key_file(ssl_ctx, tls_keyfile) == 0) {
       putlog(LOG_MISC, "*", "ERROR: TLS: unable to load private key from %s: %s",
           tls_keyfile, opssl_err_string(opssl_err_get()));
       fatal("Unable to load TLS private key (ssl-privatekey config setting)!", 0);
     }
 
-    if (opssl_ctx_check_private_key(ssl_ctx) != 0) {
+    if (opssl_ctx_check_private_key(ssl_ctx) == 0) {
       putlog(LOG_MISC, "*", "ERROR: TLS: private key does not match certificate");
       fatal("Private key does not match certificate!", 0);
     }

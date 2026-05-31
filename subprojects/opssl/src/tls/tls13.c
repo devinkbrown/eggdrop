@@ -114,6 +114,9 @@ typedef struct {
     bool psk_offered;
     bool psk_accepted;
     bool psk_dhe_ke_offered;
+    bool psk_ke_offered;                 /* psk_key_exchange_modes contained 0 (psk_ke) */
+    bool psk_ke_used;                    /* selected pure-PSK (no (EC)DHE) for this handshake */
+    opssl_hmac_algo_t psk_hash_algo;     /* hash associated with the PSK (must match cipher) */
 
     /* Received PSK binder for server-side verification */
     uint8_t peer_binder[48];
@@ -166,6 +169,21 @@ typedef struct {
     uint8_t pha_context[32];                /* context sent in post-hs CertRequest */
     size_t pha_context_len;
     bool pha_pending;                        /* awaiting Certificate/CV/Finished */
+    uint16_t pha_sig_algs[16];               /* sig algs the server requested */
+    size_t pha_sig_algs_count;
+
+    /* HelloRetryRequest state (RFC 8446 §4.1.4) */
+    bool hrr_received;                       /* client got an HRR (forbids HRR2) */
+    bool hrr_sent;                           /* server emitted HRR (forbids HRR2) */
+    uint16_t hrr_group;                      /* group requested in HRR */
+    uint8_t  hrr_cookie[256];                /* cookie echoed back from HRR */
+    size_t   hrr_cookie_len;
+    /* Cached ClientHello1 bytes (without record header, includes msg header)
+     * needed to compute synthetic-CH1 hash if the server unexpectedly issues
+     * an HRR after we have already sent a regular CH. */
+    uint8_t  ch1_hash[48];                   /* Hash(ClientHello1) */
+    size_t   ch1_hash_len;
+    bool     ch1_hashed;                     /* true once ch1_hash populated */
 } tls13_hs_t;
 
 /* TLS 1.3 message types */
@@ -181,6 +199,51 @@ typedef struct {
 #define TLS13_MSG_KEY_UPDATE 24
 
 #define TLS13_MAX_PEER_CERTS 10
+
+/* ─── 0-RTT anti-replay cache (RFC 8446 §8) ────────────────────────────────
+ * Minimal single-server in-memory replay defense. Each accepted 0-RTT
+ * ClientHello is identified by the SHA-256 of (psk_identity || client_random).
+ * A small fixed-size LRU prevents accepting the same early-data ClientHello
+ * twice within the window. This is NOT a substitute for distributed defenses
+ * (ticket single-use issuance, freshness checking against max_early_data_size,
+ * synchronized server time) — but it closes the trivial single-server window.
+ *
+ * Thread-safety: a single pthread mutex guards the cache. The cache itself is
+ * intentionally small so the critical section is short. */
+#include <pthread.h>
+
+#define TLS13_REPLAY_CACHE_SIZE 256
+typedef struct {
+    uint8_t fingerprint[32];   /* SHA-256(psk_identity || client_random) */
+    uint64_t timestamp_ns;     /* coarse monotonic time, for eviction */
+    bool occupied;
+} tls13_replay_entry_t;
+
+static tls13_replay_entry_t g_replay_cache[TLS13_REPLAY_CACHE_SIZE];
+static size_t g_replay_next_slot = 0;
+static pthread_mutex_t g_replay_mu = PTHREAD_MUTEX_INITIALIZER;
+
+/* Returns true if fp was newly inserted (handshake may proceed with 0-RTT),
+ * false if it was already present (REPLAY — caller must reject 0-RTT). */
+static bool tls13_replay_cache_check_and_insert(const uint8_t fp[32])
+{
+    bool fresh = true;
+    pthread_mutex_lock(&g_replay_mu);
+    for (size_t i = 0; i < TLS13_REPLAY_CACHE_SIZE; i++) {
+        if (g_replay_cache[i].occupied &&
+            opssl_ct_eq(g_replay_cache[i].fingerprint, fp, 32) == 1) {
+            fresh = false;
+            goto out;
+        }
+    }
+    /* FIFO eviction */
+    memcpy(g_replay_cache[g_replay_next_slot].fingerprint, fp, 32);
+    g_replay_cache[g_replay_next_slot].occupied = true;
+    g_replay_next_slot = (g_replay_next_slot + 1) % TLS13_REPLAY_CACHE_SIZE;
+out:
+    pthread_mutex_unlock(&g_replay_mu);
+    return fresh;
+}
 
 static void
 tls13_clear_peer_chain(tls13_hs_t *hs)
@@ -268,7 +331,18 @@ tls13_store_peer_certificate_list(tls13_hs_t *hs, const uint8_t *body, size_t bo
 #define EXT_POST_HANDSHAKE_AUTH 49
 #define EXT_EARLY_DATA 42
 #define EXT_SUPPORTED_VERSIONS 43
+#define EXT_COOKIE 44
 #define EXT_KEY_SHARE 51
+
+/* HelloRetryRequest magic value placed in ServerHello.random per RFC 8446
+ * §4.1.3.  Clients detect HRR by comparing the random field to this constant.
+ * Server MUST emit exactly these bytes; client MUST reject a second HRR. */
+static const uint8_t TLS13_HRR_RANDOM[32] = {
+    0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
+    0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
+    0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
+};
 
 /* TLS 1.3 cipher suites (IANA + opssl extended) */
 #define TLS_AES_128_GCM_SHA256       0x1301
@@ -342,6 +416,99 @@ static void tls13_set_hash_for_cipher(tls13_hs_t *hs, uint16_t cipher)
         hs->hash_len = 32;
         break;
     }
+}
+
+/* Replace the running transcript hash state with the synthetic-CH1 prefix
+ * mandated by RFC 8446 §4.4.1 whenever an HRR is part of the handshake.
+ *
+ *   Transcript-Hash(ClientHello1, HelloRetryRequest, ClientHello2 ...) =
+ *     Hash( message_hash ||
+ *           00 00 Hash.length ||
+ *           Hash(ClientHello1) ||
+ *           HelloRetryRequest ||
+ *           ClientHello2 ... )
+ *
+ * The byte 0xFE (message_hash) is a synthetic handshake message type that
+ * can never appear on the wire. This function (a) snapshots Hash(CH1) into
+ * hs->ch1_hash and (b) re-initializes the running transcript to feed the
+ * synthetic prefix. After return, callers MUST add the HRR bytes (server
+ * side) or HRR bytes followed by CH2 bytes (client side) via
+ * tls13_update_transcript() as usual. */
+static int tls13_inject_synthetic_ch1(tls13_hs_t *hs)
+{
+    uint8_t ch1_hash[48];
+    int hl = tls13_get_transcript_hash(hs, ch1_hash);
+    if (hl < 0)
+        return -1;
+    memcpy(hs->ch1_hash, ch1_hash, (size_t)hl);
+    hs->ch1_hash_len = (size_t)hl;
+    hs->ch1_hashed = true;
+
+    /* Re-initialize both transcript contexts and inject:
+     *   [0xFE] [0x00 0x00 hash_len] [Hash(CH1)] */
+    opssl_sha256_init(&hs->transcript_sha256);
+    opssl_sha384_init(&hs->transcript_sha384);
+
+    uint8_t prefix[4];
+    prefix[0] = 0xFE;            /* message_hash */
+    prefix[1] = 0x00;
+    prefix[2] = 0x00;
+    prefix[3] = (uint8_t)hl;
+    tls13_update_transcript(hs, prefix, 4);
+    tls13_update_transcript(hs, ch1_hash, (size_t)hl);
+    return 0;
+}
+
+/* Server-side HRR builder. Produces a ServerHello with the magic HRR random
+ * value, advertising the requested group via key_share extension and an
+ * opaque cookie. Caller MUST inject the synthetic CH1 prefix into the
+ * transcript BEFORE adding the HRR bytes to the transcript. */
+static int tls13_build_hello_retry_request(tls13_hs_t *hs, uint16_t group, CBB *out)
+{
+    CBB msg, extensions;
+
+    if (!CBB_add_u8(out, TLS13_MSG_SERVER_HELLO) ||
+        !CBB_add_u24_length_prefixed(out, &msg) ||
+        !CBB_add_u16(&msg, 0x0303) ||
+        !CBB_add_bytes(&msg, TLS13_HRR_RANDOM, 32) ||
+        !CBB_add_u8(&msg, (uint8_t)hs->session_id_len) ||
+        (hs->session_id_len > 0 &&
+         !CBB_add_bytes(&msg, hs->session_id, hs->session_id_len)) ||
+        !CBB_add_u16(&msg, hs->cipher) ||
+        !CBB_add_u8(&msg, 0) ||
+        !CBB_add_u16_length_prefixed(&msg, &extensions))
+        return -1;
+
+    /* supported_versions = TLS 1.3 (required by RFC 8446 §4.1.4 / §4.2.1) */
+    CBB sv_ext;
+    if (!CBB_add_u16(&extensions, EXT_SUPPORTED_VERSIONS) ||
+        !CBB_add_u16_length_prefixed(&extensions, &sv_ext) ||
+        !CBB_add_u16(&sv_ext, 0x0304))
+        return -1;
+
+    /* key_share = NamedGroup (no key_exchange in HRR per §4.2.8.1) */
+    CBB ks_ext;
+    if (!CBB_add_u16(&extensions, EXT_KEY_SHARE) ||
+        !CBB_add_u16_length_prefixed(&extensions, &ks_ext) ||
+        !CBB_add_u16(&ks_ext, group))
+        return -1;
+
+    /* cookie = derived from CH1 hash (so the next CH must be a continuation).
+     * The cookie is opaque to the client; for our purposes we use the
+     * synthetic-CH1 hash itself, which the server can validate by recomputing.
+     * Production deployments often use an HMAC over (CH1 hash || server key). */
+    CBB cookie_ext, cookie_data;
+    if (!CBB_add_u16(&extensions, EXT_COOKIE) ||
+        !CBB_add_u16_length_prefixed(&extensions, &cookie_ext) ||
+        !CBB_add_u16_length_prefixed(&cookie_ext, &cookie_data) ||
+        !CBB_add_bytes(&cookie_data, hs->ch1_hash, hs->ch1_hash_len))
+        return -1;
+
+    if (!CBB_flush(out))
+        return -1;
+    hs->hrr_group = group;
+    hs->hrr_sent = true;
+    return 0;
 }
 
 static const uint16_t tls13_cipher_preference[] = {
@@ -512,13 +679,27 @@ static int tls13_derive_handshake_secrets(tls13_hs_t *hs)
         return -1;
     }
 
-    /* handshake_secret = HKDF-Extract(derived_secret, shared_secret) */
+    /* handshake_secret = HKDF-Extract(derived_secret, (EC)DHE shared secret).
+     * For pure-PSK (psk_ke) the IKM is Hash.length zero bytes per RFC 8446 §7.1. */
+    const uint8_t *hs_ikm;
+    size_t hs_ikm_len;
+    uint8_t hs_zero_ikm[48] = {0};
+    if (hs->psk_ke_used) {
+        hs_ikm = hs_zero_ikm;
+        hs_ikm_len = hs->hash_len;
+    } else {
+        hs_ikm = hs->shared_secret;
+        hs_ikm_len = hs->shared_secret_len;
+    }
     if (opssl_tls13_extract_secret(hs->handshake_secret, hs->hash_len,
                                   derived_secret, hs->hash_len,
-                                  hs->shared_secret, hs->shared_secret_len,
+                                  hs_ikm, hs_ikm_len,
                                   hs->hash_algo) != 1) {
+        opssl_memzero(hs_zero_ikm, sizeof(hs_zero_ikm));
+        opssl_memzero(derived_secret, sizeof(derived_secret));
         return -1;
     }
+    opssl_memzero(hs_zero_ikm, sizeof(hs_zero_ikm));
 
     /* client_handshake_traffic_secret = Derive-Secret(handshake_secret, "c hs traffic", transcript) */
     if (opssl_tls13_derive_secret_compat(hs->client_hs_traffic, hs->hash_len,
@@ -533,9 +714,11 @@ static int tls13_derive_handshake_secrets(tls13_hs_t *hs)
                                  hs->handshake_secret, hs->hash_len,
                                  "s hs traffic", transcript_hash, hash_len,
                                  hs->hash_algo) != 1) {
+        opssl_memzero(derived_secret, sizeof(derived_secret));
         return -1;
     }
 
+    opssl_memzero(derived_secret, sizeof(derived_secret));
     return 0;
 }
 
@@ -579,9 +762,12 @@ static int tls13_derive_application_secrets(tls13_hs_t *hs)
     if (opssl_tls13_derive_secret_compat(hs->exporter_master_secret, hs->hash_len,
                                  hs->master_secret, hs->hash_len,
                                  "exp master", transcript_hash, hash_len,
-                                 hs->hash_algo) != 1)
+                                 hs->hash_algo) != 1) {
+        opssl_memzero(derived_secret, sizeof(derived_secret));
         return -1;
+    }
 
+    opssl_memzero(derived_secret, sizeof(derived_secret));
     return 0;
 }
 
@@ -685,7 +871,9 @@ static int tls13_parse_client_hello(tls13_hs_t *hs, CBS *msg)
                     uint8_t mode;
                     if (!CBS_get_u8(&modes, &mode))
                         break;
-                    if (mode == 1) /* psk_dhe_ke */
+                    if (mode == 0) /* psk_ke */
+                        hs->psk_ke_offered = true;
+                    else if (mode == 1) /* psk_dhe_ke */
                         hs->psk_dhe_ke_offered = true;
                 }
             }
@@ -716,6 +904,89 @@ static int tls13_parse_client_hello(tls13_hs_t *hs, CBS *msg)
                 }
             }
         }
+    }
+
+    return 0;
+}
+
+static int
+tls13_find_client_hello_binder(const uint8_t *ch, size_t ch_len,
+                               size_t *binder_hash_len,
+                               size_t *binder_offset,
+                               size_t *binder_len)
+{
+    if (!ch || ch_len < 4 || ch[0] != TLS13_MSG_CLIENT_HELLO)
+        return 0;
+
+    uint32_t msg_len = ((uint32_t)ch[1] << 16) |
+                       ((uint32_t)ch[2] << 8) |
+                       (uint32_t)ch[3];
+    if (msg_len > ch_len - 4)
+        return 0;
+
+    size_t p = 4;
+    size_t end = 4 + msg_len;
+    if (p + 2 + 32 + 1 > end)
+        return 0;
+
+    p += 2 + 32;
+    uint8_t sid_len = ch[p++];
+    if (sid_len > end - p || p + sid_len + 2 > end)
+        return 0;
+    p += sid_len;
+
+    uint16_t cs_len = (uint16_t)((ch[p] << 8) | ch[p + 1]);
+    p += 2;
+    if (cs_len > end - p || p + cs_len + 1 > end)
+        return 0;
+    p += cs_len;
+
+    uint8_t comp_len = ch[p++];
+    if (comp_len > end - p || p + comp_len + 2 > end)
+        return 0;
+    p += comp_len;
+
+    uint16_t ext_len = (uint16_t)((ch[p] << 8) | ch[p + 1]);
+    p += 2;
+    if (ext_len > end - p)
+        return 0;
+
+    size_t ext_end = p + ext_len;
+    while (p + 4 <= ext_end) {
+        uint16_t ext_type = (uint16_t)((ch[p] << 8) | ch[p + 1]);
+        uint16_t len = (uint16_t)((ch[p + 2] << 8) | ch[p + 3]);
+        p += 4;
+        if (len > ext_end - p)
+            return 0;
+
+        if (ext_type == 41) {
+            size_t q = p;
+            size_t e = p + len;
+            if (q + 2 > e)
+                return 0;
+            uint16_t identities_len = (uint16_t)((ch[q] << 8) | ch[q + 1]);
+            q += 2;
+            if (identities_len > e - q || q + identities_len + 2 > e)
+                return 0;
+            q += identities_len;
+
+            *binder_hash_len = q;
+
+            uint16_t binders_len = (uint16_t)((ch[q] << 8) | ch[q + 1]);
+            q += 2;
+            if (binders_len > e - q || binders_len == 0 || q >= e)
+                return 0;
+
+            uint8_t first_len = ch[q++];
+            if (first_len > e - q)
+                return 0;
+
+            *binder_offset = q;
+            *binder_len = first_len;
+            return 1;
+        }
+
+        p += len;
     }
 
     return 0;
@@ -1079,9 +1350,15 @@ int opssl_tls13_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             return OPSSL_ERROR;
         }
 
-        /* Verify PSK binder before accepting (RFC 8446 §4.2.11.2) */
+        /* Verify PSK binder before accepting (RFC 8446 §4.2.11.2).
+         * Accept either psk_dhe_ke (preferred, forward secret) or psk_ke (pure PSK).
+         * Reject if neither mode was offered, or if the negotiated cipher's hash
+         * does not match the PSK's associated hash (RFC 8446 §4.2.11). */
         if (hs->psk_offered && hs->has_psk && hs->psk_len > 0 &&
-            hs->psk_dhe_ke_offered && hs->peer_binder_len > 0) {
+            (hs->psk_dhe_ke_offered || hs->psk_ke_offered) &&
+            hs->peer_binder_len > 0 &&
+            hs->peer_binder_len == hs->hash_len &&
+            hs->psk_hash_algo == hs->hash_algo) {
             size_t ch_total = 4 + msg_len;
             size_t binder_tail = 3 + hs->peer_binder_len;
 
@@ -1128,11 +1405,16 @@ int opssl_tls13_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                            transcript_hash, hs->hash_len,
                            expected_binder, &eb_len);
 
+                /* Constant-time compare with exact, fixed length (hash_len).
+                 * Length equality was checked above so this is sound. */
                 if (opssl_ct_eq(expected_binder, hs->peer_binder,
-                                hs->peer_binder_len)) {
+                                hs->hash_len)) {
                     hs->psk_accepted = true;
+                    /* Prefer (EC)DHE-PSK if offered for forward secrecy.
+                     * Fall back to pure psk_ke only when psk_dhe_ke is absent. */
+                    hs->psk_ke_used = (!hs->psk_dhe_ke_offered &&
+                                       hs->psk_ke_offered);
                 }
-
                 opssl_memzero(early_secret, sizeof(early_secret));
                 opssl_memzero(binder_key, sizeof(binder_key));
                 opssl_memzero(finished_key, sizeof(finished_key));
@@ -1140,9 +1422,27 @@ int opssl_tls13_server_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
             }
         }
 
-        /* Accept 0-RTT early data only with PSK and max_early_data configured */
+        /* Accept 0-RTT early data only with an accepted PSK and a configured
+         * max_early_data_size, and only if the (psk_identity, client_random)
+         * pair has not been seen before (single-server replay defense per
+         * RFC 8446 §8). */
         if (hs->early_data_offered && hs->psk_accepted && hs->early_data_max > 0) {
-            hs->early_data_accepted = true;
+            uint8_t replay_fp[32];
+            opssl_sha256_ctx_t rctx;
+            opssl_sha256_init(&rctx);
+            opssl_sha256_update(&rctx, hs->psk_ticket, hs->psk_ticket_len);
+            opssl_sha256_update(&rctx, hs->client_random, sizeof(hs->client_random));
+            opssl_sha256_final(&rctx, replay_fp);
+
+            if (tls13_replay_cache_check_and_insert(replay_fp)) {
+                hs->early_data_accepted = true;
+            } else {
+                /* Replay detected — silently reject 0-RTT but continue 1-RTT
+                 * handshake. Server omits the early_data extension from
+                 * EncryptedExtensions; the client treats this as rejection. */
+                hs->early_data_accepted = false;
+            }
+            opssl_memzero(replay_fp, sizeof(replay_fp));
         }
 
         /* Add CH to transcript AFTER hash is initialized */
@@ -1477,6 +1777,99 @@ static int tls13_parse_server_hello(tls13_hs_t *hs, CBS *msg)
     return 0;
 }
 
+/* Detect HRR: a "ServerHello" whose random field equals the HRR sentinel
+ * is actually a HelloRetryRequest (RFC 8446 §4.1.3). Returns true if msg
+ * (pointing at the ServerHello body, i.e. after the 4-byte msg header) is
+ * an HRR. */
+static bool tls13_is_hello_retry_request(const uint8_t *msg_body, size_t len)
+{
+    /* legacy_version(2) || random(32) — we need at least 34 bytes */
+    if (len < 34) return false;
+    return opssl_ct_eq(msg_body + 2, TLS13_HRR_RANDOM, 32) == 1;
+}
+
+/* Client-side HRR processor. Parses the HRR, extracts the requested group +
+ * cookie, sets hrr_received so the caller re-emits a ClientHello. The
+ * synthetic-CH1 transcript injection is handled here BEFORE we mix the HRR
+ * bytes into the transcript. Caller must not have updated the transcript
+ * with the HRR bytes yet. */
+static int tls13_process_hello_retry_request(tls13_hs_t *hs,
+                                              const uint8_t *hrr_bytes,
+                                              size_t hrr_total_len)
+{
+    /* RFC 8446 §4.1.4: a second HRR in a single handshake is illegal. */
+    if (hs->hrr_received)
+        return -1;
+
+    CBS msg;
+    CBS_init(&msg, hrr_bytes + 4, hrr_total_len - 4);
+
+    uint16_t version;
+    CBS random, session_id, extensions;
+    uint16_t cipher;
+    uint8_t compression;
+    if (!CBS_get_u16(&msg, &version) ||
+        !CBS_get_bytes(&msg, &random, 32) ||
+        !CBS_get_u8_length_prefixed(&msg, &session_id) ||
+        !CBS_get_u16(&msg, &cipher) ||
+        !CBS_get_u8(&msg, &compression) ||
+        !CBS_get_u16_length_prefixed(&msg, &extensions))
+        return -1;
+
+    /* Server selects the cipher in HRR — must use it for the rest of the
+     * handshake. Lock the transcript hash accordingly before injecting CH1. */
+    hs->cipher = cipher;
+    tls13_set_hash_for_cipher(hs, cipher);
+
+    uint16_t requested_group = 0;
+    bool got_cookie = false;
+    while (CBS_len(&extensions) > 0) {
+        uint16_t etype;
+        CBS edata;
+        if (!CBS_get_u16(&extensions, &etype) ||
+            !CBS_get_u16_length_prefixed(&extensions, &edata))
+            return -1;
+
+        if (etype == EXT_KEY_SHARE) {
+            if (!CBS_get_u16(&edata, &requested_group))
+                return -1;
+        } else if (etype == EXT_COOKIE) {
+            CBS cookie;
+            if (!CBS_get_u16_length_prefixed(&edata, &cookie))
+                return -1;
+            size_t clen = CBS_len(&cookie);
+            if (clen == 0 || clen > sizeof(hs->hrr_cookie))
+                return -1;
+            memcpy(hs->hrr_cookie, CBS_data(&cookie), clen);
+            hs->hrr_cookie_len = clen;
+            got_cookie = true;
+        } else if (etype == EXT_SUPPORTED_VERSIONS) {
+            /* MUST be present and select TLS 1.3 */
+            uint16_t sv;
+            if (!CBS_get_u16(&edata, &sv) || sv != 0x0304)
+                return -1;
+        }
+    }
+    (void)got_cookie;
+
+    if (requested_group == 0)
+        return -1;
+    /* Only accept groups we can actually generate */
+    if (requested_group != NAMED_GROUP_X25519 &&
+        requested_group != NAMED_GROUP_SECP256R1 &&
+        requested_group != NAMED_GROUP_SECP384R1)
+        return -1;
+    hs->hrr_group = requested_group;
+
+    /* Inject synthetic CH1 then add HRR bytes to the (re-initialized) transcript. */
+    if (tls13_inject_synthetic_ch1(hs) != 0)
+        return -1;
+    tls13_update_transcript(hs, hrr_bytes, hrr_total_len);
+
+    hs->hrr_received = true;
+    return 0;
+}
+
 int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                                 size_t *consumed, uint8_t *out, size_t *out_len,
                                 size_t out_cap)
@@ -1488,8 +1881,13 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
     switch (hs->state) {
     case OPSSL_HS_IDLE: {
         /* Generate key pair and send ClientHello */
-        hs->hash_algo = OPSSL_HMAC_SHA256;
-        hs->hash_len = 32;
+        if (hs->has_psk && hs->psk_hash_algo == OPSSL_HMAC_SHA384) {
+            hs->hash_algo = OPSSL_HMAC_SHA384;
+            hs->hash_len = 48;
+        } else {
+            hs->hash_algo = OPSSL_HMAC_SHA256;
+            hs->hash_len = 32;
+        }
 
         opssl_sha256_init(&hs->transcript_sha256);
         opssl_sha384_init(&hs->transcript_sha384);
@@ -1612,8 +2010,7 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 !CBB_add_u16_length_prefixed(&sni_ext, &sni_list) ||
                 !CBB_add_u8(&sni_list, 0) ||  /* host_name type */
                 !CBB_add_u16_length_prefixed(&sni_list, &sni_entry) ||
-                !CBB_add_bytes(&sni_entry, (const uint8_t *)hs->sni, sni_len) ||
-                                !CBB_flush(&extensions)) {
+                !CBB_add_bytes(&sni_entry, (const uint8_t *)hs->sni, sni_len)) {
                                 CBB_cleanup(&cbb);
                                 return OPSSL_ERROR;
                         }
@@ -1626,8 +2023,7 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 !CBB_add_u16_length_prefixed(&extensions, &alpn_ext) ||
                 !CBB_add_u16_length_prefixed(&alpn_ext, &alpn_list) ||
                 !CBB_add_bytes(&alpn_list, (const uint8_t *)hs->alpn_offer,
-                              hs->alpn_offer_len) ||
-                                !CBB_flush(&extensions)) {
+                              hs->alpn_offer_len)) {
                                 CBB_cleanup(&cbb);
                                 return OPSSL_ERROR;
                         }
@@ -1665,12 +2061,26 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
         CBB ed_ext;
         if (hs->has_psk && hs->psk_len > 0 && hs->early_data_max > 0) {
             if (!CBB_add_u16(&extensions, EXT_EARLY_DATA) ||
-                !CBB_add_u16_length_prefixed(&extensions, &ed_ext) ||
-                                !CBB_flush(&extensions)) {
+                !CBB_add_u16_length_prefixed(&extensions, &ed_ext)) {
                                 CBB_cleanup(&cbb);
                                 return OPSSL_ERROR;
                         }
             hs->early_data_offered = true;
+        }
+
+        /* psk_key_exchange_modes (MUST come before pre_shared_key when both are
+         * present, RFC 8446 §4.2.9). Advertise both psk_dhe_ke (forward-secret,
+         * preferred) and psk_ke (pure PSK, fallback). */
+        if (hs->has_psk && hs->psk_len > 0 && hs->psk_ticket_len > 0) {
+            CBB pkem_ext, pkem_list;
+            if (!CBB_add_u16(&extensions, 45) ||  /* psk_key_exchange_modes */
+                !CBB_add_u16_length_prefixed(&extensions, &pkem_ext) ||
+                !CBB_add_u8_length_prefixed(&pkem_ext, &pkem_list) ||
+                !CBB_add_u8(&pkem_list, 1) ||  /* psk_dhe_ke */
+                !CBB_add_u8(&pkem_list, 0)) {  /* psk_ke */
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
         }
 
         /* pre_shared_key extension (MUST be last per RFC 8446 §4.2.11) */
@@ -1678,7 +2088,12 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
         if (hs->has_psk && hs->psk_len > 0 && hs->psk_ticket_len > 0) {
             hs->psk_offered = true;
 
-            /* Build PSK extension with placeholder binder */
+            /* Zero-filled placeholder binder; the real binder HMAC is patched
+             * in below after computing it over the truncated ClientHello.
+             * IMPORTANT: never write raw PSK bytes into the wire buffer, not
+             * even transiently — risks leakage via partial sends, side
+             * channels, or post-mortem core dumps. */
+            uint8_t binder_placeholder[48] = {0};
             if (!CBB_add_u16(&extensions, 41) ||  /* pre_shared_key */
                 !CBB_add_u16_length_prefixed(&extensions, &psk_ext) ||
                 !CBB_add_u16_length_prefixed(&psk_ext, &identities) ||
@@ -1687,12 +2102,12 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 !CBB_add_bytes(&identities, hs->psk_ticket, hs->psk_ticket_len) ||
                 !CBB_add_u32(&identities, 0) ||  /* ticket_age = 0 for fresh */
                 !CBB_add_u16_length_prefixed(&psk_ext, &binders) ||
-                !CBB_add_u8(&binders, (uint8_t)hs->psk_len) ||
-                !CBB_add_bytes(&binders, hs->psk, hs->psk_len) ||
-                                !CBB_flush(&extensions)) { /* placeholder */
-                                CBB_cleanup(&cbb);
-                                return OPSSL_ERROR;
-                        }
+                !CBB_add_u8(&binders, (uint8_t)hs->hash_len) ||
+                !CBB_add_bytes(&binders, binder_placeholder, hs->hash_len) ||
+                !CBB_flush(&extensions)) {
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
         }
 
         if (!cbb_finish_to_buf(&cbb, out, out_len, out_cap)) {
@@ -1701,6 +2116,17 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
 
         /* Compute and patch PSK binder (HMAC over truncated ClientHello) */
         if (hs->psk_offered) {
+            size_t binder_hash_len = 0;
+            size_t binder_offset = 0;
+            size_t binder_len = 0;
+            if (!tls13_find_client_hello_binder(out, *out_len,
+                                                &binder_hash_len,
+                                                &binder_offset,
+                                                &binder_len) ||
+                binder_len != hs->hash_len) {
+                return OPSSL_ERROR;
+            }
+
             /* binder_key = Derive-Secret(HKDF-Extract(0, PSK), "res binder", "") */
             uint8_t early_secret[48];
             uint8_t zeros[48] = {0};
@@ -1719,19 +2145,16 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
                 early_secret, hs->hash_len,
                 "res binder", empty_hash, hs->hash_len, hs->hash_algo);
 
-            /* Hash covers CH up to (not including) the binders list length field.
-             * Tail layout: [2-byte binders_len][1-byte binder_len][binder_value] */
-            size_t binder_offset = *out_len - hs->psk_len - 3;
             uint8_t transcript_hash[48];
             if (hs->hash_len == 32) {
                 opssl_sha256_ctx_t ctx;
                 opssl_sha256_init(&ctx);
-                opssl_sha256_update(&ctx, out, binder_offset);
+                opssl_sha256_update(&ctx, out, binder_hash_len);
                 opssl_sha256_final(&ctx, transcript_hash);
             } else {
                 opssl_sha512_ctx_t ctx;
                 opssl_sha384_init(&ctx);
-                opssl_sha512_update(&ctx, out, binder_offset);
+                opssl_sha512_update(&ctx, out, binder_hash_len);
                 opssl_sha384_final(&ctx, transcript_hash);
             }
 
@@ -1743,12 +2166,12 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
 
             /* binder = HMAC(finished_key, transcript_hash) */
             uint8_t binder[48];
-            size_t binder_len = sizeof(binder);
+            size_t hmac_len = sizeof(binder);
             opssl_hmac(hs->hash_algo, finished_key, hs->hash_len,
-                       transcript_hash, hs->hash_len, binder, &binder_len);
+                       transcript_hash, hs->hash_len, binder, &hmac_len);
 
             /* Patch binder into the ClientHello */
-            memcpy(out + binder_offset, binder, hs->psk_len);
+            memcpy(out + binder_offset, binder, hs->hash_len);
         }
 
         tls13_update_transcript(hs, out, *out_len);
@@ -1772,6 +2195,128 @@ int opssl_tls13_client_handshake(void *hs_opaque, uint8_t *buf, size_t buf_len,
 
         if (buf_len < 4 + msg_len) {
             return OPSSL_WANT_READ;
+        }
+
+        /* HelloRetryRequest detection (RFC 8446 §4.1.4): if the random
+         * field equals the HRR sentinel, this "ServerHello" is actually an
+         * HRR. Handle it by re-emitting a corrected ClientHello (with the
+         * server-requested group + cookie) and stay in CLIENT_HELLO state.
+         * Note: process_hello_retry_request injects the synthetic-CH1
+         * transcript before adding the HRR bytes, so we must NOT update
+         * the transcript here. */
+        if (tls13_is_hello_retry_request(buf + 4, msg_len)) {
+            if (tls13_process_hello_retry_request(hs, buf, 4 + msg_len) != 0)
+                return OPSSL_ERROR;
+
+            *consumed = 4 + msg_len;
+
+            /* Generate a fresh keypair for the server-requested group, then
+             * re-emit a ClientHello (CH2). The minimal CH2 carries: the
+             * original client_random, the new key_share for hrr_group only,
+             * the cookie echo, and the same legacy_session_id. */
+            if (tls13_generate_key_pair_for_group(hs, hs->hrr_group) != 0)
+                return OPSSL_ERROR;
+            /* Free now-unused secondary key (if any) */
+            if (hs->secondary_group != 0) {
+                if (hs->secondary_group == NAMED_GROUP_SECP256R1 ||
+                    hs->secondary_group == NAMED_GROUP_SECP384R1) {
+                    opssl_ecdh_ctx_t *sec_ecdh;
+                    memcpy(&sec_ecdh, hs->secondary_priv, sizeof(sec_ecdh));
+                    if (sec_ecdh)
+                        opssl_ecdh_free(sec_ecdh);
+                }
+                memset(hs->secondary_priv, 0, sizeof(hs->secondary_priv));
+                hs->secondary_group = 0;
+            }
+
+            CBB cbb, ch_msg, cipher_suites, compression, extensions;
+            if (!CBB_init(&cbb, out_cap) ||
+                !CBB_add_u8(&cbb, TLS13_MSG_CLIENT_HELLO) ||
+                !CBB_add_u24_length_prefixed(&cbb, &ch_msg) ||
+                !CBB_add_u16(&ch_msg, 0x0303) ||
+                !CBB_add_bytes(&ch_msg, hs->client_random, 32) ||
+                !CBB_add_u8(&ch_msg, 0) ||
+                !CBB_add_u16_length_prefixed(&ch_msg, &cipher_suites) ||
+                /* Send the HRR-selected cipher first to bias selection */
+                !CBB_add_u16(&cipher_suites, hs->cipher) ||
+                !CBB_add_u16(&cipher_suites, TLS_AES_256_GCM_SHA384) ||
+                !CBB_add_u16(&cipher_suites, TLS_CHACHA20_POLY1305_SHA256) ||
+                !CBB_add_u16(&cipher_suites, TLS_AES_128_GCM_SHA256) ||
+                !CBB_add_u8_length_prefixed(&ch_msg, &compression) ||
+                !CBB_add_u8(&compression, 0) ||
+                !CBB_add_u16_length_prefixed(&ch_msg, &extensions)) {
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
+
+            /* supported_versions */
+            CBB sv_ext, sv_list;
+            if (!CBB_add_u16(&extensions, EXT_SUPPORTED_VERSIONS) ||
+                !CBB_add_u16_length_prefixed(&extensions, &sv_ext) ||
+                !CBB_add_u8_length_prefixed(&sv_ext, &sv_list) ||
+                !CBB_add_u16(&sv_list, 0x0304)) {
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
+
+            /* supported_groups */
+            CBB sg_ext, sg_list;
+            if (!CBB_add_u16(&extensions, EXT_SUPPORTED_GROUPS) ||
+                !CBB_add_u16_length_prefixed(&extensions, &sg_ext) ||
+                !CBB_add_u16_length_prefixed(&sg_ext, &sg_list) ||
+                !CBB_add_u16(&sg_list, NAMED_GROUP_X25519) ||
+                !CBB_add_u16(&sg_list, NAMED_GROUP_SECP256R1) ||
+                !CBB_add_u16(&sg_list, NAMED_GROUP_SECP384R1) ||
+                !CBB_add_u16(&sg_list, NAMED_GROUP_SECP521R1)) {
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
+
+            /* signature_algorithms */
+            CBB sa_ext, sa_list;
+            if (!CBB_add_u16(&extensions, EXT_SIGNATURE_ALGORITHMS) ||
+                !CBB_add_u16_length_prefixed(&extensions, &sa_ext) ||
+                !CBB_add_u16_length_prefixed(&sa_ext, &sa_list) ||
+                !CBB_add_u16(&sa_list, 0x0804) ||
+                !CBB_add_u16(&sa_list, 0x0805) ||
+                !CBB_add_u16(&sa_list, 0x0403) ||
+                !CBB_add_u16(&sa_list, 0x0503) ||
+                !CBB_add_u16(&sa_list, 0x0807)) {
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
+
+            /* key_share: ONLY the HRR-requested group */
+            CBB ks_ext, ks_list, ks_entry;
+            if (!CBB_add_u16(&extensions, EXT_KEY_SHARE) ||
+                !CBB_add_u16_length_prefixed(&extensions, &ks_ext) ||
+                !CBB_add_u16_length_prefixed(&ks_ext, &ks_list) ||
+                !CBB_add_u16(&ks_list, hs->hrr_group) ||
+                !CBB_add_u16_length_prefixed(&ks_list, &ks_entry) ||
+                !CBB_add_bytes(&ks_entry, hs->ecdh_pub, hs->ecdh_pub_len)) {
+                CBB_cleanup(&cbb);
+                return OPSSL_ERROR;
+            }
+
+            /* cookie echo (verbatim from HRR) */
+            if (hs->hrr_cookie_len > 0) {
+                CBB ck_ext, ck_data;
+                if (!CBB_add_u16(&extensions, EXT_COOKIE) ||
+                    !CBB_add_u16_length_prefixed(&extensions, &ck_ext) ||
+                    !CBB_add_u16_length_prefixed(&ck_ext, &ck_data) ||
+                    !CBB_add_bytes(&ck_data, hs->hrr_cookie, hs->hrr_cookie_len)) {
+                    CBB_cleanup(&cbb);
+                    return OPSSL_ERROR;
+                }
+            }
+
+            if (!cbb_finish_to_buf(&cbb, out, out_len, out_cap))
+                return OPSSL_ERROR;
+
+            tls13_update_transcript(hs, out, *out_len);
+            /* Stay in CLIENT_HELLO state to receive the real ServerHello. */
+            hs->state = OPSSL_HS_CLIENT_HELLO;
+            return OPSSL_OK;
         }
 
         CBS msg;
@@ -2376,12 +2921,18 @@ opssl_tls13_set_psk(void *hs_opaque, const uint8_t *psk, size_t psk_len,
     tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
     if (!hs || !psk || psk_len == 0) return;
     if (psk_len > sizeof(hs->psk)) psk_len = sizeof(hs->psk);
+    /* Zero any previous PSK to avoid mixing key material across resumptions. */
+    opssl_memzero(hs->psk, sizeof(hs->psk));
     memcpy(hs->psk, psk, psk_len);
     hs->psk_len = psk_len;
     if (ticket && ticket_len > 0 && ticket_len <= sizeof(hs->psk_ticket)) {
         memcpy(hs->psk_ticket, ticket, ticket_len);
         hs->psk_ticket_len = ticket_len;
     }
+    /* Associate the PSK with a hash matching its length (RFC 8446 §4.2.11
+     * requires the negotiated cipher's hash to match the PSK's hash). The
+     * server enforces this when accepting the PSK. */
+    hs->psk_hash_algo = (psk_len >= 48) ? OPSSL_HMAC_SHA384 : OPSSL_HMAC_SHA256;
     hs->has_psk = true;
 }
 
@@ -2652,21 +3203,72 @@ int opssl_tls13_key_update(void *hs_opaque, uint8_t *out, size_t *out_len,
     if (!cbb_finish_to_buf(&cbb, out, out_len, out_cap))
         return 0;
 
-    /* Rotate sender traffic secret:
-     * application_traffic_secret_N+1 =
-     *   HKDF-Expand-Label(secret_N, "traffic upd", "", Hash.length) */
+    /* Rotate THIS endpoint's outbound (sender) traffic secret atomically:
+     *   application_traffic_secret_N+1 =
+     *     HKDF-Expand-Label(secret_N, "traffic upd", "", Hash.length)
+     *
+     * Server's outbound is server_ap_traffic; client's outbound is
+     * client_ap_traffic. The previous code unconditionally rotated
+     * server_ap_traffic, corrupting state on the client side.
+     *
+     * The old secret is overwritten in place (memcpy) and then any
+     * temporaries are zeroed via opssl_memzero (libop's constant-time
+     * memset that the compiler cannot elide). Caller is responsible for
+     * deriving fresh AEAD key+IV from the rotated secret and zeroing the
+     * old AEAD context in the record layer. */
+    uint8_t *outbound_secret =
+        hs->is_server ? hs->server_ap_traffic : hs->client_ap_traffic;
+
     uint8_t new_secret[48];
     if (!opssl_tls13_hkdf_expand_label(new_secret, hs->hash_len,
-            hs->server_ap_traffic, hs->hash_len,
+            outbound_secret, hs->hash_len,
             "traffic upd",
             NULL, 0,
             hs->hash_algo)) {
+        opssl_memzero(new_secret, sizeof(new_secret));
         *out_len = 0;
         return 0;
     }
-    memcpy(hs->server_ap_traffic, new_secret, hs->hash_len);
+    /* Wipe the old secret bytes that will be overwritten — defence against
+     * the (unlikely) case the compiler reorders the memcpy under LTO. */
+    opssl_memzero(outbound_secret, hs->hash_len);
+    memcpy(outbound_secret, new_secret, hs->hash_len);
     opssl_memzero(new_secret, sizeof(new_secret));
 
+    return 1;
+}
+
+/* Public entry point: server emits a HelloRetryRequest when the client's
+ * offered key_share groups are unacceptable. Caller supplies the desired
+ * group. Writes the HRR record payload to `out` (caller wraps in record
+ * layer). RFC 8446 §4.1.4 forbids a second HRR — this function enforces
+ * that constraint and fails if hrr_sent is already set. */
+int opssl_tls13_build_hello_retry_request(void *hs_opaque, uint16_t requested_group,
+                                          uint8_t *out, size_t *out_len, size_t out_cap)
+{
+    tls13_hs_t *hs = (tls13_hs_t *)hs_opaque;
+    if (!hs || !out || !out_len)
+        return 0;
+    if (hs->hrr_sent)
+        return 0;  /* RFC 8446 §4.1.4: HRR2 is forbidden */
+
+    /* Snapshot CH1 hash + reinitialize transcript with synthetic prefix
+     * BEFORE emitting the HRR, so the HRR will be mixed into the new
+     * transcript. */
+    if (tls13_inject_synthetic_ch1(hs) != 0)
+        return 0;
+
+    CBB cbb;
+    if (!CBB_init(&cbb, 256))
+        return 0;
+    if (tls13_build_hello_retry_request(hs, requested_group, &cbb) != 0) {
+        CBB_cleanup(&cbb);
+        return 0;
+    }
+    if (!cbb_finish_to_buf(&cbb, out, out_len, out_cap))
+        return 0;
+
+    tls13_update_transcript(hs, out, *out_len);
     return 1;
 }
 
@@ -2691,15 +3293,24 @@ int opssl_tls13_process_post_handshake(void *hs_opaque, const uint8_t *buf,
 
     case TLS13_MSG_KEY_UPDATE: {
         if (msg_len != 1) return 0;
-        /* Rotate peer's (inbound) traffic secret */
+        if (buf[4] != 0 && buf[4] != 1) return 0;  /* must be update_not_requested
+                                                    * or update_requested */
+        /* Rotate the PEER's traffic secret (this endpoint's inbound).
+         * Server reads with client_ap_traffic; client reads with
+         * server_ap_traffic. */
+        uint8_t *inbound_secret =
+            hs->is_server ? hs->client_ap_traffic : hs->server_ap_traffic;
         uint8_t new_secret[48];
         if (!opssl_tls13_hkdf_expand_label(new_secret, hs->hash_len,
-                hs->client_ap_traffic, hs->hash_len,
+                inbound_secret, hs->hash_len,
                 "traffic upd",
                 NULL, 0,
-                hs->hash_algo))
+                hs->hash_algo)) {
+            opssl_memzero(new_secret, sizeof(new_secret));
             return 0;
-        memcpy(hs->client_ap_traffic, new_secret, hs->hash_len);
+        }
+        opssl_memzero(inbound_secret, hs->hash_len);
+        memcpy(inbound_secret, new_secret, hs->hash_len);
         opssl_memzero(new_secret, sizeof(new_secret));
 
         /* If update_requested, respond with our own KeyUpdate */
@@ -2709,10 +3320,170 @@ int opssl_tls13_process_post_handshake(void *hs_opaque, const uint8_t *buf,
         return 1;
     }
 
-    case TLS13_MSG_CERTIFICATE_REQUEST:
-        /* Client received post-hs CertificateRequest — store context for response */
-        /* Response (Cert + CV + Finished) would be built by the caller */
+    case TLS13_MSG_CERTIFICATE_REQUEST: {
+        /* Post-handshake CertificateRequest (RFC 8446 §4.6.2). Build the
+         * full Certificate + CertificateVerify + Finished response over a
+         * transcript that includes the CR itself. */
+        if (hs->is_server)
+            return 0;  /* servers do not receive CR post-handshake */
+
+        /* Parse CR: certificate_request_context + extensions{signature_algorithms} */
+        CBS cr;
+        CBS_init(&cr, buf + 4, msg_len);
+        CBS ctx;
+        if (!CBS_get_u8_length_prefixed(&cr, &ctx))
+            return 0;
+        size_t ctxl = CBS_len(&ctx);
+        if (ctxl > sizeof(hs->pha_context))
+            return 0;
+        memcpy(hs->pha_context, CBS_data(&ctx), ctxl);
+        hs->pha_context_len = ctxl;
+
+        CBS exts;
+        if (!CBS_get_u16_length_prefixed(&cr, &exts))
+            return 0;
+        hs->pha_sig_algs_count = 0;
+        while (CBS_len(&exts) > 0) {
+            uint16_t etype;
+            CBS edata;
+            if (!CBS_get_u16(&exts, &etype) ||
+                !CBS_get_u16_length_prefixed(&exts, &edata))
+                return 0;
+            if (etype == EXT_SIGNATURE_ALGORITHMS) {
+                CBS sa_list;
+                if (!CBS_get_u16_length_prefixed(&edata, &sa_list))
+                    return 0;
+                while (CBS_len(&sa_list) >= 2 &&
+                       hs->pha_sig_algs_count <
+                           sizeof(hs->pha_sig_algs)/sizeof(hs->pha_sig_algs[0])) {
+                    uint16_t alg;
+                    if (!CBS_get_u16(&sa_list, &alg))
+                        return 0;
+                    hs->pha_sig_algs[hs->pha_sig_algs_count++] = alg;
+                }
+            }
+        }
+
+        /* Update transcript with the received CR before building our response,
+         * matching the server's transcript view (RFC 8446 §4.4 / §4.6.2). */
+        tls13_update_transcript(hs, buf, 4 + msg_len);
+        hs->pha_pending = true;
+
+        size_t total = 0;
+
+        /* 1) Certificate — use client cert chain with the PHA context echoed.
+         * If no client cert is configured we MUST still send an empty
+         * Certificate with the same context (RFC 8446 §4.4.2). */
+        {
+            CBB cbb, msg2, cert_list, ctx_cbb;
+            if (!CBB_init(&cbb, 4096) ||
+                !CBB_add_u8(&cbb, TLS13_MSG_CERTIFICATE) ||
+                !CBB_add_u24_length_prefixed(&cbb, &msg2) ||
+                !CBB_add_u8_length_prefixed(&msg2, &ctx_cbb) ||
+                !CBB_add_bytes(&ctx_cbb, hs->pha_context, hs->pha_context_len) ||
+                !CBB_add_u24_length_prefixed(&msg2, &cert_list)) {
+                CBB_cleanup(&cbb);
+                return 0;
+            }
+            if (hs->client_cert_chain) {
+                size_t cnt = opssl_x509_chain_count(hs->client_cert_chain);
+                for (size_t i = 0; i < cnt; i++) {
+                    opssl_x509_t *cert = opssl_x509_chain_get(hs->client_cert_chain, i);
+                    if (!cert) { CBB_cleanup(&cbb); return 0; }
+                    const uint8_t *der; size_t der_len;
+                    if (!opssl_x509_get_der(cert, &der, &der_len)) {
+                        opssl_x509_free(cert); CBB_cleanup(&cbb); return 0;
+                    }
+                    CBB cert_entry;
+                    if (!CBB_add_u24_length_prefixed(&cert_list, &cert_entry) ||
+                        !CBB_add_bytes(&cert_entry, der, der_len) ||
+                        !CBB_add_u16(&cert_list, 0)) {
+                        opssl_x509_free(cert); CBB_cleanup(&cbb); return 0;
+                    }
+                    opssl_x509_free(cert);
+                }
+            }
+            uint8_t tmp[4096]; size_t tmp_len;
+            if (!cbb_finish_to_buf(&cbb, tmp, &tmp_len, sizeof(tmp)))
+                return 0;
+            if (total + tmp_len > out_cap)
+                return 0;
+            tls13_update_transcript(hs, tmp, tmp_len);
+            memcpy(out + total, tmp, tmp_len);
+            total += tmp_len;
+        }
+
+        /* 2) CertificateVerify — only if we actually have a signing key. RFC
+         * 8446 §4.4.2.4: omit CV when sending an empty Certificate. Pick the
+         * first server-advertised sig alg that matches our key. */
+        if (hs->client_sign_key && hs->client_cert_chain &&
+            opssl_x509_chain_count(hs->client_cert_chain) > 0) {
+            uint8_t cv_hash[48];
+            int hl = tls13_get_transcript_hash(hs, cv_hash);
+            if (hl < 0) return 0;
+
+            CBB cbb;
+            if (!CBB_init(&cbb, 1024)) return 0;
+            const opssl_pkey_t *saved = hs->sign_key;
+            hs->sign_key = hs->client_sign_key;
+            if (tls13_build_certificate_verify(hs, &cbb, cv_hash, (size_t)hl) != 0) {
+                hs->sign_key = saved;
+                CBB_cleanup(&cbb);
+                return 0;
+            }
+            hs->sign_key = saved;
+
+            uint8_t tmp[1024]; size_t tmp_len;
+            if (!cbb_finish_to_buf(&cbb, tmp, &tmp_len, sizeof(tmp)))
+                return 0;
+            if (total + tmp_len > out_cap) return 0;
+            tls13_update_transcript(hs, tmp, tmp_len);
+            memcpy(out + total, tmp, tmp_len);
+            total += tmp_len;
+        }
+
+        /* 3) Finished — HMAC over the post-handshake transcript, using the
+         * CURRENT outbound application traffic secret (client side). */
+        {
+            uint8_t th[48], fk[48], vd[48];
+            int hl = tls13_get_transcript_hash(hs, th);
+            if (hl < 0) return 0;
+            if (opssl_tls13_hkdf_expand_label(fk, hs->hash_len,
+                    hs->client_ap_traffic, hs->hash_len,
+                    "finished", NULL, 0, hs->hash_algo) != 1)
+                return 0;
+            size_t vd_len = sizeof(vd);
+            if (opssl_hmac(hs->hash_algo, fk, hs->hash_len,
+                           th, (size_t)hl, vd, &vd_len) != 1) {
+                opssl_memzero(fk, sizeof(fk));
+                return 0;
+            }
+            opssl_memzero(fk, sizeof(fk));
+
+            CBB cbb, msg2;
+            if (!CBB_init(&cbb, 64) ||
+                !CBB_add_u8(&cbb, TLS13_MSG_FINISHED) ||
+                !CBB_add_u24_length_prefixed(&cbb, &msg2) ||
+                !CBB_add_bytes(&msg2, vd, hs->hash_len)) {
+                CBB_cleanup(&cbb);
+                opssl_memzero(vd, sizeof(vd));
+                return 0;
+            }
+            opssl_memzero(vd, sizeof(vd));
+
+            uint8_t tmp[128]; size_t tmp_len;
+            if (!cbb_finish_to_buf(&cbb, tmp, &tmp_len, sizeof(tmp)))
+                return 0;
+            if (total + tmp_len > out_cap) return 0;
+            tls13_update_transcript(hs, tmp, tmp_len);
+            memcpy(out + total, tmp, tmp_len);
+            total += tmp_len;
+        }
+
+        *out_len = total;
+        hs->pha_pending = false;
         return 1;
+    }
 
     default:
         return 0;

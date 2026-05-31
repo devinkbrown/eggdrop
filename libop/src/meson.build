@@ -1,17 +1,14 @@
 # =========================================================================
 # libop/src/meson.build — portable data-structure + commio static library
 #
-# Includes the full ophion libop subset:
-#   - Memory / allocators
-#   - Data structures
-#   - Utilities
-#   - commio I/O layer
-#   - TLS via opssl (opssl_backend.c) or no-op stubs (ssl_stubs.c)
+# Embedded in Eggdrop as a static library.  Keep the source list aligned with
+# Ophion libop, plus Eggdrop-local helpers that have not moved upstream.
 # =========================================================================
 
 libop_sources = files(
   # Memory / allocation
   'op_memory.c',
+  'op_memory_ext.c',
   'balloc.c',
   'arena.c',
 
@@ -40,9 +37,14 @@ libop_sources = files(
   'tools.c',
   'utf8.c',
   'simd_scan.c',
+  'regex.c',
+  'hostmask.c',
+  'msgbuf.c',
+  'subst.c',
 
   # Threading
   'thread_pool.c',
+  'op_atomic.c',
 
   # Extended utilities
   'crypt.c',

@@ -34,10 +34,10 @@ load = [
   "console",   # Persist console settings across restarts
   # "seen",      # Basic !seen command
   # "assoc",     # Party-line channel naming
-  "uptime",    # Report uptime to https://www.eggheads.org/uptime/
+#  "uptime",  # not in this build
   # "ident",     # Ident daemon support
   # "twitch",    # Twitch gaming service support
-  # "webui",     # Browser-based administration UI (requires TLS)
+  "webui",      # Browser-based administration UI (requires TLS)
 ]
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ network  = "I.didn't.edit.my.config.file.net"
 # On first run, if no user file exists, the bot creates it automatically with
 # these handles as owners — no -m flag needed.
 # Uncomment and edit this — it is required!
-# owner = "MyNick, MyOtherNick"
+owner = "kain"
 
 # Separate botnet nick (default: same as nick).
 # botnet_nick = "LlamaBot"
@@ -144,6 +144,7 @@ list = ["#egghelp"]
 # ---------------------------------------------------------------------------
 
 [paths]
+mod_path  = "builddir/src/"
 # User and channel data files.
 userfile  = "LamestBot.user"
 chanfile  = "LamestBot.chan"
@@ -158,7 +159,6 @@ help_path = "help/"
 # temp = "/tmp"
 
 # Directory containing compiled module (.so / .dll) files.
-mod_path  = "modules/"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -218,10 +218,19 @@ require_p = 0
 # Both run after all settings are applied.
 # ---------------------------------------------------------------------------
 
+[webui]
+webui-token = "807938b295a4286a83fa8f5c4501e44ade259ee17435d9c1"
+
+[ssl]
+ssl_certificate = "eggdrop.crt"
+ssl_privatekey  = "eggdrop.key"
+
 [tcl]
 commands = [
   # Disable the 'simul' partyline command (security best practice).
   "unbind dcc n simul *dcc:simul",
+  # Start WebUI listener on port 8443
+  "listen +8443 webui",
 ]
 
 # Multi-line Tcl — uncomment to add procs, binds, etc.:

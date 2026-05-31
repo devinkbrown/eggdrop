@@ -69,3 +69,7 @@ entries = [
 [security]
 # Reject owner commands from the server (standard precaution on public nets).
 stealth = true
+
+[scripts]
+# Load the message-rate tracker; logs [MSGRATE] lines every 60 s.
+load = ["scripts/perf_track.tcl"]

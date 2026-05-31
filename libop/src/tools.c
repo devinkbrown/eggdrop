@@ -28,36 +28,6 @@
 #include <op_tools.h>
 
 /* -------------------------------------------------------------------------
- * dlink node heap
- * ---------------------------------------------------------------------- */
-
-static op_bh *dnode_heap;
-
-__attribute__((cold))
-void
-op_init_dlink_nodes(size_t dh_size)
-{
-	dnode_heap = op_bh_create(sizeof(op_dlink_node), dh_size, "libop_dnode_heap");
-	if (__builtin_expect(dnode_heap == NULL, 0))
-		op_outofmemory();
-}
-
-__attribute__((hot))
-op_dlink_node *
-op_make_dlink_node(void)
-{
-	return op_bh_alloc(dnode_heap);
-}
-
-__attribute__((hot))
-void
-op_free_dlink_node(op_dlink_node *restrict ptr)
-{
-	slop_assert(ptr != NULL);
-	op_bh_free(dnode_heap, ptr);
-}
-
-/* -------------------------------------------------------------------------
  * op_string_to_array
  *
  * Split a string into IRC-protocol parameters.  The ':' prefix convention

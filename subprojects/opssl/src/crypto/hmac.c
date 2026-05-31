@@ -44,7 +44,11 @@ int
 opssl_hmac_init(opssl_hmac_ctx_t *ctx, opssl_hmac_algo_t algo,
                 const uint8_t *key, size_t key_len)
 {
-    if (!key)
+    /*
+     * RFC 2104 permits any key length, including zero. Allow a NULL key
+     * pointer only when key_len == 0 (e.g. HKDF zero-salt fall-through).
+     */
+    if (!key && key_len != 0)
         return 0;
 
     memset(ctx, 0, sizeof(*ctx));
@@ -71,7 +75,8 @@ opssl_hmac_init(opssl_hmac_ctx_t *ctx, opssl_hmac_algo_t algo,
             opssl_sha512(key, key_len, key_block);
             break;
         }
-    } else {
+    } else if (key_len > 0) {
+        /* key may be NULL when key_len == 0; key_block is already zeroed. */
         memcpy(key_block, key, key_len);
     }
 

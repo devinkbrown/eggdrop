@@ -20,6 +20,7 @@ enum {
   SASL_MECHANISM_PLAIN,
   SASL_MECHANISM_ECDSA_NIST256P_CHALLENGE,
   SASL_MECHANISM_EXTERNAL,
+  SASL_MECHANISM_SCRAM_SHA_1,
   SASL_MECHANISM_SCRAM_SHA_256,
   SASL_MECHANISM_SCRAM_SHA_512,
   SASL_MECHANISM_ECDH_X25519_CHALLENGE,
@@ -28,6 +29,18 @@ enum {
 
 constexpr int SASL_PASSWORD_MAX  = 120;
 constexpr int SASL_ECDSA_KEY_MAX = 120;
+
+/* Per-username SASL failure rate limiting.
+ * Tracks consecutive failures and enforces an exponential backoff before
+ * allowing the next authentication attempt for the same username.
+ */
+typedef struct {
+  int    count;       /* consecutive failure count                   */
+  time_t next_allow;  /* earliest time_t at which auth may proceed   */
+} sasl_fail_t;
+
+static op_htab *sasl_fail_ht = nullptr; /* istr key: username → sasl_fail_t * */
+static op_bh   *sasl_fail_bh = nullptr; /* slab for sasl_fail_t nodes          */
 
 static int sasl_timeout_time = 0;
 static int sasl_continue = 1;
@@ -38,12 +51,15 @@ static char sasl_ecdsa_key[SASL_ECDSA_KEY_MAX + 1];
 static char sasl_x25519_key[SASL_ECDSA_KEY_MAX + 1];
 static int sasl_timeout = 15;
 int sasl = 0;
+static int sasl_require_tls = 1; /* refuse SASL PLAIN on non-TLS connections */
+static int sasl_scram_sha1 = 1;  /* enable SCRAM-SHA-1 mechanism (default: on) */
 
 /* Available sasl mechanisms. */
 static char const *SASL_MECHANISMS[SASL_MECHANISM_NUM] = {
   [SASL_MECHANISM_PLAIN]                    = "PLAIN",
   [SASL_MECHANISM_ECDSA_NIST256P_CHALLENGE] = "ECDSA-NIST256P-CHALLENGE",
   [SASL_MECHANISM_EXTERNAL]                 = "EXTERNAL",
+  [SASL_MECHANISM_SCRAM_SHA_1]              = "SCRAM-SHA-1",
   [SASL_MECHANISM_SCRAM_SHA_256]            = "SCRAM-SHA-256",
   [SASL_MECHANISM_SCRAM_SHA_512]            = "SCRAM-SHA-512",
   [SASL_MECHANISM_ECDH_X25519_CHALLENGE]    = "ECDH-X25519-CHALLENGE",
@@ -132,6 +148,33 @@ static int gotsasl90X(char *from, char *msg)
 {
   newsplit(&msg); /* nick */
   fixcolon(msg);
+
+  /* Record failure for the current username to enforce backoff. */
+  if (sasl_username[0]) {
+    if (!sasl_fail_bh)
+      sasl_fail_bh = op_bh_create(sizeof(sasl_fail_t), 8, "sasl_fail");
+    if (!sasl_fail_ht)
+      sasl_fail_ht = op_htab_create_istr("sasl_fail", 8);
+
+    sasl_fail_t *sf = (sasl_fail_t *)op_htab_get(sasl_fail_ht, sasl_username);
+    if (!sf) {
+      sf = (sasl_fail_t *)op_bh_alloc(sasl_fail_bh);
+      sf->count      = 0;
+      sf->next_allow = 0;
+      char *key = op_strdup(sasl_username);
+      op_htab_set(sasl_fail_ht, key, sf, nullptr);
+    }
+    sf->count++;
+    /* Exponential backoff: 1, 2, 4, 8, 16, 32 seconds (capped at 2^5 = 32s). */
+    int shift = sf->count - 1;
+    if (shift > 5)
+      shift = 5;
+    sf->next_allow = now + (time_t)(1 << shift);
+    putlog(LOG_SERV, "*",
+           "SASL: failure #%d for username %s; next attempt allowed in %ds",
+           sf->count, sasl_username, 1 << shift);
+  }
+
   sasl_error(msg);
   return 0;
 }
@@ -144,6 +187,14 @@ static int got903(char *from, char *msg)
   putlog(LOG_SERV, "*", "SASL: %s", msg);
   dprintf(DP_MODE, "CAP END\n");
   sasl_timeout_time = 0;
+
+  /* Clear any accumulated failure backoff for this username on success. */
+  if (sasl_username[0] && sasl_fail_ht) {
+    sasl_fail_t *sf = (sasl_fail_t *)op_htab_del(sasl_fail_ht, sasl_username);
+    if (sf)
+      op_bh_free(sasl_fail_bh, sf);
+  }
+
   return 0;
 }
 
@@ -443,7 +494,10 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
       return -1;
     }
 
-    if (sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256) {
+    if (sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_1) {
+      digest_algo = OPSSL_HMAC_SHA1;
+      digest_len = OPSSL_SHA1_DIGEST_LEN;
+    } else if (sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256) {
       digest_algo = OPSSL_HMAC_SHA256;
       digest_len = OPSSL_SHA256_DIGEST_LEN;
     } else {
@@ -464,6 +518,7 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
     double ums, sms;
     if (egg_timer_stop(&rt, &ums, &sms))
       debug4("SASL: pbkdf2 digest %s iter %i, user %.3fms sys %.3fms",
+             digest_algo == OPSSL_HMAC_SHA1   ? "SHA-1"   :
              digest_algo == OPSSL_HMAC_SHA256 ? "SHA-256" : "SHA-512",
              iter, ums, sms);
     else
@@ -485,7 +540,9 @@ static int sasl_scram_step_1(char *restrict client_msg_plain,
 
   /* StoredKey       := H(ClientKey) */
 
-  if (digest_algo == OPSSL_HMAC_SHA256)
+  if (digest_algo == OPSSL_HMAC_SHA1)
+    opssl_sha1(client_key, client_key_len, stored_key);
+  else if (digest_algo == OPSSL_HMAC_SHA256)
     opssl_sha256(client_key, client_key_len, stored_key);
   else
     opssl_sha512(client_key, client_key_len, stored_key);
@@ -625,6 +682,7 @@ static int gotauthenticate(char *from, char *msg)
       case SASL_MECHANISM_EXTERNAL:
         dprintf(DP_MODE, "AUTHENTICATE +\n");
         return 0;
+      case SASL_MECHANISM_SCRAM_SHA_1:
       case SASL_MECHANISM_SCRAM_SHA_256:
       case SASL_MECHANISM_SCRAM_SHA_512:
         client_msg_plain_len = sasl_scram_step_0(client_msg_plain, sizeof client_msg_plain);
@@ -705,10 +763,12 @@ static cmd_t sasl_raw[] = {
 };
 
 static tcl_ints sasl_tcl_ints[] = {
-  {"sasl",           &sasl,           0},
-  {"sasl-mechanism", &sasl_mechanism, 0},
-  {"sasl-continue",  &sasl_continue,  0},
-  {"sasl-timeout",   &sasl_timeout,   0},
+  {"sasl",              &sasl,              0},
+  {"sasl-mechanism",    &sasl_mechanism,    0},
+  {"sasl-continue",     &sasl_continue,     0},
+  {"sasl-timeout",      &sasl_timeout,      0},
+  {"sasl-require-tls",  &sasl_require_tls,  0},
+  {"sasl-scram-sha1",   &sasl_scram_sha1,   0},
   {nullptr,             nullptr,            0}
 };
 
@@ -727,6 +787,24 @@ static void sasl_close(void)
   rem_tcl_strings(sasl_tcl_strings);
   Tcl_UntraceVar(interp, "sasl-mechanism", TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_sasl_mechanism, nullptr);
+
+  /* Release failure-rate-limit state. */
+  if (sasl_fail_ht) {
+    op_htab_iter_t it;
+    op_htab_iter_init(sasl_fail_ht, &it);
+    void *key, *val;
+    while (op_htab_iter_next(sasl_fail_ht, &it, &key, &val)) {
+      op_free(key);
+      op_htab_iter_del(sasl_fail_ht, &it);
+      /* value (sasl_fail_t *) lives in sasl_fail_bh — freed with the heap */
+    }
+    op_htab_destroy(sasl_fail_ht, nullptr, nullptr);
+    sasl_fail_ht = nullptr;
+  }
+  if (sasl_fail_bh) {
+    op_bh_destroy(sasl_fail_bh);
+    sasl_fail_bh = nullptr;
+  }
 }
 
 static void sasl_start(void)
@@ -744,11 +822,27 @@ static void sasl_start(void)
 */
 int sasl_authenticate_initial(const op_vec_t *cap_value_list)
 {
+  /* Per-username failure rate limiting: abort if still in backoff window. */
+  if (sasl_username[0] && sasl_fail_ht) {
+    sasl_fail_t *sf = (sasl_fail_t *)op_htab_get(sasl_fail_ht, sasl_username);
+    if (sf && now < sf->next_allow) {
+      putlog(LOG_SERV, "*",
+             "SASL: rate-limited for username %s, retry in %lds",
+             sasl_username, (long)(sf->next_allow - now));
+      dprintf(DP_MODE, "CAP END\n");
+      return 1;
+    }
+  }
+
   putlog(LOG_DEBUG, "*", "SASL: Starting authentication process");
 #ifdef TLS
   int servidx = findanyidx(serv);
   if ((sasl_mechanism == SASL_MECHANISM_EXTERNAL) && !dcc[servidx].ssl) {
     sasl_error("authentication mechanism EXTERNAL not possible via non-ssl connection");
+    return 1;
+  }
+  if (sasl_mechanism == SASL_MECHANISM_PLAIN && sasl_require_tls && !dcc[servidx].ssl) {
+    sasl_error("SASL PLAIN authentication refused on non-TLS connection");
     return 1;
   }
 #endif

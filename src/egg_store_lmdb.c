@@ -492,3 +492,136 @@ egg_store_backend_t egg_store_lmdb = {
   .export_flat    = lmdb_export_flat,
   .import_flat    = lmdb_import_flat,
 };
+
+/* ======================================================================
+ * Per-record public API
+ *
+ * These functions allow direct per-user reads and writes against the
+ * "users" named sub-database.  They are only meaningful when the LMDB
+ * backend is active (env != NULL).
+ *
+ * The serialized blob format is caller-defined (flat-file text for the
+ * eggdrop use-case).  All three functions are no-ops when env is NULL,
+ * so callers need not guard against the flat-file backend being active.
+ * ====================================================================== */
+
+/*
+ * egg_lmdb_put_user — write (or overwrite) a single user record.
+ *
+ * handle     : NUL-terminated handle string (the LMDB key)
+ * serialized : blob to store (need not be NUL-terminated)
+ * len        : byte length of serialized
+ *
+ * Returns 0 on success, -1 on error.
+ */
+int egg_lmdb_put_user(const char *handle, const char *serialized, size_t len)
+{
+  if (!env || !handle || !serialized)
+    return -1;
+
+  MDB_txn *txn;
+  int rc = mdb_txn_begin(env, nullptr, 0, &txn);
+  if (rc) {
+    putlog(LOG_MISC, "*", "LMDB put_user: txn_begin failed: %s", mdb_strerror(rc));
+    return -1;
+  }
+
+  MDB_val key = mk_str(handle);
+  MDB_val val = mk_val(serialized, len);
+  rc = mdb_put(txn, dbi_users, &key, &val, 0);
+  if (rc) {
+    putlog(LOG_MISC, "*", "LMDB put_user(%s): mdb_put failed: %s", handle, mdb_strerror(rc));
+    mdb_txn_abort(txn);
+    return -1;
+  }
+
+  rc = mdb_txn_commit(txn);
+  if (rc) {
+    putlog(LOG_MISC, "*", "LMDB put_user(%s): commit failed: %s", handle, mdb_strerror(rc));
+    return -1;
+  }
+  return 0;
+}
+
+/*
+ * egg_lmdb_del_user — remove a user record (and its host/account entries).
+ *
+ * Returns 0 on success (including "not found"), -1 on hard error.
+ */
+int egg_lmdb_del_user(const char *handle)
+{
+  if (!env || !handle)
+    return -1;
+
+  MDB_txn *txn;
+  int rc = mdb_txn_begin(env, nullptr, 0, &txn);
+  if (rc) {
+    putlog(LOG_MISC, "*", "LMDB del_user: txn_begin failed: %s", mdb_strerror(rc));
+    return -1;
+  }
+
+  /* Remove the user record itself (ignore MDB_NOTFOUND). */
+  MDB_val key = mk_str(handle);
+  rc = mdb_del(txn, dbi_users, &key, nullptr);
+  if (rc && rc != MDB_NOTFOUND) {
+    putlog(LOG_MISC, "*", "LMDB del_user(%s): mdb_del failed: %s", handle, mdb_strerror(rc));
+    mdb_txn_abort(txn);
+    return -1;
+  }
+
+  /* Also clean up host and account index entries for this handle. */
+  delete_user_entries(txn, dbi_hosts,    handle);
+  delete_user_entries(txn, dbi_accounts, handle);
+
+  rc = mdb_txn_commit(txn);
+  if (rc) {
+    putlog(LOG_MISC, "*", "LMDB del_user(%s): commit failed: %s", handle, mdb_strerror(rc));
+    return -1;
+  }
+  return 0;
+}
+
+/*
+ * egg_lmdb_get_user — read a single user record by handle.
+ *
+ * handle : NUL-terminated handle to look up
+ * out    : set to an op_malloc'd copy of the blob on success (caller must op_free)
+ * outlen : set to the byte length of *out
+ *
+ * Returns 0 on success, -1 on miss or error.
+ * *out is always set to NULL on failure.
+ */
+int egg_lmdb_get_user(const char *handle, char **out, size_t *outlen)
+{
+  if (out)
+    *out = nullptr;
+  if (outlen)
+    *outlen = 0;
+
+  if (!env || !handle || !out || !outlen)
+    return -1;
+
+  MDB_txn *txn;
+  int rc = mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+  if (rc)
+    return -1;
+
+  MDB_val key = mk_str(handle);
+  MDB_val val;
+  rc = mdb_get(txn, dbi_users, &key, &val);
+  if (rc) {
+    mdb_txn_abort(txn);
+    return -1;   /* MDB_NOTFOUND or error */
+  }
+
+  /* Copy out of LMDB's memory-mapped region before aborting the txn. */
+  char *buf = op_malloc(val.mv_size + 1);
+  memcpy(buf, val.mv_data, val.mv_size);
+  buf[val.mv_size] = '\0';
+
+  mdb_txn_abort(txn);
+
+  *out    = buf;
+  *outlen = val.mv_size;
+  return 0;
+}

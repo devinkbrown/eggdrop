@@ -35,6 +35,25 @@
 #include "transfer.mod/transfer.h"
 #include "channels.mod/channels.h"
 
+/*
+ * Share protocol framing constants.
+ *
+ * SHARE_PROTO_VERSION 2 introduces length-prefixed framing on the botlink
+ * socket (4-byte big-endian payload length followed by the payload).  This
+ * makes the wire format unambiguous and is a prerequisite for TLS support.
+ *
+ * Version negotiation is done in share_version()/share_ufyes(): a peer that
+ * announces SHARE_PROTO_VERSION >= 2 in its capability string may send and
+ * expects to receive length-prefixed frames.  Peers that do not announce v2
+ * continue to use the existing newline-delimited line protocol (SHARE_PROTO_VERSION 1).
+ *
+ * MAX_SHARE_FRAME caps the maximum accepted frame payload.  Lines exceeding
+ * this limit are dropped with a warning; the peer is not disconnected because
+ * the line-mode layer above us has already buffered the full line.
+ */
+#define SHARE_PROTO_VERSION 2
+#define MAX_SHARE_FRAME     65536
+
 /* Minimum version I will share with. */
 static const int min_share = 1029900;
 
@@ -1409,6 +1428,16 @@ static void sharein_mod(int idx, char *msg)
 {
   char *code;
   int f, i;
+
+  /* Guard against oversized share messages.  In line-mode the botnet layer
+   * has already buffered the full line, so we cannot disconnect based on a
+   * framing violation here.  Drop the line and log a warning instead. */
+  if (msg && strlen(msg) > MAX_SHARE_FRAME) {
+    putlog(LOG_BOTS, "*",
+           "Share: dropping oversized message from %s (len=%zu, max=%d)",
+           dcc[idx].nick, strlen(msg), MAX_SHARE_FRAME);
+    return;
+  }
 
   code = newsplit(&msg);
   for (f = 0, i = 0; C_share[i].name && !f; i++) {

@@ -277,18 +277,35 @@ int opssl_fingerprint_compare(const uint8_t *fp1, const uint8_t *fp2,
         return -1;
     }
 
-    return memcmp(fp1, fp2, hash_len);
+    /* Constant-time equality: return 0 if equal, non-zero otherwise,
+     * to retain memcmp-style semantics for existing callers. */
+    return opssl_ct_eq(fp1, fp2, hash_len) ? 0 : 1;
 }
 
-/* Compare two hex fingerprints for equality */
+/* Compare two hex fingerprints for equality (constant-time, case-insensitive). */
 int opssl_fingerprint_hex_compare(const char *fp1, const char *fp2) {
     if (!fp1 || !fp2) {
         opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, "Invalid fingerprint strings");
         return -1;
     }
 
-    /* Case-insensitive comparison */
-    return strcasecmp(fp1, fp2);
+    size_t len1 = strlen(fp1);
+    size_t len2 = strlen(fp2);
+    if (len1 != len2) {
+        return 1;
+    }
+
+    /* Case-insensitive constant-time compare: fold to lowercase per byte
+     * and OR the differences so we always scan the full buffer. */
+    unsigned diff = 0;
+    for (size_t i = 0; i < len1; i++) {
+        unsigned char a = (unsigned char)fp1[i];
+        unsigned char b = (unsigned char)fp2[i];
+        if (a >= 'A' && a <= 'Z') a = (unsigned char)(a + 32);
+        if (b >= 'A' && b <= 'Z') b = (unsigned char)(b + 32);
+        diff |= (unsigned)(a ^ b);
+    }
+    return diff == 0 ? 0 : 1;
 }
 
 /* Validate fingerprint format (hex string with colons) */

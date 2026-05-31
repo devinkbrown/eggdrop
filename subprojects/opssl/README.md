@@ -65,8 +65,9 @@ src/crypto/
   sha3.c         SHA-3 (Keccak), SHAKE-128/256
   hmac.c         HMAC-SHA-1/256/384/512
   hkdf.c         HKDF extract/expand/expand-label (RFC 5869)
-  pbkdf2.c       PBKDF2-HMAC (RFC 2898)
+  pbkdf2.c       PBKDF2-HMAC (RFC 2898), policy-checked and unchecked KAT path
   aes.c          AES-128/256 (software)
+  aes_sbox_ct.c  constant-time AES S-box tables split out for toolchain/LTO safety
   aes_gcm.c      AES-GCM seal/open
   aes_ccm.c      AES-CCM seal/open (full and truncated tag)
   camellia.c     Camellia block cipher + Camellia-GCM AEAD
@@ -99,7 +100,7 @@ src/tls/
   ciphersuite.c  cipher suite negotiation
   keysched.c     TLS 1.3 key schedule
   ktls.c         kernel TLS promotion and key extraction
-  dtls.c         DTLS record layer
+  dtls.c         DTLS record layer, fragmentation, timers, anti-replay
 
 src/x509/
   cert.c         X.509 certificate parsing
@@ -112,7 +113,10 @@ src/x509/
 
 src/io/
   bio.c          BIO abstraction for custom I/O
-  export.c       TLS session export/import for live migration
+
+Session export/import is implemented by the connection layer in
+`src/tls/handshake.c` through `opssl_conn_export()` and
+`opssl_conn_import()`.
 ```
 
 ## Crypto primitives
@@ -155,6 +159,8 @@ All primitives are real implementations, not wrappers around another library.
 - Certificate fingerprinting (SHA1/256/512, SHA3-256/512, SPKI variants)
 - Keying material export (RFC 5705 / RFC 8446 section 7.5)
 - Post-handshake key update (TLS 1.3)
+- TLS 1.3 PSK resumption with binder generation/verification and ticket
+  handling
 - Post-quantum hybrid key exchange (X25519+ML-KEM-768)
 
 ### Cipher suites
@@ -212,6 +218,18 @@ For live migration when kTLS is unavailable, opssl can serialize the complete
 TLS session state (keys, IVs, sequence numbers, cipher suite) into a buffer
 for transfer alongside the socket FD.  The new process reconstructs the TLS
 session without re-handshake.
+
+### DTLS
+
+DTLS is exposed through `opssl/dtls.h`.  It uses the same TLS context model as
+stream TLS and adds datagram-specific MTU, retransmission timer, cookie, SNI,
+ALPN, and anti-replay controls.  The record layer tracks replay sequence
+numbers within the active read epoch, uses a fixed 256-record window internally,
+and retransmits saved flights as individual records so retries stay within the
+current path MTU.
+
+`opssl_dtls_set_replay_window()` resets the replay state; the current
+implementation keeps the internal window size fixed.
 
 ## API overview
 
@@ -273,12 +291,19 @@ opssl_x25519_keygen(priv, pub);
 
 ## Tests
 
-Four test suites:
+Test executables:
 
 - `test_crypto` — SHA-256/512, SHA-1, SHA3-256/512, SHAKE-128/256, BLAKE2b, HMAC, HKDF, PBKDF2, Argon2id, AEAD (AES-GCM, ChaCha20-Poly1305, AES-CCM, Camellia-GCM), X25519, Ed25519, ECDSA, ECDH (P-256/P-384/P-521), RSA, ML-DSA-65, ML-KEM, FFDHE, Base64, constant-time ops, hardware acceleration
-- `test_tls` — TLS protocol handshake and record layer
+- `test_tls` — TLS/DTLS protocol handshake and record layer, including TLS 1.2 P-256 certificate coverage
 - `test_x509` — certificate parsing, chain verification, fingerprinting
 - `test_mlkem_debug` — ML-KEM intermediate value validation (NTT, sampling, encaps/decaps internals)
+- `test_mlkem_kat` — ML-KEM / ML-DSA ACVP known-answer harness
+- `test_tls13_handshake` — TLS 1.3 handshake state-machine coverage
+- `test_aead` — standalone AEAD coverage
+- `test_x509_chain` — certificate-chain verification coverage
+- `test_pq_hybrid` — post-quantum hybrid key-exchange coverage
+- `test_session_resume` — TLS 1.3 PSK/ticket session resumption
+- `test_kdf` — focused KDF coverage including PBKDF2 low-iteration KATs
 
 ```bash
 meson test -C builddir --verbose

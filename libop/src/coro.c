@@ -16,6 +16,8 @@
 # define _XOPEN_SOURCE 700
 #endif
 #include <ucontext.h>
+#include <signal.h>   /* MINSIGSTKSZ */
+#include <assert.h>
 
 /* -------------------------------------------------------------------------
  * Coroutine state
@@ -65,7 +67,11 @@ op_coro_t *
 op_coro_new(op_coro_fn fn, void *arg, size_t stack_sz)
 {
 	if(!fn) return NULL;
-	if(stack_sz == 0) stack_sz = OP_CORO_DEFAULT_STACK_SZ;
+	/* volatile silences -Wclobbered around the getcontext()/swapcontext()
+	 * pair (the param may live in a register clobbered by the context save). */
+	volatile size_t vstk = (stack_sz == 0) ? OP_CORO_DEFAULT_STACK_SZ : stack_sz;
+	if(vstk < (size_t)MINSIGSTKSZ) vstk = (size_t)MINSIGSTKSZ;
+	stack_sz = vstk;
 
 	op_coro_t *coro = op_malloc(sizeof(*coro));
 	coro->fn       = fn;
@@ -98,7 +104,8 @@ void
 op_coro_free(op_coro_t *coro)
 {
 	if(!coro) return;
-	/* Freeing a running coroutine is undefined; caller must ensure it's not. */
+	/* Freeing a RUNNING coroutine destroys the stack we're executing on. */
+	assert(coro->state != CORO_RUNNING && "op_coro_free on running coroutine");
 	op_free(coro->stack);
 	op_free(coro);
 }
@@ -106,8 +113,8 @@ op_coro_free(op_coro_t *coro)
 void
 op_coro_resume(op_coro_t *coro)
 {
-	if(!coro || coro->state == CORO_DONE)
-		return;
+	if(!coro || coro->state == CORO_DONE || coro->state == CORO_RUNNING)
+		return;   /* no-op for finished or re-entrant resume */
 	/* Transfer to coroutine; returns when it yields or finishes. */
 	swapcontext(&coro->caller_ctx, &coro->ctx);
 }
@@ -116,9 +123,11 @@ void
 op_coro_yield(op_coro_t *coro)
 {
 	if(!coro) return;
+	assert(coro->state == CORO_RUNNING && "op_coro_yield outside coroutine body");
 	coro->state = CORO_SUSPENDED;
 	/* Transfer back to the event-loop caller of op_coro_resume(). */
 	swapcontext(&coro->ctx, &coro->caller_ctx);
+	/* Resumed: trampoline-style coroutines hold the RUNNING invariant. */
 	coro->state = CORO_RUNNING;
 }
 

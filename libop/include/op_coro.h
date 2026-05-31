@@ -9,7 +9,18 @@
  *   - Each coroutine has its own heap-allocated stack (default 64 KB).
  *   - Coroutines are cooperative: they must yield() explicitly; no preemption.
  *   - Only one coroutine runs at a time; the event loop is the "main" context.
- *   - Coroutines are NOT thread-safe; all calls must be on the event-loop thread.
+ *   - Coroutines are NOT thread-safe; all op_coro_* calls must occur on the
+ *     event-loop thread.  In particular, op_coro_resume() must NEVER be
+ *     called from a worker thread — post a completion via op_async_submit()
+ *     and call op_coro_resume() from the done_fn.
+ *
+ * Thread-safety summary:
+ *   op_coro_new        — event-loop thread only
+ *   op_coro_free       — event-loop thread only; coroutine must be
+ *                        DONE, SUSPENDED, or READY (never RUNNING)
+ *   op_coro_resume     — event-loop thread only; not re-entrant
+ *   op_coro_yield      — only from within the coroutine body
+ *   op_coro_done/arg   — event-loop thread only; lock-free reads
  *
  * Typical use (ACME HTTP client, SASL exchange, etc.):
  *

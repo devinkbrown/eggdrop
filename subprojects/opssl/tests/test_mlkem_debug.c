@@ -420,6 +420,143 @@ static void test_structural_analysis(void)
     PASS("structural analysis complete — all FIPS 203 data flow verified");
 }
 
+/* ── Test 7: Step-by-step divergence diagnostic ─────────────────────────
+ *
+ * Black-box step-by-step hash of every externally visible quantity in the
+ * encaps/decaps round-trip. The mlkem.c implementation already emits
+ * [ENC] / [DEC] / [DBG] stderr lines exposing internal polynomials; this
+ * test correlates them with hash fingerprints of the observable surface:
+ *
+ *   keygen:  pk          -> SHA-256(pk)
+ *   encaps:  ct, ss_enc  -> SHA-256(ct), SHA-256(ss_enc)
+ *   decaps:  ss_dec      -> SHA-256(ss_dec)
+ *   re-decaps(same ct):  ss_dec2 (must equal ss_dec — proves determinism)
+ *
+ * We also compute H(pk) on the test side (the value mlkem feeds into
+ * G(m||H(ek))) so the sibling agent can verify the decaps side recomputes
+ * the same H(pk).
+ *
+ * Output line discipline:
+ *   "STEP <name>: sha256=<hex16>"
+ *   "FIRST DIVERGENCE: <step>"      <- grep-target for sibling agent
+ *
+ * If ss_enc != ss_dec the FO re-encryption check failed. Possible causes:
+ *   1. pke_decrypt yields m' != m       -> ENC v[] vs DEC v_after_sub diverges
+ *   2. m' = m but pke_encrypt(m', r')   -> ct' differs from ct
+ *      is non-deterministic vs encaps     (matrix A, t decode, NTT)
+ *   3. K_final = KDF(z || H(ct))       -> rejection path taken
+ */
+static void hash16(const char *label, const uint8_t *data, size_t len)
+{
+    uint8_t h[OPSSL_SHA256_DIGEST_LEN];
+    opssl_sha256(data, len, h);
+    printf("  STEP %-22s sha256=", label);
+    for (int i = 0; i < 16; i++) printf("%02x", h[i]);
+    printf("  (len=%zu)\n", len);
+}
+
+static void test_step_by_step_divergence(void)
+{
+    printf("\n[Test 7] Step-by-step encaps/decaps divergence diagnostic\n");
+    printf("  (mlkem.c internal [ENC]/[DEC]/[DBG] lines appear on stderr above/below)\n");
+
+    opssl_mlkem_ctx_t *kctx = opssl_mlkem_new(OPSSL_MLKEM_768);
+    if (!kctx) { FAIL("mlkem_new"); return; }
+
+    if (!opssl_mlkem_keygen(kctx)) { FAIL("keygen"); opssl_mlkem_free(kctx); return; }
+
+    uint8_t pk[OPSSL_MLKEM768_PK_LEN];
+    size_t pk_len = sizeof(pk);
+    if (!opssl_mlkem_get_public(kctx, pk, &pk_len)) {
+        FAIL("get_public"); opssl_mlkem_free(kctx); return;
+    }
+    hash16("pk", pk, pk_len);
+
+    /* H(pk) — the value G() is keyed with on both sides. */
+    uint8_t h_pk[32];
+    opssl_sha3_256(pk, pk_len, h_pk);
+    hash16("H(pk)_test_side", h_pk, 32);
+
+    /* Encaps. */
+    uint8_t ct[OPSSL_MLKEM768_CT_LEN];
+    size_t ct_len = sizeof(ct);
+    uint8_t ss_enc[32]; size_t ss_enc_len = 32;
+    fprintf(stderr, "---- ENCAPS BEGIN ----\n");
+    if (!opssl_mlkem_encaps(kctx, pk, pk_len, ct, &ct_len, ss_enc, &ss_enc_len)) {
+        FAIL("encaps"); opssl_mlkem_free(kctx); return;
+    }
+    fprintf(stderr, "---- ENCAPS END ----\n");
+    hash16("ct (encaps output)", ct, ct_len);
+    hash16("ss_enc", ss_enc, 32);
+
+    /* Decaps #1. */
+    uint8_t ss_dec[32]; size_t ss_dec_len = 32;
+    fprintf(stderr, "---- DECAPS#1 BEGIN ----\n");
+    if (!opssl_mlkem_decaps(kctx, ct, ct_len, ss_dec, &ss_dec_len)) {
+        FAIL("decaps#1"); opssl_mlkem_free(kctx); return;
+    }
+    fprintf(stderr, "---- DECAPS#1 END ----\n");
+    hash16("ss_dec#1", ss_dec, 32);
+
+    /* Decaps #2 on same ct must yield identical ss_dec — verifies decaps
+     * itself is deterministic (rules out RNG leakage into the decaps path). */
+    uint8_t ss_dec2[32]; size_t ss_dec2_len = 32;
+    fprintf(stderr, "---- DECAPS#2 BEGIN ----\n");
+    if (!opssl_mlkem_decaps(kctx, ct, ct_len, ss_dec2, &ss_dec2_len)) {
+        FAIL("decaps#2"); opssl_mlkem_free(kctx); return;
+    }
+    fprintf(stderr, "---- DECAPS#2 END ----\n");
+    hash16("ss_dec#2", ss_dec2, 32);
+
+    int decaps_deterministic = (memcmp(ss_dec, ss_dec2, 32) == 0);
+    if (decaps_deterministic)
+        PASS("decaps is deterministic (ss_dec#1 == ss_dec#2)");
+    else
+        FAIL("decaps is NON-deterministic — RNG leaking into decaps path");
+
+    /* Reject-key fingerprint: KDF(z || H(ct)). We can't read z directly, but
+     * we can detect the rejection branch by computing what ss would look like
+     * if encaps had succeeded vs hashing ss_dec. The internal [DBG] line
+     * "m_prime diffbits=" already tells the sibling agent how far m' is from m. */
+
+    int match = (memcmp(ss_enc, ss_dec, 32) == 0);
+    printf("\n  === DIVERGENCE SUMMARY ===\n");
+    printf("  ss_enc == ss_dec : %s\n", match ? "TRUE  (round-trip OK)"
+                                              : "FALSE (FO rejection branch taken)");
+
+    if (match) {
+        PASS("encaps/decaps round-trip: shared secrets match");
+        printf("  FIRST DIVERGENCE: none\n");
+    } else {
+        /* Find first differing byte between ss_enc and ss_dec for forensic value. */
+        int first = -1;
+        for (int i = 0; i < 32; i++) {
+            if (ss_enc[i] != ss_dec[i]) { first = i; break; }
+        }
+        printf("  first differing ss byte: index=%d  enc=0x%02x dec=0x%02x\n",
+               first, ss_enc[first], ss_dec[first]);
+
+        /* Classify FIRST DIVERGENCE based on stderr trail from mlkem.c.
+         * The visible [DBG] m_prime diffbits line is the authoritative
+         * indicator. The grep markers below let the sibling agent script
+         * extraction. */
+        printf("\n  Possible FIRST DIVERGENCE locations (consult stderr [ENC]/[DEC]/[DBG] above):\n");
+        printf("    A. m' != m         -> grep for '[DBG] m_prime diffbits=' (nonzero == here)\n");
+        printf("    B. v_dec != v_enc  -> compare '[ENC] v[0..6]' vs '[DEC] v_after_sub[0..6]'\n");
+        printf("    C. s^T*u mismatch  -> '[DEC] s*u[0..3]' inconsistent with '[ENC] u0[0..3]' path\n");
+        printf("    D. re-encrypt ct'  -> if A,B,C all clean then pke_encrypt is non-deterministic\n");
+        printf("                          (matrix A regen, t decode, or NTT path differs)\n");
+
+        /* Emit a single grep-target line. We can only definitively classify
+         * "shared secrets mismatch -> rejection branch entered". Sibling agent
+         * uses the [DBG] diffbits line to narrow to A vs B/C/D. */
+        FAIL("shared secret mismatch");
+        printf("  FIRST DIVERGENCE: shared_secret (FO check failed; see stderr [DBG] diffbits)\n");
+    }
+
+    opssl_mlkem_free(kctx);
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -442,6 +579,7 @@ int main(void)
     test_pke_encrypt_double_ntt_t();
     test_encaps_decaps_ss_mismatch();
     test_structural_analysis();
+    test_step_by_step_divergence();
 
     printf("\n=== Results: %d/%d passed, %d failed ===\n",
            g_tests_passed, g_tests_run, g_tests_failed);

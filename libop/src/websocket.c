@@ -970,6 +970,16 @@ op_ws_start_accepted(op_fde_t *F, ACCB *cb, void *data, int timeout)
         op_settimeout(F, timeout, op_ws_timeout_cb, NULL);
 
     op_setselect(F, OP_SELECT_READ, op_ws_handshake_read, NULL);
+
+    /*
+     * For wss:// listeners the client may pipeline the HTTP Upgrade bytes
+     * immediately after the TLS handshake flight.  Those bytes can already be
+     * buffered inside the TLS layer by the time we install the read handler,
+     * leaving no new fd-read edge to wake the parser.  Try one immediate drain;
+     * if no complete request is ready, op_ws_handshake_read() leaves the read
+     * handler armed for the normal path.
+     */
+    op_ws_handshake_read(F, NULL);
 }
 
 /*

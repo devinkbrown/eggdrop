@@ -73,6 +73,7 @@
 
 #ifdef USING_SIGIO
 
+#include <sched.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <sys/poll.h>
@@ -508,9 +509,12 @@ op_sigio_supports_event(void)
 	        &can_do_event, &expected, -1,
 	        memory_order_acq_rel, memory_order_acquire))
 	{
-		/* Another thread is probing or already has.  Spin until done. */
+		/* Another thread is probing or already has.  Yield until done —
+		 * the probe runs exactly one timer_create() syscall so it returns
+		 * quickly; a tight CPU spin would just steal cycles from the probing
+		 * thread on a single-CPU configuration. */
 		while ((probe = atomic_load_explicit(&can_do_event, memory_order_acquire)) == -1)
-			;
+			sched_yield();
 		return probe == 1;
 	}
 

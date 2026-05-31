@@ -420,7 +420,9 @@ opssl_asn1_get_time(opssl_cbs_t *cbs, int64_t *epoch)
 
     days += day - 1; /* Zero-based day */
 
-    *epoch = days * 86400 + hour * 3600 + min * 60 + sec;
+    /* Promote to int64_t before multiplication to avoid 32-bit overflow. */
+    *epoch = days * (int64_t)86400 + (int64_t)hour * 3600 +
+             (int64_t)min * 60 + (int64_t)sec;
     return 1;
 }
 

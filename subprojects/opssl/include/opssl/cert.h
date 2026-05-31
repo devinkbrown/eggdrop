@@ -118,6 +118,10 @@ void          opssl_crl_free(opssl_crl_t *crl);
 int opssl_x509_store_add_crl(opssl_x509_store_t *store, opssl_crl_t *crl);
 int opssl_x509_store_load_crl(opssl_x509_store_t *store, const char *path);
 
+/* Load a CRL from a local file path (PEM or DER auto-detected).
+ * URI/HTTP fetch is intentionally not supported. Caller owns *crl_out. */
+int opssl_trust_store_load_crl(const char *path, opssl_crl_t **crl_out);
+
 int opssl_x509_check_revocation(const opssl_x509_t *cert,
                                 const opssl_x509_store_t *store);
 
@@ -139,6 +143,7 @@ opssl_pkey_t *opssl_pkey_from_pem(const char *pem, size_t len);
 opssl_pkey_t *opssl_pkey_from_der(const uint8_t *der, size_t len);
 opssl_pkey_t *opssl_pkey_from_file(const char *path);
 opssl_pkey_t *opssl_pkey_from_ed25519_raw(const uint8_t priv[32], const uint8_t pub[32]);
+opssl_pkey_t *opssl_pkey_from_raw_bytes(const uint8_t *bytes, size_t len);
 void          opssl_pkey_free(opssl_pkey_t *key);
 
 int opssl_pkey_matches_cert(const opssl_pkey_t *key, const opssl_x509_t *cert);

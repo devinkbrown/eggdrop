@@ -40,6 +40,7 @@
 #endif
 #include "main.h"
 #include "modules.h"
+#include "async_recv.h"
 #include <op_commio.h>
 #include <commio-int.h>
 #include <commio-ssl.h>
@@ -1227,6 +1228,16 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       return -3;
   }
 
+  /* Submit async recv for all now-ready plain sockets (commio_read_ready
+   * flags were just set by op_select above).  Sockets claimed here get
+   * recv_in_flight=1 and commio_read_ready=0; the dispatch loop below
+   * skips them.  op_async_drain() fills their linebufs immediately so
+   * sockgets() finds them pre-filled on the very next pass. */
+  if (!tclonly) {
+    async_recv_submit_all();
+    op_async_drain();
+  }
+
   /* --- Dispatch loop --- */
   for (int i = 0; i < slistmax; i++) {
     if (!tclonly && ((!(slist[i].flags & (SOCK_UNUSED | SOCK_TCL))) &&
@@ -1265,8 +1276,10 @@ int sockread(char *s, int *len, sock_list *slist, int slistmax, int tclonly)
       {
         if (slist[i].ssl) {
           if (opssl_conn_get_state(slist[i].ssl) != OPSSL_HS_COMPLETE) {
-            /* Drive the TLS handshake forward */
-            opssl_result_t hr = opssl_connect(slist[i].ssl);
+            /* Drive the TLS handshake forward (direction-aware) */
+            opssl_result_t hr = (slist[i].flags & SOCK_CONNECT)
+                                ? opssl_connect(slist[i].ssl)
+                                : opssl_accept(slist[i].ssl);
             if (hr == OPSSL_WANT_READ || hr == OPSSL_WANT_WRITE) {
               errno = EAGAIN;
               x = -1;
@@ -1609,17 +1622,22 @@ void dequeue_sockets(void)
   int x;
   struct threaddata *td = threaddata();
 
-  /* Arm WRITE interest on sockets with pending outbufs, do a zero-timeout
-   * poll to check write-readiness, then disarm to avoid spinning. */
+  /* Arm WRITE interest on sockets with pending outbufs or in-progress TLS
+   * handshakes, do a zero-timeout poll to check write-readiness, then
+   * disarm to avoid spinning. */
   {
     int any_pending = 0;
     for (int j = 0; j < td->MAXSOCKS; j++) {
-      if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-          socklist[j].handler.sock.outbuf != nullptr
+      if (socklist[j].flags & (SOCK_UNUSED | SOCK_TCL))
+        continue;
+      int needs_write = (socklist[j].handler.sock.outbuf != nullptr);
 #ifdef TLS
-          && !(socklist[j].ssl && opssl_conn_get_state(socklist[j].ssl) != OPSSL_HS_COMPLETE)
+      /* Also arm write for TLS sockets mid-handshake so WANT_WRITE resumes.
+       * Outbuf flush is safe to skip here — dequeue_sockets guards it. */
+      if (socklist[j].ssl && opssl_conn_get_state(socklist[j].ssl) != OPSSL_HS_COMPLETE)
+        needs_write = 1;
 #endif
-         ) {
+      if (needs_write) {
         op_fde_t *F = op_get_fde(socklist[j].sock);
         if (F) {
           socklist[j].commio_write_ready = 0;
@@ -1633,17 +1651,44 @@ void dequeue_sockets(void)
       op_select(0);
       for (int j = 0; j < td->MAXSOCKS; j++) {
         if (!(socklist[j].flags & (SOCK_UNUSED | SOCK_TCL)) &&
-            socklist[j].handler.sock.outbuf != nullptr &&
             !(socklist[j].flags & SOCK_CONNECT)) {
-          op_fde_t *F = op_get_fde(socklist[j].sock);
-          if (F)
-            op_setselect(F, OP_SELECT_WRITE, nullptr, nullptr);
+          int had_write = (socklist[j].handler.sock.outbuf != nullptr);
+#ifdef TLS
+          if (socklist[j].ssl && opssl_conn_get_state(socklist[j].ssl) != OPSSL_HS_COMPLETE)
+            had_write = 1;
+#endif
+          if (had_write) {
+            op_fde_t *F = op_get_fde(socklist[j].sock);
+            if (F)
+              op_setselect(F, OP_SELECT_WRITE, nullptr, nullptr);
+          }
         }
       }
     }
   }
 
   for (int i = 0; i < td->MAXSOCKS; i++) {
+#ifdef TLS
+    /* Drive TLS handshake on write-ready events (WANT_WRITE from opssl_accept). */
+    if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
+        socklist[i].ssl && socklist[i].commio_write_ready &&
+        opssl_conn_get_state(socklist[i].ssl) != OPSSL_HS_COMPLETE) {
+      socklist[i].commio_write_ready = 0;
+      opssl_result_t hr = (socklist[i].flags & SOCK_CONNECT)
+                          ? opssl_connect(socklist[i].ssl)
+                          : opssl_accept(socklist[i].ssl);
+      if (hr == OPSSL_OK) {
+        debug1("net: TLS handshake complete (write-driven) sock %d", socklist[i].sock);
+        socklist[i].commio_read_ready = 1;
+      } else if (hr != OPSSL_WANT_READ && hr != OPSSL_WANT_WRITE) {
+        debug1("net: TLS handshake failed (write-driven) sock %d", socklist[i].sock);
+        putlog(LOG_MISC, "*", "NET: TLS handshake failed.");
+        socklist[i].flags &= ~SOCK_CONNECT;
+        socklist[i].flags |= SOCK_EOFD;
+      }
+      continue;
+    }
+#endif
     if (!(socklist[i].flags & (SOCK_UNUSED | SOCK_TCL)) &&
         (socklist[i].handler.sock.outbuf != nullptr) && socklist[i].commio_write_ready) {
       socklist[i].commio_write_ready = 0;

@@ -360,9 +360,21 @@ PBKDF2 (Password-Based Key Derivation)
                      uint32_t iterations,
                      uint8_t *out, size_t out_len);
 
+    int opssl_pbkdf2_unchecked(opssl_hmac_algo_t algo,
+                               const uint8_t *password, size_t password_len,
+                               const uint8_t *salt, size_t salt_len,
+                               uint32_t iterations,
+                               uint8_t *out, size_t out_len);
+
 PBKDF2 (RFC 2898) derives a key from a password. Use iterations >= 100,000 for
 password hashing (RFC recommends >= 600,000 as of 2023). Argon2id is preferred
 for new applications due to memory hardness.
+
+opssl_pbkdf2() is the safe public entry point and enforces the minimum
+iteration policy.  opssl_pbkdf2_unchecked() skips that policy check for
+standards known-answer tests, legacy interoperability vectors, and internal
+constructions that deliberately require low iteration counts.  Do not use the
+unchecked variant for new password-storage code.
 
 Parameters:
     algo:          HMAC algorithm (SHA-1, SHA-256, SHA-384, or SHA-512)
@@ -374,7 +386,7 @@ Parameters:
     out:           output buffer
     out_len:       desired output length
 
-Returns 1 on success, 0 on failure (invalid parameters).
+Returns 1 on success, 0 on failure (invalid parameters or policy rejection).
 
 Example:
     uint8_t key[32];

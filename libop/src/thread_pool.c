@@ -30,6 +30,7 @@
 
 #include <string.h>
 #include <stdio.h>           /* snprintf for tname */
+#include <stdbool.h>         /* bool used by worker_entry */
 
 /* =========================================================================
  * Chase-Lev deque — shared by both platforms
@@ -404,6 +405,24 @@ op_tpool_nthreads(const op_thread_pool_t *pool)
 	return pool->nthreads;
 }
 
+/* Windows stubs for cross-platform parity (full impl lives in the POSIX
+ * branch).  The Windows pool predates the lifecycle/priority APIs; rather
+ * than retrofit the legacy w32 codepath, we zero out the stats and report
+ * ENOTSUP for priority elevation. */
+void
+op_tpool_pool_stats(const op_thread_pool_t *pool, op_tpool_pool_stats_t *out)
+{
+	(void)pool;
+	memset(out, 0, sizeof *out);
+}
+
+int
+op_tpool_set_priority(op_thread_pool_t *pool, int policy, int sched_priority)
+{
+	(void)pool; (void)policy; (void)sched_priority;
+	return 134 /* ENOTSUP on most platforms; avoid <errno.h> here */;
+}
+
 #else /* !_WIN32 — POSIX pthreads */
 
 /* =========================================================================
@@ -411,6 +430,7 @@ op_tpool_nthreads(const op_thread_pool_t *pool)
  * ====================================================================== */
 
 #include <pthread.h>
+#include <sched.h>           /* sched_param, SCHED_FIFO/RR */
 #include <stdlib.h>
 #include <stdatomic.h>
 #include <unistd.h>          /* sysconf, pipe, read, write */
@@ -674,6 +694,10 @@ struct op_thread_pool {
 	int               nthreads;
 	_Atomic(uint32_t) submit_rr;    /* round-robin submit counter */
 	op_tpool_thread_start_fn on_thread_start;  /* optional callback */
+	/* --- pool-level lifecycle counters (release/acquire) -------------- */
+	_Atomic(uint64_t) posted;       /* incremented on each submit         */
+	_Atomic(uint64_t) dispatched;   /* incremented before fn() runs       */
+	_Atomic(uint64_t) completed;    /* incremented after fn() returns     */
 	worker_ctx_t      workers[];    /* flexible array */
 };
 
@@ -808,23 +832,46 @@ worker_entry(void *arg)
 			 * (we'll drain the inbox on the next iteration). */
 			atomic_store_explicit(&ctx->awake, 1, memory_order_relaxed);
 			atomic_store_explicit(&ctx->state, OP_WORKER_DISPATCHING, memory_order_relaxed);
+			/* Per-worker counters: owner is the sole writer so a plain
+			 * increment is sufficient for monotonicity; readers (stats
+			 * snapshots) use relaxed atomic loads. */
 			ctx->stat_dispatched++;
 			if (was_stolen)
 				ctx->stat_stolen++;
 			else
 				ctx->stat_fast_path++;
+			/* Pool-level dispatched: release so completed-reader sees it. */
+			atomic_fetch_add_explicit(&pool->dispatched, 1,
+			                          memory_order_release);
 			work_item_run(item);
+			atomic_fetch_add_explicit(&pool->completed, 1,
+			                          memory_order_release);
 			continue;
 		}
 
 		/* 3. Nothing found — transition to sleep.
 		 *
-		 * Clear the awake flag BEFORE the final inbox check so that
-		 * a concurrent submitter that sees awake==0 will write the
-		 * eventfd.  The acquire fence ensures we see the inbox push
-		 * that happened before the submitter checked our awake flag. */
+		 * Classic store-buffer (Dekker) handshake — requires seq_cst:
+		 *
+		 *   Worker:                   Submitter:
+		 *     store awake=0             push inbox (CAS release)
+		 *     <seq_cst fence>           <seq_cst fence>
+		 *     load inbox                load awake
+		 *
+		 * Plain release/acquire is INSUFFICIENT: C11 release does not
+		 * prevent a subsequent load from being hoisted before the store.
+		 * On weak hardware (ARM/POWER) the worker's inbox load can be
+		 * reordered before its awake-clear; symmetrically the submitter's
+		 * awake load can be reordered before its inbox push.  Either
+		 * reordering loses the wakeup: worker sleeps with work pending.
+		 *
+		 * The seq_cst fence here pairs with the matching seq_cst fence
+		 * in submit_to_worker() — together they establish a single total
+		 * order on the two stores and two loads, guaranteeing at least
+		 * one side observes the other's update. */
 		atomic_store_explicit(&ctx->state, OP_WORKER_IDLE, memory_order_relaxed);
-		atomic_store_explicit(&ctx->awake, 0, memory_order_release);
+		atomic_store_explicit(&ctx->awake, 0, memory_order_relaxed);
+		atomic_thread_fence(memory_order_seq_cst);
 
 		/* Re-check inbox after clearing awake (close the race window
 		 * where a submitter pushed between our drain and the flag clear). */
@@ -865,6 +912,9 @@ op_tpool_create(int nthreads)
 	pool->on_thread_start = g_thread_start_cb;
 	atomic_store_explicit(&pool->stop, 0, memory_order_relaxed);
 	atomic_store_explicit(&pool->submit_rr, 0, memory_order_relaxed);
+	atomic_store_explicit(&pool->posted, 0, memory_order_relaxed);
+	atomic_store_explicit(&pool->dispatched, 0, memory_order_relaxed);
+	atomic_store_explicit(&pool->completed, 0, memory_order_relaxed);
 
 	for (int i = 0; i < nthreads; i++)
 	{
@@ -901,15 +951,47 @@ op_tpool_create(int nthreads)
 static void
 submit_to_worker(op_thread_pool_t *pool, int idx, void (*fn)(void *), void *arg)
 {
+	/* Race-on-teardown guard: if shutdown has begun, the workers may
+	 * already be joined and worker memory freed by the time the submit
+	 * lands.  Drop the work item silently — the documented contract
+	 * states submit-after-shutdown is undefined; we degrade to a leak-
+	 * free no-op rather than crash. */
+	if (atomic_load_explicit(&pool->stop, memory_order_acquire))
+		return;
+
 	work_item_t *item = work_item_new(fn, arg);
 	worker_ctx_t *w = &pool->workers[idx];
 
 	inbox_push(w, item);
 
+	/* Pool-level posted counter (release pairs with pool_stats acquire). */
+	atomic_fetch_add_explicit(&pool->posted, 1, memory_order_release);
+
+	/* Store-buffer handshake matching worker_entry's sleep path.
+	 *
+	 * The seq_cst fence below pairs with the seq_cst fence in
+	 * worker_entry just after the awake=0 store.  Together they
+	 * establish a single total order over:
+	 *
+	 *   Submitter:  inbox_push (release CAS)   ── A
+	 *               seq_cst fence              ── F1
+	 *               awake.load                 ── B
+	 *
+	 *   Worker:     awake.store(0)             ── C
+	 *               seq_cst fence              ── F2
+	 *               inbox.load                 ── D
+	 *
+	 * Because F1 and F2 are seq_cst, the total order forces at
+	 * least one of: (B observes awake=1, so worker will drain)
+	 * OR (D observes inbox != NULL, so worker re-enters loop).
+	 * Neither side can miss the other's update. */
+	atomic_thread_fence(memory_order_seq_cst);
+
 	/* Skip the eventfd/pipe write if the worker is already processing.
 	 * It will drain the inbox at the top of its next loop iteration.
-	 * The release in inbox_push pairs with the acquire in inbox_drain. */
-	if (!atomic_load_explicit(&w->awake, memory_order_acquire))
+	 * Relaxed load is sufficient — the seq_cst fence above orders this
+	 * load against the prior inbox push. */
+	if (!atomic_load_explicit(&w->awake, memory_order_relaxed))
 		wake_fd_signal(&w->wake);
 }
 
@@ -997,6 +1079,40 @@ op_tpool_get_stats(const op_thread_pool_t *pool,
 		out[i].inbox_drained  = w->stat_inbox_drained;
 	}
 	return n;
+}
+
+void
+op_tpool_pool_stats(const op_thread_pool_t *pool, op_tpool_pool_stats_t *out)
+{
+	/* Acquire posted before completed so queue_depth >= 0 in the common
+	 * case where no submit lands between the two loads. */
+	uint64_t posted     = atomic_load_explicit(&pool->posted,
+	                                           memory_order_acquire);
+	uint64_t completed  = atomic_load_explicit(&pool->completed,
+	                                           memory_order_acquire);
+	uint64_t dispatched = atomic_load_explicit(&pool->dispatched,
+	                                           memory_order_acquire);
+	out->posted     = posted;
+	out->dispatched = dispatched;
+	out->completed  = completed;
+	/* Guard against torn read where completed > posted (would underflow
+	 * uint64_t into an enormous value). */
+	out->queue_depth = (posted >= completed) ? (posted - completed) : 0;
+}
+
+int
+op_tpool_set_priority(op_thread_pool_t *pool, int policy, int sched_priority)
+{
+	struct sched_param sp;
+	memset(&sp, 0, sizeof sp);
+	sp.sched_priority = sched_priority;
+	int first_err = 0;
+	for (int i = 0; i < pool->nthreads; i++) {
+		int rc = pthread_setschedparam(pool->workers[i].tid, policy, &sp);
+		if (rc != 0 && first_err == 0)
+			first_err = rc;
+	}
+	return first_err;
 }
 
 #endif /* _WIN32 */

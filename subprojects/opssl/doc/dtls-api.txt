@@ -6,7 +6,7 @@ This document describes the DTLS API in opssl/dtls.h.
 DTLS provides TLS security guarantees over unreliable transports (UDP).
 opssl handles retransmission, reordering, fragmentation, and anti-replay
 internally. The API mirrors the TLS connection API with additions for
-datagram-specific concerns (MTU, timeouts, cookies).
+datagram-specific concerns (MTU, timeouts, cookies, SNI, and ALPN).
 
 Supported versions: DTLS 1.2 (0xFEFD), DTLS 1.3 (0xFEFC).
 
@@ -104,8 +104,10 @@ ANTI-REPLAY
     void opssl_dtls_set_replay_window(opssl_dtls_conn_t *conn,
                                       size_t window_bits);
 
-Set the anti-replay window size in bits. Default is 64. Incoming records
-with sequence numbers outside the window are silently dropped.
+Reset the anti-replay state. The current implementation uses a fixed
+256-record internal window and tracks record sequence numbers inside the
+active read epoch. Incoming records outside the window, records from stale
+epochs, and duplicate records are silently dropped.
 
 
 CONNECTION INFO

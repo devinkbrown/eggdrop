@@ -597,6 +597,68 @@ void tell_users_match(int idx, char *mtch, int start, int limit, char *chname)
   dprintf(idx, MISC_FOUNDMATCH, cnt, cnt == 1 ? "" : MISC_MATCH_PLURAL);
 }
 
+/* migrate_plaintext_passwords — one-way PBKDF2 migration on userfile load.
+ *
+ * Iterates the user list after readuserfile() has unpacked all entries.
+ * For every non-bot user whose PASS entry holds a plain-text password
+ * (i.e. does not start with '+' which marks an already-hashed value),
+ * re-hashes it via encrypt_pass2 (PBKDF2) and stores it as PASS2.
+ *
+ * Conditions:
+ *   - encrypt_pass2 must be loaded (pbkdf2.mod registers it).
+ *   - The user must not be a bot (bots use cleartext shared secrets).
+ *   - The PASS value must be non-empty and not start with '+'.
+ *
+ * After migration the user is marked dirty so the hashed credential is
+ * written back on the next write_userfile() call.  The original PASS entry
+ * is preserved; cleanup_pass() handles its removal when remove-pass is set.
+ *
+ * Returns the number of passwords migrated.
+ */
+static int migrate_plaintext_passwords(struct userrec *bu)
+{
+  struct userrec *u;
+  int migrated = 0;
+
+  if (!encrypt_pass2)
+    return 0;   /* PBKDF2 module not loaded — nothing to do */
+
+  for (u = bu; u; u = u->next) {
+    char *cmp;
+    char *hashed;
+
+    if (u->flags & USER_BOT)
+      continue;   /* bots use cleartext shared secrets */
+
+    cmp = (char *)get_user(&USERENTRY_PASS, u);
+    if (!cmp || !cmp[0] || cmp[0] == '-')
+      continue;   /* no password or already removed */
+
+    if (cmp[0] == '+')
+      continue;   /* already hashed ('+' prefix = encrypted form) */
+
+    /* Plain-text password found — hash it with PBKDF2. */
+    hashed = encrypt_pass2(cmp);
+    if (!hashed) {
+      putlog(LOG_MISC, "*",
+             "pbkdf2 migration: failed to hash password for %s (skipping)",
+             u->handle);
+      continue;
+    }
+
+    set_user(&USERENTRY_PASS2, u, hashed);
+    /* set_user() already marks u->dirty = 1 via userent.c */
+    migrated++;
+
+    /* explicit_bzero the heap copy returned by encrypt_pass2; set_user
+     * already duplicated it.  Use strlen before zeroing. */
+    explicit_bzero(hashed, strlen(hashed));
+    op_free(hashed);
+  }
+
+  return migrated;
+}
+
 /* if encryption mod and encryption2 mod is loaded and remove-pass is 1 delete
  * PASS for each user (and bot) that has PASS2 set
  */
@@ -974,9 +1036,19 @@ int readuserfile(char *file, struct userrec **ret)
       }
   }
   noshare = noxtra = 0;
-  /* Mark all users dirty after bulk load */
-  for (u = bu; u; u = u->next)
-    u->dirty = 1;
+  /* Mark all users dirty after bulk load so the LMDB incremental-save
+   * path writes every record on the next write_userfile call. */
+  mark_all_users_dirty();
+  /* One-way PBKDF2 migration: hash any plain-text PASS entries found in the
+   * just-loaded userfile.  Runs after entries are unpacked (above) so that
+   * USERENTRY_PASS is fully initialised before we inspect it. */
+  {
+    int nmigrated = migrate_plaintext_passwords(bu);
+    if (nmigrated > 0)
+      putlog(LOG_MISC, "*",
+             "Password migration: hashed %d plain-text password%s with PBKDF2.",
+             nmigrated, nmigrated == 1 ? "" : "s");
+  }
   /* process the user data *now* */
   if (remove_pass)
     cleanup_pass();

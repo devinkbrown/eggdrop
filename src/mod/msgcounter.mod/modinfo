@@ -1,0 +1,3 @@
+DESC:Tracks per-channel PRIVMSG rates and logs stats every minute.
+DESC:Provides msg_counter_record() for irc.mod and logs [MSGRATE] lines
+DESC:to LOG_MISC once per minute via HOOK_MINUTELY.

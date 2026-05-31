@@ -9,13 +9,52 @@
  *   • Each slot carries a fixed-size payload plus a conn_id tag so a single
  *     ring serves all connections of one ssld instance.
  *   • Synchronisation is via a single _Atomic(uint32_t) len field per slot:
- *       Producer: writes data, then atomic_store(..., len, release)
- *       Consumer: atomic_load(..., acquire) != 0 → data ready
- *                 reads data, then atomic_store(..., 0, release)
+ *       Producer: writes conn_id/flags/data, then
+ *                 atomic_store_explicit(&slot->len, n, memory_order_release)
+ *                 atomic_store_explicit(&hdr->prod_pos, p+1, release)
+ *       Consumer: atomic_load_explicit(&hdr->prod_pos, acquire)
+ *                 atomic_load_explicit(&slot->len, acquire) != 0 → data ready
+ *                 reads data, then atomic_store(slot->len, 0, release)
+ *                 atomic_store(&hdr->cons_pos, c+1, release)
  *   • prod_pos / cons_pos in the header are also atomic so each side can
  *     detect full / empty without spinning on every slot.
  *   • Cache-line padding (64 B) on prod_pos and cons_pos prevents false
  *     sharing between the two processes.
+ *
+ * Cross-process ordering contract:
+ *   The release/acquire chain on slot->len is what makes this safe across
+ *   processes that share a MAP_SHARED mapping.  C11 atomics with memory_order
+ *   release/acquire emit the same CPU fences regardless of whether the peer
+ *   is another thread or another process — the synchronisation is a property
+ *   of the memory operation, not the address-space.  As long as both peers
+ *   are built against the same op_shm_slot layout (enforced by a static
+ *   assertion in shm_ring.c) and the same atomic ABI, the producer's writes
+ *   are guaranteed visible to the consumer once it has observed len != 0.
+ *
+ * Wire format:
+ *   The mapping begins with op_shm_ring_hdr (192 B = three 64-B cache
+ *   lines) followed by slot_count * op_shm_slot (4096 B each).
+ *   slot_count MUST be a power of two so masking can replace modulo.
+ *   prod_pos / cons_pos are unbounded 64-bit sequence numbers; the slot
+ *   index is `pos & (slot_count - 1)`.  Sequence wrap at 2^64 is treated
+ *   as impossible (it would take centuries at line rate).
+ *
+ * Multi-slot messages and torn-write safety:
+ *   Messages larger than OP_SHM_SLOT_PAYLOAD are split across consecutive
+ *   slots with the FLAG_MORE chain.  op_shm_ring_push() reserves the whole
+ *   chain up-front via the (prod - cons + needed > capacity) check, so the
+ *   ring either accepts the entire message or none of it.  This guarantees
+ *   the consumer never sees a FIRST slot without its trailing continuations.
+ *
+ * Crash safety:
+ *   The protocol is SPSC.  If the producer dies mid-write (before the
+ *   release-store of slot->len), the slot stays len == 0 and the consumer
+ *   simply blocks on an empty ring — it never reads partial data.  Detection
+ *   of producer death is therefore an out-of-band concern (e.g. SIGCHLD or
+ *   socketpair EOF in ircd's case), not the ring's responsibility.
+ *   If the consumer dies, the producer eventually sees the ring fill and
+ *   gets -1 from push(); again, out-of-band death detection is the caller's
+ *   job.
  *
  * Bootstrap (Linux):
  *   Parent (ircd): fd = op_shm_ring_create(256);  ring = op_shm_ring_map(fd,256,true);
@@ -132,18 +171,26 @@ void op_shm_ring_unmap(op_shm_ring_t *ring, uint32_t slot_count);
 /*
  * op_shm_ring_push — producer: write up to `len` bytes from `buf` into the
  * ring, tagged with `conn_id`.  Payloads > OP_SHM_SLOT_PAYLOAD are split
- * across consecutive slots using the OP_SHM_FLAG_MORE chain.
- * Returns 0 on success, -1 if the ring is full (caller should fall back to
- * the socket path and retry later).
+ * across consecutive slots using the OP_SHM_FLAG_MORE chain; the entire
+ * chain is reserved atomically so the consumer never observes a partial
+ * message.
+ * Returns 0 on success, -1 on failure with errno set:
+ *   ENOSPC/0 → ring full (caller should fall back to the socket path)
+ *   EMSGSIZE → message larger than the entire ring
+ *   EINVAL   → buf == NULL
+ *   EBUSY    → SPSC invariant violated (multiple producers detected)
  */
 int op_shm_ring_push(op_shm_ring_t *ring, uint64_t conn_id,
                      const void *buf, uint32_t len);
 
 /*
  * op_shm_ring_pop — consumer: read the next ready slot.
- * `out_buf` must hold at least OP_SHM_SLOT_PAYLOAD bytes.
- * Sets *conn_id_out and *flags_out, returns payload length.
- * Returns 0 if the ring is empty, -1 on internal error.
+ * `out_buf` MUST hold at least OP_SHM_SLOT_PAYLOAD bytes; the consumer is
+ * expected to reassemble multi-slot messages by looping while the previous
+ * slot carried OP_SHM_FLAG_MORE.
+ * Sets *conn_id_out and *flags_out, returns payload length (1..PAYLOAD).
+ * Returns 0 if the ring is empty (or a slot is not yet fully published —
+ * the caller should retry), -1 with errno set on argument error.
  */
 int op_shm_ring_pop(op_shm_ring_t *ring, uint64_t *conn_id_out,
                     void *out_buf, uint16_t *flags_out);

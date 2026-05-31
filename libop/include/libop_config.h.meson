@@ -34,9 +34,15 @@
 #mesondefine HAVE_ACCEPT4
 #mesondefine HAVE_PIPE2
 #mesondefine HAVE_CLOCK_GETTIME
+#mesondefine HAVE_CLOSEFROM
+#mesondefine HAVE_CLOSE_RANGE
+#mesondefine HAVE_KQUEUE1
+#mesondefine HAVE_SETPROCTITLE
+#mesondefine HAVE_FEXECVE
 #mesondefine HAVE_SO_NOSIGPIPE
 
 #mesondefine HAVE_LIBURING
+#mesondefine HAVE_LIBNUMA
 
 #mesondefine HAVE_OPSSL
 #mesondefine HAVE_KERNEL_TLS

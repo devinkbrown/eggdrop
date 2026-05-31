@@ -56,12 +56,12 @@ static op_bh *maskrec_heap     = nullptr;
 
 void userrec_heaps_init(void)
 {
-  userrec_heap     = op_bh_create(sizeof(struct userrec),     0, "userrec");
-  chanuserrec_heap = op_bh_create(sizeof(struct chanuserrec), 0, "chanuserrec");
-  user_entry_heap  = op_bh_create(sizeof(struct user_entry),  0, "user_entry");
-  list_type_heap   = op_bh_create(sizeof(struct list_type),   0, "list_type");
+  userrec_heap     = op_bh_create(sizeof(struct userrec),    64, "userrec");
+  chanuserrec_heap = op_bh_create(sizeof(struct chanuserrec), 64, "chanuserrec");
+  user_entry_heap  = op_bh_create(sizeof(struct user_entry), 64, "user_entry");
+  list_type_heap   = op_bh_create(sizeof(struct list_type),  64, "list_type");
   xtra_key_heap    = op_bh_create(sizeof(struct xtra_key),   64, "xtra_key");
-  laston_info_heap = op_bh_create(sizeof(struct laston_info), 0, "laston_info");
+  laston_info_heap = op_bh_create(sizeof(struct laston_info), 64, "laston_info");
   igrec_heap       = op_bh_create(sizeof(struct igrec),      16, "igrec");
   maskrec_heap     = op_bh_create(sizeof(maskrec),           32, "maskrec");
 }
@@ -169,21 +169,23 @@ void free_maskrec(maskrec *m)
 struct userrec *lastuser = nullptr;   /* last accessed user record         */
 
 /* Mark a user record as dirty for incremental saves */
-[[maybe_unused]] static void mark_user_dirty(struct userrec *u)
+static void mark_user_dirty(struct userrec *u)
 {
   if (u)
     u->dirty = 1;
 }
 
-/* Mark all users as dirty (called after bulk operations) */
-[[maybe_unused]] static void mark_all_users_dirty(void)
+/* Mark all users as dirty (called after bulk operations, e.g. readuserfile).
+ * Exported so callers in users.c can mark everything dirty without
+ * reaching into userrec internals. */
+void mark_all_users_dirty(void)
 {
   for (struct userrec *u = userlist; u; u = u->next)
     u->dirty = 1;
 }
 
 /* Clear dirty flags for all users (called after successful save) */
-[[maybe_unused]] static void clear_all_dirty_flags(void)
+static void clear_all_dirty_flags(void)
 {
   for (struct userrec *u = userlist; u; u = u->next)
     u->dirty = 0;
@@ -550,7 +552,6 @@ void clear_userlist(struct userrec *bu)
 struct userrec *get_user_by_host(const char *host)
 {
   struct userrec *u, *ret = nullptr;
-  struct list_type *q;
   int cnt, i;
   char host2[UHOSTLEN];
 
@@ -563,9 +564,11 @@ struct userrec *get_user_by_host(const char *host)
   cnt = 0;
   cache_miss++;
   for (u = userlist; u; u = u->next) {
-    q = get_user(&USERENTRY_HOSTS, u);
-    for (; q; q = q->next) {
-      i = match_useraddr(q->extra, host2);
+    op_vec_t *hv = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
+    if (!hv)
+      continue;
+    for (size_t _i = 0; _i < hv->size; _i++) {
+      i = match_useraddr((char *)op_vec_get(hv, _i), host2);
       if (i > cnt) {
         ret = u;
         cnt = i;
@@ -857,9 +860,14 @@ void write_userfile(int idx)
   fclose(f);  /* finalises buf/buflen from open_memstream */
 
   /* Pass buf directly so the backend (LMDB) can store the crash-recovery blob
-   * from in-memory content rather than reading from a not-yet-flushed file. */
+   * from in-memory content rather than reading from a not-yet-flushed file.
+   * lmdb_save_users clears dirty flags after a successful commit.
+   * For the flat backend, clear dirty flags here so incremental tracking
+   * stays accurate across saves. */
   if (egg_store && egg_store != &egg_store_flat)
     egg_store->save_users(idx, buf, buflen);
+  else
+    clear_all_dirty_flags();
 
   /* Hand the serialized buffer to a worker thread for disk I/O.
    * async_writebuf takes ownership of buf. */
@@ -895,7 +903,7 @@ int change_handle(struct userrec *u, char *newh)
     shareout(nullptr, "h %s %s\n", u->handle, newh);
   op_strlcpy(s, u->handle, sizeof s);
   op_strlcpy(u->handle, newh, sizeof u->handle);
-  u->dirty = 1;  /* Mark as dirty when handle changes */
+  mark_user_dirty(u);  /* Mark as dirty when handle changes */
   if (user_handle_dict) {
     op_htab_del(user_handle_dict,s);
     op_htab_set(user_handle_dict, u->handle, u, nullptr);
@@ -932,7 +940,7 @@ struct userrec *adduser(struct userrec *bu, char *handle, const char *host,
   u->next = nullptr;
   u->chanrec = nullptr;
   u->entries = nullptr;
-  u->dirty = 1;  /* New user is dirty */
+  mark_user_dirty(u);  /* New user is dirty */
   if (flags != USER_DEFAULT) {  /* drummer */
     u->flags = flags;
     u->flags_udef = 0;
@@ -1086,51 +1094,57 @@ static int del_host_or_account(char *handle, char *host, int type)
   if (!u)
     return 0;
   if (type) {
+    /* ACCOUNT still uses list_type */
     q = get_user(&USERENTRY_ACCOUNT, u);
-  } else {
-    q = get_user(&USERENTRY_HOSTS, u);
-  }
-  qprev = q;
-  if (q) {
-    if (!rfc_casecmp(q->extra, host)) {
-      if (type) {
-        e = find_user_entry(&USERENTRY_ACCOUNT, u);
-      } else {
-        e = find_user_entry(&USERENTRY_HOSTS, u);
-      }
-      e->u.extra = q->next;
-      op_free(q->extra);
-      op_free(q);
-      i++;
-      qprev = nullptr;
-      q = e->u.extra;
-    } else
-      q = q->next;
-    while (q) {
-      qnext = q->next;
+    qprev = q;
+    if (q) {
       if (!rfc_casecmp(q->extra, host)) {
-        if (qprev)
-          qprev->next = q->next;
-        else if (e) {
-          e->u.extra = q->next;
-          qprev = nullptr;
-        }
+        e = find_user_entry(&USERENTRY_ACCOUNT, u);
+        e->u.extra = q->next;
         op_free(q->extra);
         op_free(q);
         i++;
-        /* Mark user as dirty when entries are deleted */
-        u->dirty = 1;
+        mark_user_dirty(u);
+        qprev = nullptr;
+        q = e->u.extra;
       } else
-        qprev = q;
-      q = qnext;
+        q = q->next;
+      while (q) {
+        qnext = q->next;
+        if (!rfc_casecmp(q->extra, host)) {
+          if (qprev)
+            qprev->next = q->next;
+          else if (e) {
+            e->u.extra = q->next;
+            qprev = nullptr;
+          }
+          op_free(q->extra);
+          op_free(q);
+          i++;
+          mark_user_dirty(u);
+        } else
+          qprev = q;
+        q = qnext;
+      }
     }
-  }
-  if (!qprev) {
-    if (type) {
+    if (!qprev)
       set_user(&USERENTRY_ACCOUNT, u, "none");
-    } else {
-      set_user(&USERENTRY_HOSTS, u, "none");
+  } else {
+    /* HOSTS uses op_vec_t */
+    op_vec_t *hv = (op_vec_t *)get_user(&USERENTRY_HOSTS, u);
+    if (hv) {
+      for (size_t _i = hv->size; _i-- > 0; ) {
+        char *existing = (char *)op_vec_get(hv, _i);
+        if (!rfc_casecmp(existing, host)) {
+          op_free(existing);
+          op_vec_remove(hv, _i);
+          i++;
+          mark_user_dirty(u);
+        }
+      }
     }
+    if (!i)
+      set_user(&USERENTRY_HOSTS, u, "none");
   }
   if (!noshare && i && !(u->flags & USER_UNSHARED))
     shareout(nullptr, "-%s %s %s\n", type ? "a" : "h", handle, host);

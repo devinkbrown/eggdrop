@@ -683,4 +683,184 @@ op_lock_set_deadlock_cb(void *cb) { (void)cb; }
 
 #endif /* OP_LOCK_DEBUG */
 
+/* =========================================================================
+ * op_pcpu_rwlock_t — per-CPU rwlock for extremely read-mostly workloads
+ * (RCU-flavoured; readers are wait-free vs other readers).
+ *
+ * Why another rwlock?
+ *   op_rwlock_t (pthread_rwlock / SRWLOCK) maintains a single shared counter,
+ *   so every reader pays a contended atomic on the same cache line. On a
+ *   16-core box this caps reader throughput at ~10–30 M ops/sec regardless
+ *   of how short the critical section is.
+ *
+ *   op_pcpu_rwlock_t pushes the reader counter into per-CPU (per-thread-hash)
+ *   shards using the same OP_ATOMIC_PERCPU_SHARDS infrastructure as
+ *   op_atomic_percpu_counter_t. Readers only touch their own shard, so cross-
+ *   CPU read traffic generates zero coherence traffic. Writers pay heavily:
+ *   they raise a "writer pending" flag, wait for every shard's reader count
+ *   to drain to zero, then grab a real exclusive mutex.
+ *
+ * When to use:
+ *   - Reads vastly outnumber writes (e.g. >1000:1).
+ *   - The protected data is small/pointer-y enough that an RCU-style
+ *     publish-by-pointer-swap also works (config snapshots, dispatch tables).
+ *   - Read critical sections are short and never block / never recurse.
+ *
+ * When NOT to use (use op_rwlock_t instead):
+ *   - Writes are frequent (>1% of operations). Writer cost is O(shards)
+ *     and includes a memory fence per shard.
+ *   - Reader critical sections may sleep, take other locks above level, or
+ *     recurse: this lock supports nested reads on the same thread only if
+ *     no writer arrives between them — be conservative.
+ *   - You need writer priority / fairness; this lock is reader-biased and
+ *     writers may starve under sustained read load (mitigated by the
+ *     pending flag, which forces new readers onto the slow path).
+ *
+ * Memory ordering argument (Linux-RCU-style):
+ *   Reader fast path (no writer pending):
+ *     1. Load writer_pending (acquire). If set → slow path.
+ *     2. fetch_add(+1) on local shard (relaxed; the acquire above already
+ *        establishes the happens-before vs writer's release of new state).
+ *     3. RE-CHECK writer_pending (acquire). If set → undo, slow path.
+ *        This double-check closes the race where step 1 saw 0 but the
+ *        writer set pending between (1) and (2): without it, the writer
+ *        might observe a zero shard, proceed, and free data the reader
+ *        is about to touch.
+ *     4. Do work.
+ *     5. fetch_sub(-1) on local shard with release ordering — pairs with
+ *        the writer's per-shard acquire load in drain().
+ *
+ *   Writer:
+ *     1. Lock the global writer mutex (serialises writers).
+ *     2. Store writer_pending = 1 with release. Any reader load-acquire
+ *        from this point either sees 1 (→ slow path → blocks on mutex)
+ *        or saw 0 earlier but will re-check in step 3 of the fast path.
+ *     3. For each shard: spin-load with acquire until counter == 0.
+ *        This guarantees every reader that observed pending==0 has
+ *        completed its critical section and published its decrement.
+ *     4. Now exclusive — caller does its mutation.
+ *     5. Store writer_pending = 0 with release; unlock mutex.
+ *
+ *   Slow-path readers simply take a shared lock on the same global mutex
+ *   (in reader mode), which the writer holds exclusively. This is the
+ *   correctness backstop: when writer_pending is set, all new readers
+ *   queue on a real rwlock and only proceed after the writer releases.
+ *
+ * No .c file is required: every operation is an inline using primitives
+ * that already exist in op_atomic.h and the pthread/SRWLOCK wrappers above.
+ * ====================================================================== */
+
+#include "op_atomic.h"  /* OP_ATOMIC_PERCPU_SHARDS, _op_atomic_percpu_shard */
+
+#ifndef OP_PCPU_RWLOCK_CACHELINE
+# define OP_PCPU_RWLOCK_CACHELINE OP_ATOMIC_CACHELINE
+#endif
+
+typedef struct {
+	/* Per-shard reader counter, each padded to its own cache line. */
+	struct {
+		_Atomic(uint32_t) readers;
+		char _pad[OP_PCPU_RWLOCK_CACHELINE - sizeof(uint32_t)];
+	} shards[OP_ATOMIC_PERCPU_SHARDS];
+
+	/* Set non-zero while a writer is waiting or active. Readers that
+	 * observe this take the slow path through `fallback`. */
+	_Atomic(uint32_t) writer_pending;
+	char _pad1[OP_PCPU_RWLOCK_CACHELINE - sizeof(uint32_t)];
+
+	/* Slow path / writer exclusion. Readers that hit a pending writer
+	 * acquire this in shared mode; the writer holds it exclusively for
+	 * the duration of the update. */
+	op_rwlock_t fallback;
+} op_pcpu_rwlock_t;
+
+static inline void
+op_pcpu_rwlock_init(op_pcpu_rwlock_t *lk)
+{
+	for (unsigned i = 0; i < OP_ATOMIC_PERCPU_SHARDS; ++i)
+		atomic_store_explicit(&lk->shards[i].readers, 0,
+		                      memory_order_relaxed);
+	atomic_store_explicit(&lk->writer_pending, 0, memory_order_relaxed);
+	op_rwlock_init(&lk->fallback);
+}
+
+static inline void
+op_pcpu_rwlock_destroy(op_pcpu_rwlock_t *lk)
+{
+	op_rwlock_destroy(&lk->fallback);
+}
+
+/* Reader fast path. Returns the shard index actually taken so the matching
+ * unlock can decrement the right slot; sentinel UINT_MAX means "slow path,
+ * release via op_rwlock_unlock(&lk->fallback)". */
+static inline unsigned
+op_pcpu_rwlock_rdlock(op_pcpu_rwlock_t *lk)
+{
+	/* Quick check before touching our shard. */
+	if (atomic_load_explicit(&lk->writer_pending,
+	                         memory_order_acquire) == 0) {
+		unsigned idx = _op_atomic_percpu_shard();
+		(void)atomic_fetch_add_explicit(&lk->shards[idx].readers, 1,
+		                                memory_order_relaxed);
+		/* Re-check: closes the race where a writer raised the flag
+		 * between our first check and our increment. If we see
+		 * pending here we must back out and join the slow path. */
+		if (atomic_load_explicit(&lk->writer_pending,
+		                         memory_order_acquire) == 0)
+			return idx;
+		(void)atomic_fetch_sub_explicit(&lk->shards[idx].readers, 1,
+		                                memory_order_release);
+	}
+	/* Slow path: a writer is pending or active. Block on the shared
+	 * side of the fallback rwlock. */
+	op_rwlock_rdlock(&lk->fallback);
+	return (unsigned)-1;
+}
+
+static inline void
+op_pcpu_rwlock_rdunlock(op_pcpu_rwlock_t *lk, unsigned idx)
+{
+	if (idx == (unsigned)-1) {
+		op_rwlock_unlock(&lk->fallback);
+		return;
+	}
+	(void)atomic_fetch_sub_explicit(&lk->shards[idx].readers, 1,
+	                                memory_order_release);
+}
+
+static inline void
+op_pcpu_rwlock_wrlock(op_pcpu_rwlock_t *lk)
+{
+	/* Take the fallback in exclusive mode first: this serialises
+	 * writers and also blocks any slow-path readers behind us. */
+	op_rwlock_wrlock(&lk->fallback);
+
+	/* Announce ourselves to fast-path readers. Release ordering pairs
+	 * with the acquire loads in op_pcpu_rwlock_rdlock(). */
+	atomic_store_explicit(&lk->writer_pending, 1, memory_order_release);
+
+	/* Drain all per-shard reader counters. An acquire load here pairs
+	 * with the release in op_pcpu_rwlock_rdunlock(), so by the time
+	 * every shard reads zero, every in-flight reader's critical
+	 * section is fully observable to us. */
+	for (unsigned i = 0; i < OP_ATOMIC_PERCPU_SHARDS; ++i) {
+		while (atomic_load_explicit(&lk->shards[i].readers,
+		                            memory_order_acquire) != 0) {
+			/* Tight spin; reader critical sections are short by
+			 * contract. A cpu_relax / yield could be added here
+			 * but pthread_yield is non-portable and sched_yield
+			 * over-aggressively descheduled in practice. */
+		}
+	}
+}
+
+static inline void
+op_pcpu_rwlock_wrunlock(op_pcpu_rwlock_t *lk)
+{
+	/* Allow fast-path readers again. Release: any reader that
+	 * subsequently observes pending==0 also observes our mutations. */
+	atomic_store_explicit(&lk->writer_pending, 0, memory_order_release);
+	op_rwlock_unlock(&lk->fallback);
+}
+
 #endif /* OP_LOCK_H */

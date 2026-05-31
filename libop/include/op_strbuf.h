@@ -70,8 +70,6 @@ op_strbuf_init(op_strbuf_t *sb)
 static inline void
 op_strbuf_clear(op_strbuf_t *sb)
 {
-	if (op_unlikely(sb->ptr == NULL))
-		op_strbuf_init(sb);
 	sb->len    = 0;
 	sb->ptr[0] = '\0';
 }

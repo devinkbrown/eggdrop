@@ -673,6 +673,7 @@ void init_modules(void)
   op_strlcpy(e->name, "eggdrop", strlen("eggdrop") + 1);
   e->major = (egg_numver) / 10000;
   e->minor = (egg_numver / 100) % 100;
+  e->patch = egg_numver % 100;
 #ifndef STATIC
   e->hand = nullptr;
 #endif
@@ -689,6 +690,8 @@ int module_register(char *name, Function *funcs, int major, int minor)
     if (p->name && !op_strcasecmp(name, p->name)) {
       p->major = major;
       p->minor = minor;
+      /* patch stays at whatever was set; modules may call
+       * module_register_ver() to supply a patch component. */
       p->funcs = funcs;
       return 1;
     }
@@ -888,6 +891,7 @@ const char *module_load(char *name)
   p->name = op_strdup(name);
   p->major = 0;
   p->minor = 0;
+  p->patch = 0;
 #ifndef STATIC
   p->hand = hand;
 #endif
@@ -986,6 +990,37 @@ static int module_rename(char *name, char *newname)
   return 0;
 }
 
+/* Cycle detection: DFS from 'start' looking for a path back to 'target'.
+ * 'visited' accumulates module names already explored this walk.
+ * Returns 1 if a cycle is found, 0 otherwise.
+ * depth_limit prevents unbounded recursion on corrupted data.
+ */
+static int dep_cycle_dfs(module_entry *start, module_entry *target,
+                         op_vec_t *visited, int depth)
+{
+  if (depth > 16)
+    return 0;
+
+  /* Check if we already visited this node to avoid re-traversal. */
+  for (size_t vi = 0; vi < visited->size; vi++) {
+    if (op_vec_get(visited, vi) == (void *)start)
+      return 0;
+  }
+  op_vec_push(visited, (void *)start);
+
+  /* Walk all outgoing edges from 'start' (i.e. modules that 'start' needs). */
+  for (size_t i = 0; i < dep_vec.size; i++) {
+    dependancy *d = (dependancy *)op_vec_get(&dep_vec, i);
+    if (d->needing != start)
+      continue;
+    if (d->needed == target)
+      return 1;   /* cycle found */
+    if (dep_cycle_dfs(d->needed, target, visited, depth + 1))
+      return 1;
+  }
+  return 0;
+}
+
 Function *module_depend(char *name1, char *name2, int major, int minor)
 {
   module_entry *p = module_find(name2, major, minor);
@@ -999,11 +1034,147 @@ Function *module_depend(char *name1, char *name2, int major, int minor)
   }
   if (!p || !o)
     return 0;
+
+  /* Cycle detection: after A → B would be added, check if B already
+   * has a path back to A through the existing dependency graph. */
+  {
+    op_vec_t visited = {};
+    int cycle = dep_cycle_dfs(p, o, &visited, 0);
+    op_vec_fini(&visited, nullptr, nullptr);
+    if (cycle) {
+      putlog(LOG_MISC, "*",
+             "ERROR: Circular module dependency detected: %s -> %s -> ... -> %s",
+             name1, name2, name1);
+      return NULL;
+    }
+  }
+
   d = (dependancy *)op_bh_alloc(dependancy_bh);
-  d->needed = p;
+  d->needed  = p;
   d->needing = o;
-  d->major = major;
-  d->minor = minor;
+  d->major   = major;
+  d->minor   = minor;
+  d->patch   = 0;
+  op_vec_push(&dep_vec, d);
+  return p->funcs ? p->funcs : (Function *) 1;
+}
+
+/*
+ * module_depend_ver — dependency check with full semver version requirement.
+ *
+ * ver_req format: "<modname><op><major>.<minor>.<patch>"
+ *   where <op> is one of:  >=  >  ==
+ *   e.g.  "server>=1.2.0"  or  "channels==2.0.0"
+ *
+ * If <patch> is omitted it defaults to 0.
+ * If a loaded module has no declared version it is treated as 0.0.0.
+ *
+ * Returns the dependent module's function table on success, NULL otherwise.
+ */
+Function *module_depend_ver(char *name1, char *ver_req)
+{
+  char mod_name[64];
+  char op[4];
+  int  req_major = 0, req_minor = 0, req_patch = 0;
+  int  loaded_major, loaded_minor, loaded_patch;
+  int  cmp;
+  module_entry *p, *o;
+  dependancy *d;
+
+  if (!ver_req || !name1)
+    return nullptr;
+
+  /* Parse the requirement string: name, operator, version triple. */
+  {
+    const char *r = ver_req;
+    size_t nlen = 0;
+
+    /* Collect module name (everything before the operator). */
+    while (r[nlen] && r[nlen] != '>' && r[nlen] != '=' && r[nlen] != '<')
+      nlen++;
+    if (nlen == 0 || nlen >= sizeof mod_name) {
+      putlog(LOG_MISC, "*",
+             "module_depend_ver: malformed requirement '%s'", ver_req);
+      return nullptr;
+    }
+    memcpy(mod_name, r, nlen);
+    mod_name[nlen] = '\0';
+    r += nlen;
+
+    /* Collect operator (1-2 chars). */
+    size_t olen = 0;
+    while (r[olen] == '>' || r[olen] == '=' || r[olen] == '<')
+      olen++;
+    if (olen == 0 || olen > 2) {
+      putlog(LOG_MISC, "*",
+             "module_depend_ver: unrecognised operator in '%s'", ver_req);
+      return nullptr;
+    }
+    memcpy(op, r, olen);
+    op[olen] = '\0';
+    r += olen;
+
+    /* Parse version triple (major.minor.patch — patch optional). */
+    int assigned = sscanf(r, "%d.%d.%d", &req_major, &req_minor, &req_patch);
+    if (assigned < 1) {
+      putlog(LOG_MISC, "*",
+             "module_depend_ver: no version number in '%s'", ver_req);
+      return nullptr;
+    }
+  }
+
+  /* Load the module if it is not already present (any version). */
+  p = module_find(mod_name, 0, 0);
+  if (!p) {
+    if (module_load(mod_name))
+      return nullptr;
+    p = module_find(mod_name, 0, 0);
+  }
+
+  o = module_find(name1, 0, 0);
+  if (!p || !o)
+    return nullptr;
+
+  /* Treat an undeclared module version as 0.0.0. */
+  loaded_major = p->major;
+  loaded_minor = p->minor;
+  loaded_patch = p->patch;
+
+  /* Semver comparison: compare as a single integer triple. */
+  if (loaded_major != req_major)
+    cmp = loaded_major > req_major ? 1 : -1;
+  else if (loaded_minor != req_minor)
+    cmp = loaded_minor > req_minor ? 1 : -1;
+  else
+    cmp = loaded_patch > req_patch ? 1 : (loaded_patch < req_patch ? -1 : 0);
+
+  /* Evaluate the operator. */
+  int ok = 0;
+  if (!strcmp(op, ">="))      ok = (cmp >= 0);
+  else if (!strcmp(op, ">"))  ok = (cmp >  0);
+  else if (!strcmp(op, "==")) ok = (cmp == 0);
+  else {
+    putlog(LOG_MISC, "*",
+           "module_depend_ver: unsupported operator '%s' in '%s'", op, ver_req);
+    return nullptr;
+  }
+
+  if (!ok) {
+    putlog(LOG_MISC, "*",
+           "Module %s requires %s%s%d.%d.%d but loaded version is %d.%d.%d — "
+           "refusing to load.",
+           name1, mod_name, op,
+           req_major, req_minor, req_patch,
+           loaded_major, loaded_minor, loaded_patch);
+    return nullptr;
+  }
+
+  d = (dependancy *)op_bh_alloc(dependancy_bh);
+  d->needed  = p;
+  d->needing = o;
+  d->major   = req_major;
+  d->minor   = req_minor;
+  d->patch   = req_patch;
   op_vec_push(&dep_vec, d);
   return p->funcs ? p->funcs : (Function *) 1;
 }

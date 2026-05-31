@@ -28,7 +28,7 @@
 typedef struct {
   char *name;
   int (*expmem) (void *);
-  void (*event) (sockname_t *, char *, int, void *);
+  void (*event) (sockname_t *, const char *, int, void *);
 } devent_type;
 
 typedef struct {

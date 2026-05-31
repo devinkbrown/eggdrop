@@ -54,11 +54,16 @@ static opssl_ctx_t *create_test_server_ctx(opssl_tls_version_t min_ver, opssl_tl
 
     opssl_ctx_set_max_version(ctx, max_ver);
 
-    uint8_t ed_pub[32], ed_priv[64];
-    if (opssl_ed25519_keygen(ed_pub, ed_priv)) {
-        opssl_pkey_t *pkey = opssl_pkey_from_ed25519_raw(ed_priv, ed_pub);
-        if (pkey)
-            opssl_ctx_use_private_key(ctx, pkey);
+    if ((!opssl_ctx_use_certificate_file(ctx, "tests/certs/leaf-cert.pem") ||
+         !opssl_ctx_use_private_key_file(ctx, "tests/certs/leaf-key.pem")) &&
+        (!opssl_ctx_use_certificate_file(ctx, "subprojects/opssl/tests/certs/leaf-cert.pem") ||
+         !opssl_ctx_use_private_key_file(ctx, "subprojects/opssl/tests/certs/leaf-key.pem"))) {
+        uint8_t ed_pub[32], ed_priv[64];
+        if (opssl_ed25519_keygen(ed_pub, ed_priv)) {
+            opssl_pkey_t *pkey = opssl_pkey_from_ed25519_raw(ed_priv, ed_pub);
+            if (pkey)
+                opssl_ctx_use_private_key(ctx, pkey);
+        }
     }
 
     return ctx;
@@ -901,9 +906,6 @@ static void test_tls13_key_update(void)
     close(fds[1]);
 }
 
-extern int opssl_session_export(opssl_conn_t *conn, uint8_t *buf, size_t *buf_len, size_t max_len);
-extern int opssl_session_import(opssl_conn_t *conn, const uint8_t *buf, size_t buf_len);
-
 static void test_session_export_import(void)
 {
     int fds[2];
@@ -946,22 +948,24 @@ static void test_session_export_import(void)
         return;
     }
 
-    /* Export session from server */
-    uint8_t export_buf[512];
-    size_t export_len = 0;
-    int rc = opssl_session_export(server_conn, NULL, &export_len, 0);
-    ASSERT_EQ(rc, 0, "session_export size query succeeds");
-    ASSERT_NE((int)export_len, 0, "exported session has non-zero length");
+    /* Export session from server using the canonical OPX3 wire format
+     * (opssl_conn_export / opssl_conn_import in tls/handshake.c).
+     *
+     * The canonical API has no separate size-query mode — pass a buffer
+     * large enough to hold the export. 4 KiB comfortably fits any TLS 1.3
+     * session blob (fixed header + key material + small pending buffers).
+     */
+    uint8_t export_buf[4096];
+    int export_rc = opssl_conn_export(server_conn, export_buf, sizeof(export_buf));
+    ASSERT_NE(export_rc, -1, "conn_export succeeds");
+    ASSERT_NE(export_rc, 0, "exported session has non-zero length");
 
-    if (export_len <= sizeof(export_buf)) {
-        rc = opssl_session_export(server_conn, export_buf, &export_len, sizeof(export_buf));
-        ASSERT_EQ(rc, 0, "session_export succeeds");
-
+    if (export_rc > 0) {
         /* Import into a fresh connection */
         opssl_conn_t *import_conn = opssl_conn_new(server_ctx, -1, OPSSL_DIR_INBOUND);
         if (import_conn) {
-            rc = opssl_session_import(import_conn, export_buf, export_len);
-            ASSERT_EQ(rc, 0, "session_import succeeds");
+            int import_rc = opssl_conn_import(import_conn, export_buf, (size_t)export_rc);
+            ASSERT_EQ(import_rc, 0, "conn_import succeeds");
             opssl_conn_free(import_conn);
         }
     }

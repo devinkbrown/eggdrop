@@ -130,6 +130,12 @@ opssl_record_encrypt(record_cipher_state_t *st,
         return -1;
     }
 
+    /* Enforce RFC 8446 §5.1 / RFC 5246 §6.2.1 plaintext bound. */
+    if (plain_len > TLS_MAX_PLAINTEXT) {
+        OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_RECORD_OVERFLOW);
+        return -1;
+    }
+
     uint8_t ct_wire = st->is_tls13 ? TLS_CT_APPLICATION_DATA : content_type;
     uint16_t ver_wire = 0x0303; /* Always TLS 1.2 on wire */
     uint8_t nonce[12];
@@ -143,6 +149,12 @@ opssl_record_encrypt(record_cipher_state_t *st,
     if (st->is_tls13) {
         /* cipher_len = plain_len + inner_ct_byte(1) + tag(16) */
         size_t tls13_cipher_len = plain_len + 1 + 16;
+        /* RFC 8446 §5.2: ciphertext MUST NOT exceed 2^14 + 256 */
+        if (tls13_cipher_len > TLS_MAX_CIPHERTEXT) {
+            opssl_memzero(nonce, sizeof(nonce));
+            OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_RECORD_OVERFLOW);
+            return -1;
+        }
         if (TLS_RECORD_HEADER_LEN + tls13_cipher_len > buf_cap) {
             opssl_memzero(nonce, sizeof(nonce));
             return -1;
@@ -250,6 +262,15 @@ opssl_record_decrypt(record_cipher_state_t *st,
     if ((size_t)(TLS_RECORD_HEADER_LEN + payload_len) > record_len)
         return -1;
 
+    /* RFC 8446 §5.2: TLS 1.3 ciphertext bounded by 2^14 + 256.
+     * RFC 5246 §6.2.3: TLS 1.2 AEAD ciphertext bounded by 2^14 + 256 (no MAC,
+     * AEAD-only here). Enforce uniformly to mitigate amplification DoS and
+     * record-fragmentation attacks. */
+    if (payload_len > TLS_MAX_CIPHERTEXT) {
+        OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_RECORD_OVERFLOW);
+        return -1;
+    }
+
     uint8_t nonce[12];
     uint8_t aad[13];
     size_t aad_len;
@@ -269,6 +290,8 @@ opssl_record_decrypt(record_cipher_state_t *st,
                              nonce, 12,
                              ciphertext, payload_len,
                              aad, aad_len)) {
+            /* Zero any partial plaintext to prevent leak on auth failure. */
+            opssl_memzero(ciphertext, payload_len);
             opssl_memzero(nonce, sizeof(nonce));
             OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_BAD_RECORD_MAC);
             return -1;
@@ -277,7 +300,10 @@ opssl_record_decrypt(record_cipher_state_t *st,
         st->seq++;
         opssl_memzero(nonce, sizeof(nonce));
 
-        /* Strip inner content type, scanning back over padding zeros */
+        /* Strip inner content type, scanning back over padding zeros.
+         * Note: scan length depends on padding content, but this only occurs
+         * after successful AEAD auth — input is attacker-chosen only after the
+         * peer accepted it, so timing leak is not exploitable (RFC 8446 §5.4). */
         while (out_len > 0 && ciphertext[out_len - 1] == 0)
             out_len--;
 
@@ -327,6 +353,8 @@ opssl_record_decrypt(record_cipher_state_t *st,
                              nonce, 12,
                              ciphertext, ciphertext_len,
                              aad, aad_len)) {
+            /* Zero any partial plaintext window on auth failure. */
+            opssl_memzero(buf + TLS_RECORD_HEADER_LEN, plain_len);
             opssl_memzero(nonce, sizeof(nonce));
             OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_BAD_RECORD_MAC);
             return -1;

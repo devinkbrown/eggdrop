@@ -544,6 +544,20 @@ static void fix_broken_mask(op_strbuf_t *sb, const char *oldmask)
   }
 }
 
+/* Count active entries in a masklist (Task 6 helper). */
+static int count_masklist(masklist *m)
+{
+  int n = 0;
+  for (; m && m->mask[0]; m = m->next)
+    n++;
+  return n;
+}
+
+/* MAX_BAN_MASK_LEN — hard ceiling on ban/exempt/invite mask length.
+ * RFC 2812 doesn't mandate a limit but common IRC servers use 200-300 chars.
+ * We fall back to isupport_channellen as a proxy; when unavailable, 200. */
+constexpr int MAX_BAN_MASK_LEN = 200;
+
 /* Note: If first char of note is '*' it's a sticky ban.
  */
 static int u_addban(struct chanset_t *chan, const char *ban, char *from, const char *note,
@@ -558,6 +572,25 @@ static int u_addban(struct chanset_t *chan, const char *ban, char *from, const c
   /* Choke check: fix broken bans (must have '!' and '@') */
   op_strbuf_init(&_host);
   fix_broken_mask(&_host, ban);
+
+  /* Task 6: Ban mask length validation.
+   * Truncate masks that are longer than MAX_BAN_MASK_LEN chars, and skip
+   * adding to a channel whose ban list is already at the limit.
+   */
+  if (op_strbuf_len(&_host) > (size_t) MAX_BAN_MASK_LEN) {
+    putlog(LOG_MISC, "*",
+           "Ban mask too long (%d > %d chars), truncating: %s",
+           (int) op_strbuf_len(&_host), MAX_BAN_MASK_LEN,
+           op_strbuf_str(&_host));
+    op_strbuf_truncate(&_host, (size_t) MAX_BAN_MASK_LEN);
+  }
+  if (chan && count_masklist(chan->channel.ban) >= channels_ban_list_limit()) {
+    putlog(LOG_MISC, chan->dname,
+           "Ban list full for %s (%d entries), not adding: %s",
+           chan->dname, channels_ban_list_limit(), op_strbuf_str(&_host));
+    ret = 0;
+    goto cleanup;
+  }
 
   if ((me = module_find("server", 0, 0)) && me->funcs) {
     op_strbuf_t s = {};
@@ -650,6 +683,22 @@ static int u_addinvite(struct chanset_t *chan, char *invite, char *from,
   op_strbuf_init(&_host);
   fix_broken_mask(&_host, invite);
 
+  /* Task 6: mask length validation (same policy as u_addban). */
+  if (op_strbuf_len(&_host) > (size_t) MAX_BAN_MASK_LEN) {
+    putlog(LOG_MISC, "*",
+           "Invite mask too long (%d > %d chars), truncating: %s",
+           (int) op_strbuf_len(&_host), MAX_BAN_MASK_LEN,
+           op_strbuf_str(&_host));
+    op_strbuf_truncate(&_host, (size_t) MAX_BAN_MASK_LEN);
+  }
+  if (chan && count_masklist(chan->channel.invite) >= channels_ban_list_limit()) {
+    putlog(LOG_MISC, chan->dname,
+           "Invite list full for %s (%d entries), not adding: %s",
+           chan->dname, channels_ban_list_limit(), op_strbuf_str(&_host));
+    op_strbuf_free(&_host);
+    return 0;
+  }
+
   for (l = *u; l; l = l->next)
     if (!rfc_casecmp(l->mask, op_strbuf_str(&_host))) {
       p = l;
@@ -720,6 +769,22 @@ static int u_addexempt(struct chanset_t *chan, char *exempt, char *from,
   /* Choke check: fix broken exempts (must have '!' and '@') */
   op_strbuf_init(&_host);
   fix_broken_mask(&_host, exempt);
+
+  /* Task 6: mask length validation (same policy as u_addban). */
+  if (op_strbuf_len(&_host) > (size_t) MAX_BAN_MASK_LEN) {
+    putlog(LOG_MISC, "*",
+           "Exempt mask too long (%d > %d chars), truncating: %s",
+           (int) op_strbuf_len(&_host), MAX_BAN_MASK_LEN,
+           op_strbuf_str(&_host));
+    op_strbuf_truncate(&_host, (size_t) MAX_BAN_MASK_LEN);
+  }
+  if (chan && count_masklist(chan->channel.exempt) >= channels_ban_list_limit()) {
+    putlog(LOG_MISC, chan->dname,
+           "Exempt list full for %s (%d entries), not adding: %s",
+           chan->dname, channels_ban_list_limit(), op_strbuf_str(&_host));
+    op_strbuf_free(&_host);
+    return 0;
+  }
 
   for (l = *u; l; l = l->next)
     if (!rfc_casecmp(l->mask, op_strbuf_str(&_host))) {

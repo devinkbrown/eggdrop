@@ -28,12 +28,13 @@
 #include "irc.h"
 #include "server.mod/server.h"
 #include "channels.mod/channels.h"
+#include "msgcounter.mod/msgcounter.h"
 
 #include <sys/utsname.h>
 
 static p_tcl_bind_list H_topc, H_splt, H_sign, H_rejn, H_part, H_pub, H_pubm;
 static p_tcl_bind_list H_nick, H_mode, H_kick, H_join, H_need, H_invt, H_ircaway;
-static p_tcl_bind_list H_account, H_chghost;
+static p_tcl_bind_list H_account, H_chghost, H_awaynotify;
 
 static Function *global = nullptr, *channels_funcs = nullptr, *server_funcs = nullptr;
 
@@ -68,6 +69,117 @@ static int include_lk = 1;      /* For correct calculation in real_add_mode. */
 static char opchars[8];         /* the chars in a /who reply meaning op */
 
 static Tcl_Obj *tcl_account;
+
+/* -----------------------------------------------------------------------
+ * WHOIS rate limiter: max 3 WHOIS requests per nick per 30 seconds.
+ * Keyed on the target nick (case-insensitive via istr bucket hash).
+ * Defined here, before unity-build includes, so tclirc.c can call it.
+ * ----------------------------------------------------------------------- */
+static op_htab *whois_rl_ht = nullptr;  /* nick -> op_ratelimit_t* */
+static op_bh   *whois_rl_bh = nullptr;  /* block heap for rl structs */
+
+/* Returns 1 if the WHOIS for <nick> should be suppressed (rate limited),
+ * 0 if it is permitted. Lazily initialises the table and heap. */
+static int whois_check_ratelimit(const char *nick)
+{
+  if (!whois_rl_bh)
+    whois_rl_bh = op_bh_create(sizeof(op_ratelimit_t), 32, "whois_rl");
+  if (!whois_rl_ht)
+    whois_rl_ht = op_htab_create_istr("whois_rl", 32);
+
+  op_ratelimit_t *rl = (op_ratelimit_t *)op_htab_get(whois_rl_ht, nick);
+  if (!rl) {
+    rl = (op_ratelimit_t *)op_bh_alloc(whois_rl_bh);
+    uint64_t ts = op_current_time_usec();
+    /* capacity=3 burst; rate=1 token every 30 s.
+     * op_ratelimit_init(rl, capacity, rate_per_sec, ts_usec).
+     * Override rate_usec after init to encode 30s/token. */
+    op_ratelimit_init(rl, 3, 1, ts);
+    rl->rate_usec = 30000000u;  /* 30 000 000 µs = 30s per token */
+    char *key = op_strdup(nick);
+    op_htab_set(whois_rl_ht, key, rl, nullptr);
+  }
+  /* Returns 0 when a token is available (allowed); 1 = denied */
+  return !op_ratelimit_check(rl, op_current_time_usec());
+}
+
+/* -----------------------------------------------------------------------
+ * Per-user PRIVMSG flood tracking.
+ * Token-bucket rate limiter: capacity=5 msgs, rate=1 token per 3 seconds.
+ * Keyed on nick (case-insensitive).  Lazy-initialised.
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+  op_ratelimit_t rl;
+  char nick[NICKLEN];
+} flood_user_t;
+
+static op_htab *flood_user_ht = nullptr;  /* nick (icase) -> flood_user_t* */
+static op_bh   *flood_user_bh = nullptr;  /* block heap for flood_user_t    */
+
+/* Return the flood_user_t for <nick>, creating one if not present. */
+static flood_user_t *flood_user_get(const char *nick)
+{
+  if (!flood_user_bh)
+    flood_user_bh = op_bh_create(sizeof(flood_user_t), 64, "flood_user");
+  if (!flood_user_ht)
+    flood_user_ht = op_htab_create_istr("flood_user", 64);
+
+  flood_user_t *fu = (flood_user_t *)op_htab_get(flood_user_ht, nick);
+  if (!fu) {
+    fu = (flood_user_t *)op_bh_alloc(flood_user_bh);
+    op_strlcpy(fu->nick, nick, sizeof fu->nick);
+    /* capacity=5 burst; override rate_usec for 1 token/3 s. */
+    op_ratelimit_init(&fu->rl, 5, 1, op_current_time_usec());
+    fu->rl.rate_usec = 3000000u;  /* 3 000 000 µs = 3 s per token */
+    char *key = op_strdup(nick);
+    op_htab_set(flood_user_ht, key, fu, nullptr);
+  }
+  return fu;
+}
+
+/* Check per-user PRIVMSG rate limit for <nick> on <chan>.
+ * Returns 1 and kicks if the user is flooding beyond 2x the channel threshold.
+ * Returns 0 if within limits.
+ */
+static int flood_user_check(const char *nick, struct chanset_t *chan)
+{
+  if (!chan || chan->flood_pub_thr <= 0)
+    return 0;
+  if (match_my_nick(nick))
+    return 0;
+
+  flood_user_t *fu = flood_user_get(nick);
+  if (op_ratelimit_check(&fu->rl, op_current_time_usec()))
+    return 0;  /* within limit */
+
+  /* Rate-limited: check if we should kick (2x channel pub flood threshold). */
+  memberlist *m = ismember(chan, nick);
+  if (!m)
+    return 0;
+
+  /* Don't kick ops/halfops/friends; let detect_chan_flood handle them. */
+  struct userrec *u = get_user_from_member(m);
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN };
+  get_user_flagrec(u, &fr, chan->dname);
+  if (glob_bot(fr) || glob_friend(fr) || chan_friend(fr) ||
+      glob_master(fr) || chan_master(fr))
+    return 0;
+
+  if (!chan_sentkick(m) && (me_op(chan) || (me_halfop(chan) && !chan_hasop(m)))) {
+    putlog(LOG_MODES, chan->dname,
+           "Per-user flood: kicking %s from %s", nick, chan->dname);
+    dprintf(DP_MODE, "KICK %s %s :Flooding\n", chan->name, nick);
+    m->flags |= SENTKICK;
+    return 1;
+  }
+  return 0;
+}
+
+/* Forward declaration for chan_handlers.c which calls this before irc.c
+ * defines it. */
+static void check_tcl_awaynotify(char *nick, char *from, struct userrec *u,
+                                 char *chan, char *msg);
 
 #include "chan.c"
 #include "mode.c"
@@ -850,6 +962,31 @@ static int check_tcl_ircaway(char *nick, char *from, const char *mask,
   return (x == BIND_EXEC_LOG);
 }
 
+/* Fire the 'awaynotify' bind when a user's IRCv3 away status changes.
+ * Signature: proc myproc {nick host handle chan away_msg}
+ * away_msg is "" when the user returns from away.
+ */
+static void check_tcl_awaynotify(char *nick, char *from, struct userrec *u,
+                                 char *chan, char *msg)
+{
+  struct flag_record fr = { FR_GLOBAL | FR_CHAN | FR_ANYWH };
+  op_strbuf_t mask = {};
+
+  op_strbuf_init(&mask);
+  op_strbuf_appendf(&mask, "%s %s", chan, from);
+  get_user_flagrec(u, &fr, chan);
+  Tcl_SetVar(interp, "_awaynotify1", nick, 0);
+  Tcl_SetVar(interp, "_awaynotify2", from, 0);
+  Tcl_SetVar(interp, "_awaynotify3", u ? u->handle : "*", 0);
+  Tcl_SetVar(interp, "_awaynotify4", chan, 0);
+  Tcl_SetVar(interp, "_awaynotify5", msg ? msg : "", 0);
+  check_tcl_bind(H_awaynotify, op_strbuf_str(&mask), &fr,
+                 " $_awaynotify1 $_awaynotify2 $_awaynotify3"
+                 " $_awaynotify4 $_awaynotify5",
+                 MATCH_MASK | BIND_STACKABLE);
+  op_strbuf_free(&mask);
+}
+
 static void check_tcl_joinspltrejn(char *nick, char *uhost, struct userrec *u,
                                    char *chname, p_tcl_bind_list table)
 {
@@ -994,8 +1131,10 @@ static int check_tcl_pub(char *nick, char *from, char *chname, char *msg)
   Tcl_SetVar(interp, "_pub3", hand, 0);
   Tcl_SetVar(interp, "_pub4", chname, 0);
   Tcl_SetVar(interp, "_pub5", args, 0);
+  Tcl_SetVar(interp, "server_account", current_msgtag_account, TCL_GLOBAL_ONLY);
   x = check_tcl_bind(H_pub, cmd, &fr, " $_pub1 $_pub2 $_pub3 $_pub4 $_pub5",
                      MATCH_EXACT | BIND_USE_ATTR | BIND_HAS_BUILTINS);
+  Tcl_SetVar(interp, "server_account", "", TCL_GLOBAL_ONLY);
   if (x == BIND_NOMATCH)
     return 0;
   if (x == BIND_EXEC_LOG)
@@ -1025,9 +1164,11 @@ static int check_tcl_pubm(char *nick, char *from, char *chname, char *msg)
   Tcl_SetVar(interp, "_pubm3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_pubm4", chname, 0);
   Tcl_SetVar(interp, "_pubm5", msg, 0);
+  Tcl_SetVar(interp, "server_account", current_msgtag_account, TCL_GLOBAL_ONLY);
   x = check_tcl_bind(H_pubm, op_strbuf_str(&buf), &fr,
                      " $_pubm1 $_pubm2 $_pubm3 $_pubm4 $_pubm5",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_STACKRET);
+  Tcl_SetVar(interp, "server_account", "", TCL_GLOBAL_ONLY);
   op_strbuf_free(&buf);
 
   /*
@@ -1419,6 +1560,7 @@ static char *irc_close(void)
   del_bind_table(H_pub);
   del_bind_table(H_need);
   del_bind_table(H_ircaway);
+  del_bind_table(H_awaynotify);
   del_bind_table(H_account);
   del_bind_table(H_chghost);
   rem_tcl_strings(mystrings);
@@ -1441,6 +1583,29 @@ static char *irc_close(void)
   Tcl_UntraceVar(interp, "net-type",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  traced_nettype, nullptr);
+  /* Clean up per-user flood tracking tables. */
+  if (flood_user_ht) {
+    op_htab_destroy(flood_user_ht, nullptr, nullptr);
+    flood_user_ht = nullptr;
+  }
+  if (flood_user_bh) {
+    op_bh_destroy(flood_user_bh);
+    flood_user_bh = nullptr;
+  }
+  /* Clean up sticky-reban block heap (event callbacks free individual ctx). */
+  if (sticky_reban_bh) {
+    op_bh_destroy(sticky_reban_bh);
+    sticky_reban_bh = nullptr;
+  }
+  /* Clean up WHOIS rate-limit tables. */
+  if (whois_rl_ht) {
+    op_htab_destroy(whois_rl_ht, nullptr, nullptr);
+    whois_rl_ht = nullptr;
+  }
+  if (whois_rl_bh) {
+    op_bh_destroy(whois_rl_bh);
+    whois_rl_bh = nullptr;
+  }
   module_undepend(MODULE_NAME);
   return nullptr;
 }
@@ -1556,6 +1721,7 @@ char *irc_start(Function *global_funcs)
   H_pub = add_bind_table("pub", 0, channels_5char);
   H_need = add_bind_table("need", HT_STACKABLE, channels_2char);
   H_ircaway = add_bind_table("ircaway", HT_STACKABLE, channels_5char);
+  H_awaynotify = add_bind_table("awaynotify", HT_STACKABLE, channels_5char);
   H_account = add_bind_table("account", HT_STACKABLE, channels_5char);
   H_chghost = add_bind_table("chghost", HT_STACKABLE, channels_5char);
   do_nettype();

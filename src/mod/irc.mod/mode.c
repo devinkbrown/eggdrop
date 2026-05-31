@@ -26,6 +26,32 @@
 /* Reversing this mode? */
 static int reversing = 0;
 
+/* -------------------------------------------------------------------------
+ * Sticky ban re-application: deferred context
+ * ------------------------------------------------------------------------- */
+typedef struct {
+  char channame[CHANNELLEN + 1];
+  char banmask[UHOSTLEN];
+} sticky_reban_ctx_t;
+
+static op_bh *sticky_reban_bh = nullptr;  /* block heap for deferred contexts */
+
+/* op_event callback: re-apply a sticky ban 1 second after removal. */
+static void sticky_reban_fire(void *arg)
+{
+  sticky_reban_ctx_t *ctx = (sticky_reban_ctx_t *)arg;
+  struct chanset_t *chan = findchan(ctx->channame);
+
+  if (chan && channel_active(chan) &&
+      (u_sticky_mask(chan->bans, chan->bans_ht, ctx->banmask) ||
+       u_sticky_mask(global_bans, global_bans_ht, ctx->banmask))) {
+    putlog(LOG_MODES, chan->dname,
+           "Sticky ban %s was removed — re-applying", ctx->banmask);
+    add_mode(chan, '+', 'b', ctx->banmask);
+  }
+  op_bh_free(sticky_reban_bh, ctx);
+}
+
 constexpr int PLUS   = 0x01;
 constexpr int MINUS  = 0x02;
 constexpr int CHOP   = 0x04;
@@ -151,7 +177,7 @@ static void flush_mode(struct chanset_t *chan, int pri)
     op_free(chan->rmkey), chan->rmkey = nullptr;
   }
 
-  /* Do -{b,e,I} before +{b,e,I} to avoid the server ignoring overlaps */
+  /* Do -{b,e,I,q} before +{b,e,I,q} to avoid the server ignoring overlaps */
   for (int i = 0; i < modesperline; i++) {
     if ((chan->cmode[i].type & MINUS) && postsize > strlen(chan->cmode[i].op)) {
       if (plus) {
@@ -162,7 +188,8 @@ static void flush_mode(struct chanset_t *chan, int pri)
               ((chan->cmode[i].type & CHOP) ? 'o' :
               ((chan->cmode[i].type & CHHOP) ? 'h' :
               ((chan->cmode[i].type & EXEMPT) ? 'e' :
-              ((chan->cmode[i].type & INVITE) ? 'I' : 'v')))));
+              ((chan->cmode[i].type & INVITE) ? 'I' :
+              ((chan->cmode[i].type & CHOWN) ? 'q' : 'v'))))));
 
       postsize -= egg_strcatn(post, chan->cmode[i].op, sizeof(post));
       postsize -= egg_strcatn(post, " ", sizeof(post));
@@ -183,7 +210,8 @@ static void flush_mode(struct chanset_t *chan, int pri)
               ((chan->cmode[i].type & CHOP) ? 'o' :
               ((chan->cmode[i].type & CHHOP) ? 'h' :
               ((chan->cmode[i].type & EXEMPT) ? 'e' :
-              ((chan->cmode[i].type & INVITE) ? 'I' : 'v')))));
+              ((chan->cmode[i].type & INVITE) ? 'I' :
+              ((chan->cmode[i].type & CHOWN) ? 'q' : 'v'))))));
 
       postsize -= egg_strcatn(post, chan->cmode[i].op, sizeof(post));
       postsize -= egg_strcatn(post, " ", sizeof(post));
@@ -232,7 +260,7 @@ static void real_add_mode(struct chanset_t *chan,
 #endif
     return;
 
-  if (mode == 'o' || mode == 'h' || mode == 'v') {
+  if (mode == 'o' || mode == 'h' || mode == 'v' || mode == 'q') {
     mx = ismember(chan, op);
     if (!mx)
       return;
@@ -266,6 +294,17 @@ static void real_add_mode(struct chanset_t *chan,
         return;
       mx->flags |= SENTVOICE;
     }
+    /* IRCX/Ophion +q owner mode */
+    if (plus == '-' && mode == 'q') {
+      if ((mx->flags & SENTDEOWNER) || !chan_hasowner(mx))
+        return;
+      mx->flags |= SENTDEOWNER;
+    }
+    if (plus == '+' && mode == 'q') {
+      if ((mx->flags & SENTOWNER) || chan_hasowner(mx))
+        return;
+      mx->flags |= SENTOWNER;
+    }
   }
 
   if (chan->compat == 0) {
@@ -280,10 +319,10 @@ static void real_add_mode(struct chanset_t *chan,
     flush_mode(chan, NORMAL);
 
   if (mode == 'o' || mode == 'h' || mode == 'b' || mode == 'v' || mode == 'e' ||
-      mode == 'I') {
+      mode == 'I' || mode == 'q') {
     type = (plus == '+' ? PLUS : MINUS) | (mode == 'o' ? CHOP : (mode == 'h' ?
            CHHOP : (mode == 'b' ? BAN : (mode == 'v' ? VOICE : (mode == 'e' ?
-           EXEMPT : INVITE)))));
+           EXEMPT : (mode == 'q' ? CHOWN : INVITE))))));
     if ((plus == '-' && ((mode == 'b' && !ischanban(chan, op)) ||
         (mode == 'e' && !ischanexempt(chan, op)) ||
         (mode == 'I' && !ischaninvite(chan, op)))) || (plus == '+' &&
@@ -980,14 +1019,34 @@ static void got_unban(struct chanset_t *chan, char *nick, char *from,
   if (channel_pending(chan))
     return;
 
-  if ((u_sticky_mask(chan->bans, chan->bans_ht, who) ||
-       u_sticky_mask(global_bans, global_bans_ht, who)) ||
-      ((u_equals_mask(global_bans, global_bans_ht, who) ||
-        u_equals_mask(chan->bans, chan->bans_ht, who)) &&
+  /* Sticky ban: re-apply after 1 s unless the bot itself removed it. */
+  if (u_sticky_mask(chan->bans, chan->bans_ht, who) ||
+      u_sticky_mask(global_bans, global_bans_ht, who)) {
+    if (!match_my_nick(nick)) {
+      /* Deferred re-apply so the server processes our -b before we +b. */
+      if (!sticky_reban_bh)
+        sticky_reban_bh = op_bh_create(sizeof(sticky_reban_ctx_t), 16,
+                                       "sticky_reban");
+      sticky_reban_ctx_t *ctx =
+        (sticky_reban_ctx_t *)op_bh_alloc(sticky_reban_bh);
+      op_strlcpy(ctx->channame, chan->name, sizeof ctx->channame);
+      op_strlcpy(ctx->banmask, who, sizeof ctx->banmask);
+      {
+        op_strbuf_t evname = {};
+        op_strbuf_init(&evname);
+        op_strbuf_appendf(&evname, "sticky_reban_%s_%s", chan->name, who);
+        op_event_addonce(op_strbuf_str(&evname), sticky_reban_fire, ctx, 1);
+        op_strbuf_free(&evname);
+      }
+    }
+    return;
+  }
+  if ((u_equals_mask(global_bans, global_bans_ht, who) ||
+       u_equals_mask(chan->bans, chan->bans_ht, who)) &&
       !channel_dynamicbans(chan) && ((!glob_bot(user) ||
       !(bot_flags(u) & BOT_SHARE)) && ((!glob_op(user) || chan_deop(user)) &&
       !chan_op(user)) && ((!glob_halfop(user) || chan_dehalfop(user)) &&
-      !chan_halfop(user)))))
+      !chan_halfop(user))))
     add_mode(chan, '+', 'b', who);
 }
 

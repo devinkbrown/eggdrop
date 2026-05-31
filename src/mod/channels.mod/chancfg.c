@@ -374,6 +374,18 @@ static int tcl_channel_modify(Tcl_Interp *irp, struct chanset_t *chan,
         return TCL_ERROR;
       }
       chan->invite_time = egg_atoi(item[i]);
+    } else if (!strcmp(item[i], "msg-rate")) {
+      i++;
+      if (i >= items) {
+        Tcl_AppendResult(irp, "channel msg-rate needs argument", nullptr);
+        return TCL_ERROR;
+      }
+      {
+        int v = egg_atoi(item[i]);
+        if (v < 0) v = 0;
+        if (v > 999) v = 999;
+        chan->msg_rate = v;
+      }
     } else if (!strcmp(item[i], "+enforcebans"))
       chan->status |= CHAN_ENFORCEBANS;
     else if (!strcmp(item[i], "-enforcebans"))

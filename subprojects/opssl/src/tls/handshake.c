@@ -162,12 +162,21 @@ struct opssl_conn {
     uint8_t hs_inbuf[32768];  /* handshake reassembly buffer */
     size_t  hs_inlen;          /* bytes in reassembly buffer */
 
+    /* Post-handshake reassembly buffer (TLS 1.3 NewSessionTicket / KeyUpdate) */
+    uint8_t ph_inbuf[4096];   /* post-handshake record accumulator */
+    size_t  ph_inlen;          /* bytes accumulated */
+
     /* Flags */
     bool shutdown_sent;
     bool shutdown_received;
     bool postquantum;
     bool request_client_cert_set;
     bool request_client_cert;
+
+    /* Anti-injection counters: cap spurious CCS records (TLS 1.3 middlebox
+     * compat allows exactly one) and cap warning-alert flooding. */
+    uint8_t ccs_received;
+    uint8_t warning_alerts_received;
 };
 
 /* Session resumption structure */
@@ -518,16 +527,38 @@ opssl_result_t opssl_accept(opssl_conn_t *conn)
 
             case TLS_RT_CHANGE_CIPHER_SPEC:
                 conn->read_len = 0;
+                /* Cap spurious CCS to defend against state-confusion injection.
+                 * RFC 5246: exactly one CCS per direction immediately before
+                 * Finished. RFC 8446 §5: TLS 1.3 permits at most one for
+                 * middlebox compatibility. */
+                if (conn->ccs_received >= 1) {
+                    conn->last_error = OPSSL_ERR_PROTOCOL;
+                    return OPSSL_ERROR;
+                }
+                conn->ccs_received++;
                 if (!conn->is_tls13 && conn->read_cipher)
                     conn->read_encrypted = true;
                 break;
 
             case TLS_RT_ALERT:
                 conn->read_len = 0;
+                /* read_record() guarantees len==2 for ALERT records. */
                 if (record_len >= 2) {
                     uint8_t level = record_data[0];
-                    if (level == 2) { /* fatal */
+                    uint8_t desc  = record_data[1];
+                    /* TLS 1.3 (RFC 8446 §6): every alert during handshake is
+                     * fatal regardless of level, with the sole exception of
+                     * user_canceled (90). Treat close_notify (0) as fatal too
+                     * mid-handshake — peer cannot orderly-close before completion. */
+                    if (level == 2 ||
+                        (conn->is_tls13 && desc != 90) ||
+                        desc == 0) {
                         conn->last_error = OPSSL_ERR_PEER_ALERT;
+                        return OPSSL_ERROR;
+                    }
+                    /* Cap warning-alert flood used as DoS / keepalive vector. */
+                    if (++conn->warning_alerts_received > 4) {
+                        conn->last_error = OPSSL_ERR_PROTOCOL;
                         return OPSSL_ERROR;
                     }
                 }
@@ -661,6 +692,11 @@ opssl_result_t opssl_connect(opssl_conn_t *conn)
 
         case TLS_RT_CHANGE_CIPHER_SPEC:
             conn->read_len = 0;
+            if (conn->ccs_received >= 1) {
+                conn->last_error = OPSSL_ERR_PROTOCOL;
+                return OPSSL_ERROR;
+            }
+            conn->ccs_received++;
             if (!conn->is_tls13 && conn->read_cipher)
                 conn->read_encrypted = true;
             break;
@@ -668,8 +704,18 @@ opssl_result_t opssl_connect(opssl_conn_t *conn)
         case TLS_RT_ALERT:
             conn->read_len = 0;
             if (record_len >= 2) {
-                if (record_data[0] == 2) {
+                uint8_t level = record_data[0];
+                uint8_t desc  = record_data[1];
+                /* See opssl_accept(): TLS 1.3 treats all alerts as fatal
+                 * except user_canceled; close_notify mid-handshake is fatal. */
+                if (level == 2 ||
+                    (conn->is_tls13 && desc != 90) ||
+                    desc == 0) {
                     conn->last_error = OPSSL_ERR_PEER_ALERT;
+                    return OPSSL_ERROR;
+                }
+                if (++conn->warning_alerts_received > 4) {
+                    conn->last_error = OPSSL_ERR_PROTOCOL;
                     return OPSSL_ERROR;
                 }
             }
@@ -759,12 +805,24 @@ ssize_t opssl_read(opssl_conn_t *conn, void *buf, size_t len)
 
             case TLS_RT_ALERT:
                 conn->read_len = 0;
-                if (record_data[1] == 0) { /* close_notify */
-                    conn->shutdown_received = true;
-                    return 0; /* EOF */
-                } else if (record_data[0] == 2) { /* fatal */
-                    conn->last_error = OPSSL_ERR_PEER_ALERT;
+                /* read_record() enforces len==2; defensive check anyway. */
+                if (record_len < 2) {
+                    conn->last_error = OPSSL_ERR_PROTOCOL;
                     return -1;
+                }
+                {
+                    uint8_t level = record_data[0];
+                    uint8_t desc  = record_data[1];
+                    if (desc == 0) { /* close_notify */
+                        conn->shutdown_received = true;
+                        return 0; /* EOF */
+                    }
+                    /* TLS 1.3 (RFC 8446 §6): all alerts fatal except
+                     * user_canceled (90). TLS 1.2: only level==fatal kills. */
+                    if (level == 2 || (conn->is_tls13 && desc != 90)) {
+                        conn->last_error = OPSSL_ERR_PEER_ALERT;
+                        return -1;
+                    }
                 }
                 break;
 
@@ -774,14 +832,34 @@ ssize_t opssl_read(opssl_conn_t *conn, void *buf, size_t len)
                     conn->last_error = OPSSL_ERR_PROTOCOL;
                     return -1;
                 }
-                result = process_tls13_post_handshake(conn, record_data, record_len);
-                if (result == OPSSL_WANT_READ || result == OPSSL_WANT_WRITE) {
-                    conn->last_want = result;
-                    errno = EAGAIN;
+                /* Accumulate into post-handshake reassembly buffer */
+                if (record_len > sizeof(conn->ph_inbuf) - conn->ph_inlen) {
+                    conn->last_error = OPSSL_ERR_PROTOCOL;
                     return -1;
                 }
-                if (result != OPSSL_OK)
-                    return -1;
+                memcpy(conn->ph_inbuf + conn->ph_inlen, record_data, record_len);
+                conn->ph_inlen += record_len;
+                /* Process all complete messages from the buffer */
+                while (conn->ph_inlen >= TLS_HANDSHAKE_HEADER_LEN) {
+                    uint32_t msg_len = ((uint32_t)conn->ph_inbuf[1] << 16) |
+                                       ((uint32_t)conn->ph_inbuf[2] << 8) |
+                                       conn->ph_inbuf[3];
+                    size_t total = (size_t)TLS_HANDSHAKE_HEADER_LEN + msg_len;
+                    if (conn->ph_inlen < total)
+                        break; /* wait for more records */
+                    result = process_tls13_post_handshake(conn, conn->ph_inbuf, total);
+                    /* Consume the processed message */
+                    conn->ph_inlen -= total;
+                    if (conn->ph_inlen > 0)
+                        memmove(conn->ph_inbuf, conn->ph_inbuf + total, conn->ph_inlen);
+                    if (result == OPSSL_WANT_READ || result == OPSSL_WANT_WRITE) {
+                        conn->last_want = result;
+                        errno = EAGAIN;
+                        return -1;
+                    }
+                    if (result != OPSSL_OK)
+                        return -1;
+                }
                 break;
 
             default:
@@ -1727,16 +1805,56 @@ opssl_result_t opssl_conn_drain_post_handshake(opssl_conn_t *conn)
         }
 
         if (record_type == TLS_RT_HANDSHAKE) {
-            result = process_tls13_post_handshake(conn, data, len);
-            if (result != OPSSL_OK)
-                return result;
+            /* Accumulate into post-handshake reassembly buffer */
+            if (len > sizeof(conn->ph_inbuf) - conn->ph_inlen) {
+                conn->last_error = OPSSL_ERR_PROTOCOL;
+                return OPSSL_ERROR;
+            }
+            memcpy(conn->ph_inbuf + conn->ph_inlen, data, len);
+            conn->ph_inlen += len;
+            /* Process all complete messages */
+            while (conn->ph_inlen >= TLS_HANDSHAKE_HEADER_LEN) {
+                uint32_t msg_len = ((uint32_t)conn->ph_inbuf[1] << 16) |
+                                   ((uint32_t)conn->ph_inbuf[2] << 8) |
+                                   conn->ph_inbuf[3];
+                size_t total = (size_t)TLS_HANDSHAKE_HEADER_LEN + msg_len;
+                if (conn->ph_inlen < total)
+                    break;
+                result = process_tls13_post_handshake(conn, conn->ph_inbuf, total);
+                conn->ph_inlen -= total;
+                if (conn->ph_inlen > 0)
+                    memmove(conn->ph_inbuf, conn->ph_inbuf + total, conn->ph_inlen);
+                if (result != OPSSL_OK)
+                    return result;
+            }
         } else if (record_type == TLS_RT_APPLICATION_DATA) {
             result = process_application_data(conn, data, len);
             if (result != OPSSL_OK)
                 return result;
             conn->read_len = 0;
             return OPSSL_OK;
-        } else if (record_type != TLS_RT_ALERT) {
+        } else if (record_type == TLS_RT_ALERT) {
+            conn->read_len = 0;
+            if (len < 2) {
+                conn->last_error = OPSSL_ERR_PROTOCOL;
+                return OPSSL_ERROR;
+            }
+            {
+                uint8_t level = data[0];
+                uint8_t desc  = data[1];
+                if (desc == 0) { /* close_notify */
+                    conn->shutdown_received = true;
+                    return OPSSL_OK;
+                }
+                /* TLS 1.3 (RFC 8446 §6): all alerts fatal except
+                 * user_canceled (90). TLS 1.2: only level==fatal kills. */
+                if (level == 2 || (conn->is_tls13 && desc != 90)) {
+                    conn->last_error = OPSSL_ERR_PEER_ALERT;
+                    return OPSSL_ERROR;
+                }
+            }
+            /* Warning alert in TLS 1.2 or user_canceled in TLS 1.3: ignore */
+        } else {
             conn->last_error = OPSSL_ERR_PROTOCOL;
             return OPSSL_ERROR;
         }
@@ -2513,6 +2631,10 @@ static opssl_result_t handle_tls12_handshake(opssl_conn_t *conn)
                 }
             }
             opssl_tls12_free_peer_cert(conn->hs_buf);
+        } else if (opssl_ctx_get_verify_peer(conn->ctx)) {
+            /* verify_peer is set but peer sent no certificate — reject */
+            conn->last_error = OPSSL_ERR_PACK(OPSSL_ERR_TLS, OPSSL_TLS_ERR_BAD_CERTIFICATE);
+            return OPSSL_ERROR;
         }
 
         conn->hs_state = OPSSL_HS_COMPLETE;
@@ -2750,6 +2872,10 @@ static opssl_result_t handle_tls13_handshake(opssl_conn_t *conn)
                     }
                 }
                 opssl_tls13_free_peer_cert(conn->hs_buf);
+            } else if (opssl_ctx_get_verify_peer(conn->ctx)) {
+                /* verify_peer is set but peer sent no certificate — reject */
+                conn->last_error = OPSSL_ERR_PACK(OPSSL_ERR_TLS, OPSSL_TLS_ERR_BAD_CERTIFICATE);
+                return OPSSL_ERROR;
             }
 
             /* Copy resumption master secret for session tickets */

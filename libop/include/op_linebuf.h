@@ -32,6 +32,7 @@
 #define LIBOP_LINEBUF_H
 
 #include <op_atomic.h>
+#include <op_vec.h>
 
 #define LINEBUF_COMPLETE        0
 #define LINEBUF_PARTIAL         1
@@ -62,7 +63,8 @@ typedef struct _buf_line
 
 typedef struct _buf_head
 {
-	op_dlink_list list;	/* the actual dlink list */
+	op_vec_t lines;		/* FIFO of buf_line_t * (head_idx to size-1 are live) */
+	size_t head_idx;	/* index of first live line */
 	size_t len;		/* length of all the data */
 	size_t alloclen;	/* Actual allocated data length */
 	size_t writeofs;	/* offset in the first line for the write */

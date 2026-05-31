@@ -680,7 +680,12 @@ static void test_pbkdf2(void)
         0xb5, 0x24, 0xaf, 0x60, 0x12, 0x06, 0x2f, 0xe0, 0x37, 0xa6
     };
 
-    int rc = opssl_pbkdf2(OPSSL_HMAC_SHA1,
+    /*
+     * KAT vectors use iteration counts well below the OWASP password-storage
+     * floor enforced by opssl_pbkdf2(). Use the _unchecked variant so the
+     * RFC 6070 vectors can be verified against the raw RFC 2898 algorithm.
+     */
+    int rc = opssl_pbkdf2_unchecked(OPSSL_HMAC_SHA1,
                           (const uint8_t *)"password", 8,
                           (const uint8_t *)"salt", 4,
                           1, out_sha1, sizeof(out_sha1));
@@ -693,7 +698,7 @@ static void test_pbkdf2(void)
         0xa8, 0x65, 0x48, 0xc9, 0x2c, 0xcc, 0x35, 0x48, 0x08, 0x05, 0x98, 0x7c, 0xb7, 0x0b, 0xe1, 0x7b
     };
 
-    rc = opssl_pbkdf2(OPSSL_HMAC_SHA256,
+    rc = opssl_pbkdf2_unchecked(OPSSL_HMAC_SHA256,
                       (const uint8_t *)"password", 8,
                       (const uint8_t *)"salt", 4,
                       1, out, 32);
@@ -706,7 +711,7 @@ static void test_pbkdf2(void)
         0x96, 0x28, 0x93, 0xa0, 0x01, 0xce, 0x4e, 0x11, 0xa4, 0x96, 0x38, 0x73, 0xaa, 0x98, 0x13, 0x4a
     };
 
-    rc = opssl_pbkdf2(OPSSL_HMAC_SHA256,
+    rc = opssl_pbkdf2_unchecked(OPSSL_HMAC_SHA256,
                       (const uint8_t *)"password", 8,
                       (const uint8_t *)"salt", 4,
                       4096, out, 32);

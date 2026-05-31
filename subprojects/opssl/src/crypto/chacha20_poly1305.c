@@ -93,6 +93,13 @@ opssl_chacha20_poly1305_seal(uint8_t *out, size_t *out_len, size_t max_out,
 {
     if (pt_len > SIZE_MAX - 16)
         return 0;
+    /*
+     * RFC 8439 §2.8: ChaCha20 counter is 32-bit; encryption starts at
+     * counter=1, so max plaintext = (2^32 - 1) * 64 bytes. Refuse anything
+     * larger to prevent keystream/nonce reuse via counter wrap.
+     */
+    if (pt_len > ((uint64_t)0xFFFFFFFFu - 1u) * 64u)
+        return 0;
     size_t needed = pt_len + 16; /* ciphertext + tag */
     if (max_out < needed)
         return 0;
@@ -129,6 +136,9 @@ opssl_chacha20_poly1305_open(uint8_t *out, size_t *out_len, size_t max_out,
 
     size_t pt_len = ct_len - 16;
     if (max_out < pt_len)
+        return 0;
+    /* RFC 8439 §2.8 counter-wrap guard — see seal() for rationale. */
+    if (pt_len > ((uint64_t)0xFFFFFFFFu - 1u) * 64u)
         return 0;
 
     /* Step 1: Generate Poly1305 one-time key */

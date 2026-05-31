@@ -77,6 +77,27 @@ extern int opssl_asn1_get_oid(opssl_cbs_t *cbs, opssl_cbs_t *oid);
 extern int opssl_asn1_get_element(opssl_cbs_t *cbs, uint8_t expected_tag, opssl_cbs_t *content);
 
 /*
+ * pkey_wipe_and_free — zero any private material in a partially-populated
+ * key struct, then free it. Use this on every error path inside the parsers
+ * so that scalar bytes copied before a later parse failure never linger in
+ * freed-but-unsanitised heap memory.
+ *
+ * Safe to call on a key whose union has not yet been touched: the memset
+ * covers all variants of the union by overwriting the whole struct.
+ */
+static void
+pkey_wipe_and_free(opssl_pkey_t *key)
+{
+    if (!key) return;
+    if (key->type == OPSSL_PKEY_RSA && key->key.rsa.der) {
+        opssl_key_free(key->key.rsa.der, key->key.rsa.der_len);
+        key->key.rsa.der = NULL;
+    }
+    opssl_memzero(key, sizeof(*key));
+    op_free(key);
+}
+
+/*
  * Check if an OID matches a known key algorithm.
  */
 static int
@@ -370,7 +391,9 @@ parse_pkcs8_private_key(const uint8_t *der, size_t der_len)
 
         if (opssl_ed25519_keygen(key->key.ed25519.pub, sk_temp) != 1) {
             opssl_memzero(sk_temp, 64);
-            op_free(key);
+            /* Ed25519 seed already copied into key->key.ed25519.priv: must
+             * zero it before releasing the heap block. */
+            pkey_wipe_and_free(key);
             OPSSL_ERR(OPSSL_ERR_X509, 0);
             return NULL;
         }
@@ -796,14 +819,29 @@ opssl_pkey_matches_cert(const opssl_pkey_t *key, const opssl_x509_t *cert)
         if (!opssl_asn1_get_sequence(&spki_pubkey_bits, &pub_rsa_seq)) return 0;
         if (!opssl_asn1_get_integer(&pub_rsa_seq, &spki_modulus)) return 0;
 
-        /* Compare modulus values */
-        if (opssl_cbs_len(&priv_modulus) != opssl_cbs_len(&spki_modulus)) {
-            return 0;
+        /*
+         * Strip any DER sign-padding zero so encodings that disagree on the
+         * leading 0x00 still compare equal: ASN.1 INTEGER is signed, so a
+         * modulus whose high bit is set gets a 0x00 prefix. Different
+         * encoders are inconsistent about emitting this byte for the
+         * PKCS#1 vs SPKI representations of the same key.
+         */
+        const uint8_t *priv_mod_data = opssl_cbs_data(&priv_modulus);
+        size_t         priv_mod_len  = opssl_cbs_len(&priv_modulus);
+        if (priv_mod_len > 1 && priv_mod_data[0] == 0x00) {
+            priv_mod_data++;
+            priv_mod_len--;
         }
 
-        return opssl_ct_eq(opssl_cbs_data(&priv_modulus),
-                          opssl_cbs_data(&spki_modulus),
-                          opssl_cbs_len(&priv_modulus));
+        const uint8_t *spki_mod_data = opssl_cbs_data(&spki_modulus);
+        size_t         spki_mod_len  = opssl_cbs_len(&spki_modulus);
+        if (spki_mod_len > 1 && spki_mod_data[0] == 0x00) {
+            spki_mod_data++;
+            spki_mod_len--;
+        }
+
+        if (priv_mod_len != spki_mod_len) return 0;
+        return opssl_ct_eq(priv_mod_data, spki_mod_data, priv_mod_len);
 
     case OPSSL_PKEY_EC:
         if (!oid_equal(&alg_oid, oid_ec, sizeof(oid_ec))) {
@@ -916,6 +954,37 @@ opssl_pkey_sign(const opssl_pkey_t *key, const uint8_t *digest, size_t digest_le
     }
 
     return 0;
+}
+
+/*
+ * opssl_pkey_from_raw_bytes — construct a private key from a flat byte buffer.
+ *
+ * The bytes are forwarded to opssl_pkey_from_der after a defensive copy so the
+ * caller's buffer is not retained. Useful when keys arrive over a wire format
+ * already stripped of PEM armour. If parsing fails the temporary buffer is
+ * zeroed before being freed: callers passing sensitive material should still
+ * wipe their own copy, but we guarantee no residue from the path we own.
+ */
+opssl_pkey_t *
+opssl_pkey_from_raw_bytes(const uint8_t *bytes, size_t len)
+{
+    if (!bytes || len == 0) {
+        OPSSL_ERR(OPSSL_ERR_X509, 0);
+        return NULL;
+    }
+
+    uint8_t *copy = op_malloc(len);
+    if (!copy) {
+        OPSSL_ERR(OPSSL_ERR_MEMORY, 0);
+        return NULL;
+    }
+    memcpy(copy, bytes, len);
+
+    opssl_pkey_t *key = opssl_pkey_from_der(copy, len);
+
+    opssl_memzero(copy, len);
+    op_free(copy);
+    return key;
 }
 
 opssl_pkey_t *

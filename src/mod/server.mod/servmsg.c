@@ -44,8 +44,190 @@ int account_notify = 1, extended_join = 1, account_tag = 0;
 
 /* Account name from the IRCv3 'account' message tag for the message
  * currently being processed in server_activity().  Empty string means
- * the tag was absent.  Handlers may read this during dispatch. */
-static char current_msgtag_account[NICKMAX + 1];
+ * the tag was absent.  Handlers may read this during dispatch.
+ * Non-static so server.c can place it in server_table[56] and irc.mod
+ * can access it via server_funcs[56] / the current_msgtag_account macro. */
+char current_msgtag_account[NICKMAX + 1];
+
+/* Batch reference from the IRCv3 'batch' message tag for the message
+ * currently being processed.  Empty string means no batch tag present. */
+static char current_msgtag_batch[64 + 1];
+
+/* =========================================================================
+ * IRCv3 BATCH accumulator — generic + chathistory
+ *
+ * When a server opens any batch (BATCH +<ref> <type> [params...]), every
+ * raw line tagged @batch=<ref> is buffered until BATCH -<ref> arrives.
+ *
+ * On close:
+ *  - "chathistory" batches fire the legacy do_tcl("batch:chathistory", ...)
+ *    path for backward compatibility.
+ *  - ALL batch types fire the generic H_batch bind table:
+ *      bind batch <flags> <type-pattern> <proc>
+ *      proc my_handler {type ref lines} { ... }
+ *    where <lines> is a Tcl list of the accumulated raw message strings.
+ *  - "netsplit" and "netjoin" batches also fire via H_batch with their
+ *    respective type strings so scripts can handle them directly.
+ *
+ * Lines per batch are capped at BATCH_LINE_CAP to prevent memory bombs.
+ * ========================================================================= */
+constexpr size_t BATCH_LINE_CAP = 1000;
+
+typedef struct {
+  char   type[64];    /* batch type, e.g. "chathistory", "netsplit" */
+  char   target[512]; /* first parameter from BATCH + line (channel / nick) */
+  char  *key;         /* op_strdup'd key used as the htab key (freed together) */
+  char **lines;       /* accumulated raw lines (op_malloc'd strings) */
+  size_t n;           /* number of lines stored */
+  size_t cap;         /* allocated capacity */
+} batch_accum_t;
+
+/* Hash table: batch refid (char *) → batch_accum_t * */
+static op_htab *batch_ht = nullptr;
+
+/* H_batch — bind table for generic IRCv3 batch delivery.
+ * Lazily initialised on first use; lives for the module lifetime. */
+static p_tcl_bind_list H_batch = nullptr;
+
+static void batch_accum_free(batch_accum_t *acc)
+{
+  if (!acc)
+    return;
+  op_free(acc->key);   /* free the heap-allocated htab key stored alongside */
+  for (size_t i = 0; i < acc->n; i++)
+    op_free(acc->lines[i]);
+  op_free(acc->lines);
+  op_free(acc);
+}
+
+static void batch_accum_append(batch_accum_t *acc, const char *line)
+{
+  if (acc->n >= BATCH_LINE_CAP)
+    return; /* cap reached — drop further lines */
+  if (acc->n >= acc->cap) {
+    size_t newcap = acc->cap ? acc->cap * 2 : 16;
+    if (newcap > BATCH_LINE_CAP)
+      newcap = BATCH_LINE_CAP;
+    acc->lines = (char **)op_realloc(acc->lines, newcap * sizeof(char *));
+    acc->cap = newcap;
+  }
+  acc->lines[acc->n++] = op_strdup(line);
+}
+
+/* Deliver a completed chathistory batch to Tcl via the legacy path.
+ * Fires: [batch:chathistory <target> <line1> <line2> ...] */
+static void batch_deliver_chathistory(batch_accum_t *acc)
+{
+  op_strbuf_t sb = {};
+  op_strbuf_init(&sb);
+  op_strbuf_appendf(&sb, "%s", acc->target);
+  for (size_t i = 0; i < acc->n; i++) {
+    op_strbuf_appendf(&sb, " {%s}", acc->lines[i]);
+  }
+  do_tcl("batch:chathistory", (char *)op_strbuf_str(&sb));
+  op_strbuf_free(&sb);
+}
+
+/* batch_ensure_table — lazily create the H_batch bind table on first use.
+ * The table is stackable so multiple scripts can bind the same type pattern. */
+static void batch_ensure_table(void)
+{
+  if (!H_batch)
+    H_batch = add_bind_table("batch", HT_STACKABLE, nullptr);
+}
+
+/* check_tcl_batch — fire the H_batch bind for a completed batch.
+ *
+ * Sets Tcl variables and calls every proc bound to a pattern that matches
+ * <type>:
+ *   proc my_handler {type ref lines} { ... }
+ *
+ * <lines> is a properly-formed Tcl list built with Tcl_DStringAppendElement
+ * so each accumulated line is individually quoted.
+ */
+static void check_tcl_batch(const char *type, const char *ref,
+                             batch_accum_t *acc)
+{
+  batch_ensure_table();
+
+  /* Build the Tcl list of lines. */
+  Tcl_DString ds;
+  Tcl_DStringInit(&ds);
+  for (size_t i = 0; i < acc->n; i++)
+    Tcl_DStringAppendElement(&ds, acc->lines[i]);
+
+  Tcl_SetVar(interp, "_batch1", type,                       0);
+  Tcl_SetVar(interp, "_batch2", ref,                        0);
+  Tcl_SetVar(interp, "_batch3", Tcl_DStringValue(&ds),      0);
+
+  check_tcl_bind(H_batch, type, 0,
+                 " $_batch1 $_batch2 $_batch3",
+                 MATCH_MASK | BIND_STACKABLE | BIND_STACKRET);
+
+  Tcl_DStringFree(&ds);
+}
+
+/* =========================================================================
+ * EXTBAN support — ISUPPORT EXTBAN=<prefix>,<types>
+ * e.g. EXTBAN=~,amrRszqjnt on InspIRCd / Ophion
+ * ========================================================================= */
+static char extban_prefix = 0;
+static char extban_types[32] = {0};
+
+/* extban_get_prefix — return the EXTBAN prefix character (0 if not set). */
+char extban_get_prefix(void) { return extban_prefix; }
+
+/* extban_get_types — return the EXTBAN type string (empty string if not set). */
+const char *extban_get_types(void) { return extban_types; }
+
+/* extban_match — check whether a ban mask is an extban that matches nick/user/host/account.
+ *
+ * Returns:
+ *   1  — extban matched
+ *   0  — extban not matched (or not an extban, or unsupported type)
+ *  -1  — this is an extban mask but the type is not supported; caller may
+ *         fall back to a normal wildcard match if desired (though extbans
+ *         are not meant to be matched that way).
+ */
+int extban_match(const char *mask, const char *nick, const char *user,
+                 const char *host, const char *account)
+{
+  char type;
+  const char *pattern;
+
+  if (!extban_prefix || !mask || mask[0] != extban_prefix)
+    return 0; /* not an extban */
+
+  type = mask[1];
+  if (!type || !strchr(extban_types, type))
+    return -1; /* unrecognised type */
+
+  pattern = mask + 2;
+  /* Skip optional ':' separator used by some IRCds (e.g. ~r:accountpat) */
+  if (*pattern == ':')
+    pattern++;
+
+  switch (type) {
+    case 'r': /* account name match */
+      if (!account || !account[0] || !strcmp(account, "*"))
+        return 0; /* user is not logged in */
+      return wild_match(pattern, account) ? 1 : 0;
+    case 'a': /* account name (alias for 'r' on some IRCds) */
+      if (!account || !account[0] || !strcmp(account, "*"))
+        return 0;
+      return wild_match(pattern, account) ? 1 : 0;
+    case 'm': /* mask — nick!user@host */
+      {
+        char fullmask[UHOSTLEN + NICKLEN + 4];
+        snprintf(fullmask, sizeof fullmask, "%s!%s@%s",
+                 nick ? nick : "", user ? user : "", host ? host : "");
+        return wild_match(pattern, fullmask) ? 1 : 0;
+      }
+    default:
+      return -1; /* unsupported type */
+  }
+  /* unreachable */
+}
 
 extern int sasl;
 extern int sasl_authenticate_initial(const op_vec_t *);
@@ -133,8 +315,10 @@ static int check_tcl_msg(char *cmd, char *nick, char *uhost,
   Tcl_SetVar(interp, "_msg2", uhost, 0);
   Tcl_SetVar(interp, "_msg3", hand, 0);
   Tcl_SetVar(interp, "_msg4", args, 0);
+  Tcl_SetVar(interp, "server_account", current_msgtag_account, TCL_GLOBAL_ONLY);
   x = check_tcl_bind(H_msg, cmd, &fr, " $_msg1 $_msg2 $_msg3 $_msg4",
                      MATCH_EXACT | BIND_HAS_BUILTINS | BIND_USE_ATTR);
+  Tcl_SetVar(interp, "server_account", "", TCL_GLOBAL_ONLY);
   if (x == BIND_EXEC_LOG)
     putlog(LOG_CMDS, "*", "(%s!%s) !%s! %s %s", nick, uhost, hand, cmd, args);
   return ((x == BIND_MATCHED) || (x == BIND_EXECUTED) || (x == BIND_EXEC_LOG));
@@ -157,9 +341,11 @@ static int check_tcl_msgm(char *cmd, char *nick, char *uhost,
   Tcl_SetVar(interp, "_msgm2", uhost, 0);
   Tcl_SetVar(interp, "_msgm3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_msgm4", op_strbuf_str(&args), 0);
+  Tcl_SetVar(interp, "server_account", current_msgtag_account, TCL_GLOBAL_ONLY);
   x = check_tcl_bind(H_msgm, op_strbuf_str(&args), &fr,
                      " $_msgm1 $_msgm2 $_msgm3 $_msgm4",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_STACKRET);
+  Tcl_SetVar(interp, "server_account", "", TCL_GLOBAL_ONLY);
   op_strbuf_free(&args);
 
   /*
@@ -187,8 +373,10 @@ static int check_tcl_notc(char *nick, char *uhost, struct userrec *u,
   Tcl_SetVar(interp, "_notc3", u ? u->handle : "*", 0);
   Tcl_SetVar(interp, "_notc4", arg, 0);
   Tcl_SetVar(interp, "_notc5", dest, 0);
+  Tcl_SetVar(interp, "server_account", current_msgtag_account, TCL_GLOBAL_ONLY);
   x = check_tcl_bind(H_notc, arg, &fr, " $_notc1 $_notc2 $_notc3 $_notc4 $_notc5",
                      MATCH_MASK | BIND_USE_ATTR | BIND_STACKABLE | BIND_STACKRET);
+  Tcl_SetVar(interp, "server_account", "", TCL_GLOBAL_ONLY);
 
   /*
    * 0 - no match
@@ -390,6 +578,7 @@ static int got001(char *from, char *msg)
   }
 
   server_online = now;
+  reconnect_attempts = 0; /* successful login — reset backoff counter */
   fixcolon(msg);
   op_strlcpy(botname, msg, NICKLEN);
   altnick_char = 0;
@@ -500,6 +689,69 @@ static void nuke_server(char *reason)
  * Maintained in parallel with the 'cap' linked list; the list is kept
  * because external modules may iterate it directly via server_funcs[43]. */
 static op_htab *cap_dict = nullptr;
+
+/* =========================================================================
+ * CAP deferred negotiation queue
+ *
+ * server_queue_cap_req(cap) enqueues a capability request to be sent once
+ * CAP LS negotiation opens.  If the server is already in the negotiation
+ * window (cap_dict is populated), the request is sent immediately.
+ *
+ * The queue is drained in gotcap() after the final CAP LS reply is
+ * processed, and again cleared on disconnect.
+ * ========================================================================= */
+static op_vec_t cap_req_queue; /* op_vec_t of op_strdup'd char * */
+
+/* server_queue_cap_req — send a CAP REQ immediately if negotiation is open,
+ * otherwise enqueue for delivery when CAP LS completes. */
+void server_queue_cap_req(const char *cap)
+{
+  if (!cap || !cap[0])
+    return;
+  if (cap_dict) {
+    /* Negotiation window is open — send immediately. */
+    dprintf(DP_MODE, "CAP REQ :%s\n", cap);
+  } else {
+    /* Not yet in negotiation; hold until CAP LS reply arrives. */
+    op_vec_push(&cap_req_queue, op_strdup(cap));
+  }
+}
+
+/* cap_req_queue_free_cb — op_vec free callback for queue entries. */
+static void cap_req_queue_free_cb(void *elem, void *ud)
+{
+  (void)ud;
+  op_free(elem);
+}
+
+/* cap_req_queue_flush — drain cap_req_queue, sending each entry as a CAP REQ.
+ * Merges entries into a single CAP REQ line when they fit within CAPMAX. */
+static void cap_req_queue_flush(void)
+{
+  if (cap_req_queue.size == 0)
+    return;
+
+  op_strbuf_t req = {};
+  op_strbuf_init(&req);
+  for (size_t i = 0; i < cap_req_queue.size; i++) {
+    const char *cap = (const char *)op_vec_get(&cap_req_queue, i);
+    /* If adding this cap would exceed CAPMAX, send what we have and reset. */
+    if (!op_strbuf_empty(&req) &&
+        op_strbuf_len(&req) + 1 + strlen(cap) > (size_t)CAPMAX) {
+      dprintf(DP_MODE, "CAP REQ :%s\n", op_strbuf_str(&req));
+      op_strbuf_free(&req);
+      op_strbuf_init(&req);
+    }
+    if (!op_strbuf_empty(&req))
+      op_strbuf_append_cstr(&req, " ");
+    op_strbuf_append_cstr(&req, cap);
+  }
+  if (!op_strbuf_empty(&req))
+    dprintf(DP_MODE, "CAP REQ :%s\n", op_strbuf_str(&req));
+  op_strbuf_free(&req);
+
+  op_vec_clear(&cap_req_queue, cap_req_queue_free_cb, nullptr);
+}
 
 /* Inline helper: resolve a nick!user@host 'from' string to a userrec,
  * honouring the IRCv3 'account' tag and any matching channel member record.
@@ -1129,6 +1381,14 @@ static int gotmode(char *from, char *msg)
   return 0;
 }
 
+/* Destroy callback for label_ack_ht: frees the heap-allocated key string. */
+static void label_ack_free_cb(void *key, void *val, void *ud)
+{
+  (void)val;
+  (void)ud;
+  op_free(key);
+}
+
 static void disconnect_server(int idx)
 {
   if (server_online > 0) {
@@ -1140,6 +1400,26 @@ static void disconnect_server(int idx)
   if (cap_dict) {
     op_htab_destroy(cap_dict, nullptr, nullptr);
     cap_dict = nullptr;
+  }
+  /* Discard any pending labeled-response correlations from the old
+   * connection — they will never be answered once we disconnect. */
+  if (label_ack_ht) {
+    op_htab_destroy(label_ack_ht, label_ack_free_cb, nullptr);
+    label_ack_ht = nullptr;
+  }
+  /* Discard any in-flight batch accumulators from the previous connection.
+   * batch_accum_free() frees acc->key (which is the same pointer as the htab
+   * key), so we only pass the value to it — no separate key free needed. */
+  if (batch_ht) {
+    op_htab_iter_t it;
+    op_htab_iter_init(batch_ht, &it);
+    void *key, *val;
+    while (op_htab_iter_next(batch_ht, &it, &key, &val)) {
+      (void)key; /* acc->key == key; batch_accum_free handles it */
+      batch_accum_free((batch_accum_t *)val);
+    }
+    op_htab_destroy(batch_ht, nullptr, nullptr);
+    batch_ht = nullptr;
   }
   server_online = 0;
   if (realservername)
@@ -1365,6 +1645,42 @@ static void server_activity(int idx, char *tagmsg, int len)
       current_msgtag_account[0] = '\0';
     Tcl_DecrRefCount(acctkey);
   }
+  /* Extract IRCv3 'batch' tag for CHATHISTORY accumulator. */
+  {
+    [[maybe_unused]] Tcl_Obj *batchkey = Tcl_NewStringObj("batch", -1);
+    Tcl_Obj *batchval = nullptr;
+    Tcl_IncrRefCount(batchkey);
+    if (Tcl_DictObjGet(interp, tagdict, batchkey, &batchval) == TCL_OK && batchval)
+      op_strlcpy(current_msgtag_batch, Tcl_GetString(batchval), sizeof current_msgtag_batch);
+    else
+      current_msgtag_batch[0] = '\0';
+    Tcl_DecrRefCount(batchkey);
+  }
+  /* IRCv3 labeled-response: when the server echoes back our @label= tag,
+   * remove the pending entry from label_ack_ht so callers know the reply
+   * has arrived.  The key string was heap-allocated by server_send_labeled. */
+  if (label_ack_ht) {
+    Tcl_Obj *lblkey = Tcl_NewStringObj("label", -1);
+    Tcl_Obj *lblval = nullptr;
+    Tcl_IncrRefCount(lblkey);
+    if (Tcl_DictObjGet(interp, tagdict, lblkey, &lblval) == TCL_OK && lblval) {
+      const char *lbl = Tcl_GetString(lblval);
+      if (op_htab_has(label_ack_ht, lbl)) {
+        op_htab_iter_t it;
+        op_htab_iter_init(label_ack_ht, &it);
+        void *k = nullptr, *v = nullptr;
+        while (op_htab_iter_next(label_ack_ht, &it, &k, &v)) {
+          if (k && !strcmp((const char *)k, lbl)) {
+            op_htab_iter_del(label_ack_ht, &it);
+            op_free(k);
+            break;
+          }
+        }
+        putlog(LOG_DEBUG, "*", "labeled-response: ACK label=%s", lbl);
+      }
+    }
+    Tcl_DecrRefCount(lblkey);
+  }
   /* Check both raw and rawt, to allow backwards compatibility with older
    * scripts. If rawt returns 1 (blocking), don't process raw binds.*/
   op_strlcpy(rawmsg, Tcl_GetString(tagdict), sizeof rawmsg);
@@ -1373,6 +1689,7 @@ static void server_activity(int idx, char *tagmsg, int len)
     check_tcl_raw(from, code, msgptr);
   }
   current_msgtag_account[0] = '\0';
+  current_msgtag_batch[0] = '\0';
   Tcl_DecrRefCount(tagdict);
 }
 
@@ -1455,26 +1772,88 @@ static int gotsetname(char *from, char *msg)
  * Format: BATCH +<refid> <type> [params...]
  *         BATCH -<refid>
  *
- * Eggdrop does not need to buffer batches internally; the individual
- * messages within a batch (PRIVMSG, NOTICE, etc.) are dispatched
- * normally by the existing server message handlers.  This handler just
- * logs the open/close at debug level so it is visible in logs when
- * needed for troubleshooting (e.g. CHATHISTORY batches from Ophion). */
+ * All batch types are accumulated: individual messages tagged @batch=<ref>
+ * are buffered (see gotbatch_intercept in my_rawt_binds) and delivered when
+ * BATCH -<ref> arrives.
+ *
+ * On close:
+ *  - "chathistory": fires the legacy do_tcl("batch:chathistory", ...) path
+ *    AND the generic H_batch bind.
+ *  - ALL types: fire the generic H_batch bind:
+ *      bind batch <flags> <type-pattern> <proc>
+ *      proc my_handler {type ref lines} { ... }
+ *  - "netsplit" / "netjoin": handled by Tcl scripts via H_batch. */
 static int gotbatch(char *from, char *msg)
 {
   char *refid = newsplit(&msg);
 
   if (!refid || !refid[0])
     return 0;
+
   if (refid[0] == '+') {
-    /* Batch open — log type for debugging */
-    char *type = newsplit(&msg);
-    putlog(LOG_DEBUG, "*", "BATCH: open %s type=%s", refid + 1,
-           type && type[0] ? type : "(unknown)");
+    char *type   = newsplit(&msg);
+    char *target = newsplit(&msg);
+    fixcolon(target);
+    putlog(LOG_DEBUG, "*", "BATCH: open %s type=%s target=%s", refid + 1,
+           type && type[0] ? type : "(unknown)", target ? target : "");
+    /* Create accumulator for any batch type. */
+    if (type && type[0]) {
+      if (!batch_ht)
+        batch_ht = op_htab_create_str("batch_accum", 8);
+      if (!op_htab_has(batch_ht, refid + 1)) {
+        batch_accum_t *acc = (batch_accum_t *)op_malloc(sizeof *acc);
+        op_strlcpy(acc->type, type, sizeof acc->type);
+        op_strlcpy(acc->target, target ? target : "", sizeof acc->target);
+        acc->key   = op_strdup(refid + 1); /* shared pointer: htab key == acc->key */
+        acc->lines = nullptr;
+        acc->n     = 0;
+        acc->cap   = 0;
+        op_htab_set(batch_ht, acc->key, acc, nullptr);
+      }
+    }
   } else if (refid[0] == '-') {
     putlog(LOG_DEBUG, "*", "BATCH: close %s", refid + 1);
+    if (batch_ht) {
+      batch_accum_t *acc = (batch_accum_t *)op_htab_del(batch_ht, refid + 1);
+      if (acc) {
+        /* acc->key == the pointer we passed to op_htab_set; batch_accum_free
+         * frees it together with the rest of the accumulator. */
+
+        /* Legacy chathistory delivery — keep existing behaviour intact. */
+        if (!op_strcasecmp(acc->type, "chathistory"))
+          batch_deliver_chathistory(acc);
+
+        /* Generic H_batch delivery for all types (including chathistory). */
+        check_tcl_batch(acc->type, refid + 1, acc);
+
+        batch_accum_free(acc);
+      }
+    }
   }
   return 0;
+}
+
+/* gotbatch_intercept — rawt handler that buffers lines belonging to any
+ * open batch (tagged @batch=<ref>).
+ *
+ * Signature matches the rawt calling convention: (from, msg, tagdict).
+ * Returns 1 (blocking) when the line is buffered so that the normal raw
+ * handlers do not also process it.  Returns 0 for all other messages.
+ *
+ * Works for all batch types: chathistory, netsplit, netjoin, multiline,
+ * and any future or custom types. */
+static int gotbatch_intercept([[maybe_unused]] char *from,
+                               char *msg,
+                               [[maybe_unused]] Tcl_Obj *tags)
+{
+  if (!batch_ht || !current_msgtag_batch[0])
+    return 0;
+  batch_accum_t *acc = (batch_accum_t *)op_htab_get(batch_ht, current_msgtag_batch);
+  if (!acc)
+    return 0;
+  /* Store the raw msg portion; the batch type from BATCH+ provides context. */
+  batch_accum_append(acc, msg);
+  return 1; /* block normal dispatch */
 }
 
 /* CHATHISTORY — Ophion scrollback request reply (outside a batch).
@@ -1630,9 +2009,8 @@ static int add_capabilities(const char *msg) {
     newcap = op_bh_alloc(capability_bh);
     op_strlcpy(newcap->name, capptr, sizeof newcap->name);
     op_vec_push(&cap_vec, newcap);
-    /* Keep cap_dict in sync for O(1) find_capability() lookups */
-    if (!cap_dict)
-      cap_dict = op_htab_create_istr("capabilities", 16);
+    /* Keep cap_dict in sync for O(1) find_capability() lookups.
+     * cap_dict is pre-allocated in server_start / server_resolve_success. */
     op_htab_set(cap_dict, newcap->name, newcap, nullptr);
 
     if (valptr) {
@@ -1828,6 +2206,8 @@ static int gotcap(char *from, char *msg) {
         dprintf(DP_MODE, "CAP END\n");
       op_strbuf_free(&cape_req);
     }
+    /* Flush any caps that were queued before CAP LS arrived. */
+    cap_req_queue_flush();
     /* IRCv3 STS (Strict Transport Security): if the server advertises sts
      * with a port= value and we're on a plaintext connection, warn the user
      * so they know to switch to the TLS port. */
@@ -1963,6 +2343,51 @@ static int gotcap(char *from, char *msg) {
   return 0;
 }
 
+/* =========================================================================
+ * IRCv3 MONITOR reply batching — numerics 730/731
+ *
+ * Servers may send multiple 730/731 lines in a burst (one per nick, or
+ * with comma-separated nicks per line).  We accumulate all nicks across
+ * consecutive 730s / 731s and fire a single Tcl bind per burst:
+ *
+ *   bind monitor-online  <flags> * <proc>   ;  proc <nicklist>
+ *   bind monitor-offline <flags> * <proc>   ;  proc <nicklist>
+ *
+ * where <nicklist> is a Tcl list of nick names.
+ *
+ * The individual per-nick "monitor" bind (H_monitor) continues to fire as
+ * before so existing scripts are not broken.
+ * ========================================================================= */
+
+static op_vec_t monitor_online_batch;   /* char * entries, op_strdup'd */
+static op_vec_t monitor_offline_batch;  /* char * entries, op_strdup'd */
+
+/* monitor_batch_free_cb — op_vec free callback for batch entries */
+static void monitor_batch_free_cb(void *elem, void *ud)
+{
+  (void)ud;
+  op_free(elem);
+}
+
+/* monitor_batch_fire — build a Tcl list from the given batch vec, call the
+ * named bind table pattern, then clear and free the batch entries. */
+static void monitor_batch_fire(op_vec_t *batch, const char *bindname)
+{
+  if (batch->size == 0)
+    return;
+
+  Tcl_DString ds;
+  Tcl_DStringInit(&ds);
+  for (size_t i = 0; i < batch->size; i++)
+    Tcl_DStringAppendElement(&ds, (char *)op_vec_get(batch, i));
+
+  Tcl_SetVar(interp, "_monbatch1", Tcl_DStringValue(&ds), 0);
+  do_tcl((char *)bindname, Tcl_DStringValue(&ds));
+
+  Tcl_DStringFree(&ds);
+  op_vec_clear(batch, monitor_batch_free_cb, nullptr);
+}
+
 /* Got 730/RPL_MONONLINE
  * :<server> 730 <nick> :target[!user@host][,target[!user@host]]*
  */
@@ -1973,27 +2398,34 @@ static int got730or1(char *from, char *msg, int code)
   newsplit(&msg);               /* Get rid of nick */
   fixcolon(msg);                /* Get rid of :    */
 
+  op_vec_t *batch = (code == 1) ? &monitor_online_batch : &monitor_offline_batch;
+
   char *saveptr = nullptr;
-  for (tok = strtok_r(msg, ",", &saveptr); tok; tok = strtok_r(nullptr, " ", &saveptr)) {
-    if (strchr(tok, '!')) {
-      nick = splitnick(&tok);
+  for (tok = strtok_r(msg, ",", &saveptr); tok; tok = strtok_r(nullptr, ",", &saveptr)) {
+    char *tok_copy = op_strdup(tok);
+    char *tok_ptr  = tok_copy;
+    if (strchr(tok_ptr, '!')) {
+      nick = splitnick(&tok_ptr);
     } else {
-      nick = tok;
+      nick = tok_ptr;
     }
     for (size_t i = 0; i < monitor_vec.size; i++) {
       monitor_list_t *current = (monitor_list_t *)op_vec_get(&monitor_vec, i);
       if (!rfc_casecmp(current->nick, nick)) {
         if (code == 1) {
           current->online = 1;
-          check_tcl_monitor(nick, 1);
           putlog(LOG_SERV, "*", "%s is now online", nick);
-        } else if (code == 0) {
+        } else {
           current->online = 0;
-          check_tcl_monitor(nick, 0);
           putlog(LOG_SERV, "*", "%s is now offline", nick);
         }
+        /* fire the per-nick legacy bind */
+        check_tcl_monitor(nick, code);
       }
     }
+    /* accumulate into batch for the burst-level bind */
+    op_vec_push(batch, op_strdup(nick));
+    op_free(tok_copy);
   }
   return 0;
 }
@@ -2078,6 +2510,8 @@ static int gotstdwarn(char *from, char *msg)
 static int got730(char *from, char *msg)
 {
   got730or1(from, msg, 1);
+  /* Fire monitor-online bind with the accumulated nick list as a Tcl list. */
+  monitor_batch_fire(&monitor_online_batch, "monitor-online");
   return 0;
 }
 
@@ -2087,6 +2521,8 @@ static int got730(char *from, char *msg)
 static int got731(char *from, char *msg)
 {
   got730or1(from, msg, 0);
+  /* Fire monitor-offline bind with the accumulated nick list as a Tcl list. */
+  monitor_batch_fire(&monitor_offline_batch, "monitor-offline");
   return 0;
 }
 
@@ -2153,6 +2589,25 @@ static int server_isupport(char *key, char *isset_str, char *value)
   } else if (!strcmp(key, "MONITOR")) {
     monitor005 = isset;
     isupport_parseint(key, isset ? value : nullptr, 1, 500, 1, 0, &max_monitor);
+  } else if (!strcmp(key, "EXTBAN")) {
+    if (isset && value && value[0]) {
+      /* Format: EXTBAN=<prefix>,<types>  e.g. EXTBAN=~,amrRszqjnt */
+      char *comma = strchr(value, ',');
+      if (comma) {
+        extban_prefix = value[0];
+        op_strlcpy(extban_types, comma + 1, sizeof extban_types);
+      } else {
+        /* No comma — treat entire value as type list, no prefix */
+        extban_prefix = 0;
+        op_strlcpy(extban_types, value, sizeof extban_types);
+      }
+      putlog(LOG_MISC, "*", "EXTBAN: prefix='%c' types='%s'",
+             extban_prefix ? extban_prefix : '-', extban_types);
+    } else {
+      /* EXTBAN unset (DEL or server disconnect reset) */
+      extban_prefix = 0;
+      extban_types[0] = '\0';
+    }
   }
   return 0;
 }
@@ -2585,7 +3040,8 @@ static cmd_t my_raw_binds[] = {
 };
 
 static cmd_t my_rawt_binds[] = {
-  {"TAGMSG",       "",   (IntFunc) gottagmsg,       nullptr},
+  {"TAGMSG",       "",   (IntFunc) gottagmsg,              nullptr},
+  {"*",            "",   (IntFunc) gotbatch_intercept,     "server:batch-intercept"},
   {nullptr,           nullptr, nullptr,                      nullptr}
 };
 
@@ -2768,6 +3224,12 @@ static void server_resolve_success(int servidx)
   /* Start alternate nicks from the beginning */
   altnick_char = 0;
   check_tcl_event("preinit-server");
+  /* Re-allocate cap_dict for this connection (disconnect_server destroyed it).
+   * This ensures it is always available before the CAP LS reply arrives. */
+  if (!cap_dict)
+    cap_dict = op_htab_create_istr("capabilities", 32);
+  /* Reset the outgoing burst rate limiter for the new connection. */
+  op_ratelimit_reset(&outgoing_rl, op_current_time_usec());
   /* See if server supports CAP command */
   dprintf(DP_MODE, "CAP LS 302\n");
   if (pass[0])

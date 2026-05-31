@@ -2462,7 +2462,7 @@ static void
 mdb_page_dirty(MDB_txn *txn, MDB_page *mp)
 {
 	MDB_ID2 mid;
-	int rc, (*insert)(MDB_ID2L, MDB_ID2 *);
+	int (*insert)(MDB_ID2L, MDB_ID2 *);
 #ifdef _WIN32	/* With Windows we always write dirty pages with WriteFile,
 				 * so we always want them ordered */
 	insert = mdb_mid2l_insert;
@@ -2475,8 +2475,9 @@ mdb_page_dirty(MDB_txn *txn, MDB_page *mp)
 #endif
 	mid.mid = mp->mp_pgno;
 	mid.mptr = mp;
-	rc = insert(txn->mt_u.dirty_list, &mid);
-	mdb_tassert(txn, rc == 0);
+	int insert_rc = insert(txn->mt_u.dirty_list, &mid);
+	mdb_tassert(txn, insert_rc == 0);
+	(void)insert_rc;
 	txn->mt_dirty_room--;
 }
 
@@ -4153,19 +4154,19 @@ _mdb_txn_commit(MDB_txn *txn)
 	/* Update DB root pointers */
 	if (txn->mt_numdbs > CORE_DBS) {
 		MDB_cursor mc;
-		MDB_dbi i;
+		MDB_dbi dbi;
 		MDB_val data;
 		data.mv_size = sizeof(MDB_db);
 
 		mdb_cursor_init(&mc, txn, MAIN_DBI, nullptr);
-		for (i = CORE_DBS; i < txn->mt_numdbs; i++) {
-			if (txn->mt_dbflags[i] & DB_DIRTY) {
-				if (TXN_DBI_CHANGED(txn, i)) {
+		for (dbi = CORE_DBS; dbi < txn->mt_numdbs; dbi++) {
+			if (txn->mt_dbflags[dbi] & DB_DIRTY) {
+				if (TXN_DBI_CHANGED(txn, dbi)) {
 					rc = MDB_BAD_DBI;
 					goto fail;
 				}
-				data.mv_data = &txn->mt_dbs[i];
-				rc = _mdb_cursor_put(&mc, &txn->mt_dbxs[i].md_name, &data,
+				data.mv_data = &txn->mt_dbs[dbi];
+				rc = _mdb_cursor_put(&mc, &txn->mt_dbxs[dbi].md_name, &data,
 					F_SUBDATA);
 				if (rc)
 					goto fail;
@@ -4980,29 +4981,29 @@ mdb_env_open2(MDB_env *env, int prev)
 		fstatfs(env->me_fd, &st);
 		while (st.f_type == 0xEF53) {
 			struct utsname uts;
-			int i;
+			int release_patch;
 			uname(&uts);
 			if (uts.release[0] < '3') {
 				if (!strncmp(uts.release, "2.6.32.", 7)) {
-					i = atoi(uts.release+7);
-					if (i >= 60)
+					release_patch = atoi(uts.release+7);
+					if (release_patch >= 60)
 						break;	/* 2.6.32.60 and newer is OK */
 				} else if (!strncmp(uts.release, "2.6.34.", 7)) {
-					i = atoi(uts.release+7);
-					if (i >= 15)
+					release_patch = atoi(uts.release+7);
+					if (release_patch >= 15)
 						break;	/* 2.6.34.15 and newer is OK */
 				}
 			} else if (uts.release[0] == '3') {
-				i = atoi(uts.release+2);
-				if (i > 5)
+				release_patch = atoi(uts.release+2);
+				if (release_patch > 5)
 					break;	/* 3.6 and newer is OK */
-				if (i == 5) {
-					i = atoi(uts.release+4);
-					if (i >= 4)
+				if (release_patch == 5) {
+					release_patch = atoi(uts.release+4);
+					if (release_patch >= 4)
 						break;	/* 3.5.4 and newer is OK */
-				} else if (i == 2) {
-					i = atoi(uts.release+4);
-					if (i >= 30)
+				} else if (release_patch == 2) {
+					release_patch = atoi(uts.release+4);
+					if (release_patch >= 30)
 						break;	/* 3.2.30 and newer is OK */
 				}
 			} else {	/* 4.x and newer is OK */
@@ -6507,9 +6508,9 @@ mdb_page_get(MDB_cursor *mc, pgno_t pgno, MDB_page **ret, int *lvl)
 				}
 			}
 			if (dl[0].mid) {
-				unsigned x = mdb_mid2l_search(dl, pgno);
-				if (x <= dl[0].mid && dl[x].mid == pgno) {
-					p = dl[x].mptr;
+				unsigned dirty_idx = mdb_mid2l_search(dl, pgno);
+				if (dirty_idx <= dl[0].mid && dl[dirty_idx].mid == pgno) {
+					p = dl[dirty_idx].mptr;
 					goto done;
 				}
 			}
@@ -6687,7 +6688,7 @@ mdb_page_search(MDB_cursor *mc, MDB_val *key, int flags)
 				{
 					MDB_val data;
 					int exact = 0;
-					uint16_t flags;
+					uint16_t persistent_flags;
 					MDB_node *leaf = mdb_node_search(&mc2,
 						&mc->mc_dbx->md_name, &exact);
 					if (!exact)
@@ -6697,12 +6698,12 @@ mdb_page_search(MDB_cursor *mc, MDB_val *key, int flags)
 					rc = mdb_node_read(&mc2, leaf, &data);
 					if (rc)
 						return rc;
-					memcpy(&flags, ((char *) data.mv_data + offsetof(MDB_db, md_flags)),
+					memcpy(&persistent_flags, ((char *) data.mv_data + offsetof(MDB_db, md_flags)),
 						sizeof(uint16_t));
 					/* The txn may not know this DBI, or another process may
 					 * have dropped and recreated the DB with other flags.
 					 */
-					if ((mc->mc_db->md_flags & PERSISTENT_FLAGS) != flags)
+					if ((mc->mc_db->md_flags & PERSISTENT_FLAGS) != persistent_flags)
 						return MDB_INCOMPATIBLE;
 					memcpy(mc->mc_db, data.mv_data, sizeof(MDB_db));
 				}
@@ -8064,18 +8065,18 @@ new_sub:
 			MDB_cursor *m2, *m3;
 			MDB_dbi dbi = mc->mc_dbi;
 			unsigned i = mc->mc_top;
-			MDB_page *mp = mc->mc_pg[i];
+			MDB_page *cursor_page = mc->mc_pg[i];
 
 			for (m2 = mc->mc_txn->mt_cursors[dbi]; m2; m2=m2->mc_next) {
 				if (mc->mc_flags & C_SUB)
 					m3 = &m2->mc_xcursor->mx_cursor;
 				else
 					m3 = m2;
-				if (m3 == mc || m3->mc_snum < mc->mc_snum || m3->mc_pg[i] != mp) continue;
+				if (m3 == mc || m3->mc_snum < mc->mc_snum || m3->mc_pg[i] != cursor_page) continue;
 				if (m3->mc_ki[i] >= mc->mc_ki[i] && insert_key) {
 					m3->mc_ki[i]++;
 				}
-				XCURSOR_REFRESH(m3, i, mp);
+				XCURSOR_REFRESH(m3, i, cursor_page);
 			}
 		}
 	}
@@ -8113,21 +8114,21 @@ put_sub:
 			}
 			if (!(leaf->mn_flags & F_SUBDATA) || sub_root) {
 				/* Adjust other cursors pointing to mp */
-				MDB_cursor *m2;
-				MDB_xcursor *mx = mc->mc_xcursor;
-				unsigned i = mc->mc_top;
-				MDB_page *mp = mc->mc_pg[i];
+			MDB_cursor *m2;
+			MDB_xcursor *mx = mc->mc_xcursor;
+			unsigned i = mc->mc_top;
+			MDB_page *cursor_page = mc->mc_pg[i];
 
-				for (m2 = mc->mc_txn->mt_cursors[mc->mc_dbi]; m2; m2=m2->mc_next) {
+			for (m2 = mc->mc_txn->mt_cursors[mc->mc_dbi]; m2; m2=m2->mc_next) {
 					if (m2 == mc || m2->mc_snum < mc->mc_snum) continue;
 					if (!(m2->mc_flags & C_INITIALIZED)) continue;
-					if (m2->mc_pg[i] == mp) {
-						if (m2->mc_ki[i] == mc->mc_ki[i]) {
-							mdb_xcursor_init2(m2, mx, new_dupdata);
-						} else if (!insert_key) {
-							XCURSOR_REFRESH(m2, i, mp);
-						}
+				if (m2->mc_pg[i] == cursor_page) {
+					if (m2->mc_ki[i] == mc->mc_ki[i]) {
+						mdb_xcursor_init2(m2, mx, new_dupdata);
+					} else if (!insert_key) {
+						XCURSOR_REFRESH(m2, i, cursor_page);
 					}
+				}
 				}
 			}
 			ecount = mc->mc_xcursor->mx_db.md_entries;
@@ -10372,7 +10373,7 @@ mdb_env_cwalk(mdb_copy *my, pgno_t *pg, int flags)
 					ni = NODEPTR(mp, i);
 					if (ni->mn_flags & F_BIGDATA) {
 						MDB_page *omp;
-						pgno_t pg;
+						pgno_t overflow_pg;
 
 						/* Need writable leaf */
 						if (mp != leaf) {
@@ -10382,9 +10383,9 @@ mdb_env_cwalk(mdb_copy *my, pgno_t *pg, int flags)
 							ni = NODEPTR(mp, i);
 						}
 
-						memcpy(&pg, NODEDATA(ni), sizeof(pg));
+						memcpy(&overflow_pg, NODEDATA(ni), sizeof(overflow_pg));
 						memcpy(NODEDATA(ni), &my->mc_next_pgno, sizeof(pgno_t));
-						rc = mdb_page_get(&mc, pg, &omp, nullptr);
+						rc = mdb_page_get(&mc, overflow_pg, &omp, nullptr);
 						if (rc)
 							goto done;
 						if (my->mc_wlen[toggle] >= MDB_WBUF) {
@@ -10427,14 +10428,14 @@ mdb_env_cwalk(mdb_copy *my, pgno_t *pg, int flags)
 					}
 				}
 			}
-		} else {
-			mc.mc_ki[mc.mc_top]++;
-			if (mc.mc_ki[mc.mc_top] < n) {
-				pgno_t pg;
+			} else {
+				mc.mc_ki[mc.mc_top]++;
+				if (mc.mc_ki[mc.mc_top] < n) {
+					pgno_t branch_pg;
 again:
-				ni = NODEPTR(mp, mc.mc_ki[mc.mc_top]);
-				pg = NODEPGNO(ni);
-				rc = mdb_page_get(&mc, pg, &mp, nullptr);
+					ni = NODEPTR(mp, mc.mc_ki[mc.mc_top]);
+					branch_pg = NODEPGNO(ni);
+					rc = mdb_page_get(&mc, branch_pg, &mp, nullptr);
 				if (rc)
 					goto done;
 				mc.mc_top++;
@@ -10896,7 +10897,7 @@ int mdb_dbi_open(MDB_txn *txn, const char *name, unsigned int flags, MDB_dbi *db
 	MDB_val key, data;
 	MDB_dbi i;
 	MDB_cursor mc;
-	MDB_db dummy;
+	MDB_db dummy_db;
 	int rc, dbflag, exact;
 	unsigned int unused = 0, seq;
 	char *namedup;
@@ -10976,10 +10977,10 @@ int mdb_dbi_open(MDB_txn *txn, const char *name, unsigned int flags, MDB_dbi *db
 	if (rc) {
 		/* MDB_NOTFOUND and MDB_CREATE: Create new DB */
 		data.mv_size = sizeof(MDB_db);
-		data.mv_data = &dummy;
-		memset(&dummy, 0, sizeof(dummy));
-		dummy.md_root = P_INVALID;
-		dummy.md_flags = flags & PERSISTENT_FLAGS;
+		data.mv_data = &dummy_db;
+		memset(&dummy_db, 0, sizeof(dummy_db));
+		dummy_db.md_root = P_INVALID;
+		dummy_db.md_flags = flags & PERSISTENT_FLAGS;
 		WITH_CURSOR_TRACKING(mc,
 			rc = _mdb_cursor_put(&mc, &key, &data, F_SUBDATA));
 		dbflag |= DB_DIRTY;

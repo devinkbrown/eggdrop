@@ -1201,6 +1201,67 @@ static int tcl_putkick STDVAR
   return TCL_OK;
 }
 
+/* getchanmembers <channel> ?modes?
+ *
+ * Return a Tcl list of nicks in <channel>.  An optional <modes> argument
+ * filters the list by IRC channel status:
+ *   +o  — only nicks that have op
+ *   -o  — only nicks that do NOT have op
+ *   +h  — only halfops, -h — nicks without halfop
+ *   +v  — only voiced,  -v — nicks without voice
+ *   +q  — only owners,  -q — nicks without owner (IRCX/Ophion +q)
+ * Without <modes>, all nicks are returned.
+ */
+static int tcl_getchanmembers STDVAR
+{
+  struct chanset_t *chan;
+  memberlist *m;
+  char sign = '+', mode = '\0';
+
+  BADARGS(2, 3, " channel ?modes?");
+
+  chan = findchan_by_dname(argv[1]);
+  if (!chan) {
+    Tcl_AppendResult(irp, "invalid channel: ", argv[1], nullptr);
+    return TCL_ERROR;
+  }
+
+  if (argc == 3) {
+    const char *marg = argv[2];
+    if (marg[0] == '+' || marg[0] == '-') {
+      sign = marg[0];
+      mode = marg[1];
+    } else {
+      mode = marg[0];
+    }
+    if (!mode) {
+      Tcl_AppendResult(irp, "invalid modes argument: ", argv[2], nullptr);
+      return TCL_ERROR;
+    }
+  }
+
+  for (m = chan->channel.member; m && m->nick[0]; m = m->next) {
+    int has = 0;
+    if (argc == 3) {
+      switch (mode) {
+      case 'o': has = chan_hasop(m);      break;
+      case 'h': has = chan_hashalfop(m);  break;
+      case 'v': has = chan_hasvoice(m);   break;
+      case 'q': has = chan_hasowner(m);   break;
+      default:
+        Tcl_AppendResult(irp, "unknown mode char: ", argv[2], nullptr);
+        return TCL_ERROR;
+      }
+      if (sign == '+' && !has)
+        continue;
+      if (sign == '-' && has)
+        continue;
+    }
+    Tcl_AppendElement(irp, m->nick);
+  }
+  return TCL_OK;
+}
+
 /* =========================================================================
  * IRCX / Ophion IRC-related Tcl commands
  * ========================================================================= */
@@ -1259,7 +1320,27 @@ static int tcl_isowner STDVAR
   return TCL_OK;
 }
 
+/* whois <nick>
+ * Send a WHOIS request for <nick> to the server, subject to per-nick rate
+ * limiting (max 3 requests per nick per 30 s).  Returns 1 on success, 0 if
+ * the request was suppressed by the rate limiter.
+ */
+static int tcl_whois STDVAR
+{
+  BADARGS(2, 2, " nick");
+
+  if (whois_check_ratelimit(argv[1])) {
+    putlog(LOG_DEBUG, "*", "WHOIS %s: rate limited", argv[1]);
+    Tcl_AppendResult(irp, "0", nullptr);
+    return TCL_OK;
+  }
+  dprintf(DP_SERVER, "WHOIS %s\n", argv[1]);
+  Tcl_AppendResult(irp, "1", nullptr);
+  return TCL_OK;
+}
+
 static tcl_cmds tclchan_cmds[] = {
+  {"getchanmembers", tcl_getchanmembers},
   {"chanlist",       tcl_chanlist},
   {"botisop",        tcl_botisop},
   {"botishalfop",    tcl_botishalfop},
@@ -1308,6 +1389,8 @@ static tcl_cmds tclchan_cmds[] = {
   /* IRCX / Ophion owner mode commands */
   {"botisowner",     tcl_botisowner},
   {"isowner",        tcl_isowner},
+  /* WHOIS with rate limiting */
+  {"whois",          tcl_whois},
   {nullptr,             nullptr}
 };
 

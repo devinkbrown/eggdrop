@@ -1,0 +1,24 @@
+[modules]
+load = ["pbkdf2", "blowfish", "channels", "server", "ctcp", "irc", "notes", "console"]
+[bot]
+nick = "Lamestbot"
+altnick = "Llamab?t"
+realname = "/msg Lamestbot hello"
+username = "lamest"
+admin = "Lamer"
+network = "test"
+owner = "kain"
+[servers]
+list = ["you.need.to.change.this:6667"]
+[channels]
+list = ["#egghelp"]
+[paths]
+mod_path  = "builddir/src/"
+userfile  = "LamestBot.user"
+chanfile  = "LamestBot.chan"
+notefile  = "LamestBot.notes"
+help_path = "help/"
+[logging]
+entries = ["mco * LamestBot2.log"]
+[network]
+default_port = 6667

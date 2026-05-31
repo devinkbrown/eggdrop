@@ -601,6 +601,14 @@ op_ssl_flush_pending_write(op_fde_t *const F, void *const data __attribute__((un
 	op_lib_log("%s: pending TLS write flush failed fd %d: %s",
 	           __func__, op_get_fd(F), opssl_conn_get_error_string(SSL_P(F)));
 	op_setselect(F, OP_SELECT_WRITE, NULL, NULL);
+
+	/* A deferred TLS flush failure means bytes already accepted from the
+	 * application cannot be delivered.  Surface that as a normal fd error
+	 * to the owner; otherwise higher layers can keep a server link alive
+	 * after the TLS transport has stopped carrying S2S traffic. */
+	errno = EIO;
+	if (F->read_handler != NULL)
+		F->read_handler(F, F->read_data);
 }
 
 static void
@@ -771,7 +779,7 @@ op_ssl_read_or_write(const int r_or_w, op_fde_t *const F, void *const rbuf, cons
 
 	if (ret < 0)
 	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK)
+		if (errno == EAGAIN)
 		{
 			opssl_result_t want = opssl_conn_get_last_want(SSL_P(F));
 			errno = EAGAIN;
@@ -998,8 +1006,8 @@ op_ssl_export_keying_material(op_fde_t *const F,
 		return 0;
 	}
 
-	return (opssl_conn_export_keying_material(SSL_P(F),
-	        out, outlen, label, context, context_len) == 0) ? 1 : 0;
+	return opssl_conn_export_keying_material(SSL_P(F),
+	        out, outlen, label, context, context_len);
 }
 
 int
@@ -1486,8 +1494,12 @@ op_ssl_write(op_fde_t *const F, const void *const buf, const size_t count)
 		if (flush_rc == OPSSL_WANT_WRITE)
 			op_setselect(F, OP_SELECT_WRITE, op_ssl_flush_pending_write, NULL);
 		else if (flush_rc != OPSSL_OK)
+		{
 			op_lib_log("%s: post-write TLS flush failed fd %d: %s",
 			           __func__, op_get_fd(F), opssl_conn_get_error_string(SSL_P(F)));
+			errno = EIO;
+			return OP_RW_SSL_ERROR;
+		}
 	}
 	return ret;
 }

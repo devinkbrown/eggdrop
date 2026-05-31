@@ -1740,7 +1740,7 @@ static void egg_reverse_cb(void *ptr, struct DNSReply *reply)
   if (!hostname)
     hostname = iptostr(&sn.addr.sa);
 
-  call_hostbyip(&sn, (char *)hostname, ok);
+  call_hostbyip(&sn, hostname, ok);
 
   op_bh_free(egg_dns_ctx_bh, ctx);
   op_bh_free(dns_query_bh, q);

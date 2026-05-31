@@ -50,9 +50,9 @@
 
 typedef struct async_node
 {
-	op_async_done_t       done_fn;
-	void                 *ctx;
-	struct async_node    *next;     /* _Atomic in push path */
+	op_async_done_t              done_fn;
+	void                        *ctx;
+	_Atomic(struct async_node *) next;  /* producer: release; consumer: acquire */
 } async_node_t;
 
 /* tail is written by producers; head is written by the main thread.
@@ -96,19 +96,17 @@ async_post_completion(op_async_done_t done_fn, void *ctx)
 	async_node_t *node = op_malloc(sizeof(*node));
 	node->done_fn = done_fn;
 	node->ctx     = ctx;
-	node->next    = NULL;  /* will be set atomically */
+	atomic_init(&node->next, NULL);
 
-	/* MS-queue push: atomically swing old tail's next from NULL to node,
-	 * then advance tail. */
+	/* MS-queue push: atomically swap tail with new node, then publish into
+	 * the previous tail's ->next.  The exchange uses acq_rel so that the
+	 * subsequent release-store to old_tail->next happens-after any prior
+	 * release-store from a different producer that handed us old_tail. */
 	async_node_t *old_tail = atomic_exchange_explicit(
 	    &async_tail, node, memory_order_acq_rel);
-	/* old_tail->next was NULL (invariant); set it to node. */
-	/* This single store is safe because old_tail is unreachable by other
-	 * producers once we've swung async_tail past it. */
-	atomic_store_explicit(
-	    (volatile _Atomic(async_node_t *) *)&old_tail->next,
-	    node,
-	    memory_order_release);
+	/* old_tail->next is guaranteed NULL: each node is published as a tail
+	 * exactly once, and only the producer that swapped it out writes ->next. */
+	atomic_store_explicit(&old_tail->next, node, memory_order_release);
 
 	/* Wake the main thread via the notification fd. */
 #ifdef HAVE_EVENTFD
@@ -182,7 +180,7 @@ op_async_init(int nthreads)
 	async_node_t *sentinel = op_malloc(sizeof(*sentinel));
 	sentinel->done_fn = NULL;
 	sentinel->ctx     = NULL;
-	sentinel->next    = NULL;
+	atomic_init(&sentinel->next, NULL);
 	async_head = sentinel;
 	atomic_store_explicit(&async_tail, sentinel, memory_order_release);
 
@@ -292,32 +290,33 @@ op_async_drain(void)
 {
 	int count = 0;
 
-	/* MS-queue pop: read from head->next until empty. */
+	/* MS-queue pop: single-consumer, so no CAS needed on head.
+	 * Each iteration: read head->next (acquire), free the old sentinel,
+	 * deliver the new node's payload, then leave it as the new sentinel. */
 	for (;;)
 	{
 		async_node_t *next = atomic_load_explicit(
-		    (volatile _Atomic(async_node_t *) *)&async_head->next,
-		    memory_order_acquire);
+		    &async_head->next, memory_order_acquire);
 
 		if (next == NULL)
-			break;   /* queue is empty */
+			break;   /* queue is empty (producer mid-publish counts as empty) */
 
-		/* Advance head past the sentinel. */
+		/* Capture payload BEFORE we expose `next` as the new sentinel.
+		 * After the assignment async_head = next, a concurrent producer
+		 * may swing tail past `next` and write into next->next, but never
+		 * touches done_fn/ctx — those belong to the consumer. */
+		op_async_done_t done_fn = next->done_fn;
+		void           *ctx     = next->ctx;
+
 		async_node_t *old_head = async_head;
 		async_head = next;
-		op_free(old_head);   /* free old sentinel */
+		op_free(old_head);
 
-		/* Deliver the completion. */
-		if (next->done_fn != NULL)
-			next->done_fn(next->ctx);
+		if (done_fn != NULL)
+			done_fn(ctx);
 
 		atomic_fetch_sub_explicit(&async_pending_count, 1, memory_order_relaxed);
 		count++;
-
-		/* next becomes the new sentinel — don't free it yet. */
-		/* Its done_fn/ctx have been consumed; zero them out for safety. */
-		next->done_fn = NULL;
-		next->ctx     = NULL;
 	}
 
 	return count;

@@ -28,6 +28,10 @@ typedef struct {
  * Returns the number of recv operations submitted. */
 int async_recv_submit_all(void);
 
+/* HOOK_MINUTELY handler: writes a structured stats line to LOG_MISC.
+ * Register with add_hook(HOOK_MINUTELY, (Function)async_recv_minutely). */
+void async_recv_minutely(void);
+
 /* Fill *out with a snapshot of recv stats. */
 void async_recv_stats(async_recv_stats_t *out);
 

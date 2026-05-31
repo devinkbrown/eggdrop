@@ -506,13 +506,13 @@ int opssl_bn_mod_inv(opssl_bn_t *r, const opssl_bn_t *a, const opssl_bn_t *prime
     opssl_memzero(&two, sizeof(two));
     opssl_memzero(&e, sizeof(e));
 
-    /* If a == 0 the result is 0 (not a valid inverse); signal failure */
-    int all_zero = 1;
+    /* If a == 0 the result is 0 (not a valid inverse); signal failure.
+     * Constant-time accumulator: OR all limbs, collapse to single bit. */
+    uint64_t acc = 0;
     for (int i = 0; i < width; i++) {
-        if (a->d[i] != 0) { all_zero = 0; break; }
+        acc |= a->d[i];
     }
-    /* Note: the branch above is on the public 'a == 0' check, not on secret
-     * intermediate values, so it does not create a timing side-channel in the
-     * context where this function is called (blinding factor is never zero). */
-    return all_zero ? 0 : 1;
+    /* nz = 1 iff acc != 0, else 0 (branchless) */
+    uint64_t nz = (acc | (0ull - acc)) >> 63;
+    return (int)nz;
 }

@@ -1,8 +1,143 @@
 
-Eggdrop Changes (Last Updated 2026-05-16):
+Eggdrop Changes (Last Updated 2026-05-31):
 __________________________________________
 
 devinkbrown fork (based on v1.10.1):
+
+  2026-05-31 * fix: TLS certificate/key load error checks were inverted in
+               tls.c — opssl returns 0 on failure but the comparisons used
+               != 0, meaning fatal() fired on success and was skipped on
+               error.  Fixed all three checks: use_certificate_chain_file,
+               use_private_key_file, check_private_key.  WebUI server-mode
+               TLS silently failed to load the cert before this fix.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * fix: WebUI TLS handshake direction — net.c async handshake
+               driver was always calling opssl_connect() (client-side TLS)
+               even for incoming connections accepted by the WebUI listener.
+               Now checks SOCK_CONNECT flag: outgoing sockets use
+               opssl_connect(), incoming sockets use opssl_accept().
+               [Patch by: devinkbrown]
+
+  2026-05-31 * fix: WebUI TLS WANT_WRITE handling — added write-driven TLS
+               handshake loop in dequeue_sockets() so opssl_accept() can
+               resume after returning WANT_WRITE.  Write interest is now
+               armed for any TLS socket whose handshake is not yet complete.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * fix: SIGSEGV in get_user_by_host() and del_host_or_account()
+               — USERENTRY_HOSTS was migrated to op_vec_t* but both
+               functions still iterated it as struct list_type*, causing
+               op_vec.size to be read as a pointer (value 1) and
+               dereferenced.  Fixed to use op_vec_get() iteration.
+               Crash reproducible on any telnet/DCC connection attempt.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * config: eggdrop-basic.toml WebUI listener now defaults to
+               TLS (listen +8443 webui) so browsers connect securely
+               without additional configuration.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * ircv3: IRCv3 BATCH accumulator — incoming BATCH +<ref>
+               opens an accumulator; all lines tagged @batch=<ref> are
+               buffered until BATCH -<ref> closes the batch.  On close,
+               chathistory batches fire the legacy do_tcl("batch:chathistory")
+               path and ALL batch types fire the new H_batch bind table:
+                 bind batch <flags> <type-pattern> <proc>
+                 proc handler {type ref lines} { ... }
+               where lines is a Tcl list of the raw accumulated messages.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * ircv3: message tag globals — current_msgtag_account and
+               current_msgtag_batch are now exported so any message handler
+               can inspect the account= and batch= tags of the message
+               currently being dispatched without reparsing the tag string.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * server: EXTBAN support — EXTBAN= ISUPPORT token is now
+               parsed.  New extban_match() function checks extended ban
+               masks against nick/user/host/account fields.  The prefix
+               character and supported type string are available via
+               extban_get_prefix() and extban_get_types().
+               [Patch by: devinkbrown]
+
+  2026-05-31 * server: CAP REQ queue — server_queue_cap_req() buffers
+               capability requests and sends them immediately when CAP
+               negotiation is open, or enqueues them for the next CAP
+               session otherwise.  Replaces ad-hoc deferral logic.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * server: SASL improvements — added SCRAM-SHA-1 mechanism
+               alongside PLAIN.  Per-username failure rate limiting with
+               exponential backoff prevents brute-force authentication.
+               New sasl_require_tls setting (default on) refuses PLAIN
+               authentication over plaintext connections.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * server: dynamic ISUPPORT limits — isupport_max_modes,
+               isupport_chanlimit, isupport_channellen, and isupport_hostlen
+               globals are now updated live whenever the server sends a
+               new 005 numeric.  PREFIX=(modes)chars is fully parsed and
+               the mode/char arrays are exported so other modules can look
+               up channel member privilege characters.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * server: new Tcl commands — chathistory_latest, curserver,
+               getcurrentnick, serverport, serverlag, isupportval,
+               isupportprefix.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * irc: new IRC numeric handlers — 301 (RPL_AWAY), 312-313
+               (WHOISSERVER/WHOISOPERATOR), 319 (RPL_WHOISCHANNELS),
+               321-323 (LIST start/entry/end), 333 (RPL_TOPICWHOTIME),
+               334 (RPL_COMMANDSYNTAX), 341 (RPL_INVITING), 351
+               (RPL_VERSION), 391 (RPL_TIME).
+               [Patch by: devinkbrown]
+
+  2026-05-31 * channels: new Tcl commands — chanstats (per-channel
+               join/part/kick/mode counters), chaninfo (channel metadata
+               snapshot).
+               [Patch by: devinkbrown]
+
+  2026-05-31 * webui: per-IP auth rate limiting — WebUI login failures
+               are counted per source IP.  After a configurable threshold
+               the IP is locked out for an exponentially increasing window
+               to resist brute-force attacks.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * webui: webui:nick_push Tcl command — scripts can push a
+               nick-change event to all connected WebUI clients without
+               waiting for the next server message.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * webui: TOPIC changes are now pushed to all connected WebUI
+               clients in real time.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * match: wildcard matching backed by op_regex — IRC wildcard
+               patterns are now compiled to POSIX ERE via irc_to_ere() and
+               matched with op_regex_match() for correctness on complex
+               patterns.  CIDR host matching uses comp_with_mask().
+               [Patch by: devinkbrown]
+
+  2026-05-31 * libop: new primitives — op_atomic.h (portable lock-free
+               atomic load/store/CAS/FAA), op_lock.h (mutex/rwlock/
+               spinlock wrappers), op_memory.h (arena allocator),
+               op_mpmc.h (bounded MPMC lock-free queue), op_thread_pool.h
+               (thread pool API), op_event.h (unified poll/epoll/kqueue
+               event loop abstraction).
+               [Patch by: devinkbrown]
+
+  2026-05-31 * libop/commio: major rewrite — improved I/O multiplexing
+               with correct edge/level-trigger semantics, per-connection
+               state machine, and a zero-copy read path for bulk data.
+               [Patch by: devinkbrown]
+
+  2026-05-31 * opssl: multiple crypto and TLS improvements — TLS 1.3
+               handshake correctness fixes, updated DTLS driver,
+               improved key-exchange error reporting and ML-KEM hybrid
+               path coverage.
+               [Patch by: devinkbrown]
 
   2026-05-16 * ircv3: added cap-notify — server can advertise new
                capabilities mid-session and the bot auto-requests them.

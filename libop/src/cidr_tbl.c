@@ -12,6 +12,7 @@
 
 #include <libop_config.h>
 #include <op_lib.h>
+#include <errno.h>
 #include <string.h>
 
 #ifndef _WIN32
@@ -477,7 +478,7 @@ op_cidr_foreach6(const op_cidr_tbl_t *t, op_cidr_each_t fn, void *ud)
     trie_foreach(t->root6, &ctx, 0);
 }
 
-/* ---- parse helpers (eggdrop addition) ------------------------------------ */
+/* ---- parse helpers ------------------------------------------------------- */
 
 int
 op_cidr_parse_addr(const char *s, struct sockaddr_storage *ss)

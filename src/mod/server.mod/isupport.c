@@ -33,6 +33,21 @@ static p_tcl_bind_list H_isupport;
 static op_bh *isupport_bh = nullptr;
 static const char isupport_default[4096] = "CASEMAPPING=rfc1459 CHANNELLEN=200 NICKLEN=9 CHANTYPES=#& PREFIX=(ov)@+ CHANMODES=b,k,l,imnpst MODES=3 MAXCHANNELS=10 TOPICLEN=250 KICKLEN=250 STATUSMSG=@+";
 
+/* Dynamic limits derived from ISUPPORT tokens sent by the server.
+ * Defaults mirror the values in isupport_default above.
+ * These are updated whenever MODES=, CHANLIMIT=, or CHANNELLEN= is parsed. */
+int isupport_max_modes  = 3;   /* MODES=N   — max mode changes per MODE command */
+int isupport_chanlimit  = 25;  /* CHANLIMIT= — max channels the bot may join     */
+int isupport_channellen = 200; /* CHANNELLEN=N — max channel name length         */
+int isupport_hostlen    = 63;  /* HOSTLEN=N — max hostname length                */
+
+/* PREFIX=(modes)chars mapping — e.g. PREFIX=(qaohv)~&@%+
+ * Populated by isupport_apply_dynamic_limits() when PREFIX changes.
+ * Indexed in parallel: isupport_prefix_modes[i] ↔ isupport_prefix_chars[i].
+ * Entries beyond the populated count are NUL. */
+static char isupport_prefix_modes[16];
+static char isupport_prefix_chars[16];
+
 static int hexdigit2dec[128] = {
   -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*   0 -   9 */
   -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  10 -  19 */
@@ -53,6 +68,7 @@ int tcl_isupport STDOBJVAR;
 int isupport_bind STDVAR;
 int check_tcl_isupport(struct isupport *data, const char *key, const char *value);
 char *traced_isupport(ClientData cdata, Tcl_Interp *irp, EGG_CONST char *name1, EGG_CONST char *name2, int flags);
+static void isupport_apply_dynamic_limits(const char *changed_key);
 
 static tcl_cmds my_tcl_objcmds[] = {
   {"isupport", tcl_isupport},
@@ -217,6 +233,7 @@ static void isupport_set_value(const char *key, size_t keylen, const char *value
       }
       data->value = new;
     }
+    isupport_apply_dynamic_limits(data->key);
   }
 }
 
@@ -241,14 +258,94 @@ void isupport_unset(const char *key, size_t keylen)
   if (data->value) {
     int ret = check_tcl_isupport(data, data->key, nullptr);
     if (!ret) {
+      const char *saved_key = data->key; /* key ptr survives del_record only if defaultvalue exists */
       if (data->defaultvalue) {
         op_free((void *)data->value);
         data->value = nullptr;
+        isupport_apply_dynamic_limits(saved_key);
       } else {
+        char key_copy[256];
+        op_strlcpy(key_copy, data->key, sizeof key_copy);
         del_record(data);
+        isupport_apply_dynamic_limits(key_copy);
       }
     }
   }
+}
+
+/*** Dynamic-limit helpers ***/
+
+/* Re-read MODES=, CHANLIMIT=, and CHANNELLEN= from the hash table and update
+ * the corresponding exported globals.  Called after any isupport value change.
+ * Only keys that have actually changed need trigger this, but calling it for
+ * every set/unset is cheap and keeps the logic in one place. */
+static void isupport_apply_dynamic_limits(const char *changed_key)
+{
+  /* Only act when a key we care about has changed. */
+  if (!changed_key)
+    return;
+  if (strcmp(changed_key, "MODES") &&
+      strcmp(changed_key, "CHANLIMIT") &&
+      strcmp(changed_key, "CHANNELLEN") &&
+      strcmp(changed_key, "HOSTLEN") &&
+      strcmp(changed_key, "PREFIX"))
+    return;
+
+  if (!strcmp(changed_key, "MODES")) {
+    const char *val = isupport_get("MODES", strlen("MODES"));
+    isupport_parseint("MODES", val, 1, 64, 1, 3, &isupport_max_modes);
+  } else if (!strcmp(changed_key, "CHANLIMIT")) {
+    /* CHANLIMIT format: prefix:N[,prefix:N ...] — e.g. "#:25" or "#&:50"
+     * We take the first numeric limit found as the bot-wide channel limit. */
+    const char *val = isupport_get("CHANLIMIT", strlen("CHANLIMIT"));
+    isupport_chanlimit = 25; /* reset to default before parsing */
+    if (val) {
+      const char *colon = strchr(val, ':');
+      if (colon) {
+        char *end;
+        long n = strtol(colon + 1, &end, 10);
+        if (end != colon + 1 && n > 0)
+          isupport_chanlimit = (int)n;
+      }
+    }
+  } else if (!strcmp(changed_key, "CHANNELLEN")) {
+    const char *val = isupport_get("CHANNELLEN", strlen("CHANNELLEN"));
+    isupport_parseint("CHANNELLEN", val, 1, 1024, 1, 200, &isupport_channellen);
+  } else if (!strcmp(changed_key, "HOSTLEN")) {
+    const char *val = isupport_get("HOSTLEN", strlen("HOSTLEN"));
+    isupport_parseint("HOSTLEN", val, 1, 1023, 1, 63, &isupport_hostlen);
+  } else { /* PREFIX */
+    /* PREFIX=(modes)chars  e.g. PREFIX=(qaohv)~&@%+
+     * Parse the (modes) section and the chars section in parallel. */
+    const char *val = isupport_get("PREFIX", strlen("PREFIX"));
+    memset(isupport_prefix_modes, 0, sizeof isupport_prefix_modes);
+    memset(isupport_prefix_chars, 0, sizeof isupport_prefix_chars);
+    if (val && val[0] == '(') {
+      const char *modes_start = val + 1;
+      const char *modes_end   = strchr(modes_start, ')');
+      if (modes_end) {
+        const char *chars_start = modes_end + 1;
+        size_t count = (size_t)(modes_end - modes_start);
+        if (count >= sizeof isupport_prefix_modes)
+          count = sizeof isupport_prefix_modes - 1;
+        for (size_t i = 0; i < count && chars_start[i]; i++) {
+          isupport_prefix_modes[i] = modes_start[i];
+          isupport_prefix_chars[i] = chars_start[i];
+        }
+      }
+    }
+  }
+}
+
+/* isupport_get_prefix_char — return the prefix character for a given mode
+ * letter (e.g. 'o' → '@'), or 0 if the mode is not in the PREFIX map. */
+char isupport_get_prefix_char(char mode)
+{
+  for (int i = 0; i < (int)(sizeof isupport_prefix_modes) && isupport_prefix_modes[i]; i++) {
+    if (isupport_prefix_modes[i] == mode)
+      return isupport_prefix_chars[i];
+  }
+  return 0;
 }
 
 /*** isupport parse/setstr ***/

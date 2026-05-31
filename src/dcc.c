@@ -77,6 +77,71 @@ static void dcc_telnet_hostresolved(int);
 static void dcc_telnet_got_ident(int, const char *);
 static void dcc_telnet_pass(int, int);
 
+/* ── DCC outgoing command queue ─────────────────────────────────────────────
+ *
+ * When a DCC message cannot be sent immediately (e.g. socket buffer full),
+ * callers can enqueue it via dcc_queue_msg().  The queue is drained whenever
+ * the socket's outgoing buffer drains (outdone_dcc_chat callback) or when
+ * the caller explicitly calls dcc_queue_drain().
+ *
+ * Max queue depth: 512 entries.  When full, the oldest entry is evicted and
+ * the loss is logged.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+#define DCC_CMD_QUEUE_MAX 512
+
+typedef struct {
+  int   idx;
+  char *msg;
+} dcc_cmd_entry_t;
+
+static op_vec_t dcc_cmd_queue;   /* vec of dcc_cmd_entry_t* */
+
+static void dcc_cmd_entry_free(dcc_cmd_entry_t *e)
+{
+  if (!e)
+    return;
+  op_free(e->msg);
+  op_free(e);
+}
+
+/* Enqueue a copy of msg for dcc slot idx. */
+void dcc_queue_msg(int idx, const char *msg)
+{
+  if (idx < 0 || !msg)
+    return;
+
+  if (dcc_cmd_queue.size >= DCC_CMD_QUEUE_MAX) {
+    /* Evict oldest entry. */
+    dcc_cmd_entry_t *oldest = (dcc_cmd_entry_t *)op_vec_get(&dcc_cmd_queue, 0);
+    putlog(LOG_MISC, "*", "DCC queue overflow for idx %d", oldest->idx);
+    dcc_cmd_entry_free(oldest);
+    op_vec_remove(&dcc_cmd_queue, 0);
+  }
+
+  dcc_cmd_entry_t *e = (dcc_cmd_entry_t *)op_malloc(sizeof(dcc_cmd_entry_t));
+  e->idx = idx;
+  e->msg = op_strdup(msg);
+  op_vec_push(&dcc_cmd_queue, e);
+}
+
+/* Drain all queued messages for a given idx (or all slots if idx < 0). */
+void dcc_queue_drain(int idx)
+{
+  for (size_t i = dcc_cmd_queue.size; i-- > 0; ) {
+    dcc_cmd_entry_t *e = (dcc_cmd_entry_t *)op_vec_get(&dcc_cmd_queue, i);
+    if (idx >= 0 && e->idx != idx)
+      continue;
+    /* Validate idx is still live before sending. */
+    if (e->idx >= 0 && e->idx < dcc_total && dcc[e->idx].type) {
+      if (dcc[e->idx].type && dcc[e->idx].sock >= 0)
+        tputs(dcc[e->idx].sock, e->msg, strlen(e->msg));
+    }
+    dcc_cmd_entry_free(e);
+    op_vec_remove(&dcc_cmd_queue, i);
+  }
+}
+
 
 /* This is not a universal telnet detector. You need to send WILL STATUS to the
  * other side and pass the reply to this function. A telnet client will respond
@@ -1164,6 +1229,13 @@ static void display_dcc_chat(int idx, op_strbuf_t *buf)
            dcc[idx].u.chat->channel);
 }
 
+/* Called when the socket outgoing buffer has drained; flush any queued
+ * messages for this idx. */
+static void outdone_dcc_chat(int idx)
+{
+  dcc_queue_drain(idx);
+}
+
 struct dcc_table DCC_CHAT = {
   "CHAT",
   DCT_CHAT | DCT_MASTER | DCT_SHOWWHO | DCT_VALIDIDX | DCT_SIMUL |
@@ -1176,12 +1248,39 @@ struct dcc_table DCC_CHAT = {
   expmem_dcc_general,
   kill_dcc_general,
   out_dcc_general,
-  nullptr
+  outdone_dcc_chat
 };
 
 static int lasttelnets;
 static char lasttelnethost[UHOSTLEN + 15];
 static time_t lasttelnettime;
+
+/* Per-IP rate limiter: max 3 new connections per 60 seconds per source IP. */
+static op_htab *dcc_conn_rl_ht = nullptr;  /* IP string -> op_ratelimit_t* */
+static op_bh  *dcc_rl_bh = nullptr;        /* block heap for ratelimit structs */
+
+static bool dcc_ip_ratelimited(const char *ip)
+{
+  if (!dcc_rl_bh)
+    dcc_rl_bh = op_bh_create(sizeof(op_ratelimit_t), 32, "dcc_rl");
+  if (!dcc_conn_rl_ht)
+    dcc_conn_rl_ht = op_htab_create_istr("dcc_conn_rl", 32);
+
+  op_ratelimit_t *rl = (op_ratelimit_t *)op_htab_get(dcc_conn_rl_ht, ip);
+  if (!rl) {
+    rl = (op_ratelimit_t *)op_bh_alloc(dcc_rl_bh);
+    uint64_t ts = op_current_time_usec();
+    /* capacity=3 burst; rate=3 per 60s → one token every 20 seconds.
+     * op_ratelimit_init takes rate_per_sec (integer), so init with 1 then
+     * override rate_usec to encode the correct 20s/token interval. */
+    op_ratelimit_init(rl, 3, 1, ts);
+    rl->rate_usec = 20000000u;  /* 20 000 000 µs = 20s per token */
+    /* Store a stable key copy; ip points into dcc[].sockname (transient). */
+    char *key = op_strdup(ip);
+    op_htab_set(dcc_conn_rl_ht, key, rl, nullptr);
+  }
+  return !op_ratelimit_check(rl, op_current_time_usec());
+}
 
 /* A modified detect_flood for incoming telnet flood protection.
  */
@@ -1248,6 +1347,16 @@ static void dcc_telnet(int idx, char *buf, int i)
     killsock(sock);
     lostdcc(i);
     return;
+  }
+
+  {
+    const char *src_ip = iptostr(&dcc[i].sockname.addr.sa);
+    if (dcc_ip_ratelimited(src_ip)) {
+      putlog(LOG_MISC, "*", "DCC connection from %s rate-limited (>3/60s)", src_ip);
+      killsock(sock);
+      lostdcc(i);
+      return;
+    }
   }
 
   dcc[i].sock = sock;

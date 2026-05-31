@@ -105,7 +105,8 @@ struct op_bh
 	void           *free_head;      /* head of the intrusive free list */
 	op_vec_t        block_list;     /* vec of op_bh_slab_t* */
 	size_t          nfree;          /* total free elements across all slabs */
-	size_t          nused;          /* total allocated elements */
+	size_t          nused;          /* total allocated elements (incl. magazine-cached) */
+	size_t          npeak;          /* high-water mark for nused (stats only)          */
 	char           *desc;
 	/* Shared-memory fields (0/-1 for private heaps) */
 	int             shmem_fd;       /* memfd FD, or -1                       */
@@ -119,7 +120,8 @@ struct op_bh
 	_Atomic(uint32_t) generation;
 };
 
-static op_vec_t *heap_lists;
+static op_vec_t      *heap_lists;
+static pthread_mutex_t heap_lists_lock = PTHREAD_MUTEX_INITIALIZER;
 static long           op_page_size;
 
 static void _op_bh_fail(const char *reason, const char *file, int line)
@@ -176,27 +178,21 @@ op_bh_grow(op_bh *bh)
 static op_bh *
 op_bh_alloc_struct(size_t elemsize, size_t elemsperblock, const char *desc)
 {
-	if (elemsize == 0)
-		op_bh_fail("op_bh_create: zero elemsize");
+	if (elemsize == 0 || elemsperblock == 0)
+		op_bh_fail("op_bh_create: idiotic sizes");
 	if (elemsize < sizeof(void *))
 		op_bh_fail("op_bh_create: elemsize too small for free-list pointer");
-
-	size_t stride = ALIGN_UP(elemsize, sizeof(void *));
-	if (elemsperblock == 0) {
-		elemsperblock = (op_page_size > 0 ? (size_t)op_page_size : 4096) / stride;
-		if (elemsperblock < 8)
-			elemsperblock = 8;
-	}
 
 	op_bh *bh = op_malloc(sizeof(op_bh));
 
 	bh->elemSize      = elemsize;
-	bh->elem_stride   = stride;
+	bh->elem_stride   = ALIGN_UP(elemsize, sizeof(void *));
 	bh->elemsPerBlock = elemsperblock;
 	bh->data_off      = ALIGN_UP(sizeof(op_bh_slab_t), bh->elem_stride);
 	bh->free_head     = NULL;
 	bh->nfree         = 0;
 	bh->nused         = 0;
+	bh->npeak         = 0;
 	bh->desc          = (desc != NULL) ? op_strdup(desc) : NULL;
 	bh->shmem_fd      = -1;
 	bh->shmem_size    = 0;
@@ -211,7 +207,9 @@ op_bh *
 op_bh_create(size_t elemsize, size_t elemsperblock, const char *desc)
 {
 	op_bh *bh = op_bh_alloc_struct(elemsize, elemsperblock, desc);
+	pthread_mutex_lock(&heap_lists_lock);
 	op_vec_push(heap_lists, bh);
+	pthread_mutex_unlock(&heap_lists_lock);
 	op_bh_grow(bh);
 	return bh;
 }
@@ -311,7 +309,9 @@ op_bh_create_shared(size_t elemsize, size_t elemsperblock, const char *desc)
 	bh->shmem_fd   = fd;
 	bh->shmem_size = total;
 
+	pthread_mutex_lock(&heap_lists_lock);
 	op_vec_push(heap_lists, bh);
+	pthread_mutex_unlock(&heap_lists_lock);
 	return bh;
 #endif /* HAVE_MEMFD */
 }
@@ -403,7 +403,9 @@ op_bh_attach_shmem(int fd, size_t size, const char *desc)
 		}
 	}
 
+	pthread_mutex_lock(&heap_lists_lock);
 	op_vec_push(heap_lists, bh);
+	pthread_mutex_unlock(&heap_lists_lock);
 	return bh;
 #endif /* HAVE_MEMFD */
 }
@@ -500,6 +502,8 @@ mag_refill_locked(op_bh *bh, op_bh_magazine_t *mag)
 		bh->free_head = FREELIST_NEXT(mag->items[mag->count]);
 		bh->nfree--;
 		bh->nused++;
+		if (bh->nused > bh->npeak)
+			bh->npeak = bh->nused;
 		mag->count++;
 		got++;
 	}
@@ -665,7 +669,9 @@ op_bh_destroy(op_bh *bh)
 		}
 	}
 
+	pthread_mutex_lock(&heap_lists_lock);
 	op_vec_remove_ptr(heap_lists, bh);
+	pthread_mutex_unlock(&heap_lists_lock);
 
 	/* munmap each slab; reverse-index so remove_fast stays O(1). */
 	for (size_t _si = bh->block_list.size; _si-- > 0; )
@@ -695,9 +701,13 @@ op_bh_usage(op_bh *bh, size_t *bused, size_t *bfree, size_t *bmemusage,
 		if (desc)      *desc      = "no blockheap";
 		return;
 	}
-	if (bused)     *bused     = bh->nused;
-	if (bfree)     *bfree     = bh->nfree;
-	if (bmemusage) *bmemusage = bh->nused * bh->elemSize;
+	pthread_mutex_lock(&bh->lock);
+	size_t nused = bh->nused;
+	size_t nfree = bh->nfree;
+	pthread_mutex_unlock(&bh->lock);
+	if (bused)     *bused     = nused;
+	if (bfree)     *bfree     = nfree;
+	if (bmemusage) *bmemusage = nused * bh->elemSize;
 	if (desc)      *desc      = bh->desc ? bh->desc : "(unnamed)";
 }
 
@@ -709,16 +719,17 @@ op_bh_usage_all(op_bh_usage_cb *cb, void *data)
 	if (cb == NULL)
 		return;
 
+	pthread_mutex_lock(&heap_lists_lock);
 	OP_VEC_FOREACH(heap_lists, _i, _e)
 	{
-		op_bh  *bh        = _e;
-		size_t  heapalloc = (bh->nused + bh->nfree) * bh->elemSize;
-		cb(bh->nused, bh->nfree,
-		   bh->nused * bh->elemSize,
-		   heapalloc,
-		   bh->desc ? bh->desc : "(unnamed)",
-		   data);
+		op_bh *bh = _e;
+		pthread_mutex_lock(&bh->lock);
+		size_t nused = bh->nused, nfree = bh->nfree, esz = bh->elemSize;
+		const char *d = bh->desc ? bh->desc : "(unnamed)";
+		pthread_mutex_unlock(&bh->lock);
+		cb(nused, nfree, nused * esz, (nused + nfree) * esz, d, data);
 	}
+	pthread_mutex_unlock(&heap_lists_lock);
 }
 
 void
@@ -727,13 +738,77 @@ op_bh_total_usage(size_t *total_alloc, size_t *total_used)
 	size_t _i; void *_e;
 	size_t talloc = 0, tused = 0;
 
+	pthread_mutex_lock(&heap_lists_lock);
 	OP_VEC_FOREACH(heap_lists, _i, _e)
 	{
-		op_bh *bh  = _e;
-		talloc    += (bh->nused + bh->nfree) * bh->elemSize;
-		tused     += bh->nused * bh->elemSize;
+		op_bh *bh = _e;
+		pthread_mutex_lock(&bh->lock);
+		talloc += (bh->nused + bh->nfree) * bh->elemSize;
+		tused  += bh->nused * bh->elemSize;
+		pthread_mutex_unlock(&bh->lock);
 	}
+	pthread_mutex_unlock(&heap_lists_lock);
 
 	if (total_alloc) *total_alloc = talloc;
 	if (total_used)  *total_used  = tused;
+}
+
+/* ---------------------------------------------------------------------------
+ * op_bh_stats — extended snapshot under the heap lock.
+ * ------------------------------------------------------------------------- */
+void
+op_bh_stats(op_bh *bh, op_bh_stats_t *out)
+{
+	if (out == NULL)
+		return;
+	if (bh == NULL) {
+		memset(out, 0, sizeof(*out));
+		out->desc = "(null heap)";
+		return;
+	}
+	pthread_mutex_lock(&bh->lock);
+	out->in_use      = bh->nused;
+	out->free_count  = bh->nfree;
+	out->slabs       = bh->block_list.size;
+	out->bytes_in_use = bh->nused * bh->elemSize;
+	out->bytes_alloc  = (bh->nused + bh->nfree) * bh->elem_stride
+	                    + bh->block_list.size * bh->data_off;
+	out->peak_in_use = bh->npeak;
+	out->elem_size   = bh->elemSize;
+	out->elem_stride = bh->elem_stride;
+	out->desc        = bh->desc ? bh->desc : "(unnamed)";
+	pthread_mutex_unlock(&bh->lock);
+}
+
+/* ---------------------------------------------------------------------------
+ * op_bh_pool_alloc_aligned — alignment-checked allocation.
+ *
+ * The slab layout already aligns the first element via `data_off` (which is
+ * rounded up to `elem_stride`).  All subsequent elements are at a multiple of
+ * `elem_stride` from `data_off`.  So an allocation is `align`-aligned iff:
+ *   (1) elem_stride is a multiple of align, AND
+ *   (2) data_off    is a multiple of align.
+ *
+ * Both reduce to: elem_stride % align == 0  &&  data_off % align == 0.
+ * Callers must size the heap with `elemsize >= align` and pick a stride that
+ * satisfies this.  We assert at runtime rather than silently mis-aligning.
+ * ------------------------------------------------------------------------- */
+void *
+op_bh_pool_alloc_aligned(op_bh *bh, size_t align)
+{
+	if (op_unlikely(bh == NULL))
+		op_bh_fail("op_bh_pool_alloc_aligned: bh == NULL");
+	if (op_unlikely(align == 0 || (align & (align - 1)) != 0))
+		op_bh_fail("op_bh_pool_alloc_aligned: align must be a power of two");
+	if (op_unlikely((bh->elem_stride & (align - 1)) != 0))
+		op_bh_fail("op_bh_pool_alloc_aligned: heap stride not aligned "
+		           "— size the heap with elemsize >= align");
+	if (op_unlikely((bh->data_off & (align - 1)) != 0))
+		op_bh_fail("op_bh_pool_alloc_aligned: heap data_off not aligned");
+
+	void *p = op_bh_alloc(bh);
+	/* Defensive: assert alignment of the returned pointer. */
+	if (op_unlikely(((uintptr_t)p & (align - 1)) != 0))
+		op_bh_fail("op_bh_pool_alloc_aligned: alignment invariant violated");
+	return p;
 }

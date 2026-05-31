@@ -13,6 +13,7 @@
 
 #include <opssl/crypto.h>
 #include <opssl/platform.h>
+#include <stdint.h>
 #include <string.h>
 
 /* Argon2 block = 1024 bytes = 128 uint64_t */
@@ -128,7 +129,7 @@ argon2_fill_block(const struct argon2_block *prev, const struct argon2_block *re
 static void
 argon2_gen_addresses(uint64_t *pseudo_rands, uint32_t pass, uint32_t lane,
                      uint32_t slice, uint32_t total_blocks,
-                     uint32_t segment_length)
+                     uint32_t segment_length, uint32_t t_cost)
 {
     struct argon2_block zero_block, input_block, addr_block;
 
@@ -139,7 +140,7 @@ argon2_gen_addresses(uint64_t *pseudo_rands, uint32_t pass, uint32_t lane,
     input_block.v[1] = lane;
     input_block.v[2] = slice;
     input_block.v[3] = total_blocks;
-    input_block.v[4] = 3; /* t_cost placeholder — will be set by caller context */
+    input_block.v[4] = t_cost;
     input_block.v[5] = ARGON2_TYPE_ID;
 
     for (uint32_t i = 0; i < segment_length; i++) {
@@ -169,25 +170,36 @@ argon2_index_alpha(uint64_t pseudo_rand, uint32_t lane, uint32_t pass,
     if (pass == 0 && slice == 0)
         ref_lane = lane;
 
-    /* Determine reference area size */
+    /* Determine reference area size (RFC 9106 §3.3) */
     if (pass == 0) {
         if (slice == 0)
-            reference_area_size = index - 1;
+            reference_area_size = (index == 0) ? 0 : index - 1;
         else if (ref_lane == lane)
-            reference_area_size = slice * segment_length + index - 1;
+            reference_area_size = slice * segment_length + (index == 0 ? 0 : index - 1);
         else
-            reference_area_size = slice * segment_length + (index == 0 ? (uint32_t)-1 : 0);
+            reference_area_size = slice * segment_length - (index == 0 ? 1 : 0);
     } else {
         if (ref_lane == lane)
-            reference_area_size = (total_blocks / lanes) - segment_length + index - 1;
+            reference_area_size = (total_blocks / lanes) - segment_length
+                                  + (index == 0 ? 0 : index - 1);
         else
-            reference_area_size = (total_blocks / lanes) - segment_length + (index == 0 ? (uint32_t)-1 : 0);
+            reference_area_size = (total_blocks / lanes) - segment_length
+                                  - (index == 0 ? 1 : 0);
     }
 
-    /* Map pseudo_rand to reference block index */
+    /*
+     * Guard against zero/empty reference area: caller must not invoke us when
+     * no candidates exist, but defend in depth to avoid uint32 underflow that
+     * would otherwise wrap to ~4G and index out of bounds.
+     */
+    if (reference_area_size == 0)
+        return ref_lane * (total_blocks / lanes);
+
+    /* Map pseudo_rand to reference block index (RFC 9106 §3.4.1.2) */
     uint64_t relative_position = pseudo_rand & 0xFFFFFFFFULL;
     relative_position = (relative_position * relative_position) >> 32;
-    relative_position = reference_area_size - 1 - (reference_area_size * relative_position >> 32);
+    relative_position = reference_area_size - 1
+                        - ((uint64_t)reference_area_size * relative_position >> 32);
 
     /* Calculate starting position */
     uint32_t start_position;
@@ -206,15 +218,38 @@ opssl_argon2id(const uint8_t *password, size_t password_len,
                uint32_t t_cost, uint32_t m_cost, uint32_t parallelism,
                uint8_t *out, size_t out_len)
 {
-    if (salt_len < 8 || out_len < 4 || t_cost < 1 || parallelism < 1)
+    /*
+     * Per RFC 9106 §3.1:
+     *   - parallelism (p): 1..2^24-1
+     *   - tag length (out_len): 4..2^32-1 (we additionally cap at 64 because
+     *     verify() compares against a 64-byte buffer)
+     *   - salt length: >= 8
+     *   - m_cost: >= 8 * p
+     *   - t_cost: >= 1, <= 2^32-1
+     */
+    if (salt_len < 8 || out_len < 4 || out_len > 64)
+        return -1;
+    if (t_cost < 1)
+        return -1;
+    if (parallelism < 1 || parallelism > (1u << 24) - 1)
+        return -1;
+    if (m_cost < 8u * parallelism)
         return -1;
 
-    /* Determine memory layout */
+    /* Determine memory layout — segment_length must be >= 2 per RFC 9106 */
     uint32_t segment_length = m_cost / (parallelism * ARGON2_SYNC_POINTS);
     if (segment_length < 2)
-        segment_length = 2;
+        return -1;
     uint32_t lane_length = segment_length * ARGON2_SYNC_POINTS;
     uint32_t total_blocks = lane_length * parallelism;
+
+    /* Reject size_t overflow on memory allocation (matters on 32-bit hosts) */
+    if (total_blocks == 0)
+        return -1;
+#if SIZE_MAX < (4294967295ULL * 1024ULL)
+    if (total_blocks > SIZE_MAX / sizeof(struct argon2_block))
+        return -1;
+#endif
 
     /* Allocate memory blocks */
     struct argon2_block *memory = op_calloc(total_blocks, sizeof(struct argon2_block));
@@ -306,9 +341,20 @@ opssl_argon2id(const uint8_t *password, size_t password_len,
                 uint64_t *pseudo_rands = NULL;
                 if (use_di) {
                     pseudo_rands = op_malloc(segment_length * sizeof(uint64_t));
-                    if (pseudo_rands)
-                        argon2_gen_addresses(pseudo_rands, pass, lane, slice,
-                                             total_blocks, segment_length);
+                    if (!pseudo_rands) {
+                        /*
+                         * Fail-closed: silently falling back to data-dependent
+                         * indexing would violate the Argon2id contract for the
+                         * data-independent half of pass 0 (RFC 9106 §3.4) and
+                         * leak password material via timing.
+                         */
+                        opssl_memzero(memory,
+                                      (size_t)total_blocks * sizeof(struct argon2_block));
+                        op_free(memory);
+                        return -1;
+                    }
+                    argon2_gen_addresses(pseudo_rands, pass, lane, slice,
+                                         total_blocks, segment_length, t_cost);
                 }
 
                 for (uint32_t index = start_index; index < segment_length; index++) {
@@ -333,6 +379,8 @@ opssl_argon2id(const uint8_t *password, size_t password_len,
                 }
 
                 if (pseudo_rands) {
+                    opssl_memzero(pseudo_rands,
+                                  segment_length * sizeof(uint64_t));
                     op_free(pseudo_rands);
                     pseudo_rands = NULL;
                 }
@@ -356,7 +404,7 @@ opssl_argon2id(const uint8_t *password, size_t password_len,
                        out, out_len);
 
     /* Cleanup */
-    opssl_memzero(memory, total_blocks * sizeof(struct argon2_block));
+    opssl_memzero(memory, (size_t)total_blocks * sizeof(struct argon2_block));
     op_free(memory);
     opssl_memzero(&final_block, sizeof(final_block));
 
@@ -374,17 +422,25 @@ opssl_argon2id_verify(const uint8_t *password, size_t password_len,
                       const uint8_t *expected, size_t expected_len)
 {
     uint8_t computed[64];
-    size_t use_len = expected_len <= sizeof(computed) ? expected_len : sizeof(computed);
+
+    /*
+     * RFC 9106 caps tag length at 2^32-1, but this unkeyed implementation
+     * derives the tag from a single BLAKE2b-512 invocation and stores it in
+     * a 64-byte stack buffer. Reject anything larger to avoid truncated
+     * comparisons that would accept partial matches.
+     */
+    if (expected_len < 4 || expected_len > sizeof(computed))
+        return -1;
 
     int ret = opssl_argon2id(password, password_len, salt, salt_len,
                              t_cost, m_cost, parallelism,
-                             computed, use_len);
+                             computed, expected_len);
     if (ret != 0) {
         opssl_memzero(computed, sizeof(computed));
         return -1;
     }
 
-    int match = opssl_ct_eq(computed, expected, use_len);
+    int match = opssl_ct_eq(computed, expected, expected_len);
     opssl_memzero(computed, sizeof(computed));
 
     return match ? 0 : -1;

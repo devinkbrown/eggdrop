@@ -53,13 +53,14 @@ static Function *global = nullptr;
 
 static p_tcl_bind_list H_rcvd, H_sent, H_lost, H_tout;
 
-static int wait_dcc_xfer = 300; /* Timeout time on DCC xfers */
-static int dcc_limit = 3;       /* Max simultaneous downloads allowed */
-static int dcc_block = 0;       /* Size of one dcc block */
-static int shunlink = 1;        /* Unlink bots when userfile sharing fails */
+static int wait_dcc_xfer = 300;    /* Timeout time on DCC xfers */
+static int dcc_resume_timeout = 60; /* Timeout for DCC GET in RESUME state */
+static int dcc_limit = 3;           /* Max simultaneous downloads allowed */
+static int dcc_block = 0;           /* Size of one dcc block */
+static int shunlink = 1;            /* Unlink bots when userfile sharing fails */
 static op_vec_t fileq_vec;
 
-static struct dcc_table DCC_SEND, DCC_GET, DCC_GET_PENDING;
+static struct dcc_table DCC_SEND, DCC_GET, DCC_GET_PENDING, DCC_GET_RESUME_PEND;
 
 #include "transferfstat.c"
 #include "transferqueue.c"
@@ -864,6 +865,18 @@ static void transfer_get_timeout(int i)
     send_next_file(xx);
 }
 
+static void transfer_resume_timeout(int i)
+{
+  char *p = strrchr(dcc[i].u.xfer->origname, '/');
+  const char *fname = p ? p + 1 : dcc[i].u.xfer->origname;
+
+  putlog(LOG_FILES, "*", "DCC RESUME timed out for file %s (%s!%s)",
+         fname, dcc[i].nick, dcc[i].host);
+  fclose(dcc[i].u.xfer->f);
+  killsock(dcc[i].sock);
+  lostdcc(i);
+}
+
 static void tout_dcc_send(int idx)
 {
 
@@ -1158,6 +1171,21 @@ static struct dcc_table DCC_GET_PENDING = {
   nullptr
 };
 
+/* Waiting for client to reconnect after DCC RESUME ACK - uses dcc_resume_timeout */
+static struct dcc_table DCC_GET_RESUME_PEND = {
+  "GET_RESUME_PEND",
+  DCT_FILETRAN | DCT_VALIDIDX,
+  eof_dcc_get,
+  dcc_get_pending,
+  &dcc_resume_timeout,
+  transfer_resume_timeout,
+  display_dcc_get_p,
+  expmem_dcc_xfer,
+  kill_dcc_xfer,
+  out_dcc_xfer,
+  nullptr
+};
+
 static void dcc_fork_send(int idx, char *x, int y)
 {
   if (dcc[idx].type != &DCC_FORK_SEND)
@@ -1407,17 +1435,19 @@ static int ctcp_DCC_RESUME(char *nick, char *from, char *handle,
 
   dcc[i].u.xfer->type = XFER_RESUME_PEND;
   dcc[i].u.xfer->offset = offset;
+  dcc[i].type = &DCC_GET_RESUME_PEND; /* use resume-specific timeout */
   dprintf(DP_SERVER, "PRIVMSG %s :\001DCC ACCEPT %s %d %lu\001\n", nick, fn, port,
           offset);
   return 1; /* Now we wait for the client to connect. */
 }
 
 static tcl_ints myints[] = {
-  {"max-dloads",       &dcc_limit, 0},
-  {"dcc-block",        &dcc_block, 0},
-  {"xfer-timeout", &wait_dcc_xfer, 0},
-  {"sharefail-unlink",  &shunlink, 0},
-  {nullptr,                     nullptr, 0}
+  {"max-dloads",            &dcc_limit, 0},
+  {"dcc-block",             &dcc_block, 0},
+  {"xfer-timeout",      &wait_dcc_xfer, 0},
+  {"dcc-resume-timeout", &dcc_resume_timeout, 0},
+  {"sharefail-unlink",      &shunlink, 0},
+  {nullptr,                        nullptr, 0}
 };
 
 static cmd_t transfer_ctcps[] = {
@@ -1446,7 +1476,8 @@ static char *transfer_close(void)
 
   putlog(LOG_MISC, "*", "%s", TRANSFER_UNLOADING);
   for (int i = dcc_total - 1; i >= 0; i--) {
-    if (dcc[i].type == &DCC_GET || dcc[i].type == &DCC_GET_PENDING)
+    if (dcc[i].type == &DCC_GET || dcc[i].type == &DCC_GET_PENDING ||
+        dcc[i].type == &DCC_GET_RESUME_PEND)
       eof_dcc_get(i);
     else if (dcc[i].type == &DCC_SEND)
       eof_dcc_send(i);

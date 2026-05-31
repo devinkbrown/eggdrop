@@ -333,8 +333,17 @@ tls12_verify_server_key_exchange(tls12_hs_t *hs, uint16_t sig_alg,
                                  const uint8_t *params, size_t params_len,
                                  const uint8_t *sig, size_t sig_len)
 {
-    if (!hs || !hs->peer_cert_der || !params || !sig)
+    if (!hs || !params || !sig) {
+        OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_INTERNAL_ERROR);
         return 0;
+    }
+    if (!hs->peer_cert_der) {
+        /* Server omitted Certificate (or sent an empty certificate_list).
+         * We cannot verify the ServerKeyExchange signature without a SPKI,
+         * so the handshake must abort with a clear error. */
+        OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_BAD_CERTIFICATE);
+        return 0;
+    }
 
     uint8_t sig_input[64 + 256];
     if (params_len > sizeof(sig_input) - 64)
@@ -419,6 +428,8 @@ done:
     opssl_x509_free(cert);
     opssl_memzero(sig_input, sizeof(sig_input));
     opssl_memzero(digest, sizeof(digest));
+    if (ret != 1)
+        OPSSL_ERR(OPSSL_ERR_TLS, OPSSL_TLS_ERR_DECRYPT_ERROR);
     return ret;
 }
 

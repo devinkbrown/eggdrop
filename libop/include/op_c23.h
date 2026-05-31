@@ -105,12 +105,16 @@
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
   /* unreachable() is a keyword/builtin in C23 (via <stdlib.h>) */
-#elif defined(__GNUC__)
-  #define unreachable() __builtin_unreachable()
-#elif defined(_MSC_VER)
-  #define unreachable() __assume(0)
-#else
-  #define unreachable() abort()
+#elif !defined(unreachable)
+  /* glibc >= 2.38 / GCC 14 also defines unreachable() in <stdlib.h>
+   * for non-C23 builds; guard to avoid redefinition warnings. */
+  #if defined(__GNUC__)
+    #define unreachable() __builtin_unreachable()
+  #elif defined(_MSC_VER)
+    #define unreachable() __assume(0)
+  #else
+    #define unreachable() abort()
+  #endif
 #endif
 
 /* =========================================================================

@@ -14,6 +14,7 @@
 #include <opssl/platform.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 /* AES-NI hardware acceleration dispatch */
 extern bool opssl_has_aesni(void);
@@ -65,14 +66,27 @@ extern int opssl_camellia_gcm_open(uint8_t *out, size_t *out_len, size_t max_out
                                     const uint8_t *ciphertext, size_t ct_len,
                                     const uint8_t *aad, size_t aad_len);
 
-/* Defined in aes.c */
+/* Defined in aes.c — layout MUST match aes.c::opssl_aes_ctx_t exactly. */
 typedef struct {
     uint32_t rk[60];
     int      nr;
+    void     *hw_ctx;
+    bool     use_hw;
 } opssl_aes_ctx_t;
 
 extern int  opssl_aes_set_encrypt_key(opssl_aes_ctx_t *ctx, const uint8_t *key, int bits);
 extern void opssl_aes_encrypt_block(const opssl_aes_ctx_t *ctx, uint8_t out[16], const uint8_t in[16]);
+
+/* Free any hardware-allocated context held by an AES context. */
+static void
+gcm_aes_cleanup(opssl_aes_ctx_t *aes)
+{
+    if (aes->hw_ctx) {
+        free(aes->hw_ctx);
+        aes->hw_ctx = NULL;
+    }
+    opssl_memzero(aes, sizeof(*aes));
+}
 
 /* GCM state */
 typedef struct {
@@ -194,6 +208,16 @@ opssl_aes_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
 {
     if (pt_len > SIZE_MAX - 16)
         return 0;
+    /*
+     * NIST SP 800-38D §5.2.1.1 (Input Data) — for a 96-bit IV the CTR
+     * mode counter field is 32 bits, so the maximum plaintext per
+     * invocation is 2^39 - 256 bits = 2^36 - 32 bytes. Exceeding this
+     * causes the 32-bit counter to wrap and reuse keystream, which
+     * catastrophically breaks GCM confidentiality (and trivially
+     * recovers the authentication subkey H).
+     */
+    if (pt_len > ((uint64_t)1 << 36) - 32)
+        return 0;
     size_t needed = pt_len + 16;
     if (max_out < needed)
         return 0;
@@ -244,6 +268,7 @@ opssl_aes_gcm_seal(uint8_t *out, size_t *out_len, size_t max_out,
         out[pt_len + i] = ctx.ghash[i] ^ tag_mask[i];
 
     *out_len = needed;
+    gcm_aes_cleanup(&ctx.aes);
     opssl_memzero(&ctx, sizeof(ctx));
     opssl_memzero(tag_mask, sizeof(tag_mask));
     return 1;
@@ -261,6 +286,14 @@ opssl_aes_gcm_open(uint8_t *out, size_t *out_len, size_t max_out,
 
     size_t pt_len = ct_len - 16;
     if (max_out < pt_len)
+        return 0;
+    /*
+     * NIST SP 800-38D §5.2.1.1 (Input Data) — symmetric upper bound to
+     * the seal path. A 32-bit CTR field over a 96-bit IV caps the
+     * payload at 2^36 - 32 bytes; honour the same limit on decrypt so
+     * we never derive keystream past a counter wrap.
+     */
+    if (pt_len > ((uint64_t)1 << 36) - 32)
         return 0;
     if (key_len != 16 && key_len != 32)
         return 0;
@@ -307,8 +340,10 @@ opssl_aes_gcm_open(uint8_t *out, size_t *out_len, size_t max_out,
     /* Constant-time tag verification */
     const uint8_t *received_tag = ciphertext + pt_len;
     if (!opssl_ct_eq(expected_tag, received_tag, 16)) {
+        gcm_aes_cleanup(&ctx.aes);
         opssl_memzero(&ctx, sizeof(ctx));
         opssl_memzero(expected_tag, sizeof(expected_tag));
+        opssl_memzero(tag_mask, sizeof(tag_mask));
         return 0;
     }
 
@@ -316,6 +351,7 @@ opssl_aes_gcm_open(uint8_t *out, size_t *out_len, size_t max_out,
     gcm_ctr32_encrypt(&ctx, out, ciphertext, pt_len);
     *out_len = pt_len;
 
+    gcm_aes_cleanup(&ctx.aes);
     opssl_memzero(&ctx, sizeof(ctx));
     opssl_memzero(expected_tag, sizeof(expected_tag));
     opssl_memzero(tag_mask, sizeof(tag_mask));

@@ -1324,6 +1324,130 @@ static int rfc6979_generate_k(p256_fe_t k, const p256_fe_t private_key, const ui
     return OPSSL_SUCCESS;
 }
 
+/*
+ * Generalized RFC 6979 deterministic-nonce generator for P-384 and P-521.
+ *
+ * Parameters (RFC 6979 §3.2):
+ *   - algo:      HMAC algorithm (SHA-384 for P-384, SHA-512 for P-521)
+ *   - hlen:      HMAC output length in bytes (48 or 64)
+ *   - n_limbs:   modulus n as little-endian uint64 limbs
+ *   - n_width:   number of 64-bit limbs (6 for P-384, 9 for P-521)
+ *   - qlen_bits: bit length of q (n) — 384 or 521
+ *   - rolen:     ceil(qlen_bits / 8) — 48 for P-384, 66 for P-521
+ *   - priv_be:   private key big-endian, rolen bytes (already < n)
+ *   - h1_be:     hash output big-endian (RFC 6979 calls this h1 / bits2octets(H(m)))
+ *                must be reduced mod n and zero-padded to rolen bytes by caller
+ *   - k_out:     resulting nonce, little-endian limbs, width n_width
+ *
+ * All branches are independent of secret data (private_key, k); loop iteration
+ * count depends only on public n, so the implementation is constant-time with
+ * respect to the secret. Output buffers are zeroed on exit.
+ */
+static int rfc6979_generate_k_generic(opssl_hmac_algo_t algo, size_t hlen,
+                                      const uint64_t *n_limbs, int n_width,
+                                      int qlen_bits, size_t rolen,
+                                      const uint8_t *priv_be,
+                                      const uint8_t *h1_be,
+                                      uint64_t *k_out)
+{
+    /* RFC 6979 step b/c: V = 0x01..., K = 0x00... (hlen bytes each) */
+    uint8_t V[64], K[64];
+    if (hlen > sizeof(V)) return 0;
+    memset(V, 0x01, hlen);
+    memset(K, 0x00, hlen);
+
+    /* Build inputs once: V || 0x00 || int2octets(x) || bits2octets(h1)
+     *                    V || 0x01 || int2octets(x) || bits2octets(h1)
+     * Max sizes: hlen <= 64, 2*rolen <= 132 → buf <= 197 */
+    uint8_t buf[64 + 1 + 132];
+    size_t bufsz = hlen + 1 + 2 * rolen;
+    size_t out_len;
+
+    /* Step d: K = HMAC_K(V || 0x00 || x || h1) */
+    memcpy(buf, V, hlen);
+    buf[hlen] = 0x00;
+    memcpy(buf + hlen + 1, priv_be, rolen);
+    memcpy(buf + hlen + 1 + rolen, h1_be, rolen);
+    out_len = hlen;
+    if (!opssl_hmac(algo, K, hlen, buf, bufsz, K, &out_len)) goto fail;
+
+    /* Step e: V = HMAC_K(V) */
+    out_len = hlen;
+    if (!opssl_hmac(algo, K, hlen, V, hlen, V, &out_len)) goto fail;
+
+    /* Step f: K = HMAC_K(V || 0x01 || x || h1) */
+    memcpy(buf, V, hlen);
+    buf[hlen] = 0x01;
+    memcpy(buf + hlen + 1, priv_be, rolen);
+    memcpy(buf + hlen + 1 + rolen, h1_be, rolen);
+    out_len = hlen;
+    if (!opssl_hmac(algo, K, hlen, buf, bufsz, K, &out_len)) goto fail;
+
+    /* Step g: V = HMAC_K(V) */
+    out_len = hlen;
+    if (!opssl_hmac(algo, K, hlen, V, hlen, V, &out_len)) goto fail;
+
+    /* Step h: generate candidate k. Loop is bounded by public n, not secret. */
+    uint8_t T[132]; /* enough for P-521 (66 bytes via 2 SHA-512 blocks) */
+    opssl_bn_t k_bn, n_bn;
+    opssl_bn_zero(&n_bn, n_width);
+    for (int i = 0; i < n_width; i++) n_bn.d[i] = n_limbs[i];
+    n_bn.width = n_width;
+
+    for (int attempt = 0; attempt < 10000; attempt++) {
+        /* Step h.2: build T by concatenating HMAC outputs until len(T) >= qlen bits */
+        size_t tlen = 0;
+        while (tlen < rolen) {
+            out_len = hlen;
+            if (!opssl_hmac(algo, K, hlen, V, hlen, V, &out_len)) goto fail;
+            size_t take = (hlen < rolen - tlen) ? hlen : (rolen - tlen);
+            memcpy(T + tlen, V, take);
+            tlen += take;
+        }
+        /* Step h.3: k = bits2int(T). bits2int = truncate to qlen bits from MSB.
+         * For P-384: qlen=384=8*48, no truncation needed.
+         * For P-521: qlen=521, rolen=66; T has 66*8=528 bits — shift right by 7. */
+        int excess_bits = (int)(rolen * 8) - qlen_bits;
+        if (excess_bits > 0) {
+            /* Right-shift T (big-endian) by excess_bits in place */
+            unsigned acc = 0;
+            for (size_t i = 0; i < rolen; i++) {
+                unsigned cur = T[i];
+                T[i] = (uint8_t)((acc << (8 - excess_bits)) | (cur >> excess_bits));
+                acc = cur & ((1u << excess_bits) - 1u);
+            }
+        }
+        /* Convert big-endian T to bignum limbs */
+        opssl_bn_from_bytes(&k_bn, T, rolen);
+        k_bn.width = n_width;
+
+        /* Accept iff 1 <= k < n. These checks depend only on public n. */
+        if (!opssl_bn_is_zero(&k_bn, n_width) &&
+            opssl_bn_cmp(&k_bn, &n_bn, n_width) < 0) {
+            for (int i = 0; i < n_width; i++) k_out[i] = k_bn.d[i];
+            opssl_memzero(V, sizeof(V));
+            opssl_memzero(K, sizeof(K));
+            opssl_memzero(buf, sizeof(buf));
+            opssl_memzero(T, sizeof(T));
+            opssl_memzero(&k_bn, sizeof(k_bn));
+            return 1;
+        }
+        /* Step h.3 reject: K = HMAC_K(V || 0x00); V = HMAC_K(V). Repeat. */
+        memcpy(buf, V, hlen);
+        buf[hlen] = 0x00;
+        out_len = hlen;
+        if (!opssl_hmac(algo, K, hlen, buf, hlen + 1, K, &out_len)) goto fail;
+        out_len = hlen;
+        if (!opssl_hmac(algo, K, hlen, V, hlen, V, &out_len)) goto fail;
+    }
+
+fail:
+    opssl_memzero(V, sizeof(V));
+    opssl_memzero(K, sizeof(K));
+    opssl_memzero(buf, sizeof(buf));
+    return 0;
+}
+
 
 /* ─── Point-on-curve validation ────────────────────────────────────────── */
 /*
@@ -1910,14 +2034,39 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
         for (int i = 0; i < 6; i++) n.d[i] = p384_n[i];
         n.width = 6;
 
-        uint8_t k_bytes[48];
-        int attempts = 0;
-        do {
-            if (opssl_random_bytes(k_bytes, 48) != 0) return 0;
-            opssl_bn_from_bytes(&k_bn, k_bytes, 48);
-            k_bn.width = 6;
-            if (attempts++ > 100) return 0;
-        } while (opssl_bn_is_zero(&k_bn, 6) || opssl_bn_cmp(&k_bn, &n, 6) >= 0);
+        /* RFC 6979 deterministic k for P-384 (HMAC-SHA-384).
+         * Build bits2octets(H(m)): reduce digest mod n, then big-endian, rolen=48. */
+        uint8_t priv_be[48], h1_be[48];
+        opssl_bn_t sk_tmp;
+        opssl_bn_zero(&sk_tmp, 6);
+        for (int i = 0; i < 6; i++) sk_tmp.d[i] = ctx->key.p384.private_key[i];
+        sk_tmp.width = 6;
+        opssl_bn_to_bytes(priv_be, 48, &sk_tmp);
+
+        opssl_bn_t h_red;
+        opssl_bn_from_bytes(&h_red, digest, 48);
+        h_red.width = 6;
+        /* For P-384, qlen == 8*hlen, so bits2octets() reduces (h mod n) into rolen bytes.
+         * Loop count bounded by 1 (since h < 2^384 < 2*n). Public-data branch. */
+        while (opssl_bn_cmp(&h_red, &n, 6) >= 0)
+            opssl_bn_sub(&h_red, &h_red, &n, 6);
+        opssl_bn_to_bytes(h1_be, 48, &h_red);
+
+        uint64_t k_limbs[6];
+        if (!rfc6979_generate_k_generic(OPSSL_HMAC_SHA384, 48,
+                                        p384_n, 6, 384, 48,
+                                        priv_be, h1_be, k_limbs)) {
+            opssl_memzero(priv_be, sizeof(priv_be));
+            opssl_memzero(&sk_tmp, sizeof(sk_tmp));
+            return 0;
+        }
+        opssl_memzero(priv_be, sizeof(priv_be));
+        opssl_memzero(&sk_tmp, sizeof(sk_tmp));
+
+        opssl_bn_zero(&k_bn, 6);
+        for (int i = 0; i < 6; i++) k_bn.d[i] = k_limbs[i];
+        k_bn.width = 6;
+        opssl_memzero(k_limbs, sizeof(k_limbs));
 
         p384_fe_t k;
         for (int i = 0; i < 6; i++) k[i] = k_bn.d[i];
@@ -1936,7 +2085,7 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
         while (opssl_bn_cmp(&r_bn, &n, 6) >= 0)
             opssl_bn_sub(&r_bn, &r_bn, &n, 6);
         if (opssl_bn_is_zero(&r_bn, 6))
-            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+            return 0; /* Cryptographically unreachable with deterministic k; abort to avoid infinite loop. */
 
         opssl_bn_mont_ctx_t mont_n;
         opssl_bn_mont_ctx_init(&mont_n, &n, 6);
@@ -1959,7 +2108,7 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
 
         opssl_bn_mod_mul(&s_bn, &kinv_bn, &tmp_bn, &mont_n);
         if (opssl_bn_is_zero(&s_bn, 6))
-            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+            return 0; /* Cryptographically unreachable with deterministic k; abort to avoid infinite loop. */
 
         uint8_t rb[48], sb[48];
         opssl_bn_to_bytes(rb, 48, &r_bn);
@@ -1997,15 +2146,39 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
         for (int i = 0; i < 9; i++) n.d[i] = p521_n[i];
         n.width = 9;
 
-        uint8_t k_bytes[66];
-        int attempts = 0;
-        do {
-            if (opssl_random_bytes(k_bytes, 66) != 0) return 0;
-            k_bytes[0] &= 0x01;
-            opssl_bn_from_bytes(&k_bn, k_bytes, 66);
-            k_bn.width = 9;
-            if (attempts++ > 100) return 0;
-        } while (opssl_bn_is_zero(&k_bn, 9) || opssl_bn_cmp(&k_bn, &n, 9) >= 0);
+        /* RFC 6979 deterministic k for P-521 (HMAC-SHA-512). rolen=66, qlen=521.
+         * Digest is 64 bytes = 512 bits < 521, so bits2int(H(m)) is the digest as
+         * an integer. bits2octets reduces it mod n into 66 big-endian bytes. */
+        uint8_t priv_be[66], h1_be[66];
+        opssl_bn_t sk_tmp;
+        opssl_bn_zero(&sk_tmp, 9);
+        for (int i = 0; i < 9; i++) sk_tmp.d[i] = ctx->key.p521.private_key[i];
+        sk_tmp.width = 9;
+        opssl_bn_to_bytes(priv_be, 66, &sk_tmp);
+
+        opssl_bn_t h_red;
+        opssl_bn_from_bytes(&h_red, digest, 64);
+        h_red.width = 9;
+        /* 512-bit digest < n (~521 bits), but reduce defensively. Loop on public n. */
+        while (opssl_bn_cmp(&h_red, &n, 9) >= 0)
+            opssl_bn_sub(&h_red, &h_red, &n, 9);
+        opssl_bn_to_bytes(h1_be, 66, &h_red);
+
+        uint64_t k_limbs[9];
+        if (!rfc6979_generate_k_generic(OPSSL_HMAC_SHA512, 64,
+                                        p521_n, 9, 521, 66,
+                                        priv_be, h1_be, k_limbs)) {
+            opssl_memzero(priv_be, sizeof(priv_be));
+            opssl_memzero(&sk_tmp, sizeof(sk_tmp));
+            return 0;
+        }
+        opssl_memzero(priv_be, sizeof(priv_be));
+        opssl_memzero(&sk_tmp, sizeof(sk_tmp));
+
+        opssl_bn_zero(&k_bn, 9);
+        for (int i = 0; i < 9; i++) k_bn.d[i] = k_limbs[i];
+        k_bn.width = 9;
+        opssl_memzero(k_limbs, sizeof(k_limbs));
 
         p521_fe_t k;
         for (int i = 0; i < 9; i++) k[i] = k_bn.d[i];
@@ -2023,7 +2196,7 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
         while (opssl_bn_cmp(&r_bn, &n, 9) >= 0)
             opssl_bn_sub(&r_bn, &r_bn, &n, 9);
         if (opssl_bn_is_zero(&r_bn, 9))
-            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+            return 0; /* Cryptographically unreachable with deterministic k; abort to avoid infinite loop. */
 
         opssl_bn_mont_ctx_t mont_n;
         opssl_bn_mont_ctx_init(&mont_n, &n, 9);
@@ -2046,7 +2219,7 @@ int opssl_ecdsa_sign(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t diges
 
         opssl_bn_mod_mul(&s_bn, &kinv_bn, &tmp_bn, &mont_n);
         if (opssl_bn_is_zero(&s_bn, 9))
-            return opssl_ecdsa_sign(ctx, digest, digest_len, sig, sig_len);
+            return 0; /* Cryptographically unreachable with deterministic k; abort to avoid infinite loop. */
 
         uint8_t rb[66], sb[66];
         opssl_bn_to_bytes(rb, 66, &r_bn);
@@ -2125,8 +2298,23 @@ int opssl_ecdsa_verify(opssl_ecdsa_ctx_t *ctx, const uint8_t *digest, size_t dig
             }
         }
 
-        /* Check r and s are valid (non-zero) */
+        /* Check r and s are valid: 1 <= r,s < n. Non-zero check first, then
+         * constant-time r < n / s < n via borrow chain on (r - n). */
         if ((r[0] | r[1] | r[2] | r[3]) == 0 || (s[0] | s[1] | s[2] | s[3]) == 0) return 0;
+        {
+            __uint128_t d;
+            uint64_t br = 0, bs = 0;
+            d = (__uint128_t)r[0] - p256_n[0];               br = (uint64_t)(d >> 127);
+            d = (__uint128_t)r[1] - p256_n[1] - br;          br = (uint64_t)(d >> 127);
+            d = (__uint128_t)r[2] - p256_n[2] - br;          br = (uint64_t)(d >> 127);
+            d = (__uint128_t)r[3] - p256_n[3] - br;          br = (uint64_t)(d >> 127);
+            d = (__uint128_t)s[0] - p256_n[0];               bs = (uint64_t)(d >> 127);
+            d = (__uint128_t)s[1] - p256_n[1] - bs;          bs = (uint64_t)(d >> 127);
+            d = (__uint128_t)s[2] - p256_n[2] - bs;          bs = (uint64_t)(d >> 127);
+            d = (__uint128_t)s[3] - p256_n[3] - bs;          bs = (uint64_t)(d >> 127);
+            /* br == 1 iff r < n; same for bs. Reject if either >= n. */
+            if (!br || !bs) return 0;
+        }
 
         /* Convert digest to field element (big-endian bytes → little-endian limbs) */
         p256_fe_t h;

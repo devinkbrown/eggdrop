@@ -37,6 +37,7 @@
 #include <op_lib.h>
 #include <commio-int.h>
 #include <pthread.h>
+#include <limits.h>
 
 #if defined(HAVE_POLL)
 #include <poll.h>
@@ -129,6 +130,12 @@ op_setselect_poll(op_fde_t *restrict F, unsigned int type,
 	if (__builtin_expect(F == NULL, 0))
 		return;
 
+	/* Defensive: negative fd would index pollfds[] out of bounds and
+	 * corrupt the heap.  Drop the request silently — handlers cannot be
+	 * registered on a closed/invalid descriptor. */
+	if (__builtin_expect(F->fd < 0, 0))
+		return;
+
 	pthread_spin_lock(&F->pflags_lock);
 	pthread_spin_lock(&pollfd_lock);
 
@@ -186,6 +193,13 @@ op_select_poll(long delay)
 	PF *hdl;
 	void *data;
 	int maxindex;
+	int ms;
+
+	/* Match io_uring/epoll timer semantics: negative delay blocks
+	 * indefinitely (-1 to poll(2)), positive values are clamped to
+	 * INT_MAX milliseconds to avoid truncation on 64-bit `long`. */
+	ms = (delay < 0) ? -1
+	   : (delay > (long)INT_MAX ? INT_MAX : (int)delay);
 
 	/* Snapshot maxindex under pollfd_lock; the poll() call itself reads
 	 * pollfds[] which may be concurrently written by worker setselect calls.
@@ -195,7 +209,7 @@ op_select_poll(long delay)
 	maxindex = pollfd_list.maxindex;
 	pthread_spin_unlock(&pollfd_lock);
 
-	num = poll(pollfd_list.pollfds, (nfds_t)(maxindex + 1), (int)delay);
+	num = poll(pollfd_list.pollfds, (nfds_t)(maxindex + 1), ms);
 	op_set_time();
 
 	if (__builtin_expect(num < 0, 0))
@@ -217,7 +231,7 @@ op_select_poll(long delay)
 		fd      = pollfd_list.pollfds[ci].fd;
 		pthread_spin_unlock(&pollfd_lock);
 
-		if (__builtin_expect((revents == 0) | (fd == -1), 1))
+		if (__builtin_expect(revents == 0 || fd == -1, 1))
 			continue;
 
 		F = op_find_fd(fd);

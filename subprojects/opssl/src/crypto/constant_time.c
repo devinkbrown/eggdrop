@@ -1,7 +1,15 @@
 /*
  * opssl/crypto/constant_time.c — constant-time operations.
  *
- * These must NEVER be optimized into branching code.
+ * These routines must NEVER be optimised into branching code; any branch
+ * predicated on secret data leaks information through timing.  We use a
+ * combination of `volatile` qualifiers on pointers/accumulators and inline
+ * assembly memory barriers to prevent the compiler from:
+ *   - hoisting loads out of the loop,
+ *   - replacing the loop with a branch-based memcmp,
+ *   - short-circuiting the accumulator on a non-zero byte,
+ *   - dead-store-eliminating writes to dst.
+ *
  * Used for MAC verification, padding checks, key comparison.
  *
  * Copyright (C) 2026 ophion development team
@@ -12,26 +20,38 @@
 #include <string.h>
 
 /*
+ * opssl_ct_barrier — compiler memory barrier.
+ * Forces the compiler to commit pending stores and re-read memory; cheaper
+ * than asm volatile("" ::: "memory") because no clobber list is needed.
+ */
+#define opssl_ct_barrier()  __asm__ __volatile__("" ::: "memory")
+
+/*
  * opssl_ct_eq — byte-buffer constant-time equality.
  *
- * All three pointers are volatile so the compiler cannot eliminate any
- * load, hoist a read outside the loop, or replace the loop with a
- * branch-based memcmp.  The accumulator is volatile to prevent the
- * compiler short-circuiting once a non-zero byte is found.
- *
  * Return value: 1 if the buffers are equal, 0 otherwise.
+ *
+ * Implementation note: `diff` is a volatile uint8_t accumulator.  After
+ * the loop it is non-zero iff any byte differed.  We convert that to a
+ * 0/1 result via ((diff - 1) >> 8) & 1 — when diff == 0 the subtraction
+ * underflows to (int)-1 which shifts to all-ones; otherwise the value is
+ * non-negative and shifts to zero.  No branch on secret data.
  */
 int
 opssl_ct_eq(const void *a, const void *b, size_t len)
 {
-    const volatile uint8_t *x = a;
-    const volatile uint8_t *y = b;
+    const volatile uint8_t *x = (const volatile uint8_t *)a;
+    const volatile uint8_t *y = (const volatile uint8_t *)b;
     volatile uint8_t diff = 0;
 
     for (size_t i = 0; i < len; i++)
-        diff |= x[i] ^ y[i];
+        diff |= (uint8_t)(x[i] ^ y[i]);
 
-    return (1 & ((diff - 1) >> 8));
+    opssl_ct_barrier();
+
+    /* Promote through unsigned int so the shift behaviour is well-defined. */
+    unsigned int d = diff;
+    return (int)((d - 1u) >> 8) & 1;
 }
 
 /*
@@ -42,94 +62,102 @@ opssl_ct_eq(const void *a, const void *b, size_t len)
 int
 opssl_ct_is_zero(const void *buf, size_t len)
 {
-    const volatile uint8_t *p = buf;
+    const volatile uint8_t *p = (const volatile uint8_t *)buf;
     volatile uint8_t acc = 0;
 
     for (size_t i = 0; i < len; i++)
         acc |= p[i];
 
-    return (1 & ((acc - 1) >> 8));
+    opssl_ct_barrier();
+
+    unsigned int a = acc;
+    return (int)((a - 1u) >> 8) & 1;
 }
 
 /*
  * opssl_ct_word_is_zero — single 64-bit word constant-time zero test.
  *
  * Uses only arithmetic and bitwise ops; no branches.  Suitable for use
- * inside bignum / field-arithmetic routines where the byte-buffer
- * variant would be unnecessarily heavy.
+ * inside bignum / field-arithmetic routines where the byte-buffer variant
+ * would be unnecessarily heavy.
  *
  * Return value: 1 if x == 0, 0 otherwise.
+ *
+ * Method: (x | -x) has bit 63 set for every non-zero x and is 0 only for
+ * x == 0.  We use unsigned two's-complement negation to avoid relying on
+ * implementation-defined signed overflow.
  */
 int
 opssl_ct_word_is_zero(uint64_t x)
 {
-    /*
-     * If x != 0 then at least one bit is set.  (x | -x) therefore has
-     * bit 63 set for any non-zero x, and is 0 for x == 0.
-     * Shifting right 63 extracts that flag, then XOR 1 inverts it.
-     */
-    return (int)(1 ^ ((x | (uint64_t)(-(int64_t)x)) >> 63));
+    volatile uint64_t v = x;
+    uint64_t neg = (uint64_t)0 - v;     /* well-defined unsigned wrap */
+    uint64_t bit = (v | neg) >> 63;     /* 1 if v != 0, else 0 */
+    opssl_ct_barrier();
+    return (int)(bit ^ 1u);
 }
 
 /*
  * opssl_ct_mask — branchless all-ones / all-zeros mask from a boolean.
  *
- * Returns (uint64_t)-1  (all bits set)  when condition != 0.
- * Returns (uint64_t)0   (all bits clear) when condition == 0.
+ * Returns (uint64_t)-1 when condition != 0, otherwise 0.
  *
- * Callers use this to build constant-time conditional assignments:
  *   result = (opssl_ct_mask(cond) & a) | (opssl_ct_mask(!cond) & b);
+ *
+ * Method: normalise condition to {0,1} via `!!`, then negate as unsigned
+ * (0 → 0, 1 → all-ones).  The double-negation lowers to a branch-free
+ * setne/cmov on every supported target.
  */
 uint64_t
 opssl_ct_mask(int condition)
 {
-    /*
-     * Normalise condition to exactly 0 or 1 without a branch, then
-     * negate: -(uint64_t)1 == 0xFFFFFFFFFFFFFFFF.
-     *
-     * The double-negation (!!) trick is defined by the C standard and
-     * produces 0 or 1 without a conditional branch on all common targets
-     * because compilers lower it to a setne/cmovne or equivalent.
-     */
-    return (uint64_t)(-(uint64_t)(!!(unsigned int)condition));
+    volatile uint64_t bit = (uint64_t)(!!(unsigned int)condition);
+    uint64_t mask = (uint64_t)0 - bit;
+    opssl_ct_barrier();
+    return mask;
 }
 
 /*
  * opssl_ct_select — constant-time byte-buffer conditional copy.
  *
  * Writes a[0..len-1] to dst when select_a != 0, b[0..len-1] otherwise.
- * All three data pointers are volatile to prevent the compiler from
- * dead-store-eliminating the dst writes or hoisting the src reads.
- * The mask is volatile for the same reason.
+ * Both source pointers must remain valid for the full length regardless
+ * of selection; both buffers are always touched.
  */
 void
-opssl_ct_select(void *dst, const void *a, const void *b, size_t len, int select_a)
+opssl_ct_select(void *dst, const void *a, const void *b,
+                size_t len, int select_a)
 {
-    const volatile uint8_t *pa = a;
-    const volatile uint8_t *pb = b;
-    volatile uint8_t *pd = dst;
+    const volatile uint8_t *pa = (const volatile uint8_t *)a;
+    const volatile uint8_t *pb = (const volatile uint8_t *)b;
+    volatile uint8_t       *pd = (volatile uint8_t *)dst;
 
-    /* mask is 0xFF if select_a is set, 0x00 otherwise — no branch */
-    volatile uint8_t mask = (uint8_t)(-(select_a & 1));
+    /* mask = 0xFF if select_a is set, else 0x00. */
+    volatile uint8_t mask = (uint8_t)(0u - (unsigned int)(!!select_a));
 
-    for (size_t i = 0; i < len; i++)
-        pd[i] = (pa[i] & mask) | (pb[i] & ~mask);
+    for (size_t i = 0; i < len; i++) {
+        uint8_t va = pa[i];
+        uint8_t vb = pb[i];
+        pd[i] = (uint8_t)((va & mask) | (vb & (uint8_t)~mask));
+    }
+
+    opssl_ct_barrier();
 }
 
 /*
  * opssl_ct_min — branchless size_t minimum.
  *
- * The arithmetic sign-propagation trick requires that we use the signed
- * type whose width exactly matches size_t (ptrdiff_t), NOT a fixed-width
- * int64_t.  On a 32-bit target size_t is 32 bits; casting diff to int64_t
- * would extend 0xFFFFFFFF to a positive value, producing a wrong mask.
- * ptrdiff_t is defined to match size_t width on every conforming platform.
+ * The arithmetic sign-propagation trick requires the signed type whose
+ * width matches size_t (ptrdiff_t), NOT a fixed-width int64_t.  On a
+ * 32-bit target size_t is 32 bits; casting diff to int64_t would extend
+ * 0xFFFFFFFF to a positive value, producing the wrong mask.  ptrdiff_t
+ * matches size_t width on every conforming platform.
  */
 size_t
 opssl_ct_min(size_t a, size_t b)
 {
-    size_t diff = a - b;                                    /* wraps on underflow */
-    size_t mask = (size_t)((ptrdiff_t)diff >>               /* arithmetic shift   */
-                           (sizeof(size_t) * 8 - 1));      /* fills with borrow  */
-    return b + (diff & mask);                               /* b if a>=b, a if a<b */
+    size_t diff = a - b;                                       /* wraps on underflow */
+    size_t mask = (size_t)((ptrdiff_t)diff >>                  /* arithmetic shift  */
+                           (sizeof(size_t) * 8 - 1));          /* fills with borrow */
+    return b + (diff & mask);                                  /* b if a>=b, a if a<b */
 }

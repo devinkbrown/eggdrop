@@ -991,6 +991,8 @@ op_seccomp_lockdown_shim(void)
     return install_seccomp_filter(&prog);
 }
 
+int op_shim_get_ircd_fd(void) { return -1; }
+
 /* ── Process hardening ────────────────────────────────────────────────────── */
 
 /*
@@ -1286,6 +1288,8 @@ op_seccomp_lockdown_shim(void)
     return pledge("stdio proc exec", NULL) < 0 ? -1 : 0;
 }
 
+int op_shim_get_ircd_fd(void) { return -1; }
+
 /*
  * op_shim_harden — OpenBSD early hardening.
  *
@@ -1354,6 +1358,7 @@ op_secure_free(void *p, size_t len)
 #elif defined(__FreeBSD__) || defined(__DragonFly__)
 
 #include <op_seccomp.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -1391,15 +1396,41 @@ op_seccomp_lockdown(void)
 }
 
 /*
- * op_seccomp_lockdown_shim — shim is a no-op on this platform.
+ * op_seccomp_lockdown_shim — Capsicum lockdown for the shim on FreeBSD.
  *
- * Capsicum cap_enter() prohibits execve() by path, so helper daemons can
- * use it but the shim (which must restart the ircd via execve) cannot.
+ * Strategy: open an O_EXEC fd on the ircd binary *before* entering capability
+ * mode.  Once in cap mode, path-based open/exec are denied, but fexecve(fd)
+ * still works because the fd was obtained pre-lockdown.
  *
- * Future improvement: store an fd opened on the ircd binary pre-lockdown
- * and use fexecve(fd, ...) from within capability mode.
+ * If the binary fd cannot be opened (e.g. BINDIR is wrong), we skip cap_enter
+ * and fall back to the no-op path — the shim still works, just without the
+ * Capsicum sandbox.
  */
-int op_seccomp_lockdown_shim(void) { return 0; }
+static int shim_ircd_fd = -1;
+
+int
+op_seccomp_lockdown_shim(void)
+{
+#if defined(__FreeBSD__) && defined(HAVE_FEXECVE) && defined(BINDIR)
+    shim_ircd_fd = open(BINDIR "/ophion", O_RDONLY | O_EXEC | O_CLOEXEC);
+    if (shim_ircd_fd < 0)
+        return 0;   /* can't lock down without fd — degrade gracefully */
+    if (cap_enter() < 0) {
+        close(shim_ircd_fd);
+        shim_ircd_fd = -1;
+        return 0;
+    }
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+int
+op_shim_get_ircd_fd(void)
+{
+    return shim_ircd_fd;
+}
 
 /*
  * op_shim_harden — FreeBSD deep process hardening.
@@ -1522,6 +1553,7 @@ op_secure_free(void *p, size_t len)
  */
 int op_seccomp_lockdown(void)      { return 0; }
 int op_seccomp_lockdown_shim(void) { return 0; }
+int op_shim_get_ircd_fd(void)      { return -1; }
 
 /*
  * op_shim_harden — macOS process hardening.
@@ -1750,6 +1782,7 @@ op_seccomp_lockdown(void)
  * policies), so the same mitigation set is appropriate.
  */
 int op_seccomp_lockdown_shim(void) { return op_seccomp_lockdown(); }
+int op_shim_get_ircd_fd(void)      { return -1; }
 
 /*
  * op_shim_harden — Windows shim-specific hardening.
@@ -1858,6 +1891,7 @@ op_secure_free(void *p, size_t len)
 
 int op_seccomp_lockdown(void)      { return 0; }
 int op_seccomp_lockdown_shim(void) { return 0; }
+int op_shim_get_ircd_fd(void)      { return -1; }
 int op_shim_harden(void)           { return 0; }
 
 void *

@@ -192,12 +192,11 @@ op_sendbuf_write(op_sendbuf_t *sb, const void *data, size_t len)
 int
 op_sendbuf_write_linebuf(op_sendbuf_t *sb, buf_head_t *linebuf)
 {
-	op_dlink_node *ptr;
 	size_t total_bytes = 0;
 
-	OP_DLINK_FOREACH(ptr, linebuf->list.head)
+	for (size_t _si = linebuf->head_idx; _si < op_vec_size(&linebuf->lines); _si++)
 	{
-		buf_line_t *line = ptr->data;
+		buf_line_t *line = op_vec_get(&linebuf->lines, _si);
 
 		if (line->len == 0 || !line->terminated)
 			continue;

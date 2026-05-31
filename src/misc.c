@@ -61,6 +61,45 @@ int raw_log = 0;                /* Display output to server to LOG_SERVEROUT */
 int conmask = LOG_MODES | LOG_CMDS | LOG_MISC; /* Console mask */
 int show_uname = 1;
 
+/* Deferred log rotation flag.
+ *
+ * Set to 1 when log rotation should happen (e.g. triggered by SIGHUP or a
+ * daily timer) but cannot be performed immediately because we may be inside
+ * putlog() or a signal handler.  The actual close+reopen is deferred to
+ * log_rotate_perform(), which is called from the main-loop idle path
+ * (check_logsize / core_minutely) so rotation only happens between event
+ * loop iterations — never mid-write and never inside a signal handler. */
+static int log_rotate_pending = 0;
+
+/* Request a deferred log rotation.  Safe to call from signal handlers. */
+void log_rotation_request(void)
+{
+  log_rotate_pending = 1;
+}
+
+/* Execute a pending log rotation: close every open log slot so that the
+ * next write re-opens the file.  Called from the idle / minutely path. */
+void log_rotate_perform(void)
+{
+  if (!log_rotate_pending)
+    return;
+  log_rotate_pending = 0;
+
+  if (async_log_active())
+    async_log_flush();   /* drain in-flight writes before we close */
+  for (int i = 0; i < max_logs; i++) {
+    if (logs[i].filename != nullptr) {
+      if (async_log_active() && async_log_slot_open(i)) {
+        async_log_close(i);
+      } else if (logs[i].f != nullptr) {
+        fclose(logs[i].f);
+        logs[i].f = nullptr;
+      }
+    }
+  }
+  putlog(LOG_MISC, "*", "Log rotation complete (deferred).");
+}
+
 typedef struct {
   char *name;
   int type;

@@ -59,22 +59,21 @@ struct timeout_data
 	time_t timeout;
 	PF *timeout_handler;
 	void *timeout_data;
-	op_dlink_node node;
 };
 
-op_dlink_list *op_fd_table;
-static op_bh *fd_heap;
-static op_bh *timeout_heap;
-static op_bh *conn_heap;
-static op_bh *accept_heap;
-
-static op_dlink_list closed_list;
-static op_dlink_list closed_list_aged;
-static op_dlink_list recycled_list;
+/* op_fd_table — process-global fd hash index. Each op_fde_t entry is owned
+ * by its allocating ctx's fd_heap (see commio_ctx_data below), but the
+ * lookup hash itself stays global so io_uring.c (which iterates buckets
+ * directly) and the inline op_find_fd() in commio-int.h keep working
+ * without per-ctx routing. FDs never migrate between ctxs (design invariant
+ * §5), so a single hash table is correct: each entry resides in exactly one
+ * ctx and is reached via its globally-unique fd number. */
+op_vec_t *op_fd_table;
 
 /* Backend-specific fd cleanup hook — set by try_uring(), NULL for other backends.
  * Declared here (above op_close) because the full io_ops_t vtable lives further
- * down in the file.  The vtable copy in g_io mirrors this pointer. */
+ * down in the file.  The vtable copy in g_io mirrors this pointer.
+ * Process-global: backend selection is one-shot at boot. */
 static void (*io_close_fd)(op_fde_t *) = NULL;
 
 /*
@@ -82,6 +81,10 @@ static void (*io_close_fd)(op_fde_t *) = NULL;
  * op_settimeout() acquires only the shard for the target fd, reducing
  * contention by 16x compared to a single global lock.
  * op_checktimeouts() iterates all shards, locking each individually.
+ *
+ * Phase 1D note: the shard array, total count, and timer event handle moved
+ * into struct commio_ctx_data; the 16-way hash modulo stays unchanged so a
+ * given fd always hashes to the same shard index within its owning ctx.
  */
 #define TIMEOUT_SHARDS     16
 #define TIMEOUT_SHARD_MASK (TIMEOUT_SHARDS - 1)
@@ -89,13 +92,86 @@ static void (*io_close_fd)(op_fde_t *) = NULL;
 
 struct timeout_shard {
 	pthread_spinlock_t lock;
-	op_dlink_list      list;
+	op_vec_t           list;     /* vec of timeout_data * */
 	char               _pad[48]; /* avoid false sharing between shards */
 };
 
-static struct timeout_shard timeout_shards[TIMEOUT_SHARDS];
-static _Atomic int          timeout_total_count; /* sum across all shards */
-static struct ev_entry     *op_timeout_ev;
+
+/* ---- Phase 1D shard refactor: per-ctx commio bookkeeping ------------------ *
+ *
+ * struct commio_ctx_data — every formerly-file-static piece of commio.c
+ * bookkeeping that the design says is per-shard (fd pools, fd lifecycle
+ * lists, timeout shards, conn/accept allocators).
+ *
+ * The legacy single-shard path uses the file-static `legacy_commio_data`;
+ * per-shard contexts get a fresh heap instance via op_commio_ctx_init().
+ * Resolved at every entrypoint by cio_data() — mirrors the ep_data() and
+ * ev_data() patterns from commits B and C.
+ *
+ * Process-global state stays as file-static below this block: op_fd_table,
+ * number_fd, op_maxconnections, io_close_fd, the g_io vtable.
+ */
+struct commio_ctx_data {
+	/* op_fde_t allocator pool. Each ctx owns its FDs; they never migrate. */
+	op_bh *fd_heap;
+
+	/* fd lifecycle queues — closed_list → closed_list_aged → recycled_list.
+	 * All movements happen on the owning ctx; nothing crosses ctx boundaries.
+	 * op_close_pending_fds() only drains the calling ctx's lists. */
+	op_vec_t closed_list;
+	op_vec_t closed_list_aged;
+	op_vec_t recycled_list;
+
+	/* Timeout subsystem (Phase 1D2).
+	 *
+	 * Each ctx owns a private timeout_heap (op_bh slab) and a 16-shard
+	 * timeout_shards array. The TIMEOUT_SHARD(fd) hash is unchanged from
+	 * the legacy code — `(unsigned)fd & 0xf` — so a given fd hashes to
+	 * the same shard index within its ctx as it would have under the
+	 * legacy single-ctx code. The shard count stays 16 (per design note,
+	 * the doc says 256 but the implementation has always been 16).
+	 *
+	 * timeout_total_count drives lazy creation of op_timeout_ev (the
+	 * 5-second op_checktimeouts timer): the event is registered when the
+	 * count transitions 0 → 1, cancelled when it transitions back to 0.
+	 * Both events are now per-ctx, so each shard maintains its own
+	 * timer event tied to its own ev_data() timer heap.
+	 */
+	op_bh                *timeout_heap;
+	struct timeout_shard  timeout_shards[TIMEOUT_SHARDS];
+	_Atomic int           timeout_total_count;
+	struct ev_entry      *op_timeout_ev;
+
+	/* Connection-setup allocators (Phase 1D3). Per-shard via SO_REUSEPORT
+	 * in Phase 6 — each shard accepts its own connections and pulls
+	 * acceptdata / conndata from its own pool. */
+	op_bh *conn_heap;
+	op_bh *accept_heap;
+};
+
+/* File-static instance backing the legacy (no-ctx) path. */
+static struct commio_ctx_data legacy_commio_data;
+
+/*
+ * cio_data — resolve per-context commio bookkeeping for the current caller.
+ *
+ * Returns t_ev_ctx->commio_data when a context is set on this thread;
+ * otherwise falls back to legacy_commio_data. Same fallback pattern as
+ * ev_data() (event.c) and ep_data() (epoll.c).
+ */
+static inline struct commio_ctx_data *
+cio_data(void)
+{
+	if (t_ev_ctx != NULL && t_ev_ctx->commio_data != NULL)
+		return (struct commio_ctx_data *)t_ev_ctx->commio_data;
+	return &legacy_commio_data;
+}
+
+void *
+op_commio_legacy_data(void)
+{
+	return &legacy_commio_data;
+}
 
 
 static const char *op_err_str[] = { "Comm OK", "Error during bind()",
@@ -108,7 +184,12 @@ static const char *op_err_str[] = { "Comm OK", "Error during bind()",
 /* Number of currently open file descriptors.
  * Written from op_open() (accept / connect path) and op_close_pending_fds()
  * (event-loop cleanup), read from op_get_open_fd_count() which may be called
- * from any thread.  _Atomic int gives correct visibility with no locks. */
+ * from any thread.  _Atomic int gives correct visibility with no locks.
+ *
+ * Phase 1D: process-global on purpose. Total fd count is a process-wide
+ * resource bounded by RLIMIT_NOFILE / op_maxconnections; each shard
+ * contributes via fetch_add / fetch_sub. Per-ctx tracking would require
+ * summing across shards on every read, defeating the point of an atomic. */
 static _Atomic int number_fd = 0;
 int op_maxconnections = 0;
 
@@ -130,19 +211,18 @@ add_fd(op_platform_fd_t fd)
 	if (F != NULL)
 		return F;
 
-	if (recycled_list.head != NULL)
+	struct commio_ctx_data *cd = cio_data();
+	if (op_vec_size(&cd->recycled_list) > 0)
 	{
-		op_dlink_node *n = recycled_list.head;
-		F = n->data;
-		op_dlinkDelete(n, &recycled_list);
+		F = op_vec_pop(&cd->recycled_list);
 		memset(F, 0, sizeof(*F));
 	}
 	else
 	{
-		F = op_bh_alloc(fd_heap);
+		F = op_bh_alloc(cd->fd_heap);
 	}
 	F->fd = fd;
-	op_dlinkAdd(F, &F->node, &op_fd_table[op_hash_fd(fd)]);
+	op_vec_push(&op_fd_table[op_hash_fd(fd)], F);
 	return (F);
 }
 
@@ -152,14 +232,24 @@ remove_fd(op_fde_t *F)
 	if (F == NULL || !IsFDOpen(F))
 		return;
 
-	op_dlinkMoveNode(&F->node, &op_fd_table[op_hash_fd(F->fd)], &closed_list);
+	struct commio_ctx_data *cd = cio_data();
+	op_vec_t *bucket = &op_fd_table[op_hash_fd(F->fd)];
+	for (size_t _ri = 0; _ri < op_vec_size(bucket); _ri++)
+	{
+		if (op_vec_get(bucket, _ri) == F)
+		{
+			op_vec_remove_fast(bucket, _ri);
+			break;
+		}
+	}
+	op_vec_push(&cd->closed_list, F);
 }
 
 void
 op_close_pending_fds(void)
 {
 	op_fde_t *F;
-	op_dlink_node *ptr, *next;
+	struct commio_ctx_data *cd = cio_data();
 
 	/*
 	 * Two-cycle deferred recycle: FDEs move closed_list → closed_list_aged
@@ -167,11 +257,17 @@ op_close_pending_fds(void)
 	 * after close_connection() runs on the main thread; recycling instead
 	 * of freeing keeps the memory valid so IsFDOpen() guards work safely.
 	 *
+	 * Phase 1D: drains only the calling ctx's lifecycle lists. FDs never
+	 * migrate between ctxs (design invariant §5), so each shard's
+	 * event-loop iteration cleans up its own closed FDs.
+	 *
 	 * Phase 1: recycle aged FDEs that have waited at least one full cycle.
+	 * Drain from the back (op_vec_pop) — FDEs are fungible, order does not
+	 * matter.
 	 */
-	OP_DLINK_FOREACH_SAFE(ptr, next, closed_list_aged.head)
+	while (op_vec_size(&cd->closed_list_aged) > 0)
 	{
-		F = ptr->data;
+		F = op_vec_pop(&cd->closed_list_aged);
 
 		if (atomic_load_explicit(&F->uring_dirty, memory_order_acquire))
 		{
@@ -194,7 +290,7 @@ op_close_pending_fds(void)
 		}
 
 		pthread_spin_destroy(&F->pflags_lock);
-		op_dlinkMoveNode(ptr, &closed_list_aged, &recycled_list);
+		op_vec_push(&cd->recycled_list, F);
 		atomic_fetch_sub_explicit(&number_fd, 1, memory_order_relaxed);
 	}
 
@@ -202,9 +298,9 @@ op_close_pending_fds(void)
 	 * Phase 2: close underlying fds immediately (don't leak them) and
 	 * promote newly closed FDEs to the aged list for next cycle.
 	 */
-	OP_DLINK_FOREACH_SAFE(ptr, next, closed_list.head)
+	while (op_vec_size(&cd->closed_list) > 0)
 	{
-		F = ptr->data;
+		F = op_vec_pop(&cd->closed_list);
 
 		if (F->fd >= 0)
 		{
@@ -217,7 +313,7 @@ op_close_pending_fds(void)
 			F->fd = -1;
 		}
 
-		op_dlinkMoveNode(ptr, &closed_list, &closed_list_aged);
+		op_vec_push(&cd->closed_list_aged, F);
 	}
 }
 
@@ -228,15 +324,26 @@ static void
 op_close_all(void)
 {
 #ifndef _WIN32
-	int i;
-
-	/* fds 0-2 are stdin/stdout/stderr; close everything above that.
-	 * (fd 3 was historically reserved for the profiler, but that is
-	 *  not the case here — close it along with all other inherited fds.) */
-	for (i = 3; i < op_maxconnections; ++i)
+	/* Close every fd above stderr.  Use the most efficient method
+	 * available on the platform:
+	 *   - close_range(2): Linux ≥ 5.9, FreeBSD ≥ 13.0
+	 *   - closefrom(3):   OpenBSD, NetBSD, FreeBSD ≥ 8.0, Solaris
+	 *   - brute-force loop: universal fallback
+	 */
+#if defined(HAVE_CLOSE_RANGE)
+	if (close_range(3, ~0U, 0) == 0)
+		return;
+	/* ENOSYS/EINVAL: kernel too old or flag unknown — fall through */
+#endif
+#if defined(HAVE_CLOSEFROM)
+	closefrom(3);
+#else
 	{
-		close(i);
+		int i;
+		for (i = 3; i < op_maxconnections; ++i)
+			close(i);
 	}
+#endif
 #endif
 }
 
@@ -359,8 +466,9 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 
 	slop_assert(IsFDOpen(F));
 
+	struct commio_ctx_data *cd = cio_data();
 	unsigned int shard = TIMEOUT_SHARD(F->fd);
-	struct timeout_shard *ts = &timeout_shards[shard];
+	struct timeout_shard *ts = &cd->timeout_shards[shard];
 
 	if (callback == NULL)	/* user wants to remove */
 	{
@@ -371,18 +479,25 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 			pthread_spin_unlock(&ts->lock);
 			return;
 		}
-		op_dlinkDelete(&td->node, &ts->list);
-		op_bh_free(timeout_heap, td);
+		for (size_t _ti = 0; _ti < op_vec_size(&ts->list); _ti++)
+		{
+			if (op_vec_get(&ts->list, _ti) == td)
+			{
+				op_vec_remove_fast(&ts->list, _ti);
+				break;
+			}
+		}
+		op_bh_free(cd->timeout_heap, td);
 		F->timeout = NULL;
 		pthread_spin_unlock(&ts->lock);
 
 		/* If the total count drops to zero, delete the timer event.
 		 * fetch_sub returns the PREVIOUS value. */
-		if (atomic_fetch_sub_explicit(&timeout_total_count, 1,
+		if (atomic_fetch_sub_explicit(&cd->timeout_total_count, 1,
 		                              memory_order_relaxed) == 1)
 		{
-			struct ev_entry *ev = op_timeout_ev;
-			op_timeout_ev = NULL;
+			struct ev_entry *ev = cd->op_timeout_ev;
+			cd->op_timeout_ev = NULL;
 			if (ev != NULL)
 				op_event_delete(ev);
 		}
@@ -403,24 +518,24 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 	td = F->timeout;
 	if (td == NULL)
 	{
-		td = F->timeout = op_bh_alloc(timeout_heap);
+		td = F->timeout = op_bh_alloc(cd->timeout_heap);
 		td->F = F;
 		td->timeout = op_current_time() + timeout;
 		td->timeout_handler = callback;
 		td->timeout_data = cbdata;
-		op_dlinkAdd(td, &td->node, &ts->list);
+		op_vec_push(&ts->list, td);
 		pthread_spin_unlock(&ts->lock);
 
 		/* If old total was 0, this is the first timeout — create the
 		 * timer event.  fetch_add returns the PREVIOUS value. */
-		if (atomic_fetch_add_explicit(&timeout_total_count, 1,
+		if (atomic_fetch_add_explicit(&cd->timeout_total_count, 1,
 		                              memory_order_relaxed) == 0)
 		{
 			/* op_event_add may itself call op_settimeout on some backends;
 			 * safe because we've already released the shard lock. */
-			if (op_timeout_ev == NULL)
-				op_timeout_ev = op_event_add("op_checktimeouts",
-				                             op_checktimeouts, NULL, 5);
+			if (cd->op_timeout_ev == NULL)
+				cd->op_timeout_ev = op_event_add("op_checktimeouts",
+				                                 op_checktimeouts, NULL, 5);
 		}
 	}
 	else
@@ -443,52 +558,65 @@ op_settimeout(op_fde_t *F, time_t timeout, PF * callback, void *cbdata)
 void
 op_checktimeouts(void *notused __attribute__((unused)))
 {
-	op_dlink_node *ptr, *next;
 	struct timeout_data *td;
-	/* Collect expired entries from all shards into a local list, then
+	struct commio_ctx_data *cd = cio_data();
+	/* Collect expired entries from all shards into a local vec, then
 	 * dispatch handlers without holding any shard lock.  This avoids
 	 * deadlock when a handler calls op_settimeout() to re-register. */
-	op_dlink_list dispatch = { NULL, NULL, 0 };
+	op_vec_t dispatch = {0};
 	time_t now = op_current_time();
 	int expired_count = 0;
 
 	for (int s = 0; s < TIMEOUT_SHARDS; s++)
 	{
-		struct timeout_shard *ts = &timeout_shards[s];
+		struct timeout_shard *ts = &cd->timeout_shards[s];
 
 		pthread_spin_lock(&ts->lock);
-		OP_DLINK_FOREACH_SAFE(ptr, next, ts->list.head)
+		for (size_t _ti = 0; _ti < op_vec_size(&ts->list); )
 		{
-			td = ptr->data;
+			td = op_vec_get(&ts->list, _ti);
+			/* Stale entry: FDE is gone or closed.  Reap immediately
+			 * rather than leaking it forever in the shard list. */
 			if (td->F == NULL || !IsFDOpen(td->F))
-				continue;
+			{
+				op_vec_remove_fast(&ts->list, _ti);
+				if (td->F != NULL)
+					td->F->timeout = NULL;
+				op_bh_free(cd->timeout_heap, td);
+				expired_count++;
+				continue; /* index _ti now points at the swapped-in element */
+			}
 			if (td->timeout < now)
 			{
-				op_dlinkDelete(&td->node, &ts->list);
+				op_vec_remove_fast(&ts->list, _ti);
 				td->F->timeout = NULL;
-				op_dlinkAdd(td, &td->node, &dispatch);
+				op_vec_push(&dispatch, td);
 				expired_count++;
+				continue;
 			}
+			_ti++;
 		}
 		pthread_spin_unlock(&ts->lock);
 	}
 
 	/* Adjust total count outside any shard lock. */
 	if (expired_count > 0)
-		atomic_fetch_sub_explicit(&timeout_total_count, expired_count,
+		atomic_fetch_sub_explicit(&cd->timeout_total_count, expired_count,
 		                          memory_order_relaxed);
 
-	OP_DLINK_FOREACH_SAFE(ptr, next, dispatch.head)
+	size_t _di;
+	void  *_de;
+	OP_VEC_FOREACH(&dispatch, _di, _de)
 	{
-		td = ptr->data;
-		PF   *hdl  = td->timeout_handler;
-		void *data = td->timeout_data;
-		op_fde_t *F = td->F;
-		op_dlinkDelete(&td->node, &dispatch);
-		op_bh_free(timeout_heap, td);
+		td = _de;
+		PF       *hdl  = td->timeout_handler;
+		void     *data = td->timeout_data;
+		op_fde_t *F    = td->F;
+		op_bh_free(cd->timeout_heap, td);
 		if (hdl != NULL)
 			hdl(F, data);
 	}
+	op_vec_fini(&dispatch, NULL, NULL);
 }
 
 static int
@@ -790,15 +918,26 @@ static void op_accept_tryaccept(op_fde_t *F, void *data __attribute__((unused)))
  * detected within ~2 minutes: 60 s idle before first probe, 6 probes
  * 10 s apart → drops at 120 s with no response.  Values are advisory;
  * setsockopt() errors are silently ignored on systems that lack them. */
-#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+#if defined(TCP_KEEPIDLE) || defined(TCP_KEEPALIVE)
 			{
 				int idle = 60, intvl = 10, cnt = 6;
+				(void)intvl; (void)cnt;
+#if defined(TCP_KEEPIDLE)
 				setsockopt(new_F->fd, IPPROTO_TCP, TCP_KEEPIDLE,
 				           &idle, sizeof(idle));
+#elif defined(TCP_KEEPALIVE)
+				/* macOS: TCP_KEEPALIVE is the idle-before-probe timer */
+				setsockopt(new_F->fd, IPPROTO_TCP, TCP_KEEPALIVE,
+				           &idle, sizeof(idle));
+#endif
+#ifdef TCP_KEEPINTVL
 				setsockopt(new_F->fd, IPPROTO_TCP, TCP_KEEPINTVL,
 				           &intvl, sizeof(intvl));
+#endif
+#ifdef TCP_KEEPCNT
 				setsockopt(new_F->fd, IPPROTO_TCP, TCP_KEEPCNT,
 				           &cnt, sizeof(cnt));
+#endif
 			}
 #endif
 #if defined(IP_TOS) && defined(IPTOS_LOWDELAY)
@@ -878,9 +1017,13 @@ op_connect_tcp(op_fde_t *F, struct sockaddr *dest,
 	 * NULL the OS picks the source address (default route / any). */
 	if ((clocal != NULL) && (bind(F->fd, clocal, GET_SS_LEN(clocal)) < 0))
 	{
-		/* Failure, call the callback with OP_ERR_BIND */
+		/* Preserve bind errno across op_connect_callback() so the user
+		 * handler can inspect it.  op_settimeout()/op_setselect() inside
+		 * the callback path may otherwise clobber it. */
+		op_get_errno();
+		int saved = errno;
 		op_connect_callback(F, OP_ERR_BIND);
-		/* ... and quit */
+		errno = saved;
 		return;
 	}
 
@@ -1305,7 +1448,12 @@ op_socket(int family, int sock_type, int proto, const char *note)
 		if (op_setsockopt_sctp(F)) {
 			op_lib_log("op_socket: Could not set SCTP socket options on FD %d: %s",
 				fd, strerror(errno));
-			close(fd);
+			/* F was already registered by op_open(); use op_close()
+			 * to properly remove it from the fd table and close the
+			 * underlying fd via the deferred cleanup path.  Calling
+			 * raw close(fd) here would leave a stale FDE behind and
+			 * race a future fd reuse against IsFDOpen() lookups. */
+			op_close(F);
 			return NULL;
 		}
 	}
@@ -1355,8 +1503,16 @@ op_listen(op_fde_t *F, int backlog, int defer_accept)
 /* SO_REUSEPORT lets the kernel distribute incoming connections across
  * multiple listener sockets on the same port (e.g. separate accept-loop
  * threads or helper processes) without the thundering-herd problem.
- * Best-effort: silently ignored on kernels that don't support it.     */
-#ifdef SO_REUSEPORT
+ *
+ * FreeBSD 12+: SO_REUSEPORT_LB provides proper load-balanced distribution
+ * across sockets (round-robin), unlike plain SO_REUSEPORT which gives all
+ * connections to the last socket bound.  Prefer it when available.        */
+#if defined(SO_REUSEPORT_LB)
+	{
+		int opt = 1;
+		(void)setsockopt(F->fd, SOL_SOCKET, SO_REUSEPORT_LB, &opt, sizeof(opt));
+	}
+#elif defined(SO_REUSEPORT)
 	{
 		int opt = 1;
 		(void)setsockopt(F->fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
@@ -1409,7 +1565,12 @@ op_listen(op_fde_t *F, int backlog, int defer_accept)
 
 /* One-time OS-specific initialisation (WSAStartup on Windows, fd-clobbering
  * on Unix).  Protected by pthread_once so re-entrant calls from test code
- * or accidental double-init are harmless.                                 */
+ * or accidental double-init are harmless.
+ *
+ * Phase 1D: process-global on purpose. The brief tentatively listed these
+ * as per-ctx, but on inspection they only carry the closeall/maxfds args
+ * to a one-shot bootstrap that closes every fd above stderr (op_close_all)
+ * — a process-wide operation that cannot meaningfully happen per-shard. */
 static int     _fdlist_closeall;
 static int     _fdlist_maxfds;
 static pthread_once_t _fdlist_once = PTHREAD_ONCE_INIT;
@@ -1435,43 +1596,113 @@ op_fdlist_init(int closeall, int maxfds, size_t heapsize)
 	_fdlist_maxfds   = maxfds;
 	pthread_once(&_fdlist_once, _fdlist_once_fn);
 
-	fd_heap = op_bh_create(sizeof(op_fde_t), heapsize, "libop_fd_heap");
+	/*
+	 * Initialise the legacy ctx's commio bookkeeping. Per-shard ctxs get
+	 * their own struct commio_ctx_data via op_commio_ctx_init(). This runs
+	 * before op_event_ctx_create()'s first call adopts legacy_commio_data
+	 * as legacy_global_ctx->commio_data.
+	 */
+	legacy_commio_data.fd_heap =
+		op_bh_create(sizeof(op_fde_t), heapsize, "libop_fd_heap");
 	/* timeout_data is allocated/freed for every connection that sets a
 	 * timeout (effectively every client).  Pool-allocating avoids the
 	 * per-call malloc overhead on the hot accept→settimeout path.      */
-	timeout_heap = op_bh_create(sizeof(struct timeout_data), heapsize, "libop_timeout_heap");
+	legacy_commio_data.timeout_heap =
+		op_bh_create(sizeof(struct timeout_data), heapsize, "libop_timeout_heap");
 	for (int i = 0; i < TIMEOUT_SHARDS; i++)
-		pthread_spin_init(&timeout_shards[i].lock, PTHREAD_PROCESS_PRIVATE);
-	atomic_init(&timeout_total_count, 0);
+		pthread_spin_init(&legacy_commio_data.timeout_shards[i].lock,
+		                  PTHREAD_PROCESS_PRIVATE);
+	atomic_init(&legacy_commio_data.timeout_total_count, 0);
 	/* conndata/acceptdata are allocated per outgoing/incoming connection
 	 * attempt.  Pool-allocating avoids per-connect malloc overhead.    */
-	conn_heap   = op_bh_create(sizeof(struct conndata),   heapsize, "libop_conn_heap");
-	accept_heap = op_bh_create(sizeof(struct acceptdata), heapsize, "libop_accept_heap");
+	legacy_commio_data.conn_heap =
+		op_bh_create(sizeof(struct conndata),   heapsize, "libop_conn_heap");
+	legacy_commio_data.accept_heap =
+		op_bh_create(sizeof(struct acceptdata), heapsize, "libop_accept_heap");
+}
 
+/* ---- Phase 1D shard refactor: per-shard ctx init/destroy ----------------- */
+
+int
+op_commio_ctx_init(struct op_event_ctx *ctx, const char *name)
+{
+	if (ctx == NULL)
+		return -1;
+
+	struct commio_ctx_data *cd = op_malloc(sizeof(*cd));
+	memset(cd, 0, sizeof(*cd));
+
+	/*
+	 * Per-shard heap sizes mirror the legacy values. We piggyback on
+	 * op_maxconnections (set at boot) for sizing; each shard gets its own
+	 * pool so allocations don't contend across shards.
+	 */
+	size_t heapsize = op_maxconnections > 0 ? (size_t)op_maxconnections : 1024;
+
+	cd->fd_heap = op_bh_create(sizeof(op_fde_t), heapsize, "libop_fd_heap_shard");
+	cd->timeout_heap =
+		op_bh_create(sizeof(struct timeout_data), heapsize, "libop_timeout_heap_shard");
+	for (int i = 0; i < TIMEOUT_SHARDS; i++)
+		pthread_spin_init(&cd->timeout_shards[i].lock, PTHREAD_PROCESS_PRIVATE);
+	atomic_init(&cd->timeout_total_count, 0);
+	cd->conn_heap =
+		op_bh_create(sizeof(struct conndata),   heapsize, "libop_conn_heap_shard");
+	cd->accept_heap =
+		op_bh_create(sizeof(struct acceptdata), heapsize, "libop_accept_heap_shard");
+
+	ctx->commio_data = cd;
+	(void)name;
+	return 0;
+}
+
+void
+op_commio_ctx_destroy(struct op_event_ctx *ctx)
+{
+	if (ctx == NULL || ctx->commio_data == NULL)
+		return;
+	/*
+	 * Legacy ctx aliases the file-static legacy_commio_data; do not free
+	 * its heaps — they outlive any single ctx during the transition.
+	 */
+	if (ctx->commio_data == &legacy_commio_data)
+	{
+		ctx->commio_data = NULL;
+		return;
+	}
+
+	struct commio_ctx_data *cd = (struct commio_ctx_data *)ctx->commio_data;
+	for (int i = 0; i < TIMEOUT_SHARDS; i++)
+		pthread_spin_destroy(&cd->timeout_shards[i].lock);
+	if (cd->fd_heap)      op_bh_destroy(cd->fd_heap);
+	if (cd->timeout_heap) op_bh_destroy(cd->timeout_heap);
+	if (cd->conn_heap)    op_bh_destroy(cd->conn_heap);
+	if (cd->accept_heap)  op_bh_destroy(cd->accept_heap);
+	op_free(cd);
+	ctx->commio_data = NULL;
 }
 
 struct conndata *
 op_conndata_alloc(void)
 {
-	return op_bh_alloc(conn_heap);
+	return op_bh_alloc(cio_data()->conn_heap);
 }
 
 void
 op_conndata_free(struct conndata *cd)
 {
-	op_bh_free(conn_heap, cd);
+	op_bh_free(cio_data()->conn_heap, cd);
 }
 
 struct acceptdata *
 op_acceptdata_alloc(void)
 {
-	return op_bh_alloc(accept_heap);
+	return op_bh_alloc(cio_data()->accept_heap);
 }
 
 void
 op_acceptdata_free(struct acceptdata *ad)
 {
-	op_bh_free(accept_heap, ad);
+	op_bh_free(cio_data()->accept_heap, ad);
 }
 
 /* Called to open a given filedescriptor */
@@ -1552,11 +1783,24 @@ op_close(op_fde_t *F)
 
 	op_setselect(F, OP_SELECT_WRITE | OP_SELECT_READ, NULL, NULL);
 	op_settimeout(F, 0, NULL, NULL);
-	F->uring_gen++;
+	/*
+	 * Do NOT pre-bump uring_gen here.  op_close_fd_uring() must cancel
+	 * the in-flight POLL_ADD SQE using the generation that was set when
+	 * that SQE was submitted.  A pre-bump here shifts the generation so
+	 * op_cancel_uring() targets gen+1 instead of gen, making the cancel
+	 * a no-op and leaving the socket in CLOSE-WAIT indefinitely.
+	 *
+	 * op_close_fd_uring() handles all gen bumps internally:
+	 *   – op_cancel_uring() bumps gen once (targeting the correct old gen)
+	 *   – an extra bump ensures any race-winning stale CQE is also discarded
+	 */
 	if (io_close_fd != NULL)
 		io_close_fd(F);
-	if (F->accept)  { op_bh_free(accept_heap, F->accept);  F->accept  = NULL; }
-	if (F->connect) { op_bh_free(conn_heap,   F->connect); F->connect = NULL; }
+	{
+		struct commio_ctx_data *cd = cio_data();
+		if (F->accept)  { op_bh_free(cd->accept_heap, F->accept);  F->accept  = NULL; }
+		if (F->connect) { op_bh_free(cd->conn_heap,   F->connect); F->connect = NULL; }
+	}
 	op_free(F->desc);
 	F->desc = NULL;
 	if (type & OP_FD_SSL)
@@ -1585,21 +1829,21 @@ void
 op_dump_fd(DUMPCB * cb, void *data)
 {
 	static const char *empty = "";
-	op_dlink_node *ptr;
-	op_dlink_list *bucket;
 	op_fde_t *F;
+	size_t _fi;
+	void  *_fe;
 	unsigned int i;
 
 	for (i = 0; i < OP_FD_HASH_SIZE; i++)
 	{
-		bucket = &op_fd_table[i];
+		op_vec_t *bucket = &op_fd_table[i];
 
-		if (op_dlink_list_length(bucket) <= 0)
+		if (op_vec_size(bucket) == 0)
 			continue;
 
-		OP_DLINK_FOREACH(ptr, bucket->head)
+		OP_VEC_FOREACH(bucket, _fi, _fe)
 		{
-			F = ptr->data;
+			F = _fe;
 			if (F == NULL || !IsFDOpen(F))
 				continue;
 
@@ -2600,7 +2844,6 @@ typedef struct {
 	void (*close_fd)(op_fde_t *);     /* optional; cleanup before fd close */
 	bool (*start_pollthread)(void);   /* optional; NULL if not supported */
 	void (*stop_pollthread)(void);    /* optional; NULL if not supported */
-	void (*reinit_after_fork)(void);  /* optional; recreate kernel state after fork */
 	char  name[25];
 } io_ops_t;
 
@@ -2652,7 +2895,6 @@ try_uring(void)
 			.init_event       = op_uring_init_event,
 			.start_pollthread = op_uring_start_pollthread,
 			.stop_pollthread  = op_uring_stop_pollthread,
-			.reinit_after_fork = op_uring_reinit_after_fork,
 			.name             = "uring",
 		};
 		return 0;
@@ -2822,7 +3064,14 @@ op_io_init_event(void)
 	op_event_io_register_all();
 }
 
-/* Tracks whether the poll thread is currently running. */
+/* Tracks whether *any* commio-level poll helper thread is currently running.
+ * Process-global on purpose: the io_uring SQPOLL helper and the epoll helper
+ * thread (commit B; per-ctx) each set this to make op_pollthread_active()
+ * report a single bool to ircd callers without those callers needing to know
+ * how many shards exist. Per-ctx tracking already lives in
+ * struct epoll_ctx_data->thread_active (and in the future io_uring ctx data
+ * once commit E lands). This atomic stays global so the API surface to
+ * ircd callers keeps its current signature. */
 static _Atomic(bool) g_poll_thread_active = false;
 
 bool
@@ -2855,10 +3104,17 @@ op_pollthread_active(void)
 }
 
 void
+op_io_set_shard_hint(int n)
+{
+	op_uring_set_shard_hint(n);
+}
+
+void
 op_init_netio(void)
 {
 	char *ioenv = getenv("LIBOP_USE_IOTYPE");
-	op_fd_table = op_malloc(OP_FD_HASH_SIZE * sizeof(op_dlink_list));
+	op_fd_table = op_malloc(OP_FD_HASH_SIZE * sizeof(op_vec_t));
+	memset(op_fd_table, 0, OP_FD_HASH_SIZE * sizeof(op_vec_t));
 	op_init_ssl();
 
 	if (ioenv != NULL)
@@ -2954,13 +3210,6 @@ op_setup_fd(op_fde_t *F)
 	return g_io.setup_fd(F);
 }
 
-void
-op_reinit_after_fork(void)
-{
-	if (g_io.reinit_after_fork != NULL)
-		g_io.reinit_after_fork();
-}
-
 
 int
 op_ignore_errno(int error)
@@ -3031,13 +3280,29 @@ op_recv_fd_buf(op_fde_t *F, void *data, size_t datasize, op_fde_t **xF, int nfds
 	msg.msg_control = ctrl_buf;
 	msg.msg_controllen = control_len;
 
-	if ((len = recvmsg(op_get_fd(F), &msg, 0)) <= 0)
-		return len;
+	/* Initialise every output slot so callers that walk xF[0..nfds)
+	 * never read uninitialised pointers when fewer FDs arrive. */
+	for (int i = 0; i < nfds; i++)
+		xF[i] = NULL;
+
+	{
+		ssize_t r = recvmsg(op_get_fd(F), &msg, 0);
+		if (r <= 0)
+			return (int)r;
+		len = (op_platform_fd_t)r;
+	}
 
 	if (msg.msg_controllen > 0 && msg.msg_control != NULL
 	   && (cmsg = CMSG_FIRSTHDR(&msg)) != NULL)
 	{
-		rfds = ((unsigned char *)cmsg + cmsg->cmsg_len - CMSG_DATA(cmsg)) / sizeof(int);
+		/* Guard against a malformed cmsg whose cmsg_len is smaller than
+		 * the header itself — the subtraction would otherwise underflow
+		 * and produce a huge rfds count, walking off the buffer. */
+		if (cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS
+		    || cmsg->cmsg_len < CMSG_LEN(0))
+			return len;
+		rfds = (op_platform_fd_t)(((unsigned char *)cmsg + cmsg->cmsg_len
+		                           - CMSG_DATA(cmsg)) / sizeof(int));
 
 		for (x = 0; x < nfds && x < rfds; x++)
 		{
@@ -3065,8 +3330,7 @@ op_recv_fd_buf(op_fde_t *F, void *data, size_t datasize, op_fde_t **xF, int nfds
 			xF[x] = op_open(fd, stype, desc);
 		}
 	}
-	else
-		*xF = NULL;
+	/* No-cmsg path: xF[] was already zero-filled above. */
 	return len;
 }
 

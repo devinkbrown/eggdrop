@@ -39,6 +39,14 @@
 
 #if defined(HAVE_KEVENT)
 
+/* The kqueue backend has not been ported to op_event_ctx (shard phase 1).
+ * On BSD/macOS builds with no modern alternative, the unported per-ctx
+ * code below is a real gap; fail the build with a clear message pointing
+ * at the port pattern. */
+#if !defined(HAVE_EPOLL_CTL) && !defined(HAVE_LIBURING)
+# error "kqueue.c not ported to op_event_ctx; follow the pattern in epoll.c (struct kqueue_ctx_data keyed off t_ev_ctx)."
+#endif
+
 #include <sys/event.h>
 
 /* Compatibility: EV_SET was not added until FreeBSD 4.3. */
@@ -124,8 +132,9 @@ static volatile int      kq_thread_stop  = 0;
 static int               kq_thread_active = 0;
 static kq_event_ring_t   kq_ring __attribute__((aligned(64)));
 
-/* Forward declaration. */
+/* Forward declarations. */
 static void kq_dispatch_event(const struct kevent *ev);
+static int  kq_select_threaded(long delay);
 
 static inline bool
 kq_ring_push(kq_event_ring_t *r, const struct kevent *ev)
@@ -280,7 +289,9 @@ kq_arm_event(op_fde_t *F, short filter, PF *new_handler)
 
     pthread_spin_lock(&kqlst_lock);
 
-    /* If the buffer is full, flush immediately to make room. */
+    /* If the buffer is full, flush immediately to make room.  This makes
+     * a kevent() syscall while holding the spinlock; rare on a properly
+     * sized changelist (cap=512) and bounded by KQ_CHANGELIST_CAP entries. */
     if (kqoff == KQ_CHANGELIST_CAP)
         kq_flush_changes();
 
@@ -376,7 +387,13 @@ op_init_netio_kqueue(void)
 #endif
 
     kqoff = 0;
-    pthread_spin_init(&kqlst_lock, PTHREAD_PROCESS_PRIVATE);
+    if (pthread_spin_init(&kqlst_lock, PTHREAD_PROCESS_PRIVATE) != 0)
+    {
+        int e = errno;
+        close(kq);
+        kq = -1;
+        return e;
+    }
 
     /*
      * Size the event output buffer to getdtablesize() so one kevent() call
@@ -390,8 +407,7 @@ op_init_netio_kqueue(void)
         kqout_cap = 64;
     kqout = op_malloc(sizeof(struct kevent) * (size_t)kqout_cap);
 
-    zero_timespec.tv_sec  = 0;
-    zero_timespec.tv_nsec = 0;
+    /* zero_timespec is BSS-initialised to {0,0}; explicit zeroing is redundant. */
 
     op_open(kq, OP_FD_UNKNOWN, "kqueue fd");
     return 0;
@@ -710,7 +726,9 @@ op_kqueue_sched_event(struct ev_entry *event, int when)
     if (event->frequency == 0)
         kep_flags |= EV_ONESHOT;
 
-    /* EVFILT_TIMER data is in milliseconds on FreeBSD and macOS. */
+    /* EVFILT_TIMER data is in milliseconds on FreeBSD and macOS; `when`
+     * arrives in seconds, so multiply by 1000. NOTE_USECONDS would allow
+     * sub-millisecond timers but is not exposed via this API. */
     EV_SET(&kev, (uintptr_t)event, EVFILT_TIMER, kep_flags, 0,
            (intptr_t)when * 1000, event);
 

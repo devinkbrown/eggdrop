@@ -53,6 +53,18 @@ is no longer compatible with or a drop-in replacement for libratbox.
   and repeat a string N times; convenience additions to the strbuf builder.
 - **op\_base64url** — RFC 4648 §5 base64url encode/decode (`-_` instead of `+/`,
   no padding); used by WebSocket and modern token protocols.
+- **op\_atomic** — portable C11 atomic helpers plus observability counters:
+  monotonic counters, signed gauges, power-of-two histograms, and sharded
+  per-CPU counters for hot-path metrics without cache-line ping-pong.
+- **op\_mpmc** — bounded lock-free multi-producer/multi-consumer queue with
+  single-item and batch push/pop operations.  The thread pool and media paths
+  use this for cross-thread work handoff where a mutex queue is too expensive.
+- **Locking primitives** — `op_lock.h` includes pthread/SRW wrappers,
+  slow-lock/deadlock instrumentation, lock-order checks, and reader-biased
+  sharded read/write helpers for high-read, low-write shared state.
+- **Hardened memory helpers** — `op_memzero_explicit`, slab allocation,
+  NUMA-local allocation fallback, and secure allocator cleanup live in the
+  public memory API.
 - **Removed: patricia trie (ip_patricia)** — `op_patricia` has been
   removed.  IP-address lookups that formerly used the patricia trie now
   use open-addressing hash tables embedded in the ircd (see
@@ -72,6 +84,9 @@ returning NULL** — eliminating the need for call-site NULL checks:
 | `op_free(ptr)` | `free(ptr)` — no-op on NULL |
 | `op_strdup(s)` | `strdup(s)` |
 | `op_strndup(s, n)` | bounded copy into a fresh `malloc(n)` buffer |
+| `op_reallocarray(ptr, n, size)` | overflow-checked array reallocation |
+| `op_memdup(ptr, len)` | copy bytes into a fresh allocation |
+| `op_memzero_explicit(ptr, len)` | dead-store-resistant wipe for secrets |
 
 Use `op_calloc` when allocating arrays or when the nmemb/size split matters
 for overflow-safe size arithmetic.  Use `op_malloc` for single-object
@@ -79,6 +94,11 @@ allocations where you just want a zeroed block.
 
 For high-churn objects (clients, channels, ban entries) prefer the block
 heap allocator (`op_bh_*`) described below.
+
+`op_slab_alloc`/`op_slab_free` cover tiny allocations up to
+`OP_SLAB_MAX_SIZE`.  `op_alloc_numa_local`/`op_free_numa` provide NUMA-local
+allocation when libnuma/runtime support is available and fall back to the
+normal zeroing allocator otherwise.
 
 ## Type conventions
 
@@ -106,8 +126,19 @@ libop uses the following type conventions throughout its public API:
 
 ## Thread safety
 
-Most of this library is **not thread-safe**.  Do not use it from multiple
-threads without external locking.
+Most container and I/O types in this library are **not thread-safe**.  Do not
+share them between threads without external locking.
+
+The explicitly concurrent APIs are the exception:
+
+- `op_atomic_*` counters, gauges, histograms, and per-CPU counters
+- `op_mpmc_*` bounded queues
+- `op_lock_*` mutex/rwlock/park helpers
+- thread-pool entry points documented in `op_thread_pool.h`
+
+Treat all other structures, including `op_htab`, `op_lru`, linebuf/rawbuf, and
+event registrations, as single-owner unless their caller already holds the
+right lock.
 
 ## Linebuf notes
 
@@ -289,15 +320,26 @@ more data is buffered, capping at 32 iterations.
 opssl provides all cryptographic primitives needed by ophion:
 
 - **Hash**: SHA-1, SHA-256, SHA-384, SHA-512, SHA3-256, SHA3-512
-- **MAC**: HMAC-SHA-256/384/512
-- **KDF**: HKDF, PBKDF2
+- **MAC**: HMAC-SHA-1/256/384/512
+- **KDF**: HKDF, PBKDF2, Argon2id
 - **AEAD**: AES-128/256-GCM, ChaCha20-Poly1305, AES-128/256-CCM, AES-128/256-CCM_8, Camellia-128/256-GCM
 - **Block ciphers**: AES, Camellia
-- **Key exchange**: X25519, P-256, P-384, FFDHE-2048/3072/4096
-- **Signatures**: Ed25519, ECDSA (P-256/P-384), RSA (PKCS#1 v1.5, PSS)
-- **Post-quantum**: ML-KEM-768, ML-KEM-1024
+- **Key exchange**: X25519, P-256, P-384, P-521, FFDHE-2048/3072/4096
+- **Signatures**: Ed25519, ECDSA (P-256/P-384/P-521), RSA (PKCS#1 v1.5, PSS), ML-DSA-65
+- **Post-quantum**: ML-KEM-768, ML-KEM-1024, ML-DSA-65
 - **X.509**: DER parsing, certificate chain verification, CRL, OCSP, fingerprinting
 - **Base64**: standard and URL-safe encode/decode
+
+## Tests
+
+The standalone libop Meson suite covers event backends, hash tables, seccomp,
+string/UTF-8 helpers, containers, async logging, CRDT helpers, atomics-backed
+structures, the bounded MPMC queue, event-pool behaviour, futex-park
+availability checks, and io_uring when liburing is available.
+
+```bash
+meson test -C builddir --print-errorlogs
+```
 
 ## License
 

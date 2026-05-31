@@ -27,6 +27,7 @@
 #include "modules.h"
 #include "script.h"
 #include "threadpool.h"
+#include "shard.h"
 #include "async_log.h"
 #include "async_fileio.h"
 #include "async_dns.h"
@@ -616,6 +617,8 @@ static void cmd_threads(struct userrec *u, int idx, char *par)
   /* op_async layer */
   dprintf(idx, "op_async:       %zu item%s pending\n",
           op_async_pending(), op_async_pending() == 1 ? "" : "s");
+  dprintf(idx, "I/O shards:     %d total, %d worker running; main state on shard 0\n",
+          egg_shards_count(), egg_shards_running());
 
   /* DCC dispatch shim */
   int dcc_inflight = 0, dcc_queued = 0, pump_inflight = 0, wbuf_inflight = 0;

@@ -117,9 +117,46 @@ static int tcl_getfilesendtime STDVAR
   return TCL_OK;
 }
 
+/* Returns a list of active DCC transfers.
+ * Each entry: {idx nick filename bytes_sent total_bytes direction}
+ * direction is "send" (bot sends to user) or "get" (bot receives from user).
+ */
+static int tcl_getcurrentdccxfers STDVAR
+{
+  BADARGS(1, 1, "");
+
+  for (int i = 0; i < dcc_total; i++) {
+    if (dcc[i].type != &DCC_SEND &&
+        dcc[i].type != &DCC_GET &&
+        dcc[i].type != &DCC_GET_PENDING &&
+        dcc[i].type != &DCC_GET_RESUME_PEND)
+      continue;
+
+    const char *direction;
+    if (dcc[i].type == &DCC_SEND)
+      direction = "get";    /* bot receives: type is SEND (user sends TO bot) */
+    else
+      direction = "send";   /* bot sends: type is GET (bot sends TO user)     */
+
+    op_strbuf_t entry = {};
+    op_strbuf_init(&entry);
+    op_strbuf_appendf(&entry, "%d %s %s %lu %lu %s",
+                      i,
+                      dcc[i].nick,
+                      dcc[i].u.xfer->origname ? dcc[i].u.xfer->origname : "",
+                      (unsigned long)dcc[i].status,
+                      (unsigned long)dcc[i].u.xfer->length,
+                      direction);
+    Tcl_AppendElement(irp, op_strbuf_str(&entry));
+    op_strbuf_free(&entry);
+  }
+  return TCL_OK;
+}
+
 static tcl_cmds mytcls[] = {
-  {"dccsend",                 tcl_dccsend},
-  {"getfileq",               tcl_getfileq},
-  {"getfilesendtime", tcl_getfilesendtime},
-  {nullptr,                             nullptr}
+  {"dccsend",                       tcl_dccsend},
+  {"getfileq",                     tcl_getfileq},
+  {"getfilesendtime",       tcl_getfilesendtime},
+  {"getcurrentdccxfers", tcl_getcurrentdccxfers},
+  {nullptr,                                 nullptr}
 };

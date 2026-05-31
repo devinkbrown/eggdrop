@@ -58,6 +58,7 @@
 #include "async_dns.h"
 #include "async_recv.h"
 #include "perf.h"
+#include "shard.h"
 #include <op_commio.h>
 #include <op_async.h>
 #include <op_async_log.h>
@@ -120,6 +121,7 @@ char ver[41];        /* Version info (short form) */
 volatile sig_atomic_t do_restart = 0; /* .restart has been called, restart ASAP */
 int resolve_timeout = RES_TIMEOUT;    /* Hostname/address lookup timeout        */
 int nthreads = 0;                     /* Worker thread count; 0 = auto-detect   */
+int io_shards = 0;                    /* I/O shards; 0 = auto, main owns state  */
 char quit_msg[1024];                  /* Quit message                           */
 
 /* Moved here for n flag warning, put back in do_arg if removed */
@@ -138,6 +140,7 @@ extern char last_bind_called[];
 void fatal(const char *s, int recoverable)
 {
   putlog(LOG_MISC, "*", "* %s", s);
+  egg_shards_shutdown();
   op_stop_pollthread();
   threadpool_shutdown();
   comqueue_destroy();
@@ -339,6 +342,10 @@ static void got_quit(int z)
 static void got_hup(int z)
 {
   write_userfile(-1);
+  /* Request deferred log rotation instead of rotating inside the signal
+   * handler.  The actual close+reopen runs in core_minutely() between
+   * event-loop iterations, so it never races with an in-progress write. */
+  log_rotation_request();
   if (check_tcl_signal("sighup"))
     return;
   putlog(LOG_MISC, "*", "Received HUP signal: rehashing...");
@@ -525,6 +532,35 @@ static void do_arg(void)
   }
 }
 
+static void prescan_config_arg(void)
+{
+  for (int i = 1; i < argc; i++) {
+    if (argv[i][0] == '-')
+      continue;
+    op_strlcpy(configfile, argv[i], sizeof configfile);
+    return;
+  }
+}
+
+static void apply_runtime_env(void)
+{
+  const char *value = getenv("EGGDROP_NTHREADS");
+  if (value && *value) {
+    char *end = nullptr;
+    long parsed = strtol(value, &end, 10);
+    if (end && *end == '\0' && parsed >= 0 && parsed <= 1024)
+      nthreads = (int)parsed;
+  }
+
+  value = getenv("EGGDROP_IO_SHARDS");
+  if (value && *value) {
+    char *end = nullptr;
+    long parsed = strtol(value, &end, 10);
+    if (end && *end == '\0' && parsed >= 0 && parsed <= 1024)
+      io_shards = (int)parsed;
+  }
+}
+
 /* Timer info */
 static time_t lastmin;
 static time_t then;
@@ -638,11 +674,14 @@ static void core_secondly(void)
 
 static void core_minutely(void)
 {
+  /* Process any pending deferred log rotation before other minutely work. */
+  log_rotate_perform();
   check_tcl_time_and_cron(&nowtm);
   do_check_timers(&timer);
-  if (op_async_active())
+  if (op_async_active()) {
     async_check_logsize();
-  else
+    async_log_flush();   /* flush 64 KB stdio buffer so log lines appear on disk */
+  } else
     check_logsize();
 }
 
@@ -1031,6 +1070,11 @@ int main(int arg_c, char **arg_v)
   sv.sa_handler = got_term;
   sigaction(SIGINT, &sv, nullptr);
 
+  prescan_config_arg();
+  prescan_runtime(configfile, &nthreads, &io_shards);
+  apply_runtime_env();
+  io_shards = egg_shards_resolve_count(io_shards);
+
   /* Initialize variables and stuff */
   now = time(nullptr);
   chanset = nullptr;
@@ -1038,11 +1082,15 @@ int main(int arg_c, char **arg_v)
   lastmin = now / 60;
   op_event_init();
   op_init_bh();
-  op_init_dlink_nodes(512);
   op_fdlist_init(0, 1024, 256);
+  op_io_set_shard_hint(io_shards);
   op_init_netio();
+  op_event_ctx_t *main_ev_ctx = op_event_ctx_create("eggdrop-main");
+  if (!main_ev_ctx)
+    fatal("ERROR: Failed to initialise main event context.", 0);
+  op_event_ctx_set_current(main_ev_ctx);
   op_linebuf_init(64);
-  if (!op_async_init(0))
+  if (!op_async_init(nthreads))
     fatal("ERROR: Failed to initialise async thread pool.", 0);
   async_log_init(max_logs);  /* start dedicated log writer thread */
   if (argc > 1)
@@ -1216,6 +1264,7 @@ int main(int arg_c, char **arg_v)
   add_help_reference("core.help");
   add_hook(HOOK_SECONDLY, (Function) core_secondly);
   add_hook(HOOK_MINUTELY, (Function) core_minutely);
+  add_hook(HOOK_MINUTELY, (Function) async_recv_minutely);
   add_hook(HOOK_HOURLY, (Function) core_hourly);
   add_hook(HOOK_REHASH, (Function) event_rehash);
   add_hook(HOOK_PRE_REHASH, (Function) event_prerehash);
@@ -1230,12 +1279,15 @@ int main(int arg_c, char **arg_v)
   /* Completion queue for worker→main thread callbacks */
   comqueue_init(4096);
 
+  if (egg_shards_start(io_shards) < 0)
+    fatal("ERROR: Failed to start I/O shard workers.", 0);
+
   /* Enable DCC parallel dispatch via the unified op_async worker pool.
    * threadpool_init() just registers against the already-running pool —
    * no new threads are started here. */
   if (threadpool_init(nthreads) == 0)
-    putlog(LOG_MISC, "*", "Async worker pool: %d threads (DCC + I/O + DNS unified)",
-           threadpool_size());
+    putlog(LOG_MISC, "*", "Async worker pool: %d threads (DCC + I/O + DNS unified); I/O shards: %d",
+           threadpool_size(), io_shards);
 
   /* Dedicated I/O poll thread: epoll_wait runs concurrently with dispatch */
   if (op_start_pollthread())

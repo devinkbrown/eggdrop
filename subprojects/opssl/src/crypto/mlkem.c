@@ -259,11 +259,28 @@ static void byte_encode_12(uint8_t *out, const poly_t *p) {
     }
 }
 
-/* FIPS 203 ByteDecode_12: lossless 12-bit unpacking */
+/* FIPS 203 ByteDecode_12: lossless 12-bit unpacking.
+ * Per FIPS 203 §4.2.1, decoded coefficients MUST be reduced mod q before use.
+ * Out-of-range values (>= q) are silently reduced so callers see canonical
+ * representatives; this hardens against malformed serialized polynomials.
+ * Reduction is performed branch-free for constant-time behavior. */
 static void byte_decode_12(poly_t *p, const uint8_t *in) {
     for (int i = 0; i < MLKEM_N / 2; i++) {
-        p->coeffs[2*i]   = (int16_t)(in[3*i] | ((in[3*i+1] & 0xF) << 8));
-        p->coeffs[2*i+1] = (int16_t)((in[3*i+1] >> 4) | ((uint16_t)in[3*i+2] << 4));
+        uint16_t a = (uint16_t)(in[3*i] | ((in[3*i+1] & 0xF) << 8));
+        uint16_t b = (uint16_t)((in[3*i+1] >> 4) | ((uint16_t)in[3*i+2] << 4));
+        /* Constant-time conditional subtract q if value >= q.
+         * Use uint32_t arithmetic explicitly; the previous version relied on
+         * implicit promotion of (uint16_t - int) which becomes a signed int
+         * subtraction, breaking the >>15 sign-bit trick and producing
+         * out-of-range coefficients in [0..4095]\[0..q). */
+        uint32_t ua = a, ub = b;
+        uint32_t ma = (uint32_t)0 - (((ua - (uint32_t)MLKEM_Q) >> 31) & 1u);
+        uint32_t mb = (uint32_t)0 - (((ub - (uint32_t)MLKEM_Q) >> 31) & 1u);
+        /* ma = 0xFFFFFFFF if a<q (must NOT subtract), 0 if a>=q (must subtract) */
+        ua = ua - (((uint32_t)MLKEM_Q) & ~ma);
+        ub = ub - (((uint32_t)MLKEM_Q) & ~mb);
+        p->coeffs[2*i]   = (int16_t)(uint16_t)ua;
+        p->coeffs[2*i+1] = (int16_t)(uint16_t)ub;
     }
 }
 
@@ -312,15 +329,17 @@ static void gen_matrix_row(polyvec_t *a, const uint8_t rho[32], int row, int k) 
     }
 }
 
-/* PRF for sampling noise */
-static void prf(uint8_t *out, size_t outlen, const uint8_t key[32], uint8_t nonce) {
+/* PRF_eta for sampling CBD noise — FIPS 203 §4.1.
+ * Output length is 64*eta bytes (128 for eta=2, 192 for eta=3). */
+static void prf(uint8_t *out, int eta, const uint8_t key[32], uint8_t nonce) {
     uint8_t seed[33];
+    size_t outlen = (size_t)64 * (size_t)eta;
     memcpy(seed, key, 32);
     seed[32] = nonce;
     opssl_shake256(out, outlen, seed, 33);
 }
 
-/* G function: SHA3-512 */
+/* G function: SHA3-512 — produces (K || r) from (m || H(pk)) */
 static void kdf_g(uint8_t out[64], const uint8_t *in, size_t inlen) {
     opssl_sha3_512(in, inlen, out);
 }
@@ -328,6 +347,12 @@ static void kdf_g(uint8_t out[64], const uint8_t *in, size_t inlen) {
 /* H function: SHA3-256 */
 static void kdf_h(uint8_t out[32], const uint8_t *in, size_t inlen) {
     opssl_sha3_256(in, inlen, out);
+}
+
+/* J function: SHAKE256-32 — FIPS 203 §4.1, used to derive the implicit
+ * rejection shared secret from (z || c). Distinct from H (SHA3-256). */
+static void kdf_j(uint8_t out[32], const uint8_t *in, size_t inlen) {
+    opssl_shake256(out, 32, in, inlen);
 }
 
 /* Encode/decode functions */
@@ -419,12 +444,15 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
 
     /* Sample secret s and error e */
     polyvec_t s, e;
-    uint8_t noise_seed[128];
+    /* Size for max supported eta (3 → 192 bytes); current params use eta=2. */
+    uint8_t noise_seed[192];
     for (int i = 0; i < p->k; i++) {
-        prf(noise_seed, 128, sigma, i);
+        /* PRF output length is 64*eta bytes (CBD reads 4 bytes per 8 coeffs
+         * for eta=2). Passing eta itself was a regression. */
+        prf(noise_seed, p->eta1, sigma, i);
         cbd2(&s.vec[i], noise_seed);
 
-        prf(noise_seed, 128, sigma, i + p->k);
+        prf(noise_seed, p->eta1, sigma, i + p->k);
         cbd2(&e.vec[i], noise_seed);
 
         ntt(&s.vec[i]);
@@ -441,6 +469,8 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
             poly_basemul(&prod, &a[i].vec[j], &s.vec[j]);
             poly_add(&temp, &temp, &prod);
         }
+        /* basemul produces a*s with implicit /R; tomont restores the factor
+         * so t_hat = NTT(A*s) + e_hat is properly normalized. */
         poly_tomont(&temp);
         poly_add(&t.vec[i], &temp, &e.vec[i]);
         poly_reduce(&t.vec[i]);
@@ -476,35 +506,36 @@ int opssl_mlkem_keygen(opssl_mlkem_ctx_t *ctx) {
 
 static int pke_encrypt(const uint8_t *pk, const uint8_t *m, const uint8_t *r,
                        uint8_t *ct, const mlkem_params_t *p) {
-    polyvec_t t;
+    polyvec_t t = {0};
     uint8_t rho[32];
     decode_polyvec(&t, pk, p->k, 12);
     memcpy(rho, pk + p->k * 384, 32);
 
     polyvec_t a[4];
+    memset(a, 0, sizeof(a));
     for (int i = 0; i < p->k; i++) {
         gen_matrix_row(&a[i], rho, i, p->k);
     }
 
-    polyvec_t r_vec, e1;
+    polyvec_t r_vec = {0}, e1 = {0};
     poly_t e2;
-    uint8_t noise[128];
+    uint8_t noise[192];  /* sized for max supported eta=3 */
 
     for (int i = 0; i < p->k; i++) {
-        prf(noise, 128, r, i);
+        prf(noise, p->eta1, r, i);
         cbd2(&r_vec.vec[i], noise);
         ntt(&r_vec.vec[i]);
     }
 
     for (int i = 0; i < p->k; i++) {
-        prf(noise, 128, r, i + p->k);
+        prf(noise, p->eta2, r, i + p->k);
         cbd2(&e1.vec[i], noise);
     }
 
-    prf(noise, 128, r, 2 * p->k);
+    prf(noise, p->eta2, r, 2 * p->k);
     cbd2(&e2, noise);
 
-    polyvec_t u;
+    polyvec_t u = {0};
     for (int i = 0; i < p->k; i++) {
         poly_t temp;
         poly_basemul(&temp, &a[0].vec[i], &r_vec.vec[0]);
@@ -566,7 +597,6 @@ int opssl_mlkem_encaps(opssl_mlkem_ctx_t *ctx, const uint8_t *pk, size_t pk_len,
         opssl_memzero(kr, sizeof(kr));
         return 0;
     }
-
     *ct_len = ctx->params->ct_len;
     memcpy(ss, kr, 32);
     *ss_len = 32;
@@ -590,14 +620,17 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
     const uint8_t *h_pk = pk + ctx->params->pk_len;
     const uint8_t *z = h_pk + 32;
 
-    /* Decode secret key */
-    polyvec_t s;
+    /* Decode secret key.
+     * Zero-initialize: silences -Wmaybe-uninitialized in poly_basemul(&s.vec[0]...)
+     * since GCC cannot prove p->k >= 1 from the invariant. The full vector is
+     * overwritten in the loop below for valid parameter sets (k in {3,4}). */
+    polyvec_t s = {0};
     for (int i = 0; i < p->k; i++) {
         byte_decode_12(&s.vec[i], s_enc + i * 384);
     }
 
     /* Decode ciphertext */
-    polyvec_t u;
+    polyvec_t u = {0};
     poly_t v;
     const uint8_t *ct_ptr = ct;
     decode_polyvec(&u, ct_ptr, p->k, p->du);
@@ -639,11 +672,20 @@ int opssl_mlkem_decaps(opssl_mlkem_ctx_t *ctx, const uint8_t *ct, size_t ct_len,
     /* Constant-time comparison: fail=0 if ct matches, fail=1 if different */
     int fail = verify(ct, ct_prime, ct_len);
 
-    /* Compute rejection key: KDF(z || H(ct)) */
-    uint8_t z_h_ct[64], reject_key[32];
-    memcpy(z_h_ct, z, 32);
-    kdf_h(z_h_ct + 32, ct, ct_len);
-    kdf_h(reject_key, z_h_ct, 64);
+    /* Compute rejection key per FIPS 203 §6.3: K_bar = J(z || c). */
+    uint8_t reject_key[32];
+    uint8_t *z_c = op_malloc(32 + ct_len);
+    if (!z_c) {
+        opssl_memzero(ss, 32);
+        opssl_memzero(m_prime, sizeof(m_prime));
+        opssl_memzero(kr_prime, sizeof(kr_prime));
+        return 0;
+    }
+    memcpy(z_c, z, 32);
+    memcpy(z_c + 32, ct, ct_len);
+    kdf_j(reject_key, z_c, 32 + ct_len);
+    opssl_memzero(z_c, 32 + ct_len);
+    op_free(z_c);
 
     /* Constant-time select: ss = K' if ct matches, reject_key if different */
     memcpy(ss, kr_prime, 32);

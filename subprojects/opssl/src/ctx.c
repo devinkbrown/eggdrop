@@ -19,6 +19,26 @@
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
+#include <time.h>
+
+/* Session ticket key rotation policy.
+ *
+ * STEK lifetime is bounded so that compromise of long-lived RAM exposes at
+ * most one rotation window of resumable sessions. We keep two slots: the
+ * current key (used to encrypt + decrypt) and the previous key (used to
+ * decrypt only) so in-flight tickets minted just before rotation still
+ * resume successfully.
+ *
+ * The keys must be the same across all workers — coordinated via the
+ * USR2 hot-upgrade session_migrate framework using
+ * opssl_ctx_export_ticket_keys / opssl_ctx_import_ticket_keys.
+ */
+#define OPSSL_TICKET_KEY_LIFETIME_SECS  (6 * 60 * 60)   /* rotate every 6h */
+#define OPSSL_TICKET_KEY_BYTES          80              /* 16 name + 32 AES + 32 HMAC */
+
+/* Session cache caps (defensive: prevent unbounded growth in shared cache) */
+#define OPSSL_SESSION_CACHE_DEFAULT_MAX  20000
+#define OPSSL_SESSION_CACHE_HARD_MAX     1000000
 
 extern int opssl_pem_decode(const char *pem, size_t pem_len,
                             uint8_t **der_out, size_t *der_len,
@@ -79,10 +99,18 @@ struct opssl_ctx {
     /* Post-quantum */
     bool postquantum_enabled;
 
-    /* Session tickets */
-    uint8_t ticket_keys[80];  /* 16 name + 32 aes + 32 hmac */
+    /* Session tickets — two-slot rotation:
+     *   ticket_keys      : current key (encrypt + decrypt)
+     *   ticket_keys_prev : previous key (decrypt-only, grace period)
+     *   ticket_key_born  : unix time when current key was generated.
+     */
+    uint8_t ticket_keys[OPSSL_TICKET_KEY_BYTES];
+    uint8_t ticket_keys_prev[OPSSL_TICKET_KEY_BYTES];
+    bool    ticket_keys_prev_valid;
+    int64_t ticket_key_born;
     bool tickets_enabled;
     bool session_cache_enabled;
+    size_t session_cache_max;
 
     /* Key logging (SSLKEYLOGFILE format) */
     opssl_keylog_cb keylog_cb;
@@ -188,11 +216,16 @@ opssl_ctx_new(opssl_tls_version_t min_version)
     ctx->session_cache_mode = 0x01 | 0x02 | 0x04;  /* BOTH | TICKETS */
     ctx->verify_depth = 10;  /* default chain depth limit */
 
+    /* Session cache default cap */
+    ctx->session_cache_max = OPSSL_SESSION_CACHE_DEFAULT_MAX;
+
     /* Generate random session ticket keys */
     if (opssl_random_bytes(ctx->ticket_keys, sizeof(ctx->ticket_keys)) != 0) {
         op_free(ctx);
         return NULL;
     }
+    ctx->ticket_key_born = (int64_t)time(NULL);
+    ctx->ticket_keys_prev_valid = false;
 
     /* Generate DTLS cookie HMAC key (server-wide, lives for ctx lifetime) */
     if (opssl_random_bytes(ctx->dtls_cookie_secret, sizeof(ctx->dtls_cookie_secret)) != 0) {
@@ -241,6 +274,8 @@ opssl_ctx_free(opssl_ctx_t *ctx)
 
     /* Clear sensitive data */
     opssl_memzero(ctx->ticket_keys, sizeof(ctx->ticket_keys));
+    opssl_memzero(ctx->ticket_keys_prev, sizeof(ctx->ticket_keys_prev));
+    opssl_memzero(ctx->dtls_cookie_secret, sizeof(ctx->dtls_cookie_secret));
 
     op_free(ctx);
 }
@@ -482,6 +517,21 @@ opssl_ctx_load_default_verify_paths(opssl_ctx_t *ctx)
     return 0;
 }
 
+/* Configure peer verification.
+ *
+ * `require_client_cert == true`  => server REQUIRES + VALIDATES a client cert.
+ *                                   Both verify_peer and request_client_cert
+ *                                   are asserted so that the handshake layer
+ *                                   sends CertificateRequest and aborts when
+ *                                   none is supplied.
+ * `require_client_cert == false` => verification disabled at this layer.
+ *                                   Call opssl_ctx_set_request_client_cert
+ *                                   separately for "request but do not
+ *                                   require" (e.g. SASL EXTERNAL).
+ *
+ * The verify callback (if non-NULL) is invoked for every cert in the chain
+ * and may override the built-in trust decision.
+ */
 void
 opssl_ctx_set_verify(opssl_ctx_t *ctx, bool require_client_cert, opssl_verify_cb cb, void *userdata)
 {
@@ -489,8 +539,21 @@ opssl_ctx_set_verify(opssl_ctx_t *ctx, bool require_client_cert, opssl_verify_cb
         return;
 
     ctx->verify_peer = require_client_cert;
+    if (require_client_cert)
+        ctx->request_client_cert = true;
     ctx->verify_cb = cb;
     ctx->verify_userdata = userdata;
+}
+
+/* Internal accessor for the handshake verifier. */
+opssl_verify_cb
+opssl_ctx_get_verify_callback(const opssl_ctx_t *ctx, void **userdata)
+{
+    if (!ctx)
+        return NULL;
+    if (userdata)
+        *userdata = ctx->verify_userdata;
+    return ctx->verify_cb;
 }
 
 /* Parse colon-separated cipher list */
@@ -600,6 +663,36 @@ parse_group_list(const char *list, opssl_named_group_t *groups, size_t max_count
     return count;
 }
 
+/* Defensive weak-cipher predicate. Even though the opssl enum currently
+ * does not export NULL / EXPORT / RC4 / 3DES suites, future additions to
+ * the enum must not silently slip into a user-supplied cipher list. We
+ * reject by wire-format code range so the gate is value-based, not
+ * name-based. */
+static bool
+ciphersuite_is_forbidden(opssl_ciphersuite_t cs)
+{
+    /* TLS 1.3 codepoints are all in 0x13xx; allow. */
+    uint16_t v = (uint16_t)cs;
+    /* Block known-weak TLS 1.2 codepoints if ever added:
+     *   NULL  (0x0001, 0x0002, 0x003B, ...)
+     *   RC4   (0x0004, 0x0005, 0xC011, 0xC016, ...)
+     *   3DES  (0x000A, 0x0016, 0xC012, ...)
+     *   EXPORT (0x0008, 0x0009, ...)
+     *   anonymous DH (0x0018..0x001B, 0x00A6, 0x00A7)
+     */
+    switch (v) {
+    case 0x0001: case 0x0002: case 0x003B:                    /* NULL */
+    case 0x0004: case 0x0005: case 0xC011: case 0xC016:        /* RC4 */
+    case 0x000A: case 0x0016: case 0xC012: case 0xC008:        /* 3DES */
+    case 0x0008: case 0x0009: case 0x0014: case 0x0011:        /* EXPORT */
+    case 0x0018: case 0x0019: case 0x001A: case 0x001B:        /* anon */
+    case 0x00A6: case 0x00A7:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* Cipher configuration */
 int
 opssl_ctx_set_ciphersuites(opssl_ctx_t *ctx, const char *list)
@@ -609,13 +702,25 @@ opssl_ctx_set_ciphersuites(opssl_ctx_t *ctx, const char *list)
         return 0;
     }
 
-    size_t count = parse_cipher_list(list, ctx->ciphers,
-                                   sizeof(ctx->ciphers) / sizeof(ctx->ciphers[0]));
+    opssl_ciphersuite_t tmp[32];
+    size_t count = parse_cipher_list(list, tmp, sizeof(tmp) / sizeof(tmp[0]));
     if (count == 0) {
         opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
         return 0;
     }
 
+    /* Reject the whole list if any entry is a known-weak suite. Fail closed
+     * rather than silently filtering so operators see the misconfig. */
+    for (size_t i = 0; i < count; i++) {
+        if (ciphersuite_is_forbidden(tmp[i])) {
+            fprintf(stderr, "opssl: refusing weak ciphersuite 0x%04x\n",
+                    (unsigned)tmp[i]);
+            opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+            return 0;
+        }
+    }
+
+    memcpy(ctx->ciphers, tmp, count * sizeof(tmp[0]));
     ctx->cipher_count = count;
     return 1;
 }
@@ -785,6 +890,37 @@ opssl_ctx_set_sni_callback(opssl_ctx_t *ctx, opssl_sni_cb cb, void *userdata)
     }
 }
 
+/* Internal accessor used by the handshake layer: returns the registered SNI
+ * callback (and its userdata via out-param). The callback contract is:
+ *   - return >0 with conn's ctx swapped via callback side-effect to switch
+ *   - return 0 to use the default (parent) ctx
+ *   - return <0 to abort the handshake with unrecognized_name alert
+ */
+opssl_sni_cb
+opssl_ctx_get_sni_callback(const opssl_ctx_t *ctx, void **userdata)
+{
+    if (!ctx)
+        return NULL;
+    if (userdata)
+        *userdata = ctx->sni_userdata;
+    return ctx->sni_cb;
+}
+
+/* Look up an SNI table entry by exact hostname (case-insensitive).
+ * Returns the configured child ctx (without taking a ref) or NULL.
+ */
+opssl_ctx_t *
+opssl_ctx_lookup_sni(const opssl_ctx_t *ctx, const char *hostname)
+{
+    if (!ctx || !hostname)
+        return NULL;
+    for (size_t i = 0; i < ctx->sni_count; i++) {
+        if (strcasecmp(ctx->sni_table[i].hostname, hostname) == 0)
+            return ctx->sni_table[i].ctx;
+    }
+    return NULL;
+}
+
 /* ALPN support */
 int
 opssl_ctx_set_alpn_protos(opssl_ctx_t *ctx, const char **protos, size_t count)
@@ -821,14 +957,135 @@ opssl_ctx_set_alpn_callback(opssl_ctx_t *ctx, opssl_alpn_cb cb, void *userdata)
     }
 }
 
-/* Session ticket management */
+/* Internal accessor for the handshake layer.
+ *
+ * Selection ordering when no callback is installed: the server iterates its
+ * own configured protocol list and selects the first match from the client's
+ * advertised list (RFC 7301 server-preference). When a callback is installed
+ * it overrides selection entirely.
+ */
+opssl_alpn_cb
+opssl_ctx_get_alpn_callback(const opssl_ctx_t *ctx, void **userdata)
+{
+    if (!ctx)
+        return NULL;
+    if (userdata)
+        *userdata = ctx->alpn_userdata;
+    return ctx->alpn_cb;
+}
+
+/* Session ticket management.
+ *
+ * Installs a new STEK and demotes the current key to the previous-slot
+ * grace window. Caller-supplied buffer must be exactly OPSSL_TICKET_KEY_BYTES.
+ * Securely wipes any incoming buffer copy on rejection.
+ */
 void
 opssl_ctx_set_ticket_keys(opssl_ctx_t *ctx, const uint8_t *keys, size_t len)
 {
     if (!ctx || !keys || len != sizeof(ctx->ticket_keys))
         return;
 
+    /* Demote current to previous (grace window for in-flight tickets) */
+    memcpy(ctx->ticket_keys_prev, ctx->ticket_keys, sizeof(ctx->ticket_keys));
+    ctx->ticket_keys_prev_valid = true;
+
     memcpy(ctx->ticket_keys, keys, sizeof(ctx->ticket_keys));
+    ctx->ticket_key_born = (int64_t)time(NULL);
+}
+
+/* Rotate to a fresh random STEK. Old key remains valid for decrypt only.
+ * Returns 1 on success, 0 on RNG failure (existing keys untouched).
+ */
+int
+opssl_ctx_rotate_ticket_keys(opssl_ctx_t *ctx)
+{
+    if (!ctx) {
+        opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+        return 0;
+    }
+    uint8_t fresh[OPSSL_TICKET_KEY_BYTES];
+    if (opssl_random_bytes(fresh, sizeof(fresh)) != 0) {
+        opssl_memzero(fresh, sizeof(fresh));
+        return 0;
+    }
+    memcpy(ctx->ticket_keys_prev, ctx->ticket_keys, sizeof(ctx->ticket_keys));
+    ctx->ticket_keys_prev_valid = true;
+    memcpy(ctx->ticket_keys, fresh, sizeof(ctx->ticket_keys));
+    ctx->ticket_key_born = (int64_t)time(NULL);
+    opssl_memzero(fresh, sizeof(fresh));
+    return 1;
+}
+
+/* True if the current STEK has exceeded its lifetime budget. */
+bool
+opssl_ctx_ticket_keys_expired(const opssl_ctx_t *ctx)
+{
+    if (!ctx)
+        return false;
+    int64_t now = (int64_t)time(NULL);
+    return (now - ctx->ticket_key_born) >= OPSSL_TICKET_KEY_LIFETIME_SECS;
+}
+
+/* Export current STEK material for USR2 hot-upgrade migration.
+ * Buffer layout: [current 80B][prev_valid 1B][prev 80B][born 8B little-endian].
+ * Total: 169 bytes. Returns required size if out is NULL, or 0 on error.
+ */
+size_t
+opssl_ctx_export_ticket_keys(const opssl_ctx_t *ctx, uint8_t *out, size_t out_len)
+{
+    const size_t need = OPSSL_TICKET_KEY_BYTES + 1 + OPSSL_TICKET_KEY_BYTES + 8;
+    if (!ctx)
+        return 0;
+    if (!out)
+        return need;
+    if (out_len < need)
+        return 0;
+    memcpy(out, ctx->ticket_keys, OPSSL_TICKET_KEY_BYTES);
+    out[OPSSL_TICKET_KEY_BYTES] = ctx->ticket_keys_prev_valid ? 1u : 0u;
+    memcpy(out + OPSSL_TICKET_KEY_BYTES + 1, ctx->ticket_keys_prev,
+           OPSSL_TICKET_KEY_BYTES);
+    uint64_t born = (uint64_t)ctx->ticket_key_born;
+    uint8_t *p = out + OPSSL_TICKET_KEY_BYTES + 1 + OPSSL_TICKET_KEY_BYTES;
+    for (int i = 0; i < 8; i++)
+        p[i] = (uint8_t)(born >> (8 * i));
+    return need;
+}
+
+int
+opssl_ctx_import_ticket_keys(opssl_ctx_t *ctx, const uint8_t *in, size_t in_len)
+{
+    const size_t need = OPSSL_TICKET_KEY_BYTES + 1 + OPSSL_TICKET_KEY_BYTES + 8;
+    if (!ctx || !in || in_len < need) {
+        opssl_set_error(OPSSL_ERR_INVALID_ARGUMENT, NULL);
+        return 0;
+    }
+    memcpy(ctx->ticket_keys, in, OPSSL_TICKET_KEY_BYTES);
+    ctx->ticket_keys_prev_valid = in[OPSSL_TICKET_KEY_BYTES] != 0;
+    memcpy(ctx->ticket_keys_prev, in + OPSSL_TICKET_KEY_BYTES + 1,
+           OPSSL_TICKET_KEY_BYTES);
+    const uint8_t *p = in + OPSSL_TICKET_KEY_BYTES + 1 + OPSSL_TICKET_KEY_BYTES;
+    uint64_t born = 0;
+    for (int i = 0; i < 8; i++)
+        born |= ((uint64_t)p[i]) << (8 * i);
+    ctx->ticket_key_born = (int64_t)born;
+    return 1;
+}
+
+/* Accessor for handshake layer (read-only view of current STEK). */
+const uint8_t *
+opssl_ctx_get_ticket_key(const opssl_ctx_t *ctx)
+{
+    return ctx ? ctx->ticket_keys : NULL;
+}
+
+/* Accessor for handshake decrypt-fallback to previous STEK during grace. */
+const uint8_t *
+opssl_ctx_get_prev_ticket_key(const opssl_ctx_t *ctx)
+{
+    if (!ctx || !ctx->ticket_keys_prev_valid)
+        return NULL;
+    return ctx->ticket_keys_prev;
 }
 
 void
@@ -966,6 +1223,28 @@ uint32_t
 opssl_ctx_get_session_cache_mode(const opssl_ctx_t *ctx)
 {
     return ctx ? ctx->session_cache_mode : 0;
+}
+
+/* Bounded session cache size. The cache implementation must enforce LRU
+ * eviction at this watermark; this API only stores the policy value. A
+ * hard upper bound prevents runaway memory use in misconfigured deployments.
+ */
+void
+opssl_ctx_set_session_cache_size(opssl_ctx_t *ctx, size_t max)
+{
+    if (!ctx)
+        return;
+    if (max == 0)
+        max = OPSSL_SESSION_CACHE_DEFAULT_MAX;
+    if (max > OPSSL_SESSION_CACHE_HARD_MAX)
+        max = OPSSL_SESSION_CACHE_HARD_MAX;
+    ctx->session_cache_max = max;
+}
+
+size_t
+opssl_ctx_get_session_cache_size(const opssl_ctx_t *ctx)
+{
+    return ctx ? ctx->session_cache_max : 0;
 }
 
 /* Verify depth */

@@ -311,6 +311,7 @@ const op_build_info_t *op_build_info(void);
 void        op_lib_init(log_cb *ilog, restart_cb *irestart, die_cb *idie,
                         int closeall, int maxfds,
                         size_t dh_size, size_t fd_heap_size);
+void        op_reinit_after_fork(void);
 OP_NORETURN void op_lib_loop(long delay);
 
 /*

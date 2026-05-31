@@ -147,4 +147,47 @@ typedef struct {
  */
 void op_tpool_summary(const op_thread_pool_t *pool, op_tpool_summary_t *out);
 
+/* -------------------------------------------------------------------------
+ * Pool-level lifecycle stats (mirrors generic pool semantics)
+ *
+ * Tracks the in-flight queue depth and lifetime posted/completed counts.
+ * Unlike op_tpool_summary which aggregates per-worker counters from a
+ * relaxed snapshot, the posted/completed counters here are updated with
+ * release/acquire semantics on the submit and dispatch hot paths, so
+ * queue_depth = posted - completed is a tight monotonic estimate.
+ * ---------------------------------------------------------------------- */
+
+typedef struct {
+	uint64_t posted;       /* Lifetime work items submitted to the pool   */
+	uint64_t dispatched;   /* Lifetime work items pulled by some worker   */
+	uint64_t completed;    /* Lifetime work items whose fn() returned     */
+	uint64_t queue_depth;  /* Outstanding items (posted - completed)      */
+} op_tpool_pool_stats_t;
+
+/*
+ * op_tpool_pool_stats — snapshot pool-wide lifecycle counters.
+ *
+ * Safe to call from any thread.  Counters may be slightly inconsistent
+ * relative to each other (read non-atomically) but each is monotonic.
+ */
+void op_tpool_pool_stats(const op_thread_pool_t *pool,
+                         op_tpool_pool_stats_t *out);
+
+/*
+ * op_tpool_set_priority — optionally elevate worker scheduling priority.
+ *
+ * On POSIX, attempts pthread_setschedparam() with the given policy
+ * (SCHED_FIFO or SCHED_RR) and priority on every worker.  Requires
+ * CAP_SYS_NICE / RLIMIT_RTPRIO.  Returns 0 on success, or the first
+ * errno encountered.  No-op (returns ENOTSUP) on Windows.
+ *
+ * CAVEATS:
+ *   - Real-time scheduling can starve other system threads.  Use only
+ *     for low-latency dispatch workloads where you control the host.
+ *   - Workers performing long-running, CPU-bound tasks under SCHED_FIFO
+ *     will not be preempted by lower-priority threads on the same core.
+ *   - Call AFTER op_tpool_create().  Existing in-flight work is unaffected.
+ */
+int op_tpool_set_priority(op_thread_pool_t *pool, int policy, int sched_priority);
+
 #endif /* OP_THREAD_POOL_H */

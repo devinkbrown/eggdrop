@@ -64,13 +64,55 @@ extern int opssl_asn1_skip_element(opssl_cbs_t *cbs);
 extern int opssl_pem_decode(const char *pem, size_t pem_len, uint8_t **der_out, size_t *der_len, char *label_out, size_t label_max);
 extern int opssl_pem_read_file(const char *path, uint8_t **der_out, size_t *der_len, char *label_out, size_t label_max);
 
-/* DN component parsing helper */
+/*
+ * Validate UTF-8 byte sequence per RFC 3629.
+ * Rejects overlong forms, surrogates, and code points > U+10FFFF.
+ * Returns 1 if valid, 0 otherwise.
+ */
+static int is_valid_utf8(const uint8_t *s, size_t len) {
+    size_t i = 0;
+    while (i < len) {
+        uint8_t b = s[i];
+        if (b < 0x80) { i++; continue; }
+        uint32_t cp; size_t extra;
+        if ((b & 0xE0) == 0xC0) { cp = b & 0x1F; extra = 1; if (b < 0xC2) return 0; }
+        else if ((b & 0xF0) == 0xE0) { cp = b & 0x0F; extra = 2; }
+        else if ((b & 0xF8) == 0xF0) { cp = b & 0x07; extra = 3; if (b > 0xF4) return 0; }
+        else return 0;
+        if (i + extra >= len) return 0;
+        for (size_t j = 1; j <= extra; j++) {
+            uint8_t c = s[i + j];
+            if ((c & 0xC0) != 0x80) return 0;
+            cp = (cp << 6) | (c & 0x3F);
+        }
+        /* Reject overlong, surrogates, and > U+10FFFF */
+        if (extra == 2 && cp < 0x800) return 0;
+        if (extra == 3 && cp < 0x10000) return 0;
+        if (cp >= 0xD800 && cp <= 0xDFFF) return 0;
+        if (cp > 0x10FFFF) return 0;
+        i += extra + 1;
+    }
+    return 1;
+}
+
+/* Reject buffers containing an embedded NUL byte — defeats CN/SAN
+ * NUL-byte name-confusion attacks (e.g., "evil.com\0good.com"). */
+static int has_embedded_nul(const uint8_t *s, size_t len) {
+    return memchr(s, '\0', len) != NULL;
+}
+
+/* DN component parsing helper. Returns 1 on success, 0 on malformed input. */
 static int parse_dn_component(opssl_cbs_t *cbs, char *buf, size_t buf_len) {
     opssl_cbs_t oid, value;
     size_t pos = 0;
 
-    while (CBS_len(cbs) > 0 && pos < buf_len - 1) {
+    if (buf_len == 0)
+        return 0;
+
+    /* Reserve room for terminator. */
+    while (CBS_len(cbs) > 0 && pos + 1 < buf_len) {
         opssl_cbs_t rdn_set, rdn_seq;
+        uint8_t value_tag = 0;
 
         if (!opssl_asn1_get_element(cbs, 0x31, &rdn_set)) /* SET */
             break;
@@ -81,31 +123,89 @@ static int parse_dn_component(opssl_cbs_t *cbs, char *buf, size_t buf_len) {
         if (!opssl_asn1_get_oid(&rdn_seq, &oid))
             break;
 
-        if (!opssl_asn1_get_element(&rdn_seq, 0x0C, &value) && /* UTF8String */
-            !opssl_asn1_get_element(&rdn_seq, 0x13, &value) && /* PrintableString */
-            !opssl_asn1_get_element(&rdn_seq, 0x16, &value))   /* IA5String */
-            break;
+        /* Try common string tags in order. */
+        if (opssl_asn1_get_element(&rdn_seq, 0x0C, &value))      value_tag = 0x0C; /* UTF8 */
+        else if (opssl_asn1_get_element(&rdn_seq, 0x13, &value)) value_tag = 0x13; /* Printable */
+        else if (opssl_asn1_get_element(&rdn_seq, 0x16, &value)) value_tag = 0x16; /* IA5 */
+        else break;
 
-        /* Add comma separator if not first component */
-        if (pos > 0 && pos < buf_len - 2) {
+        size_t v_len = CBS_len(&value);
+        const uint8_t *v_data = CBS_data(&value);
+
+        /* Reject NUL-byte name-confusion. */
+        if (has_embedded_nul(v_data, v_len))
+            return 0;
+
+        /* UTF8String must be valid UTF-8 per RFC 5280 + RFC 3629. */
+        if (value_tag == 0x0C && !is_valid_utf8(v_data, v_len))
+            return 0;
+
+        /* Add comma separator if not first component. Need at least 3 free
+         * bytes (", " + NUL) to safely insert a separator. */
+        if (pos > 0) {
+            if (pos + 3 >= buf_len)
+                break;
             buf[pos++] = ',';
             buf[pos++] = ' ';
         }
 
-        /* Copy value */
-        size_t copy_len = CBS_len(&value);
-        if (copy_len > buf_len - pos - 1)
-            copy_len = buf_len - pos - 1;
+        /* Copy value, leaving room for terminator. */
+        size_t avail = buf_len - pos - 1;
+        size_t copy_len = v_len < avail ? v_len : avail;
 
-        memcpy(buf + pos, CBS_data(&value), copy_len);
+        memcpy(buf + pos, v_data, copy_len);
         pos += copy_len;
+
+        /* If we had to truncate, stop to avoid emitting a partial name. */
+        if (copy_len < v_len)
+            break;
     }
 
     buf[pos] = '\0';
     return 1;
 }
 
-/* Parse Subject Alternative Names extension */
+/* Hard cap on SANs to bound memory use against malicious certs. */
+#define OPSSL_MAX_SAN_ENTRIES 1024
+/* RFC 1035 max DNS name length. */
+#define OPSSL_MAX_DNS_NAME_LEN 253
+/* Max rfc822Name length (local-part 64 + "@" + domain 253). */
+#define OPSSL_MAX_EMAIL_LEN 320
+
+/* Append a SAN entry to the cert. Returns 1 on success, 0 on alloc failure
+ * or if the per-cert cap is hit. */
+static int append_san(opssl_x509_t *cert, const char *prefix, size_t prefix_len,
+                      const uint8_t *data, size_t data_len) {
+    if (cert->san_count >= OPSSL_MAX_SAN_ENTRIES)
+        return 0;
+
+    if (cert->san_count >= cert->san_cap) {
+        int new_cap = cert->san_cap ? cert->san_cap * 2 : 16;
+        if (new_cap > OPSSL_MAX_SAN_ENTRIES) new_cap = OPSSL_MAX_SAN_ENTRIES;
+        /* Overflow guard: new_cap * sizeof(char*). */
+        if ((size_t)new_cap > SIZE_MAX / sizeof(char *))
+            return 0;
+        char **tmp = realloc(cert->sans, (size_t)new_cap * sizeof(char *));
+        if (!tmp) return 0;
+        cert->sans = tmp;
+        cert->san_cap = new_cap;
+    }
+
+    /* prefix + data + NUL */
+    if (data_len > SIZE_MAX - prefix_len - 1)
+        return 0;
+    size_t total = prefix_len + data_len + 1;
+    char *buf = malloc(total);
+    if (!buf) return 0;
+    if (prefix_len) memcpy(buf, prefix, prefix_len);
+    memcpy(buf + prefix_len, data, data_len);
+    buf[prefix_len + data_len] = '\0';
+
+    cert->sans[cert->san_count++] = buf;
+    return 1;
+}
+
+/* Parse Subject Alternative Names extension. Returns 1 on success. */
 static int parse_san_extension(opssl_x509_t *cert, opssl_cbs_t *ext_value) {
     opssl_cbs_t san_seq;
 
@@ -123,30 +223,61 @@ static int parse_san_extension(opssl_x509_t *cert, opssl_cbs_t *ext_value) {
         if (!CBS_peek_u8(&san_seq, &tag))
             break;
 
-        /* dNSName [2] */
         if (tag == 0x82) {
+            /* dNSName [2] IA5String */
             if (!opssl_asn1_get_element(&san_seq, 0x82, &name_value))
                 break;
-
             size_t name_len = CBS_len(&name_value);
-            if (name_len > 255)
-                name_len = 255;
-
-            if (cert->san_count >= cert->san_cap) {
-                int new_cap = cert->san_cap ? cert->san_cap * 2 : 16;
-                char **tmp = realloc(cert->sans, new_cap * sizeof(char *));
-                if (!tmp) break;
-                cert->sans = tmp;
-                cert->san_cap = new_cap;
+            const uint8_t *name_data = CBS_data(&name_value);
+            /* Reject truncation, NUL-byte attacks, and oversize names. */
+            if (name_len == 0 || name_len > OPSSL_MAX_DNS_NAME_LEN)
+                break;
+            if (has_embedded_nul(name_data, name_len))
+                break;
+            if (!append_san(cert, NULL, 0, name_data, name_len))
+                break;
+        } else if (tag == 0x81) {
+            /* rfc822Name [1] IA5String */
+            if (!opssl_asn1_get_element(&san_seq, 0x81, &name_value))
+                break;
+            size_t name_len = CBS_len(&name_value);
+            const uint8_t *name_data = CBS_data(&name_value);
+            if (name_len == 0 || name_len > OPSSL_MAX_EMAIL_LEN)
+                break;
+            if (has_embedded_nul(name_data, name_len))
+                break;
+            /* email: prefix so callers can disambiguate. */
+            static const char p[] = "email:";
+            if (!append_san(cert, p, sizeof(p) - 1, name_data, name_len))
+                break;
+        } else if (tag == 0x87) {
+            /* iPAddress [7] OCTET STRING — 4 bytes (v4) or 16 bytes (v6). */
+            if (!opssl_asn1_get_element(&san_seq, 0x87, &name_value))
+                break;
+            size_t ip_len = CBS_len(&name_value);
+            const uint8_t *ip = CBS_data(&name_value);
+            char ipbuf[64];
+            int written;
+            if (ip_len == 4) {
+                written = snprintf(ipbuf, sizeof(ipbuf), "IP:%u.%u.%u.%u",
+                                   ip[0], ip[1], ip[2], ip[3]);
+            } else if (ip_len == 16) {
+                written = snprintf(ipbuf, sizeof(ipbuf),
+                    "IP:%02x%02x:%02x%02x:%02x%02x:%02x%02x:"
+                    "%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+                    ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
+                    ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15]);
+            } else {
+                /* Malformed iPAddress: reject the entry but continue parsing. */
+                continue;
             }
-
-            cert->sans[cert->san_count] = malloc(name_len + 1);
-            if (!cert->sans[cert->san_count]) break;
-            memcpy(cert->sans[cert->san_count], CBS_data(&name_value), name_len);
-            cert->sans[cert->san_count][name_len] = '\0';
-            cert->san_count++;
+            if (written <= 0 || (size_t)written >= sizeof(ipbuf))
+                break;
+            if (!append_san(cert, NULL, 0, (const uint8_t *)ipbuf, (size_t)written))
+                break;
         } else {
-            /* Skip other name types */
+            /* Skip unsupported name types (e.g., otherName, x400Address,
+             * directoryName, ediPartyName, URI, registeredID). */
             if (!opssl_asn1_skip_element(&san_seq))
                 break;
         }

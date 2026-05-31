@@ -48,6 +48,14 @@
 
 #if defined(HAVE_PORT_CREATE)
 
+/* The Solaris ports backend has not been ported to op_event_ctx (shard
+ * phase 1).  On a Solaris/illumos build with no modern alternative, the
+ * unported per-ctx code below is a real gap; fail the build with a clear
+ * message pointing at the port pattern. */
+#if !defined(HAVE_EPOLL_CTL) && !defined(HAVE_LIBURING)
+# error "ports.c not ported to op_event_ctx; follow the pattern in epoll.c (struct ports_ctx_data keyed off t_ev_ctx)."
+#endif
+
 #include <port.h>
 
 static int pe;

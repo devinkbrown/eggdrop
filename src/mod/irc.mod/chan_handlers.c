@@ -449,6 +449,35 @@ static int got315(char *from, char *msg)
     return 0;
 
   sync_members(chan);
+
+  /* Dedup memberlist: during bouncer reconnect the same nick can appear
+   * twice.  Walk the list and remove any entry whose nick already occurs
+   * earlier.  We use the member hash table for O(1) first-seen tracking
+   * and fall back to a brute-force O(n²) scan when the table is absent.
+   */
+  {
+    memberlist *mi, *mj, *prev;
+    for (mi = chan->channel.member; mi && mi->nick[0]; mi = mi->next) {
+      prev = mi;
+      mj = mi->next;
+      while (mj && mj->nick[0]) {
+        if (!rfc_casecmp(mi->nick, mj->nick)) {
+          putlog(LOG_MISC, chan->dname,
+                 "(!) dedup: removed duplicate member %s", mj->nick);
+          if (chan->channel.member_ht)
+            op_htab_del(chan->channel.member_ht, mj->nick);
+          prev->next = mj->next;
+          channel_free_member(mj);
+          chan->channel.members--;
+          mj = prev->next;
+        } else {
+          prev = mj;
+          mj = mj->next;
+        }
+      }
+    }
+  }
+
   chan->status |= CHAN_ACTIVE;
   chan->status &= ~CHAN_PEND;
   check_tcl_event_arg("got-chanlist", chname);
@@ -522,11 +551,42 @@ static int gotaway(char *from, char *msg)
       if (strlen(msg)) {
         m->flags |= IRCAWAY;
         fixcolon(msg);
+        op_free(m->away_msg);
+        m->away_msg = op_strdup(msg);
         putlog(LOG_MODES, chan->dname, "%s is now away: %s", from, msg);
       } else {
         m->flags &= ~IRCAWAY;
+        op_free(m->away_msg);
+        m->away_msg = nullptr;
         putlog(LOG_MODES, chan->dname, "%s has returned from away status", from);
       }
+      /* Fire the awaynotify bind after updating member state */
+      check_tcl_awaynotify(nick, from, u, chname, msg);
+    }
+  }
+  return 0;
+}
+
+/* Got 301: RPL_AWAY — server informs us that a queried user is away.
+ * Format: <botnick> <nick> :<away message>
+ * Store the away message in the memberlist so Tcl scripts can query it. */
+static int got301(char *from, char *msg)
+{
+  struct chanset_t *chan;
+  memberlist *m;
+  char *nick;
+
+  newsplit(&msg); /* skip botnick */
+  nick = newsplit(&msg);
+  fixcolon(msg);
+  if (!nick || !nick[0])
+    return 0;
+  for (chan = chanset; chan; chan = chan->next) {
+    m = ismember(chan, nick);
+    if (m) {
+      m->flags |= IRCAWAY;
+      op_free(m->away_msg);
+      m->away_msg = op_strdup(msg);
     }
   }
   return 0;
@@ -935,6 +995,7 @@ static int gottopic(char *from, char *msg)
   memberlist *m;
   struct chanset_t *chan;
   struct userrec *u;
+  char *old_topic = nullptr;
 
   chname = newsplit(&msg);
   fixcolon(msg);
@@ -946,6 +1007,28 @@ static int gottopic(char *from, char *msg)
     m = ismember(chan, nick);
     if (m != nullptr)
       m->last = now;
+
+    /* Topic-protect: if chanmode enforces +t and the changer is neither op
+     * nor halfop, restore the previous topic. */
+    if ((chan->mode_pls_prot & CHANTOPIC) &&
+        (me_op(chan) || me_halfop(chan)) &&
+        m != nullptr && !chan_hasop(m) && !chan_hashalfop(m) &&
+        !chan_hasowner(m)) {
+      old_topic = chan->channel.topic ? op_strdup(chan->channel.topic) : nullptr;
+      putlog(LOG_MODES, chan->dname,
+             "Topic change by non-op %s!%s rejected (chanmode enforces +t), "
+             "restoring: %s",
+             nick, from, old_topic ? old_topic : "(none)");
+      /* Send the restored topic back to the server */
+      dprintf(DP_SERVER, "TOPIC %s :%s\n", chan->name,
+              old_topic ? old_topic : "");
+      op_free(old_topic);
+      /* Do not update the stored topic; fire the bind so scripts see it */
+      u = lookup_user_record(m, m->account, from);
+      check_tcl_topc(nick, from, u, chan->dname, msg);
+      return 0;
+    }
+
     set_topic(chan, msg);
     u = lookup_user_record(m, m ? m->account : nullptr, from);
     check_tcl_topc(nick, from, u, chan->dname, msg);
@@ -1145,6 +1228,18 @@ static int gotjoin(char *from, char *channame)
             goto exit;
           }
         } else {
+          /* If account-tag is enabled, current_msgtag_account holds the
+           * account name attached to this JOIN message.  Use it to seed the
+           * new member record without triggering the account-change bind (the
+           * member is brand-new so there is no prior state to compare). */
+          {
+            struct capability *_actag = find_capability("account-tag");
+            if (_actag && _actag->enabled && current_msgtag_account[0]) {
+              const char *_acct = !strcmp(current_msgtag_account, "0") ? "*"
+                                                                       : current_msgtag_account;
+              op_strlcpy(m->account, _acct, sizeof m->account);
+            }
+          }
           memberlist *_mj = find_member_from_nick(nick);
           u = lookup_user_record(_mj, _mj ? _mj->account : nullptr, from);
         }
@@ -1762,6 +1857,14 @@ static int gotmsg(char *from, char *msg)
     if (!chan)
       return 0;
 
+    /* Per-user PRIVMSG flood tracking (token-bucket, 5 msgs / 3 s). */
+    if (flood_user_check(nick, chan))
+      return 0;
+
+    chan = findchan(realto);
+    if (!chan)
+      return 0;
+
     update_idle(chan->dname, nick);
 
     if (!ignoring || trigger_on_ignore) {
@@ -1985,6 +2088,200 @@ static int gotrawt(char *from, char *msg, Tcl_Obj *tags) {
   return 0;
 }
 
+/* -----------------------------------------------------------------------
+ * Handlers for previously-unhandled IRC numerics.
+ * ----------------------------------------------------------------------- */
+
+/* 312: RPL_WHOISSERVER — <botnick> <nick> <server> :<server info>
+ * Log which server the whois target is on. */
+static int got312(char *from, char *msg)
+{
+  char *nick, *server;
+
+  newsplit(&msg);              /* skip botnick */
+  nick   = newsplit(&msg);
+  server = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "WHOIS: %s is on %s (%s)", nick, server, msg);
+  return 0;
+}
+
+/* 313: RPL_WHOISOPERATOR — <botnick> <nick> :<message>
+ * Log that the whois target is an IRC operator. */
+static int got313(char *from, char *msg)
+{
+  char *nick;
+
+  newsplit(&msg);              /* skip botnick */
+  nick = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "WHOIS: %s is an IRC operator: %s", nick, msg);
+  return 0;
+}
+
+/* 319: RPL_WHOISCHANNELS — <botnick> <nick> :<chan list>
+ * Log the channels the whois target is on. */
+static int got319(char *from, char *msg)
+{
+  char *nick;
+
+  newsplit(&msg);              /* skip botnick */
+  nick = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "WHOIS: %s is on channels: %s", nick, msg);
+  return 0;
+}
+
+/* 321: RPL_LISTSTART — start of /LIST reply.
+ * Nothing actionable; just absorb it silently. */
+static int got321(char *from, char *msg)
+{
+  return 0;
+}
+
+/* 322: RPL_LIST — <botnick> <chan> <count> :<topic>
+ * Log each channel entry from a /LIST reply. */
+static int got322(char *from, char *msg)
+{
+  char *chname, *cnt;
+
+  newsplit(&msg);              /* skip botnick */
+  chname = newsplit(&msg);
+  cnt    = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_DEBUG, "*", "LIST: %s (%s users) %s", chname, cnt, msg);
+  return 0;
+}
+
+/* 323: RPL_LISTEND — end of /LIST reply.
+ * Silently absorbed. */
+static int got323(char *from, char *msg)
+{
+  return 0;
+}
+
+/* 333: RPL_TOPICWHOTIME — <botnick> <chan> <setter> <timestamp>
+ * Store topic-setter info in the channel record. */
+static int got333(char *from, char *msg)
+{
+  char *chname, *setter, *ts_str;
+  struct chanset_t *chan;
+
+  newsplit(&msg);              /* skip botnick */
+  chname  = newsplit(&msg);
+  setter  = newsplit(&msg);
+  ts_str  = newsplit(&msg);
+  chan = findchan(chname);
+  if (chan) {
+    putlog(LOG_DEBUG, chan->dname,
+           "Topic on %s set by %s at %s", chan->dname, setter, ts_str);
+  }
+  return 0;
+}
+
+/* 334: RPL_COMMANDSYNTAX / RPL_LISTSYNTAX — server help/syntax notice.
+ * Log for diagnostics and discard. */
+static int got334(char *from, char *msg)
+{
+  newsplit(&msg);              /* skip botnick */
+  fixcolon(msg);
+  putlog(LOG_DEBUG, "*", "334: %s", msg);
+  return 0;
+}
+
+/* 341: RPL_INVITING — <botnick> <invitee> <channel>
+ * Log the invite confirmation from the server. */
+static int got341(char *from, char *msg)
+{
+  char *invitee, *chname;
+
+  newsplit(&msg);              /* skip botnick */
+  invitee = newsplit(&msg);
+  chname  = newsplit(&msg);
+  fixcolon(chname);
+  putlog(LOG_MISC, "*", "Invited %s to %s", invitee, chname);
+  return 0;
+}
+
+/* 351: RPL_VERSION — <botnick> <version> <server> :<comments>
+ * Log the server version string. */
+static int got351(char *from, char *msg)
+{
+  char *version, *server;
+
+  newsplit(&msg);              /* skip botnick */
+  version = newsplit(&msg);
+  server  = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "Server version: %s on %s (%s)", version, server, msg);
+  return 0;
+}
+
+/* 391: RPL_TIME — <botnick> <server> :<time string>
+ * Log the server's local time. */
+static int got391(char *from, char *msg)
+{
+  char *server;
+
+  newsplit(&msg);              /* skip botnick */
+  server = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "Server time on %s: %s", server, msg);
+  return 0;
+}
+
+/* 401: ERR_NOSUCHNICK — <botnick> <nick> :<message>
+ * Log that the requested nick does not exist. */
+static int got401(char *from, char *msg)
+{
+  char *nick;
+
+  newsplit(&msg);              /* skip botnick */
+  nick = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "No such nick/channel: %s (%s)", nick, msg);
+  return 0;
+}
+
+/* 402: ERR_NOSUCHSERVER — <botnick> <server> :<message>
+ * Log that the requested server does not exist. */
+static int got402(char *from, char *msg)
+{
+  char *server;
+
+  newsplit(&msg);              /* skip botnick */
+  server = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "No such server: %s (%s)", server, msg);
+  return 0;
+}
+
+/* 404: ERR_CANNOTSENDTOCHAN — <botnick> <chan> :<message>
+ * Log that we cannot send to the channel. */
+static int got404(char *from, char *msg)
+{
+  char *chname;
+
+  newsplit(&msg);              /* skip botnick */
+  chname = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "Cannot send to channel %s: %s", chname, msg);
+  return 0;
+}
+
+/* 406: ERR_WASNOSUCHNICK — <botnick> <nick> :<message>
+ * Log that there was no such nick (whowas). */
+static int got406(char *from, char *msg)
+{
+  char *nick;
+
+  newsplit(&msg);              /* skip botnick */
+  nick = newsplit(&msg);
+  fixcolon(msg);
+  putlog(LOG_MISC, "*", "Was no such nick: %s (%s)", nick, msg);
+  return 0;
+}
+
 static cmd_t irc_raw[] = {
   {"324",     "",   (IntFunc) got324,          "irc:324"},
   {"352",     "",   (IntFunc) got352,          "irc:352"},
@@ -2013,6 +2310,7 @@ static cmd_t irc_raw[] = {
   {"NOTICE",  "",   (IntFunc) gotnotice,    "irc:notice"},
   {"MODE",    "",   (IntFunc) gotmode,        "irc:mode"},
   {"AWAY",    "",   (IntFunc) gotaway,     "irc:gotaway"},
+  {"301",     "",   (IntFunc) got301,          "irc:301"},
   {"335",     "",   (IntFunc) got335,          "irc:335"},
   {"346",     "",   (IntFunc) got346,          "irc:346"},
   {"347",     "",   (IntFunc) got347,          "irc:347"},
@@ -2021,6 +2319,21 @@ static cmd_t irc_raw[] = {
   {"396",     "",   (IntFunc) got396,          "irc:396"},
   {"ACCOUNT", "",   (IntFunc) gotaccount,  "irc:account"},
   {"CHGHOST", "",   (IntFunc) gotchghost,  "irc:chghost"},
+  {"312",     "",   (IntFunc) got312,          "irc:312"},
+  {"313",     "",   (IntFunc) got313,          "irc:313"},
+  {"319",     "",   (IntFunc) got319,          "irc:319"},
+  {"321",     "",   (IntFunc) got321,          "irc:321"},
+  {"322",     "",   (IntFunc) got322,          "irc:322"},
+  {"323",     "",   (IntFunc) got323,          "irc:323"},
+  {"333",     "",   (IntFunc) got333,          "irc:333"},
+  {"334",     "",   (IntFunc) got334,          "irc:334"},
+  {"341",     "",   (IntFunc) got341,          "irc:341"},
+  {"351",     "",   (IntFunc) got351,          "irc:351"},
+  {"391",     "",   (IntFunc) got391,          "irc:391"},
+  {"401",     "",   (IntFunc) got401,          "irc:401"},
+  {"402",     "",   (IntFunc) got402,          "irc:402"},
+  {"404",     "",   (IntFunc) got404,          "irc:404"},
+  {"406",     "",   (IntFunc) got406,          "irc:406"},
   {nullptr,     nullptr,  nullptr,                           nullptr}
 };
 

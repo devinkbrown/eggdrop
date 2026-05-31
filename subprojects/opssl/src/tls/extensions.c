@@ -37,6 +37,34 @@
 /* Server name types */
 #define SNI_HOST_NAME 0
 
+/* RFC 8701: GREASE values have the form 0x?A?A where both nibbles match.
+ * Receivers MUST ignore them. */
+static inline bool ext_is_grease(uint16_t v)
+{
+    return ((v & 0x0f0f) == 0x0a0a) && (((v >> 8) & 0xff) == (v & 0xff));
+}
+
+/* Track seen extensions to reject duplicates per RFC 8446 §4.2.
+ * Uses a small hash set; extension types are 16-bit but only a handful
+ * are accepted, so linear scan is fine. */
+#define EXT_SEEN_MAX 32
+typedef struct {
+    uint16_t types[EXT_SEEN_MAX];
+    size_t n;
+} ext_seen_t;
+
+static int ext_seen_add(ext_seen_t *s, uint16_t t)
+{
+    for (size_t i = 0; i < s->n; i++) {
+        if (s->types[i] == t)
+            return 0; /* duplicate */
+    }
+    if (s->n >= EXT_SEEN_MAX)
+        return 0;
+    s->types[s->n++] = t;
+    return 1;
+}
+
 /* Structure to hold parsed extension data */
 typedef struct {
     /* SNI */
@@ -95,6 +123,8 @@ int opssl_ext_parse_client_hello(opssl_cbs_t *exts, opssl_parsed_exts_t *parsed)
     /* Initialize parsed structure */
     memset(parsed, 0, sizeof(*parsed));
 
+    ext_seen_t seen = {0};
+
     /* Parse each extension */
     while (opssl_cbs_len(exts) > 0) {
         uint16_t ext_type;
@@ -103,6 +133,16 @@ int opssl_ext_parse_client_hello(opssl_cbs_t *exts, opssl_parsed_exts_t *parsed)
         /* Read extension type and data */
         if (!opssl_cbs_get_u16(exts, &ext_type) ||
             !opssl_cbs_get_u16_length_prefixed(exts, &ext_data)) {
+            return 0;
+        }
+
+        /* RFC 8701: silently ignore GREASE-typed extensions. */
+        if (ext_is_grease(ext_type)) {
+            continue;
+        }
+
+        /* RFC 8446 §4.2: reject duplicate extensions. */
+        if (!ext_seen_add(&seen, ext_type)) {
             return 0;
         }
 
@@ -152,7 +192,9 @@ int opssl_ext_parse_client_hello(opssl_cbs_t *exts, opssl_parsed_exts_t *parsed)
                 break;
 
             default:
-                /* Skip unknown extensions */
+                /* Skip unknown extensions (includes psk_key_exchange_modes,
+                 * pre_shared_key, early_data, cookie which are not yet
+                 * negotiated here; tls13.c handles those). */
                 break;
         }
     }
@@ -169,6 +211,8 @@ int opssl_ext_parse_server_hello(opssl_cbs_t *exts, opssl_parsed_exts_t *parsed)
     /* Initialize parsed structure */
     memset(parsed, 0, sizeof(*parsed));
 
+    ext_seen_t seen = {0};
+
     /* Parse each extension */
     while (opssl_cbs_len(exts) > 0) {
         uint16_t ext_type;
@@ -177,6 +221,14 @@ int opssl_ext_parse_server_hello(opssl_cbs_t *exts, opssl_parsed_exts_t *parsed)
         /* Read extension type and data */
         if (!opssl_cbs_get_u16(exts, &ext_type) ||
             !opssl_cbs_get_u16_length_prefixed(exts, &ext_data)) {
+            return 0;
+        }
+
+        /* RFC 8701: silently ignore GREASE; RFC 8446: reject duplicates. */
+        if (ext_is_grease(ext_type)) {
+            continue;
+        }
+        if (!ext_seen_add(&seen, ext_type)) {
             return 0;
         }
 
@@ -389,7 +441,12 @@ static int parse_server_name_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t *par
     if (!opssl_cbs_get_u16_length_prefixed(ext_data, &server_name_list)) {
         return 0;
     }
+    /* RFC 6066 §3: list MUST NOT be empty and MUST be fully consumed. */
+    if (opssl_cbs_len(&server_name_list) == 0 || opssl_cbs_len(ext_data) != 0) {
+        return 0;
+    }
 
+    bool got_host = false;
     while (opssl_cbs_len(&server_name_list) > 0) {
         uint8_t name_type;
         opssl_cbs_t hostname;
@@ -400,10 +457,15 @@ static int parse_server_name_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t *par
         }
 
         if (name_type == SNI_HOST_NAME) {
+            /* RFC 6066 §3: HostName MUST NOT be empty, and only one
+             * host_name entry is allowed per server_name list. */
+            if (got_host || opssl_cbs_len(&hostname) == 0 ||
+                opssl_cbs_len(&hostname) > 255) {
+                return 0;
+            }
             parsed->sni = opssl_cbs_data(&hostname);
             parsed->sni_len = opssl_cbs_len(&hostname);
-            /* Only take the first hostname */
-            break;
+            got_host = true;
         }
     }
 
@@ -416,11 +478,25 @@ static int parse_supported_groups_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t
     if (!opssl_cbs_get_u16_length_prefixed(ext_data, &groups_list)) {
         return 0;
     }
+    /* RFC 8446 §4.2.7: list MUST NOT be empty; outer extension fully consumed. */
+    if (opssl_cbs_len(&groups_list) == 0 ||
+        (opssl_cbs_len(&groups_list) % 2) != 0 ||
+        opssl_cbs_len(ext_data) != 0) {
+        return 0;
+    }
 
-    while (opssl_cbs_len(&groups_list) > 0 && parsed->ngroups < 16) {
+    while (opssl_cbs_len(&groups_list) > 0) {
         uint16_t group;
         if (!opssl_cbs_get_u16(&groups_list, &group)) {
             return 0;
+        }
+        /* RFC 8701: ignore GREASE group codepoints silently. */
+        if (ext_is_grease(group)) {
+            continue;
+        }
+        if (parsed->ngroups >= sizeof(parsed->groups) / sizeof(parsed->groups[0])) {
+            /* Out of table space — accept remaining as unknown (skip). */
+            continue;
         }
 
         /* Convert to internal group enum */
@@ -448,11 +524,23 @@ static int parse_signature_algorithms_ext(opssl_cbs_t *ext_data, opssl_parsed_ex
     if (!opssl_cbs_get_u16_length_prefixed(ext_data, &sigalgs_list)) {
         return 0;
     }
+    /* RFC 8446 §4.2.3: list MUST NOT be empty; entries are 2 bytes each. */
+    if (opssl_cbs_len(&sigalgs_list) == 0 ||
+        (opssl_cbs_len(&sigalgs_list) % 2) != 0 ||
+        opssl_cbs_len(ext_data) != 0) {
+        return 0;
+    }
 
-    while (opssl_cbs_len(&sigalgs_list) > 0 && parsed->nsigalgs < 16) {
+    while (opssl_cbs_len(&sigalgs_list) > 0) {
         uint16_t sigalg;
         if (!opssl_cbs_get_u16(&sigalgs_list, &sigalg)) {
             return 0;
+        }
+        if (ext_is_grease(sigalg)) {
+            continue;
+        }
+        if (parsed->nsigalgs >= sizeof(parsed->sigalgs) / sizeof(parsed->sigalgs[0])) {
+            continue;
         }
 
         /* Convert to internal sigalg enum */
@@ -485,11 +573,23 @@ static int parse_alpn_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t *parsed)
     if (!opssl_cbs_get_u16_length_prefixed(ext_data, &protocol_list)) {
         return 0;
     }
+    /* RFC 7301 §3.1: list MUST NOT be empty; outer fully consumed. */
+    if (opssl_cbs_len(&protocol_list) == 0 || opssl_cbs_len(ext_data) != 0) {
+        return 0;
+    }
 
-    while (opssl_cbs_len(&protocol_list) > 0 && parsed->nalpn < 8) {
+    while (opssl_cbs_len(&protocol_list) > 0) {
         opssl_cbs_t protocol;
         if (!opssl_cbs_get_u8_length_prefixed(&protocol_list, &protocol)) {
             return 0;
+        }
+        /* RFC 7301: ProtocolName MUST NOT be empty. */
+        if (opssl_cbs_len(&protocol) == 0) {
+            return 0;
+        }
+        if (parsed->nalpn >= sizeof(parsed->alpn_protos) / sizeof(parsed->alpn_protos[0])) {
+            /* Table full — drop remaining client-offered names rather than fail. */
+            continue;
         }
 
         parsed->alpn_protos[parsed->nalpn] = (const char *)opssl_cbs_data(&protocol);
@@ -506,11 +606,24 @@ static int parse_supported_versions_ext(opssl_cbs_t *ext_data, opssl_parsed_exts
     if (!opssl_cbs_get_u8_length_prefixed(ext_data, &versions_list)) {
         return 0;
     }
+    /* RFC 8446 §4.2.1: list MUST NOT be empty, MUST be even-length, and the
+     * outer extension data MUST be fully consumed. */
+    if (opssl_cbs_len(&versions_list) == 0 ||
+        (opssl_cbs_len(&versions_list) % 2) != 0 ||
+        opssl_cbs_len(ext_data) != 0) {
+        return 0;
+    }
 
-    while (opssl_cbs_len(&versions_list) > 0 && parsed->nversions < 4) {
+    while (opssl_cbs_len(&versions_list) > 0) {
         uint16_t version;
         if (!opssl_cbs_get_u16(&versions_list, &version)) {
             return 0;
+        }
+        if (ext_is_grease(version)) {
+            continue;
+        }
+        if (parsed->nversions >= sizeof(parsed->versions) / sizeof(parsed->versions[0])) {
+            continue;
         }
 
         parsed->versions[parsed->nversions] = version;
@@ -520,48 +633,93 @@ static int parse_supported_versions_ext(opssl_cbs_t *ext_data, opssl_parsed_exts
     return 1;
 }
 
+/*
+ * Parse a single KeyShareEntry { group(2) | key_exchange<1..2^16-1> } from
+ * the cursor `entries`, populating `parsed` only if the group is recognized
+ * and not already set. Returns 0 on malformed input.
+ */
+static int parse_one_key_share_entry(opssl_cbs_t *entries, opssl_parsed_exts_t *parsed)
+{
+    uint16_t group;
+    opssl_cbs_t key_exchange;
+
+    if (!opssl_cbs_get_u16(entries, &group) ||
+        !opssl_cbs_get_u16_length_prefixed(entries, &key_exchange)) {
+        return 0;
+    }
+    /* RFC 8446 §4.2.8: key_exchange MUST NOT be empty. */
+    if (opssl_cbs_len(&key_exchange) == 0) {
+        return 0;
+    }
+    /* GREASE entries: silently ignored. */
+    if (ext_is_grease(group)) {
+        return 1;
+    }
+
+    /* Skip if we already locked onto a usable group earlier in the list. */
+    if (parsed->ks_data != NULL) {
+        return 1;
+    }
+
+    switch (group) {
+        case 0x001d: parsed->ks_group = OPSSL_GROUP_X25519; break;
+        case 0x0017: parsed->ks_group = OPSSL_GROUP_SECP256R1; break;
+        case 0x0018: parsed->ks_group = OPSSL_GROUP_SECP384R1; break;
+        case 0x0019: parsed->ks_group = OPSSL_GROUP_SECP521R1; break;
+        case 0x001e: parsed->ks_group = OPSSL_GROUP_X448; break;
+        case 0x6399: parsed->ks_group = OPSSL_GROUP_X25519_MLKEM768; break;
+        case 0x639A: parsed->ks_group = OPSSL_GROUP_SECP256R1_MLKEM768; break;
+        case 0x639B: parsed->ks_group = OPSSL_GROUP_SECP384R1_MLKEM1024; break;
+        default: return 1; /* unrecognized — skip per RFC 8446 §4.2.8 */
+    }
+
+    parsed->ks_data = opssl_cbs_data(&key_exchange);
+    parsed->ks_len = opssl_cbs_len(&key_exchange);
+    return 1;
+}
+
 static int parse_key_share_ext(opssl_cbs_t *ext_data, opssl_parsed_exts_t *parsed)
 {
-    opssl_cbs_t key_shares;
-
-    /* ClientHello has a list of key shares, ServerHello has just one */
-    if (opssl_cbs_len(ext_data) >= 2) {
-        /* Try parsing as ClientHello (with length prefix) */
-        if (!opssl_cbs_get_u16_length_prefixed(ext_data, &key_shares)) {
-            /* Fall back to ServerHello format */
-            key_shares = *ext_data;
-        }
-    } else {
-        key_shares = *ext_data;
+    /*
+     * RFC 8446 §4.2.8:
+     *   ClientHello / HelloRetryRequest payload is
+     *     KeyShareEntry client_shares<0..2^16-1>;
+     *   ServerHello payload is a single KeyShareEntry (no outer length).
+     *
+     * We can disambiguate by peeking: if the first u16 plausibly equals the
+     * remaining length minus 2, treat it as a length-prefixed list. Otherwise
+     * treat it as a bare entry. Probing a u16 length prefix and then resetting
+     * is undefined behavior with the CBS API, so we duplicate the cursor.
+     */
+    opssl_cbs_t cursor;
+    if (opssl_cbs_len(ext_data) < 2) {
+        /* Empty (HRR-style "no shares") is allowed in some flows. */
+        return 1;
     }
 
-    /* Parse first key share only */
-    if (opssl_cbs_len(&key_shares) >= 4) {
-        uint16_t group;
-        opssl_cbs_t key_exchange;
-
-        if (!opssl_cbs_get_u16(&key_shares, &group) ||
-            !opssl_cbs_get_u16_length_prefixed(&key_shares, &key_exchange)) {
-            return 0;
+    /* Try ClientHello list format first by snapshotting the cursor. */
+    cursor = *ext_data;
+    opssl_cbs_t client_shares;
+    if (opssl_cbs_get_u16_length_prefixed(&cursor, &client_shares) &&
+        opssl_cbs_len(&cursor) == 0) {
+        /* Valid CH list framing: length prefix exactly equals remaining bytes. */
+        while (opssl_cbs_len(&client_shares) > 0) {
+            if (!parse_one_key_share_entry(&client_shares, parsed)) {
+                return 0;
+            }
         }
-
-        /* Convert group to internal enum */
-        switch (group) {
-            case 0x001d: parsed->ks_group = OPSSL_GROUP_X25519; break;
-            case 0x0017: parsed->ks_group = OPSSL_GROUP_SECP256R1; break;
-            case 0x0018: parsed->ks_group = OPSSL_GROUP_SECP384R1; break;
-            case 0x0019: parsed->ks_group = OPSSL_GROUP_SECP521R1; break;
-            case 0x001e: parsed->ks_group = OPSSL_GROUP_X448; break;
-            case 0x6399: parsed->ks_group = OPSSL_GROUP_X25519_MLKEM768; break;
-            case 0x639A: parsed->ks_group = OPSSL_GROUP_SECP256R1_MLKEM768; break;
-            case 0x639B: parsed->ks_group = OPSSL_GROUP_SECP384R1_MLKEM1024; break;
-            default: return 0;
-        }
-
-        parsed->ks_data = opssl_cbs_data(&key_exchange);
-        parsed->ks_len = opssl_cbs_len(&key_exchange);
+        return 1;
     }
 
+    /* Otherwise treat as a single ServerHello KeyShareEntry. */
+    cursor = *ext_data;
+    if (!parse_one_key_share_entry(&cursor, parsed)) {
+        return 0;
+    }
+    /* SH entry MUST fully consume the extension. */
+    if (opssl_cbs_len(&cursor) != 0) {
+        return 0;
+    }
     return 1;
 }
 

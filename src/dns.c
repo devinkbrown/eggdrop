@@ -38,6 +38,56 @@ extern Tcl_Interp *interp;
 extern int resolve_timeout;
 extern sigjmp_buf alarmret;
 
+/*
+ * DNS retry state with exponential back-off.
+ *
+ * Used only by the synchronous fallback functions (core_dns_hostbyip /
+ * core_dns_ipbyhost) that run when the async DNS thread pool is not active.
+ * The back-off sequence is 1 s → 2 s → 4 s → 8 s → 16 s → 32 s (cap).
+ *
+ * dns_retry_count : number of consecutive failures (resets to 0 on success).
+ * dns_retry_next  : earliest wall-clock second at which another attempt is
+ *                   allowed.  Zero means "retry immediately".
+ */
+#define DNS_RETRY_MAX_DELAY  32   /* seconds: back-off ceiling */
+#define DNS_RETRY_MAX_COUNT   6   /* how many back-off steps before capping */
+
+static int    dns_retry_count = 0;
+static time_t dns_retry_next  = 0;
+
+/* Returns 1 if an immediate attempt is allowed, 0 if still in back-off. */
+static int dns_retry_allowed(void)
+{
+  return (dns_retry_next == 0 || now >= dns_retry_next);
+}
+
+/* Call after a DNS failure: increment the counter and schedule the next
+ * allowed attempt.  Delay doubles each step, capped at DNS_RETRY_MAX_DELAY. */
+static void dns_retry_on_failure(const char *context)
+{
+  dns_retry_count++;
+  int step  = dns_retry_count <= DNS_RETRY_MAX_COUNT
+              ? dns_retry_count : DNS_RETRY_MAX_COUNT;
+  int delay = 1 << (step - 1);   /* 1, 2, 4, 8, 16, 32 */
+  if (delay > DNS_RETRY_MAX_DELAY)
+    delay = DNS_RETRY_MAX_DELAY;
+  dns_retry_next = now + delay;
+  putlog(LOG_MISC, "*",
+         "DNS: resolution failure (%s) — retry attempt %d in %ds",
+         context ? context : "unknown", dns_retry_count, delay);
+}
+
+/* Call after a successful resolution: reset back-off state. */
+static void dns_retry_on_success(void)
+{
+  if (dns_retry_count > 0) {
+    putlog(LOG_MISC, "*", "DNS: resolution succeeded after %d failure%s",
+           dns_retry_count, dns_retry_count == 1 ? "" : "s");
+    dns_retry_count = 0;
+    dns_retry_next  = 0;
+  }
+}
+
 static op_vec_t dns_events;
 
 /* Slab allocators for DNS event nodes — lazy-initialised on first DNS call. */
@@ -134,7 +184,7 @@ struct dcc_table DCC_DNSWAIT = {
 /* Walk through every dcc entry and look for waiting DNS requests
  * of RES_HOSTBYIP for our IP address.
  */
-static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
+static void dns_dcchostbyip(sockname_t *ip, const char *hostn, int ok, void *other)
 {
   int idx;
 
@@ -169,7 +219,7 @@ static void dns_dcchostbyip(sockname_t *ip, char *hostn, int ok, void *other)
 /* Walk through every dcc entry and look for waiting DNS requests
  * of RES_IPBYHOST for our hostname.
  */
-static void dns_dccipbyhost(sockname_t *ip, char *hostn, int ok, void *other)
+static void dns_dccipbyhost(sockname_t *ip, const char *hostn, int ok, void *other)
 {
   int idx;
 
@@ -248,7 +298,7 @@ void dcc_dnshostbyip(sockname_t *ip)
  *   Tcl events
  */
 
-static void dns_tcl_iporhostres(sockname_t *ip, char *hostn, int ok, void *other)
+static void dns_tcl_iporhostres(sockname_t *ip, const char *hostn, int ok, void *other)
 {
   devent_tclinfo_t *tclinfo = (devent_tclinfo_t *) other;
   op_strbuf_t sb = {};
@@ -361,7 +411,7 @@ static void tcl_dnshostbyip(sockname_t *ip, char *proc, char *paras)
   return tot;
 }
 
-void call_hostbyip(sockname_t *ip, char *hostn, int ok)
+void call_hostbyip(sockname_t *ip, const char *hostn, int ok)
 {
   /* Iterate backward so removal by index is safe; new entries appended by
    * event handlers land beyond [i] and are not fired in this pass. */
@@ -410,6 +460,22 @@ void core_dns_hostbyip(sockname_t *addr)
   char host[256] = "";
   volatile int i = 1;
 
+  /* Respect back-off: if a retry is not yet due, deliver a failure
+   * immediately without touching the resolver so we don't hammer it. */
+  if (!dns_retry_allowed()) {
+    char ipstr[INET6_ADDRSTRLEN] = "";
+    if (addr->family == AF_INET)
+      inet_ntop(AF_INET, &addr->addr.s4.sin_addr.s_addr, ipstr, sizeof ipstr);
+#ifdef IPV6
+    else if (addr->family == AF_INET6)
+      inet_ntop(AF_INET6, &addr->addr.s6.sin6_addr, ipstr, sizeof ipstr);
+#endif
+    if (ipstr[0])
+      op_strlcpy(host, ipstr, sizeof host);
+    call_hostbyip(addr, host, 0);
+    return;
+  }
+
   if (addr->family == AF_INET) {
     if (!sigsetjmp(alarmret, 1)) {
       alarm(resolve_timeout);
@@ -437,17 +503,33 @@ void core_dns_hostbyip(sockname_t *addr)
 #else
   }
 #endif
+  if (i)
+    dns_retry_on_failure("hostbyip");
+  else
+    dns_retry_on_success();
   call_hostbyip(addr, host, !i);
 }
 
 void core_dns_ipbyhost(char *host)
 {
   sockname_t name;
+  int ok;
 
-  if (setsockname(&name, host, 0, 1) == AF_UNSPEC)
+  /* Respect back-off window. */
+  if (!dns_retry_allowed()) {
+    memset(&name, 0, sizeof name);
     call_ipbyhost(host, &name, 0);
-  else
-    call_ipbyhost(host, &name, 1);
+    return;
+  }
+
+  if (setsockname(&name, host, 0, 1) == AF_UNSPEC) {
+    dns_retry_on_failure("ipbyhost");
+    ok = 0;
+  } else {
+    dns_retry_on_success();
+    ok = 1;
+  }
+  call_ipbyhost(host, &name, ok);
 }
 
 /*

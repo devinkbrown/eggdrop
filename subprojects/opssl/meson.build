@@ -7,10 +7,11 @@ project('opssl', 'c',
     'b_pie=true',
     'b_lto=true',
   ],
-  meson_version: '>= 0.60.0',
+  meson_version: '>= 1.1.0',
 )
 
 cc = meson.get_compiler('c')
+fs = import('fs')
 
 # Platform detection
 host_system = host_machine.system()
@@ -125,7 +126,7 @@ if _ca_cert_file == 'auto'
   ]
   _ca_cert_file = ''
   foreach f : _ca_file_candidates
-    if import('fs').exists(f)
+    if fs.exists(f)
       _ca_cert_file = f
       break
     endif
@@ -147,7 +148,7 @@ if _ca_cert_dir == 'auto'
   ]
   _ca_cert_dir = ''
   foreach d : _ca_dir_candidates
-    if import('fs').exists(d)
+    if fs.exists(d)
       _ca_cert_dir = d
       break
     endif
@@ -244,7 +245,6 @@ x509_src = files(
 # I/O and session management
 io_src = files(
   'src/io/bio.c',
-  'src/io/export.c',
 )
 
 # Build args
@@ -262,13 +262,29 @@ endif
 # Include dirs
 opssl_inc = include_directories('include')
 
+# Constant-time AES S-box, built without LTO.
+# GCC 16.1.x's WPA stage ICEs ("resolution sub id ... not in object file")
+# when this TU is linked with LTO into the main library.  Splitting it into
+# a separate static_library with override_options sidesteps the bug without
+# disabling LTO globally.  The S-box is only on the software fallback path
+# (AES-NI handles production load), so the missed cross-TU inlining is
+# inconsequential.
+libopssl_aes_sbox_ct = static_library('opssl_aes_sbox_ct',
+  'src/crypto/aes_sbox_ct.c',
+  include_directories: opssl_inc,
+  c_args: ['-D_GNU_SOURCE'],
+  override_options: ['b_lto=false'],
+)
+
 # Main library
 libopssl = library('opssl',
   core_src + crypto_src + tls_src + x509_src + io_src,
   include_directories: opssl_inc,
   c_args: crypto_args + ['-D_GNU_SOURCE'],
   dependencies: [threads_dep, math_dep, libop_dep],
+  link_with: libopssl_aes_sbox_ct,
   install: true,
+  override_options: ['b_lto=false'],
 )
 
 opssl_dep = declare_dependency(

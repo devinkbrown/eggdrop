@@ -101,7 +101,6 @@ struct _fde
 	 * arm WRITE interest (e.g. after filling a client send queue) while
 	 * the I/O thread may concurrently modify the same fields.
 	 */
-	op_dlink_node node;
 	op_platform_fd_t fd;			/* So we can use the op_fde_t as a callback ptr */
 	uint8_t  flags;
 	uint16_t type;
@@ -145,25 +144,20 @@ typedef struct timer_data
 } *comm_event_id;
 #endif
 
-extern op_dlink_list *op_fd_table;
+extern op_vec_t *op_fd_table;
 
 static inline op_fde_t *
 op_find_fd(op_platform_fd_t fd)
 {
-	op_dlink_list *hlist;
-	op_dlink_node *ptr;
-
 	if (op_unlikely(fd < 0))
 		return NULL;
 
-	hlist = &op_fd_table[op_hash_fd(fd)];
-
-	if (hlist->head == NULL)
-		return NULL;
-
-	OP_DLINK_FOREACH(ptr, hlist->head)
+	op_vec_t *bucket = &op_fd_table[op_hash_fd(fd)];
+	size_t _fi;
+	void  *_fe;
+	OP_VEC_FOREACH(bucket, _fi, _fe)
 	{
-		op_fde_t *F = ptr->data;
+		op_fde_t *F = _fe;
 		if (F->fd == fd)
 			return F;
 	}
@@ -200,7 +194,6 @@ void op_uring_unsched_event(struct ev_entry *event);
 int  op_uring_supports_event(void);
 bool op_uring_start_pollthread(void);
 void op_uring_stop_pollthread(void);
-void op_uring_reinit_after_fork(void);
 
 
 /* epoll versions */

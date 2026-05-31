@@ -29,6 +29,7 @@
 #  include "config.h"
 #endif
 #include <op_lib.h>
+#include <op_subst.h>
 #include "src/mod/module.h"
 #include "server.h"
 
@@ -98,6 +99,12 @@ static int lastpingtime;        /* IRCnet LAGmeter support -- drummer */
 static char stackablecmds[MSGMAX];
 static char stackable2cmds[MSGMAX];
 static time_t last_time;
+/* Secondary outgoing-burst rate limiter (token bucket).
+ * Guards the mq/hq/modeq send path against rapid bursts that slip through
+ * the legacy last_time/penalty system (e.g. during clock skew or when
+ * use_penalties is off).  Capacity 10 tokens, 5 tokens/sec sustain rate —
+ * matches the "most servers allow bursts of up to 5 msgs" comment above. */
+static op_ratelimit_t outgoing_rl;
 static int use_penalties;
 static int use_fastdeq;
 static int nick_len;            /* Maximal nick length allowed on the
@@ -117,6 +124,21 @@ static int monitor005 = 0;      /* Monitor */
 static int max_monitor = 0;     /* Maximum # of monitored nicks, from server */
 static int monitor732 = 0;      /* Monitor */
 static op_vec_t monitor_vec;
+static int reconnect_attempts = 0; /* consecutive failed server connections */
+
+/* Server pool selection strategy:
+ *   0 = round-robin (default)
+ *   1 = random
+ *   2 = first-available (always try index 0 first, advance only on failure)
+ */
+static int server_pool_strategy = 0;
+
+#ifndef RECONNECT_MIN
+#  define RECONNECT_MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef RECONNECT_MAX
+#  define RECONNECT_MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
 
 /* =========================================================================
  * IRCX / Ophion network state (https://github.com/devinkbrown/ophion)
@@ -178,6 +200,22 @@ static int echo_message = 0;      /* IRCv3 echo-message: receive own sent msgs *
 
 static char cap_request[CAPMAX - 9];
 
+/* =========================================================================
+ * IRCv3 labeled-response send side
+ *
+ * When the labeled-response CAP is negotiated, outgoing messages are
+ * prefixed with a @label=eggdrop-<seq> message tag so the server echoes
+ * the tag back, allowing correlation of replies to commands.
+ *
+ * label_seq    - monotonically increasing 32-bit sequence counter.
+ * label_ack_ht - pending label table: key = label string (heap-allocated),
+ *                value = NULL.  Presence in the table means the labeled
+ *                command has been sent but no reply has arrived yet.
+ *                Cleared on server disconnect.
+ * ========================================================================= */
+static uint32_t label_seq = 0;
+static op_htab *label_ack_ht = nullptr;
+
 #include "isupport.c"
 #include "tclisupport.c"
 #include "servmsg.c"
@@ -201,6 +239,58 @@ static void write_to_server(char *s, unsigned int len) {
   s2[len + 1] = '\n';
   tputs(serv, s2, len + 2);
   op_free(s2);
+}
+
+/* Send a single IRC line, prepending a @label= message tag when the
+ * labeled-response capability is active.  The label is recorded in
+ * label_ack_ht so we can correlate incoming replies.
+ *
+ * Returns the sequence number used (0 when label was not added).
+ */
+[[maybe_unused]] static uint32_t server_send_labeled(const char *line)
+{
+  struct capability *lr_cap = find_capability("labeled-response");
+
+  if (!lr_cap || !lr_cap->enabled) {
+    size_t len = strlen(line);
+    write_to_server((char *)line, len);
+    return 0;
+  }
+
+  uint32_t seq = ++label_seq;
+
+  op_strbuf_t sb = {};
+  op_strbuf_init(&sb);
+  op_strbuf_appendf(&sb, "@label=eggdrop-%" PRIu32 " %s", seq, line);
+
+  const char *tagged = op_strbuf_str(&sb);
+  write_to_server((char *)tagged, strlen(tagged));
+
+  if (!label_ack_ht)
+    label_ack_ht = op_htab_create_str("label_ack", 16);
+
+  char keybuf[32];
+  snprintf(keybuf, sizeof keybuf, "eggdrop-%" PRIu32, seq);
+  char *key = op_strdup(keybuf);
+  op_htab_set(label_ack_ht, key, nullptr, nullptr);
+
+  op_strbuf_free(&sb);
+  return seq;
+}
+
+/* Queue an IRC line with ${botnick} and ${server} template expansion.
+ * Callers that want variable substitution in outgoing messages use this
+ * instead of a raw dprintf(DP_SERVER, ...).  Existing callers are unchanged.
+ */
+[[maybe_unused]] static void server_send_expand(const char *fmt)
+{
+  op_vec_t vars = {};
+  op_vec_init(&vars, 4);
+  op_subst_append_var(&vars, "botnick", origbotname);
+  op_subst_append_var(&vars, "server",  realservername ? realservername : "");
+  const char *expanded = op_subst_parse(fmt, &vars);
+  op_subst_free(&vars);
+  dprintf(DP_SERVER, "%s\n", expanded);
 }
 
 /*
@@ -231,6 +321,12 @@ static void deq_msg(void)
   }
 
   if (serv < 0)
+    return;
+
+  /* Secondary burst guard: token-bucket rate limiter (10-token capacity,
+   * 5 tokens/sec).  Throttles sends that slip through the legacy
+   * last_time/penalty path during clock skew or when penalties are off. */
+  if (!op_ratelimit_check(&outgoing_rl, op_current_time_usec()))
     return;
 
   /* Send up to 4 msgs to server if the *critical queue* has anything in it */
@@ -1229,9 +1325,26 @@ static void next_server(int *ptr, char *serv, size_t servlen, unsigned int *port
   /* Find where i am and advance */
   if (!serverlist_vec.size)
     return;
-  (*ptr)++;
-  if (*ptr < 0 || (size_t)*ptr >= serverlist_vec.size)
-    *ptr = 0;
+  switch (server_pool_strategy) {
+    case 1: /* random — seed once on first use */
+    {
+      static int rand_seeded = 0;
+      if (!rand_seeded) {
+        srand((unsigned int)time(nullptr));
+        rand_seeded = 1;
+      }
+      *ptr = (int)((size_t)rand() % serverlist_vec.size);
+      break;
+    }
+    case 2: /* first-available — always start at index 0 */
+      *ptr = 0;
+      break;
+    default: /* 0: round-robin */
+      (*ptr)++;
+      if (*ptr < 0 || (size_t)*ptr >= serverlist_vec.size)
+        *ptr = 0;
+      break;
+  }
   struct server_list *x = (struct server_list *)op_vec_get(&serverlist_vec, (size_t)*ptr);
 #ifdef TLS
   use_ssl = x->ssl;
@@ -1908,6 +2021,7 @@ static tcl_ints my_tcl_ints[] = {
   {"ircx-auto-negotiate",  &ircx_auto_negotiate,       0},
   {"ircx-owner-support",   &ircx_owner_support,        0},
   {"ircx-prop-support",    &ircx_prop_support,         0},
+  {"server-pool-strategy", &server_pool_strategy,      0},
   {nullptr,                   nullptr,                       0}
 };
 
@@ -2216,7 +2330,13 @@ static void server_postrehash(void)
 
 static void server_die(void)
 {
-  cycle_time = 100;
+  reconnect_attempts++;
+  {
+    int backoff = (int)server_cycle_wait * (1 << RECONNECT_MIN(reconnect_attempts - 1, 5));
+    backoff = RECONNECT_MIN(backoff, 600);
+    backoff = backoff * (80 + (rand() % 41)) / 100;
+    cycle_time = RECONNECT_MAX(backoff, (int)server_cycle_wait);
+  }
   if (server_online) {
     op_strbuf_t _b = {};
     op_strbuf_init(&_b);
@@ -2385,7 +2505,13 @@ static cmd_t my_ctcps[] = {
 
 static char *server_close(void)
 {
-  cycle_time = 100;
+  reconnect_attempts++;
+  {
+    int backoff = (int)server_cycle_wait * (1 << RECONNECT_MIN(reconnect_attempts - 1, 5));
+    backoff = RECONNECT_MIN(backoff, 600);
+    backoff = backoff * (80 + (rand() % 41)) / 100;
+    cycle_time = RECONNECT_MAX(backoff, (int)server_cycle_wait);
+  }
   nuke_server("Connection reset by peer");
   clearq();
   rem_builtins(H_dcc, C_dcc_serv);
@@ -2401,6 +2527,9 @@ static char *server_close(void)
     op_bh_destroy(monitor_heap);
     monitor_heap = nullptr;
   }
+  op_vec_fini(&monitor_online_batch,  monitor_batch_free_cb, nullptr);
+  op_vec_fini(&monitor_offline_batch, monitor_batch_free_cb, nullptr);
+  op_vec_fini(&cap_req_queue, cap_req_queue_free_cb, nullptr);
   if (msgq_node_bh) {
     op_bh_destroy(msgq_node_bh);
     msgq_node_bh = nullptr;
@@ -2412,6 +2541,10 @@ static char *server_close(void)
   if (cap_values_bh) {
     op_bh_destroy(cap_values_bh);
     cap_values_bh = nullptr;
+  }
+  if (cap_dict) {
+    op_htab_destroy(cap_dict, nullptr, nullptr);
+    cap_dict = nullptr;
   }
   /* Restore original commands. */
   del_bind_table(H_wall);
@@ -2431,6 +2564,7 @@ static char *server_close(void)
   rem_tcl_ints(my_tcl_ints);
   rem_help_reference("server.help");
   rem_tcl_commands(my_tcl_cmds);
+  rem_tcl_commands(server_tcl_objcmds);
   Tcl_UntraceVar(interp, "nick",
                  TCL_TRACE_READS | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                  nick_change, nullptr);
@@ -2543,6 +2677,8 @@ static Function server_table[] = {
   (Function) isupport_get_prefixchars,
   (Function) & H_stdreply,        /* p_tcl_bind_list                      */
   (Function) old_add_server,      /* void (const char *)                  */
+  /* 56 */
+  (Function) current_msgtag_account, /* char[] — IRCv3 'account' tag for current msg */
 };
 
 char *server_start(Function *global_funcs)
@@ -2577,6 +2713,7 @@ char *server_start(Function *global_funcs)
   op_strlcpy(botrealname, "A deranged product of evil coders", sizeof(botrealname));
   server_timeout = 60;
   cycle_time = 0;
+  reconnect_attempts = 0;
   default_port = 6667;
   oldnick[0] = 0;
   trigger_on_ignore = 0;
@@ -2597,6 +2734,7 @@ char *server_start(Function *global_funcs)
   resolvserv = 0;
   lastpingtime = 0;
   last_time = 0;
+  op_ratelimit_init(&outgoing_rl, 10, 5, op_current_time_usec());
   nick_len = 9;
   kick_method = 1;
   optimize_kicks = 0;
@@ -2666,6 +2804,7 @@ char *server_start(Function *global_funcs)
   add_tcl_strings(my_tcl_strings);
   add_tcl_ints(my_tcl_ints);
   add_tcl_commands(my_tcl_cmds);
+  add_tcl_objcommands(server_tcl_objcmds);
   add_tcl_coups(my_tcl_coups);
   add_hook(HOOK_SECONDLY, (Function) server_secondly);
   add_hook(HOOK_5MINUTELY, (Function) server_5minutely);
@@ -2676,7 +2815,13 @@ char *server_start(Function *global_funcs)
   add_hook(HOOK_DIE, (Function) server_die);
   monitor_heap   = op_bh_create(sizeof(monitor_list_t), 32, "monitor_list");
   op_vec_init(&monitor_vec, 32);
+  op_vec_init(&monitor_online_batch, 8);
+  op_vec_init(&monitor_offline_batch, 8);
+  op_vec_init(&cap_req_queue, 8);
   msgq_node_bh   = op_bh_create(sizeof(struct msgq),    64, "server_msgq");
+  /* Pre-allocate cap_dict so it is ready before any CAP LS processing.
+   * Capacity 32: eggdrop typically registers 20-40 capabilities. */
+  cap_dict = op_htab_create_istr("capabilities", 32);
   mq.head = hq.head = modeq.head = nullptr;
   mq.last = hq.last = modeq.last = nullptr;
   mq.tot = hq.tot = modeq.tot = 0;

@@ -155,11 +155,28 @@ int opssl_hkdf_expand_label(opssl_hmac_algo_t algo,
 
 /* ─── PBKDF2 (RFC 2898) ────────────────────────────────────────────── */
 
+/*
+ * opssl_pbkdf2: safe default; enforces OWASP 2023 minimum iteration
+ * counts (SHA-1 >= 1,300,000; SHA-256 >= 600,000; SHA-384/512 >= 210,000).
+ * Use this for password storage in new code.
+ */
 int opssl_pbkdf2(opssl_hmac_algo_t algo,
                  const uint8_t *password, size_t password_len,
                  const uint8_t *salt, size_t salt_len,
                  uint32_t iterations,
                  uint8_t *out, size_t out_len);
+
+/*
+ * opssl_pbkdf2_unchecked: identical to opssl_pbkdf2 but skips the OWASP
+ * iteration-count floor. Intended only for KAT vector verification
+ * (RFC 6070 / RFC 7914), Scrypt-style constructions, and legacy
+ * interoperability. Do NOT use for password storage.
+ */
+int opssl_pbkdf2_unchecked(opssl_hmac_algo_t algo,
+                           const uint8_t *password, size_t password_len,
+                           const uint8_t *salt, size_t salt_len,
+                           uint32_t iterations,
+                           uint8_t *out, size_t out_len);
 
 /* ─── AEAD Ciphers ───────────────────────────────────────────────────── */
 

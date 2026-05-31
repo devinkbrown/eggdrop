@@ -86,6 +86,7 @@ static void async_recv_work(void *arg)
 /* ---- done callback (runs on main thread) -------------------------------- */
 
 extern sock_list *socklist;
+extern time_t now;
 
 static void async_recv_done(void *arg)
 {
@@ -212,4 +213,29 @@ void async_recv_stats(async_recv_stats_t *out)
     out->calls_per_sec = 0.0;
     out->bytes_per_sec = 0.0;
   }
+}
+
+/*
+ * async_recv_minutely — HOOK_MINUTELY handler.
+ *
+ * Writes a single parseable stats line to LOG_MISC so that performance
+ * data accumulates in the log file for offline analysis.  Skips the
+ * line if no recv operations have been submitted yet (early startup).
+ *
+ * Log format (grep for "[ASYNCRECV]"):
+ *   [ASYNCRECV] t=<epoch> calls=<N> bytes=<N> hwm=<N> calls_s=<F> bytes_s=<F>
+ */
+void async_recv_minutely(void)
+{
+  async_recv_stats_t s;
+  async_recv_stats(&s);
+
+  if (s.total_calls == 0)
+    return;
+
+  putlog(LOG_MISC, "*",
+         "[ASYNCRECV] t=%lu calls=%" PRIu64 " bytes=%" PRIu64
+         " hwm=%d calls_s=%.2f bytes_s=%.2f",
+         (unsigned long)now, s.total_calls, s.total_bytes,
+         s.hwm, s.calls_per_sec, s.bytes_per_sec);
 }

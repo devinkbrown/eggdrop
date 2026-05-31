@@ -606,6 +606,34 @@ void prescan_paths(const char *fname)
   op_toml_free(root);
 }
 
+void prescan_runtime(const char *fname, int *nthreads_out, int *io_shards_out)
+{
+  char errbuf[256];
+  op_toml_table_t *root = op_toml_parse_file(fname, errbuf, sizeof errbuf);
+  if (!root)
+    return;
+
+  static const char * const sections[] = {
+    "performance", "runtime", "bot", nullptr
+  };
+
+  for (const char * const *name = sections; *name; name++) {
+    op_toml_table_t *tbl = op_toml_table(root, *name);
+    if (!tbl)
+      continue;
+
+    long val;
+    if (nthreads_out && op_toml_int(tbl, "nthreads", &val) == 1 &&
+        val >= 0 && val <= 1024)
+      *nthreads_out = (int)val;
+    if (io_shards_out && op_toml_int(tbl, "io_shards", &val) == 1 &&
+        val >= 0 && val <= 1024)
+      *io_shards_out = (int)val;
+  }
+
+  op_toml_free(root);
+}
+
 /* -----------------------------------------------------------------------
  * op_toml walk helpers
  * --------------------------------------------------------------------- */
@@ -701,7 +729,7 @@ static int is_known_section(const char *name)
   static const char *known[] = {
     "bot", "network", "security", "paths", "modules",
     "servers", "channels", "logging", "scripts", "help", "tcl",
-    "chanset", nullptr
+    "chanset", "performance", "runtime", nullptr
   };
   for (const char **k = known; *k; k++)
     if (strcmp(name, *k) == 0) return 1;

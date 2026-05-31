@@ -13,6 +13,7 @@
 
 #include <opssl/crypto.h>
 #include <opssl/platform.h>
+#include <stdint.h>
 #include <string.h>
 #include "sha_internal.h"
 
@@ -109,13 +110,19 @@ pbkdf2_f(opssl_hmac_algo_t algo,
     return 1;
 }
 
-/* PBKDF2 key derivation (RFC 2898) */
-int
-opssl_pbkdf2(opssl_hmac_algo_t algo,
-             const uint8_t *password, size_t password_len,
-             const uint8_t *salt, size_t salt_len,
-             uint32_t iterations,
-             uint8_t *out, size_t out_len)
+/*
+ * Core PBKDF2 implementation (RFC 2898 section 5.2) with no policy checks
+ * on the iteration count. This is the shared engine used by both the
+ * policy-enforcing public entry point (opssl_pbkdf2) and the unchecked
+ * entry point (opssl_pbkdf2_unchecked) intended for KAT vector verification
+ * and legacy interoperability.
+ */
+static int
+pbkdf2_core(opssl_hmac_algo_t algo,
+            const uint8_t *password, size_t password_len,
+            const uint8_t *salt, size_t salt_len,
+            uint32_t iterations,
+            uint8_t *out, size_t out_len)
 {
     size_t hash_len;
     uint32_t blocks_needed;
@@ -129,6 +136,11 @@ opssl_pbkdf2(opssl_hmac_algo_t algo,
 
     hash_len = get_hash_len(algo);
     if (hash_len == 0) {
+        return 0;
+    }
+
+    /* Guard size_t overflow in the block-count ceiling computation. */
+    if (out_len > SIZE_MAX - hash_len) {
         return 0;
     }
 
@@ -158,4 +170,66 @@ opssl_pbkdf2(opssl_hmac_algo_t algo,
 
     opssl_memzero(block_buf, sizeof(block_buf));
     return 1;
+}
+
+/*
+ * Public PBKDF2 entry point (safe default).
+ *
+ * Enforces OWASP 2023 minimum iteration counts for password storage:
+ *   SHA-1   : 1,300,000
+ *   SHA-256 :   600,000
+ *   SHA-512 :   210,000
+ * SHA-384 shares SHA-512's structure; apply the same floor.
+ *
+ * For KAT vector verification (RFC 6070, RFC 7914) or low-cost legacy
+ * compatibility scenarios where the caller has independently validated
+ * the iteration count, use opssl_pbkdf2_unchecked() instead.
+ */
+int
+opssl_pbkdf2(opssl_hmac_algo_t algo,
+             const uint8_t *password, size_t password_len,
+             const uint8_t *salt, size_t salt_len,
+             uint32_t iterations,
+             uint8_t *out, size_t out_len)
+{
+    switch (algo) {
+        case OPSSL_HMAC_SHA1:
+            if (iterations < 1300000) return 0;
+            break;
+        case OPSSL_HMAC_SHA256:
+            if (iterations < 600000) return 0;
+            break;
+        case OPSSL_HMAC_SHA384:
+        case OPSSL_HMAC_SHA512:
+            if (iterations < 210000) return 0;
+            break;
+        default:
+            return 0;
+    }
+
+    return pbkdf2_core(algo, password, password_len, salt, salt_len,
+                       iterations, out, out_len);
+}
+
+/*
+ * PBKDF2 entry point WITHOUT OWASP iteration-count enforcement.
+ *
+ * Intended for:
+ *   - RFC 6070 / RFC 7914 known-answer test vector verification
+ *   - Scrypt and other constructions that legitimately invoke PBKDF2
+ *     with caller-controlled iteration counts
+ *   - Legacy interoperability where the iteration count is dictated by
+ *     an external protocol
+ *
+ * Do NOT use this for password storage in new code; prefer opssl_pbkdf2().
+ */
+int
+opssl_pbkdf2_unchecked(opssl_hmac_algo_t algo,
+                       const uint8_t *password, size_t password_len,
+                       const uint8_t *salt, size_t salt_len,
+                       uint32_t iterations,
+                       uint8_t *out, size_t out_len)
+{
+    return pbkdf2_core(algo, password, password_len, salt, salt_len,
+                       iterations, out, out_len);
 }

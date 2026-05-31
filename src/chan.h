@@ -54,6 +54,7 @@ typedef struct memstruct {
   time_t delay; /* for delayed autoop              */
   struct userrec *user; /* cached user lookup */
   int tried_getuser; /* negative user lookup cache */
+  char *away_msg; /* heap-allocated away message, nullptr if not away */
   struct memstruct *next;
 } memberlist;
 
@@ -240,6 +241,7 @@ struct chanset_t {
   time_t floodtime[FLOOD_CHAN_MAX];
   int floodnum[FLOOD_CHAN_MAX];
   char deopd[NICKLEN];   /* last user deopped                 */
+  int msg_rate;            /* per-channel msg rate override (msgs/min, 0=use global) */
   /* IRCX-specific per-channel settings */
   char ircx_ownerkey[128]; /* OWNERKEY for JOIN to get +q       */
   int  ircx_create;        /* use CREATE if channel is missing  */

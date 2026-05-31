@@ -361,7 +361,7 @@ op_lib_version(void)
 void
 op_lib_init(log_cb *ilog, restart_cb *irestart, die_cb *idie,
             int closeall, int maxcon,
-            size_t dh_size, size_t fd_heap_size)
+            size_t dh_size __attribute__((unused)), size_t fd_heap_size)
 {
 	/* Install callbacks first so op_set_time's error paths can use them. */
 	atomic_store_explicit(&op_log,     ilog,     memory_order_release);
@@ -373,9 +373,18 @@ op_lib_init(log_cb *ilog, restart_cb *irestart, die_cb *idie,
 	op_init_bh();
 	op_fdlist_init(closeall, maxcon, fd_heap_size);
 	op_init_netio();
-	op_init_dlink_nodes(dh_size);
+	op_event_ctx_t *ctx = op_event_ctx_create("main");
+	if (ctx != NULL)
+		op_event_ctx_set_current(ctx);
 	if (op_io_supports_event())
 		op_io_init_event();
+}
+
+void
+op_reinit_after_fork(void)
+{
+	/* Compatibility hook for embedders that quiesce helper threads before fork.
+	 * Current backends keep their inherited descriptors usable in the child. */
 }
 
 /* -------------------------------------------------------------------------

@@ -680,8 +680,8 @@ parse_document(parser_t *p)
                 op_toml_arr_t *a;
                 if (existing) {
                     if (existing->val.type != TV_ARR) {
-                        free(name);
                         set_errf(p, "key '%s' already exists and is not an array", name);
+                        free(name);
                         return 0;
                     }
                     a = existing->val.u.arr;
@@ -723,8 +723,8 @@ parse_document(parser_t *p)
                 kv_t *existing = table_find(p->root, name);
                 if (existing) {
                     if (existing->val.type != TV_TABLE) {
-                        free(name);
                         set_errf(p, "key '%s' already exists and is not a table", name);
+                        free(name);
                         return 0;
                     }
                     p->cur_tab = existing->val.u.tab;

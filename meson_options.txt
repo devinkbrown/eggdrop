@@ -65,6 +65,8 @@ option('module-share',    type: 'boolean', value: true,
   description: 'Build share module (botnet userfile sharing)')
 option('module-transfer', type: 'boolean', value: true,
   description: 'Build transfer module (DCC file transfer)')
+option('module-msgcounter', type: 'boolean', value: true,
+  description: 'Build msgcounter module (per-channel PRIVMSG rate tracking)')
 option('module-twitch',   type: 'boolean', value: true,
   description: 'Build twitch module (Twitch IRC support)')
 option('module-uptime',   type: 'boolean', value: true,

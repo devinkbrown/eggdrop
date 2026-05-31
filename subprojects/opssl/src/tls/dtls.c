@@ -129,6 +129,11 @@ struct opssl_dtls_conn {
     uint8_t            *flight_buf;
     size_t              flight_len;
     size_t              flight_cap;
+    /* Per-record offsets so retransmit re-emits one datagram per record
+     * rather than coalescing the whole flight into a single oversized UDP
+     * packet (which the kernel rejects with EMSGSIZE). */
+    size_t              flight_records[64];
+    size_t              flight_record_count;
     dtls_flight_state_t flight_state;
     int                 retransmit_count;
     uint64_t            retransmit_deadline_ms;
@@ -176,6 +181,11 @@ now_ms(void)
 static int
 dtls_replay_check(dtls_replay_window_t *w, uint64_t seq)
 {
+    /* Reject seq numbers that would imply 48-bit wraparound. RFC 6347
+     * mandates rekey or close before exhausting the seq space. */
+    if (seq >> 48)
+        return 0;
+
     if (seq > w->max_seq) {
         uint64_t shift = seq - w->max_seq;
 
@@ -241,6 +251,8 @@ dtls_flight_append(opssl_dtls_conn_t *conn, const uint8_t *data, size_t len)
             new_cap = DTLS_FLIGHT_BUF_MAX;
 
         uint8_t *nbuf = op_malloc(new_cap);
+        if (!nbuf)
+            return -1;
         if (conn->flight_buf && conn->flight_len)
             memcpy(nbuf, conn->flight_buf, conn->flight_len);
         if (conn->flight_buf)
@@ -250,6 +262,10 @@ dtls_flight_append(opssl_dtls_conn_t *conn, const uint8_t *data, size_t len)
     }
 
     memcpy(conn->flight_buf + conn->flight_len, data, len);
+    if (conn->flight_record_count <
+        sizeof(conn->flight_records) / sizeof(conn->flight_records[0])) {
+        conn->flight_records[conn->flight_record_count++] = conn->flight_len;
+    }
     conn->flight_len = new_len;
     return 0;
 }
@@ -258,6 +274,7 @@ static void
 dtls_flight_clear(opssl_dtls_conn_t *conn)
 {
     conn->flight_len = 0;
+    conn->flight_record_count = 0;
 }
 
 /* ─── Record Layer ─────────────────────────────────────────────────── */
@@ -279,9 +296,16 @@ dtls_send_record(opssl_dtls_conn_t *conn, uint8_t type,
     hdr[9] = (uint8_t)(conn->write_seq >> 8);
     hdr[10] = (uint8_t)(conn->write_seq);
 
+    if (len > DTLS_MAX_RECORD_LEN)
+        return -1;
     size_t record_len = len;
-    if (conn->write_encrypted)
+    if (conn->write_encrypted) {
+        if (record_len > DTLS_MAX_RECORD_LEN - 16)
+            return -1;
         record_len += 16;
+    }
+    if (record_len > 0xFFFF)
+        return -1;
 
     hdr[11] = (uint8_t)(record_len >> 8);
     hdr[12] = (uint8_t)(record_len);
@@ -317,9 +341,17 @@ dtls_send_record(opssl_dtls_conn_t *conn, uint8_t type,
     ssize_t sent = send(conn->fd, dgram, dgram_len, 0);
     if (sent < 0 && errno == EPERM)
         sent = write(conn->fd, dgram, dgram_len);
+    /* PMTU black-hole: kernel reports EMSGSIZE. Reduce MTU and bubble up
+     * so the caller can re-fragment on the next retransmit attempt. */
+    if (sent < 0 && errno == EMSGSIZE) {
+        if (conn->mtu > 576)
+            conn->mtu = 576;
+        conn->pmtu = conn->mtu;
+        return -1;
+    }
     if (sent > 0) {
         conn->write_seq++;
-        dtls_flight_append(conn, dgram, dgram_len);
+        (void)dtls_flight_append(conn, dgram, dgram_len);
     }
 
     return sent;
@@ -350,8 +382,9 @@ dtls_recv_record(opssl_dtls_conn_t *conn, uint8_t *type,
     if ((size_t)DTLS_RECORD_HEADER_LEN + record_len > (size_t)n)
         return -1;
 
-    uint64_t full_seq = ((uint64_t)epoch << 48) | seq;
-    if (conn->read_encrypted && !dtls_replay_check(&conn->replay_window, full_seq))
+    if (conn->read_encrypted && epoch != conn->epoch_read)
+        return -1;
+    if (conn->read_encrypted && !dtls_replay_check(&conn->replay_window, seq))
         return -1;
 
     const uint8_t *payload = buf + DTLS_RECORD_HEADER_LEN;
@@ -396,7 +429,11 @@ static ssize_t
 dtls_send_handshake(opssl_dtls_conn_t *conn, uint8_t hs_type,
                     const uint8_t *body, size_t body_len)
 {
-    size_t max_frag = conn->mtu - DTLS_OVERHEAD - DTLS_HS_HEADER_LEN;
+    /* Guard against MTU underflow (size_t wraparound) on pathologically
+     * small MTU values; floor to a 64-byte fragment payload. */
+    size_t min_overhead = DTLS_OVERHEAD + DTLS_HS_HEADER_LEN;
+    size_t max_frag = (conn->mtu > min_overhead + 64)
+                    ? conn->mtu - min_overhead : 64;
     size_t offset = 0;
 
     do {
@@ -472,12 +509,18 @@ dtls_reassembly_get(opssl_dtls_conn_t *conn, uint16_t msg_seq,
         return NULL;
 
     dtls_reassembly_t *r = op_calloc(1, sizeof(*r));
+    if (!r)
+        return NULL;
     r->type         = type;
     r->msg_seq      = msg_seq;
     r->total_length = total_length;
     r->body         = op_malloc(total_length > 0 ? total_length : 1);
     size_t cov_bytes = (total_length + 7) / 8;
     r->coverage     = op_calloc(1, cov_bytes > 0 ? cov_bytes : 1);
+    if (!r->body || !r->coverage) {
+        dtls_reassembly_free(r);
+        return NULL;
+    }
 
     r->next = conn->reassembly_queue;
     conn->reassembly_queue = r;
@@ -491,14 +534,25 @@ dtls_reassembly_add_fragment(dtls_reassembly_t *r,
 {
     if (!r->body || !r->coverage)
         return false;
-    if (frag_offset + frag_length > r->total_length)
+    /* Overflow-safe bounds check on the fragment window. */
+    if (frag_length > r->total_length ||
+        frag_offset > r->total_length - frag_length)
         return false;
 
-    memcpy(r->body + frag_offset, data, frag_length);
-    for (uint32_t i = frag_offset; i < frag_offset + frag_length; i++)
-        r->coverage[i / 8] |= (uint8_t)(1u << (i % 8));
-    r->bytes_received += frag_length;
-
+    /* Track only bytes newly covered to keep bytes_received accurate
+     * against duplicate or overlapping retransmissions. */
+    uint32_t newly = 0;
+    for (uint32_t i = frag_offset; i < frag_offset + frag_length; i++) {
+        uint8_t bit = (uint8_t)(1u << (i % 8));
+        if (!(r->coverage[i / 8] & bit)) {
+            r->coverage[i / 8] |= bit;
+            newly++;
+        }
+    }
+    if (newly > 0) {
+        memcpy(r->body + frag_offset, data, frag_length);
+        r->bytes_received += newly;
+    }
     return (r->bytes_received >= r->total_length);
 }
 
@@ -528,7 +582,11 @@ dtls_make_cookie(opssl_dtls_conn_t *conn,
     uint8_t input[sizeof(struct sockaddr_storage)];
     size_t  input_len = 0;
 
-    if ((size_t)peerlen <= sizeof(struct sockaddr_storage)) {
+    if ((peer == NULL && peerlen != 0) ||
+        (size_t)peerlen > sizeof(struct sockaddr_storage))
+        return 0;
+
+    if (peer != NULL && peerlen > 0) {
         memcpy(input, peer, peerlen);
         input_len = peerlen;
     }
@@ -551,7 +609,7 @@ dtls_generate_cookie(opssl_dtls_conn_t *conn,
     socklen_t peerlen = sizeof(peer);
     if (getpeername(conn->fd, (struct sockaddr *)&peer, &peerlen) != 0)
         peerlen = 0;
-    return dtls_make_cookie(conn, (struct sockaddr *)&peer, peerlen,
+    return dtls_make_cookie(conn, peerlen ? (struct sockaddr *)&peer : NULL, peerlen,
                             cookie_out, cookie_len_out);
 }
 
@@ -882,7 +940,10 @@ dtls_process_handshake_record(opssl_dtls_conn_t *conn,
             if (cookie_len_wire == 0) {
                 uint8_t new_cookie[32];
                 size_t  new_cookie_len = 0;
-                dtls_generate_cookie(conn, new_cookie, &new_cookie_len);
+                if (!dtls_generate_cookie(conn, new_cookie, &new_cookie_len))
+                    return OPSSL_ERROR;
+                if (new_cookie_len > sizeof(conn->cookie))
+                    return OPSSL_ERROR;
                 memcpy(conn->cookie, new_cookie, new_cookie_len);
                 conn->cookie_len = new_cookie_len;
 
@@ -921,6 +982,7 @@ dtls_process_handshake_record(opssl_dtls_conn_t *conn,
 
         uint32_t clen = frag_data[2];
         if (3 + clen > frag_len) return OPSSL_ERROR;
+        if (clen > sizeof(conn->cookie)) return OPSSL_ERROR;
         memcpy(conn->cookie, frag_data + 3, clen);
         conn->cookie_len = clen;
 
@@ -1050,7 +1112,8 @@ dtls_do_server_handshake(opssl_dtls_conn_t *conn)
     if (type != DTLS_RT_HANDSHAKE)
         return OPSSL_ERROR;
 
-    return dtls_process_handshake_record(conn, buf, (size_t)n);
+    opssl_result_t r = dtls_process_handshake_record(conn, buf, (size_t)n);
+    return r;
 }
 
 static opssl_result_t
@@ -1066,8 +1129,9 @@ dtls_do_client_handshake(opssl_dtls_conn_t *conn)
         uint8_t empty[1] = {0};
         uint8_t out_data[16384];
         size_t consumed = 0, out_len = 0;
-        opssl_tls13_client_handshake(conn->hs_buf, empty, 0,
+        int r = opssl_tls13_client_handshake(conn->hs_buf, empty, 0,
                                       &consumed, out_data, &out_len, sizeof(out_data));
+        (void)r;
         if (out_len > 0)
             dtls_send_engine_output(conn, out_data, out_len);
 
@@ -1195,7 +1259,8 @@ opssl_dtls_write(opssl_dtls_conn_t *conn, const void *buf, size_t len)
     if (!conn || conn->hs_state != OPSSL_HS_COMPLETE)
         return -1;
 
-    size_t max_payload = conn->mtu - DTLS_OVERHEAD;
+    size_t max_payload = (conn->mtu > DTLS_OVERHEAD + 64)
+                       ? conn->mtu - DTLS_OVERHEAD : 64;
     const uint8_t *p  = (const uint8_t *)buf;
     size_t remaining  = len;
 
@@ -1228,8 +1293,10 @@ opssl_dtls_shutdown(opssl_dtls_conn_t *conn)
 void
 opssl_dtls_set_mtu(opssl_dtls_conn_t *conn, size_t mtu)
 {
-    if (conn && mtu >= 256)
-        conn->mtu = mtu;
+    if (conn && mtu >= 256 && mtu <= DTLS_MAX_RECORD_LEN) {
+        conn->mtu  = mtu;
+        conn->pmtu = mtu;
+    }
 }
 
 size_t
@@ -1255,8 +1322,18 @@ opssl_dtls_handle_timeout(opssl_dtls_conn_t *conn)
         return OPSSL_FATAL;
     }
 
-    if (conn->flight_buf && conn->flight_len > 0)
-        send(conn->fd, conn->flight_buf, conn->flight_len, 0);
+    if (conn->flight_buf && conn->flight_len > 0) {
+        /* Re-emit each record as an individual datagram so we never exceed
+         * the current path MTU. */
+        for (size_t i = 0; i < conn->flight_record_count; i++) {
+            size_t start = conn->flight_records[i];
+            size_t end   = (i + 1 < conn->flight_record_count)
+                         ? conn->flight_records[i + 1] : conn->flight_len;
+            if (end > start)
+                (void)send(conn->fd, conn->flight_buf + start,
+                           end - start, 0);
+        }
+    }
 
     conn->retransmit_count++;
     conn->current_timeout_ms *= 2;

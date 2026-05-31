@@ -105,9 +105,32 @@ constexpr int NEWSERVERPASSMAX = 128;
 #define isupport_get_prefixchars ((const char *(*)(void))server_funcs[53])
 #define H_stdreply (*(p_tcl_bind_list *)(server_funcs[54]))
 #define server_add_str ((void (*)(const char *))server_funcs[55])
+/* 56: IRCv3 'account' message tag for the message currently being dispatched.
+ * Empty string when the tag was absent. */
+#define current_msgtag_account ((char *)(server_funcs[56]))
 
 
 #endif /* MAKING_SERVER */
+
+#ifdef MAKING_SERVER
+/* Dynamic limits updated from ISUPPORT tokens (MODES=, CHANLIMIT=, CHANNELLEN=).
+ * These are defined in isupport.c and available to all server.mod translation units. */
+extern int  isupport_max_modes;   /* MODES=N   — max mode params per MODE line  */
+extern int  isupport_chanlimit;   /* CHANLIMIT= — max channels the bot may join  */
+extern int  isupport_channellen;  /* CHANNELLEN=N — max channel name length      */
+extern int  isupport_hostlen;     /* HOSTLEN=N — max hostname length (default 63) */
+
+/* isupport_get_prefix_char — map a mode letter to its PREFIX character.
+ * e.g. 'o' → '@', 'v' → '+'.  Returns 0 if the mode is not in the PREFIX map.
+ * Defined in isupport.c; updates automatically when PREFIX= is received. */
+extern char isupport_get_prefix_char(char mode);
+
+/* server_queue_cap_req — request a capability from the server.
+ * If CAP negotiation is open (CAP LS received), the request is sent at once;
+ * otherwise it is held and flushed when the final CAP LS line arrives.
+ * Defined in servmsg.c. */
+extern void server_queue_cap_req(const char *cap);
+#endif
 
 struct server_list {
   char *name;

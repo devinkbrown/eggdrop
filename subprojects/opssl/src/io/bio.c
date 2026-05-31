@@ -10,9 +10,18 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <sys/types.h>
 
 #define OPSSL_ERR_MEMORY_ALLOCATION  OPSSL_ERR_ALLOC_FAILED
 #define set_error(code) opssl_set_error((code), NULL)
+
+/*
+ * POSIX leaves read()/write() with len > SSIZE_MAX as undefined behavior.
+ * Cap transfers to a known-safe ceiling to avoid integer-domain hazards
+ * on 64-bit platforms where size_t can exceed ssize_t range.
+ */
+#define OPSSL_BIO_IO_MAX  ((size_t)SSIZE_MAX)
 
 /*
  * BIO (Basic I/O) abstraction
@@ -86,9 +95,20 @@ void opssl_bio_free(opssl_bio_t *bio)
 
 ssize_t opssl_bio_read(opssl_bio_t *bio, uint8_t *buf, size_t len)
 {
-    if (!bio || !buf || len == 0) {
+    if (!bio || !buf) {
         set_error(OPSSL_ERR_NULL_POINTER);
         return -1;
+    }
+
+    /* Zero-length read is a no-op per POSIX read(2) semantics. */
+    if (len == 0) {
+        return 0;
+    }
+
+    /* Cap to SSIZE_MAX to avoid implementation-defined behavior and
+     * to guarantee the return value fits in ssize_t. */
+    if (len > OPSSL_BIO_IO_MAX) {
+        len = OPSSL_BIO_IO_MAX;
     }
 
     if (bio->eof_received) {
@@ -115,8 +135,12 @@ ssize_t opssl_bio_read(opssl_bio_t *bio, uint8_t *buf, size_t len)
             bio->eof_received = true;
         }
     } else {
-        /* Use file descriptor mode */
-        result = read(bio->fd, buf, len);
+        /* Use file descriptor mode. Retry transparently on EINTR so
+         * the caller is not forced to treat signal interruption as a
+         * "want read" event. */
+        do {
+            result = read(bio->fd, buf, len);
+        } while (result < 0 && errno == EINTR);
 
         if (result < 0) {
             bio->last_error = errno;
@@ -124,9 +148,6 @@ ssize_t opssl_bio_read(opssl_bio_t *bio, uint8_t *buf, size_t len)
                 set_error(OPSSL_ERR_WANT_READ);
             } else if (errno == ECONNRESET || errno == EPIPE) {
                 set_error(OPSSL_ERR_CONNECTION_LOST);
-            } else if (errno == EINTR) {
-                /* Interrupted system call - try again */
-                set_error(OPSSL_ERR_WANT_READ);
             } else {
                 set_error(OPSSL_ERR_IO_ERROR);
             }
@@ -140,9 +161,19 @@ ssize_t opssl_bio_read(opssl_bio_t *bio, uint8_t *buf, size_t len)
 
 ssize_t opssl_bio_write(opssl_bio_t *bio, const uint8_t *buf, size_t len)
 {
-    if (!bio || !buf || len == 0) {
+    if (!bio || !buf) {
         set_error(OPSSL_ERR_NULL_POINTER);
         return -1;
+    }
+
+    /* Zero-length write is a no-op; mirrors write(2) behavior and keeps
+     * partial-write loops correct when remaining == 0. */
+    if (len == 0) {
+        return 0;
+    }
+
+    if (len > OPSSL_BIO_IO_MAX) {
+        len = OPSSL_BIO_IO_MAX;
     }
 
     ssize_t result;
@@ -163,8 +194,12 @@ ssize_t opssl_bio_write(opssl_bio_t *bio, const uint8_t *buf, size_t len)
             }
         }
     } else {
-        /* Use file descriptor mode */
-        result = write(bio->fd, buf, len);
+        /* Use file descriptor mode. Retry transparently on EINTR before
+         * any byte has been transferred. POSIX guarantees write() either
+         * returns -1/EINTR with no progress, or a short count >= 0. */
+        do {
+            result = write(bio->fd, buf, len);
+        } while (result < 0 && errno == EINTR);
 
         if (result < 0) {
             bio->last_error = errno;
@@ -172,9 +207,6 @@ ssize_t opssl_bio_write(opssl_bio_t *bio, const uint8_t *buf, size_t len)
                 set_error(OPSSL_ERR_WANT_WRITE);
             } else if (errno == ECONNRESET || errno == EPIPE) {
                 set_error(OPSSL_ERR_CONNECTION_LOST);
-            } else if (errno == EINTR) {
-                /* Interrupted system call - try again */
-                set_error(OPSSL_ERR_WANT_WRITE);
             } else if (errno == ENOSPC) {
                 set_error(OPSSL_ERR_NO_SPACE);
             } else {

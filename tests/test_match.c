@@ -102,6 +102,84 @@ TEST(wild_match_edge_cases) {
     ASSERT_TRUE(wild_match("*?*", "a"));
 }
 
+/* ---- Additional regression tests (Item 19) --------------------------------
+ *
+ * These cover specific patterns required by the task spec.  Some overlap with
+ * existing tests by design (regression safety), but target the concrete
+ * assertions listed in the spec.
+ * -------------------------------------------------------------------------- */
+
+/* Spec item 2: foo* prefix and barfoo prefix-mismatch */
+TEST(wild_match_prefix_mismatch) {
+    ASSERT_TRUE(wild_match("foo*", "foobar"));
+    ASSERT_FALSE(wild_match("foo*", "barfoo")); /* prefix does not match */
+    ASSERT_TRUE(wild_match("foo*", "foo"));     /* empty suffix after * */
+    ASSERT_FALSE(wild_match("foo*", "fo"));     /* prefix too short */
+}
+
+/* Spec item 3: IRC nick!user@host hostmask */
+TEST(wild_match_irc_hostmask_spec) {
+    ASSERT_TRUE(wild_match("*!*@*", "nick!user@host"));
+    ASSERT_TRUE(wild_match("*!*@*", "n!u@h"));
+    /* single-char fields still satisfy the three-part mask */
+    ASSERT_TRUE(wild_match("*!*@*", "a!b@c"));
+}
+
+/* Spec item 4: ?ick single-char prefix wildcard */
+TEST(wild_match_question_prefix) {
+    ASSERT_TRUE(wild_match("?ick", "nick"));
+    ASSERT_TRUE(wild_match("?ick", "kick"));
+    ASSERT_FALSE(wild_match("?ick", "ni"));    /* string too short */
+    ASSERT_FALSE(wild_match("?ick", "niick")); /* string too long */
+}
+
+/* Spec item 5: case-insensitivity — _wild_match uses toupper() on both sides */
+TEST(wild_match_case_insensitive_spec) {
+    ASSERT_TRUE(wild_match("NICK", "nick"));
+    ASSERT_TRUE(wild_match("nick", "NICK"));
+    ASSERT_TRUE(wild_match("Nick!*@*", "NICK!user@host"));
+}
+
+/* Spec item 6: wild_match_per — % matches 0 or more non-space characters.
+ * Unlike * (which matches anything including spaces), % stops at a space.
+ * Signature: wild_match_per(mask, string) via the macro in proto.h which
+ * calls _wild_match_per(m, n, casecharcmp, NULL, NULL). */
+TEST(wild_match_per_percent_wildcard) {
+    /* % matches one or more non-space chars (like * but no spaces) */
+    ASSERT_TRUE(wild_match_per("%", "word"));
+    ASSERT_TRUE(wild_match_per("foo%", "foobar"));
+    ASSERT_TRUE(wild_match_per("%bar", "foobar"));
+
+    /* % does NOT cross a space boundary */
+    ASSERT_FALSE(wild_match_per("%", "hello world")); /* space in string */
+
+    /* * DOES cross space; % does not */
+    ASSERT_TRUE(wild_match("*", "hello world"));
+    ASSERT_FALSE(wild_match_per("%", "hello world"));
+
+    /* mixed: * before space, % after */
+    ASSERT_TRUE(wild_match_per("hello %", "hello world"));
+
+    /* empty string never matches */
+    ASSERT_FALSE(wild_match_per("%", ""));
+    ASSERT_FALSE(wild_match_per("*", ""));
+}
+
+/* Spec item 7: empty pattern / empty string edge cases */
+TEST(wild_match_empty_edge_cases) {
+    /* Empty string never matches any pattern */
+    ASSERT_FALSE(wild_match("*",    ""));
+    ASSERT_FALSE(wild_match("?",    ""));
+    ASSERT_FALSE(wild_match("",     "nonempty"));
+    ASSERT_FALSE(wild_match("test", ""));
+
+    /* Wild-match-per: same rules */
+    ASSERT_FALSE(wild_match_per("*",    ""));
+    ASSERT_FALSE(wild_match_per("%",    ""));
+    ASSERT_FALSE(wild_match_per("",     "nonempty"));
+    ASSERT_FALSE(wild_match_per("test", ""));
+}
+
 /* RFC1459 special-char equivalences ({=[, }=], |=\, ~=^) are handled by
  * rfc1459_match(), not wild_match() which uses plain case-insensitive ASCII. */
 
@@ -194,6 +272,13 @@ int main(void) {
     RUN_TEST(wild_match_complex_patterns);
     RUN_TEST(wild_match_case_insensitive);
     RUN_TEST(wild_match_edge_cases);
+    /* Item 19 regression tests */
+    RUN_TEST(wild_match_prefix_mismatch);
+    RUN_TEST(wild_match_irc_hostmask_spec);
+    RUN_TEST(wild_match_question_prefix);
+    RUN_TEST(wild_match_case_insensitive_spec);
+    RUN_TEST(wild_match_per_percent_wildcard);
+    RUN_TEST(wild_match_empty_edge_cases);
 
     RUN_TEST(cidr_match_same_subnet);
     RUN_TEST(cidr_match_different_subnet);

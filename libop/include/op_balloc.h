@@ -37,9 +37,42 @@ typedef struct op_bh op_bh;
 typedef void op_bh_usage_cb (size_t bused, size_t bfree, size_t bmemusage, size_t heapalloc,
 			     const char *desc, void *data);
 
+/*
+ * Thread-safety contract
+ * ----------------------
+ *  - op_bh_alloc / op_bh_free are fully MT-safe.  Each thread caches a small
+ *    "magazine" of elements (see balloc.c MAGAZINE_SIZE).  Locking only
+ *    occurs on magazine refill/flush.
+ *  - op_bh_create / op_bh_create_shared / op_bh_destroy / op_bh_attach_shmem
+ *    are MT-safe with respect to each other (a global heap-list lock is held
+ *    while mutating the registry) but the *result* of destroying a heap that
+ *    is concurrently being allocated from is undefined — the caller must
+ *    quiesce users before destroying.
+ *  - op_bh_usage / op_bh_usage_all / op_bh_total_usage / op_bh_stats are
+ *    MT-safe and take consistent snapshots under the per-heap lock.
+ *  - op_bh_pool_alloc_aligned returns the same element pool as op_bh_alloc
+ *    provided the heap was created with sufficient stride.  See balloc.c.
+ *
+ *  Memory ordering: magazine generation counter uses relaxed ordering — a
+ *  destroyed heap's address can be reused, and the next alloc on a stale
+ *  magazine will detect the generation mismatch and drop cached pointers.
+ */
 
 void op_bh_free(op_bh *, void *);
 void *op_bh_alloc(op_bh *);
+
+/*
+ * op_bh_pool_alloc_aligned — allocate one element guaranteed to be aligned
+ * to `align` bytes (must be a power of two).  Useful for per-worker / per-CPU
+ * structures that need cache-line alignment to avoid false sharing.
+ *
+ * The heap's elem_stride must already be a multiple of `align` — typically
+ * arranged by passing `elemsize == ALIGN_UP(sizeof(T), align)` to
+ * op_bh_create().  If the heap stride is too small, this function aborts.
+ *
+ * The returned pointer is zeroed and aligned.  Free with op_bh_free().
+ */
+void *op_bh_pool_alloc_aligned(op_bh *bh, size_t align);
 
 /* Runtime toggle for memory poisoning.  In debug builds, set to 0 to
  * disable the 0xDE fill/check without recompiling.  Defined in balloc.c. */
@@ -51,6 +84,26 @@ void op_init_bh(void);
 void op_bh_usage(op_bh *bh, size_t *bused, size_t *bfree, size_t *bmemusage, const char **desc);
 void op_bh_usage_all(op_bh_usage_cb *cb, void *data);
 void op_bh_total_usage(size_t *total_alloc, size_t *total_used);
+
+/*
+ * Extended stats snapshot.  All counts are taken under the heap lock so the
+ * snapshot is internally consistent.  Magazine-cached elements are counted as
+ * "in use" (they have been handed out from the global free list even though
+ * no caller has consumed them yet).
+ */
+typedef struct op_bh_stats {
+	size_t in_use;         /* elements currently considered allocated   */
+	size_t free_count;     /* elements on the global free list          */
+	size_t slabs;          /* number of mmap'd slabs                    */
+	size_t bytes_alloc;    /* total bytes mmap'd from the OS            */
+	size_t bytes_in_use;   /* in_use * elemSize (user-visible bytes)    */
+	size_t peak_in_use;    /* high-water mark of in_use                 */
+	size_t elem_size;      /* requested element size                    */
+	size_t elem_stride;    /* aligned element stride                    */
+	const char *desc;      /* heap description (NUL-terminated)         */
+} op_bh_stats_t;
+
+void op_bh_stats(op_bh *bh, op_bh_stats_t *out);
 
 /*
  * op_bh_create_shared — shared-memory slab allocator for hot-reload pools.

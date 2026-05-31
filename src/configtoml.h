@@ -30,6 +30,12 @@ int readtomlconfig(const char *fname);
 void prescan_paths(const char *fname);
 
 /*
+ * prescan_runtime() -- quick pre-scan of startup-only performance settings.
+ * These must be read before libop netio and async workers are initialised.
+ */
+void prescan_runtime(const char *fname, int *nthreads_out, int *io_shards_out);
+
+/*
  * run_setup_wizard() -- interactive first-time configuration wizard.
  * Prompts the user for essential settings and writes a ready-to-use
  * TOML config file to outfile.

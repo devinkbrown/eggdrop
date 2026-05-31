@@ -71,6 +71,22 @@ test_notes = executable('test_notes',
   dependencies: [libop_dep, uring_dep],
 )
 
+test_lmdb_recovery = executable('test_lmdb_recovery',
+  'test_lmdb_recovery.c',
+  include_directories: test_inc,
+  c_args: test_c_args,
+  dependencies: [libop_dep, uring_dep],
+)
+
+lmdb_test_inc = include_directories('../libop/src/lmdb')
+
+test_lmdb_roundtrip = executable('test_lmdb_roundtrip',
+  'test_lmdb_roundtrip.c',
+  include_directories: test_inc + [lmdb_test_inc],
+  c_args: test_c_args,
+  dependencies: [libop_dep, uring_dep],
+)
+
 # Register tests with meson
 test('strbuf', test_strbuf)
 test('rfc1459', test_rfc1459)
@@ -80,3 +96,5 @@ test('botmsg', test_botmsg)
 test('net', test_net)
 test('misc', test_misc)
 test('notes', test_notes)
+test('lmdb_recovery', test_lmdb_recovery)
+test('lmdb_roundtrip', test_lmdb_roundtrip)

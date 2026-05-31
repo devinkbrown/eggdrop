@@ -25,9 +25,9 @@
 /*
  * Buffer layout
  * -------------
- * A rawbuf_head_t is a linked list of fixed-size rawbuf_t chunks.  All data
- * is appended at the tail; consumption (flush to fd, or get to memory) always
- * proceeds from the head.
+ * A rawbuf_head_t is a FIFO op_vec_t of fixed-size rawbuf_t chunks.  All
+ * data is appended at the tail; consumption always proceeds from the head,
+ * tracked by rb->head_idx.  When head_idx reaches vec size, both are reset.
  *
  * rb->written tracks the byte offset into the HEAD chunk at which the next
  * flush/get operation begins.  It is always 0 for every chunk except the
@@ -57,17 +57,17 @@
 
 struct _rawbuf
 {
-	op_dlink_node node;
-	uint8_t       data[RAWBUF_SIZE];
-	size_t        len;      /* bytes appended into data[]      */
-	bool          flushing; /* rb->written is our start offset */
+	uint8_t data[RAWBUF_SIZE];
+	size_t  len;      /* bytes appended into data[]      */
+	bool    flushing; /* rb->written is our start offset */
 };
 
 struct _rawbuf_head
 {
-	op_dlink_list list;
-	size_t        len;     /* total bytes across all chunks */
-	size_t        written; /* offset into head chunk        */
+	op_vec_t chunks;   /* FIFO of rawbuf_t * (head_idx..size-1 are live) */
+	size_t   head_idx; /* index of first live chunk                       */
+	size_t   len;      /* total bytes across all chunks                   */
+	size_t   written;  /* offset into head chunk                          */
 };
 
 static op_bh *rawbuf_heap;
@@ -86,15 +86,23 @@ static rawbuf_t *
 rawbuf_newchunk(rawbuf_head_t *rb)
 {
 	rawbuf_t *buf = rawbuf_alloc();
-	op_dlinkAddTail(buf, &buf->node, &rb->list);
+	op_vec_push(&rb->chunks, buf);
 	return buf;
 }
 
 static void
 rawbuf_free_head(rawbuf_head_t *rb, rawbuf_t *buf)
 {
-	op_dlinkDelete(&buf->node, &rb->list);
+	slop_assert(rb->head_idx < op_vec_size(&rb->chunks));
+	slop_assert(op_vec_get(&rb->chunks, rb->head_idx) == buf);
+	rb->head_idx++;
 	op_bh_free(rawbuf_heap, buf);
+	/* Reset when all chunks consumed so the backing array can be reused. */
+	if (rb->head_idx == op_vec_size(&rb->chunks))
+	{
+		op_vec_clear(&rb->chunks, NULL, NULL);
+		rb->head_idx = 0;
+	}
 }
 
 /* -------------------------------------------------------------------------
@@ -112,25 +120,24 @@ rawbuf_free_head(rawbuf_head_t *rb, rawbuf_t *buf)
 static int
 op_rawbuf_flush_writev(rawbuf_head_t *rb, op_fde_t *F)
 {
-	op_dlink_node *ptr, *next;
 	rawbuf_t *buf;
 	int nvec = 0;
 	int retval;
 	size_t sxret;
 	struct op_iovec vec[OP_UIO_MAXIOV];
 
-	if (rb->list.head == NULL)
+	if (rb->head_idx >= op_vec_size(&rb->chunks))
 	{
 		errno = EAGAIN;
 		return -1;
 	}
 
-	OP_DLINK_FOREACH(ptr, rb->list.head)
+	for (size_t vi = rb->head_idx; vi < op_vec_size(&rb->chunks); vi++)
 	{
 		if (nvec >= OP_UIO_MAXIOV)
 			break;
 
-		buf = ptr->data;
+		buf = op_vec_get(&rb->chunks, vi);
 		if (buf->flushing)
 		{
 			/* Head chunk: start from current offset. */
@@ -175,9 +182,9 @@ op_rawbuf_flush_writev(rawbuf_head_t *rb, op_fde_t *F)
 		return retval;
 	sxret = (size_t)retval;
 
-	OP_DLINK_FOREACH_SAFE(ptr, next, rb->list.head)
+	while (rb->head_idx < op_vec_size(&rb->chunks) && sxret > 0)
 	{
-		buf = ptr->data;
+		buf = op_vec_get(&rb->chunks, rb->head_idx);
 		if (buf->flushing)
 		{
 			/* Head chunk: sxret is counted from rb->written. */
@@ -228,7 +235,7 @@ op_rawbuf_flush(rawbuf_head_t *rb, op_fde_t *F)
 	rawbuf_t *buf;
 	int retval;
 
-	if (rb->list.head == NULL)
+	if (rb->head_idx >= op_vec_size(&rb->chunks))
 	{
 		errno = EAGAIN;
 		return -1;
@@ -237,7 +244,7 @@ op_rawbuf_flush(rawbuf_head_t *rb, op_fde_t *F)
 	if (!op_fd_ssl(F))
 		return op_rawbuf_flush_writev(rb, F);
 
-	buf = rb->list.head->data;
+	buf = op_vec_get(&rb->chunks, rb->head_idx);
 	if (!buf->flushing)
 	{
 		buf->flushing = true;
@@ -273,8 +280,8 @@ op_rawbuf_append(rawbuf_head_t *rb, const void *data, size_t len)
 {
 	rawbuf_t *tail = NULL;
 
-	if (rb->list.tail != NULL)
-		tail = rb->list.tail->data;
+	if (op_vec_size(&rb->chunks) > rb->head_idx)
+		tail = op_vec_get(&rb->chunks, op_vec_size(&rb->chunks) - 1);
 
 	/* Fill remaining space in the current tail chunk, unless it is
 	 * already mid-flush (its data is being consumed from the front). */
@@ -317,10 +324,10 @@ op_rawbuf_get(rawbuf_head_t *rb, void *data, size_t len)
 	size_t    available, cpylen;
 	const uint8_t *src;
 
-	if (rb->list.head == NULL)
+	if (rb->head_idx >= op_vec_size(&rb->chunks))
 		return 0;
 
-	buf = rb->list.head->data;
+	buf = op_vec_get(&rb->chunks, rb->head_idx);
 
 	/* Bytes available in the head chunk from the current read position. */
 	available = buf->flushing ? (buf->len - rb->written) : buf->len;
@@ -356,7 +363,7 @@ op_rawbuf_length(rawbuf_head_t *rb)
 	/* Consistency check: an empty list must have len == 0.
 	 * lop_assert returns true when the assertion FAILS, so this branch
 	 * self-heals a corrupted length counter.  */
-	if (op_dlink_list_length(&rb->list) == 0 && lop_assert(rb->len == 0))
+	if (rb->head_idx >= op_vec_size(&rb->chunks) && lop_assert(rb->len == 0))
 		rb->len = 0;
 	return rb->len;
 }
@@ -374,11 +381,9 @@ op_new_rawbuffer(void)
 void
 op_free_rawbuffer(rawbuf_head_t *rb)
 {
-	op_dlink_node *ptr, *next;
-	OP_DLINK_FOREACH_SAFE(ptr, next, rb->list.head)
-	{
-		rawbuf_free_head(rb, ptr->data);
-	}
+	while (rb->head_idx < op_vec_size(&rb->chunks))
+		rawbuf_free_head(rb, op_vec_get(&rb->chunks, rb->head_idx));
+	op_vec_fini(&rb->chunks, NULL, NULL);
 	op_free(rb);
 }
 

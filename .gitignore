@@ -41,3 +41,23 @@ EGGMOD.stamp
 mod.xlibs
 __pycache__
 .clangd
+
+# Meson build directories and local tooling cache
+/.cache/
+/build/
+/build_*/
+/builddir/
+/builddir-*/
+
+# Local bot runtime state generated while testing
+/*.chan
+/*.chan~*
+/*.log
+/*.mdb
+/*.mdb-lock
+/*.pid
+/*.user
+/*.user~*
+/eggdrop.crt
+/eggdrop.key
+/logs/*.log

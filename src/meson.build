@@ -39,6 +39,7 @@ core_sources = files(
   'misc.c',
   'misc_file.c',
   'script.c',
+  'shard.c',
   'modules.c',
   'net.c',
   'perf.c',
@@ -85,6 +86,7 @@ endif
 # -------------------------------------------------------------------------
 eggdrop_deps = [
   libop_dep,   # includes compat and MD5 (merged into libop)
+  dependency('threads', required: true),
 ]
 if have_tcl
   eggdrop_deps = [tcl_dep] + eggdrop_deps
@@ -130,6 +132,7 @@ module_defs = [
   {'name': 'filesys',  'sources': ['mod/filesys.mod/filesys.c'],   'deps': []},
   {'name': 'ident',    'sources': ['mod/ident.mod/ident.c'],       'deps': []},
   {'name': 'irc',      'sources': ['mod/irc.mod/irc.c'],           'deps': []},
+  {'name': 'msgcounter', 'sources': ['mod/msgcounter.mod/msgcounter.c'], 'deps': []},
   {'name': 'notes',    'sources': ['mod/notes.mod/notes.c'],       'deps': []},
   {'name': 'pbkdf2',   'sources': ['mod/pbkdf2.mod/pbkdf2.c'],     'deps': []},
   {'name': 'seen',     'sources': ['mod/seen.mod/seen.c'],         'deps': []},

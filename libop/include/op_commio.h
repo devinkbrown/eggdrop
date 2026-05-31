@@ -182,8 +182,8 @@ int op_ignore_errno(int);
 
 /* Generic wrappers */
 void op_setselect(op_fde_t *, unsigned int type, PF * handler, void *client_data);
+void op_io_set_shard_hint(int);
 void op_init_netio(void);
-void op_reinit_after_fork(void);
 int op_select(long);
 int op_fd_ssl(const op_fde_t *F);
 op_platform_fd_t op_get_fd(const op_fde_t *F);

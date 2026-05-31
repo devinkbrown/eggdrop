@@ -84,19 +84,23 @@ find_pem_begin(const char *pem, const char *end, char *label, size_t label_max)
         p = skip_whitespace(p, end);
         if (p >= end) break;
 
-        /* Look for "-----BEGIN " */
-        if (p + strlen(PEM_BEGIN_PREFIX) < end &&
+        /* Look for "-----BEGIN ". Use <= so a marker that sits flush against
+         * the end of the buffer is still recognised. */
+        if ((size_t)(end - p) >= strlen(PEM_BEGIN_PREFIX) &&
             memcmp(p, PEM_BEGIN_PREFIX, strlen(PEM_BEGIN_PREFIX)) == 0) {
 
             p += strlen(PEM_BEGIN_PREFIX);
             const char *label_start = p;
 
-            /* Find "-----" suffix */
-            while (p < end && memcmp(p, PEM_SUFFIX, strlen(PEM_SUFFIX)) != 0) {
+            /* Find "-----" suffix. memcmp would over-read past `end` when
+             * fewer than strlen(SUFFIX) bytes remain; bound the comparison. */
+            size_t suf_len = strlen(PEM_SUFFIX);
+            while ((size_t)(end - p) >= suf_len &&
+                   memcmp(p, PEM_SUFFIX, suf_len) != 0) {
                 p++;
             }
 
-            if (p >= end) {
+            if ((size_t)(end - p) < suf_len) {
                 OPSSL_ERR(OPSSL_ERR_X509, 50);
                 return NULL;
             }
@@ -136,18 +140,14 @@ find_pem_end(const char *data, const char *end, const char *label)
         p = skip_whitespace(p, end);
         if (p >= end) break;
 
-        /* Look for "-----END " */
-        if (p + strlen(PEM_END_PREFIX) + label_len + strlen(PEM_SUFFIX) <= end &&
-            memcmp(p, PEM_END_PREFIX, strlen(PEM_END_PREFIX)) == 0) {
-
-            const char *check = p + strlen(PEM_END_PREFIX);
-
-            if (memcmp(check, label, label_len) == 0) {
-                check += label_len;
-                if (memcmp(check, PEM_SUFFIX, strlen(PEM_SUFFIX)) == 0) {
-                    return line_start;
-                }
-            }
+        /* Look for "-----END <label>-----" with strict bounds checks. */
+        size_t pre = strlen(PEM_END_PREFIX);
+        size_t suf = strlen(PEM_SUFFIX);
+        if ((size_t)(end - p) >= pre + label_len + suf &&
+            memcmp(p, PEM_END_PREFIX, pre) == 0 &&
+            memcmp(p + pre, label, label_len) == 0 &&
+            memcmp(p + pre + label_len, PEM_SUFFIX, suf) == 0) {
+            return line_start;
         }
 
         p = find_line_end(p, end);
@@ -330,8 +330,12 @@ opssl_pem_decode(const char *pem, size_t pem_len,
         return 0;
     }
 
-    /* Calculate maximum decoded size */
-    size_t b64_len = data_end - data_start;
+    /* Calculate maximum decoded size with overflow check. */
+    size_t b64_len = (size_t)(data_end - data_start);
+    if (b64_len > (SIZE_MAX - 3) / 3) {
+        OPSSL_ERR(OPSSL_ERR_X509, 60);
+        return 0;
+    }
     size_t max_der_len = (b64_len * 3) / 4 + 3; /* Overestimate */
 
     /* Allocate output buffer */
@@ -400,8 +404,13 @@ opssl_pem_decode_multi(const char *pem, size_t pem_len,
             return 0;
         }
 
-        /* Decode this block */
-        size_t b64_len = data_end - data_start;
+        /* Decode this block with overflow guard. */
+        size_t b64_len = (size_t)(data_end - data_start);
+        if (b64_len > (SIZE_MAX - 3) / 3) {
+            for (size_t i = 0; i < found; i++) op_free(ders[i]);
+            OPSSL_ERR(OPSSL_ERR_X509, 60);
+            return 0;
+        }
         size_t max_der_len = (b64_len * 3) / 4 + 3;
 
         uint8_t *der_buf = op_malloc(max_der_len);

@@ -110,6 +110,7 @@ typedef struct _module_entry {
   char *name;                   /* Name of the module (without .so)     */
   int major;                    /* Major version number MUST match      */
   int minor;                    /* Minor version number MUST be >=      */
+  int patch;                    /* Patch version for semver checking    */
 #ifndef STATIC
 #  ifdef MOD_USE_SHL
   shl_t hand;

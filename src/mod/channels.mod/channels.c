@@ -83,7 +83,7 @@ static void channel_bh_init(void)
    * masklist: 0 (auto).  sizeof(masklist) == 32, so auto gives ~127/page —
    * already the right granularity for a ban/exempt/invite list. */
   memberlist_heap = op_bh_create(sizeof(memberlist), 64, "memberlist");
-  masklist_heap   = op_bh_create(sizeof(masklist),    0, "masklist");
+  masklist_heap   = op_bh_create(sizeof(masklist),   64, "masklist");
 }
 
 static void channel_bh_destroy(void)
@@ -109,6 +109,9 @@ static void channel_free_member(void *ptr)
 {
   if (!ptr)
     return;
+  memberlist *m = (memberlist *)ptr;
+  op_free(m->away_msg);
+  m->away_msg = nullptr;
   op_bh_free(memberlist_heap, ptr);
 }
 
@@ -533,7 +536,7 @@ static void write_channels(void)
             "need-unban %s need-limit %s flood-chan %d:%d flood-ctcp %d:%d "
             "flood-join %d:%d flood-kick %d:%d flood-deop %d:%d "
             "flood-nick %d:%d aop-delay %d:%d ban-type %d ban-time %d "
-            "exempt-time %d invite-time %d %cenforcebans %cdynamicbans "
+            "exempt-time %d invite-time %d msg-rate %d %cenforcebans %cdynamicbans "
             "%cuserbans %cautoop %cautohalfop %cbitch %cgreet %cprotectops "
             "%cprotecthalfops %cprotectfriends %cdontkickops %cstatuslog "
             "%crevenge %crevengebot %cautovoice %csecret %cshared %ccycle "
@@ -548,7 +551,7 @@ static void write_channels(void)
             chan->flood_deop_thr, chan->flood_deop_time,
             chan->flood_nick_thr, chan->flood_nick_time,
             chan->aop_min, chan->aop_max, chan->ban_type, chan->ban_time,
-            chan->exempt_time, chan->invite_time,
+            chan->exempt_time, chan->invite_time, chan->msg_rate,
             PLSMNS(channel_enforcebans(chan)),
             PLSMNS(channel_dynamicbans(chan)),
             PLSMNS(!channel_nouserbans(chan)),

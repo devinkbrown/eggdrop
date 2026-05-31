@@ -118,6 +118,36 @@ static intptr_t ngetudef(char *, char *);
 static int expired_mask(struct chanset_t *chan, char *who);
 static int check_tcl_chanset(const char *, const char *, const char *);
 
+/* channels_max_modes() — return the effective MODES= limit.
+ *
+ * isupport_max_modes lives in server.mod (a separate DSO) and cannot be
+ * accessed via a raw extern from channels.mod.  irc.mod keeps its own
+ * 'modesperline' variable that is already bounded by MODES_PER_LINE_MAX and
+ * updated whenever MODES= is received; the add_mode() call path in irc.mod
+ * already enforces that limit when flushing.
+ *
+ * channels.mod uses this value as a soft guard to avoid batching more
+ * add_mode() calls than the server will accept per MODE command.
+ * MODES_PER_LINE_MAX (defined in chan.h) is the ceiling; in practice irc.mod
+ * may use a lower value but channels.mod does not need to duplicate that
+ * bookkeeping — the flush will happen in irc.mod at the right moment.
+ */
+static inline int channels_max_modes(void)
+{
+  return MODES_PER_LINE_MAX;
+}
+
+/* channels_ban_list_limit() — max bans per channel before we stop trying.
+ *
+ * max_bans lives in irc.mod and is not accessible from channels.mod.
+ * Use 128 as a conservative default that covers most IRC network defaults
+ * (usually 100-200).  The actual enforcement is still done in irc.mod's
+ * real_add_mode(); this limit only prevents channels.mod from pointlessly
+ * queueing MODE -b when the list is already known to be large. */
+static inline int channels_ban_list_limit(void)
+{
+  return 128;
+}
 
 #else
 

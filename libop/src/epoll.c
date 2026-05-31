@@ -90,17 +90,13 @@ struct epoll_info
 	int pfd_size;
 };
 
-static struct epoll_info *ep_info;
-static int can_do_event;
-static int can_do_timerfd;
-
 /* ---- I/O poll thread state ----------------------------------------------- */
 
 /*
  * ep_ring — lock-free SPSC ring of epoll_event values.
  *
  * The poll thread is the sole producer (writes head, reads tail).
- * The main thread is the sole consumer (writes tail, reads head).
+ * The owning shard thread is the sole consumer (writes tail, reads head).
  *
  * Both cursors are uint32_t; natural wrap-around at 2^32 is correct when
  * ring capacity is a power of two: (head - tail) gives the live count even
@@ -114,25 +110,82 @@ typedef struct
 {
 	_Atomic(uint32_t)   head;           /* producer cursor (poll thread)   */
 	char                _pad0[60];
-	_Atomic(uint32_t)   tail;           /* consumer cursor (main thread)   */
+	_Atomic(uint32_t)   tail;           /* consumer cursor (shard thread)  */
 	char                _pad1[60];
 	struct epoll_event  slots[EP_RING_CAP];
 } ep_ring_t;
 
 /*
- * ep_notify_fd — eventfd written by the poll thread to wake the main thread.
- * Main thread reads it (EFD_SEMAPHORE not used; we drain until empty).
+ * struct epoll_ctx_data — per-shard epoll backend state.
+ *
+ * Phase 1 (commit B) of the shard refactor (doc/technical/shard-design.md
+ * section 3) moves every formerly file-static into this struct. One instance
+ * is statically allocated as `legacy_epoll_data` and serves both the
+ * legacy-single-shard path (`t_ev_ctx == NULL`) and the legacy_global_ctx
+ * adopted by event.c's op_event_ctx_create(); fresh per-shard contexts get
+ * their own heap-allocated copy via op_epoll_ctx_init().
+ *
+ * Lifetime of the helper thread: created lazily in op_epoll_start_pollthread
+ * for the legacy ctx; for per-shard ctxs the thread is started by
+ * op_epoll_ctx_init so that op_event_ctx_select can drain its ring on first
+ * call.
+ *
+ * Layout: ring first (64-byte aligned, hot SPSC traffic), then the cold
+ * lifecycle fields. Keep ep_info reachable through a pointer so the legacy
+ * `op_init_netio_epoll()` allocation path stays untouched.
  */
-static int               ep_notify_fd     = -1;
+struct epoll_ctx_data
+{
+	ep_ring_t           ring __attribute__((aligned(64)));
 
-/* Poll thread pthread handle and its private event buffer. */
-static pthread_t         ep_poll_tid;
-static struct epoll_event *ep_thread_pfd  = NULL;  /* same size as ep_info->pfd */
-static volatile int      ep_thread_stop   = 0;     /* set to 1 to request exit  */
-static int               ep_thread_active = 0;     /* 1 once successfully started */
+	struct epoll_info  *info;            /* epoll fd + main thread's pfd buffer */
+	int                 can_do_event;
+	int                 can_do_timerfd;
 
-/* The ring itself — statically allocated, 64-byte aligned. */
-static ep_ring_t         ep_ring __attribute__((aligned(64)));
+	int                 notify_fd;       /* eventfd: poll thread → owner       */
+	pthread_t           poll_tid;
+	struct epoll_event *thread_pfd;      /* poll thread's private pfd buffer    */
+	volatile int        thread_stop;
+	int                 thread_active;
+
+	/* Back-pointer to the owning op_event_ctx (NULL for the legacy static).
+	 * The poll helper thread receives this via pthread_create's arg so it
+	 * can locate its ring/notify_fd without consulting TLS. */
+	op_event_ctx_t     *owner;
+};
+
+/*
+ * legacy_epoll_data — the file-static backing struct used by the legacy
+ * single-shard path. op_init_netio_epoll() fills its `info`/capability
+ * fields; op_event_ctx_create() (in event.c) later points
+ * legacy_global_ctx->backend_data at this same struct so the legacy and
+ * "via t_ev_ctx" paths observe identical state.
+ */
+static struct epoll_ctx_data legacy_epoll_data;
+
+/*
+ * ep_data — resolve the per-context epoll state for the current caller.
+ *
+ * Returns t_ev_ctx->backend_data when a context is set on this thread;
+ * otherwise falls back to the file-static legacy_epoll_data. The fallback
+ * is critical because (a) op_init_netio_epoll() runs before any
+ * op_event_ctx_create() call and (b) ircd does not currently set t_ev_ctx.
+ * Once shard threads land they will set t_ev_ctx unconditionally and the
+ * fallback becomes unreachable from those threads.
+ */
+static inline struct epoll_ctx_data *
+ep_data(void)
+{
+	if (t_ev_ctx != NULL && t_ev_ctx->backend_data != NULL)
+		return (struct epoll_ctx_data *)t_ev_ctx->backend_data;
+	return &legacy_epoll_data;
+}
+
+void *
+op_epoll_legacy_data(void)
+{
+	return &legacy_epoll_data;
+}
 
 /* ---- ring helpers (inline, no branching in hot path) --------------------- */
 
@@ -174,7 +227,8 @@ ep_ring_pop(ep_ring_t *r, struct epoll_event *ev)
 static inline __attribute__((always_inline)) int
 ep_ctl(int op, op_fde_t *F, struct epoll_event *ev)
 {
-	if (__builtin_expect(epoll_ctl(ep_info->ep, op, F->fd, ev) == 0, 1))
+	int epfd = ep_data()->info->ep;
+	if (__builtin_expect(epoll_ctl(epfd, op, F->fd, ev) == 0, 1))
 		return 0;
 
 	switch (op)
@@ -183,7 +237,7 @@ ep_ctl(int op, op_fde_t *F, struct epoll_event *ev)
 		if (errno == EEXIST)
 		{
 			/* Already registered — retry as MOD. */
-			if (epoll_ctl(ep_info->ep, EPOLL_CTL_MOD, F->fd, ev) == 0)
+			if (epoll_ctl(epfd, EPOLL_CTL_MOD, F->fd, ev) == 0)
 				return 0;
 			op_lib_log("ep_ctl(): MOD retry after EEXIST failed fd=%d: %s",
 			           F->fd, strerror(errno));
@@ -196,7 +250,7 @@ ep_ctl(int op, op_fde_t *F, struct epoll_event *ev)
 		{
 			/* Fell out of epoll (e.g. auto-removed after EPOLLONESHOT fired
 			 * and fd was DELed by a concurrent op_setselect call) — re-add. */
-			if (epoll_ctl(ep_info->ep, EPOLL_CTL_ADD, F->fd, ev) == 0)
+			if (epoll_ctl(epfd, EPOLL_CTL_ADD, F->fd, ev) == 0)
 				return 0;
 			op_lib_log("ep_ctl(): ADD retry after ENOENT failed fd=%d: %s",
 			           F->fd, strerror(errno));
@@ -234,46 +288,77 @@ ep_build_arm_event(struct epoll_event *ev, op_fde_t *F, int flags)
  * Initialisation
  * ---------------------------------------------------------------------- */
 
-__attribute__((cold))
-int
-op_init_netio_epoll(void)
+/*
+ * ep_alloc_info — allocate and initialise a struct epoll_info (kernel fd +
+ * pfd buffer). Shared by op_init_netio_epoll() (legacy path) and
+ * op_epoll_ctx_init() (per-shard path).
+ */
+static __attribute__((cold)) struct epoll_info *
+ep_alloc_info(void)
 {
+	struct epoll_info *info = op_malloc(sizeof(*info));
 	int dtsize;
-
-	can_do_event   = 0;
-	can_do_timerfd = 0;
-
-	ep_info = op_malloc(sizeof(struct epoll_info));
 
 	/*
 	 * epoll_create1(EPOLL_CLOEXEC) sets O_CLOEXEC atomically (Linux ≥2.6.27).
 	 * Fall back to epoll_create() + fcntl() on older kernels.
 	 */
 #ifdef EPOLL_CLOEXEC
-	ep_info->ep = epoll_create1(EPOLL_CLOEXEC);
-	if (__builtin_expect(ep_info->ep < 0, 0))
+	info->ep = epoll_create1(EPOLL_CLOEXEC);
+	if (__builtin_expect(info->ep < 0, 0))
 	{
-		ep_info->ep = epoll_create(1024);
-		if (ep_info->ep >= 0)
-			fcntl(ep_info->ep, F_SETFD, FD_CLOEXEC);
+		info->ep = epoll_create(1024);
+		if (info->ep >= 0)
+			fcntl(info->ep, F_SETFD, FD_CLOEXEC);
 	}
 #else
-	ep_info->ep = epoll_create(1024);
-	if (ep_info->ep >= 0)
-		fcntl(ep_info->ep, F_SETFD, FD_CLOEXEC);
+	info->ep = epoll_create(1024);
+	if (info->ep >= 0)
+		fcntl(info->ep, F_SETFD, FD_CLOEXEC);
 #endif
 
-	if (__builtin_expect(ep_info->ep < 0, 0))
-		return -1;
+	if (__builtin_expect(info->ep < 0, 0))
+	{
+		op_free(info);
+		return NULL;
+	}
 
-	op_open(ep_info->ep, OP_FD_UNKNOWN, "epoll file descriptor");
+	/*
+	 * Register the epoll kernel fd in the fde table so other libop machinery
+	 * can find it, but pass NULL for desc: this fd lives the lifetime of
+	 * either the process (legacy path) or the shard ctx (per-shard path) and
+	 * is torn down with raw close(2) — never through op_close(). Allocating a
+	 * desc string here would therefore leak op_strndup() output for every
+	 * epoll backend init (caught by AddressSanitizer LeakSanitizer).
+	 */
+	op_open(info->ep, OP_FD_UNKNOWN, NULL);
 
 	/* Scale the event buffer to the server's fd table size, capped at
 	 * EPOLL_EVENTS_MAX to keep heap usage bounded. */
-	dtsize            = getdtablesize();
-	ep_info->pfd_size = (dtsize < EPOLL_EVENTS_MAX) ? dtsize : EPOLL_EVENTS_MAX;
-	ep_info->pfd      = op_malloc(sizeof(struct epoll_event)
-	                              * (size_t)ep_info->pfd_size);
+	dtsize        = getdtablesize();
+	info->pfd_size = (dtsize < EPOLL_EVENTS_MAX) ? dtsize : EPOLL_EVENTS_MAX;
+	info->pfd      = op_malloc(sizeof(struct epoll_event)
+	                           * (size_t)info->pfd_size);
+	return info;
+}
+
+__attribute__((cold))
+int
+op_init_netio_epoll(void)
+{
+	legacy_epoll_data.can_do_event   = 0;
+	legacy_epoll_data.can_do_timerfd = 0;
+	legacy_epoll_data.notify_fd      = -1;
+	legacy_epoll_data.thread_active  = 0;
+	legacy_epoll_data.thread_stop    = 0;
+	legacy_epoll_data.thread_pfd     = NULL;
+	legacy_epoll_data.owner          = NULL;
+	atomic_init(&legacy_epoll_data.ring.head, 0);
+	atomic_init(&legacy_epoll_data.ring.tail, 0);
+
+	legacy_epoll_data.info = ep_alloc_info();
+	if (legacy_epoll_data.info == NULL)
+		return -1;
 	return 0;
 }
 
@@ -361,10 +446,13 @@ op_setselect_epoll(op_fde_t *restrict F, unsigned int type,
 /*
  * ep_dispatch — capture + clear one handler under pflags_lock, call outside.
  *
- * The corresponding pflags bit is cleared together with the handler pointer
- * so that F->pflags reflects actual state at all times (any concurrent
- * op_setselect call will see the cleared bit and compute the correct epoll
- * operation).
+ * F->pflags is zeroed entirely (not just the fired-event bit) because
+ * EPOLLONESHOT silences the *entire* fd on any event — not just the bit that
+ * fired.  If we only cleared ~EPOLLIN (or ~EPOLLOUT), the surviving bit would
+ * make op_setselect_epoll and ep_rearm see old_flags == new_flags and skip
+ * epoll_ctl, leaving the fd permanently silenced in the kernel.  Zeroing
+ * pflags here ensures the next op_setselect or ep_rearm always calls
+ * EPOLL_CTL_MOD to re-arm the fd with the correct interest mask.
  *
  * Returns 1 if F is still open after the handler, 0 if it was closed.
  */
@@ -379,13 +467,13 @@ ep_dispatch(op_fde_t *F, int is_read)
 	{
 		hdl  = F->read_handler;  data = F->read_data;
 		F->read_handler = NULL;  F->read_data = NULL;
-		F->pflags &= ~EPOLLIN;   /* keep pflags in sync with cleared handler */
+		F->pflags = 0;  /* EPOLLONESHOT silences entire fd, not just EPOLLIN */
 	}
 	else
 	{
 		hdl  = F->write_handler; data = F->write_data;
 		F->write_handler = NULL; F->write_data = NULL;
-		F->pflags &= ~EPOLLOUT;
+		F->pflags = 0;  /* EPOLLONESHOT silences entire fd, not just EPOLLOUT */
 	}
 	pthread_spin_unlock(&F->pflags_lock);
 
@@ -486,33 +574,40 @@ ep_dispatch_event(const struct epoll_event *e)
  * Persistent high-load conditions should be addressed by increasing
  * EP_RING_CAP or raising server limits.
  */
+/*
+ * ep_poll_thread_fn — body of the dedicated I/O poll thread.
+ *
+ * The owning op_event_ctx is passed as `arg` (not via TLS) so that this
+ * thread does not need its own t_ev_ctx setup just to find its epoll fd,
+ * ring, and notify eventfd. One helper thread exists per ctx.
+ */
 static void *
 ep_poll_thread_fn(void *arg)
 {
-	(void)arg;
-	int pfd_size = ep_info->pfd_size;
+	struct epoll_ctx_data *d = (struct epoll_ctx_data *)arg;
+	int pfd_size = d->info->pfd_size;
 	uint64_t one = 1;
 
-	while (!ep_thread_stop)
+	while (!d->thread_stop)
 	{
-		int n = epoll_wait(ep_info->ep, ep_thread_pfd, pfd_size, 100 /* ms */);
+		int n = epoll_wait(d->info->ep, d->thread_pfd, pfd_size, 100 /* ms */);
 		if (n <= 0)
 			continue;
 
 		bool any = false;
 		for (int i = 0; i < n; i++)
 		{
-			if (ep_ring_push(&ep_ring, &ep_thread_pfd[i]))
+			if (ep_ring_push(&d->ring, &d->thread_pfd[i]))
 				any = true;
 			/* else ring full — event dropped; will re-fire */
 		}
 
-		/* Signal the main thread once per batch. */
+		/* Signal the owning shard thread once per batch. */
 		if (any)
 		{
 			ssize_t rc;
 			do {
-				rc = write(ep_notify_fd, &one, sizeof one);
+				rc = write(d->notify_fd, &one, sizeof one);
 			} while (rc < 0 && errno == EINTR);
 		}
 	}
@@ -529,20 +624,20 @@ ep_poll_thread_fn(void *arg)
  * The main thread never calls epoll_wait(); the poll thread owns it.
  */
 static int
-ep_select_threaded(long delay)
+ep_select_threaded(struct epoll_ctx_data *d, long delay)
 {
 	int ms = (delay < 0) ? -1
 	       : (delay > (long)INT_MAX ? INT_MAX : (int)delay);
 
 	/* Wait for the poll thread's notification or timeout. */
-	struct pollfd pf = { .fd = ep_notify_fd, .events = POLLIN };
+	struct pollfd pf = { .fd = d->notify_fd, .events = POLLIN };
 	poll(&pf, 1, ms);
 
 	/* Drain the notification counter so we don't immediately re-wake. */
 	uint64_t count;
 	ssize_t  r;
 	do {
-		r = read(ep_notify_fd, &count, sizeof count);
+		r = read(d->notify_fd, &count, sizeof count);
 	} while (r < 0 && errno == EINTR);
 	/* Ignore EAGAIN (nothing to drain) — normal when poll() timed out. */
 
@@ -550,7 +645,7 @@ ep_select_threaded(long delay)
 
 	/* Dispatch all events currently in the ring. */
 	struct epoll_event ev;
-	while (ep_ring_pop(&ep_ring, &ev))
+	while (ep_ring_pop(&d->ring, &ev))
 		ep_dispatch_event(&ev);
 
 	return OP_OK;
@@ -571,14 +666,16 @@ __attribute__((hot))
 int
 op_select_epoll(long delay)
 {
-	if (__builtin_expect(ep_thread_active, 0))
-		return ep_select_threaded(delay);
+	struct epoll_ctx_data *d = ep_data();
+
+	if (__builtin_expect(d->thread_active, 0))
+		return ep_select_threaded(d, delay);
 
 	int num, o_errno;
 	int ms = (delay < 0) ? -1
 	       : (delay > (long)INT_MAX ? INT_MAX : (int)delay);
 
-	num = epoll_wait(ep_info->ep, ep_info->pfd, ep_info->pfd_size, ms);
+	num = epoll_wait(d->info->ep, d->info->pfd, d->info->pfd_size, ms);
 
 	o_errno = errno;
 	op_set_time();
@@ -593,12 +690,128 @@ op_select_epoll(long delay)
 	{
 		/* Prefetch next FDE to overlap the cache miss with handler work. */
 		if (__builtin_expect(i + 1 < num, 1))
-			__builtin_prefetch(ep_info->pfd[i + 1].data.ptr, 0, 1);
+			__builtin_prefetch(d->info->pfd[i + 1].data.ptr, 0, 1);
 
-		ep_dispatch_event(&ep_info->pfd[i]);
+		ep_dispatch_event(&d->info->pfd[i]);
 	}
 
 	return OP_OK;
+}
+
+/* ---- per-context entrypoints (event.c → epoll backend) ------------------- */
+
+/*
+ * op_epoll_ctx_init — allocate a fresh epoll_ctx_data for ctx.
+ *
+ * Used by op_event_ctx_create() for non-legacy contexts. Mirrors what
+ * op_init_netio_epoll() did to the legacy struct, plus starts the poll
+ * helper thread so op_event_ctx_select() can drain a ring on first call.
+ */
+int
+op_epoll_ctx_init(op_event_ctx_t *ctx, const char *name)
+{
+	(void)name;
+	struct epoll_ctx_data *d = op_malloc(sizeof(*d));
+	memset(d, 0, sizeof(*d));
+	d->notify_fd = -1;
+	atomic_init(&d->ring.head, 0);
+	atomic_init(&d->ring.tail, 0);
+	d->owner = ctx;
+
+	d->info = ep_alloc_info();
+	if (d->info == NULL)
+	{
+		op_free(d);
+		return -1;
+	}
+
+	/* Inherit the legacy struct's capability flags — they are properties of
+	 * the kernel, not the ctx. */
+	d->can_do_event   = legacy_epoll_data.can_do_event;
+	d->can_do_timerfd = legacy_epoll_data.can_do_timerfd;
+
+	d->notify_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+	if (d->notify_fd < 0)
+	{
+		op_lib_log("op_epoll_ctx_init: eventfd: %s", strerror(errno));
+		close(d->info->ep);
+		op_free(d->info->pfd);
+		op_free(d->info);
+		op_free(d);
+		return -1;
+	}
+
+	d->thread_pfd = op_malloc(sizeof(struct epoll_event)
+	                          * (size_t)d->info->pfd_size);
+
+	d->thread_stop = 0;
+	int rc = pthread_create(&d->poll_tid, NULL, ep_poll_thread_fn, d);
+	if (rc != 0)
+	{
+		op_lib_log("op_epoll_ctx_init: pthread_create: %s", strerror(rc));
+		op_free(d->thread_pfd);
+		close(d->notify_fd);
+		close(d->info->ep);
+		op_free(d->info->pfd);
+		op_free(d->info);
+		op_free(d);
+		return -1;
+	}
+	d->thread_active = 1;
+
+	ctx->backend_data = d;
+	return 0;
+}
+
+/*
+ * op_epoll_ctx_destroy — tear down a per-shard epoll_ctx_data.
+ *
+ * Only called for non-legacy contexts; event.c short-circuits the legacy
+ * one because its backend_data is the file-static legacy_epoll_data.
+ */
+void
+op_epoll_ctx_destroy(op_event_ctx_t *ctx)
+{
+	struct epoll_ctx_data *d = ctx ? (struct epoll_ctx_data *)ctx->backend_data : NULL;
+	if (d == NULL || d == &legacy_epoll_data)
+		return;
+
+	if (d->thread_active)
+	{
+		d->thread_stop   = 1;
+		d->thread_active = 0;
+		pthread_join(d->poll_tid, NULL);
+	}
+	if (d->thread_pfd) { op_free(d->thread_pfd); d->thread_pfd = NULL; }
+	if (d->notify_fd >= 0) { close(d->notify_fd); d->notify_fd = -1; }
+	if (d->info != NULL)
+	{
+		if (d->info->ep >= 0) close(d->info->ep);
+		op_free(d->info->pfd);
+		op_free(d->info);
+		d->info = NULL;
+	}
+	op_free(d);
+	ctx->backend_data = NULL;
+}
+
+/*
+ * op_epoll_ctx_select — drive one iteration of the event loop bound to ctx.
+ *
+ * Routes via t_ev_ctx so ep_dispatch_event → ep_ctl → ep_rearm reach the
+ * correct epoll fd. Saves and restores the caller's t_ev_ctx for safety
+ * even though shard threads will own their ctx for life.
+ */
+int
+op_epoll_ctx_select(op_event_ctx_t *ctx, long ms)
+{
+	if (ctx == NULL || ctx->backend_data == NULL)
+		return OP_ERROR;
+	op_event_ctx_t *saved = t_ev_ctx;
+	t_ev_ctx = ctx;
+	int rc = op_select_epoll(ms);
+	t_ev_ctx = saved;
+	return rc;
 }
 
 /* ---- poll thread lifecycle ----------------------------------------------- */
@@ -615,41 +828,42 @@ op_select_epoll(long delay)
 bool
 op_epoll_start_pollthread(void)
 {
-	if (ep_thread_active)
+	struct epoll_ctx_data *d = ep_data();
+	if (d->thread_active)
 		return true;   /* idempotent */
 
-	/* Create the semaphore-style eventfd for poll → main notification. */
-	ep_notify_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-	if (ep_notify_fd < 0)
+	/* Create the semaphore-style eventfd for poll → owner notification. */
+	d->notify_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+	if (d->notify_fd < 0)
 	{
 		op_lib_log("op_epoll_start_pollthread: eventfd: %s", strerror(errno));
 		return false;
 	}
 
 	/* Allocate the poll thread's private event buffer. */
-	ep_thread_pfd = op_malloc(sizeof(struct epoll_event)
-	                          * (size_t)ep_info->pfd_size);
+	d->thread_pfd = op_malloc(sizeof(struct epoll_event)
+	                          * (size_t)d->info->pfd_size);
 
 	/* Initialise the ring. */
-	atomic_init(&ep_ring.head, 0);
-	atomic_init(&ep_ring.tail, 0);
+	atomic_init(&d->ring.head, 0);
+	atomic_init(&d->ring.tail, 0);
 
-	ep_thread_stop = 0;
+	d->thread_stop = 0;
 
-	int rc = pthread_create(&ep_poll_tid, NULL, ep_poll_thread_fn, NULL);
+	int rc = pthread_create(&d->poll_tid, NULL, ep_poll_thread_fn, d);
 	if (rc != 0)
 	{
 		op_lib_log("op_epoll_start_pollthread: pthread_create: %s",
 		           strerror(rc));
-		op_free(ep_thread_pfd);
-		ep_thread_pfd = NULL;
-		close(ep_notify_fd);
-		ep_notify_fd = -1;
+		op_free(d->thread_pfd);
+		d->thread_pfd = NULL;
+		close(d->notify_fd);
+		d->notify_fd = -1;
 		return false;
 	}
 
 	/* Mark active *after* the thread is running. */
-	ep_thread_active = 1;
+	d->thread_active = 1;
 	op_lib_log("I/O poll thread started (epoll backend)");
 	return true;
 }
@@ -663,21 +877,22 @@ op_epoll_start_pollthread(void)
 void
 op_epoll_stop_pollthread(void)
 {
-	if (!ep_thread_active)
+	struct epoll_ctx_data *d = ep_data();
+	if (!d->thread_active)
 		return;
 
-	ep_thread_stop   = 1;
-	ep_thread_active = 0;   /* revert to inline mode immediately */
+	d->thread_stop   = 1;
+	d->thread_active = 0;   /* revert to inline mode immediately */
 
-	pthread_join(ep_poll_tid, NULL);
+	pthread_join(d->poll_tid, NULL);
 
-	op_free(ep_thread_pfd);
-	ep_thread_pfd = NULL;
+	op_free(d->thread_pfd);
+	d->thread_pfd = NULL;
 
-	if (ep_notify_fd >= 0)
+	if (d->notify_fd >= 0)
 	{
-		close(ep_notify_fd);
-		ep_notify_fd = -1;
+		close(d->notify_fd);
+		d->notify_fd = -1;
 	}
 
 	op_lib_log("I/O poll thread stopped");
@@ -693,18 +908,19 @@ __attribute__((cold))
 int
 op_epoll_supports_event(void)
 {
+	struct epoll_ctx_data *d = ep_data();
 	struct stat st;
 	int fd;
 
-	if (can_do_event == 1)
+	if (d->can_do_event == 1)
 		return 1;
-	if (can_do_event == -1)
+	if (d->can_do_event == -1)
 		return 0;
 
 	/* OpenVZ has a broken timerfd implementation. */
 	if (stat("/proc/user_beancounters", &st) == 0)
 	{
-		can_do_event = -1;
+		d->can_do_event = -1;
 		return 0;
 	}
 
@@ -713,16 +929,16 @@ op_epoll_supports_event(void)
 	if (fd >= 0)
 	{
 		close(fd);
-		can_do_event   = 1;
-		can_do_timerfd = 1;
+		d->can_do_event   = 1;
+		d->can_do_timerfd = 1;
 		return 1;
 	}
 	fd = timerfd_create(CLOCK_REALTIME, 0);
 	if (fd >= 0)
 	{
 		close(fd);
-		can_do_event   = 1;
-		can_do_timerfd = 1;
+		d->can_do_event   = 1;
+		d->can_do_timerfd = 1;
 		return 1;
 	}
 #endif
@@ -737,7 +953,7 @@ op_epoll_supports_event(void)
 		sev.sigev_notify = SIGEV_SIGNAL;
 		if (timer_create(CLOCK_REALTIME, &sev, &timer) != 0)
 		{
-			can_do_event = -1;
+			d->can_do_event = -1;
 			return 0;
 		}
 		timer_delete(timer);
@@ -746,11 +962,11 @@ op_epoll_supports_event(void)
 		fd = signalfd(-1, &set, 0);
 		if (fd < 0)
 		{
-			can_do_event = -1;
+			d->can_do_event = -1;
 			return 0;
 		}
 		close(fd);
-		can_do_event = 1;
+		d->can_do_event = 1;
 		return 1;
 	}
 }
@@ -848,7 +1064,7 @@ op_epoll_init_event(void)
 {
 	op_epoll_supports_event();
 
-	if (!can_do_timerfd)
+	if (!ep_data()->can_do_timerfd)
 	{
 		sigset_t ss;
 		op_fde_t *F;
@@ -865,7 +1081,7 @@ op_epoll_init_event(void)
 			sfd = signalfd(-1, &ss, 0);
 		if (__builtin_expect(sfd == -1, 0))
 		{
-			can_do_event = -1;
+			ep_data()->can_do_event = -1;
 			return;
 		}
 
@@ -1045,7 +1261,7 @@ int
 op_epoll_sched_event(struct ev_entry *restrict event, int when)
 {
 #ifdef HAVE_TIMERFD_CREATE
-	if (can_do_timerfd)
+	if (ep_data()->can_do_timerfd)
 		return op_epoll_sched_event_timerfd(event, when);
 #endif
 	return op_epoll_sched_event_signalfd(event, when);
@@ -1056,7 +1272,7 @@ void
 op_epoll_unsched_event(struct ev_entry *restrict event)
 {
 #ifdef HAVE_TIMERFD_CREATE
-	if (can_do_timerfd)
+	if (ep_data()->can_do_timerfd)
 	{
 		if (__builtin_expect(event->comm_ptr != NULL, 1))
 		{

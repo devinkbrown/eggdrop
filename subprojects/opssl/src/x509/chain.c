@@ -31,6 +31,20 @@
 
 #define OPSSL_MAX_CERT_CHAIN 10
 
+/*
+ * Hard cap on the certificate chain length enforced by opssl_x509_verify().
+ *
+ * This is the strict policy ceiling used when callers cannot plumb a per-ctx
+ * verify_depth value down to this function (the public verify ABI takes no
+ * ctx).  It must NEVER exceed OPSSL_MAX_CERT_CHAIN, because the storage in
+ * struct opssl_x509_chain is sized by that constant.  This matches the
+ * default returned by opssl_ctx_get_verify_depth().
+ *
+ * If you want a smaller per-deployment limit, plumb it through and check
+ * before calling opssl_x509_verify().
+ */
+#define OPSSL_VERIFY_MAX_DEPTH OPSSL_MAX_CERT_CHAIN
+
 /* Local compat: undefined error codes and verify result constants */
 #define OPSSL_ERR_STORE_FULL                 OPSSL_ERR_INVALID_ARGUMENT
 #define OPSSL_VERIFY_OK                      0
@@ -46,6 +60,10 @@
 #define OPSSL_VERIFY_ERROR_REVOKED          10
 #define OPSSL_VERIFY_ERROR_PATHLEN_EXCEEDED 11
 #define OPSSL_VERIFY_ERROR_KEY_USAGE        12
+#define OPSSL_VERIFY_ERROR_DEPTH_EXCEEDED   13
+#define OPSSL_VERIFY_ERROR_WEAK_HASH        14
+#define OPSSL_VERIFY_ERROR_NAME_CONSTRAINT  15
+#define OPSSL_VERIFY_ERROR_EXT_KEY_USAGE    16
 
 /* Signature algorithm OIDs */
 static const uint8_t oid_rsa_pss[] = {
@@ -542,22 +560,58 @@ struct opssl_x509_store {
 extern int opssl_pem_read_file(const char *path, uint8_t **der_out, size_t *der_len, char *label_out, size_t label_max);
 extern int opssl_pem_decode_multi(const char *pem, size_t pem_len, uint8_t **ders, size_t *der_lens, size_t *count, size_t max_count);
 
-/* Helper to check if hostname matches a pattern (with wildcard support) */
+/*
+ * hostname_matches_pattern - RFC 6125 §6.4 hostname matching.
+ *
+ * Rules enforced:
+ *   - exact (case-insensitive) match always works
+ *   - wildcard '*' is permitted ONLY as the entire left-most label, e.g.
+ *     "*.example.com"; NOT "foo*.example.com" or "*foo.example.com"
+ *   - the pattern must contain at least two dots after the wildcard
+ *     (no "*.com" matching arbitrary TLDs)
+ *   - the wildcard label matches exactly ONE hostname label (no embedded
+ *     dots, no empty label)
+ *   - reject if the hostname begins with '.' or is empty
+ *   - reject if either string contains '\0' embedded (callers pass C strings)
+ *
+ * IP addresses are handled by the caller and never go through wildcards.
+ */
+static int hostname_ascii_ieq(const char *a, const char *b) {
+    while (*a && *b) {
+        unsigned char ca = (unsigned char)*a++;
+        unsigned char cb = (unsigned char)*b++;
+        if (ca >= 'A' && ca <= 'Z') ca = (unsigned char)(ca + 32);
+        if (cb >= 'A' && cb <= 'Z') cb = (unsigned char)(cb + 32);
+        if (ca != cb) return 0;
+    }
+    return *a == 0 && *b == 0;
+}
+
 static int hostname_matches_pattern(const char *hostname, const char *pattern) {
     if (!hostname || !pattern) return 0;
-    if (strcmp(hostname, pattern) == 0) return 1;
-    if (pattern[0] == '*' && pattern[1] == '.') {
-        const char *dot = strchr(hostname, '.');
-        if (dot && strcmp(dot, pattern + 1) == 0) {
-            const char *hostname_part = hostname;
-            while (hostname_part < dot) {
-                if (*hostname_part == '.') return 0;
-                hostname_part++;
-            }
-            return 1;
-        }
-    }
-    return 0;
+    if (hostname[0] == '\0' || hostname[0] == '.') return 0;
+    if (pattern[0] == '\0') return 0;
+
+    /* Exact (case-insensitive) match. */
+    if (hostname_ascii_ieq(hostname, pattern)) return 1;
+
+    /* Wildcard: must be exactly "*." prefix. */
+    if (!(pattern[0] == '*' && pattern[1] == '.')) return 0;
+
+    const char *pattern_tail = pattern + 1; /* points at '.' */
+
+    /* The remainder of the pattern must contain at least one more dot, so
+     * we reject "*.com" matching everything. */
+    if (!strchr(pattern_tail + 1, '.')) return 0;
+
+    const char *dot = strchr(hostname, '.');
+    if (!dot || dot == hostname) return 0; /* empty left label */
+
+    /* The hostname's first label must be non-empty and contain no '.', and
+     * must contain no NUL.  By construction here that's already true. */
+
+    /* Compare the tail (case-insensitive). */
+    return hostname_ascii_ieq(dot, pattern_tail);
 }
 
 static int check_hostname_match(const opssl_x509_t *cert, const char *hostname) {
@@ -839,6 +893,552 @@ check_key_usage(const opssl_x509_t *cert, int require_cert_sign)
     }
 
     return 1; /* KeyUsage absent => permissive (RFC 5280 s4.2.1.3) */
+}
+
+/*
+ * weak_hash_signature - return 1 if the certificate is signed with a hash
+ * algorithm we consider too weak (MD5 or SHA-1) for chain trust.
+ *
+ * Parses the outer Certificate SEQUENCE to read the AlgorithmIdentifier that
+ * sits AFTER the tbsCertificate.  Compares its OID to known weak OIDs.
+ */
+static int weak_hash_signature(const opssl_x509_t *cert)
+{
+    const uint8_t *der;
+    size_t der_len;
+    if (!opssl_x509_get_der(cert, &der, &der_len)) return 0;
+
+    opssl_cbs_t cbs, cert_seq, tbs, sig_alg, sig_oid;
+    opssl_cbs_init(&cbs, der, der_len);
+    if (!opssl_asn1_get_sequence(&cbs, &cert_seq)) return 0;
+    if (!opssl_asn1_get_sequence(&cert_seq, &tbs)) return 0;
+    if (!opssl_asn1_get_sequence(&cert_seq, &sig_alg)) return 0;
+    if (!opssl_asn1_get_oid(&sig_alg, &sig_oid)) return 0;
+
+    /* MD5 with RSA: 1.2.840.113549.1.1.4 */
+    static const uint8_t oid_md5_rsa[] = {
+        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04
+    };
+    if (opssl_asn1_oid_equal(&sig_oid, oid_md5_rsa, sizeof(oid_md5_rsa)))
+        return 1;
+    if (opssl_asn1_oid_equal(&sig_oid, oid_rsa_pkcs1_sha1,
+                             sizeof(oid_rsa_pkcs1_sha1)))
+        return 1;
+    if (opssl_asn1_oid_equal(&sig_oid, oid_ecdsa_sha1,
+                             sizeof(oid_ecdsa_sha1)))
+        return 1;
+    /* DSA-with-SHA1: 1.2.840.10040.4.3 */
+    static const uint8_t oid_dsa_sha1[] = {
+        0x2A, 0x86, 0x48, 0xCE, 0x38, 0x04, 0x03
+    };
+    if (opssl_asn1_oid_equal(&sig_oid, oid_dsa_sha1, sizeof(oid_dsa_sha1)))
+        return 1;
+    return 0;
+}
+
+/*
+ * walk_extensions - generic helper to call cb() for each extension OID/value
+ * pair in a certificate.  Returns 1 if traversal completed, 0 on parse error.
+ * cb returns 0 to stop early (and walk_extensions returns 1), nonzero to
+ * continue.
+ */
+typedef int (*ext_cb_t)(const opssl_cbs_t *oid, int critical,
+                        opssl_cbs_t *ext_value, void *ctx);
+
+static int walk_extensions(const opssl_x509_t *cert, ext_cb_t cb, void *ctx)
+{
+    const uint8_t *der; size_t der_len;
+    if (!opssl_x509_get_der(cert, &der, &der_len)) return 0;
+
+    opssl_cbs_t cbs, cert_seq, tbs;
+    opssl_cbs_init(&cbs, der, der_len);
+    if (!opssl_asn1_get_sequence(&cbs, &cert_seq)) return 0;
+    if (!opssl_asn1_get_sequence(&cert_seq, &tbs)) return 0;
+
+    uint8_t tag;
+    if (opssl_cbs_peek_u8(&tbs, &tag) && tag == 0xA0) {
+        opssl_cbs_t v;
+        opssl_asn1_get_element(&tbs, 0xA0, &v);
+    }
+    for (int i = 0; i < 6; i++) {
+        if (!opssl_asn1_skip_element(&tbs)) return 1; /* no extensions */
+    }
+    if (!opssl_cbs_peek_u8(&tbs, &tag) || tag != 0xA3) return 1;
+
+    opssl_cbs_t ext_wrapper, ext_seq;
+    if (!opssl_asn1_get_element(&tbs, 0xA3, &ext_wrapper)) return 0;
+    if (!opssl_asn1_get_sequence(&ext_wrapper, &ext_seq)) return 0;
+
+    while (opssl_cbs_len(&ext_seq) > 0) {
+        opssl_cbs_t extension, oid, ext_value;
+        if (!opssl_asn1_get_sequence(&ext_seq, &extension)) return 0;
+        if (!opssl_asn1_get_oid(&extension, &oid)) return 0;
+
+        int critical = 0;
+        if (opssl_cbs_peek_u8(&extension, &tag) && tag == 0x01) {
+            bool b = false;
+            if (opssl_asn1_get_boolean(&extension, &b)) critical = b ? 1 : 0;
+        }
+        if (!opssl_asn1_get_element(&extension, 0x04, &ext_value)) return 0;
+
+        if (!cb(&oid, critical, &ext_value, ctx)) return 1;
+    }
+    return 1;
+}
+
+/*
+ * check_ext_key_usage - verify that the leaf has the requested EKU OID set,
+ * OR has the anyExtendedKeyUsage OID, OR has no EKU extension at all.
+ *
+ * `want_oid` must point to the DER bytes of the OID (e.g. id-kp-serverAuth).
+ * Returns 1 if usage is acceptable, 0 if EKU is present and does NOT include
+ * the requested usage.
+ */
+static const uint8_t oid_ekp_server_auth[] = {
+    0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01
+};
+static const uint8_t oid_ekp_client_auth[] = {
+    0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x02
+};
+static const uint8_t oid_ekp_any[] = {
+    0x55, 0x1D, 0x25, 0x00
+};
+static const uint8_t oid_ext_key_usage[] = { 0x55, 0x1D, 0x25 };
+
+struct eku_ctx {
+    const uint8_t *want; size_t want_len;
+    int found_extension;
+    int allowed;
+};
+
+static int eku_cb(const opssl_cbs_t *oid, int critical,
+                  opssl_cbs_t *ext_value, void *vctx)
+{
+    (void)critical;
+    struct eku_ctx *c = vctx;
+    if (!opssl_asn1_oid_equal(oid, oid_ext_key_usage,
+                              sizeof(oid_ext_key_usage)))
+        return 1;
+    c->found_extension = 1;
+    opssl_cbs_t eku_seq;
+    if (!opssl_asn1_get_sequence(ext_value, &eku_seq)) {
+        c->allowed = 0; return 0;
+    }
+    while (opssl_cbs_len(&eku_seq) > 0) {
+        opssl_cbs_t kp_oid;
+        if (!opssl_asn1_get_oid(&eku_seq, &kp_oid)) break;
+        if (opssl_asn1_oid_equal(&kp_oid, c->want, c->want_len) ||
+            opssl_asn1_oid_equal(&kp_oid, oid_ekp_any,
+                                 sizeof(oid_ekp_any))) {
+            c->allowed = 1;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static int check_ext_key_usage(const opssl_x509_t *cert,
+                               const uint8_t *want_oid, size_t want_len)
+{
+    struct eku_ctx c = { want_oid, want_len, 0, 0 };
+    if (!walk_extensions(cert, eku_cb, &c)) return 0; /* parse fail: fail closed */
+    if (!c.found_extension) return 1; /* RFC 5280: EKU optional */
+    return c.allowed;
+}
+
+/*
+ * Name constraints (RFC 5280 §4.2.1.10).
+ *
+ * We parse the NameConstraints extension on an intermediate CA and check the
+ * leaf's SANs against the permittedSubtrees / excludedSubtrees lists for all
+ * GeneralName forms RFC 5280 requires enforcement on:
+ *
+ *   - dNSName            [2] IA5String           (§4.2.1.10.1)
+ *   - iPAddress          [7] OCTET STRING        (§4.2.1.10.3) — CIDR network|mask
+ *   - rfc822Name         [1] IA5String           (§4.2.1.10.2)
+ *   - uniformResourceIdentifier [6] IA5String    (§4.2.1.10.4) — host component
+ *
+ * GeneralName tags are taken directly from the SAN extension DER (not from the
+ * stringified SAN API), so classification is exact and never heuristic.
+ *
+ * Per RFC 5280 §4.2.1.10, a leaf is rejected if (a) any SAN of a constrained
+ * type falls within excludedSubtrees, or (b) permittedSubtrees is present for
+ * that type and any SAN of that type does NOT fall within any permitted
+ * subtree of the same type.  Types with no constraint of that kind are
+ * unconstrained.
+ */
+
+/* GeneralName CHOICE context tags (IMPLICIT, primitive forms used here). */
+#define GN_TAG_RFC822    0x81
+#define GN_TAG_DNS       0x82
+#define GN_TAG_URI       0x86
+#define GN_TAG_IP        0x87
+
+/* Hard cap matches the cert parser's per-cert SAN cap. */
+#define NC_MAX_ENTRIES   1024
+
+/* Per-SAN entry parsed from the leaf SAN extension. data points into a
+ * heap-owned blob; len is the raw payload length (no NUL). */
+struct nc_san {
+    uint8_t  tag;          /* GN_TAG_* */
+    uint8_t *data;
+    size_t   len;
+};
+
+/* Constraint-evaluation state: tracks per-SAN "matched a permitted subtree"
+ * flags split by GeneralName type, plus per-type "had any permitted of this
+ * type" flags.  After traversal, any SAN whose type had permitted subtrees
+ * but which never matched is a violation. */
+struct nc_eval {
+    struct nc_san *sans;
+    int            n_sans;
+    uint8_t       *permitted_matched;   /* parallel to sans[]: 0/1 */
+    int            had_permitted_dns;
+    int            had_permitted_ip;
+    int            had_permitted_email;
+    int            had_permitted_uri;
+    int            violated;
+};
+
+/* --- DNS subtree matching (RFC 5280 §4.2.1.10.1). --- */
+static int dnsname_within_constraint(const char *name, size_t nl,
+                                     const char *cons, size_t cl)
+{
+    if (cl == 0) return 1;          /* empty constraint matches any DNS name */
+    if (nl < cl) return 0;
+    /* Case-insensitive suffix match. */
+    for (size_t i = 0; i < cl; i++) {
+        unsigned char a = (unsigned char)name[nl - cl + i];
+        unsigned char b = (unsigned char)cons[i];
+        if (a >= 'A' && a <= 'Z') a = (unsigned char)(a + 32);
+        if (b >= 'A' && b <= 'Z') b = (unsigned char)(b + 32);
+        if (a != b) return 0;
+    }
+    if (nl == cl) return 1;
+    /* Suffix must align on a label boundary. */
+    return name[nl - cl - 1] == '.';
+}
+
+/* --- rfc822Name subtree matching (RFC 5280 §4.2.1.10.2). ---
+ *   - constraint with '@': full address match (case-insensitive on domain).
+ *   - constraint without '@' and with no leading '.': single-host domain.
+ *   - constraint beginning with '.': any address whose domain ends with it.
+ */
+static int email_within_constraint(const char *name, size_t nl,
+                                   const char *cons, size_t cl)
+{
+    if (cl == 0) return 1;
+    const char *at = memchr(name, '@', nl);
+    if (!at) return 0;                              /* malformed SAN */
+    size_t local_len = (size_t)(at - name);
+    const char *dom  = at + 1;
+    size_t dom_len   = nl - local_len - 1;
+
+    if (memchr(cons, '@', cl)) {
+        /* Mailbox constraint: exact local-part, case-insensitive domain. */
+        const char *cat = memchr(cons, '@', cl);
+        size_t clocal = (size_t)(cat - cons);
+        size_t cdom   = cl - clocal - 1;
+        if (clocal != local_len) return 0;
+        if (memcmp(cons, name, local_len) != 0) return 0;
+        return dnsname_within_constraint(dom, dom_len, cat + 1, cdom);
+    }
+    if (cl > 0 && cons[0] == '.') {
+        /* Domain-subtree constraint: domain must end with constraint
+         * (label-aligned), and the SAN domain must be a strict subdomain. */
+        if (dom_len <= cl) return 0;
+        return dnsname_within_constraint(dom, dom_len, cons + 1, cl - 1) &&
+               dom[dom_len - cl] == '.';
+    }
+    /* Single-host-domain constraint: exact case-insensitive domain match. */
+    if (dom_len != cl) return 0;
+    return dnsname_within_constraint(dom, dom_len, cons, cl);
+}
+
+/* --- URI subtree matching (RFC 5280 §4.2.1.10.4). ---
+ * Extract the host component of the URI and apply DNS subtree semantics.
+ * URI format: scheme ":" hier-part.  We accept "scheme://[userinfo@]host[:port]/..."
+ * Without an authority component there is no host to constrain, so we treat
+ * the URI as not-in-subtree (excluded: no violation; permitted: violation if
+ * permitted URI constraints exist).
+ */
+static int uri_extract_host(const char *uri, size_t ul,
+                            const char **host_out, size_t *host_len_out)
+{
+    const char *p = memchr(uri, ':', ul);
+    if (!p) return 0;
+    size_t rem = ul - (size_t)(p - uri) - 1;
+    if (rem < 2 || p[1] != '/' || p[2] != '/') return 0;
+    const char *h = p + 3;
+    size_t hl = rem - 2;
+    /* Strip userinfo */
+    const char *at = memchr(h, '@', hl);
+    if (at) { hl -= (size_t)(at - h) + 1; h = at + 1; }
+    /* Terminate at port, path, query, or fragment */
+    size_t end = hl;
+    for (size_t i = 0; i < hl; i++) {
+        char c = h[i];
+        if (c == ':' || c == '/' || c == '?' || c == '#') { end = i; break; }
+    }
+    if (end == 0) return 0;
+    *host_out = h;
+    *host_len_out = end;
+    return 1;
+}
+
+static int uri_within_constraint(const char *uri, size_t ul,
+                                 const char *cons, size_t cl)
+{
+    const char *host;
+    size_t hl;
+    if (!uri_extract_host(uri, ul, &host, &hl)) return 0;
+    /* Constraint may begin with "." for subtree-only (no exact host match). */
+    if (cl > 0 && cons[0] == '.') {
+        if (hl <= cl - 1) return 0;
+        return dnsname_within_constraint(host, hl, cons + 1, cl - 1) &&
+               host[hl - (cl - 1)] == '.';
+    }
+    return dnsname_within_constraint(host, hl, cons, cl);
+}
+
+/* --- iPAddress subtree matching (RFC 5280 §4.2.1.10.3). ---
+ * Constraint encoding is network||mask (8 bytes for v4, 32 bytes for v6).
+ * Address SAN is 4 bytes (v4) or 16 bytes (v6).  Address must match network
+ * under mask; family must agree. */
+static int ip_within_constraint(const uint8_t *addr, size_t alen,
+                                const uint8_t *cons, size_t clen)
+{
+    size_t fam = alen;
+    if (clen != fam * 2) return 0;          /* family mismatch / malformed */
+    for (size_t i = 0; i < fam; i++) {
+        if ((addr[i] & cons[fam + i]) != (cons[i] & cons[fam + i]))
+            return 0;
+    }
+    return 1;
+}
+
+/* Dispatch a single constraint subtree against all SANs. is_excluded selects
+ * violation semantics. */
+static void nc_apply_subtree(uint8_t cons_tag,
+                             const uint8_t *cons_data, size_t cons_len,
+                             struct nc_eval *e, int is_excluded)
+{
+    /* Record per-type "had permitted" flag once we see one. */
+    if (!is_excluded) {
+        switch (cons_tag) {
+        case GN_TAG_DNS:    e->had_permitted_dns   = 1; break;
+        case GN_TAG_IP:     e->had_permitted_ip    = 1; break;
+        case GN_TAG_RFC822: e->had_permitted_email = 1; break;
+        case GN_TAG_URI:    e->had_permitted_uri   = 1; break;
+        default: return;                /* unsupported constraint type */
+        }
+    } else if (cons_tag != GN_TAG_DNS && cons_tag != GN_TAG_IP &&
+               cons_tag != GN_TAG_RFC822 && cons_tag != GN_TAG_URI) {
+        return;
+    }
+
+    for (int i = 0; i < e->n_sans; i++) {
+        struct nc_san *s = &e->sans[i];
+        if (s->tag != cons_tag) continue;
+        int match = 0;
+        switch (cons_tag) {
+        case GN_TAG_DNS:
+            match = dnsname_within_constraint(
+                (const char *)s->data, s->len,
+                (const char *)cons_data, cons_len);
+            break;
+        case GN_TAG_IP:
+            match = ip_within_constraint(s->data, s->len, cons_data, cons_len);
+            break;
+        case GN_TAG_RFC822:
+            match = email_within_constraint(
+                (const char *)s->data, s->len,
+                (const char *)cons_data, cons_len);
+            break;
+        case GN_TAG_URI:
+            match = uri_within_constraint(
+                (const char *)s->data, s->len,
+                (const char *)cons_data, cons_len);
+            break;
+        }
+        if (match) {
+            if (is_excluded) { e->violated = 1; return; }
+            e->permitted_matched[i] = 1;
+        }
+    }
+}
+
+static void nc_walk_subtrees(opssl_cbs_t *subtrees, struct nc_eval *e,
+                             int is_excluded)
+{
+    while (opssl_cbs_len(subtrees) > 0 && !e->violated) {
+        opssl_cbs_t subtree;
+        if (!opssl_asn1_get_sequence(subtrees, &subtree)) return;
+        /* base GeneralName: first element of the subtree SEQUENCE. */
+        uint8_t tag;
+        if (!opssl_cbs_peek_u8(&subtree, &tag)) return;
+        opssl_cbs_t gn;
+        if (!opssl_asn1_get_element(&subtree, tag, &gn)) return;
+        nc_apply_subtree(tag, opssl_cbs_data(&gn), opssl_cbs_len(&gn),
+                         e, is_excluded);
+    }
+}
+
+static int nc_cb(const opssl_cbs_t *oid, int critical, opssl_cbs_t *ext_value,
+                 void *vctx)
+{
+    (void)critical;
+    static const uint8_t oid_name_constraints[] = { 0x55, 0x1D, 0x1E };
+    if (!opssl_asn1_oid_equal(oid, oid_name_constraints,
+                              sizeof(oid_name_constraints)))
+        return 1;
+    struct nc_eval *e = vctx;
+    opssl_cbs_t nc;
+    if (!opssl_asn1_get_sequence(ext_value, &nc)) return 0;
+
+    /* permittedSubtrees [0] IMPLICIT GeneralSubtrees */
+    uint8_t tag;
+    if (opssl_cbs_peek_u8(&nc, &tag) && tag == 0xA0) {
+        opssl_cbs_t perm;
+        if (opssl_asn1_get_element(&nc, 0xA0, &perm))
+            nc_walk_subtrees(&perm, e, 0);
+        if (e->violated) return 0;
+    }
+    /* excludedSubtrees [1] IMPLICIT GeneralSubtrees */
+    if (opssl_cbs_peek_u8(&nc, &tag) && tag == 0xA1) {
+        opssl_cbs_t excl;
+        if (opssl_asn1_get_element(&nc, 0xA1, &excl))
+            nc_walk_subtrees(&excl, e, 1);
+        if (e->violated) return 0;
+    }
+    return 0; /* found NC, stop walking extensions */
+}
+
+/* Parse the leaf SAN extension directly from DER so we can preserve each
+ * GeneralName's tag. Caller must free() entries[i].data and the returned
+ * array. */
+static struct nc_san *collect_leaf_sans(const opssl_x509_t *leaf, int *out_n)
+{
+    *out_n = 0;
+    const uint8_t *der;
+    size_t der_len;
+    if (opssl_x509_get_der(leaf, &der, &der_len) != 1) return NULL;
+
+    opssl_cbs_t cbs, cert_seq, tbs, ext_wrap, ext_seq;
+    opssl_cbs_init(&cbs, der, der_len);
+    if (!opssl_asn1_get_sequence(&cbs, &cert_seq)) return NULL;
+    if (!opssl_asn1_get_sequence(&cert_seq, &tbs)) return NULL;
+
+    /* Skip version [0], serial, sigAlg, issuer, validity, subject, SPKI,
+     * issuerUID [1], subjectUID [2] — locate extensions [3]. */
+    uint8_t t;
+    if (opssl_cbs_peek_u8(&tbs, &t) && t == 0xA0)
+        opssl_asn1_skip_element(&tbs);
+    for (int n = 0; n < 6; n++)
+        if (!opssl_asn1_skip_element(&tbs)) return NULL;
+    while (opssl_cbs_peek_u8(&tbs, &t) && (t == 0x81 || t == 0x82))
+        opssl_asn1_skip_element(&tbs);
+
+    if (!opssl_cbs_peek_u8(&tbs, &t) || t != 0xA3) return NULL;
+    if (!opssl_asn1_get_element(&tbs, 0xA3, &ext_wrap)) return NULL;
+    if (!opssl_asn1_get_sequence(&ext_wrap, &ext_seq)) return NULL;
+
+    static const uint8_t san_oid[] = { 0x55, 0x1D, 0x11 };
+    struct nc_san *out = NULL;
+    int cap = 0, count = 0;
+
+    while (opssl_cbs_len(&ext_seq) > 0) {
+        opssl_cbs_t ext, oid, ext_value;
+        if (!opssl_asn1_get_sequence(&ext_seq, &ext)) break;
+        if (!opssl_asn1_get_oid(&ext, &oid)) break;
+        uint8_t pk;
+        if (opssl_cbs_peek_u8(&ext, &pk) && pk == 0x01)
+            opssl_asn1_skip_element(&ext);
+        if (!opssl_asn1_get_element(&ext, 0x04, &ext_value)) break;
+
+        if (opssl_cbs_len(&oid) != sizeof(san_oid) ||
+            memcmp(opssl_cbs_data(&oid), san_oid, sizeof(san_oid)) != 0)
+            continue;
+
+        opssl_cbs_t san_seq;
+        if (!opssl_asn1_get_sequence(&ext_value, &san_seq)) break;
+        while (opssl_cbs_len(&san_seq) > 0 && count < NC_MAX_ENTRIES) {
+            uint8_t gn_tag;
+            if (!opssl_cbs_peek_u8(&san_seq, &gn_tag)) break;
+            opssl_cbs_t gn;
+            if (!opssl_asn1_get_element(&san_seq, gn_tag, &gn)) break;
+            if (gn_tag != GN_TAG_DNS && gn_tag != GN_TAG_IP &&
+                gn_tag != GN_TAG_RFC822 && gn_tag != GN_TAG_URI)
+                continue;
+
+            if (count == cap) {
+                int new_cap = cap ? cap * 2 : 16;
+                if (new_cap > NC_MAX_ENTRIES) new_cap = NC_MAX_ENTRIES;
+                struct nc_san *tmp = realloc(out,
+                    (size_t)new_cap * sizeof(*tmp));
+                if (!tmp) { goto oom; }
+                out = tmp;
+                cap = new_cap;
+            }
+            size_t glen = opssl_cbs_len(&gn);
+            if (glen > 0xFFFF) continue; /* sanity ceiling */
+            uint8_t *buf = malloc(glen ? glen : 1);
+            if (!buf) goto oom;
+            if (glen) memcpy(buf, opssl_cbs_data(&gn), glen);
+            out[count].tag  = gn_tag;
+            out[count].data = buf;
+            out[count].len  = glen;
+            count++;
+        }
+        break; /* only one SAN extension per cert */
+    }
+
+    *out_n = count;
+    return out;
+
+oom:
+    for (int i = 0; i < count; i++) free(out[i].data);
+    free(out);
+    return NULL;
+}
+
+static int check_name_constraints(const opssl_x509_t *intermediate,
+                                  const opssl_x509_t *leaf)
+{
+    int n = 0;
+    struct nc_san *sans = collect_leaf_sans(leaf, &n);
+    if (n == 0) { free(sans); return 1; } /* nothing to constrain */
+
+    uint8_t *matched = calloc((size_t)n, 1);
+    if (!matched) {
+        for (int i = 0; i < n; i++) free(sans[i].data);
+        free(sans);
+        return 0; /* fail closed on OOM */
+    }
+
+    struct nc_eval e = { sans, n, matched, 0, 0, 0, 0, 0 };
+    walk_extensions(intermediate, nc_cb, &e);
+
+    int ok = !e.violated;
+    if (ok) {
+        /* Permitted-subtree aggregation: every SAN whose type had any
+         * permitted constraint must have matched at least one of them. */
+        for (int i = 0; i < n && ok; i++) {
+            int constrained = 0;
+            switch (sans[i].tag) {
+            case GN_TAG_DNS:    constrained = e.had_permitted_dns;   break;
+            case GN_TAG_IP:     constrained = e.had_permitted_ip;    break;
+            case GN_TAG_RFC822: constrained = e.had_permitted_email; break;
+            case GN_TAG_URI:    constrained = e.had_permitted_uri;   break;
+            }
+            if (constrained && !matched[i]) ok = 0;
+        }
+    }
+
+    for (int i = 0; i < n; i++) free(sans[i].data);
+    free(sans);
+    free(matched);
+    return ok;
 }
 
 /* Find issuer certificate in store by subject name and signature match. */
@@ -1159,6 +1759,15 @@ int opssl_x509_verify(const opssl_x509_chain_t *chain, const opssl_x509_store_t 
         return 0;
     }
 
+    /* Chain depth limit (strict).  The chain already cannot exceed
+     * OPSSL_MAX_CERT_CHAIN due to the storage array; this check enforces
+     * the policy explicitly and protects against the array being grown
+     * later without revisiting the verification policy. */
+    if (chain->count > OPSSL_VERIFY_MAX_DEPTH) {
+        result->error_code = OPSSL_VERIFY_ERROR_DEPTH_EXCEEDED;
+        return 0;
+    }
+
     opssl_x509_t *leaf = chain->certs[0];
 
     /* 1. Hostname check */
@@ -1199,7 +1808,7 @@ int opssl_x509_verify(const opssl_x509_chain_t *chain, const opssl_x509_store_t 
                     size_t tspki_len;
                     if (opssl_x509_get_spki_der(store->trusted[j], &tspki, &tspki_len) &&
                         tspki_len == cur_spki_len &&
-                        memcmp(tspki, cur_spki, cur_spki_len) == 0)
+                        opssl_ct_eq(tspki, cur_spki, cur_spki_len))
                         goto chain_trusted;
                 }
             }
@@ -1295,7 +1904,7 @@ int opssl_x509_verify(const opssl_x509_chain_t *chain, const opssl_x509_store_t 
         size_t tder_len;
         if (opssl_x509_get_der(store->trusted[i], &tder, &tder_len) &&
             tder_len == root_der_len &&
-            memcmp(tder, root_der, root_der_len) == 0) {
+            opssl_ct_eq(tder, root_der, root_der_len)) {
             root_in_store = true;
             break;
         }
@@ -1369,11 +1978,55 @@ chain_trusted:
         return 0;
     }
 
-    /* 8. CRL revocation check */
-    if (store->crl_count > 0) {
-        if (!opssl_x509_check_revocation(leaf, store)) {
-            result->error_code = OPSSL_VERIFY_ERROR_REVOKED;
+    /* 7b. Leaf EKU: enforce per-purpose EKU OID.
+     * If hostname is supplied we are verifying a TLS server cert — require
+     * id-kp-serverAuth (or anyExtendedKeyUsage, or no EKU at all).
+     * If hostname is NULL we are verifying a client cert — require
+     * id-kp-clientAuth (or anyExtendedKeyUsage, or no EKU at all). */
+    if (hostname) {
+        if (!check_ext_key_usage(leaf, oid_ekp_server_auth,
+                                 sizeof(oid_ekp_server_auth))) {
+            result->error_code = OPSSL_VERIFY_ERROR_EXT_KEY_USAGE;
             return 0;
+        }
+    } else {
+        if (!check_ext_key_usage(leaf, oid_ekp_client_auth,
+                                 sizeof(oid_ekp_client_auth))) {
+            result->error_code = OPSSL_VERIFY_ERROR_EXT_KEY_USAGE;
+            return 0;
+        }
+    }
+
+    /* 7c. Reject weak signature hashes (MD5 / SHA-1 / DSA-SHA1) across the
+     * entire chain.  We exempt the trust anchor itself (operators may keep
+     * a legacy SHA-1 self-signed root in the trust store as policy). */
+    for (size_t i = 0; i + 1 < chain->count; i++) {
+        if (weak_hash_signature(chain->certs[i])) {
+            result->error_code = OPSSL_VERIFY_ERROR_WEAK_HASH;
+            return 0;
+        }
+    }
+
+    /* 7d. Name constraints: enforce on each intermediate against the leaf. */
+    for (size_t i = 1; i < chain->count; i++) {
+        if (!check_name_constraints(chain->certs[i], leaf)) {
+            result->error_code = OPSSL_VERIFY_ERROR_NAME_CONSTRAINT;
+            return 0;
+        }
+    }
+
+    /* 8. CRL revocation check.
+     *
+     * Hardened: when ANY CRL is loaded into the store, EVERY certificate in
+     * the chain (leaf + intermediates) must pass revocation. Previously only
+     * the leaf was checked, which allowed a revoked intermediate to keep
+     * issuing accepted leaves. */
+    if (store->crl_count > 0) {
+        for (size_t i = 0; i < chain->count; i++) {
+            if (!opssl_x509_check_revocation(chain->certs[i], store)) {
+                result->error_code = OPSSL_VERIFY_ERROR_REVOKED;
+                return 0;
+            }
         }
     }
 
@@ -1550,12 +2203,12 @@ opssl_x509_check_revocation(const opssl_x509_t *cert,
 
     for (size_t c = 0; c < store->crl_count; c++) {
         const opssl_crl_t *crl = store->crls[c];
-        if (memcmp(crl->issuer_hash, issuer_hash, 32) != 0) continue;
+        if (!opssl_ct_eq(crl->issuer_hash, issuer_hash, 32)) continue;
         if (crl->next_update > 0 && now > crl->next_update) continue;
         for (size_t e = 0; e < crl->entry_count; e++) {
             const opssl_crl_entry_t *entry = &crl->entries[e];
             if (entry->serial_len == cert_serial_len &&
-                memcmp(entry->serial, cert_serial, cert_serial_len) == 0)
+                opssl_ct_eq(entry->serial, cert_serial, cert_serial_len))
                 return 0;
         }
     }
@@ -1665,7 +2318,8 @@ opssl_ocsp_verify_response(const uint8_t *response, size_t len,
             break;
 
         if (opssl_cbs_len(&resp_serial) != target_serial_len ||
-            memcmp(opssl_cbs_data(&resp_serial), target_serial, target_serial_len) != 0)
+            !opssl_ct_eq(opssl_cbs_data(&resp_serial), target_serial,
+                         target_serial_len))
             continue;
 
         if (opssl_cbs_len(&single_resp) == 0) break;
@@ -1673,7 +2327,37 @@ opssl_ocsp_verify_response(const uint8_t *response, size_t len,
         if (status_tag == 0) result = OPSSL_OCSP_GOOD;
         else if (status_tag == 1) result = OPSSL_OCSP_REVOKED;
         else result = OPSSL_OCSP_UNKNOWN;
+
+        /* Validate this/nextUpdate timestamps when present. */
+        opssl_asn1_skip_element(&single_resp); /* certStatus */
+        int64_t this_update = 0, next_update = 0;
+        if (opssl_asn1_get_time(&single_resp, &this_update)) {
+            int64_t now_ts = time(NULL);
+            /* Allow 5 minutes of skew either side. */
+            if (this_update - 300 > now_ts) {
+                result = OPSSL_OCSP_UNKNOWN;
+                break;
+            }
+            uint8_t ntag;
+            if (opssl_cbs_peek_u8(&single_resp, &ntag) && ntag == 0xA0) {
+                opssl_cbs_t nu_ctx;
+                if (opssl_asn1_get_element(&single_resp, 0xA0, &nu_ctx)) {
+                    if (opssl_asn1_get_time(&nu_ctx, &next_update) &&
+                        now_ts > next_update + 300) {
+                        result = OPSSL_OCSP_UNKNOWN;
+                    }
+                }
+            }
+        }
         break;
+    }
+
+    /* producedAt sanity: reject responses produced absurdly in the future. */
+    {
+        int64_t now_ts = time(NULL);
+        if (produced_at - 300 > now_ts) {
+            return OPSSL_OCSP_UNKNOWN;
+        }
     }
 
     if (result == OPSSL_OCSP_GOOD && store) {
