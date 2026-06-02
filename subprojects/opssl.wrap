@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://github.com/devinkbrown/opssl.git
+revision = main
+depth = 1

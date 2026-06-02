@@ -1,7 +1,0 @@
-builddir/
-build/
-*.o
-*.so
-*.a
-*.dylib
-test_mont_sqr

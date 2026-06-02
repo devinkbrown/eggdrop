@@ -64,3 +64,6 @@ __pycache__
 
 # Claude Code IDE state
 /.claude/worktrees/
+
+# proprietary private dep — consumed externally, not vendored
+subprojects/opssl/
